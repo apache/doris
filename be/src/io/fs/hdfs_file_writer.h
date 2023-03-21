@@ -20,40 +20,36 @@
 #include <map>
 #include <string>
 
-#include "io/file_writer.h"
-#include "util/s3_uri.h"
-
-namespace Aws {
-namespace Utils {
-class TempFile;
-}
-namespace S3 {
-class S3Client;
-}
-} // namespace Aws
+#include "gen_cpp/PlanNodes_types.h"
+#include "io/fs/file_writer.h"
+#include "io/fs/path.h"
+#include "io/hdfs_builder.h"
 
 namespace doris {
-class S3Writer : public FileWriter {
-public:
-    S3Writer(const std::map<std::string, std::string>& properties, const std::string& path,
-             int64_t start_offset);
-    ~S3Writer();
-    Status open() override;
+namespace io {
 
-    // Writes up to count bytes from the buffer pointed buf to the file.
-    // NOTE: the number of bytes written may be less than count if.
-    Status write(const uint8_t* buf, size_t buf_len, size_t* written_len) override;
+class HdfsFileSystem;
+class HdfsFileWriter : public FileWriter {
+public:
+    HdfsFileWriter(Path file, FileSystemSPtr fs);
+    ~HdfsFileWriter();
 
     Status close() override;
+    Status abort() override;
+    Status appendv(const Slice* data, size_t data_cnt) override;
+    Status finalize() override;
+    Status write_at(size_t offset, const Slice& data) override {
+        return Status::NotSupported("not support");
+    }
 
 private:
-    Status _sync();
+    Status _open();
 
-    const std::map<std::string, std::string>& _properties;
-    std::string _path;
-    S3URI _uri;
-    std::shared_ptr<Aws::S3::S3Client> _client;
-    std::shared_ptr<Aws::Utils::TempFile> _temp_file;
+private:
+    hdfsFile _hdfs_file = nullptr;
+    // A convenient pointer to _fs
+    HdfsFileSystem* _hdfs_fs;
 };
 
-} // end namespace doris
+} // namespace io
+} // namespace doris

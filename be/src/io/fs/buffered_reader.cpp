@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "io/buffered_reader.h"
+#include "io/fs/buffered_reader.h"
 
 #include <algorithm>
 #include <sstream>
@@ -26,6 +26,7 @@
 #include "util/bit_util.h"
 
 namespace doris {
+namespace io {
 
 BufferedFileStreamReader::BufferedFileStreamReader(io::FileReaderSPtr file, uint64_t offset,
                                                    uint64_t length, size_t max_buf_size)
@@ -67,8 +68,7 @@ Status BufferedFileStreamReader::read_bytes(const uint8_t** buf, uint64_t offset
     while (has_read < to_read) {
         size_t loop_read = 0;
         Slice resutl(_buf.get() + buf_remaining + has_read, to_read - has_read);
-        IOContext io_context;
-        RETURN_IF_ERROR(_file->read_at(_buf_end_offset + has_read, resutl, io_context, &loop_read));
+        RETURN_IF_ERROR(_file->read_at(_buf_end_offset + has_read, resutl, &loop_read));
         _statistics.read_calls++;
         if (loop_read == 0) {
             break;
@@ -88,4 +88,5 @@ Status BufferedFileStreamReader::read_bytes(Slice& slice, uint64_t offset) {
     return read_bytes((const uint8_t**)&slice.data, offset, slice.size);
 }
 
+} // namespace io
 } // namespace doris

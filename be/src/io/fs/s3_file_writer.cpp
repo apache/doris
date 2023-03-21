@@ -57,16 +57,17 @@ static const int MAX_SIZE_EACH_PART = 5 * 1024 * 1024;
 static const char* STREAM_TAG = "S3FileWriter";
 
 S3FileWriter::S3FileWriter(Path path, std::shared_ptr<Aws::S3::S3Client> client,
-                           const S3Conf& s3_conf)
-        : FileWriter(std::move(path)), _client(client), _s3_conf(s3_conf) {
+                           const S3Conf& s3_conf, FileSystemSPtr fs)
+        : FileWriter(std::move(path), fs), _client(client), _s3_conf(s3_conf) {
     DorisMetrics::instance()->s3_file_open_writing->increment(1);
     DorisMetrics::instance()->s3_file_writer_total->increment(1);
 }
 
 S3FileWriter::~S3FileWriter() {
-    if (!_closed) {
-        WARN_IF_ERROR(abort(), fmt::format("Cannot abort {}", _path.native()));
+    if (_opened) {
+        close();
     }
+    CHECK(!_opened || _closed) << "open: " << _opened << ", closed: " << _closed;
 }
 
 Status S3FileWriter::close() {
@@ -91,34 +92,6 @@ Status S3FileWriter::abort() {
             outcome.GetError().GetMessage());
 }
 
-Status S3FileWriter::_open() {
-    CreateMultipartUploadRequest create_request;
-    create_request.WithBucket(_s3_conf.bucket).WithKey(_path.native());
-    create_request.SetContentType("text/plain");
-
-    _reset_stream();
-    auto outcome = _client->CreateMultipartUpload(create_request);
-
-    if (outcome.IsSuccess()) {
-        _upload_id = outcome.GetResult().GetUploadId();
-        LOG(INFO) << "create multi part upload successfully (endpoint=" << _s3_conf.endpoint
-                  << ", bucket=" << _s3_conf.bucket << ", key=" << _path.native()
-                  << ") upload_id: " << _upload_id;
-        return Status::OK();
-    }
-    return Status::IOError(
-            "failed to create multi part upload (endpoint={}, bucket={}, key={}): {}",
-            _s3_conf.endpoint, _s3_conf.bucket, _path.native(), outcome.GetError().GetMessage());
-}
-
-Status S3FileWriter::append(const Slice& data) {
-    Status st = appendv(&data, 1);
-    if (st.ok()) {
-        DorisMetrics::instance()->s3_bytes_written_total->increment(data.size);
-    }
-    return st;
-}
-
 Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
     DCHECK(!_closed);
     if (!_is_open) {
@@ -138,6 +111,34 @@ Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
         RETURN_IF_ERROR(_upload_part());
     }
     return Status::OK();
+}
+
+Status S3FileWriter::finalize() {
+    DCHECK(!_closed);
+    if (_opened) {
+        _close();
+    }
+    return Status::OK();
+}
+
+Status S3FileWriter::_open() {
+    CreateMultipartUploadRequest create_request;
+    create_request.WithBucket(_s3_conf.bucket).WithKey(_path.native());
+    create_request.SetContentType("text/plain");
+
+    _reset_stream();
+    auto outcome = _client->CreateMultipartUpload(create_request);
+
+    if (outcome.IsSuccess()) {
+        _upload_id = outcome.GetResult().GetUploadId();
+        LOG(INFO) << "create multi part upload successfully (endpoint=" << _s3_conf.endpoint
+                  << ", bucket=" << _s3_conf.bucket << ", key=" << _path.native()
+                  << ") upload_id: " << _upload_id;
+        return Status::OK();
+    }
+    return Status::IOError(
+            "failed to create multi part upload when open (endpoint={}, bucket={}, key={}): {}",
+            _s3_conf.endpoint, _s3_conf.bucket, _path.native(), outcome.GetError().GetMessage());
 }
 
 Status S3FileWriter::_upload_part() {
@@ -192,14 +193,6 @@ void S3FileWriter::_reset_stream() {
     _stream_ptr = Aws::MakeShared<Aws::StringStream>(STREAM_TAG, "");
 }
 
-Status S3FileWriter::finalize() {
-    DCHECK(!_closed);
-    if (_is_open) {
-        _close();
-    }
-    return Status::OK();
-}
-
 Status S3FileWriter::_close() {
     if (_closed) {
         return Status::OK();
@@ -223,7 +216,8 @@ Status S3FileWriter::_close() {
 
         if (!compute_outcome.IsSuccess()) {
             return Status::IOError(
-                    "failed to create multi part upload (endpoint={}, bucket={}, key={}): {}",
+                    "failed to create multi part upload when close (endpoint={}, bucket={}, "
+                    "key={}): {}",
                     _s3_conf.endpoint, _s3_conf.bucket, _path.native(),
                     compute_outcome.GetError().GetMessage());
         }
@@ -239,10 +233,6 @@ Status S3FileWriter::_close() {
               << ", bucket=" << _s3_conf.bucket << ", key=" << _path.native()
               << ") upload_id: " << _upload_id;
     return Status::OK();
-}
-
-Status S3FileWriter::write_at(size_t offset, const Slice& data) {
-    return Status::NotSupported("not support");
 }
 
 } // namespace io

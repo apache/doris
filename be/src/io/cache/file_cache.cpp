@@ -21,6 +21,7 @@
 #include "common/status.h"
 #include "gutil/strings/util.h"
 #include "io/fs/local_file_system.h"
+#include "io/fs/local_file_writer.h"
 #include "olap/iterators.h"
 
 namespace doris {
@@ -50,10 +51,8 @@ Status FileCache::download_cache_to_local(const Path& cache_file, const Path& ca
             }
             Slice file_slice(file_buf, need_req_size);
             size_t bytes_read = 0;
-            IOContext io_ctx;
             RETURN_NOT_OK_STATUS_WITH_WARN(
-                    remote_file_reader->read_at(offset + count_bytes_read, file_slice, io_ctx,
-                                                &bytes_read),
+                    remote_file_reader->read_at(offset + count_bytes_read, file_slice, &bytes_read),
                     fmt::format("read remote file failed. {}. offset: {}, request size: {}",
                                 remote_file_reader->path().native(), offset + count_bytes_read,
                                 need_req_size));
@@ -129,19 +128,20 @@ Status FileCache::_get_dir_files_and_remove_unfinished(const Path& cache_dir,
     }
 
     // list all files
-    std::vector<Path> cache_file_names;
+    std::vector<FileInfo> cache_files;
+    bool exists = true;
     RETURN_NOT_OK_STATUS_WITH_WARN(
-            io::global_local_filesystem()->list(cache_dir, &cache_file_names),
+            io::global_local_filesystem()->list(cache_dir, true, &cache_files, &exists),
             fmt::format("List dir failed: {}", cache_dir.native()))
 
     // separate DATA file and DONE file
     std::set<Path> cache_names_temp;
     std::list<Path> done_names_temp;
-    for (auto& cache_file_name : cache_file_names) {
-        if (ends_with(cache_file_name.native(), CACHE_DONE_FILE_SUFFIX)) {
-            done_names_temp.push_back(std::move(cache_file_name));
+    for (auto& cache_file : cache_files) {
+        if (ends_with(cache_file.file_name, CACHE_DONE_FILE_SUFFIX)) {
+            done_names_temp.push_back(cache_file.file_name);
         } else {
-            cache_names_temp.insert(std::move(cache_file_name));
+            cache_names_temp.insert(cache_file.file_name);
         }
     }
 
@@ -181,11 +181,12 @@ Status FileCache::_check_and_delete_empty_dir(const Path& cache_dir) {
         return Status::OK();
     }
 
-    std::vector<Path> cache_file_names;
+    std::vector<FileInfo> cache_files;
+    bool exists = true;
     RETURN_NOT_OK_STATUS_WITH_WARN(
-            io::global_local_filesystem()->list(cache_dir, &cache_file_names),
+            io::global_local_filesystem()->list(cache_dir, true, &cache_files, &exists),
             fmt::format("List dir failed: {}", cache_dir.native()));
-    if (cache_file_names.empty()) {
+    if (cache_files.empty()) {
         RETURN_NOT_OK_STATUS_WITH_WARN(io::global_local_filesystem()->delete_directory(cache_dir),
                                        fmt::format("Delete dir failed: {}", cache_dir.native()));
         LOG(INFO) << "Delete empty dir: " << cache_dir.native();

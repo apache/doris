@@ -81,10 +81,8 @@ Status VArrowScanner::_open_next_reader() {
         _init_system_properties(range);
         _init_file_description(range);
         // no use
-        doris::IOContext io_ctx;
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties,
-                                                        _file_description, &_file_system,
-                                                        &file_reader, &io_ctx));
+        RETURN_IF_ERROR(FileFactory::create_file_reader(
+                _profile, _system_properties, _file_description, &_file_system, &file_reader));
 
         if (file_reader->size() == 0) {
             continue;

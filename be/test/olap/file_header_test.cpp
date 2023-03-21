@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/file_helper.h"
+#include "olap/file_header.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -33,7 +33,7 @@ using std::string;
 
 namespace doris {
 
-class FileHandlerTest : public testing::Test {
+class FileHeaderTest : public testing::Test {
 public:
     // create a mock cgroup folder
     virtual void SetUp() {
@@ -49,49 +49,32 @@ public:
     static std::string _s_test_data_path;
 };
 
-std::string FileHandlerTest::_s_test_data_path = "./log/file_handler_testxxxx123";
+std::string FileHeaderTest::_s_test_data_path = "./log/file_handler_testxxxx123";
 
-TEST_F(FileHandlerTest, TestWrite) {
-    FileHandler file_handler;
+TEST_F(FileHeaderTest, TestWrite) {
+    std::shared_ptr<io::LocalFileSystem> fs = io::global_local_filesystem();
     std::string file_name = _s_test_data_path + "/abcd123.txt";
     // create a file using open
-    EXPECT_FALSE(std::filesystem::exists(file_name));
-    Status op_status =
-            file_handler.open_with_mode(file_name, O_CREAT | O_EXCL | O_WRONLY, S_IRUSR | S_IWUSR);
-    EXPECT_EQ(Status::OK(), op_status);
-    EXPECT_TRUE(std::filesystem::exists(file_name));
+    bool exists = true;
+    EXPECT_TRUE(fs->exists(file_name, &exists).ok());
+    EXPECT_FALSE(exists);
 
-    // tell current offset
-    off_t cur_offset = file_handler.tell();
-    EXPECT_EQ(0, cur_offset);
-    off_t length = file_handler.length();
-    EXPECT_EQ(0, length);
-
-    // seek to 10 and test offset
-    off_t res = file_handler.seek(10, SEEK_SET);
-    EXPECT_EQ(10, res);
-    length = file_handler.length();
-    EXPECT_EQ(0, length);
-
-    cur_offset = file_handler.tell();
-    EXPECT_EQ(10, cur_offset);
+    io::FileWriterPtr file_writer;
+    EXPECT_TRUE(fs->create_file(file_name, &file_writer).ok());
 
     // write 12 bytes to disk
     char ten_bytes[12];
     memset(&ten_bytes, 0, sizeof(ten_bytes));
-    file_handler.write(&ten_bytes, sizeof(ten_bytes));
-    cur_offset = file_handler.tell();
-    EXPECT_EQ(22, cur_offset);
-    length = file_handler.length();
-    EXPECT_EQ(22, length);
+    EXPECT_TRUE(file_writer->append({ten_bytes, sizeof(ten_bytes)}).ok());
 
     char large_bytes2[(1 << 10)];
     memset(&large_bytes2, 0, sizeof(large_bytes2));
     int i = 1;
     while (i < LOOP_LESS_OR_MORE(1 << 10, 1 << 17)) {
-        file_handler.write(&large_bytes2, sizeof(large_bytes2));
+        EXPECT_TRUE(file_writer->append({large_bytes2, sizeof(large_bytes2)}).ok());
         ++i;
     }
+    EXPECT_TRUE(file_writer->close().ok());
 }
 
 } // namespace doris

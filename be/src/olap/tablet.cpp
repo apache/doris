@@ -1819,13 +1819,12 @@ Status Tablet::_read_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& 
                                    TabletMetaPB* tablet_meta_pb) {
     std::string remote_meta_path =
             remote_tablet_meta_path(tablet_id(), _cooldown_replica_id, _cooldown_term);
-    IOContext io_ctx;
     io::FileReaderSPtr tablet_meta_reader;
-    RETURN_IF_ERROR(fs->open_file(remote_meta_path, &tablet_meta_reader, &io_ctx));
+    RETURN_IF_ERROR(fs->open_file(remote_meta_path, &tablet_meta_reader));
     auto file_size = tablet_meta_reader->size();
     size_t bytes_read;
     auto buf = std::unique_ptr<uint8_t[]>(new uint8_t[file_size]);
-    RETURN_IF_ERROR(tablet_meta_reader->read_at(0, {buf.get(), file_size}, io_ctx, &bytes_read));
+    RETURN_IF_ERROR(tablet_meta_reader->read_at(0, {buf.get(), file_size}, &bytes_read));
     tablet_meta_reader->close();
     if (!tablet_meta_pb->ParseFromArray(buf.get(), file_size)) {
         return Status::InternalError("malformed tablet meta");
@@ -2131,7 +2130,7 @@ void Tablet::remove_unused_remote_files() {
     req.__isset.confirm_list = true;
     // tablet_id -> [fs, unused_remote_files]
     using unused_remote_files_buffer_t = std::unordered_map<
-            int64_t, std::pair<std::shared_ptr<io::RemoteFileSystem>, std::vector<io::Path>>>;
+            int64_t, std::pair<std::shared_ptr<io::RemoteFileSystem>, std::vector<io::FileInfo>>>;
     unused_remote_files_buffer_t buffer;
     int64_t num_files_in_buffer = 0;
     // assume a filename is 0.1KB, buffer size should not larger than 100MB
@@ -2161,15 +2160,17 @@ void Tablet::remove_unused_remote_files() {
             return;
         }
 
-        std::vector<io::Path> files;
+        std::vector<io::FileInfo> files;
         // FIXME(plat1ko): What if user reset resource in storage policy to another resource?
         //  Maybe we should also list files in previously uploaded resources.
-        st = dest_fs->list(remote_tablet_path(t->tablet_id()), &files);
+        bool exists = true;
+        st = dest_fs->list(io::Path(remote_tablet_path(t->tablet_id())), true, &files, &exists);
         if (!st.ok()) {
             LOG(WARNING) << "encounter error when remove unused remote files, tablet_id="
                          << t->tablet_id() << " : " << st;
+            return;
         }
-        if (files.empty()) {
+        if (!exists || files.empty()) {
             return;
         }
         // get all cooldowned rowsets
@@ -2197,8 +2198,8 @@ void Tablet::remove_unused_remote_files() {
                 fmt::format("{}.{}.meta", cooldown_replica_id, cooldown_term);
         // filter out the paths that should be reserved
         // clang-format off
-        files.erase(std::remove_if(files.begin(), files.end(), [&](io::Path& path) {
-            const std::string& path_str = path.native();
+        files.erase(std::remove_if(files.begin(), files.end(), [&](io::FileInfo& info) {
+            const std::string& path_str = info.file_name;
             if (StringPiece(path_str).ends_with(".meta")) {
                 return path_str == remote_meta_path;
             }
@@ -2251,10 +2252,14 @@ void Tablet::remove_unused_remote_files() {
                           << " tablet_id=" << id;
                 io::Path dir("data/" + std::to_string(id));
                 for (auto& file : files) {
-                    file = dir / file;
-                    LOG(INFO) << "delete unused file: " << file.native();
+                    auto delete_path = dir / io::Path(file.file_name);
+                    LOG(INFO) << "delete unused file: " << delete_path.native();
                 }
-                st = fs->batch_delete(files);
+                std::vector<io::Path> file_names;
+                for (auto& info : files) {
+                    file_names.emplace_back(info.file_name);
+                }
+                st = fs->batch_delete(file_names);
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to delete unused files, tablet_id=" << id << " : "
                                  << st;

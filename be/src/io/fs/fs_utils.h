@@ -17,23 +17,15 @@
 
 #pragma once
 
-#include <stdint.h>
-
-#include "common/status.h"
+#include <string>
+#include <system_error>
 
 namespace doris {
+namespace io {
 
-class FileWriter {
-public:
-    virtual ~FileWriter() {}
+std::string errno_to_str();
+std::string errcode_to_str(const std::error_code& ec);
+std::string hdfs_error();
 
-    virtual Status open() = 0;
-
-    // Writes up to count bytes from the buffer pointed buf to the file.
-    // NOTE: the number of bytes written may be less than count if.
-    virtual Status write(const uint8_t* buf, size_t buf_len, size_t* written_len) = 0;
-
-    virtual Status close() = 0;
-};
-
-} // end namespace doris
+} // namespace io
+} // namespace doris

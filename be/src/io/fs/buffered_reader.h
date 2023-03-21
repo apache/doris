@@ -27,6 +27,7 @@
 #include "util/runtime_profile.h"
 
 namespace doris {
+namespace io {
 
 /**
  * Load all the needed data in underlying buffer, so the caller does not need to prepare the data container.
@@ -78,4 +79,5 @@ private:
     size_t _max_buf_size;
 };
 
+} // namespace io
 } // namespace doris
