@@ -22,7 +22,6 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
@@ -36,9 +35,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -84,10 +81,6 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
 
                 LogicalAggregate agg = new LogicalAggregate(groupExpressions, outputExpressions, apply.right());
                 Expression compareExpr = ((InSubquery) apply.getSubqueryExpr()).getCompareExpr();
-                if (!compareExpr.getDataType().isBigIntType()) {
-                    //this rule is after type coercion, we need to add cast by hand
-                    compareExpr = new Cast(compareExpr, BigIntType.INSTANCE);
-                }
                 Expression expr = new BitmapContains(agg.getOutput().get(0), compareExpr);
                 if (((InSubquery) apply.getSubqueryExpr()).isNot()) {
                     expr = new Not(expr);
@@ -101,14 +94,12 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
             //in-predicate to equal
             Expression predicate;
             Expression left = ((InSubquery) apply.getSubqueryExpr()).getCompareExpr();
-            Expression right = apply.right().getOutput().get(0);
+            Expression right = apply.getSubqueryExpr().getSubqueryOutput();
             if (apply.isCorrelated()) {
-                predicate = ExpressionUtils.and(
-                        TypeCoercionUtils.processComparisonPredicate(
-                            new EqualTo(left, right), left, right),
+                predicate = ExpressionUtils.and(new EqualTo(left, right),
                         apply.getCorrelationFilter().get());
             } else {
-                predicate = TypeCoercionUtils.processComparisonPredicate(new EqualTo(left, right), left, right);
+                predicate = new EqualTo(left, right);
             }
 
             if (apply.getSubCorrespondingConject().isPresent()) {
