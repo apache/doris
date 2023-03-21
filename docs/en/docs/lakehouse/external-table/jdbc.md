@@ -177,7 +177,8 @@ Test information on more versions will be provided in the future.
 
 | ClickHouse Version | ClickHouse JDBC Driver Version        |
 | ------------------ | ------------------------------------- |
-| 22                 | clickhouse-jdbc-0.3.2-patch11-all.jar |
+| 22           | clickhouse-jdbc-0.3.2-patch11-all.jar |
+| 22           | clickhouse-jdbc-0.4.1-all.jar         |
 
 #### 6.Sap_HanaTest
 
