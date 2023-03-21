@@ -57,6 +57,17 @@ public class EliminateLogicalSelectHint extends PlanPreprocessor {
     }
 
     private void setVar(SelectHint selectHint, StatementContext context) {
+        // if sv set enable_nereids_planner=true and hint set enable_nereids_planner=false, we should set
+        // enable_fallback_to_original_planner=true and revert it after executing.
+        boolean isNereidsPlannerDisabled = false;
+        if (selectHint.getParameters().containsKey("enable_nereids_planner")) {
+            Optional<String> v = selectHint.getParameters().get("enable_nereids_planner");
+            if (v.isPresent() && "false".equals(v.get())) {
+                isNereidsPlannerDisabled = true;
+                selectHint.getParameters().put("enable_fallback_to_original_planner", Optional.of("true"));
+            }
+        }
+
         SessionVariable sessionVariable = context.getConnectContext().getSessionVariable();
         // set temporary session value, and then revert value in the 'finally block' of StmtExecutor#execute
         sessionVariable.setIsSingleSetVar(true);
@@ -71,6 +82,10 @@ public class EliminateLogicalSelectHint extends PlanPreprocessor {
                             + key + "' = '" + value.get() + "'", t);
                 }
             }
+        }
+        // throw exception to fall back to original planner
+        if (isNereidsPlannerDisabled) {
+            throw new AnalysisException("The nereids is disabled in this sql, fallback to original planner");
         }
     }
 }
