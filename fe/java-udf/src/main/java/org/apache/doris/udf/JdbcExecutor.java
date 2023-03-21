@@ -197,8 +197,14 @@ public class JdbcExecutor {
         Object[] columnData = (Object[]) obj;
         if (columnData[idx] instanceof String) {
             return (String) columnData[idx];
-        } else {
+        } else if (columnData[idx] instanceof java.sql.Array) {
             return (java.sql.Array) columnData[idx];
+        } else {
+            // For the ClickHouse array type, we need the concatenated string[] after toString
+            Byte[] res = (Byte[]) columnData[idx];
+            LOG.info("Byte" + Arrays.toString(res));
+            LOG.info("res" + columnData[idx] + columnData[idx].getClass().toString());
+            return columnData[idx];
         }
     }
 
