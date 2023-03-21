@@ -90,6 +90,7 @@ public:
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
     const DataTypePtr& get_nested_type() const { return nested_data_type; }
+    bool is_null_literal() const override { return nested_data_type->is_null_literal(); }
 
 private:
     DataTypePtr nested_data_type;

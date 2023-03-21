@@ -224,6 +224,9 @@ public:
       */
     virtual bool only_null() const { return false; }
 
+    /* the data type create from type_null, NULL literal*/
+     virtual bool is_null_literal() const { return false; }
+
     /** If this data type cannot be wrapped in Nullable data type.
       */
     virtual bool can_be_inside_nullable() const { return false; }

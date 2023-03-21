@@ -46,6 +46,7 @@ import org.apache.doris.thrift.TFoldConstantParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TQueryGlobals;
+import org.apache.doris.thrift.TQueryOptions;
 
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -167,8 +168,13 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
                 queryGlobals.setTimeZone(context.getSessionVariable().getTimeZone());
             }
 
+            TQueryOptions tQueryOptions = new TQueryOptions();
+            tQueryOptions.setRepeatMaxNum(context.getSessionVariable().repeatMaxNum);
+
             TFoldConstantParams tParams = new TFoldConstantParams(paramMap, queryGlobals);
             tParams.setVecExec(VectorizedUtil.isVectorized());
+            tParams.setQueryOptions(tQueryOptions);
+            tParams.setQueryId(context.queryId());
 
             Future<PConstantExprResult> future =
                     BackendServiceProxy.getInstance().foldConstantExpr(brpcAddress, tParams);
