@@ -32,6 +32,8 @@ import java.lang.reflect.Array;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.math.RoundingMode;
+import java.net.Inet4Address;
+import java.net.Inet6Address;
 import java.net.MalformedURLException;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
@@ -45,7 +47,11 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.function.Function;
 
 public class JdbcExecutor {
     private static final Logger LOG = Logger.getLogger(JdbcExecutor.class);
@@ -200,12 +206,34 @@ public class JdbcExecutor {
         } else if (columnData[idx] instanceof java.sql.Array) {
             return (java.sql.Array) columnData[idx];
         } else {
-            // For the ClickHouse array type, we need the concatenated string[] after toString
-            Byte[] res = (Byte[]) columnData[idx];
-            LOG.info("Byte" + Arrays.toString(res));
-            LOG.info("res" + columnData[idx] + columnData[idx].getClass().toString());
-            return columnData[idx];
+            //For the ClickHouse array type, we need the concatenated string after toString
+            return convertClickHouseArray(columnData[idx]);
         }
+    }
+
+    private static final Map<Class<?>, Function<Object, String>> CK_ARRAY_CONVERTERS = new HashMap<>();
+
+    static {
+        CK_ARRAY_CONVERTERS.put(String[].class, res -> Arrays.toString((String[]) res));
+        CK_ARRAY_CONVERTERS.put(byte[].class, res -> Arrays.toString((byte[]) res));
+        CK_ARRAY_CONVERTERS.put(Byte[].class, res -> Arrays.toString((Byte[]) res));
+        CK_ARRAY_CONVERTERS.put(LocalDate[].class, res -> Arrays.toString((LocalDate[]) res));
+        CK_ARRAY_CONVERTERS.put(LocalDateTime[].class, res -> Arrays.toString((LocalDateTime[]) res));
+        CK_ARRAY_CONVERTERS.put(float[].class, res -> Arrays.toString((float[]) res));
+        CK_ARRAY_CONVERTERS.put(double[].class, res -> Arrays.toString((double[]) res));
+        CK_ARRAY_CONVERTERS.put(short[].class, res -> Arrays.toString((short[]) res));
+        CK_ARRAY_CONVERTERS.put(int[].class, res -> Arrays.toString((int[]) res));
+        CK_ARRAY_CONVERTERS.put(long[].class, res -> Arrays.toString((long[]) res));
+        CK_ARRAY_CONVERTERS.put(BigInteger[].class, res -> Arrays.toString((BigInteger[]) res));
+        CK_ARRAY_CONVERTERS.put(BigDecimal[].class, res -> Arrays.toString((BigDecimal[]) res));
+        CK_ARRAY_CONVERTERS.put(Inet4Address[].class, res -> Arrays.toString((Inet4Address[]) res));
+        CK_ARRAY_CONVERTERS.put(Inet6Address[].class, res -> Arrays.toString((Inet6Address[]) res));
+        CK_ARRAY_CONVERTERS.put(UUID[].class, res -> Arrays.toString((UUID[]) res));
+    }
+
+    public static Object convertClickHouseArray(Object obj) {
+        Function<Object, String> converter = CK_ARRAY_CONVERTERS.get(obj.getClass());
+        return converter != null ? converter.apply(obj) : obj;
     }
 
     private void init(String driverUrl, String sql, int batchSize, String driverClass, String jdbcUrl, String jdbcUser,

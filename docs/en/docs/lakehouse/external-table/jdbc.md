@@ -275,29 +275,32 @@ The followings list how data types in different databases are mapped in Doris.
 
 ### ClickHouse
 
-| ClickHouse |  Doris   |
-| :--------: | :------: |
-|  BOOLEAN   | BOOLEAN  |
-|    CHAR    |   CHAR   |
-|  VARCHAR   | VARCHAR  |
-|   STRING   |  STRING  |
-|    DATE    |   DATE   |
-|  Float32   |  FLOAT   |
-|  Float64   |  DOUBLE  |
-|    Int8    | TINYINT  |
-|   Int16    | SMALLINT |
-|   Int32    |   INT    |
-|   Int64    |  BIGINT  |
-|   Int128   | LARGEINT |
-|  DATETIME  | DATETIME |
-|  DECIMAL   | DECIMAL  |
+|                  ClickHouse                  |          Doris           |
+|:--------------------------------------------:|:------------------------:|
+|                   Boolean                    |         BOOLEAN          |
+|                    String                    |          STRING          |
+|                 Date/Date32                  |       DATE/DATEV2        |
+|             DateTime/DateTime64              |   DATETIME/DATETIMEV2    |
+|                   Float32                    |          FLOAT           |
+|                   Float64                    |          DOUBLE          |
+|                     Int8                     |         TINYINT          |
+|                 Int16/UInt8                  |         SMALLINT         |
+|                 Int32/UInt16                 |           INT            |
+|                 Int64/Uint32                 |          BIGINT          |
+|                Int128/UInt64                 |         LARGEINT         |
+|            Int256/UInt128/UInt256            |          STRING          |
+|                   Decimal                    | DECIMAL/DECIMALV3/STRING |
+|             Enum/IPv4/IPv6/UUID              |          STRING          |
+| <version since="dev" type="inline"> Array(T) |         Array<T>         |
 
-Note:
 
+**Note:**
+
+- <version since="dev" type="inline"> For Array types in ClickHouse, use Doris's Array type to match them. For basic types in an Array, see Basic type matching rules. Nested arrays are not supported
 - Some data types in ClickHouse, such as UUID, IPv4, IPv6, and Enum8, will be mapped to Varchar/String in Doris. IPv4 and IPv6 will be displayed with an `/` as a prefix. You can use the `split_part` function to remove the `/` .
 - The Point Geo type in ClickHouse cannot be mapped in Doris by far. 
 
-### SAP_HANA
+### SAP HANA
 
 |   SAP_HANA   |        Doris        |
 |:------------:|:-------------------:|

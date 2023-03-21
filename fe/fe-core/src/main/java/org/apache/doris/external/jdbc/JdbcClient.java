@@ -560,12 +560,15 @@ public class JdbcClient {
 
     public Type clickhouseTypeToDoris(JdbcFieldSchema fieldSchema) {
         String ckType = fieldSchema.getDataTypeName();
+        boolean isNull = false;
         if (ckType.startsWith("LowCardinality")) {
             ckType = ckType.substring(15, ckType.length() - 1);
             if (ckType.startsWith("Nullable")) {
+                isNull = true;
                 ckType = ckType.substring(9, ckType.length() - 1);
             }
         } else if (ckType.startsWith("Nullable")) {
+            isNull = true;
             ckType = ckType.substring(9, ckType.length() - 1);
         }
         if (ckType.startsWith("Decimal")) {
@@ -583,7 +586,7 @@ public class JdbcClient {
             String cktype = ckType.substring(6, ckType.length() - 1);
             fieldSchema.setDataTypeName(cktype);
             Type type = clickhouseTypeToDoris(fieldSchema);
-            return ArrayType.create(type, true);
+            return ArrayType.create(type, isNull);
         }
         switch (ckType) {
             case "Bool":
