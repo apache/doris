@@ -255,7 +255,7 @@ class PruneOlapScanPartitionTest extends TestWithFeService implements MemoPatter
         test("t1", "dt in (20211124, 20211126, 20211122)", 3);
         // is null
         test("t1", "dt is null", 1);
-        test("`single_not_null`",  "dt is null", 0);
+        test("`single_not_null`", "dt is null", 0);
         // not equal to
         test("t1", "dt!=20211122", 7); //legacy return 8
 
@@ -280,8 +280,8 @@ class PruneOlapScanPartitionTest extends TestWithFeService implements MemoPatter
         // is null
         test("t2", "k1 is null", 1);
         test("t2", "k2 is null", 7); // legacy return 9
-        test("multi_not_null",  "k1 is null", 0);
-        test("multi_not_null", "k2 is null", 0); // legacy return 2 ???????
+        test("multi_not_null", "k1 is null", 0);
+        test("multi_not_null", "k2 is null", 0); // legacy return 2
         // not equal to
         test("t2", "k1!=23", 7); // legacy return 9
         test("t2", "k2!=23", 9);
@@ -295,7 +295,7 @@ class PruneOlapScanPartitionTest extends TestWithFeService implements MemoPatter
         // is null and other predicates
         test("t2", "k1 > 10 and k1 is null", 0);
         test("t2", "k1 is null and k1 > 10", 0);
-        test("multi_not_null",  "k1 > 10 and k1 is null", 0);
+        test("multi_not_null", "k1 > 10 and k1 is null", 0);
         // others predicates combination
         test("t2", "k1 > 10 and k2 < 4", 5); // legacy return 6
         test("t2", "k1 >10 and k1 < 10 and (k1=11 or k1=12)", 0);
@@ -336,12 +336,11 @@ class PruneOlapScanPartitionTest extends TestWithFeService implements MemoPatter
                 // do nothing
             }
         }
-        planChecker
-            .matches(
+        planChecker.matches(
                 logicalOlapScan().when(scan -> {
                     Assertions.assertEquals(expectScanPartitionNum, scan.getSelectedPartitionIds().size());
                     return true;
                 })
-            );
+        );
     }
 }

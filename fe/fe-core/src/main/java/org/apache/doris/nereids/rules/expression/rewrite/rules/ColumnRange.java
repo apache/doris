@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.expression.rewrite.rules;
 
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 
 import com.google.common.collect.BoundType;
@@ -138,32 +137,5 @@ public class ColumnRange {
 
     public static ColumnRange range(Literal lower, BoundType lowerType, Literal upper, BoundType upperType) {
         return new ColumnRange(ColumnBound.range(lower, lowerType, upper, upperType));
-    }
-
-    /** main */
-    public static void main(String[] args) {
-        ColumnRange columnRange = new ColumnRange(ColumnBound.atMost(new IntegerLiteral(3)));
-        ColumnRange intersect = columnRange.intersect(ColumnRange.empty());
-        System.out.println(intersect);
-
-        ColumnRange intersect2 = columnRange.intersect(new ColumnRange(ColumnBound.singleton(new IntegerLiteral(3))));
-        System.out.println(intersect2);
-
-        ColumnRange intersect3 = columnRange.intersect(new ColumnRange(ColumnBound.singleton(new IntegerLiteral(4))));
-        System.out.println(intersect3);
-
-        ColumnRange union = columnRange.union(ColumnRange.empty());
-        System.out.println(union);
-
-        ColumnRange union2 = columnRange.union(new ColumnRange(ColumnBound.singleton(new IntegerLiteral(3))));
-        System.out.println(union2);
-
-        ColumnRange union3 = columnRange.union(new ColumnRange(ColumnBound.singleton(new IntegerLiteral(4))));
-        System.out.println(union3);
-
-        ColumnRange union4 = columnRange.union(new ColumnRange(ColumnBound.range(
-                new IntegerLiteral(3), BoundType.OPEN,
-                new IntegerLiteral(4), BoundType.CLOSED)));
-        System.out.println(union4);
     }
 }
