@@ -508,17 +508,7 @@ template <typename A, typename B>
 struct EqualsOp {
     /// An operation that gives the same result, if arguments are passed in reverse order.
     using SymmetricOp = EqualsOp<B, A>;
-    static UInt8 apply(A a, B b) {
-        static constexpr double EPSINON = 0.0000001;
-        if constexpr ((std::is_same_v<double, A> && std::is_same_v<double, B>) ||
-                      (std::is_same_v<float, A> && std::is_same_v<float, B>)) {
-            // For comparison between two float numbers, we should ignore the bias since it's not
-            // an accurate value. See: ISSUE-17954.
-            return std::abs(a - b) < EPSINON;
-        } else {
-            return accurate::equalsOp(a, b);
-        }
-    }
+    static UInt8 apply(A a, B b) { return accurate::equalsOp(a, b); }
 };
 
 template <>
