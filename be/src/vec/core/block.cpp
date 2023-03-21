@@ -338,15 +338,16 @@ size_t Block::rows() const {
 }
 
 std::string Block::each_col_size() const {
-    std::stringstream ss;
+    std::string ss;
     for (const auto& elem : data) {
         if (elem.column) {
-            ss << elem.column->size() << " | ";
+            ss += elem.column->size();
+            ss += " | ";
         } else {
-            ss << "-1 | ";
+            ss += "-1 | ";
         }
     }
-    return ss.str();
+    return ss;
 }
 
 void Block::set_num_rows(size_t length) {
@@ -398,25 +399,25 @@ size_t Block::allocated_bytes() const {
 }
 
 std::string Block::dump_names() const {
-    std::stringstream out;
+    std::string out;
     for (auto it = data.begin(); it != data.end(); ++it) {
         if (it != data.begin()) {
-            out << ", ";
+            out += ", ";
         }
-        out << it->name;
+        out += it->name;
     }
-    return out.str();
+    return out;
 }
 
 std::string Block::dump_types() const {
-    std::stringstream out;
+    std::string out;
     for (auto it = data.begin(); it != data.end(); ++it) {
         if (it != data.begin()) {
-            out << ", ";
+            out += ", ";
         }
-        out << it->type->get_name();
+        out += it->type->get_name();
     }
-    return out.str();
+    return out;
 }
 
 std::string Block::dump_data(size_t begin, size_t row_limit) const {
@@ -456,7 +457,7 @@ std::string Block::dump_data(size_t begin, size_t row_limit) const {
                     << std::right;
                 continue;
             }
-            std::string s = "";
+            std::string s;
             if (data[i].column) {
                 s = data[i].to_string(row_num);
             }
@@ -491,15 +492,14 @@ std::string Block::dump_one_line(size_t row, int column_end) const {
 }
 
 std::string Block::dump_structure() const {
-    // WriteBufferFromOwnString out;
-    std::stringstream out;
+    std::string out;
     for (auto it = data.begin(); it != data.end(); ++it) {
         if (it != data.begin()) {
-            out << ", ";
+            out += ", ";
         }
-        out << it->dump_structure();
+        out += it->dump_structure();
     }
-    return out.str();
+    return out;
 }
 
 Block Block::clone_empty() const {
@@ -1029,14 +1029,14 @@ size_t MutableBlock::get_position_by_name(const std::string& name) const {
 }
 
 std::string MutableBlock::dump_names() const {
-    std::stringstream out;
+    std::string out;
     for (auto it = _names.begin(); it != _names.end(); ++it) {
         if (it != _names.begin()) {
-            out << ", ";
+            out += ", ";
         }
-        out << *it;
+        out += *it;
     }
-    return out.str();
+    return out;
 }
 
 } // namespace doris::vectorized
