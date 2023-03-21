@@ -373,8 +373,7 @@ std::string DecimalV2Value::to_string(int scale) const {
             }
         }
     } else {
-        // frac_val = frac_val / SCALE_TRIM_ARRAY[scale];
-        // change to bu yuxianbing to FIX 17191
+        // roundup to FIX 17191
         if (scale < SCALE) {
             int32_t frac_val_tmp = frac_val / SCALE_TRIM_ARRAY[scale];
             if (frac_val / SCALE_TRIM_ARRAY[scale + 1] % 10 >= 5) {
@@ -426,8 +425,7 @@ int32_t DecimalV2Value::to_buffer(char* buffer, int scale) const {
             }
         }
     } else {
-        // frac_val = frac_val / SCALE_TRIM_ARRAY[scale];
-        // change to bu yuxianbing to FIX 17191
+        // roundup to FIX 17191
         if (scale < SCALE) {
             int32_t frac_val_tmp = frac_val / SCALE_TRIM_ARRAY[scale];
             if (frac_val / SCALE_TRIM_ARRAY[scale + 1] % 10 >= 5) {

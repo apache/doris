@@ -318,9 +318,6 @@ struct Decimal {
     DECLARE_NUMERIC_CTOR(UInt32)
     DECLARE_NUMERIC_CTOR(UInt64)
 
-    // FIX 17191
-    //DECLARE_NUMERIC_CTOR(Float32)
-    //DECLARE_NUMERIC_CTOR(Float64)
 #undef DECLARE_NUMERIC_CTOR
     Decimal(const Float32& value_) : value(value_) {
         if constexpr (std::is_integral<T>::value) {
