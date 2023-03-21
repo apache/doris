@@ -252,7 +252,8 @@ Status ParquetReader::set_fill_columns(
                 partition_columns,
         const std::unordered_map<std::string, VExprContext*>& missing_columns) {
     SCOPED_RAW_TIMER(&_statistics.parse_meta_time);
-    std::unordered_map<std::string, uint32_t> predicate_columns;
+    // std::unordered_map<column_name, std::pair<col_id, slot_id>>
+    std::unordered_map<std::string, std::pair<uint32_t, int>> predicate_columns;
     std::function<void(VExpr * expr)> visit_slot = [&](VExpr* expr) {
         if (VSlotRef* slot_ref = typeid_cast<VSlotRef*>(expr)) {
             auto expr_name = slot_ref->expr_name();
@@ -260,7 +261,8 @@ Status ParquetReader::set_fill_columns(
             if (iter != _table_col_to_file_col.end()) {
                 expr_name = iter->second;
             }
-            predicate_columns.emplace(expr_name, slot_ref->column_id());
+            predicate_columns.emplace(expr_name,
+                                      std::make_pair(slot_ref->column_id(), slot_ref->slot_id()));
             if (slot_ref->column_id() == 0) {
                 _lazy_read_ctx.resize_first_column = false;
             }
@@ -303,8 +305,9 @@ Status ParquetReader::set_fill_columns(
             if (iter == predicate_columns.end()) {
                 _lazy_read_ctx.lazy_read_columns.emplace_back(read_col._file_slot_name);
             } else {
-                _lazy_read_ctx.predicate_columns.emplace_back(iter->first);
-                _lazy_read_ctx.all_predicate_col_ids.emplace_back(iter->second);
+                _lazy_read_ctx.predicate_columns.first.emplace_back(iter->first);
+                _lazy_read_ctx.predicate_columns.second.emplace_back(iter->second.second);
+                _lazy_read_ctx.all_predicate_col_ids.emplace_back(iter->second.first);
             }
         }
     }
@@ -315,7 +318,7 @@ Status ParquetReader::set_fill_columns(
             _lazy_read_ctx.partition_columns.emplace(kv.first, kv.second);
         } else {
             _lazy_read_ctx.predicate_partition_columns.emplace(kv.first, kv.second);
-            _lazy_read_ctx.all_predicate_col_ids.emplace_back(iter->second);
+            _lazy_read_ctx.all_predicate_col_ids.emplace_back(iter->second.first);
         }
     }
 
@@ -325,11 +328,11 @@ Status ParquetReader::set_fill_columns(
             _lazy_read_ctx.missing_columns.emplace(kv.first, kv.second);
         } else {
             _lazy_read_ctx.predicate_missing_columns.emplace(kv.first, kv.second);
-            _lazy_read_ctx.all_predicate_col_ids.emplace_back(iter->second);
+            _lazy_read_ctx.all_predicate_col_ids.emplace_back(iter->second.first);
         }
     }
 
-    if (!_has_complex_type && _lazy_read_ctx.predicate_columns.size() > 0 &&
+    if (!_has_complex_type && _lazy_read_ctx.predicate_columns.first.size() > 0 &&
         _lazy_read_ctx.lazy_read_columns.size() > 0) {
         _lazy_read_ctx.can_lazy_read = true;
     }

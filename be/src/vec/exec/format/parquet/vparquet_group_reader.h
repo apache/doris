@@ -49,7 +49,7 @@ public:
         std::vector<std::string> all_read_columns;
         // include predicate_partition_columns & predicate_missing_columns
         std::vector<uint32_t> all_predicate_col_ids;
-        std::vector<std::string> predicate_columns;
+        std::pair<std::vector<std::string>, std::vector<int>> predicate_columns;
         std::vector<std::string> lazy_read_columns;
         std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
                 predicate_partition_columns;
@@ -143,8 +143,7 @@ private:
     Status _filter_block_internal(Block* block, const vector<uint32_t>& columns_to_filter,
                                   const IColumn::Filter& filter);
 
-    bool _can_filter_by_dict(const string& predicate_col_name,
-                             const tparquet::ColumnMetaData& column_metadata);
+    bool _can_filter_by_dict(int slot_id, const tparquet::ColumnMetaData& column_metadata);
     bool is_dictionary_encoded(const tparquet::ColumnMetaData& column_metadata);
     Status _rewrite_dict_predicates();
     Status _rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int slot_id, bool is_nullable);
@@ -182,7 +181,8 @@ private:
     const std::unordered_map<int, std::vector<VExprContext*>>* _slot_id_to_filter_conjuncts;
     std::vector<VExprContext*> _dict_filter_conjuncts;
     std::vector<VExprContext*> _filter_conjuncts;
-    std::vector<std::string> _dict_filter_col_names;
+    // std::pair<col_name, slot_id>
+    std::vector<std::pair<std::string, int>> _dict_filter_cols;
     RuntimeState* _state;
     std::shared_ptr<ObjectPool> _obj_pool;
     bool _is_row_group_filtered = false;
