@@ -63,7 +63,6 @@ set(VEC_FILES
   json/path_in_data.cpp
   common/schema_util.cpp
   common/demangle.cpp
-  common/exception.cpp
   common/mremap.cpp
   common/pod_array.cpp
   common/string_ref.cpp
