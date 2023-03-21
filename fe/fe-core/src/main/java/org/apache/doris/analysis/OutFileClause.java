@@ -33,6 +33,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.property.CloudProperty;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TParquetCompressionType;
@@ -648,9 +649,9 @@ public class OutFileClause {
             }
         }
         if (storageType == StorageBackend.StorageType.S3) {
-            if (properties.containsKey(S3Resource.USE_PATH_STYLE)) {
-                brokerProps.put(S3Resource.USE_PATH_STYLE, properties.get(S3Resource.USE_PATH_STYLE));
-                processedPropKeys.add(S3Resource.USE_PATH_STYLE);
+            if (properties.containsKey(CloudProperty.USE_PATH_STYLE)) {
+                brokerProps.put(CloudProperty.USE_PATH_STYLE, properties.get(CloudProperty.USE_PATH_STYLE));
+                processedPropKeys.add(CloudProperty.USE_PATH_STYLE);
             }
             S3Storage.checkS3(brokerProps);
         } else if (storageType == StorageBackend.StorageType.HDFS) {

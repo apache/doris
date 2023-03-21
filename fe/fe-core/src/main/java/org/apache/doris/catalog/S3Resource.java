@@ -21,19 +21,13 @@ import org.apache.doris.backup.S3Storage;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.BaseProcResult;
-import org.apache.doris.datasource.credentials.DataLakeAWSCredentialsProvider;
+import org.apache.doris.datasource.property.CloudProperty;
 
-import com.amazonaws.auth.EnvironmentVariableCredentialsProvider;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-import org.apache.hadoop.fs.s3a.Constants;
-import org.apache.hadoop.fs.s3a.S3AFileSystem;
-import org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider;
-import org.apache.hadoop.fs.s3a.TemporaryAWSCredentialsProvider;
-import org.apache.hadoop.fs.s3a.auth.IAMInstanceCredentialsProvider;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -71,13 +65,11 @@ import java.util.Optional;
 public class S3Resource extends Resource {
     private static final Logger LOG = LogManager.getLogger(S3Resource.class);
     public static final String S3_PROPERTIES_PREFIX = "AWS";
-    public static final String S3_FS_PREFIX = "fs.s3";
     // required
     public static final String S3_ENDPOINT = "AWS_ENDPOINT";
     public static final String S3_REGION = "AWS_REGION";
     public static final String S3_ACCESS_KEY = "AWS_ACCESS_KEY";
     public static final String S3_SECRET_KEY = "AWS_SECRET_KEY";
-    private static final String S3_CREDENTIALS_PROVIDER = "AWS_CREDENTIALS_PROVIDER";
     public static final List<String> REQUIRED_FIELDS =
             Arrays.asList(S3_ENDPOINT, S3_REGION, S3_ACCESS_KEY, S3_SECRET_KEY);
     // required by storage policy
@@ -88,20 +80,12 @@ public class S3Resource extends Resource {
 
     // optional
     public static final String S3_TOKEN = "AWS_TOKEN";
-    public static final String USE_PATH_STYLE = "use_path_style";
     public static final String S3_MAX_CONNECTIONS = "AWS_MAX_CONNECTIONS";
     public static final String S3_REQUEST_TIMEOUT_MS = "AWS_REQUEST_TIMEOUT_MS";
     public static final String S3_CONNECTION_TIMEOUT_MS = "AWS_CONNECTION_TIMEOUT_MS";
     public static final String DEFAULT_S3_MAX_CONNECTIONS = "50";
     public static final String DEFAULT_S3_REQUEST_TIMEOUT_MS = "3000";
     public static final String DEFAULT_S3_CONNECTION_TIMEOUT_MS = "1000";
-
-    public static final List<String> DEFAULT_CREDENTIALS_PROVIDERS = Arrays.asList(
-            DataLakeAWSCredentialsProvider.class.getName(),
-            TemporaryAWSCredentialsProvider.class.getName(),
-            SimpleAWSCredentialsProvider.class.getName(),
-            EnvironmentVariableCredentialsProvider.class.getName(),
-            IAMInstanceCredentialsProvider.class.getName());
 
     @SerializedName(value = "properties")
     private Map<String, String> properties;
@@ -125,12 +109,7 @@ public class S3Resource extends Resource {
         Preconditions.checkState(properties != null);
         this.properties = properties;
         // check properties
-        // required
-        checkRequiredProperty(S3_ENDPOINT);
-        checkRequiredProperty(S3_REGION);
-        checkRequiredProperty(S3_ACCESS_KEY);
-        checkRequiredProperty(S3_SECRET_KEY);
-        checkRequiredProperty(S3_BUCKET);
+        checkRequiredS3Properties();
 
         // default need check resource conf valid, so need fix ut and regression case
         boolean needCheck = !properties.containsKey(S3_VALIDITY_CHECK)
@@ -156,7 +135,7 @@ public class S3Resource extends Resource {
         propertiesPing.put("AWS_SECRET_KEY", properties.getOrDefault(S3_SECRET_KEY, ""));
         propertiesPing.put("AWS_ENDPOINT", "http://" + properties.getOrDefault(S3_ENDPOINT, ""));
         propertiesPing.put("AWS_REGION", properties.getOrDefault(S3_REGION, ""));
-        propertiesPing.put(S3Resource.USE_PATH_STYLE, "false");
+        propertiesPing.put(CloudProperty.USE_PATH_STYLE, "false");
         S3Storage storage = new S3Storage(propertiesPing);
 
         String testFile = bucket + properties.getOrDefault(S3_ROOT_PATH, "") + "/test-object-valid.txt";
@@ -177,6 +156,14 @@ public class S3Resource extends Resource {
 
         LOG.info("success to ping s3");
         return true;
+    }
+
+    private void checkRequiredS3Properties() throws DdlException {
+        checkRequiredProperty(S3_ENDPOINT);
+        checkRequiredProperty(S3_REGION);
+        checkRequiredProperty(S3_ACCESS_KEY);
+        checkRequiredProperty(S3_SECRET_KEY);
+        checkRequiredProperty(S3_BUCKET);
     }
 
     private void checkRequiredProperty(String propertyKey) throws DdlException {
@@ -259,53 +246,5 @@ public class S3Resource extends Resource {
             }
         }
         readUnlock();
-    }
-
-    public static Map<String, String> getS3HadoopProperties(Map<String, String> properties) {
-        Map<String, String> s3Properties = Maps.newHashMap();
-        if (properties.containsKey(S3_ACCESS_KEY)) {
-            s3Properties.put(Constants.ACCESS_KEY, properties.get(S3_ACCESS_KEY));
-        }
-        if (properties.containsKey(S3Resource.S3_SECRET_KEY)) {
-            s3Properties.put(Constants.SECRET_KEY, properties.get(S3_SECRET_KEY));
-        }
-        if (properties.containsKey(S3Resource.S3_ENDPOINT)) {
-            s3Properties.put(Constants.ENDPOINT, properties.get(S3_ENDPOINT));
-        }
-        if (properties.containsKey(S3Resource.S3_REGION)) {
-            s3Properties.put(Constants.AWS_REGION, properties.get(S3_REGION));
-        }
-        if (properties.containsKey(S3Resource.S3_MAX_CONNECTIONS)) {
-            s3Properties.put(Constants.MAXIMUM_CONNECTIONS, properties.get(S3_MAX_CONNECTIONS));
-        }
-        if (properties.containsKey(S3Resource.S3_REQUEST_TIMEOUT_MS)) {
-            s3Properties.put(Constants.REQUEST_TIMEOUT, properties.get(S3_REQUEST_TIMEOUT_MS));
-        }
-        if (properties.containsKey(S3Resource.S3_CONNECTION_TIMEOUT_MS)) {
-            s3Properties.put(Constants.SOCKET_TIMEOUT, properties.get(S3_CONNECTION_TIMEOUT_MS));
-        }
-        s3Properties.put(Constants.MAX_ERROR_RETRIES, "2");
-        s3Properties.put("fs.s3.impl.disable.cache", "true");
-        s3Properties.put("fs.s3.impl", S3AFileSystem.class.getName());
-
-        String defaultProviderList = String.join(",", DEFAULT_CREDENTIALS_PROVIDERS);
-        String credentialsProviders = s3Properties
-                .getOrDefault("fs.s3a.aws.credentials.provider", defaultProviderList);
-        s3Properties.put("fs.s3a.aws.credentials.provider", credentialsProviders);
-
-        s3Properties.put(Constants.PATH_STYLE_ACCESS, properties.getOrDefault(S3Resource.USE_PATH_STYLE, "false"));
-        if (properties.containsKey(S3Resource.S3_TOKEN)) {
-            s3Properties.put(Constants.SESSION_TOKEN, properties.get(S3_TOKEN));
-            s3Properties.put("fs.s3a.aws.credentials.provider", TemporaryAWSCredentialsProvider.class.getName());
-            s3Properties.put("fs.s3.impl.disable.cache", "true");
-            s3Properties.put("fs.s3a.impl.disable.cache", "true");
-        }
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            if (entry.getKey().startsWith(S3Resource.S3_FS_PREFIX)) {
-                s3Properties.put(entry.getKey(), entry.getValue());
-            }
-        }
-
-        return s3Properties;
     }
 }

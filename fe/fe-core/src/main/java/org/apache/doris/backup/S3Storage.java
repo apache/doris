@@ -21,6 +21,7 @@ import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
+import org.apache.doris.datasource.property.CloudProperty;
 
 import org.apache.commons.collections.map.CaseInsensitiveMap;
 import org.apache.commons.lang3.StringUtils;
@@ -114,7 +115,7 @@ public class S3Storage extends BlobStorage {
         // virtual hosted-sytle.
         // And for other endpoint, if `use_path_style` is true, use path style. Otherwise, use virtual hosted-sytle.
         if (!caseInsensitiveProperties.get(S3Resource.S3_ENDPOINT).toLowerCase().startsWith("s3")) {
-            forceHostedStyle = !caseInsensitiveProperties.getOrDefault(S3Resource.USE_PATH_STYLE, "false")
+            forceHostedStyle = !caseInsensitiveProperties.getOrDefault(CloudProperty.USE_PATH_STYLE, "false")
                     .equalsIgnoreCase("true");
         } else {
             forceHostedStyle = false;
@@ -135,7 +136,7 @@ public class S3Storage extends BlobStorage {
             checkS3(caseInsensitiveProperties);
             Configuration conf = new Configuration();
             System.setProperty("com.amazonaws.services.s3.enableV4", "true");
-            S3Resource.getS3HadoopProperties(caseInsensitiveProperties).forEach(conf::set);
+            CloudProperty.convert(caseInsensitiveProperties).forEach(conf::set);
             try {
                 dfsFileSystem = FileSystem.get(new URI(remotePath), conf);
             } catch (Exception e) {

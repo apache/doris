@@ -44,7 +44,7 @@ public class IcebergGlueExternalCatalog extends IcebergExternalCatalog {
         Configuration conf = setGlueProperties(getConfiguration());
         glueCatalog.setConf(conf);
         // initialize glue catalog
-        Map<String, String> catalogProperties = catalogProperty.getProperties();
+        Map<String, String> catalogProperties = catalogProperty.getHadoopProperties();
         // check AwsProperties.GLUE_CATALOG_ENDPOINT
         String metastoreUris = catalogProperty.getOrDefault(CatalogProperties.WAREHOUSE_LOCATION, "");
         if (StringUtils.isEmpty(metastoreUris)) {

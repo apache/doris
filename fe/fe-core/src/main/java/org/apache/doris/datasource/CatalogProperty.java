@@ -20,9 +20,9 @@ package org.apache.doris.datasource;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.catalog.Resource;
-import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.datasource.property.CloudProperty;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Strings;
@@ -98,13 +98,13 @@ public class CatalogProperty implements Writable {
         properties.putAll(props);
     }
 
-    public Map<String, String> getS3HadoopProperties() {
-        return S3Resource.getS3HadoopProperties(getProperties());
+    private Map<String, String> getStorageProperties() {
+        return CloudProperty.convert(getProperties());
     }
 
     public Map<String, String> getHadoopProperties() {
         Map<String, String> hadoopProperties = getProperties();
-        hadoopProperties.putAll(getS3HadoopProperties());
+        hadoopProperties.putAll(getStorageProperties());
         return hadoopProperties;
     }
 
