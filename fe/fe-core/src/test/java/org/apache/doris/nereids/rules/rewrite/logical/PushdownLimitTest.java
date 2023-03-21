@@ -265,8 +265,8 @@ class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSup
         LogicalJoin<? extends Plan, ? extends Plan> join = new LogicalJoin<>(
                 joinType,
                 joinConditions,
-                new LogicalOlapScan(new ObjectId(0), PlanConstructor.score),
-                new LogicalOlapScan(new ObjectId(1), PlanConstructor.student)
+                new LogicalOlapScan(((LogicalOlapScan) scanScore).getId(), PlanConstructor.score),
+                new LogicalOlapScan(((LogicalOlapScan) scanStudent).getId(), PlanConstructor.student)
         );
 
         if (hasProject) {
