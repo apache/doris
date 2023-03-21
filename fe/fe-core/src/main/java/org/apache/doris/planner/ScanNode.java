@@ -140,8 +140,8 @@ public abstract class ScanNode extends PlanNode {
     }
 
     // TODO(ML): move it into PrunerOptimizer
-    public void computeColumnFilter() {
-        for (Column column : desc.getTable().getBaseSchema()) {
+    public void computeColumnFilter(List<Column> columns) {
+        for (Column column : columns) {
             SlotDescriptor slotDesc = desc.getColumnSlot(column.getName());
             if (null == slotDesc) {
                 continue;
@@ -159,6 +159,10 @@ public abstract class ScanNode extends PlanNode {
                 columnNameToRange.put(column.getName(), columnRange);
             }
         }
+    }
+
+    public void computeColumnFilter() {
+        computeColumnFilter(desc.getTable().getBaseSchema());
     }
 
     public static ColumnRange createColumnRange(SlotDescriptor desc,
