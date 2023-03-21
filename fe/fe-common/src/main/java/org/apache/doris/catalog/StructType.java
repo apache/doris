@@ -31,6 +31,7 @@ import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -68,6 +69,10 @@ public class StructType extends Type {
             newFields.add(new StructField(type));
         }
         this.fields = newFields;
+    }
+
+    public StructType(Type... types) {
+        this(Arrays.asList(types));
     }
 
     public StructType() {

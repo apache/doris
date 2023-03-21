@@ -873,11 +873,11 @@ public class Function implements Writable {
 
         // expand the variadic template in arg types
         List<Type> newArgTypes = Lists.newArrayList();
-        for (int i = 0; i < argTypes.length - 1; i++) {
-            if (argTypes[i].needExpandTemplateType()) {
-                newArgTypes.addAll(argTypes[i].expandVariadicTemplateType(expandSizeMap));
+        for (Type argType : argTypes) {
+            if (argType.needExpandTemplateType()) {
+                newArgTypes.addAll(argType.expandVariadicTemplateType(expandSizeMap));
             } else {
-                newArgTypes.add(argTypes[i]);
+                newArgTypes.add(argType);
             }
         }
         argTypes = newArgTypes.toArray(new Type[0]);

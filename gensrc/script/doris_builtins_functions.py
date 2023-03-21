@@ -78,6 +78,9 @@ visible_functions = [
     [['struct'], 'STRUCT<TYPES>', ['TYPES'], 'ALWAYS_NOT_NULLABLE', ['...TYPES']],
     [['named_struct'], 'STRUCT<TYPES>', ['TYPES'], 'ALWAYS_NOT_NULLABLE', ['...TYPES']],
 
+    # test
+    [['struct'], 'STRUCT<T, TYPES>', ['T', 'TYPES'], 'ALWAYS_NOT_NULLABLE', ['T', '...TYPES']],
+
     # array functions
     [['array'], 'ARRAY', ['BOOLEAN', '...'], 'ALWAYS_NOT_NULLABLE'],
     [['array'], 'ARRAY', ['TINYINT', '...'], 'ALWAYS_NOT_NULLABLE'],
