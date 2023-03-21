@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -95,11 +96,14 @@ public class DataDescription {
             "substitute");
 
     private final String tableName;
+
+    private String dbName;
     private final PartitionNames partitionNames;
     private final List<String> filePaths;
     private final Separator columnSeparator;
     private String fileFormat;
     private TFileCompressType compressType = TFileCompressType.UNKNOWN;
+    private boolean clientLocal = false;
     private final boolean isNegative;
     // column names in the path
     private final List<String> columnsFromPath;
@@ -146,6 +150,8 @@ public class DataDescription {
     private final Expr deleteCondition;
     private final Map<String, String> properties;
     private boolean trimDoubleQuotes = false;
+    private boolean isMysqlLoad = false;
+    private int skipLines = 0;
 
     public DataDescription(String tableName,
                            PartitionNames partitionNames,
@@ -190,6 +196,8 @@ public class DataDescription {
         this.deleteCondition = deleteCondition;
         this.sequenceCol = sequenceColName;
         this.properties = properties;
+        columnsNameToLowerCase(fileFieldNames);
+        columnsNameToLowerCase(columnsFromPath);
     }
 
     // data from table external_hive_table
@@ -217,6 +225,40 @@ public class DataDescription {
         this.mergeType = mergeType;
         this.deleteCondition = deleteCondition;
         this.properties = properties;
+    }
+
+    // data desc for mysql client
+    public DataDescription(TableName tableName,
+                           PartitionNames partitionNames,
+                           String file,
+                           boolean clientLocal,
+                           List<String> columns,
+                           Separator columnSeparator,
+                           Separator lineDelimiter,
+                           int skipLines,
+                           List<Expr> columnMappingList,
+                           Map<String, String> properties) {
+        this.tableName = tableName.getTbl();
+        this.dbName = tableName.getDb();
+        this.partitionNames = partitionNames;
+        this.filePaths = Lists.newArrayList(file);
+        this.clientLocal = clientLocal;
+        this.fileFieldNames = columns;
+        this.columnSeparator = columnSeparator;
+        this.lineDelimiter = lineDelimiter;
+        this.skipLines = skipLines;
+        this.fileFormat = null;
+        this.columnsFromPath = null;
+        this.isNegative = false;
+        this.columnMappingList = columnMappingList;
+        this.precedingFilterExpr = null;
+        this.whereExpr = null;
+        this.srcTableName = null;
+        this.mergeType = null;
+        this.deleteCondition = null;
+        this.properties = properties;
+        this.isMysqlLoad = true;
+        columnsNameToLowerCase(fileFieldNames);
     }
 
     // For stream load using external file scan node.
@@ -252,6 +294,8 @@ public class DataDescription {
         this.numAsString = taskInfo.isNumAsString();
         this.properties = Maps.newHashMap();
         this.trimDoubleQuotes = taskInfo.getTrimDoubleQuotes();
+        this.skipLines = taskInfo.getSkipLines();
+        columnsNameToLowerCase(fileFieldNames);
     }
 
     private void getFileFormatAndCompressType(LoadTaskInfo taskInfo) {
@@ -446,7 +490,7 @@ public class DataDescription {
     private static void validateHllHash(List<String> args, Map<String, String> columnNameMap) throws AnalysisException {
         for (int i = 0; i < args.size(); ++i) {
             String argColumn = args.get(i);
-            if (!columnNameMap.containsKey(argColumn)) {
+            if (argColumn == null || !columnNameMap.containsKey(argColumn)) {
                 throw new AnalysisException("Column is not in sources, column: " + argColumn);
             }
             args.set(i, columnNameMap.get(argColumn));
@@ -457,6 +501,10 @@ public class DataDescription {
         if (!mappingColumn.getOriginType().isDateType()) {
             throw new AnalysisException("Now() function is only support for DATE/DATETIME column");
         }
+    }
+
+    public String getDbName() {
+        return dbName;
     }
 
     public String getTableName() {
@@ -495,6 +543,13 @@ public class DataDescription {
             return null;
         }
         return fileFieldNames;
+    }
+
+    public List<Expr> getColumnMappingList() {
+        if (columnMappingList == null || columnMappingList.isEmpty()) {
+            return null;
+        }
+        return columnMappingList;
     }
 
     public String getFileFormat() {
@@ -631,6 +686,10 @@ public class DataDescription {
         return isHadoopLoad;
     }
 
+    public boolean isClientLocal() {
+        return clientLocal;
+    }
+
     public String getSrcTableName() {
         return srcTableName;
     }
@@ -645,6 +704,14 @@ public class DataDescription {
 
     public boolean getTrimDoubleQuotes() {
         return trimDoubleQuotes;
+    }
+
+    public Map<String, String> getProperties() {
+        return properties;
+    }
+
+    public int getSkipLines() {
+        return skipLines;
     }
 
     /*
@@ -846,7 +913,8 @@ public class DataDescription {
         Map<String, String> analysisMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         analysisMap.putAll(properties);
 
-        if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER)) {
+        // If lineDelimiter had assigned, do not get it from properties again.
+        if (lineDelimiter == null && analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER)) {
             lineDelimiter = new Separator(analysisMap.get(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER));
             lineDelimiter.analyze();
         }
@@ -870,6 +938,13 @@ public class DataDescription {
         if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_NUM_AS_STRING)) {
             numAsString = Boolean.parseBoolean(analysisMap.get(LoadStmt.KEY_IN_PARAM_NUM_AS_STRING));
         }
+
+        if (analysisMap.containsKey(LoadStmt.KEY_TRIM_DOUBLE_QUOTES)) {
+            trimDoubleQuotes = Boolean.parseBoolean(analysisMap.get(LoadStmt.KEY_TRIM_DOUBLE_QUOTES));
+        }
+        if (analysisMap.containsKey(LoadStmt.KEY_SKIP_LINES)) {
+            skipLines = Integer.parseInt(analysisMap.get(LoadStmt.KEY_SKIP_LINES));
+        }
     }
 
     private void checkLoadPriv(String fullDbName) throws AnalysisException {
@@ -878,7 +953,7 @@ public class DataDescription {
         }
 
         // check auth
-        if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), fullDbName, tableName,
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), fullDbName, tableName,
                 PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                     ConnectContext.get().getQualifiedUser(),
@@ -887,12 +962,37 @@ public class DataDescription {
 
         // check hive table auth
         if (isLoadFromTable()) {
-            if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), fullDbName, srcTableName,
+            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), fullDbName, srcTableName,
                     PrivPredicate.SELECT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
                         ConnectContext.get().getQualifiedUser(),
                         ConnectContext.get().getRemoteIP(), fullDbName + ": " + srcTableName);
             }
+        }
+    }
+
+    // Change all the columns name to lower case, because Doris column is case-insensitive.
+    private void columnsNameToLowerCase(List<String> columns) {
+        if (columns == null || columns.isEmpty() || "json".equals(this.fileFormat)) {
+            return;
+        }
+        for (int i = 0; i < columns.size(); i++) {
+            String column = columns.remove(i);
+            columns.add(i, column.toLowerCase());
+        }
+    }
+
+    public String analyzeFullDbName(String labelDbName, Analyzer analyzer) throws AnalysisException {
+        if (Strings.isNullOrEmpty(labelDbName)) {
+            String dbName = Strings.isNullOrEmpty(getDbName()) ? analyzer.getDefaultDb() : getDbName();
+            if (Strings.isNullOrEmpty(dbName)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
+            }
+            this.dbName = ClusterNamespace.getFullName(analyzer.getClusterName(), dbName);
+            return this.dbName;
+        } else {
+            this.dbName = labelDbName;
+            return labelDbName;
         }
     }
 
@@ -925,6 +1025,10 @@ public class DataDescription {
 
         if (columnSeparator != null) {
             columnSeparator.analyze();
+        }
+
+        if (lineDelimiter != null) {
+            lineDelimiter.analyze();
         }
 
         if (partitionNames != null) {
@@ -977,7 +1081,11 @@ public class DataDescription {
             if (!mappingColNames.contains(column.getName())) {
                 parsedColumnExprList.add(new ImportColumnDesc(column.getName(), null));
             }
-            fileFieldNames.add(column.getName());
+            if ("json".equals(this.fileFormat)) {
+                fileFieldNames.add(column.getName());
+            } else {
+                fileFieldNames.add(column.getName().toLowerCase());
+            }
         }
 
         LOG.debug("after fill column info. columns: {}, parsed column exprs: {}", fileFieldNames, parsedColumnExprList);
@@ -985,7 +1093,10 @@ public class DataDescription {
 
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        if (isLoadFromTable()) {
+        if (isMysqlLoad) {
+            sb.append("DATA ").append(isClientLocal() ? "LOCAL " : "");
+            sb.append("INFILE '").append(filePaths.get(0)).append("'");
+        } else if (isLoadFromTable()) {
             sb.append(mergeType.toString());
             sb.append(" DATA FROM TABLE ").append(srcTableName);
         } else {
@@ -1001,13 +1112,17 @@ public class DataDescription {
         if (isNegative) {
             sb.append(" NEGATIVE");
         }
-        sb.append(" INTO TABLE ").append(tableName);
+        sb.append(" INTO TABLE ");
+        sb.append(isMysqlLoad ? ClusterNamespace.getNameFromFullName(dbName) + "." + tableName : tableName);
         if (partitionNames != null) {
             sb.append(" ");
             sb.append(partitionNames.toSql());
         }
         if (columnSeparator != null) {
             sb.append(" COLUMNS TERMINATED BY ").append(columnSeparator.toSql());
+        }
+        if (lineDelimiter != null && isMysqlLoad) {
+            sb.append(" LINES TERMINATED BY ").append(lineDelimiter.toSql());
         }
         if (fileFormat != null && !fileFormat.isEmpty()) {
             sb.append(" FORMAT AS '" + fileFormat + "'");

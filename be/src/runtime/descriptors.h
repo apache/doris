@@ -93,19 +93,12 @@ public:
     int col_pos() const { return _col_pos; }
     // Returns the field index in the generated llvm struct for this slot's tuple
     int field_idx() const { return _field_idx; }
-    int tuple_offset() const { return _tuple_offset; }
     const NullIndicatorOffset& null_indicator_offset() const { return _null_indicator_offset; }
     bool is_materialized() const { return _is_materialized; }
     bool is_nullable() const { return _null_indicator_offset.bit_mask != 0; }
 
-    int slot_size() const { return _slot_size; }
-
     const std::string& col_name() const { return _col_name; }
     const std::string& col_name_lower_case() const { return _col_name_lower_case; }
-
-    /// Return true if the physical layout of this descriptor matches the physical layout
-    /// of other_desc, but not necessarily ids.
-    bool layout_equals(const SlotDescriptor& other_desc) const;
 
     void to_protobuf(PSlotDescriptor* pslot) const;
 
@@ -133,7 +126,6 @@ private:
     const TypeDescriptor _type;
     const TupleId _parent;
     const int _col_pos;
-    const int _tuple_offset;
     const NullIndicatorOffset _null_indicator_offset;
     const std::string _col_name;
     const std::string _col_name_lower_case;
@@ -143,9 +135,6 @@ private:
     // the idx of the slot in the tuple descriptor (0-based).
     // this is provided by the FE
     const int _slot_idx;
-
-    // the byte size of this slot.
-    const int _slot_size;
 
     // the idx of the slot in the llvm codegen'd tuple struct
     // this is set by TupleDescriptor during codegen and takes into account
@@ -178,10 +167,12 @@ public:
 
     const std::string& name() const { return _name; }
     const std::string& database() const { return _database; }
+    int32_t table_id() const { return _table_id; }
 
 private:
     std::string _name;
     std::string _database;
+    int32_t _table_id;
     int _num_cols;
     int _num_clustering_cols;
 };
@@ -272,7 +263,7 @@ public:
     const std::string user() const { return _user; }
     const std::string passwd() const { return _passwd; }
     const std::string driver() const { return _driver; }
-    const TOdbcTableType::type type() const { return _type; }
+    TOdbcTableType::type type() const { return _type; }
 
 private:
     std::string _db;
@@ -345,10 +336,6 @@ public:
     }
 
     TupleId id() const { return _id; }
-
-    /// Return true if the physical layout of this descriptor matches that of other_desc,
-    /// but not necessarily the id.
-    bool layout_equals(const TupleDescriptor& other_desc) const;
 
     std::string debug_string() const;
 
@@ -507,14 +494,6 @@ public:
 
     // Return true if the tuple ids of this descriptor match tuple ids of other desc.
     bool equals(const RowDescriptor& other_desc) const;
-
-    /// Return true if the physical layout of this descriptor matches the physical layout
-    /// of other_desc, but not necessarily the ids.
-    bool layout_equals(const RowDescriptor& other_desc) const;
-
-    /// Return true if the tuples of this descriptor are a prefix of the tuples of
-    /// other_desc. Tuples are compared by their physical layout and not by ids.
-    bool layout_is_prefix_of(const RowDescriptor& other_desc) const;
 
     std::string debug_string() const;
 

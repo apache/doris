@@ -17,11 +17,11 @@
 
 package org.apache.doris.nereids.sqltest;
 
-import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
-import org.apache.doris.nereids.util.PatternMatchSupported;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.utframe.TestWithFeService;
 
-public abstract class SqlTestBase extends TestWithFeService implements PatternMatchSupported {
+public abstract class SqlTestBase extends TestWithFeService implements MemoPatternMatchSupported {
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
@@ -80,6 +80,6 @@ public abstract class SqlTestBase extends TestWithFeService implements PatternMa
 
     @Override
     protected void runBeforeEach() throws Exception {
-        NamedExpressionUtil.clear();
+        StatementScopeIdGenerator.clear();
     }
 }

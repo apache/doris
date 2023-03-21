@@ -24,17 +24,9 @@
 #include "runtime/mem_pool.h"
 #include "runtime/raw_value.h"
 #include "runtime/types.h"
-#include "util/mem_util.hpp"
 #include "vec/common/string_ref.h"
 
 namespace doris {
-
-void CollectionValue::to_collection_val(CollectionVal* val) const {
-    val->length = _length;
-    val->data = _data;
-    val->null_signs = _null_signs;
-    val->has_null = _has_null;
-}
 
 void CollectionValue::shallow_copy(const CollectionValue* value) {
     _length = value->_length;

@@ -35,11 +35,11 @@ inline std::size_t hash_value(const TNetworkAddress& host_port) {
     return HashUtil::hash(&host_port.port, sizeof(host_port.port), hash);
 }
 
-struct HashTNetworkAddressPtr : public std::unary_function<TNetworkAddress*, size_t> {
+struct HashTNetworkAddressPtr {
     size_t operator()(const TNetworkAddress* const& p) const { return hash_value(*p); }
 };
 
-struct TNetworkAddressPtrEquals : public std::unary_function<TNetworkAddress*, bool> {
+struct TNetworkAddressPtrEquals {
     bool operator()(const TNetworkAddress* const& p1, const TNetworkAddress* const& p2) const {
         return p1->hostname == p2->hostname && p1->port == p2->port;
     }

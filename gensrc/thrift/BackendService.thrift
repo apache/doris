@@ -103,6 +103,7 @@ struct TStreamLoadRecord {
     16: required i64 load_bytes
     17: required i64 start_time
     18: required i64 finish_time
+    19: optional string comment
 }
 
 struct TStreamLoadRecordResult {
@@ -135,10 +136,6 @@ service BackendService {
     // if params.fragmentId or params.destNodeId are unknown or if data couldn't be read.
     PaloInternalService.TTransmitDataResult transmit_data(
         1:PaloInternalService.TTransmitDataParams params);
-
-    // Coordinator Fetch Data From Root fragment
-    PaloInternalService.TFetchDataResult fetch_data(
-        1:PaloInternalService.TFetchDataParams params);
 
     AgentService.TAgentResult submit_tasks(1:list<AgentService.TAgentTaskRequest> tasks);
 

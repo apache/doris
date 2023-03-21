@@ -21,6 +21,7 @@
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/HeartbeatService_types.h>
 
+#include "common/status.h"
 #include "exec/schema_scanner.h"
 #include "gen_cpp/FrontendService.h"
 #include "runtime/client_cache.h"
@@ -32,8 +33,35 @@
 
 namespace doris {
 
+std::vector<SchemaScanner::ColumnDesc> SchemaBackendsScanner::_s_tbls_columns = {
+        //   name,       type,          size
+        {"BackendId", TYPE_BIGINT, sizeof(StringRef), false},
+        {"TabletNum", TYPE_BIGINT, sizeof(StringRef), false},
+        {"HeartbeatPort", TYPE_INT, sizeof(int), false},
+        {"BePort", TYPE_INT, sizeof(int), false},
+        {"HttpPort", TYPE_INT, sizeof(int), false},
+        {"BrpcPort", TYPE_INT, sizeof(int), false},
+        {"Cluster", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"IP", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"LastStartTime", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"LastHeartbeat", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"Alive", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"SystemDecommissioned", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"ClusterDecommissioned", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"DataUsedCapacity", TYPE_BIGINT, sizeof(int64_t), false},
+        {"AvailCapacity", TYPE_BIGINT, sizeof(int64_t), false},
+        {"TotalCapacity", TYPE_BIGINT, sizeof(int64_t), false},
+        {"UsedPct", TYPE_DOUBLE, sizeof(double), false},
+        {"MaxDiskUsedPct", TYPE_DOUBLE, sizeof(double), false},
+        {"RemoteUsedCapacity", TYPE_BIGINT, sizeof(int64_t), false},
+        {"Tag", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"ErrMsg", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"Version", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"Status", TYPE_VARCHAR, sizeof(StringRef), false},
+};
+
 SchemaBackendsScanner::SchemaBackendsScanner()
-        : SchemaScanner(nullptr, 0, TSchemaTableType::SCH_BACKENDS), _row_idx(0) {}
+        : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_BACKENDS) {}
 
 Status SchemaBackendsScanner::start(RuntimeState* state) {
     if (!_is_init) {
@@ -44,61 +72,56 @@ Status SchemaBackendsScanner::start(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaBackendsScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eos) {
+Status SchemaBackendsScanner::get_next_block(vectorized::Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
-    if (nullptr == tuple || nullptr == pool || nullptr == eos) {
+    if (nullptr == block || nullptr == eos) {
         return Status::InternalError("input pointer is nullptr.");
     }
-    if (_row_idx >= _batch_data.size()) {
-        *eos = true;
-        return Status::OK();
-    }
-    *eos = false;
-    return _fill_one_row(tuple, pool);
+    *eos = true;
+    return _fill_block_impl(block);
 }
 
-Status SchemaBackendsScanner::_fill_one_row(Tuple* tuple, MemPool* pool) {
-    memset((void*)tuple, 0, _tuple_desc->num_null_bytes());
-    for (size_t col_idx = 0; col_idx < _column_num; ++col_idx) {
-        RETURN_IF_ERROR(_fill_one_col(tuple, pool, col_idx));
-    }
-    ++_row_idx;
-    return Status::OK();
-}
+Status SchemaBackendsScanner::_fill_block_impl(vectorized::Block* block) {
+    SCOPED_TIMER(_fill_block_timer);
+    auto row_num = _batch_data.size();
+    std::vector<void*> null_datas(row_num, nullptr);
+    std::vector<void*> datas(row_num);
 
-Status SchemaBackendsScanner::_fill_one_col(Tuple* tuple, MemPool* pool, size_t col_idx) {
-    auto it = _col_name_to_type.find(_columns[col_idx].name);
-
-    // if this column is not exist in BE, we fill it with `NULL`.
-    if (it == _col_name_to_type.end()) {
-        if (_columns[col_idx].is_null) {
-            tuple->set_null(_tuple_desc->slots()[col_idx]->null_indicator_offset());
+    for (size_t col_idx = 0; col_idx < _columns.size(); ++col_idx) {
+        auto it = _col_name_to_type.find(_columns[col_idx].name);
+        if (it == _col_name_to_type.end()) {
+            if (_columns[col_idx].is_null) {
+                fill_dest_column_for_range(block, col_idx, null_datas);
+            } else {
+                return Status::InternalError(
+                        "column {} is not found in BE, and {} is not nullable.",
+                        _columns[col_idx].name, _columns[col_idx].name);
+            }
+        } else if (it->second == TYPE_BIGINT) {
+            for (int row_idx = 0; row_idx < row_num; ++row_idx) {
+                datas[row_idx] = &_batch_data[row_idx].column_value[col_idx].longVal;
+            }
+            fill_dest_column_for_range(block, col_idx, datas);
+        } else if (it->second == TYPE_INT) {
+            for (int row_idx = 0; row_idx < row_num; ++row_idx) {
+                datas[row_idx] = &_batch_data[row_idx].column_value[col_idx].intVal;
+            }
+            fill_dest_column_for_range(block, col_idx, datas);
+        } else if (it->second == TYPE_VARCHAR) {
+            for (int row_idx = 0; row_idx < row_num; ++row_idx) {
+                datas[row_idx] = &_batch_data[row_idx].column_value[col_idx].stringVal;
+            }
+            fill_dest_column_for_range(block, col_idx, datas);
+        } else if (it->second == TYPE_DOUBLE) {
+            for (int row_idx = 0; row_idx < row_num; ++row_idx) {
+                datas[row_idx] = &_batch_data[row_idx].column_value[col_idx].doubleVal;
+            }
+            fill_dest_column_for_range(block, col_idx, datas);
         } else {
-            return Status::InternalError("column {} is not found in BE, and {} is not nullable.",
-                                         _columns[col_idx].name, _columns[col_idx].name);
+            // other type
         }
-    } else if (it->second == TYPE_BIGINT) {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[col_idx]->tuple_offset());
-        *(reinterpret_cast<int64_t*>(slot)) = _batch_data[_row_idx].column_value[col_idx].longVal;
-    } else if (it->second == TYPE_INT) {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[col_idx]->tuple_offset());
-        *(reinterpret_cast<int32_t*>(slot)) = _batch_data[_row_idx].column_value[col_idx].intVal;
-    } else if (it->second == TYPE_VARCHAR) {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[col_idx]->tuple_offset());
-        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
-        str_slot->data =
-                (char*)pool->allocate(_batch_data[_row_idx].column_value[col_idx].stringVal.size());
-        str_slot->size = _batch_data[_row_idx].column_value[col_idx].stringVal.size();
-        memcpy(const_cast<char*>(str_slot->data),
-               _batch_data[_row_idx].column_value[col_idx].stringVal.c_str(), str_slot->size);
-    } else if (it->second == TYPE_DOUBLE) {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[col_idx]->tuple_offset());
-        *(reinterpret_cast<double_t*>(slot)) =
-                _batch_data[_row_idx].column_value[col_idx].doubleVal;
-    } else {
-        // other type
     }
     return Status::OK();
 }

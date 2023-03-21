@@ -22,7 +22,6 @@
 #include "gen_cpp/internal_service.pb.h"
 #include "util/brpc_client_cache.h"
 #include "vec/exprs/vexpr.h"
-#include "vec/runtime/vpartition_info.h"
 #include "vec/sink/vdata_stream_sender.h"
 
 namespace doris::pipeline {

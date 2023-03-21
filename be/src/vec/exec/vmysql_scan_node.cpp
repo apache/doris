@@ -77,12 +77,6 @@ Status VMysqlScanNode::prepare(RuntimeState* state) {
         return Status::InternalError("new a mysql scanner failed.");
     }
 
-    _tuple_pool.reset(new (std::nothrow) MemPool());
-
-    if (_tuple_pool.get() == nullptr) {
-        return Status::InternalError("new a mem pool failed.");
-    }
-
     _text_converter.reset(new (std::nothrow) TextConverter('\\'));
 
     if (_text_converter.get() == nullptr) {
@@ -226,8 +220,6 @@ Status VMysqlScanNode::close(RuntimeState* state) {
     }
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VMysqlScanNode::close");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-
-    _tuple_pool.reset();
 
     return ExecNode::close(state);
 }

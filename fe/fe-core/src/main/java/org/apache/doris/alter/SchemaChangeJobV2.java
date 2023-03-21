@@ -51,8 +51,10 @@ import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
+import org.apache.doris.task.AlterInvertedIndexTask;
 import org.apache.doris.task.AlterReplicaTask;
 import org.apache.doris.task.CreateReplicaTask;
+import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
@@ -94,6 +96,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     // shadow index id -> origin index id
     @SerializedName(value = "indexIdMap")
     private Map<Long, Long> indexIdMap = Maps.newHashMap();
+    // partition id -> origin index id
+    @SerializedName(value = "partitionOriginIndexIdMap")
+    private Map<Long, Long> partitionOriginIndexIdMap = Maps.newHashMap();
     // shadow index id -> shadow index name(__doris_shadow_xxx)
     @SerializedName(value = "indexIdToName")
     private Map<Long, String> indexIdToName = Maps.newHashMap();
@@ -118,8 +123,16 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     // alter index info
     @SerializedName(value = "indexChange")
     private boolean indexChange = false;
+    @SerializedName(value = "invertedIndexChange")
+    private boolean invertedIndexChange = false;
+    @SerializedName(value = "isDropOp")
+    private boolean isDropOp = false;
     @SerializedName(value = "indexes")
     private List<Index> indexes = null;
+    @SerializedName(value = "alterInvertedIndexes")
+    private List<Index> alterInvertedIndexes = null;
+    @SerializedName(value = "oriIndexes")
+    private List<Index> oriIndexes = null;
 
     // The schema change job will wait all transactions before this txn id finished, then send the schema change tasks.
     @SerializedName(value = "watershedTxnId")
@@ -153,6 +166,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         partitionIndexMap.put(partitionId, shadowIdxId, shadowIdx);
     }
 
+    public void addPartitionOriginIndexIdMap(long partitionId, long originIdxId) {
+        partitionOriginIndexIdMap.put(partitionId, originIdxId);
+    }
+
     public void addIndexSchema(long shadowIdxId, long originIdxId,
             String shadowIndexName, int shadowSchemaVersion, int shadowSchemaHash,
             short shadowIdxShortKeyCount, List<Column> shadowIdxSchema) {
@@ -174,6 +191,17 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         this.indexes = indexes;
     }
 
+    public void setAlterInvertedIndexInfo(boolean invertedIndexChange,
+                    boolean isDropOp, List<Index> alterInvertedIndexes) {
+        this.invertedIndexChange = invertedIndexChange;
+        this.isDropOp = isDropOp;
+        this.alterInvertedIndexes = alterInvertedIndexes;
+    }
+
+    public void setOriIndexInfo(List<Index> oriIndexes) {
+        this.oriIndexes = oriIndexes;
+    }
+
     public void setStorageFormat(TStorageFormat storageFormat) {
         this.storageFormat = storageFormat;
     }
@@ -187,6 +215,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         partitionIndexMap.clear();
         indexSchemaMap.clear();
         indexShortKeyMap.clear();
+        partitionOriginIndexIdMap.clear();
     }
 
     /**
@@ -267,7 +296,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     tbl.getCompressionType(),
                                     tbl.getEnableUniqueKeyMergeOnWrite(), tbl.getStoragePolicy(),
                                     tbl.disableAutoCompaction(),
-                                    tbl.storeRowColumn());
+                                    tbl.storeRowColumn(),
+                                    tbl.isDynamicSchema());
 
                             createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdxId)
                                     .get(shadowTabletId), originSchemaHash);
@@ -337,6 +367,11 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     }
 
     private void addShadowIndexToCatalog(OlapTable tbl) {
+        if (invertedIndexChange) {
+            // change inverted index no need create shadow index, it modifies on origin base tablet.
+            return;
+        }
+
         for (long partitionId : partitionIndexMap.rowKeySet()) {
             Partition partition = tbl.getPartition(partitionId);
             if (partition == null) {
@@ -369,6 +404,11 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     @Override
     protected void runWaitingTxnJob() throws AlterCancelException {
         Preconditions.checkState(jobState == JobState.WAITING_TXN, jobState);
+        if (invertedIndexChange) {
+            // generate a watershedTxnId
+            this.watershedTxnId = Env.getCurrentGlobalTransactionMgr()
+                    .getTransactionIDGenerator().getNextTransactionId();
+        }
 
         try {
             if (!isPreviousLoadFinished()) {
@@ -391,6 +431,59 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
 
         tbl.readLock();
+        if (invertedIndexChange) {
+            try {
+                long expiration = (createTimeMs + timeoutMs) / 1000;
+                Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
+
+                for (Map.Entry<Long, Long> entry : partitionOriginIndexIdMap.entrySet()) {
+                    long partitionId = entry.getKey();
+                    long originIdxId = entry.getValue();
+                    Partition partition = tbl.getPartition(partitionId);
+                    Preconditions.checkNotNull(partition, partitionId);
+                    // the schema change task will transform the data before visible
+                    // version(included).
+                    long visibleVersion = partition.getVisibleVersion();
+                    List<Column> originSchemaColumns = tbl.getSchemaByIndexId(originIdxId, true);
+                    for (Column col : originSchemaColumns) {
+                        TColumn tColumn = col.toThrift();
+                        col.setIndexFlag(tColumn, tbl);
+                    }
+                    int originSchemaHash = tbl.getSchemaHashByIndexId(originIdxId);
+                    MaterializedIndex origIdx = partition.getIndex(originIdxId);
+                    for (Tablet originTablet : origIdx.getTablets()) {
+                        long originTabletId = originTablet.getId();
+                        List<Replica> originReplicas = originTablet.getReplicas();
+                        for (Replica originReplica : originReplicas) {
+                            if (originReplica.getBackendId() < 0) {
+                                LOG.warn("replica:{}, backendId: {}", originReplica, originReplica.getBackendId());
+                                throw new AlterCancelException("originReplica:" + originReplica.getId()
+                                        + " backendId < 0");
+                            }
+                            AlterInvertedIndexTask alterInvertedIndexTask = new AlterInvertedIndexTask(
+                                    originReplica.getBackendId(), dbId, tableId,
+                                    partitionId, originIdxId, visibleVersion,
+                                    originTabletId, originSchemaHash,
+                                    jobId, JobType.SCHEMA_CHANGE,
+                                    isDropOp, alterInvertedIndexes, indexes, originSchemaColumns, expiration);
+                            schemaChangeBatchTask.addTask(alterInvertedIndexTask);
+                        }
+                    }
+                }
+            } finally {
+                tbl.readUnlock();
+            }
+            LOG.debug("schemaChangeBatchTask:{}", schemaChangeBatchTask);
+            AgentTaskQueue.addBatchTask(schemaChangeBatchTask);
+            AgentTaskExecutor.submit(schemaChangeBatchTask);
+
+            this.jobState = JobState.RUNNING;
+
+            // DO NOT write edit log here, tasks will be send again if FE restart or master changed.
+            LOG.info("transfer schema change job {} state to {}", jobId, this.jobState);
+            return;
+        }
+
         try {
             Map<String, Column> indexColumnMap = Maps.newHashMap();
             for (Map.Entry<Long, List<Column>> entry : indexSchemaMap.entrySet()) {
@@ -499,6 +592,13 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             LOG.info("schema change tasks not finished. job: {}", jobId);
             List<AgentTask> tasks = schemaChangeBatchTask.getUnfinishedTasks(2000);
             for (AgentTask task : tasks) {
+                if (invertedIndexChange) {
+                    // TODO(wy): more elegant implementation
+                    // keep alterInvertedIndex task in agent task queue, and try again after failed
+                    LOG.debug("alter inverted index task failed after try {} times, err msg: {}",
+                             task.getFailedTimes(), task.getErrorMsg());
+                    continue;
+                }
                 if (task.getFailedTimes() >= 3) {
                     task.setFinished(true);
                     AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
@@ -524,6 +624,22 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
          * we just check whether all new replicas are healthy.
          */
         tbl.writeLockOrAlterCancelException();
+        if (invertedIndexChange) {
+            // do nothing
+            try {
+                Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
+                onFinished(tbl);
+            } finally {
+                tbl.writeUnlock();
+            }
+            pruneMeta();
+            this.jobState = JobState.FINISHED;
+            this.finishedTimeMs = System.currentTimeMillis();
+            Env.getCurrentEnv().getEditLog().logAlterJob(this);
+            LOG.info("schema change job finished: {}", jobId);
+            return;
+        }
+
         try {
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
             TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
@@ -579,6 +695,11 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     }
 
     private void onFinished(OlapTable tbl) {
+        if (invertedIndexChange) {
+            tbl.setStorageFormat(storageFormat);
+            tbl.setState(OlapTableState.NORMAL);
+            return;
+        }
         // replace the origin index with shadow index, set index state as NORMAL
         for (Partition partition : tbl.getPartitions()) {
             // drop the origin index from partitions
@@ -709,6 +830,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     for (String shadowIndexName : indexIdToName.values()) {
                         tbl.deleteIndexInfo(shadowIndexName);
                     }
+                    if (invertedIndexChange) {
+                        // update index to oriIndexes, because inverted index updated before WAIT_TXN state.
+                        tbl.setIndexes(oriIndexes);
+                    }
                     tbl.setState(OlapTableState.NORMAL);
                     LOG.info("set table's state to NORMAL when cancel job: {}", tbl.getId(), jobId);
                 } finally {
@@ -746,7 +871,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
                 for (Tablet shadownTablet : shadowIndex.getTablets()) {
                     TabletMeta shadowTabletMeta = new TabletMeta(dbId, tableId, partitionId, shadowIndexId,
-                            indexSchemaVersionAndHashMap.get(shadowIndexId).schemaHash, medium, -1, 0);
+                            indexSchemaVersionAndHashMap.get(shadowIndexId).schemaHash, medium);
                     invertedIndex.addTablet(shadownTablet.getId(), shadowTabletMeta);
                     for (Replica shadowReplica : shadownTablet.getReplicas()) {
                         invertedIndex.addReplica(shadownTablet.getId(), shadowReplica);
@@ -775,6 +900,11 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         olapTable.writeLock();
         try {
             addShadowIndexToCatalog(olapTable);
+            if (invertedIndexChange) {
+                // invertedIndexChange job begin with WAITING_TXN, no PENDING state,
+                // here need set table state to SCHEMA_CHANGE when replay job begin at WAITING_TXN
+                olapTable.setState(OlapTableState.SCHEMA_CHANGE);
+            }
         } finally {
             olapTable.writeUnlock();
         }
@@ -805,7 +935,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
         jobState = JobState.FINISHED;
         this.finishedTimeMs = replayedJob.finishedTimeMs;
-        LOG.info("replay finished schema change job: {}", jobId);
+        LOG.info("replay finished schema change job: {} table id: {}", jobId, tableId);
     }
 
     /**
@@ -870,6 +1000,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             info.add(errMsg);
             info.add(progress);
             info.add(timeoutMs / 1000);
+            info.add(getOtherInfo());
             infos.add(info);
         }
     }
@@ -888,6 +1019,21 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             }
         }
         return taskInfos;
+    }
+
+    public String getOtherInfo() {
+        String info = null;
+        // can add info as needed
+        List<String> infoList = Lists.newArrayList();
+        if (invertedIndexChange) {
+            String invertedIndexChangeInfo = "";
+            for (Index invertedIndex : alterInvertedIndexes) {
+                invertedIndexChangeInfo += "[" + (isDropOp ? "DROP " : "ADD ") + invertedIndex.toString() + "], ";
+            }
+            infoList.add(invertedIndexChangeInfo);
+        }
+        info = Joiner.on(", ").join(infoList.subList(0, infoList.size()));
+        return info;
     }
 
     @Override

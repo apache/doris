@@ -105,7 +105,7 @@ public:
     // Client should delete returned iterator
     Status new_bitmap_index_iterator(BitmapIndexIterator** iterator);
 
-    Status new_inverted_index_iterator(const TabletIndex* index_meta,
+    Status new_inverted_index_iterator(const TabletIndex* index_meta, OlapReaderStatistics* stats,
                                        InvertedIndexIterator** iterator);
 
     // Seek to the first entry in the column.
@@ -152,7 +152,10 @@ public:
     uint64_t num_rows() const { return _num_rows; }
 
     void set_dict_encoding_type(DictEncodingType type) {
-        std::call_once(_set_dict_encoding_type_flag, [&] { _dict_encoding_type = type; });
+        _set_dict_encoding_type_once.call([&] {
+            _dict_encoding_type = type;
+            return Status::OK();
+        });
     }
 
     DictEncodingType get_dict_encoding_type() { return _dict_encoding_type; }
@@ -236,6 +239,7 @@ private:
     std::vector<std::unique_ptr<ColumnReader>> _sub_readers;
 
     std::once_flag _set_dict_encoding_type_flag;
+    DorisCallOnce<Status> _set_dict_encoding_type_once;
 };
 
 // Base iterator to read one column data
@@ -376,9 +380,118 @@ public:
     ordinal_t get_current_ordinal() const override { return 0; }
 };
 
+// This iterator make offset operation write once for
+class OffsetFileColumnIterator final : public ColumnIterator {
+public:
+    explicit OffsetFileColumnIterator(FileColumnIterator* offset_reader) {
+        _offset_iterator.reset(offset_reader);
+    }
+
+    ~OffsetFileColumnIterator() override = default;
+
+    Status init(const ColumnIteratorOptions& opts) override;
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+    ordinal_t get_current_ordinal() const override {
+        return _offset_iterator->get_current_ordinal();
+    }
+    Status seek_to_ordinal(ordinal_t ord) override {
+        RETURN_IF_ERROR(_offset_iterator->seek_to_ordinal(ord));
+        return Status::OK();
+    }
+
+    Status seek_to_first() override {
+        RETURN_IF_ERROR(_offset_iterator->seek_to_first());
+        return Status::OK();
+    }
+
+    Status _peek_one_offset(ordinal_t* offset);
+
+    Status _calculate_offsets(ssize_t start,
+                              vectorized::ColumnArray::ColumnOffsets& column_offsets);
+
+private:
+    std::unique_ptr<FileColumnIterator> _offset_iterator;
+};
+
+// This iterator is used to read map value column
+class MapFileColumnIterator final : public ColumnIterator {
+public:
+    explicit MapFileColumnIterator(ColumnReader* reader, ColumnIterator* null_iterator,
+                                   OffsetFileColumnIterator* offsets_iterator,
+                                   ColumnIterator* key_iterator, ColumnIterator* val_iterator);
+
+    ~MapFileColumnIterator() override = default;
+
+    Status init(const ColumnIteratorOptions& opts) override;
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          vectorized::MutableColumnPtr& dst) override;
+    Status seek_to_first() override {
+        RETURN_IF_ERROR(_key_iterator->seek_to_first());
+        RETURN_IF_ERROR(_val_iterator->seek_to_first());
+        RETURN_IF_ERROR(_offsets_iterator->seek_to_first());
+        if (_map_reader->is_nullable()) {
+            RETURN_IF_ERROR(_null_iterator->seek_to_first());
+        }
+        return Status::OK();
+    }
+
+    Status seek_to_ordinal(ordinal_t ord) override;
+
+    ordinal_t get_current_ordinal() const override {
+        return _offsets_iterator->get_current_ordinal();
+    }
+
+private:
+    ColumnReader* _map_reader;
+    std::unique_ptr<ColumnIterator> _null_iterator;
+    std::unique_ptr<OffsetFileColumnIterator> _offsets_iterator; //OffsetFileIterator
+    std::unique_ptr<ColumnIterator> _key_iterator;
+    std::unique_ptr<ColumnIterator> _val_iterator;
+};
+
+class StructFileColumnIterator final : public ColumnIterator {
+public:
+    explicit StructFileColumnIterator(ColumnReader* reader, ColumnIterator* null_iterator,
+                                      std::vector<ColumnIterator*>& sub_column_iterators);
+
+    ~StructFileColumnIterator() override = default;
+
+    Status init(const ColumnIteratorOptions& opts) override;
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          vectorized::MutableColumnPtr& dst) override;
+
+    Status seek_to_first() override {
+        for (auto& column_iterator : _sub_column_iterators) {
+            RETURN_IF_ERROR(column_iterator->seek_to_first());
+        }
+        if (_struct_reader->is_nullable()) {
+            RETURN_IF_ERROR(_null_iterator->seek_to_first());
+        }
+        return Status::OK();
+    }
+
+    Status seek_to_ordinal(ordinal_t ord) override;
+
+    ordinal_t get_current_ordinal() const override {
+        return _sub_column_iterators[0]->get_current_ordinal();
+    }
+
+private:
+    ColumnReader* _struct_reader;
+    std::unique_ptr<ColumnIterator> _null_iterator;
+    std::vector<std::unique_ptr<ColumnIterator>> _sub_column_iterators;
+};
+
 class ArrayFileColumnIterator final : public ColumnIterator {
 public:
-    explicit ArrayFileColumnIterator(ColumnReader* reader, FileColumnIterator* offset_reader,
+    explicit ArrayFileColumnIterator(ColumnReader* reader, OffsetFileColumnIterator* offset_reader,
                                      ColumnIterator* item_iterator, ColumnIterator* null_iterator);
 
     ~ArrayFileColumnIterator() override = default;
@@ -407,14 +520,11 @@ public:
 
 private:
     ColumnReader* _array_reader;
-    std::unique_ptr<FileColumnIterator> _offset_iterator;
+    std::unique_ptr<OffsetFileColumnIterator> _offset_iterator;
     std::unique_ptr<ColumnIterator> _null_iterator;
     std::unique_ptr<ColumnIterator> _item_iterator;
 
-    Status _peek_one_offset(ordinal_t* offset);
     Status _seek_by_offsets(ordinal_t ord);
-    Status _calculate_offsets(ssize_t start,
-                              vectorized::ColumnArray::ColumnOffsets& column_offsets);
 };
 
 class RowIdColumnIterator : public ColumnIterator {
@@ -471,18 +581,15 @@ private:
 class DefaultValueColumnIterator : public ColumnIterator {
 public:
     DefaultValueColumnIterator(bool has_default_value, const std::string& default_value,
-                               bool is_nullable, TypeInfoPtr type_info, size_t schema_length,
-                               int precision, int scale)
+                               bool is_nullable, TypeInfoPtr type_info, int precision, int scale)
             : _has_default_value(has_default_value),
               _default_value(default_value),
               _is_nullable(is_nullable),
               _type_info(std::move(type_info)),
-              _schema_length(schema_length),
               _is_default_value_null(false),
               _type_size(0),
               _precision(precision),
-              _scale(scale),
-              _pool(new MemPool()) {}
+              _scale(scale) {}
 
     Status init(const ColumnIteratorOptions& opts) override;
 
@@ -522,13 +629,11 @@ private:
     std::string _default_value;
     bool _is_nullable;
     TypeInfoPtr _type_info;
-    size_t _schema_length;
     bool _is_default_value_null;
     size_t _type_size;
     int _precision;
     int _scale;
-    void* _mem_value = nullptr;
-    std::unique_ptr<MemPool> _pool;
+    std::vector<char> _mem_value;
 
     // current rowid
     ordinal_t _current_rowid = 0;

@@ -21,8 +21,7 @@
 
 suite("load") {
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
-    sql "SET enable_fallback_to_original_planner=false" 
+    sql "SET enable_fallback_to_original_planner=false"
     def tables=["test_join", "full_join_table", "test_bucket_shuffle_join", "table_1", "table_2", "table_3", "left_table", "right_table"]
 
     for (String table in tables) {

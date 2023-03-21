@@ -75,10 +75,28 @@ public:
     TabletSharedPtr get_tablet(TTabletId tablet_id, bool include_deleted = false,
                                std::string* err = nullptr);
 
+    std::pair<TabletSharedPtr, Status> get_tablet_and_status(TTabletId tablet_id,
+                                                             bool include_deleted = false);
+
     TabletSharedPtr get_tablet(TTabletId tablet_id, TabletUid tablet_uid,
                                bool include_deleted = false, std::string* err = nullptr);
 
-    std::vector<TabletSharedPtr> get_all_tablet();
+    std::vector<TabletSharedPtr> get_all_tablet(std::function<bool(Tablet*)>&& filter =
+                                                        [](Tablet* t) { return t->is_used(); }) {
+        std::vector<TabletSharedPtr> res;
+        for (const auto& tablets_shard : _tablets_shards) {
+            std::shared_lock rdlock(tablets_shard.lock);
+            for (auto& [id, tablet] : tablets_shard.tablet_map) {
+                if (filter(tablet.get())) {
+                    res.emplace_back(tablet);
+                }
+            }
+        }
+        return res;
+    }
+
+    uint64_t get_rowset_nums();
+    uint64_t get_segment_nums();
 
     // Extract tablet_id and schema_hash from given path.
     //
@@ -130,13 +148,15 @@ public:
 
     void obtain_specific_quantity_tablets(std::vector<TabletInfo>& tablets_info, int64_t num);
 
-    void register_clone_tablet(int64_t tablet_id);
+    // return `true` if register success
+    bool register_clone_tablet(int64_t tablet_id);
     void unregister_clone_tablet(int64_t tablet_id);
 
     void get_tablets_distribution_on_different_disks(
             std::map<int64_t, std::map<DataDir*, int64_t>>& tablets_num_on_disk,
             std::map<int64_t, std::map<DataDir*, std::vector<TabletSize>>>& tablets_info_on_disk);
-    void get_cooldown_tablets(std::vector<TabletSharedPtr>* tables);
+    void get_cooldown_tablets(std::vector<TabletSharedPtr>* tables,
+                              std::function<bool(const TabletSharedPtr&)> skip_tablet);
 
     void get_all_tablets_storage_format(TCheckStorageFormatResult* result);
 

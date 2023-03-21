@@ -17,6 +17,7 @@
 
 #include "service/point_query_executor.h"
 
+#include "olap/lru_cache.h"
 #include "olap/row_cursor.h"
 #include "olap/storage_engine.h"
 #include "service/internal_service.h"
@@ -26,6 +27,7 @@
 #include "util/thrift_util.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vliteral.h"
+#include "vec/jsonb/serialize.h"
 #include "vec/sink/vmysql_result_writer.cpp"
 
 namespace doris {
@@ -61,6 +63,7 @@ std::unique_ptr<vectorized::Block> Reusable::get_block() {
         return std::make_unique<vectorized::Block>(tuple_desc()->slots(), 4);
     }
     auto block = std::move(_block_pool.back());
+    CHECK(block != nullptr);
     _block_pool.pop_back();
     return block;
 }
@@ -72,6 +75,52 @@ void Reusable::return_block(std::unique_ptr<vectorized::Block>& block) {
     }
     block->clear_column_data();
     _block_pool.push_back(std::move(block));
+}
+
+RowCache* RowCache::_s_instance = nullptr;
+
+RowCache::RowCache(int64_t capacity, int num_shards) {
+    // Create Row Cache
+    _cache = std::unique_ptr<Cache>(
+            new_lru_cache("RowCache", capacity, LRUCacheType::SIZE, num_shards));
+}
+
+// Create global instance of this class
+void RowCache::create_global_cache(int64_t capacity, uint32_t num_shards) {
+    DCHECK(_s_instance == nullptr);
+    static RowCache instance(capacity, num_shards);
+    _s_instance = &instance;
+}
+
+RowCache* RowCache::instance() {
+    return _s_instance;
+}
+
+bool RowCache::lookup(const RowCacheKey& key, CacheHandle* handle) {
+    const std::string& encoded_key = key.encode();
+    auto lru_handle = _cache->lookup(encoded_key);
+    if (!lru_handle) {
+        // cache miss
+        return false;
+    }
+    *handle = CacheHandle(_cache.get(), lru_handle);
+    return true;
+}
+
+void RowCache::insert(const RowCacheKey& key, const Slice& value) {
+    auto deleter = [](const doris::CacheKey& key, void* value) { free(value); };
+    char* cache_value = static_cast<char*>(malloc(value.size));
+    memcpy(cache_value, value.data, value.size);
+    const std::string& encoded_key = key.encode();
+    auto handle =
+            _cache->insert(encoded_key, cache_value, value.size, deleter, CachePriority::NORMAL);
+    // handle will released
+    auto tmp = CacheHandle {_cache.get(), handle};
+}
+
+void RowCache::erase(const RowCacheKey& key) {
+    const std::string& encoded_key = key.encode();
+    _cache->erase(encoded_key);
 }
 
 Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
@@ -101,9 +150,9 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
                 &t_output_exprs));
         _reusable = reusable_ptr;
         if (uuid != 0) {
-            LookupCache::instance().add(uuid, reusable_ptr);
             // could be reused by requests after, pre allocte more blocks
             RETURN_IF_ERROR(reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, 128));
+            LookupCache::instance().add(uuid, reusable_ptr);
         } else {
             RETURN_IF_ERROR(reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, 1));
         }
@@ -116,7 +165,7 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
     }
     RETURN_IF_ERROR(_init_keys(request));
     _result_block = _reusable->get_block();
-    DCHECK(_result_block != nullptr);
+    CHECK(_result_block != nullptr);
     return Status::OK();
 }
 
@@ -142,10 +191,11 @@ std::string PointQueryExecutor::print_profile() {
             "lookup_key:{}us, lookup_data:{}us, output_data:{}us, hit_lookup_cache:{}"
             ""
             ""
-            ", is_binary_row:{}, output_columns:{}"
+            ", is_binary_row:{}, output_columns:{}, total_keys:{}, row_cache_hits:{}"
             "",
             total_us, init_us, init_key_us, lookup_key_us, lookup_data_us, output_data_us,
-            _hit_lookup_cache, _binary_row_format, _reusable->output_exprs().size());
+            _hit_lookup_cache, _binary_row_format, _reusable->output_exprs().size(),
+            _row_read_ctxs.size(), _row_cache_hits);
 }
 
 Status PointQueryExecutor::_init_keys(const PTabletKeyLookupRequest* request) {
@@ -159,32 +209,49 @@ Status PointQueryExecutor::_init_keys(const PTabletKeyLookupRequest* request) {
             olap_tuples[i].add_value(key_col);
         }
     }
-    _primary_keys.resize(olap_tuples.size());
+    _row_read_ctxs.resize(olap_tuples.size());
     // get row cursor and encode keys
     for (size_t i = 0; i < olap_tuples.size(); ++i) {
         RowCursor cursor;
         RETURN_IF_ERROR(cursor.init_scan_key(_tablet->tablet_schema(), olap_tuples[i].values()));
         RETURN_IF_ERROR(cursor.from_tuple(olap_tuples[i]));
-        encode_key_with_padding<RowCursor, true, true>(
-                &_primary_keys[i], cursor, _tablet->tablet_schema()->num_key_columns(), true);
+        encode_key_with_padding<RowCursor, true, true>(&_row_read_ctxs[i]._primary_key, cursor,
+                                                       _tablet->tablet_schema()->num_key_columns(),
+                                                       true);
     }
     return Status::OK();
 }
 
 Status PointQueryExecutor::_lookup_row_key() {
     SCOPED_TIMER(&_profile_metrics.lookup_key_ns);
-    _row_locations.reserve(_primary_keys.size());
     // 2. lookup row location
     Status st;
-    for (size_t i = 0; i < _primary_keys.size(); ++i) {
+    for (size_t i = 0; i < _row_read_ctxs.size(); ++i) {
         RowLocation location;
-        st = (_tablet->lookup_row_key(_primary_keys[i], nullptr, &location,
-                                      INT32_MAX /*rethink?*/));
+        if (!config::disable_storage_row_cache) {
+            RowCache::CacheHandle cache_handle;
+            auto hit_cache = RowCache::instance()->lookup(
+                    {_tablet->tablet_id(), _row_read_ctxs[i]._primary_key}, &cache_handle);
+            if (hit_cache) {
+                _row_read_ctxs[i]._cached_row_data = std::move(cache_handle);
+                ++_row_cache_hits;
+                continue;
+            }
+        }
+        // Get rowlocation and rowset, ctx._rowset_ptr will acquire wrap this ptr
+        auto rowset_ptr = std::make_unique<RowsetSharedPtr>();
+        st = (_tablet->lookup_row_key(_row_read_ctxs[i]._primary_key, nullptr, &location,
+                                      INT32_MAX /*rethink?*/, rowset_ptr.get()));
         if (st.is_not_found()) {
             continue;
         }
         RETURN_IF_ERROR(st);
-        _row_locations.push_back(location);
+        _row_read_ctxs[i]._row_location = location;
+        // acquire and wrap this rowset
+        (*rowset_ptr)->acquire();
+        VLOG_DEBUG << "aquire rowset " << (*rowset_ptr)->unique_id();
+        _row_read_ctxs[i]._rowset_ptr = std::unique_ptr<RowsetSharedPtr, decltype(&release_rowset)>(
+                rowset_ptr.release(), &release_rowset);
     }
     return Status::OK();
 }
@@ -192,16 +259,27 @@ Status PointQueryExecutor::_lookup_row_key() {
 Status PointQueryExecutor::_lookup_row_data() {
     // 3. get values
     SCOPED_TIMER(&_profile_metrics.lookup_data_ns);
-    for (size_t i = 0; i < _row_locations.size(); ++i) {
-        RETURN_IF_ERROR(_tablet->lookup_row_data(_row_locations[i], _reusable->tuple_desc(),
-                                                 _result_block.get()));
+    for (size_t i = 0; i < _row_read_ctxs.size(); ++i) {
+        if (_row_read_ctxs[i]._cached_row_data.valid()) {
+            vectorized::JsonbSerializeUtil::jsonb_to_block(
+                    *_reusable->tuple_desc(), _row_read_ctxs[i]._cached_row_data.data().data,
+                    _row_read_ctxs[i]._cached_row_data.data().size, *_result_block);
+            continue;
+        }
+        if (!_row_read_ctxs[i]._row_location.has_value()) {
+            continue;
+        }
+        RETURN_IF_ERROR(_tablet->lookup_row_data(
+                _row_read_ctxs[i]._primary_key, _row_read_ctxs[i]._row_location.value(),
+                *(_row_read_ctxs[i]._rowset_ptr), _reusable->tuple_desc(), _result_block.get(),
+                !config::disable_storage_row_cache /*whether write row cache*/));
     }
     return Status::OK();
 }
 
 template <typename MysqlWriter>
-static Status _serialize_block(MysqlWriter& mysql_writer, vectorized::Block& block,
-                               PTabletKeyLookupResponse* response) {
+Status _serialize_block(MysqlWriter& mysql_writer, vectorized::Block& block,
+                        PTabletKeyLookupResponse* response) {
     RETURN_IF_ERROR(mysql_writer.append_block(block));
     assert(mysql_writer.results().size() == 1);
     uint8_t* buf = nullptr;

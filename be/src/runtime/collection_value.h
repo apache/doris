@@ -21,15 +21,13 @@
 
 #include "runtime/primitive_type.h"
 
-namespace doris_udf {
+namespace doris {
 class FunctionContext;
-struct AnyVal;
-} // namespace doris_udf
+} // namespace doris
 
 namespace doris {
 
-using doris_udf::FunctionContext;
-using doris_udf::AnyVal;
+using doris::FunctionContext;
 
 using MemFootprint = std::pair<int64_t, uint8_t*>;
 using GenMemFootprintFunc = std::function<MemFootprint(int64_t size)>;
@@ -38,7 +36,6 @@ struct ArrayIteratorFunctionsBase;
 class ArrayIterator;
 class Status;
 class ObjectPool;
-class MemPool;
 struct TypeDescriptor;
 
 template <PrimitiveType type>
@@ -77,8 +74,6 @@ public:
             : _data(data), _length(length), _has_null(has_null), _null_signs(null_signs) {}
 
     bool is_null_at(uint64_t index) const { return this->_has_null && this->_null_signs[index]; }
-
-    void to_collection_val(CollectionVal* val) const;
 
     uint64_t size() const { return _length; }
 

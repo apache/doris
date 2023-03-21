@@ -28,7 +28,6 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * prune its child output according to repeat.
@@ -54,7 +53,7 @@ public class PruneRepeatChildColumns extends OneRewriteRuleFactory {
             List<Slot> childOutput = repeat.child().getOutput();
             Set<Slot> groupByInputSlots = repeat.getInputSlots();
             List<NamedExpression> prunedOutputs = childOutput.stream().filter(groupByInputSlots::contains)
-                    .collect(Collectors.toList());
+                    .collect(ImmutableList.toImmutableList());
             if (prunedOutputs.size() == repeat.child().getOutput().size()) {
                 return repeat;
             }

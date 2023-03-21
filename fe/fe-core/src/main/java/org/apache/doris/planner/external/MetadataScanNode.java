@@ -47,7 +47,7 @@ public class MetadataScanNode extends ScanNode {
 
     private List<TScanRangeLocations> scanRangeLocations = Lists.newArrayList();
 
-    private final BackendPolicy backendPolicy = new BackendPolicy();
+    private final FederationBackendPolicy backendPolicy = new FederationBackendPolicy();
 
     public MetadataScanNode(PlanNodeId id, TupleDescriptor desc, MetadataTableValuedFunction tvf) {
         super(id, desc, "METADATA_SCAN_NODE", StatisticalType.METADATA_SCAN_NODE);
@@ -81,6 +81,11 @@ public class MetadataScanNode extends ScanNode {
         buildScanRanges();
     }
 
+    @Override
+    public boolean needToCheckColumnPriv() {
+        return super.needToCheckColumnPriv();
+    }
+
     private void buildScanRanges() {
         if (tvf.getMetaType() == MetadataTableValuedFunction.MetaType.ICEBERG) {
             IcebergTableValuedFunction icebergTvf = (IcebergTableValuedFunction) tvf;
@@ -104,7 +109,7 @@ public class MetadataScanNode extends ScanNode {
         TScanRangeLocation location = new TScanRangeLocation();
         Backend backend = backendPolicy.getNextBe();
         location.setBackendId(backend.getId());
-        location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
+        location.setServer(new TNetworkAddress(backend.getIp(), backend.getBePort()));
 
         TScanRangeLocations result = new TScanRangeLocations();
         result.addToLocations(location);

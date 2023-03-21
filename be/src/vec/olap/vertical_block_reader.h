@@ -41,9 +41,12 @@ public:
     // Initialize VerticalBlockReader with tablet, data version and fetch range.
     Status init(const ReaderParams& read_params) override;
 
-    Status next_block_with_aggregation(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
-                                       bool* eof) override {
-        return (this->*_next_block_func)(block, mem_pool, agg_pool, eof);
+    Status next_block_with_aggregation(Block* block, bool* eof) override {
+        auto res = (this->*_next_block_func)(block, eof);
+        if (UNLIKELY(res.is_io_error())) {
+            _tablet->increase_io_error_times();
+        }
+        return res;
     }
 
     uint64_t merged_rows() const override {
@@ -55,18 +58,18 @@ public:
 private:
     // Directly read row from rowset and pass to upper caller. No need to do aggregation.
     // This is usually used for DUPLICATE KEY tables
-    Status _direct_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool, bool* eof);
+    Status _direct_next_block(Block* block, bool* eof);
     // For normal AGGREGATE KEY tables, read data by a merge heap.
-    Status _agg_key_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool, bool* eof);
+    Status _agg_key_next_block(Block* block, bool* eof);
     // For UNIQUE KEY tables, read data by a merge heap.
     // The difference from _agg_key_next_block is that it will read the data from high version to low version,
     // to minimize the comparison time in merge heap.
-    Status _unique_key_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool, bool* eof);
+    Status _unique_key_next_block(Block* block, bool* eof);
 
     Status _init_collect_iter(const ReaderParams& read_params);
 
     Status _get_segment_iterators(const ReaderParams& read_params,
-                                  std::vector<RowwiseIterator*>* segment_iters,
+                                  std::vector<RowwiseIteratorUPtr>* segment_iters,
                                   std::vector<bool>* iterator_init_flag,
                                   std::vector<RowsetId>* rowset_ids);
 
@@ -82,8 +85,7 @@ private:
 
     bool _eof = false;
 
-    Status (VerticalBlockReader::*_next_block_func)(Block* block, MemPool* mem_pool,
-                                                    ObjectPool* agg_pool, bool* eof) = nullptr;
+    Status (VerticalBlockReader::*_next_block_func)(Block* block, bool* eof) = nullptr;
 
     RowSourcesBuffer* _row_sources_buffer;
     ColumnPtr _delete_filter_column;

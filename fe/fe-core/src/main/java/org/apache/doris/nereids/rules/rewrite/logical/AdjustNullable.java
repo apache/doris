@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -62,7 +63,7 @@ public class AdjustNullable implements RewriteRuleFactory {
                 RuleType.ADJUST_NULLABLE_ON_FILTER.build(logicalFilter().then(filter -> {
                     Map<ExprId, Slot> exprIdSlotMap = collectChildrenOutputMap(filter);
                     Set<Expression> conjuncts = updateExpressions(filter.getConjuncts(), exprIdSlotMap);
-                    return new LogicalFilter<>(conjuncts, filter.isSingleTableExpressionExtracted(), filter.child());
+                    return new LogicalFilter<>(conjuncts, filter.child());
                 })),
                 RuleType.ADJUST_NULLABLE_ON_GENERATE.build(logicalGenerate().then(generate -> {
                     Map<ExprId, Slot> exprIdSlotMap = collectChildrenOutputMap(generate);
@@ -75,9 +76,7 @@ public class AdjustNullable implements RewriteRuleFactory {
                     List<Expression> otherConjuncts = updateExpressions(join.getOtherJoinConjuncts(), exprIdSlotMap);
                     return join.withJoinConjuncts(hashConjuncts, otherConjuncts).recomputeLogicalProperties();
                 })),
-                RuleType.ADJUST_NULLABLE_ON_LIMIT.build(logicalLimit().then(limit -> {
-                    return limit.recomputeLogicalProperties();
-                })),
+                RuleType.ADJUST_NULLABLE_ON_LIMIT.build(logicalLimit().then(LogicalPlan::recomputeLogicalProperties)),
                 RuleType.ADJUST_NULLABLE_ON_PROJECT.build(logicalProject().then(project -> {
                     Map<ExprId, Slot> exprIdSlotMap = collectChildrenOutputMap(project);
                     List<NamedExpression> newProjects = updateExpressions(project.getProjects(), exprIdSlotMap);
@@ -88,7 +87,7 @@ public class AdjustNullable implements RewriteRuleFactory {
                     List<NamedExpression> newOutputs = updateExpressions(repeat.getOutputExpressions(), exprIdSlotMap);
                     List<List<Expression>> newGroupingSets = repeat.getGroupingSets().stream()
                             .map(l -> updateExpressions(l, exprIdSlotMap))
-                            .collect(Collectors.toList());
+                            .collect(ImmutableList.toImmutableList());
                     return repeat.withGroupSetsAndOutput(newGroupingSets, newOutputs).recomputeLogicalProperties();
                 })),
                 RuleType.ADJUST_NULLABLE_ON_SET_OPERATION.build(logicalSetOperation().then(setOperation -> {
@@ -117,14 +116,14 @@ public class AdjustNullable implements RewriteRuleFactory {
                     Map<ExprId, Slot> exprIdSlotMap = collectChildrenOutputMap(sort);
                     List<OrderKey> newKeys = sort.getOrderKeys().stream()
                             .map(old -> old.withExpression(updateExpression(old.getExpr(), exprIdSlotMap)))
-                            .collect(Collectors.toList());
+                            .collect(ImmutableList.toImmutableList());
                     return sort.withOrderKeys(newKeys).recomputeLogicalProperties();
                 })),
                 RuleType.ADJUST_NULLABLE_ON_TOP_N.build(logicalTopN().then(topN -> {
                     Map<ExprId, Slot> exprIdSlotMap = collectChildrenOutputMap(topN);
                     List<OrderKey> newKeys = topN.getOrderKeys().stream()
                             .map(old -> old.withExpression(updateExpression(old.getExpr(), exprIdSlotMap)))
-                            .collect(Collectors.toList());
+                            .collect(ImmutableList.toImmutableList());
                     return topN.withOrderKeys(newKeys).recomputeLogicalProperties();
                 }))
         );
@@ -135,11 +134,11 @@ public class AdjustNullable implements RewriteRuleFactory {
     }
 
     private <T extends Expression> List<T> updateExpressions(List<T> inputs, Map<ExprId, Slot> exprIdSlotMap) {
-        return inputs.stream().map(i -> updateExpression(i, exprIdSlotMap)).collect(Collectors.toList());
+        return inputs.stream().map(i -> updateExpression(i, exprIdSlotMap)).collect(ImmutableList.toImmutableList());
     }
 
     private <T extends Expression> Set<T> updateExpressions(Set<T> inputs, Map<ExprId, Slot> exprIdSlotMap) {
-        return inputs.stream().map(i -> updateExpression(i, exprIdSlotMap)).collect(Collectors.toSet());
+        return inputs.stream().map(i -> updateExpression(i, exprIdSlotMap)).collect(ImmutableSet.toImmutableSet());
     }
 
     private Map<ExprId, Slot> collectChildrenOutputMap(LogicalPlan plan) {

@@ -24,7 +24,7 @@ import org.apache.doris.analysis.ResourceDesc;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.BaseProcResult;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -64,7 +64,8 @@ public class SparkResourceTest {
     }
 
     @Test
-    public void testFromStmt(@Injectable BrokerMgr brokerMgr, @Mocked Env env, @Injectable PaloAuth auth)
+    public void testFromStmt(@Injectable BrokerMgr brokerMgr, @Mocked Env env,
+            @Injectable AccessControllerManager accessManager)
             throws UserException {
         new Expectations() {
             {
@@ -72,9 +73,9 @@ public class SparkResourceTest {
                 result = brokerMgr;
                 brokerMgr.containsBroker(broker);
                 result = true;
-                env.getAuth();
-                result = auth;
-                auth.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
+                env.getAccessManager();
+                result = accessManager;
+                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;
             }
         };
@@ -117,10 +118,27 @@ public class SparkResourceTest {
         BaseProcResult result = new BaseProcResult();
         resource.getProcNodeData(result);
         Assert.assertEquals(9, result.getRows().size());
+
+        properties.clear();
+        properties.put("type", type);
+        properties.put("spark.master", "yarn");
+        properties.put("spark.submit.deployMode", "cluster");
+        properties.put("spark.hadoop.yarn.resourcemanager.ha.enabled", "true");
+        properties.put("spark.hadoop.yarn.resourcemanager.ha.rm-ids", "rm1,rm2");
+        properties.put("spark.hadoop.yarn.resourcemanager.hostname.rm1", "host1");
+        properties.put("spark.hadoop.yarn.resourcemanager.hostname.rm2", "host2");
+        properties.put("spark.hadoop.fs.defaultFS", "hdfs://127.0.0.1:10000");
+        stmt = new CreateResourceStmt(true, false, name, properties);
+        stmt.analyze(analyzer);
+        resource = (SparkResource) Resource.fromStmt(stmt);
+        Assert.assertTrue(resource.isYarnMaster());
+        map = resource.getSparkConfigs();
+        Assert.assertEquals(7, map.size());
     }
 
     @Test
-    public void testUpdate(@Injectable BrokerMgr brokerMgr, @Mocked Env env, @Injectable PaloAuth auth)
+    public void testUpdate(@Injectable BrokerMgr brokerMgr, @Mocked Env env,
+            @Injectable AccessControllerManager accessManager)
             throws UserException {
         new Expectations() {
             {
@@ -128,9 +146,9 @@ public class SparkResourceTest {
                 result = brokerMgr;
                 brokerMgr.containsBroker(broker);
                 result = true;
-                env.getAuth();
-                result = auth;
-                auth.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
+                env.getAccessManager();
+                result = accessManager;
+                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;
             }
         };
@@ -157,7 +175,8 @@ public class SparkResourceTest {
     }
 
     @Test(expected = DdlException.class)
-    public void testNoBroker(@Injectable BrokerMgr brokerMgr, @Mocked Env env, @Injectable PaloAuth auth)
+    public void testNoBroker(@Injectable BrokerMgr brokerMgr, @Mocked Env env,
+            @Injectable AccessControllerManager accessManager)
             throws UserException {
         new Expectations() {
             {
@@ -165,9 +184,9 @@ public class SparkResourceTest {
                 result = brokerMgr;
                 brokerMgr.containsBroker(broker);
                 result = false;
-                env.getAuth();
-                result = auth;
-                auth.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
+                env.getAccessManager();
+                result = accessManager;
+                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;
             }
         };

@@ -23,7 +23,7 @@
 namespace doris {
 using namespace ErrorCode;
 
-BaseCompaction::BaseCompaction(TabletSharedPtr tablet)
+BaseCompaction::BaseCompaction(const TabletSharedPtr& tablet)
         : Compaction(tablet, "BaseCompaction:" + std::to_string(tablet->tablet_id())) {}
 
 BaseCompaction::~BaseCompaction() {}
@@ -90,8 +90,13 @@ Status BaseCompaction::execute_compact_impl() {
 void BaseCompaction::_filter_input_rowset() {
     // if dup_key and no delete predicate
     // we skip big files too save resources
-    if (_tablet->keys_type() != KeysType::DUP_KEYS || _tablet->delete_predicates().size() != 0) {
+    if (_tablet->keys_type() != KeysType::DUP_KEYS) {
         return;
+    }
+    for (auto& rs : _input_rowsets) {
+        if (rs->rowset_meta()->has_delete_predicate()) {
+            return;
+        }
     }
     int64_t max_size = config::base_compaction_dup_key_max_file_size_mbytes * 1024 * 1024;
     // first find a proper rowset for start

@@ -18,23 +18,30 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.AnalyzeStmt;
+import org.apache.doris.analysis.ShowAnalyzeStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisTaskInfo.JobType;
 import org.apache.doris.statistics.AnalysisTaskInfo.ScheduleType;
+import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.text.StringSubstitutor;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -51,6 +58,14 @@ public class AnalysisManager {
             + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.ANALYSIS_JOB_TABLE + " "
             + "SET state = '${jobState}' ${message} ${updateExecTime} WHERE job_id = ${jobId}";
 
+    private static final String SHOW_JOB_STATE_SQL_TEMPLATE = "SELECT "
+            + "job_id, catalog_name, db_name, tbl_name, col_name, job_type, "
+            + "analysis_type, message, last_exec_time_in_ms, state, schedule_type "
+            + "FROM " + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.ANALYSIS_JOB_TABLE;
+
+    // The time field that needs to be displayed
+    private static final String LAST_EXEC_TIME_IN_MS = "last_exec_time_in_ms";
+
     private final ConcurrentMap<Long, Map<Long, AnalysisTaskInfo>> analysisJobIdToTaskMap;
 
     private StatisticsCache statisticsCache;
@@ -63,6 +78,10 @@ public class AnalysisManager {
         taskExecutor = new AnalysisTaskExecutor(taskScheduler);
         this.statisticsCache = new StatisticsCache();
         taskExecutor.start();
+    }
+
+    public StatisticsCache getStatisticsCache() {
+        return statisticsCache;
     }
 
     public void createAnalysisJob(AnalyzeStmt analyzeStmt) {
@@ -142,7 +161,33 @@ public class AnalysisManager {
         }
     }
 
-    public StatisticsCache getStatisticsCache() {
-        return statisticsCache;
+    public List<List<Comparable>> showAnalysisJob(ShowAnalyzeStmt stmt) throws DdlException {
+        String whereClause = stmt.getWhereClause();
+        long limit = stmt.getLimit();
+        String executeSql = SHOW_JOB_STATE_SQL_TEMPLATE
+                + (whereClause.isEmpty() ? "" : " WHERE " + whereClause)
+                + (limit == -1L ? "" : " LIMIT " + limit);
+
+        List<List<Comparable>> results = Lists.newArrayList();
+        ImmutableList<String> titleNames = stmt.getTitleNames();
+        List<ResultRow> resultRows = StatisticsUtil.execStatisticQuery(executeSql);
+
+        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+
+        for (ResultRow resultRow : resultRows) {
+            List<Comparable> result = Lists.newArrayList();
+            for (String column : titleNames) {
+                String value = resultRow.getColumnValue(column);
+                if (LAST_EXEC_TIME_IN_MS.equals(column)) {
+                    long timeMillis = Long.parseLong(value);
+                    value = dateFormat.format(new Date(timeMillis));
+                }
+                result.add(value);
+            }
+            results.add(result);
+        }
+
+        return results;
     }
+
 }

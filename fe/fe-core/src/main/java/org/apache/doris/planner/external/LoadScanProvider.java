@@ -18,7 +18,6 @@
 package org.apache.doris.planner.external;
 
 import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.SlotRef;
@@ -51,9 +50,7 @@ import org.apache.doris.thrift.TScanRangeLocations;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.hadoop.mapred.InputSplit;
 
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
@@ -74,11 +71,6 @@ public class LoadScanProvider implements FileScanProviderIf {
 
     @Override
     public TFileType getLocationType() throws DdlException, MetaNotFoundException {
-        return null;
-    }
-
-    @Override
-    public List<InputSplit> getSplits(List<Expr> exprs) throws IOException, UserException {
         return null;
     }
 
@@ -132,6 +124,7 @@ public class LoadScanProvider implements FileScanProviderIf {
         fileAttributes.setReadByColumnDef(true);
         fileAttributes.setHeaderType(getHeaderType(fileGroup.getFileFormat()));
         fileAttributes.setTrimDoubleQuotes(fileGroup.getTrimDoubleQuotes());
+        fileAttributes.setSkipLines(fileGroup.getSkipLines());
     }
 
     private String getHeaderType(String formatType) {
@@ -145,7 +138,7 @@ public class LoadScanProvider implements FileScanProviderIf {
     }
 
     @Override
-    public void createScanRangeLocations(ParamCreateContext context, BackendPolicy backendPolicy,
+    public void createScanRangeLocations(ParamCreateContext context, FederationBackendPolicy backendPolicy,
             List<TScanRangeLocations> scanRangeLocations) throws UserException {
         Preconditions.checkNotNull(fileGroupInfo);
         fileGroupInfo.getFileStatusAndCalcInstance(backendPolicy);
@@ -205,7 +198,8 @@ public class LoadScanProvider implements FileScanProviderIf {
         List<Integer> srcSlotIds = Lists.newArrayList();
         Load.initColumns(fileGroupInfo.getTargetTable(), columnDescs, context.fileGroup.getColumnToHadoopFunction(),
                 context.exprMap, analyzer, context.srcTupleDescriptor, context.srcSlotDescByName, srcSlotIds,
-                formatType(context.fileGroup.getFileFormat(), ""), null, VectorizedUtil.isVectorized());
+                formatType(context.fileGroup.getFileFormat(), ""), fileGroupInfo.getHiddenColumns(),
+                VectorizedUtil.isVectorized());
 
         int columnCountFromPath = 0;
         if (context.fileGroup.getColumnNamesFromPath() != null) {

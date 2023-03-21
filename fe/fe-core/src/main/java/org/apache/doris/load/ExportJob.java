@@ -120,6 +120,7 @@ public class ExportJob implements Writable {
     private long id;
     private String queryId;
     private String label;
+    private String user;
     private long dbId;
     private long tableId;
     private BrokerDesc brokerDesc;
@@ -192,6 +193,7 @@ public class ExportJob implements Writable {
         this.columnSeparator = "\t";
         this.lineDelimiter = "\n";
         this.columns = "";
+        this.user = "";
     }
 
     public ExportJob(long jobId) {
@@ -209,7 +211,7 @@ public class ExportJob implements Writable {
         this.properties = stmt.getProperties();
         this.label = this.properties.get(ExportStmt.LABEL);
         this.queryId = ConnectContext.get() != null ? DebugUtil.printId(ConnectContext.get().queryId()) : "N/A";
-
+        this.user = ConnectContext.get() != null ? ConnectContext.get().getQualifiedUser() : "N/A";
         String path = stmt.getPath();
         Preconditions.checkArgument(!Strings.isNullOrEmpty(path));
         this.whereExpr = stmt.getWhereExpr();
@@ -749,6 +751,10 @@ public class ExportJob implements Writable {
 
     public String getQueryId() {
         return queryId;
+    }
+
+    public String getUser() {
+        return user;
     }
 
     public boolean getEnableProfile() {

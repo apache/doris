@@ -40,7 +40,7 @@ public:
 
     Status close();
 
-    Status read(Block** block);
+    Status read(Block* block, bool* eos);
 
     int64_t get_id() const { return stream_id_; }
 
@@ -59,7 +59,6 @@ private:
     size_t max_sub_block_size_ = 0;
     std::unique_ptr<char[]> read_buff_;
     std::vector<size_t> block_start_offsets_;
-    std::unique_ptr<Block> current_block_;
 
     RuntimeProfile* profile_ = nullptr;
     RuntimeProfile::Counter* read_time_;

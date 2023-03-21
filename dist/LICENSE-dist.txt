@@ -815,8 +815,6 @@ The Apache Software License, Version 2.0
     * Curator Recipes:
         - org.apache.curator:curator-recipes:2.6.0 (http://curator.apache.org/curator-recipes)
         - org.apache.curator:curator-recipes:2.7.1 (http://curator.apache.org/curator-recipes)
-    * Data Mapper for Jackson:
-        - org.codehaus.jackson:jackson-mapper-asl:1.9.13 (http://jackson.codehaus.org)
     * DataNucleus Core:
         - org.datanucleus:datanucleus-core:4.1.17 (http://www.datanucleus.org/#/datanucleus-core)
     * DataNucleus JDO API plugin:
@@ -934,8 +932,6 @@ The Apache Software License, Version 2.0
     * JVM Integration for Metrics:
         - io.dropwizard.metrics:metrics-jvm:3.1.5 (http://metrics.codahale.com/metrics-jvm/)
         - io.dropwizard.metrics:metrics-jvm:4.2.7 (https://metrics.dropwizard.io/metrics-jvm)
-    * Jackson:
-        - org.codehaus.jackson:jackson-core-asl:1.9.13 (http://jackson.codehaus.org)
     * Jackson Integration for Metrics:
         - io.dropwizard.metrics:metrics-json:3.1.5 (http://metrics.codahale.com/metrics-json/)
         - io.dropwizard.metrics:metrics-json:4.2.7 (https://metrics.dropwizard.io/metrics-json)
@@ -1075,31 +1071,31 @@ The Apache Software License, Version 2.0
     * Spark Project Unsafe:
         - org.apache.spark:spark-unsafe_2.12:2.4.6 (http://spark.apache.org/)
     * Spring AOP:
-        - org.springframework:spring-aop:5.3.22 (https://github.com/spring-projects/spring-framework)
+        - org.springframework:spring-aop:5.3.25 (https://github.com/spring-projects/spring-framework)
     * Spring Beans:
-        - org.springframework:spring-beans:5.3.22 (https://github.com/spring-projects/spring-framework)
+        - org.springframework:spring-beans:5.3.25 (https://github.com/spring-projects/spring-framework)
     * Spring Commons Logging Bridge:
-        - org.springframework:spring-jcl:5.3.22 (https://github.com/spring-projects/spring-framework)
+        - org.springframework:spring-jcl:5.3.25 (https://github.com/spring-projects/spring-framework)
     * Spring Context:
-        - org.springframework:spring-context:5.3.22 (https://github.com/spring-projects/spring-framework)
+        - org.springframework:spring-context:5.3.25 (https://github.com/spring-projects/spring-framework)
     * Spring Core:
-        - org.springframework:spring-core:5.3.22 (https://github.com/spring-projects/spring-framework)
+        - org.springframework:spring-core:5.3.25 (https://github.com/spring-projects/spring-framework)
     * Spring Data Core:
-        - org.springframework.data:spring-data-commons:2.7.2 (https://www.spring.io/spring-data/spring-data-commons)
+        - org.springframework.data:spring-data-commons:2.7.7 (https://www.spring.io/spring-data/spring-data-commons)
     * Spring Data LDAP:
-        - org.springframework.data:spring-data-ldap:2.7.2 (https://github.com/spring-projects/spring-data-ldap)
+        - org.springframework.data:spring-data-ldap:2.7.7 (https://github.com/spring-projects/spring-data-ldap)
     * Spring Expression Language (SpEL):
-        - org.springframework:spring-expression:5.3.22 (https://github.com/spring-projects/spring-framework)
+        - org.springframework:spring-expression:5.3.25 (https://github.com/spring-projects/spring-framework)
     * Spring JDBC:
-        - org.springframework:spring-jdbc:5.3.22 (https://github.com/spring-projects/spring-framework)
+        - org.springframework:spring-jdbc:5.3.25 (https://github.com/spring-projects/spring-framework)
     * Spring Object/Relational Mapping:
-        - org.springframework:spring-orm:5.3.22 (https://github.com/spring-projects/spring-framework)
+        - org.springframework:spring-orm:5.3.25 (https://github.com/spring-projects/spring-framework)
     * Spring Transaction:
-        - org.springframework:spring-tx:5.3.22 (https://github.com/spring-projects/spring-framework)
+        - org.springframework:spring-tx:5.3.25 (https://github.com/spring-projects/spring-framework)
     * Spring Web:
-        - org.springframework:spring-web:5.3.22 (https://github.com/spring-projects/spring-framework)
+        - org.springframework:spring-web:5.3.25 (https://github.com/spring-projects/spring-framework)
     * Spring Web MVC:
-        - org.springframework:spring-webmvc:5.3.22 (https://github.com/spring-projects/spring-framework)
+        - org.springframework:spring-webmvc:5.3.25 (https://github.com/spring-projects/spring-framework)
     * Springloaded:
         - org.springframework:springloaded:1.2.6.RELEASE (https://github.com/spring-projects/spring-loaded)
     * StAX API:
@@ -1246,25 +1242,25 @@ The Apache Software License, Version 2.0
     * spark-dpp:
         - org.apache.doris:spark-dpp:0.15-SNAPSHOT (https://doris.apache.org/spark-dpp/)
     * spring-boot:
-        - org.springframework.boot:spring-boot:2.7.3 (https://spring.io/projects/spring-boot)
+        - org.springframework.boot:spring-boot:2.7.8 (https://spring.io/projects/spring-boot)
     * spring-boot-autoconfigure:
-        - org.springframework.boot:spring-boot-autoconfigure:2.7.3 (https://spring.io/projects/spring-boot)
+        - org.springframework.boot:spring-boot-autoconfigure:2.7.8 (https://spring.io/projects/spring-boot)
     * spring-boot-configuration-processor:
-        - org.springframework.boot:spring-boot-configuration-processor:2.7.3 (https://spring.io/projects/spring-boot)
+        - org.springframework.boot:spring-boot-configuration-processor:2.7.8 (https://spring.io/projects/spring-boot)
     * spring-boot-devtools:
-        - org.springframework.boot:spring-boot-devtools:2.7.3 (https://spring.io/projects/spring-boot)
+        - org.springframework.boot:spring-boot-devtools:2.7.8 (https://spring.io/projects/spring-boot)
     * spring-boot-starter:
-        - org.springframework.boot:spring-boot-starter:2.7.3 (https://spring.io/projects/spring-boot)
+        - org.springframework.boot:spring-boot-starter:2.7.8 (https://spring.io/projects/spring-boot)
     * spring-boot-starter-data-ldap:
-        - org.springframework.boot:spring-boot-starter-data-ldap:2.7.3 (https://spring.io/projects/spring-boot)
+        - org.springframework.boot:spring-boot-starter-data-ldap:2.7.8 (https://spring.io/projects/spring-boot)
     * spring-boot-starter-jetty:
-        - org.springframework.boot:spring-boot-starter-jetty:2.7.3 (https://spring.io/projects/spring-boot)
+        - org.springframework.boot:spring-boot-starter-jetty:2.7.8 (https://spring.io/projects/spring-boot)
     * spring-boot-starter-json:
-        - org.springframework.boot:spring-boot-starter-json:2.6.6 (https://spring.io/projects/spring-boot)
+        - org.springframework.boot:spring-boot-starter-json:2.7.8 (https://spring.io/projects/spring-boot)
     * spring-boot-starter-logging:
-        - org.springframework.boot:spring-boot-starter-logging:2.7.3 (https://spring.io/projects/spring-boot)
+        - org.springframework.boot:spring-boot-starter-logging:2.7.8 (https://spring.io/projects/spring-boot)
     * spring-boot-starter-web:
-        - org.springframework.boot:spring-boot-starter-web:2.7.3 (https://spring.io/projects/spring-boot)
+        - org.springframework.boot:spring-boot-starter-web:2.7.8 (https://spring.io/projects/spring-boot)
     * spring-ldap-core:
         - org.springframework.ldap:spring-ldap-core:2.4.1.RELEASE (https://www.springframework.org/ldap)
     * stream-lib:
@@ -1530,10 +1526,10 @@ The Apache Software License, Version 2.0
     * aws sdk: 1.9.211
     * benchmark: 1.5.6
     * simdjson: 3.0.1
-    * libhdfs3: 2.3.6
+    * libhdfs3: 2.3.8
     * opentelemetry-proto: 0.18.0
     * opentelemetry-cpp: 1.4.0
-    * clucenc: 2.4.4
+    * clucene: 2.4.6
 
 The MIT License -- licenses/LICENSE-MIT.txt
     * datatables: 1.12.1
@@ -1571,7 +1567,7 @@ Other dependencies:
     * brotli: 1.0.9 -- license/LICENSE-brotli.txt
     * bitshuffle: 0.5.1 -- license/LICENSE-bigshuffle.txt
     * fmt: 7.1.3 -- license/LICENSE-fmt.txt
-    * jemalloc: 5.2.1 -- license/LICENSE-jemolloc.txt
+    * jemalloc: 5.3.0 -- license/LICENSE-jemolloc.txt
     * lzma@master -- license/LICENSE-lzma.txt
     * libdivide: 5.0 -- license/LICENSE-libdivide.txt
     * pdqsort: 0.0.0+git20180419 -- license/LICENSE-pdqsort.txt

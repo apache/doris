@@ -123,7 +123,7 @@ suite("test_window_fn") {
         select first_value(salary) over(order by enroll_date range between unbounded preceding and UNBOUNDED following), last_value(salary) over(order by enroll_date range between unbounded preceding and UNBOUNDED following), salary, enroll_date from ${tbName1} order by salary, enroll_date;
     """
     qt_sql """
-        SELECT first_value(ten) OVER (PARTITION BY four ORDER BY ten), ten, four FROM ${tbName2} WHERE unique2 < 10;
+        SELECT first_value(ten) OVER (PARTITION BY four ORDER BY ten), ten, four FROM ${tbName2} WHERE unique2 < 10 order by four, ten;
     """
     qt_sql """
         SELECT first_value(unique1) over (order by four range between current row and unbounded following),  
@@ -190,7 +190,7 @@ suite("test_window_fn") {
     """
     qt_sql """
         SELECT depname, empno, salary, rank() OVER (PARTITION BY depname ORDER BY salary, empno) 
-        FROM ${tbName1} ORDER BY rank() OVER (PARTITION BY depname ORDER BY salary, empno);
+        FROM ${tbName1} ORDER BY rank() OVER (PARTITION BY depname ORDER BY salary, empno), depname;
     """
     qt_sql """
         SELECT sum(salary) as s, row_number() OVER (ORDER BY depname)  as r, sum(sum(salary)) OVER (ORDER BY depname DESC) as ss 
@@ -207,10 +207,10 @@ suite("test_window_fn") {
         SELECT row_number() OVER (ORDER BY unique2) FROM ${tbName2} WHERE unique2 < 10;
     """
     qt_sql """
-        SELECT rank() OVER (PARTITION BY four ORDER BY ten) AS rank_1, ten, four FROM ${tbName2} WHERE unique2 < 10;
+        SELECT rank() OVER (PARTITION BY four ORDER BY ten) AS rank_1, ten, four FROM ${tbName2} WHERE unique2 < 10 order by four, ten;
     """
     qt_sql """
-        SELECT dense_rank() OVER (PARTITION BY four ORDER BY ten), ten, four FROM ${tbName2} WHERE unique2 < 10;
+        SELECT dense_rank() OVER (PARTITION BY four ORDER BY ten), ten, four FROM ${tbName2} WHERE unique2 < 10 order by four, ten;
     """
     qt_sql """
         select ten,   sum(unique1) + sum(unique2) as res,   rank() over (order by sum(unique1) + sum(unique2)) as rank from ${tbName2} group by ten order by ten;
@@ -256,7 +256,7 @@ suite("test_window_fn") {
         SELECT count(1) OVER (PARTITION BY four) as c, four FROM (SELECT * FROM ${tbName2} WHERE two = 1)s WHERE unique2 < 10 order by c, four;
     """
     qt_sql """
-        SELECT avg(four) OVER (PARTITION BY four ORDER BY thousand / 100) FROM ${tbName2} WHERE unique2 < 10;
+        SELECT avg(four) OVER (PARTITION BY four ORDER BY thousand / 100) FROM ${tbName2} WHERE unique2 < 10 order by four;
     """
     qt_sql """
         SELECT count(1) OVER (PARTITION BY four) FROM (SELECT * FROM ${tbName2} WHERE FALSE)s;
@@ -278,19 +278,19 @@ suite("test_window_fn") {
 
     // lag
     qt_sql """
-        SELECT lag(ten, 1, 0) OVER (PARTITION BY four ORDER BY ten), ten, four FROM ${tbName2} WHERE unique2 < 10;
+        SELECT lag(ten, 1, 0) OVER (PARTITION BY four ORDER BY ten), ten, four FROM ${tbName2} WHERE unique2 < 10 order by four, ten;
     """
 
 
     // lead
     qt_sql """
-        SELECT lead(ten, 1, 0) OVER (PARTITION BY four ORDER BY ten), ten, four FROM ${tbName2} WHERE unique2 < 10;
+        SELECT lead(ten, 1, 0) OVER (PARTITION BY four ORDER BY ten), ten, four FROM ${tbName2} WHERE unique2 < 10 order by four, ten;
     """
     qt_sql """
-        SELECT lead(ten * 2, 1, 0) OVER (PARTITION BY four ORDER BY ten), ten, four FROM ${tbName2} WHERE unique2 < 10;
+        SELECT lead(ten * 2, 1, 0) OVER (PARTITION BY four ORDER BY ten), ten, four FROM ${tbName2} WHERE unique2 < 10 order by four, ten;
     """
     qt_sql """
-        SELECT lead(ten * 2, 1, -1) OVER (PARTITION BY four ORDER BY ten), ten, four FROM ${tbName2} WHERE unique2 < 10;
+        SELECT lead(ten * 2, 1, -1) OVER (PARTITION BY four ORDER BY ten), ten, four FROM ${tbName2} WHERE unique2 < 10 order by four, ten;
     """
 
 
@@ -320,6 +320,43 @@ suite("test_window_fn") {
 
     sql "DROP TABLE IF EXISTS ${tbName1};"
     sql "DROP TABLE IF EXISTS ${tbName2};"
+
+    sql """ DROP TABLE IF EXISTS example_window_tb """
+    sql """
+        CREATE TABLE IF NOT EXISTS example_window_tb (
+        u_id int NULL COMMENT "",
+        u_city varchar(20) NULL COMMENT "",
+        u_salary int NULL COMMENT ""
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`u_id`, `u_city`, `u_salary`)
+        COMMENT ""
+        DISTRIBUTED BY HASH(`u_id`, `u_city`, `u_salary`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2"
+    );
+    """
+
+    sql """
+        INSERT INTO example_window_tb(u_id, u_city, u_salary) VALUES
+        ('1',  'gz', 30000),
+        ('2',  'gz', 25000),
+        ('3',  'gz', 17000),
+        ('4',  'gz', 32000),
+        ('5',  'sz', 40000),
+        ('6',  'sz', 27000),
+        ('7',  'sz', 27000),
+        ('8',  'sz', 33000);
+     """
+
+    qt_sql_window_last_value """
+        select u_id, u_city, u_salary,
+        last_value(u_salary) over (partition by u_city order by u_id rows between unbounded preceding and 1 preceding) last_value_test
+        from example_window_tb order by u_id;
+    """
+
+    sql "DROP TABLE IF EXISTS example_window_tb;"
 }
 
 

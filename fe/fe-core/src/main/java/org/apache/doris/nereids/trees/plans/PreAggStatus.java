@@ -23,6 +23,7 @@ import java.util.function.Supplier;
  * Pre-aggregate status for OLAP scan table.
  */
 public class PreAggStatus {
+
     private enum Status {
         ON, OFF
     }

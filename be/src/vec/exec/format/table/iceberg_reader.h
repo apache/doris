@@ -21,6 +21,7 @@
 
 #include "table_format_reader.h"
 #include "vec/columns/column_dictionary.h"
+#include "vec/exec/format/format_common.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/format/parquet/parquet_common.h"
 #include "vec/exprs/vexpr.h"
@@ -52,6 +53,8 @@ public:
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                     partition_columns,
             const std::unordered_map<std::string, VExprContext*>& missing_columns) override;
+
+    bool fill_all_columns() const override;
 
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
@@ -116,6 +119,7 @@ private:
 
     IOContext* _io_ctx;
     bool _has_schema_change = false;
+    bool _has_iceberg_schema = false;
 };
 } // namespace vectorized
 } // namespace doris

@@ -365,10 +365,15 @@ public class StmtRewriter {
             List<Expr> subqueryExprInConjunct, List<Expr> subqueryExprInDisjunct) {
         if (!(expr instanceof CompoundPredicate)) {
             if (expr.contains(Subquery.class)) {
+                // remove redundant sub-query by compare two sub-query with equals
                 if (inDisjunct) {
-                    subqueryExprInDisjunct.add(expr);
+                    if (!subqueryExprInDisjunct.contains(expr)) {
+                        subqueryExprInDisjunct.add(expr);
+                    }
                 } else {
-                    subqueryExprInConjunct.add(expr);
+                    if (!subqueryExprInConjunct.contains(expr)) {
+                        subqueryExprInConjunct.add(expr);
+                    }
                 }
             }
         } else {
@@ -432,10 +437,12 @@ public class StmtRewriter {
      * ON $a$1.a = T1.a
      * WHERE T1.c < 10;
      */
-    // TODO(mark join) need support mark join
     private static void rewriteWhereClauseSubqueries(SelectStmt stmt, Analyzer analyzer)
             throws AnalysisException {
         int numTableRefs = stmt.fromClause.size();
+        // we must use two same set structs to process conjuncts and disjuncts
+        // because the same sub-query could appear in both at the same time.
+        // if we use one ExprSubstitutionMap, the sub-query will be replaced by wrong expr.
         ArrayList<Expr> exprsWithSubqueriesInConjuncts = Lists.newArrayList();
         ArrayList<Expr> exprsWithSubqueriesInDisjuncts = Lists.newArrayList();
         ExprSubstitutionMap conjunctsSmap = new ExprSubstitutionMap();
@@ -445,7 +452,6 @@ public class StmtRewriter {
         List<Expr> subqueryInDisjunct = Lists.newArrayList();
         // Check if all the conjuncts in the WHERE clause that contain subqueries
         // can currently be rewritten as a join.
-        // TODO(mark join) traverse expr tree to process subquery.
         extractExprWithSubquery(false, stmt.whereClause, subqueryInConjunct, subqueryInDisjunct);
         for (Expr conjunct : subqueryInConjunct) {
             processOneSubquery(stmt, exprsWithSubqueriesInConjuncts,
@@ -458,8 +464,7 @@ public class StmtRewriter {
         stmt.whereClause = stmt.whereClause.substitute(conjunctsSmap, disjunctsSmap, analyzer, false);
 
         boolean hasNewVisibleTuple = false;
-        // Recursively equal all the exprs that contain subqueries and merge them
-        // with 'stmt'.
+        // Recursively equal all the exprs that contain subqueries and merge them with 'stmt'.
         for (Expr expr : exprsWithSubqueriesInConjuncts) {
             if (mergeExpr(stmt, rewriteExpr(expr, analyzer), analyzer, null)) {
                 hasNewVisibleTuple = true;
@@ -499,6 +504,10 @@ public class StmtRewriter {
                     + "expression: "
                     + exprWithSubquery.toSql());
         }
+        if (exprWithSubquery instanceof BinaryPredicate && (childrenContainInOrExists(exprWithSubquery))) {
+            throw new AnalysisException("Not support binaryOperator children at least one is in or exists subquery"
+                    + exprWithSubquery.toSql());
+        }
 
         if (exprWithSubquery instanceof ExistsPredicate) {
             // Check if we can determine the result of an ExistsPredicate during analysis.
@@ -515,7 +524,6 @@ public class StmtRewriter {
         // Replace all the supported exprs with subqueries with true BoolLiterals
         // using a smap.
         if (isMark) {
-            // TODO(mark join) if need mark join, we should replace a SlotRef instead of BoolLiteral
             TupleDescriptor markTuple = analyzer.getDescTbl().createTupleDescriptor();
             markTuple.setAliases(new String[]{stmt.getTableAliasGenerator().getNextAlias()}, true);
             SlotDescriptor markSlot = analyzer.addSlotDescriptor(markTuple);
@@ -538,6 +546,16 @@ public class StmtRewriter {
         }
     }
 
+    private static boolean childrenContainInOrExists(Expr expr) {
+        boolean contain = false;
+        for (Expr child : expr.getChildren()) {
+            contain = contain || child instanceof InPredicate || child instanceof ExistsPredicate;
+            if (contain) {
+                break;
+            }
+        }
+        return contain;
+    }
 
     /**
      * Replace an ExistsPredicate that contains a subquery with a BoolLiteral if we
@@ -798,6 +816,7 @@ public class StmtRewriter {
             break;
         }
 
+        boolean isInBitmap = false;
         if (!hasEqJoinPred && !inlineView.isCorrelated()) {
             // Join with InPredicate is actually an equal join, so we choose HashJoin.
             if (expr instanceof ExistsPredicate) {
@@ -807,6 +826,7 @@ public class StmtRewriter {
                     && (((FunctionCallExpr) joinConjunct).getFnName().getFunction()
                     .equalsIgnoreCase(BITMAP_CONTAINS))) {
                 joinOp = ((InPredicate) expr).isNotIn() ? JoinOperator.LEFT_ANTI_JOIN : JoinOperator.LEFT_SEMI_JOIN;
+                isInBitmap = true;
             } else {
                 joinOp = JoinOperator.CROSS_JOIN;
                 // We can equal the aggregate subquery using a cross join. All conjuncts
@@ -825,6 +845,7 @@ public class StmtRewriter {
 
             inlineView.setMark(markTuple);
             inlineView.setJoinOp(joinOp);
+            inlineView.setInBitmap(isInBitmap);
             if (joinOp != JoinOperator.CROSS_JOIN) {
                 inlineView.setOnClause(onClausePredicate);
             }
@@ -840,9 +861,6 @@ public class StmtRewriter {
                 && ((ExistsPredicate) expr).isNotExists()) {
             // For the case of a NOT IN with an eq join conjunct, replace the join
             // conjunct with a conjunct that uses the null-matching eq operator.
-            // TODO: mark join only works on nested loop join now, and NLJ do NOT support NULL_AWARE_LEFT_ANTI_JOIN
-            //     remove markTuple == null when nested loop join support NULL_AWARE_LEFT_ANTI_JOIN
-            //     or plan mark join on hash join
             if (expr instanceof InPredicate && markTuple == null) {
                 joinOp = VectorizedUtil.isVectorized()
                         ? JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN : JoinOperator.LEFT_ANTI_JOIN;

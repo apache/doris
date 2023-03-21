@@ -20,7 +20,6 @@
 #include "common/status.h"
 #include "olap/like_column_predicate.h"
 #include "olap/olap_common.h"
-#include "runtime/mem_pool.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/olap/vcollect_iterator.h"
 
@@ -59,10 +58,8 @@ bool BlockReader::_rowsets_overlapping(const std::vector<RowsetReaderSharedPtr>&
     }
     return false;
 }
-Status BlockReader::_init_collect_iter(const ReaderParams& read_params,
-                                       std::vector<RowsetReaderSharedPtr>* valid_rs_readers) {
-    std::vector<RowsetReaderSharedPtr> rs_readers;
-    auto res = _capture_rs_readers(read_params, &rs_readers);
+Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
+    auto res = _capture_rs_readers(read_params);
     if (!res.ok()) {
         LOG(WARNING) << "fail to init reader when _capture_rs_readers. res:" << res
                      << ", tablet_id:" << read_params.tablet->tablet_id()
@@ -72,28 +69,40 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params,
         return res;
     }
     // check if rowsets are noneoverlapping
-    _is_rowsets_overlapping = _rowsets_overlapping(rs_readers);
+    _is_rowsets_overlapping = _rowsets_overlapping(read_params.rs_readers);
     _vcollect_iter.init(this, _is_rowsets_overlapping, read_params.read_orderby_key,
                         read_params.read_orderby_key_reverse);
 
-    _reader_context.batch_size = _batch_size;
-    _reader_context.is_vec = true;
     _reader_context.push_down_agg_type_opt = read_params.push_down_agg_type_opt;
-    for (auto& rs_reader : rs_readers) {
-        RETURN_NOT_OK(rs_reader->init(&_reader_context));
+    std::vector<RowsetReaderSharedPtr> valid_rs_readers;
+    DCHECK(read_params.rs_readers_segment_offsets.empty() ||
+           read_params.rs_readers_segment_offsets.size() == read_params.rs_readers.size());
+
+    bool is_empty = read_params.rs_readers_segment_offsets.empty();
+    for (int i = 0; i < read_params.rs_readers.size(); ++i) {
+        auto& rs_reader = read_params.rs_readers[i];
+        // _vcollect_iter.topn_next() will init rs_reader by itself
+        if (!_vcollect_iter.use_topn_next()) {
+            RETURN_NOT_OK(rs_reader->init(
+                    &_reader_context,
+                    is_empty ? std::pair {0, 0} : read_params.rs_readers_segment_offsets[i]));
+        }
         Status res = _vcollect_iter.add_child(rs_reader);
         if (!res.ok() && !res.is<END_OF_FILE>()) {
             LOG(WARNING) << "failed to add child to iterator, err=" << res;
             return res;
         }
         if (res.ok()) {
-            valid_rs_readers->push_back(rs_reader);
+            valid_rs_readers.push_back(rs_reader);
         }
     }
 
-    RETURN_IF_ERROR(_vcollect_iter.build_heap(*valid_rs_readers));
-    auto status = _vcollect_iter.current_row(&_next_row);
-    _eof = status.is<END_OF_FILE>();
+    RETURN_IF_ERROR(_vcollect_iter.build_heap(valid_rs_readers));
+    // _vcollect_iter.topn_next() can not use current_row
+    if (!_vcollect_iter.use_topn_next()) {
+        auto status = _vcollect_iter.current_row(&_next_row);
+        _eof = status.is<END_OF_FILE>();
+    }
 
     return Status::OK();
 }
@@ -103,7 +112,8 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
         return;
     }
 
-    _stored_data_columns = _next_row.block->create_same_struct_block(_batch_size)->mutate_columns();
+    _stored_data_columns =
+            _next_row.block->create_same_struct_block(_reader_context.batch_size)->mutate_columns();
 
     _stored_has_null_tag.resize(_stored_data_columns.size());
     _stored_has_string_tag.resize(_stored_data_columns.size());
@@ -152,8 +162,7 @@ Status BlockReader::init(const ReaderParams& read_params) {
         }
     }
 
-    std::vector<RowsetReaderSharedPtr> rs_readers;
-    auto status = _init_collect_iter(read_params, &rs_readers);
+    auto status = _init_collect_iter(read_params);
     if (!status.ok()) {
         return status;
     }
@@ -189,8 +198,7 @@ Status BlockReader::init(const ReaderParams& read_params) {
     return Status::OK();
 }
 
-Status BlockReader::_direct_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
-                                       bool* eof) {
+Status BlockReader::_direct_next_block(Block* block, bool* eof) {
     auto res = _vcollect_iter.next(block);
     if (UNLIKELY(!res.ok() && !res.is<END_OF_FILE>())) {
         return res;
@@ -207,13 +215,11 @@ Status BlockReader::_direct_next_block(Block* block, MemPool* mem_pool, ObjectPo
     return Status::OK();
 }
 
-Status BlockReader::_direct_agg_key_next_block(Block* block, MemPool* mem_pool,
-                                               ObjectPool* agg_pool, bool* eof) {
+Status BlockReader::_direct_agg_key_next_block(Block* block, bool* eof) {
     return Status::OK();
 }
 
-Status BlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
-                                        bool* eof) {
+Status BlockReader::_agg_key_next_block(Block* block, bool* eof) {
     if (UNLIKELY(_eof)) {
         *eof = true;
         return Status::OK();
@@ -240,7 +246,7 @@ Status BlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool, ObjectP
         }
 
         if (!_get_next_row_same()) {
-            if (target_block_row == _batch_size) {
+            if (target_block_row == _reader_context.batch_size) {
                 break;
             }
             _agg_data_counters.push_back(_last_agg_data_counter);
@@ -263,8 +269,7 @@ Status BlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool, ObjectP
     return Status::OK();
 }
 
-Status BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
-                                           bool* eof) {
+Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
     if (UNLIKELY(_eof)) {
         *eof = true;
         return Status::OK();
@@ -273,7 +278,7 @@ Status BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool, Obje
     auto target_block_row = 0;
     auto target_columns = block->mutate_columns();
     if (UNLIKELY(_reader_context.record_rowids)) {
-        _block_row_locations.resize(_batch_size);
+        _block_row_locations.resize(_reader_context.batch_size);
     }
 
     do {
@@ -300,7 +305,7 @@ Status BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool, Obje
             LOG(WARNING) << "next failed: " << res;
             return res;
         }
-    } while (target_block_row < _batch_size);
+    } while (target_block_row < _reader_context.batch_size);
 
     // do filter delete row in base compaction, only base compaction need to do the job
     if (_filter_delete) {
@@ -350,7 +355,7 @@ void BlockReader::_append_agg_data(MutableColumns& columns) {
 
     // execute aggregate when have `batch_size` column or some ref invalid soon
     bool is_last = (_next_row.block->rows() == _next_row.row_pos + 1);
-    if (is_last || _stored_row_ref.size() == _batch_size) {
+    if (is_last || _stored_row_ref.size() == _reader_context.batch_size) {
         _update_agg_data(columns);
     }
 }
@@ -455,8 +460,8 @@ ColumnPredicate* BlockReader::_parse_to_predicate(const FunctionFilter& function
     }
 
     // currently only support like predicate
-    return new LikeColumnPredicate<true>(function_filter._opposite, index, function_filter._fn_ctx,
-                                         function_filter._string_param);
+    return new LikeColumnPredicate(function_filter._opposite, index, function_filter._fn_ctx,
+                                   function_filter._string_param);
 }
 
 } // namespace doris::vectorized

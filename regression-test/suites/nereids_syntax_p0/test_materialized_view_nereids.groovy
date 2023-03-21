@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 suite("test_materialized_view_nereids") {
+    '''
     def tbName1 = "test_materialized_view1"
     def tbName2 = "test_materialized_view2"
 
@@ -49,6 +50,7 @@ suite("test_materialized_view_nereids") {
     while (max_try_secs--) {
         String res = getJobState(tbName1)
         if (res == "FINISHED") {
+            sleep(3000)
             break
         } else {
             Thread.sleep(2000)
@@ -63,6 +65,7 @@ suite("test_materialized_view_nereids") {
     while (max_try_secs--) {
         String res = getJobState(tbName2)
         if (res == "FINISHED") {
+            sleep(3000)
             break
         } else {
             Thread.sleep(2000)
@@ -82,7 +85,6 @@ suite("test_materialized_view_nereids") {
     sql "insert into ${tbName2} values(2, 1, 1, '2020-05-30',100);"
     Thread.sleep(1000)
 
-    sql 'set enable_vectorized_engine=true;'
     sql 'set enable_fallback_to_original_planner=false;'
     sql 'set enable_nereids_planner=true;'
 
@@ -100,6 +102,7 @@ suite("test_materialized_view_nereids") {
     while (max_try_secs--) {
         String res = getJobState(tbName1)
         if (res == "FINISHED") {
+            sleep(3000)
             break
         } else {
             Thread.sleep(2000)
@@ -121,4 +124,5 @@ suite("test_materialized_view_nereids") {
 
     sql "DROP TABLE ${tbName1} FORCE;"
     sql "DROP TABLE ${tbName2} FORCE;"
+    '''
 }

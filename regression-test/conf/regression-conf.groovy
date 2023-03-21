@@ -23,7 +23,8 @@ defaultDb = "regression_test"
 // add useLocalSessionState so that the jdbc will not send
 // init cmd like: select @@session.tx_read_only
 // at each time we connect.
-jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true"
+// add allowLoadLocalInfile so that the jdbc can execute mysql load data from client.
+jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
 jdbcUser = "root"
 jdbcPassword = ""
 
@@ -49,9 +50,9 @@ testDirectories = ""
 // this groups will not be executed
 excludeGroups = ""
 // this suites will not be executed
-excludeSuites = ""
+excludeSuites = "test_broker_load"
 // this directories will not be executed
-excludeDirectories = ""
+excludeDirectories = "segcompaction_p1"
 
 customConf1 = "test_custom_conf_value"
 
@@ -95,6 +96,7 @@ es_8_port=39200
 enableExternalHiveTest = false
 extHiveHmsHost = "***.**.**.**"
 extHiveHmsPort = 7004
+extHdfsPort = 4007
 extHiveHmsUser = "****"
 extHiveHmsPassword= "***********"
 

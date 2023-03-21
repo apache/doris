@@ -66,22 +66,22 @@ struct IntegerRoundingComputation {
     static size_t prepare(size_t scale) { return scale; }
 
     /// Integer overflow is Ok.
-    static ALWAYS_INLINE T compute_impl(T x, T scale) {
+    static ALWAYS_INLINE T compute_impl(T x, T scale, T target_scale) {
         switch (rounding_mode) {
         case RoundingMode::Trunc: {
-            return x / scale * scale;
+            return target_scale > 1 ? x / scale * target_scale : x / scale;
         }
         case RoundingMode::Floor: {
             if (x < 0) {
                 x -= scale - 1;
             }
-            return x / scale * scale;
+            return target_scale > 1 ? x / scale * target_scale : x / scale;
         }
         case RoundingMode::Ceil: {
             if (x >= 0) {
                 x += scale - 1;
             }
-            return x / scale * scale;
+            return target_scale > 1 ? x / scale * target_scale : x / scale;
         }
         case RoundingMode::Round: {
             if (x < 0) {
@@ -89,48 +89,49 @@ struct IntegerRoundingComputation {
             }
             switch (tie_breaking_mode) {
             case TieBreakingMode::Auto: {
-                x = (x + scale / 2) / scale * scale;
+                x = (x + scale / 2) / scale;
                 break;
             }
             case TieBreakingMode::Bankers: {
                 T quotient = (x + scale / 2) / scale;
                 if (quotient * scale == x + scale / 2) {
                     // round half to even
-                    x = ((quotient + (x < 0)) & ~1) * scale;
+                    x = (quotient + (x < 0)) & ~1;
                 } else {
                     // round the others as usual
-                    x = quotient * scale;
+                    x = quotient;
                 }
                 break;
             }
             }
-            return x;
+            return target_scale > 1 ? x * target_scale : x;
         }
         }
 
         __builtin_unreachable();
     }
 
-    static ALWAYS_INLINE T compute(T x, T scale) {
+    static ALWAYS_INLINE T compute(T x, T scale, size_t target_scale) {
         switch (scale_mode) {
         case ScaleMode::Zero:
         case ScaleMode::Positive:
             return x;
         case ScaleMode::Negative:
-            return compute_impl(x, scale);
+            return compute_impl(x, scale, target_scale);
         }
 
         __builtin_unreachable();
     }
 
-    static ALWAYS_INLINE void compute(const T* __restrict in, size_t scale, T* __restrict out) {
+    static ALWAYS_INLINE void compute(const T* __restrict in, size_t scale, T* __restrict out,
+                                      size_t target_scale) {
         if constexpr (sizeof(T) <= sizeof(scale) && scale_mode == ScaleMode::Negative) {
             if (scale > size_t(std::numeric_limits<T>::max())) {
                 *out = 0;
                 return;
             }
         }
-        *out = compute(*in, scale);
+        *out = compute(*in, scale, target_scale);
     }
 };
 
@@ -144,8 +145,8 @@ private:
 
 public:
     static NO_INLINE void apply(const Container& in, UInt32 in_scale, Container& out,
-                                Int16 scale_arg) {
-        scale_arg = in_scale - scale_arg;
+                                Int16 out_scale) {
+        Int16 scale_arg = in_scale - out_scale;
         if (scale_arg > 0) {
             size_t scale = int_exp10(scale_arg);
 
@@ -153,10 +154,19 @@ public:
             const NativeType* end_in = reinterpret_cast<const NativeType*>(in.data()) + in.size();
             NativeType* __restrict p_out = reinterpret_cast<NativeType*>(out.data());
 
-            while (p_in < end_in) {
-                Op::compute(p_in, scale, p_out);
-                ++p_in;
-                ++p_out;
+            if (out_scale < 0) {
+                size_t target_scale = int_exp10(-out_scale);
+                while (p_in < end_in) {
+                    Op::compute(p_in, scale, p_out, target_scale);
+                    ++p_in;
+                    ++p_out;
+                }
+            } else {
+                while (p_in < end_in) {
+                    Op::compute(p_in, scale, p_out, 1);
+                    ++p_in;
+                    ++p_out;
+                }
             }
         } else {
             memcpy(out.data(), in.data(), in.size() * sizeof(T));
@@ -353,7 +363,7 @@ public:
         T* __restrict p_out = out.data();
 
         while (p_in < end_in) {
-            Op::compute(p_in, scale, p_out);
+            Op::compute(p_in, scale, p_out, 1);
             ++p_in;
             ++p_out;
         }

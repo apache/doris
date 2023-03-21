@@ -35,7 +35,8 @@ CONF_Int32(be_port, "9060");
 // port for brpc
 CONF_Int32(brpc_port, "8060");
 
-// the number of bthreads for brpc, the default value is set to -1, which means the number of bthreads is #cpu-cores
+// the number of bthreads for brpc, the default value is set to -1,
+// which means the number of bthreads is #cpu-cores
 CONF_Int32(brpc_num_threads, "-1");
 
 // port to brpc server for single replica load
@@ -59,7 +60,9 @@ CONF_String(memory_mode, "moderate");
 // defaults to bytes if no unit is given"
 // must larger than 0. and if larger than physical memory size,
 // it will be set to physical memory size.
-CONF_String(mem_limit, "80%");
+// `auto` means process mem limit is equal to max(physical_mem * 0.9, physical_mem - 6.4G).
+// 6.4G is the maximum memory reserved for the system by default.
+CONF_String(mem_limit, "auto");
 
 // Soft memory limit as a fraction of hard memory limit.
 CONF_Double(soft_mem_limit_frac, "0.9");
@@ -74,6 +77,10 @@ CONF_Int64(max_sys_mem_available_low_water_mark_bytes, "1717986918");
 // The size of the memory that gc wants to release each time, as a percentage of the mem limit.
 CONF_mString(process_minor_gc_size, "10%");
 CONF_mString(process_full_gc_size, "20%");
+// Some caches have their own gc threads, such as segment cache.
+// For caches that do not have a separate gc thread, perform regular gc in the memory maintenance thread.
+// Currently only storage page cache, chunk allocator, more in the future.
+CONF_mInt32(cache_gc_interval_s, "60");
 
 // If true, when the process does not exceed the soft mem limit, the query memory will not be limited;
 // when the process memory exceeds the soft mem limit, the query with the largest ratio between the currently
@@ -106,6 +113,8 @@ CONF_Int32(clear_transaction_task_worker_count, "1");
 CONF_Int32(delete_worker_count, "3");
 // the count of thread to alter table
 CONF_Int32(alter_tablet_worker_count, "3");
+// the count of thread to alter inverted index
+CONF_Int32(alter_inverted_index_worker_count, "3");
 // the count of thread to clone
 CONF_Int32(clone_worker_count, "3");
 // the count of thread to clone
@@ -172,8 +181,11 @@ CONF_mInt32(status_report_interval, "5");
 CONF_Bool(doris_enable_scanner_thread_pool_per_disk, "true");
 // the timeout of a work thread to wait the blocking priority queue to get a task
 CONF_mInt64(doris_blocking_priority_queue_wait_timeout_ms, "500");
-// number of olap scanner thread pool size
+// number of scanner thread pool size for olap table
+// and the min thread num of remote scanner thread pool
 CONF_Int32(doris_scanner_thread_pool_thread_num, "48");
+// max number of remote scanner thread pool size
+CONF_Int32(doris_max_remote_scanner_thread_pool_thread_num, "512");
 // number of olap scanner thread pool queue size
 CONF_Int32(doris_scanner_thread_pool_queue_size, "102400");
 // default thrift client connect timeout(in seconds)
@@ -210,7 +222,7 @@ CONF_mInt64(memory_limitation_per_thread_for_schema_change_bytes, "2147483648");
 CONF_mInt64(memory_limitation_per_thread_for_storage_migration_bytes, "100000000");
 
 // the clean interval of file descriptor cache and segment cache
-CONF_mInt32(cache_clean_interval, "1800");
+CONF_mInt32(cache_clean_interval, "60");
 // the clean interval of tablet lookup cache
 CONF_mInt32(tablet_lookup_cache_clean_interval, "30");
 CONF_mInt32(disk_stat_monitor_interval, "5");
@@ -236,12 +248,11 @@ CONF_mInt32(snapshot_expire_time_sec, "172800");
 // It is only a recommended value. When the disk space is insufficient,
 // the file storage period under trash dose not have to comply with this parameter.
 CONF_mInt32(trash_file_expire_time_sec, "259200");
-// check row nums for BE/CE and schema change. true is open, false is closed.
-CONF_mBool(row_nums_check, "true");
 // minimum file descriptor number
 // modify them upon necessity
 CONF_Int32(min_file_descriptor_number, "60000");
 CONF_Int64(index_stream_cache_capacity, "10737418240");
+CONF_String(row_cache_mem_limit, "20%");
 
 // Cache for storage page size
 CONF_String(storage_page_cache_limit, "20%");
@@ -253,8 +264,8 @@ CONF_Int32(storage_page_cache_shard_size, "16");
 CONF_Int32(index_page_cache_percentage, "10");
 // whether to disable page cache feature in storage
 CONF_Bool(disable_storage_page_cache, "false");
-
-CONF_Bool(enable_storage_vectorization, "true");
+// whether to disable row cache feature in storage
+CONF_Bool(disable_storage_row_cache, "true");
 
 CONF_Bool(enable_low_cardinality_optimize, "true");
 
@@ -263,10 +274,6 @@ CONF_Bool(enable_low_cardinality_optimize, "true");
 CONF_mBool(enable_compaction_checksum, "false");
 // whether disable automatic compaction task
 CONF_mBool(disable_auto_compaction, "false");
-// whether enable vectorized compaction
-CONF_Bool(enable_vectorized_compaction, "true");
-// whether enable vectorized schema change/material-view/rollup task.
-CONF_Bool(enable_vectorized_alter_table, "true");
 // whether enable vertical compaction
 CONF_mBool(enable_vertical_compaction, "true");
 // whether enable ordered data compaction
@@ -314,6 +321,9 @@ CONF_mInt64(cumulative_compaction_max_deltas, "100");
 
 // This config can be set to limit thread number in  segcompaction thread pool.
 CONF_mInt32(seg_compaction_max_threads, "10");
+
+// This config can be set to limit thread number in  multiget thread pool.
+CONF_mInt32(multi_get_max_threads, "10");
 
 // The upper limit of "permits" held by all compaction tasks. This config can be set to limit memory consumption for compaction.
 CONF_mInt64(total_permits_for_compaction_score, "10000");
@@ -373,8 +383,15 @@ CONF_Int32(single_replica_load_download_num_workers, "64");
 CONF_Int64(load_data_reserve_hours, "4");
 // log error log will be removed after this time
 CONF_mInt64(load_error_log_reserve_hours, "48");
-CONF_Int32(number_tablet_writer_threads, "16");
-CONF_Int32(number_slave_replica_download_threads, "64");
+
+// be brpc interface is classified into two categories: light and heavy
+// each category has diffrent thread number
+// threads to handle heavy api interface, such as transmit_data/transmit_block etc
+CONF_Int32(brpc_heavy_work_pool_threads, "192");
+// threads to handle light api interface, such as exec_plan_fragment_prepare/exec_plan_fragment_start
+CONF_Int32(brpc_light_work_pool_threads, "32");
+CONF_Int32(brpc_heavy_work_pool_max_queue_size, "10240");
+CONF_Int32(brpc_light_work_pool_max_queue_size, "10240");
 
 // The maximum amount of data that can be processed by a stream load
 CONF_mInt64(streaming_load_max_mb, "10240");
@@ -477,7 +494,11 @@ CONF_Bool(madvise_huge_pages, "false");
 CONF_Bool(mmap_buffers, "false");
 
 // Sleep time in milliseconds between memory maintenance iterations
-CONF_mInt64(memory_maintenance_sleep_time_ms, "500");
+CONF_mInt32(memory_maintenance_sleep_time_ms, "100");
+
+// After full gc, no longer full gc and minor gc during sleep.
+// After minor gc, no minor gc during sleep, but full gc is possible.
+CONF_mInt32(memory_gc_sleep_time_s, "1");
 
 // Sleep time in milliseconds between load channel memory refresh iterations
 CONF_mInt64(load_channel_memory_refresh_sleep_time_ms, "100");
@@ -489,16 +510,8 @@ CONF_Int32(memory_max_alignment, "16");
 CONF_mInt64(write_buffer_size, "209715200");
 // max buffer size used in memtable for the aggregated table, default 400MB
 CONF_mInt64(write_buffer_size_for_agg, "419430400");
-// write buffer size in push task for sparkload, default 1GB
-CONF_mInt64(flush_size_for_sparkload, "1073741824");
 
-// following 2 configs limit the memory consumption of load process on a Backend.
-// eg: memory limit to 80% of mem limit config but up to 100GB(default)
-// NOTICE(cmy): set these default values very large because we don't want to
-// impact the load performance when user upgrading Doris.
-// user should set these configs properly if necessary.
-CONF_Int64(load_process_max_memory_limit_bytes, "107374182400"); // 100GB
-CONF_Int32(load_process_max_memory_limit_percent, "50");         // 50%
+CONF_Int32(load_process_max_memory_limit_percent, "50"); // 50%
 
 // If the memory consumption of load jobs exceed load_process_max_memory_limit,
 // all load jobs will hang there to wait for memtable flush. We should have a
@@ -560,6 +573,7 @@ CONF_mInt32(path_gc_check_interval_second, "86400");
 CONF_mInt32(path_gc_check_step, "1000");
 CONF_mInt32(path_gc_check_step_interval_ms, "10");
 CONF_mInt32(path_scan_interval_second, "86400");
+CONF_mInt32(path_scan_step_interval_ms, "70");
 
 // The following 2 configs limit the max usage of disk capacity of a data dir.
 // If both of these 2 threshold reached, no more data can be writen into that data dir.
@@ -805,6 +819,10 @@ CONF_mInt32(bloom_filter_predicate_check_row_num, "204800");
 // cooldown task configs
 CONF_Int32(cooldown_thread_num, "5");
 CONF_mInt64(generate_cooldown_task_interval_sec, "20");
+CONF_mInt32(remove_unused_remote_files_interval_sec, "21600"); // 6h
+CONF_mInt32(confirm_unused_remote_files_interval_sec, "60");
+CONF_Int32(cold_data_compaction_thread_num, "2");
+CONF_mInt32(cold_data_compaction_interval_sec, "1800");
 CONF_mInt64(generate_cache_cleaner_task_interval_sec, "43200"); // 12 h
 CONF_Int32(concurrency_per_dir, "2");
 CONF_mInt64(cooldown_lag_time_sec, "10800");       // 3h
@@ -815,7 +833,8 @@ CONF_mInt64(file_cache_alive_time_sec, "604800");  // 1 week
 // "whole_file_cache": the whole file.
 CONF_mString(file_cache_type, "");
 CONF_Validator(file_cache_type, [](const std::string config) -> bool {
-    return config == "sub_file_cache" || config == "whole_file_cache" || config == "";
+    return config == "sub_file_cache" || config == "whole_file_cache" || config == "" ||
+           config == "file_block_cache";
 });
 CONF_mInt64(file_cache_max_size_per_disk, "0"); // zero for no limit
 
@@ -826,9 +845,9 @@ CONF_Bool(enable_simdjson_reader, "false");
 
 CONF_mBool(enable_query_like_bloom_filter, "true");
 // number of s3 scanner thread pool size
-CONF_Int32(doris_remote_scanner_thread_pool_thread_num, "16");
+CONF_Int32(doris_remote_scanner_thread_pool_thread_num, "48");
 // number of s3 scanner thread pool queue size
-CONF_Int32(doris_remote_scanner_thread_pool_queue_size, "10240");
+CONF_Int32(doris_remote_scanner_thread_pool_queue_size, "102400");
 
 // limit the queue of pending batches which will be sent by a single nodechannel
 CONF_mInt64(nodechannel_pending_queue_max_bytes, "67108864");
@@ -876,6 +895,8 @@ CONF_Bool(enable_file_cache, "false");
 CONF_String(file_cache_path, "");
 CONF_String(disposable_file_cache_path, "");
 CONF_Int64(file_cache_max_file_segment_size, "4194304"); // 4MB
+CONF_Validator(file_cache_max_file_segment_size,
+               [](const int64_t config) -> bool { return config >= 4096; }); // 4KB
 CONF_Bool(clear_file_cache, "false");
 CONF_Bool(enable_file_cache_query_limit, "false");
 
@@ -887,14 +908,30 @@ CONF_String(inverted_index_searcher_cache_limit, "10%");
 // set `true` to enable insert searcher into cache when write inverted index data
 CONF_Bool(enable_write_index_searcher_cache, "true");
 CONF_Bool(enable_inverted_index_cache_check_timestamp, "true");
+CONF_Int32(inverted_index_fd_number_limit_percent, "50"); // 50%
+
+// inverted index match bitmap cache size
+CONF_String(inverted_index_query_cache_limit, "10%");
 
 // inverted index
 CONF_mDouble(inverted_index_ram_buffer_size, "512");
 CONF_Int32(query_bkd_inverted_index_limit_percent, "5"); // 5%
 // dict path for chinese analyzer
 CONF_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
+CONF_Int32(inverted_index_read_buffer_size, "4096");
 // tree depth for bkd index
 CONF_Int32(max_depth_in_bkd_tree, "32");
+// use num_broadcast_buffer blocks as buffer to do broadcast
+CONF_Int32(num_broadcast_buffer, "32");
+// semi-structure configs
+CONF_Bool(enable_parse_multi_dimession_array, "true");
+
+// max depth of expression tree allowed.
+CONF_Int32(max_depth_of_expr_tree, "600");
+
+// Report a tablet as bad when io errors occurs more than this value.
+CONF_mInt64(max_tablet_io_errors, "-1");
+
 #ifdef BE_TEST
 // test s3
 CONF_String(test_s3_resource, "resource");

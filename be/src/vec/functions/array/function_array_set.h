@@ -161,6 +161,8 @@ public:
         if (_execute_internal<ColumnString>(dst, left_data, right_data) ||
             _execute_internal<ColumnDate>(dst, left_data, right_data) ||
             _execute_internal<ColumnDateTime>(dst, left_data, right_data) ||
+            _execute_internal<ColumnDateV2>(dst, left_data, right_data) ||
+            _execute_internal<ColumnDateTimeV2>(dst, left_data, right_data) ||
             _execute_internal<ColumnUInt8>(dst, left_data, right_data) ||
             _execute_internal<ColumnInt8>(dst, left_data, right_data) ||
             _execute_internal<ColumnInt16>(dst, left_data, right_data) ||
@@ -169,6 +171,9 @@ public:
             _execute_internal<ColumnInt128>(dst, left_data, right_data) ||
             _execute_internal<ColumnFloat32>(dst, left_data, right_data) ||
             _execute_internal<ColumnFloat64>(dst, left_data, right_data) ||
+            _execute_internal<ColumnDecimal32>(dst, left_data, right_data) ||
+            _execute_internal<ColumnDecimal64>(dst, left_data, right_data) ||
+            _execute_internal<ColumnDecimal128I>(dst, left_data, right_data) ||
             _execute_internal<ColumnDecimal128>(dst, left_data, right_data)) {
             res_column = assemble_column_array(dst);
             if (res_column) {

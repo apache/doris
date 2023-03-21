@@ -80,6 +80,20 @@ public class ScalarType extends Type {
     public static final int DEFAULT_MIN_AVG_DECIMAL128_SCALE = 4;
     public static final int MAX_DATETIMEV2_SCALE = 6;
 
+    private long byteSize = -1;
+
+
+    /**
+     * Set byte size of expression
+     */
+    public void setByteSize(long byteSize) {
+        this.byteSize = byteSize;
+    }
+
+    public long getByteSize() {
+        return byteSize;
+    }
+
     private static final Logger LOG = LogManager.getLogger(ScalarType.class);
     @SerializedName(value = "type")
     private final PrimitiveType type;
@@ -166,6 +180,8 @@ public class ScalarType extends Type {
                 return BITMAP;
             case QUANTILE_STATE:
                 return QUANTILE_STATE;
+            case LAMBDA_FUNCTION:
+                return LAMBDA_FUNCTION;
             case DATE:
                 return DATE;
             case DATETIME:
@@ -232,6 +248,8 @@ public class ScalarType extends Type {
                 return BITMAP;
             case "QUANTILE_STATE":
                 return QUANTILE_STATE;
+            case "LAMBDA_FUNCTION":
+                return LAMBDA_FUNCTION;
             case "DATE":
                 return DATE;
             case "DATETIME":
@@ -564,7 +582,7 @@ public class ScalarType extends Type {
             case DECIMAL32:
             case DECIMAL64:
             case DECIMAL128:
-                String typeName = Config.enable_decimal_conversion ? "decimal" : "decimalv3";
+                String typeName = "decimalv3";
                 if (Strings.isNullOrEmpty(precisionStr)) {
                     stringBuilder.append(typeName).append("(").append(precision)
                         .append(", ").append(scale).append(")");
@@ -603,7 +621,9 @@ public class ScalarType extends Type {
             case DATEV2:
             case HLL:
             case BITMAP:
+            case VARIANT:
             case QUANTILE_STATE:
+            case LAMBDA_FUNCTION:
                 stringBuilder.append(type.toString().toLowerCase());
                 break;
             case STRING:
@@ -637,6 +657,7 @@ public class ScalarType extends Type {
         node.setType(TTypeNodeType.SCALAR);
         TScalarType scalarType = new TScalarType();
         scalarType.setType(type.toThrift());
+        container.setByteSize(byteSize);
 
         switch (type) {
             case VARCHAR:
@@ -811,11 +832,11 @@ public class ScalarType extends Type {
         if (type == PrimitiveType.VARCHAR && scalarType.isStringType()) {
             return true;
         }
-        if (isDecimalV2() && scalarType.isWildcardDecimal()) {
+        if (isDecimalV2() && scalarType.isWildcardDecimal() && scalarType.isDecimalV2()) {
             Preconditions.checkState(!isWildcardDecimal());
             return true;
         }
-        if (isDecimalV3() && scalarType.isWildcardDecimal()) {
+        if (isDecimalV3() && scalarType.isWildcardDecimal() && scalarType.isDecimalV3()) {
             Preconditions.checkState(!isWildcardDecimal());
             return true;
         }
@@ -1094,51 +1115,6 @@ public class ScalarType extends Type {
 
     public static boolean canCastTo(ScalarType type, ScalarType targetType) {
         return PrimitiveType.isImplicitCast(type.getPrimitiveType(), targetType.getPrimitiveType());
-    }
-
-    @Override
-    public int getStorageLayoutBytes() {
-        switch (type) {
-            case BOOLEAN:
-            case TINYINT:
-                return 1;
-            case SMALLINT:
-                return 2;
-            case INT:
-            case FLOAT:
-            case DECIMAL32:
-                return 4;
-            case BIGINT:
-            case TIME:
-            case DATETIME:
-            // TODO(Gabriel): unify execution engine and storage engine
-            case TIMEV2:
-            case DATETIMEV2:
-            case DECIMAL64:
-                return 8;
-            case LARGEINT:
-            case DECIMALV2:
-            case DECIMAL128:
-                return 16;
-            case DOUBLE:
-                return 12;
-            case DATEV2:
-            case DATE:
-                return 3;
-            case CHAR:
-            case VARCHAR:
-                return len;
-            case HLL:
-                return 16385;
-            case BITMAP:
-                return 1024; // this is a estimated value
-            case QUANTILE_STATE:
-                return 1024; // TODO(weixiang): no used in FE, figure out whether can delete this funcion?
-            case STRING:
-                return 1024;
-            default:
-                return 0;
-        }
     }
 
     @Override

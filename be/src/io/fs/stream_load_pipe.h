@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <gen_cpp/internal_service.pb.h>
+
 #include <condition_variable>
 #include <deque>
 
@@ -38,6 +40,8 @@ public:
     ~StreamLoadPipe() override;
 
     Status append_and_flush(const char* data, size_t size, size_t proto_byte_size = 0);
+
+    Status append(std::unique_ptr<PDataRow>&& row);
 
     Status append(const char* data, size_t size) override;
 
@@ -90,6 +94,7 @@ private:
     int64_t _total_length = -1;
     bool _use_proto = false;
     std::deque<ByteBufferPtr> _buf_queue;
+    std::deque<std::unique_ptr<PDataRow>> _data_row_ptrs;
     std::condition_variable _put_cond;
     std::condition_variable _get_cond;
 

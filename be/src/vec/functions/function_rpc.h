@@ -72,17 +72,17 @@ public:
     String get_name() const override {
         return fmt::format("{}: [{}/{}]", _tfn.name.function_name, _tfn.hdfs_location,
                            _tfn.scalar_fn.symbol);
-    };
+    }
 
-    const DataTypes& get_argument_types() const override { return _argument_types; };
-    const DataTypePtr& get_return_type() const override { return _return_type; };
+    const DataTypes& get_argument_types() const override { return _argument_types; }
+    const DataTypePtr& get_return_type() const override { return _return_type; }
 
     PreparedFunctionPtr prepare(FunctionContext* context, const Block& sample_block,
                                 const ColumnNumbers& arguments, size_t result) const override {
         return nullptr;
     }
 
-    Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
 
     Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                    size_t result, size_t input_rows_count, bool dry_run = false) override;

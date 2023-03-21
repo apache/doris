@@ -20,8 +20,9 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
-import org.apache.doris.nereids.util.PatternMatchSupported;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -29,8 +30,9 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Set;
 
-public class PushdownExpressionsInHashConditionTest extends TestWithFeService implements PatternMatchSupported {
+public class PushdownExpressionsInHashConditionTest extends TestWithFeService implements MemoPatternMatchSupported {
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
@@ -39,7 +41,8 @@ public class PushdownExpressionsInHashConditionTest extends TestWithFeService im
         createTables(
                 "CREATE TABLE IF NOT EXISTS T1 (\n"
                         + "    id bigint,\n"
-                        + "    score bigint\n"
+                        + "    score bigint,\n"
+                        + "    score_int int\n"
                         + ")\n"
                         + "DUPLICATE KEY(id)\n"
                         + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
@@ -60,7 +63,7 @@ public class PushdownExpressionsInHashConditionTest extends TestWithFeService im
 
     @Override
     protected void runBeforeEach() throws Exception {
-        NamedExpressionUtil.clear();
+        StatementScopeIdGenerator.clear();
     }
 
     @Test
@@ -177,6 +180,23 @@ public class PushdownExpressionsInHashConditionTest extends TestWithFeService im
                             )
                         )
                     )
+                );
+    }
+
+    @Test
+    public void testNotPushDownWhenCast() {
+        PlanChecker.from(connectContext)
+                .analyze("SELECT * FROM T1 JOIN T2 ON T1.SCORE_INT = T2.SCORE")
+                .applyTopDown(new FindHashConditionForJoin())
+                .applyTopDown(new PushdownExpressionsInHashCondition())
+                .matchesFromRoot(
+                        logicalProject(
+                                logicalJoin(
+                                        logicalOlapScan(),
+                                        logicalOlapScan()
+                                ).when(join -> !join.getHashJoinConjuncts().get(0)
+                                        .<Set>collect(Cast.class::isInstance).isEmpty())
+                        )
                 );
     }
 }

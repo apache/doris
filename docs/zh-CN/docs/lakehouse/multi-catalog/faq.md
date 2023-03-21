@@ -41,8 +41,43 @@ under the License.
 
 2. 连接 Kerberos 认证的 Hive Metastore 报错：`GSS initiate failed`
 
-	1.2.1 之前的版本中，Doris 依赖的 libhdfs3 库没有开启 gsasl。请更新至 1.2.2 之后的版本。
+    通常是因为 Kerberos 认证信息填写不正确导致的，可以通过以下步骤排查：
+
+    1. 1.2.1 之前的版本中，Doris 依赖的 libhdfs3 库没有开启 gsasl。请更新至 1.2.2 之后的版本。
+    2. 确认对各个组件，设置了正确的 keytab 和 principal，并确认 keytab 文件存在于所有 FE、BE 节点上。
+
+        1. `hadoop.kerberos.keytab`/`hadoop.kerberos.principal`：用于 Hadoop hdfs 访问，填写 hdfs 对应的值。
+        2. `hive.metastore.kerberos.principal`：用于 hive metastore。
+
+    3. 尝试将 principal 中的 ip 换成域名（不要使用默认的 `_HOST` 占位符）
+    4. 确认 `/etc/krb5.conf` 文件存在于所有 FE、BE 节点上。
 	
 3. 访问 HDFS 3.x 时报错：`java.lang.VerifyError: xxx`
 
-	1.2.1 之前的版本中，Doris 依赖的 Hadoop 版本为 2.8。需更新至 2.10.2。或更新 Doris 至 1.2.2 之后的版本。
+   1.2.1 之前的版本中，Doris 依赖的 Hadoop 版本为 2.8。需更新至 2.10.2。或更新 Doris 至 1.2.2 之后的版本。
+
+4. 使用 KMS 访问 HDFS 时报错：`java.security.InvalidKeyException: Illegal key size`
+
+   升级 JDK 版本到 >= Java 8 u162 的版本。或者下载安装 JDK 相应的 JCE Unlimited Strength Jurisdiction Policy Files。
+
+5. 查询 ORC 格式的表，FE 报错 `Could not obtain block`
+
+   对于 ORC 文件，在默认情况下，FE 会访问 HDFS 获取文件信息，进行文件切分。部分情况下，FE 可能无法访问到 HDFS。可以通过添加以下参数解决：
+
+   `"hive.exec.orc.split.strategy" = "BI"`
+
+   其他选项：HYBRID（默认），ETL。
+
+6. 通过 JDBC Catalog 连接 SQLServer 报错：`unable to find valid certification path to requested target`
+
+   请在 `jdbc_url` 中添加 `trustServerCertificate=true` 选项。
+
+7. 通过 JDBC Catalog 连接 MySQL 数据库，中文字符乱码，或中文字符条件查询不正确
+
+   请在 `jdbc_url` 中添加 `useUnicode=true&characterEncoding=utf-8`
+
+   > 注：1.2.3 版本后，使用 JDBC Catalog 连接 MySQL 数据库，会自动添加这些参数。
+
+8. 通过 JDBC Catalog 连接 MySQL 数据库报错：`Establishing SSL connection without server's identity verification is not recommended`
+
+   请在 `jdbc_url` 中添加 `useSSL=true`

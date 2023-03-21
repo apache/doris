@@ -24,6 +24,7 @@
 #include <variant>
 
 #include "vec/common/hash_table/hash.h"
+#include "vec/common/hash_table/hash_table_utils.h"
 
 using StringKey8 = doris::vectorized::UInt64;
 using StringKey16 = doris::vectorized::UInt128;
@@ -662,6 +663,6 @@ public:
 template <typename SubMaps>
 struct HashTableTraits<StringHashTable<SubMaps>> {
     static constexpr bool is_phmap = false;
-    static constexpr bool is_parallel_phmap = false;
     static constexpr bool is_string_hash_table = true;
+    static constexpr bool is_partitioned_table = false;
 };

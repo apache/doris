@@ -64,9 +64,8 @@ public class RewriteBinaryPredicatesRule implements ExprRewriteRule {
      * 11) "select * from T where t1> 2.0" is converted to "select * from T where t1> 2"
      * 12) "select * from T where t1> 2.1" is converted to "select * from T where t1> 2"
      */
-    private Expr rewriteBigintSlotRefCompareDecimalLiteral(Expr expr0, DecimalLiteral expr1,
+    private Expr rewriteBigintSlotRefCompareDecimalLiteral(Expr expr0, Type expr0ColumnType, DecimalLiteral expr1,
             BinaryPredicate.Operator op) {
-        Type columnType = expr0.getSrcSlotRef().getColumn().getType();
         try {
             // Convert childExpr to column type and compare the converted values. There are 3 possible situations:
             // case 1. The value of childExpr exceeds the range of the column type, then castTo() will throw an
@@ -74,7 +73,7 @@ public class RewriteBinaryPredicatesRule implements ExprRewriteRule {
             // case 2. childExpr is converted to column type, but the value of childExpr loses precision.
             //   For example, 2.1 is converted to 2;
             // case 3. childExpr is precisely converted to column type. For example, 2.0 is converted to 2.
-            LiteralExpr newExpr = (LiteralExpr) expr1.castTo(columnType);
+            LiteralExpr newExpr = (LiteralExpr) expr1.castTo(expr0ColumnType);
             int compResult = expr1.compareLiteral(newExpr);
             // case 2
             if (compResult != 0) {
@@ -99,11 +98,11 @@ public class RewriteBinaryPredicatesRule implements ExprRewriteRule {
                 }
             }
             // case 3
-            return new BinaryPredicate(op, expr0.castTo(columnType), newExpr);
+            return new BinaryPredicate(op, expr0.castTo(expr0ColumnType), newExpr);
         } catch (AnalysisException e) {
             // case 1
-            IntLiteral colTypeMinValue = IntLiteral.createMinValue(columnType);
-            IntLiteral colTypeMaxValue = IntLiteral.createMaxValue(columnType);
+            IntLiteral colTypeMinValue = IntLiteral.createMinValue(expr0ColumnType);
+            IntLiteral colTypeMaxValue = IntLiteral.createMaxValue(expr0ColumnType);
             if (op == Operator.NE || ((expr1).compareLiteral(colTypeMinValue) < 0 && (op == Operator.GE
                     || op == Operator.GT)) || ((expr1).compareLiteral(colTypeMaxValue) > 0 && (op == Operator.LE
                     || op == Operator.LT))) {
@@ -123,8 +122,10 @@ public class RewriteBinaryPredicatesRule implements ExprRewriteRule {
         Expr expr1 = expr.getChild(1);
         if (expr0 instanceof CastExpr && (expr0.getType() == Type.DECIMALV2 || expr0.getType().isDecimalV3())
                 && expr0.getChild(0) instanceof SlotRef
-                && expr0.getChild(0).getType().getResultType() == Type.BIGINT && expr1 instanceof DecimalLiteral) {
-            return rewriteBigintSlotRefCompareDecimalLiteral(expr0, (DecimalLiteral) expr1, op);
+                && expr0.getChild(0).getType().getResultType() == Type.BIGINT
+                && expr1 instanceof DecimalLiteral) {
+            return rewriteBigintSlotRefCompareDecimalLiteral(expr0,
+                    expr0.getChild(0).getType(), (DecimalLiteral) expr1, op);
         }
         return expr;
     }

@@ -57,8 +57,6 @@ private:
     TupleId _tuple_id;
     const TupleDescriptor* _tuple_desc;
 
-    std::unique_ptr<MemPool> _mem_pool;
-
     std::unique_ptr<ESScanReader> _es_reader;
     std::unique_ptr<ScrollParser> _es_scroll_parser;
 

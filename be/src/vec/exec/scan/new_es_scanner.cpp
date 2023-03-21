@@ -35,7 +35,6 @@ NewEsScanner::NewEsScanner(RuntimeState* state, NewEsScanNode* parent, int64_t l
           _batch_eof(false),
           _tuple_id(tuple_id),
           _tuple_desc(nullptr),
-          _mem_pool(nullptr),
           _es_reader(nullptr),
           _es_scroll_parser(nullptr),
           _docvalue_context(docvalue_context),
@@ -43,10 +42,7 @@ NewEsScanner::NewEsScanner(RuntimeState* state, NewEsScanNode* parent, int64_t l
 
 Status NewEsScanner::prepare(RuntimeState* state, VExprContext** vconjunct_ctx_ptr) {
     VLOG_CRITICAL << NEW_SCANNER_TYPE << "::prepare";
-    if (vconjunct_ctx_ptr != nullptr) {
-        // Copy vconjunct_ctx_ptr from scan node to this scanner's _vconjunct_ctx.
-        RETURN_IF_ERROR((*vconjunct_ctx_ptr)->clone(_state, &_vconjunct_ctx));
-    }
+    RETURN_IF_ERROR(VScanner::prepare(_state, vconjunct_ctx_ptr));
 
     if (_is_init) {
         return Status::OK();
@@ -86,7 +82,6 @@ Status NewEsScanner::open(RuntimeState* state) {
     RETURN_IF_ERROR(VScanner::open(state));
 
     RETURN_IF_ERROR(_es_reader->open());
-    _mem_pool.reset(new MemPool());
 
     return Status::OK();
 }
@@ -175,8 +170,8 @@ Status NewEsScanner::_get_next(std::vector<vectorized::MutableColumnPtr>& column
 
         COUNTER_UPDATE(new_es_scan_node->_rows_read_counter, 1);
         SCOPED_TIMER(new_es_scan_node->_materialize_timer);
-        RETURN_IF_ERROR(_es_scroll_parser->fill_columns(_tuple_desc, columns, _mem_pool.get(),
-                                                        &_line_eof, _docvalue_context));
+        RETURN_IF_ERROR(_es_scroll_parser->fill_columns(_tuple_desc, columns, &_line_eof,
+                                                        _docvalue_context));
         if (!_line_eof) {
             break;
         }

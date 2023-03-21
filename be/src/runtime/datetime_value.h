@@ -367,7 +367,7 @@ public:
         }
         set_time(year, month, day, hour, minute, second, microsecond);
         return true;
-    };
+    }
 
     uint64_t daynr() const { return calc_daynr(_year, _month, _day); }
 
@@ -527,12 +527,12 @@ public:
 
     DateTimeValue& operator--() { return *this += -1; }
 
-    void to_datetime_val(doris_udf::DateTimeVal* tv) const {
+    void to_datetime_val(doris::DateTimeVal* tv) const {
         tv->packed_time = to_int64_datetime_packed();
         tv->type = _type;
     }
 
-    static DateTimeValue from_datetime_val(const doris_udf::DateTimeVal& tv) {
+    static DateTimeValue from_datetime_val(const doris::DateTimeVal& tv) {
         DateTimeValue value;
         value.from_packed_time(tv.packed_time);
         if (tv.type == TIME_DATE) {
@@ -615,7 +615,7 @@ public:
 private:
     // Used to make sure sizeof DateTimeValue
     friend class UnusedClass;
-    friend void doris::vectorized::VecDateTimeValue::convert_vec_dt_to_dt(DateTimeValue* dt);
+    friend void doris::vectorized::VecDateTimeValue::convert_vec_dt_to_dt(DateTimeValue* dt) const;
     friend void doris::vectorized::VecDateTimeValue::convert_dt_to_vec_dt(DateTimeValue* dt);
 
     void from_packed_time(int64_t packed_time) {

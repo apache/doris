@@ -50,6 +50,7 @@ struct TColumnDesc {
   5: optional i32 columnScale
   6: optional bool isAllowNull
   7: optional string columnKey
+  8: optional list<TColumnDesc> children
 }
 
 // A column definition; used by CREATE TABLE and DESCRIBE <table> statements. A column
@@ -75,6 +76,25 @@ struct TDescribeTableParams {
 // Results of a call to describeTable()
 struct TDescribeTableResult {
   1: required list<TColumnDef> columns
+}
+
+// Arguments to DescribeTables, which returns a list of column descriptors for
+// given tables
+struct TDescribeTablesParams {
+  1: optional string db
+  2: required list<string> tables_name
+  3: optional string user   // deprecated
+  4: optional string user_ip    // deprecated
+  5: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
+  6: optional bool show_hidden_columns = false
+  7: optional string catalog
+}
+
+// Results of a call to describeTable()
+struct TDescribeTablesResult {
+  // tables_offset means that the offset for each table in columns
+  1: required list<i32> tables_offset
+  2: required list<TColumnDef> columns
 }
 
 struct TShowVariableRequest {
@@ -407,6 +427,8 @@ struct TReportExecStatusParams {
   17: optional i64 loaded_bytes
 
   18: optional list<Types.TErrorTabletInfo> errorTabletInfos
+
+  19: optional i32 fragment_id
 }
 
 struct TFeResult {
@@ -482,7 +504,7 @@ struct TLoadTxnBeginRequest {
     // The real value of timeout should be i32. i64 ensures the compatibility of interface.
     10: optional i64 timeout
     11: optional Types.TUniqueId request_id
-    12: optional string auth_code_uuid
+    12: optional string token
 }
 
 struct TLoadTxnBeginResult {
@@ -538,7 +560,7 @@ struct TStreamLoadPutRequest {
     31: optional bool fuzzy_parse
     32: optional string line_delimiter
     33: optional bool read_json_by_line
-    34: optional string auth_code_uuid
+    34: optional string token
     35: optional i32 send_batch_parallelism
     36: optional double max_filter_ratio
     37: optional bool load_to_single_tablet
@@ -547,6 +569,7 @@ struct TStreamLoadPutRequest {
     40: optional PlanNodes.TFileCompressType compress_type
     41: optional i64 file_size // only for stream load with parquet or orc
     42: optional bool trim_double_quotes // trim double quotes for csv
+    43: optional i32 skip_lines // csv skip line num, only used when csv header_type is not set.
 }
 
 struct TStreamLoadPutResult {
@@ -592,7 +615,7 @@ struct TLoadTxnCommitRequest {
     10: optional i64 auth_code
     11: optional TTxnCommitAttachment txnCommitAttachment
     12: optional i64 thrift_rpc_timeout_ms
-    13: optional string auth_code_uuid
+    13: optional string token
     14: optional i64 db_id
 }
 
@@ -609,7 +632,7 @@ struct TLoadTxn2PCRequest {
     6: optional i64 txnId
     7: optional string operation
     8: optional i64 auth_code
-    9: optional string auth_code_uuid
+    9: optional string token
     10: optional i64 thrift_rpc_timeout_ms
 }
 
@@ -628,7 +651,7 @@ struct TLoadTxnRollbackRequest {
     8: optional string reason
     9: optional i64 auth_code
     10: optional TTxnCommitAttachment txnCommitAttachment
-    11: optional string auth_code_uuid
+    11: optional string token
     12: optional i64 db_id
 }
 
@@ -715,10 +738,93 @@ struct TFetchSchemaTableDataResult {
   2: optional list<Data.TRow> data_batch;
 }
 
+// Only support base table add columns
+struct TAddColumnsRequest {
+    1: optional i64 table_id
+    2: optional list<TColumnDef> addColumns
+    3: optional string table_name
+    4: optional string db_name
+    5: optional bool allow_type_conflict 
+}
+
+// Only support base table add columns
+struct TAddColumnsResult {
+    1: optional Status.TStatus status
+    2: optional i64 table_id
+    3: optional list<Descriptors.TColumn> allColumns
+    4: optional i32 schema_version
+}
+
+struct TMySqlLoadAcquireTokenResult {
+    1: optional Status.TStatus status
+    2: optional string token
+}
+
+struct TTabletCooldownInfo {
+    1: optional Types.TTabletId tablet_id
+    2: optional Types.TReplicaId cooldown_replica_id
+    3: optional Types.TUniqueId cooldown_meta_id
+}
+
+struct TConfirmUnusedRemoteFilesRequest {
+    1: optional list<TTabletCooldownInfo> confirm_list
+}
+
+struct TConfirmUnusedRemoteFilesResult {
+    1: optional list<Types.TTabletId> confirmed_tablets
+}
+
+enum TPrivilegeHier {
+  GLOBAL = 0,
+  CATALOG = 1,
+  DATABASE = 2,
+  TABLE = 3,
+  COLUMNS = 4,
+  RESOURSE = 5,
+}
+
+struct TPrivilegeCtrl {
+    1: required TPrivilegeHier priv_hier
+    2: optional string ctl
+    3: optional string db
+    4: optional string tbl
+    5: optional set<string> cols
+    6: optional string res
+}
+
+enum TPrivilegeType {
+  SHOW = 0,
+  SHOW_RESOURCES = 1,
+  GRANT = 2,
+  ADMIN = 3,
+  LOAD = 4,
+  ALTER = 5,
+  USAGE = 6,
+  CREATE = 7,
+  ALL = 8,
+  OPERATOR = 9,
+  DROP = 10
+}
+
+struct TCheckAuthRequest {
+    1: optional string cluster
+    2: required string user
+    3: required string passwd
+    4: optional string user_ip
+    5: optional TPrivilegeCtrl priv_ctrl
+    6: optional TPrivilegeType priv_type
+    7: optional i64 thrift_rpc_timeout_ms
+}
+
+struct TCheckAuthResult {
+    1: required Status.TStatus status
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
     TDescribeTableResult describeTable(1: TDescribeTableParams params)
+    TDescribeTablesResult describeTables(1: TDescribeTablesParams params)
     TShowVariableResult showVariables(1: TShowVariableRequest params)
     TReportExecStatusResult reportExecStatus(1: TReportExecStatusParams params)
 
@@ -749,8 +855,15 @@ service FrontendService {
 
     TFrontendPingFrontendResult ping(1: TFrontendPingFrontendRequest request)
 
-    AgentService.TGetStoragePolicyResult refreshStoragePolicy()
+    TAddColumnsResult addColumns(1: TAddColumnsRequest request)
+
     TInitExternalCtlMetaResult initExternalCtlMeta(1: TInitExternalCtlMetaRequest request)
 
     TFetchSchemaTableDataResult fetchSchemaTableData(1: TFetchSchemaTableDataRequest request)
+
+    TMySqlLoadAcquireTokenResult acquireToken()
+
+    TConfirmUnusedRemoteFilesResult confirmUnusedRemoteFiles(1: TConfirmUnusedRemoteFilesRequest request)
+
+    TCheckAuthResult checkAuth(1: TCheckAuthRequest request)
 }

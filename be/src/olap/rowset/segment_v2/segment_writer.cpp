@@ -30,9 +30,11 @@
 #include "olap/schema.h"
 #include "olap/short_key_index.h"
 #include "runtime/memory/mem_tracker.h"
+#include "service/point_query_executor.h"
 #include "util/crc32c.h"
 #include "util/faststring.h"
 #include "util/key_util.h"
+#include "vec/common/schema_util.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -64,7 +66,7 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
     if (_tablet_schema->has_sequence_col() && _tablet_schema->keys_type() == UNIQUE_KEYS &&
         _opts.enable_unique_key_merge_on_write) {
         const auto& column = _tablet_schema->column(_tablet_schema->sequence_col_idx());
-        _key_coders.push_back(get_key_coder(column.type()));
+        _seq_coder = get_key_coder(column.type());
     }
 }
 
@@ -87,46 +89,36 @@ void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t column_id,
     }
 }
 
-Status SegmentWriter::init() {
+Status SegmentWriter::init(const vectorized::Block* block) {
     std::vector<uint32_t> column_ids;
-    for (uint32_t i = 0; i < _tablet_schema->num_columns(); ++i) {
+    int column_cnt = _tablet_schema->num_columns();
+    if (block) {
+        column_cnt = block->columns();
+    }
+    for (uint32_t i = 0; i < column_cnt; ++i) {
         column_ids.emplace_back(i);
     }
-    return init(column_ids, true);
+    return init(column_ids, true, block);
 }
 
-Status SegmentWriter::append_row_column_writer() {
-    ColumnWriterOptions opts;
-    opts.meta = _footer.add_columns();
-
-    init_column_meta(opts.meta, _footer.columns_size(), TabletSchema::row_oriented_column(),
-                     _tablet_schema);
-    opts.need_bloom_filter = false;
-    opts.need_bitmap_index = false;
-    // smaller page size
-    opts.data_page_size = 16 * 1024;
-    opts.need_zone_map = false;
-    opts.need_bloom_filter = false;
-    opts.need_bitmap_index = false;
-
-    std::unique_ptr<ColumnWriter> writer;
-    RETURN_IF_ERROR(ColumnWriter::create(opts, &TabletSchema::row_oriented_column(), _file_writer,
-                                         &writer));
-    RETURN_IF_ERROR(writer->init());
-    _column_ids.push_back(_column_ids.size());
-    _column_writers.push_back(std::move(writer));
-    _olap_data_convertor->add_column_data_convertor(TabletSchema::row_oriented_column());
-    return Status::OK();
+// Dynamic table with extended columns and directly write from delta writer
+// Compaction/SchemaChange path will use the latest schema version of rowset
+// as it's shcema, so it's block is not from dynamic table load procedure.
+// If it is a dynamic table load procedure we should handle auto generated columns.
+bool SegmentWriter::_should_create_writers_with_dynamic_block(size_t num_columns_in_block) {
+    return _tablet_schema->is_dynamic_schema() && _opts.is_direct_write &&
+           num_columns_in_block > _tablet_schema->columns().size();
 }
 
-Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
+Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key,
+                           const vectorized::Block* block) {
     DCHECK(_column_writers.empty());
     DCHECK(_column_ids.empty());
     _has_key = has_key;
     _column_writers.reserve(_tablet_schema->columns().size());
     _column_ids.insert(_column_ids.end(), col_ids.begin(), col_ids.end());
-    for (auto& cid : col_ids) {
-        const auto& column = _tablet_schema->column(cid);
+    _olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
+    auto create_column_writer = [&](uint32_t cid, const auto& column) -> auto{
         ColumnWriterOptions opts;
         opts.meta = _footer.add_columns();
 
@@ -159,6 +151,15 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
                 break;
             }
         }
+        if (column.type() == FieldType::OLAP_FIELD_TYPE_STRUCT) {
+            opts.need_zone_map = false;
+            if (opts.need_bloom_filter) {
+                return Status::NotSupported("Do not support bloom filter for struct type");
+            }
+            if (opts.need_bitmap_index) {
+                return Status::NotSupported("Do not support bitmap index for struct type");
+            }
+        }
         if (column.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
             opts.need_zone_map = false;
             if (opts.need_bloom_filter) {
@@ -177,11 +178,34 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
                 return Status::NotSupported("Do not support bitmap index for jsonb type");
             }
         }
+        if (column.type() == FieldType::OLAP_FIELD_TYPE_MAP) {
+            opts.need_zone_map = false;
+            if (opts.need_bloom_filter) {
+                return Status::NotSupported("Do not support bloom filter for map type");
+            }
+            if (opts.need_bitmap_index) {
+                return Status::NotSupported("Do not support bitmap index for map type");
+            }
+        }
+
+        if (column.is_row_store_column()) {
+            // smaller page size for row store column
+            opts.data_page_size = 16 * 1024;
+        }
 
         std::unique_ptr<ColumnWriter> writer;
         RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _file_writer, &writer));
         RETURN_IF_ERROR(writer->init());
         _column_writers.push_back(std::move(writer));
+
+        _olap_data_convertor->add_column_data_convertor(column);
+        return Status::OK();
+    };
+
+    if (block && _should_create_writers_with_dynamic_block(block->columns())) {
+        RETURN_IF_ERROR(_create_writers_with_dynamic_block(block, create_column_writer));
+    } else {
+        RETURN_IF_ERROR(_create_writers(create_column_writer));
     }
 
     // we don't need the short key index for unique key merge on write table.
@@ -195,20 +219,72 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
             _primary_key_index_builder.reset(
                     new PrimaryKeyIndexBuilder(_file_writer, seq_col_length));
             RETURN_IF_ERROR(_primary_key_index_builder->init());
+            _key_set.reset(new std::unordered_set<std::string>());
         } else {
             _short_key_index_builder.reset(
                     new ShortKeyIndexBuilder(_segment_id, _opts.num_rows_per_block));
         }
     }
-    // init olap data converter
-    _olap_data_convertor =
-            std::make_unique<vectorized::OlapBlockDataConvertor>(_tablet_schema.get(), _column_ids);
     return Status::OK();
+}
+
+Status SegmentWriter::_create_writers(
+        std::function<Status(uint32_t, const TabletColumn&)> create_column_writer) {
+    _olap_data_convertor->reserve(_column_ids.size());
+    for (auto& cid : _column_ids) {
+        RETURN_IF_ERROR(create_column_writer(cid, _tablet_schema->column(cid)));
+    }
+    return Status::OK();
+}
+
+// Dynamic Block consists of two parts, dynamic part of columns and static part of columns
+//  static   dynamic
+// | ----- | ------- |
+// the static ones are original _tablet_schame columns
+// the dynamic ones are auto generated and extended from file scan
+Status SegmentWriter::_create_writers_with_dynamic_block(
+        const vectorized::Block* block,
+        std::function<Status(uint32_t, const TabletColumn&)> create_column_writer) {
+    // generate writers from schema and extended schema info
+    _olap_data_convertor->reserve(block->columns());
+    // new columns added, query column info from Master
+    vectorized::schema_util::FullBaseSchemaView schema_view;
+    CHECK(block->columns() > _tablet_schema->num_columns());
+    schema_view.table_id = _tablet_schema->table_id();
+    RETURN_IF_ERROR(vectorized::schema_util::send_fetch_full_base_schema_view_rpc(&schema_view));
+    // create writers with static columns
+    for (size_t i = 0; i < _tablet_schema->columns().size(); ++i) {
+        create_column_writer(i, _tablet_schema->column(i));
+    }
+    // create writers with auto generated columns
+    for (size_t i = _tablet_schema->columns().size(); i < block->columns(); ++i) {
+        const auto& column_type_name = block->get_by_position(i);
+        const auto& tcolumn = schema_view.column_name_to_column[column_type_name.name];
+        TabletColumn new_column(tcolumn);
+        RETURN_IF_ERROR(create_column_writer(i, new_column));
+        _opts.rowset_ctx->schema_change_recorder->add_extended_columns(new_column,
+                                                                       schema_view.schema_version);
+    }
+    return Status::OK();
+}
+
+void SegmentWriter::_maybe_invalid_row_cache(const std::string& key) {
+    // Just invalid row cache for simplicity, since the rowset is not visible at present.
+    // If we update/insert cache, if load failed rowset will not be visible but cached data
+    // will be visible, and lead to inconsistency.
+    if (!config::disable_storage_row_cache && _tablet_schema->store_row_column() &&
+        _opts.is_direct_write) {
+        // invalidate cache
+        RowCache::instance()->erase({_opts.rowset_ctx->tablet_id, key});
+    }
 }
 
 Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_pos,
                                    size_t num_rows) {
-    assert(block->columns() == _column_writers.size());
+    CHECK(block->columns() >= _column_writers.size())
+            << ", block->columns()=" << block->columns()
+            << ", _column_writers.size()=" << _column_writers.size();
+
     _olap_data_convertor->set_source_content(block, row_pos, num_rows);
 
     // find all row pos for short key indexes
@@ -229,6 +305,7 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
 
     // convert column data from engine format to storage layer format
     std::vector<vectorized::IOlapColumnDataAccessor*> key_columns;
+    vectorized::IOlapColumnDataAccessor* seq_column = nullptr;
     for (size_t id = 0; id < _column_writers.size(); ++id) {
         // olap data convertor alway start from id = 0
         auto converted_result = _olap_data_convertor->convert_column_data(id);
@@ -236,11 +313,11 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
             return converted_result.first;
         }
         auto cid = _column_ids[id];
-        if (_has_key && (cid < _num_key_columns || (_tablet_schema->has_sequence_col() &&
-                                                    _tablet_schema->keys_type() == UNIQUE_KEYS &&
-                                                    _opts.enable_unique_key_merge_on_write &&
-                                                    cid == _tablet_schema->sequence_col_idx()))) {
+        if (_has_key && cid < _num_key_columns) {
             key_columns.push_back(converted_result.second);
+        } else if (_has_key && _tablet_schema->has_sequence_col() &&
+                   cid == _tablet_schema->sequence_col_idx()) {
+            seq_column = converted_result.second;
         }
         RETURN_IF_ERROR(_column_writers[id]->append(converted_result.second->get_nullmap(),
                                                     converted_result.second->get_data(), num_rows));
@@ -249,8 +326,14 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
         if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
             // create primary indexes
             for (size_t pos = 0; pos < num_rows; pos++) {
-                RETURN_IF_ERROR(
-                        _primary_key_index_builder->add_item(_full_encode_keys(key_columns, pos)));
+                std::string key = _full_encode_keys(key_columns, pos);
+                DCHECK(_key_set.get() != nullptr);
+                _key_set->insert(key);
+                if (_tablet_schema->has_sequence_col()) {
+                    _encode_seq_column(seq_column, pos, &key);
+                }
+                RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
+                _maybe_invalid_row_cache(key);
             }
         } else {
             // create short key indexes'
@@ -286,12 +369,7 @@ std::string SegmentWriter::_full_encode_keys(
         const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos,
         bool null_first) {
     assert(_key_index_size.size() == _num_key_columns);
-    if (_tablet_schema->has_sequence_col() && _opts.enable_unique_key_merge_on_write) {
-        assert(key_columns.size() == _num_key_columns + 1 &&
-               _key_coders.size() == _num_key_columns + 1);
-    } else {
-        assert(key_columns.size() == _num_key_columns && _key_coders.size() == _num_key_columns);
-    }
+    assert(key_columns.size() == _num_key_columns && _key_coders.size() == _num_key_columns);
 
     std::string encoded_keys;
     size_t cid = 0;
@@ -311,6 +389,22 @@ std::string SegmentWriter::_full_encode_keys(
         ++cid;
     }
     return encoded_keys;
+}
+
+void SegmentWriter::_encode_seq_column(const vectorized::IOlapColumnDataAccessor* seq_column,
+                                       size_t pos, string* encoded_keys) {
+    auto field = seq_column->get_data_at(pos);
+    // To facilitate the use of the primary key index, encode the seq column
+    // to the minimum value of the corresponding length when the seq column
+    // is null
+    if (UNLIKELY(!field)) {
+        encoded_keys->push_back(KEY_NULL_FIRST_MARKER);
+        size_t seq_col_length = _tablet_schema->column(_tablet_schema->sequence_col_idx()).length();
+        encoded_keys->append(seq_col_length, KEY_MINIMAL_MARKER);
+        return;
+    }
+    encoded_keys->push_back(KEY_NORMAL_MARKER);
+    _seq_coder->full_encode_ascending(field, encoded_keys);
 }
 
 std::string SegmentWriter::_encode_keys(
@@ -439,6 +533,11 @@ Status SegmentWriter::finalize_footer(uint64_t* segment_file_size) {
     return Status::OK();
 }
 
+Status SegmentWriter::finalize_footer() {
+    RETURN_IF_ERROR(_write_footer());
+    return Status::OK();
+}
+
 Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size) {
     // check disk capacity
     if (_data_dir != nullptr && _data_dir->reach_capacity_limit((int64_t)estimate_segment_size())) {
@@ -449,7 +548,7 @@ Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size
     // write index
     RETURN_IF_ERROR(finalize_columns_index(index_size));
     // write footer
-    RETURN_IF_ERROR(finalize_footer(segment_file_size));
+    RETURN_IF_ERROR(finalize_footer());
     // finish
     RETURN_IF_ERROR(_file_writer->finalize());
     *segment_file_size = _file_writer->bytes_appended();

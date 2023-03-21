@@ -44,17 +44,12 @@ public class ExprId extends Id<ExprId> {
     }
 
     /**
-     * Should be only called by {@link org.apache.doris.nereids.trees.expressions.NamedExpressionUtil}.
+     * Should be only called by {@link StatementScopeIdGenerator}.
      */
     public static IdGenerator<ExprId> createGenerator() {
         return new IdGenerator<ExprId>() {
             @Override
             public ExprId getNextId() {
-                return new ExprId(nextId++);
-            }
-
-            @Override
-            public ExprId getMaxId() {
                 return new ExprId(nextId++);
             }
         };

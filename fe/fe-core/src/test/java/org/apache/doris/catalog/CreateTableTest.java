@@ -266,7 +266,7 @@ public class CreateTableTest {
                         + "properties('replication_num' = '1', 'short_key' = '4');"));
 
         ExceptionChecker
-                .expectThrowsWithMsg(DdlException.class, "Failed to find 3 backends for policy",
+                .expectThrowsWithMsg(DdlException.class, "Failed to find 3 backend(s) for policy",
                         () -> createTable("create table test.atbl5\n" + "(k1 int, k2 int, k3 int)\n"
                                 + "duplicate key(k1, k2, k3)\n" + "distributed by hash(k1) buckets 1\n"
                                 + "properties('replication_num' = '3');"));
@@ -283,7 +283,7 @@ public class CreateTableTest {
 
         ConfigBase.setMutableConfig("disable_storage_medium_check", "false");
         ExceptionChecker
-                .expectThrowsWithMsg(DdlException.class, " Failed to find 1 backends for policy:",
+                .expectThrowsWithMsg(DdlException.class, " Failed to find 1 backend(s) for policy:",
                         () -> createTable("create table test.tb7(key1 int, key2 varchar(10)) distributed by hash(key1) \n"
                                 + "buckets 1 properties('replication_num' = '1', 'storage_medium' = 'ssd');"));
 
@@ -685,6 +685,24 @@ public class CreateTableTest {
                             + "    \"replication_num\" = \"1\",    \n"
                             + "    \"light_schema_change\" = \"true\"    \n"
                             + ");");
+                });
+    }
+
+    @Test
+    public void testCreateTableWithMapType() throws Exception {
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "Please open enable_map_type config before use Map.",
+                () -> {
+                    createTable("create table test.test_map(k1 INT, k2 Map<int, VARCHAR(20)>) duplicate key (k1) "
+                            + "distributed by hash(k1) buckets 1 properties('replication_num' = '1');");
+                });
+    }
+
+    @Test
+    public void testCreateTableWithStructType() throws Exception {
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "Please open enable_struct_type config before use Struct.",
+                () -> {
+                    createTable("create table test.test_struct(k1 INT, k2 Struct<f1:int, f2:VARCHAR(20)>) duplicate key (k1) "
+                            + "distributed by hash(k1) buckets 1 properties('replication_num' = '1');");
                 });
     }
 }

@@ -311,8 +311,14 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
         return string_length + sizeof(OLAP_STRING_MAX_LENGTH);
     case TPrimitiveType::JSONB:
         return string_length + sizeof(OLAP_JSONB_MAX_LENGTH);
+    case TPrimitiveType::STRUCT:
+        // Note that(xy): this is the length of struct type itself,
+        // the length of its subtypes are not included.
+        return OLAP_STRUCT_MAX_LENGTH;
     case TPrimitiveType::ARRAY:
         return OLAP_ARRAY_MAX_LENGTH;
+    case TPrimitiveType::MAP:
+        return OLAP_MAP_MAX_LENGTH;
     case TPrimitiveType::DECIMAL32:
         return 4;
     case TPrimitiveType::DECIMAL64:
@@ -403,12 +409,26 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     if (column.has_visible()) {
         _visible = column.visible();
     }
-
-    if (_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+    if (_type == FieldType::OLAP_FIELD_TYPE_STRUCT) {
+        for (size_t i = 0; i < column.children_columns_size(); i++) {
+            TabletColumn child_column;
+            child_column.init_from_pb(column.children_columns(i));
+            add_sub_column(child_column);
+        }
+    } else if (_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
         DCHECK(column.children_columns_size() == 1) << "ARRAY type has more than 1 children types.";
         TabletColumn child_column;
         child_column.init_from_pb(column.children_columns(0));
         add_sub_column(child_column);
+    }
+    if (_type == FieldType::OLAP_FIELD_TYPE_MAP) {
+        DCHECK(column.children_columns_size() == 2) << "MAP type has more than 2 children types.";
+        TabletColumn key_column;
+        TabletColumn value_column;
+        key_column.init_from_pb(column.children_columns(0));
+        value_column.init_from_pb(column.children_columns(1));
+        add_sub_column(key_column);
+        add_sub_column(value_column);
     }
 }
 
@@ -436,10 +456,22 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     }
     column->set_visible(_visible);
 
-    if (_type == OLAP_FIELD_TYPE_ARRAY) {
+    if (_type == OLAP_FIELD_TYPE_STRUCT) {
+        for (size_t i = 0; i < _sub_columns.size(); i++) {
+            ColumnPB* child = column->add_children_columns();
+            _sub_columns[i].to_schema_pb(child);
+        }
+    } else if (_type == OLAP_FIELD_TYPE_ARRAY) {
         DCHECK(_sub_columns.size() == 1) << "ARRAY type has more than 1 children types.";
         ColumnPB* child = column->add_children_columns();
         _sub_columns[0].to_schema_pb(child);
+    }
+    if (_type == OLAP_FIELD_TYPE_MAP) {
+        DCHECK(_sub_columns.size() == 2) << "MAP type has more than 2 children types.";
+        ColumnPB* child_key = column->add_children_columns();
+        _sub_columns[0].to_schema_pb(child_key);
+        ColumnPB* child_val = column->add_children_columns();
+        _sub_columns[1].to_schema_pb(child_val);
     }
 }
 
@@ -449,6 +481,10 @@ void TabletColumn::add_sub_column(TabletColumn& sub_column) {
     _sub_column_count += 1;
 }
 
+bool TabletColumn::is_row_store_column() const {
+    return _col_name == BeConsts::ROW_STORE_COL;
+}
+
 vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(
         vectorized::DataTypes argument_types, std::string suffix) const {
     std::string agg_name = TabletColumn::get_string_by_aggregation_type(_aggregation) + suffix;
@@ -456,7 +492,7 @@ vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(
                    [](unsigned char c) { return std::tolower(c); });
 
     return vectorized::AggregateFunctionSimpleFactory::instance().get(
-            agg_name, argument_types, {}, argument_types.back()->is_nullable());
+            agg_name, argument_types, argument_types.back()->is_nullable());
 }
 
 void TabletIndex::init_from_thrift(const TOlapTableIndex& index,
@@ -467,9 +503,41 @@ void TabletIndex::init_from_thrift(const TOlapTableIndex& index,
     // get column unique id by name
     std::vector<int32_t> col_unique_ids(index.columns.size());
     for (size_t i = 0; i < index.columns.size(); i++) {
-        col_unique_ids[i] = tablet_schema.column(index.columns[i]).unique_id();
+        auto column_idx = tablet_schema.field_index(index.columns[i]);
+        if (column_idx >= 0) {
+            col_unique_ids[i] = tablet_schema.column(column_idx).unique_id();
+        } else {
+            col_unique_ids[i] = -1;
+        }
     }
     _col_unique_ids = std::move(col_unique_ids);
+
+    switch (index.index_type) {
+    case TIndexType::BITMAP:
+        _index_type = IndexType::BITMAP;
+        break;
+    case TIndexType::INVERTED:
+        _index_type = IndexType::INVERTED;
+        break;
+    case TIndexType::BLOOMFILTER:
+        _index_type = IndexType::BLOOMFILTER;
+        break;
+    case TIndexType::NGRAM_BF:
+        _index_type = IndexType::NGRAM_BF;
+        break;
+    }
+    if (index.__isset.properties) {
+        for (auto kv : index.properties) {
+            _properties[kv.first] = kv.second;
+        }
+    }
+}
+
+void TabletIndex::init_from_thrift(const TOlapTableIndex& index,
+                                   const std::vector<int32_t>& column_uids) {
+    _index_id = index.index_id;
+    _index_name = index.index_name;
+    _col_unique_ids = std::move(column_uids);
 
     switch (index.index_type) {
     case TIndexType::BITMAP:
@@ -529,6 +597,8 @@ void TabletSchema::append_column(TabletColumn column, bool is_dropped_column) {
         _delete_sign_idx = _num_columns;
     } else if (UNLIKELY(column.name() == SEQUENCE_COL)) {
         _sequence_col_idx = _num_columns;
+    } else if (UNLIKELY(column.name() == VERSION_COL)) {
+        _version_col_idx = _num_columns;
     }
     // The dropped column may have same name with exsiting column, so that
     // not add to name to index map, only for uid to index map
@@ -556,6 +626,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     _num_key_columns = 0;
     _num_null_columns = 0;
     _cols.clear();
+    _indexes.clear();
     _field_name_to_index.clear();
     _field_id_to_index.clear();
     for (auto& column_pb : schema.column()) {
@@ -591,8 +662,10 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     _is_in_memory = schema.is_in_memory();
     _disable_auto_compaction = schema.disable_auto_compaction();
     _store_row_column = schema.store_row_column();
+    _is_dynamic_schema = schema.is_dynamic_schema();
     _delete_sign_idx = schema.delete_sign_idx();
     _sequence_col_idx = schema.sequence_col_idx();
+    _version_col_idx = schema.version_col_idx();
     _sort_type = schema.sort_type();
     _sort_col_num = schema.sort_col_num();
     _compression_type = schema.compression_type();
@@ -635,6 +708,7 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _num_null_columns = 0;
     bool has_bf_columns = false;
     _cols.clear();
+    _indexes.clear();
     _field_name_to_index.clear();
     _field_id_to_index.clear();
 
@@ -652,11 +726,17 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
             _delete_sign_idx = _num_columns;
         } else if (UNLIKELY(column->name() == SEQUENCE_COL)) {
             _sequence_col_idx = _num_columns;
+        } else if (UNLIKELY(column->name() == VERSION_COL)) {
+            _version_col_idx = _num_columns;
         }
         _field_name_to_index[column->name()] = _num_columns;
         _field_id_to_index[column->unique_id()] = _num_columns;
         _cols.emplace_back(*column);
         _num_columns++;
+    }
+
+    for (auto& index : index->indexes) {
+        _indexes.emplace_back(*index);
     }
 
     if (has_bf_columns) {
@@ -722,6 +802,8 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_sort_col_num(_sort_col_num);
     tablet_schema_pb->set_schema_version(_schema_version);
     tablet_schema_pb->set_compression_type(_compression_type);
+    tablet_schema_pb->set_is_dynamic_schema(_is_dynamic_schema);
+    tablet_schema_pb->set_version_col_idx(_version_col_idx);
 }
 
 size_t TabletSchema::row_size() const {
@@ -768,6 +850,8 @@ void TabletSchema::update_indexes_from_thrift(const std::vector<doris::TOlapTabl
 }
 
 const TabletColumn& TabletSchema::column(const std::string& field_name) const {
+    DCHECK(_field_name_to_index.count(field_name) != 0)
+            << ", field_name=" << field_name << ", field_name_to_index=" << get_all_field_names();
     const auto& found = _field_name_to_index.find(field_name);
     return _cols[found->second];
 }
@@ -928,19 +1012,6 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
 
 bool operator!=(const TabletSchema& a, const TabletSchema& b) {
     return !(a == b);
-}
-
-const TabletColumn& TabletSchema::row_oriented_column() {
-    static TabletColumn source_column(OLAP_FIELD_AGGREGATION_NONE,
-                                      FieldType::OLAP_FIELD_TYPE_STRING, false,
-                                      BeConsts::SOURCE_COL_UNIQUE_ID, 0);
-    source_column.set_name(BeConsts::SOURCE_COL);
-    return source_column;
-}
-
-void TabletSchema::add_row_column() {
-    // create row column
-    append_column(row_oriented_column());
 }
 
 } // namespace doris

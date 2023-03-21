@@ -71,7 +71,6 @@ suite("test_compaction_uniq_keys_row_store") {
         }
 
         def checkValue = { ->
-            println "fuckkkkk"
             def user = context.config.jdbcUser
             def password = context.config.jdbcPassword
             def url = context.config.jdbcUrl + "&useServerPrepStmts=true"

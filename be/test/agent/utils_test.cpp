@@ -32,8 +32,13 @@ namespace doris {
 
 TEST(AgentUtilsTest, Test) {
     std::string host_name = BackendOptions::get_localhost();
-    int cnt = std::count(host_name.begin(), host_name.end(), '.');
-    EXPECT_EQ(3, cnt);
+    if (!BackendOptions::is_bind_ipv6()) {
+        int cnt = std::count(host_name.begin(), host_name.end(), '.');
+        EXPECT_EQ(3, cnt);
+    } else {
+        int cnt = std::count(host_name.begin(), host_name.end(), ':');
+        EXPECT_GT(cnt, 0);
+    }
 }
 
 } // namespace doris

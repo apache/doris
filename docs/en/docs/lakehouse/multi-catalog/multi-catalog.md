@@ -86,7 +86,7 @@ Multi-Catalog works as an additional and enhanced external table connection meth
 
 The followings are the instruction on how to connect to a Hive catalog using the Catalog feature.
 
-For more information about Hive, please see [Hive](./hive).
+For more information about Hive, please see [Hive](./hive.md).
 
 1. Create Catalog
 
@@ -253,27 +253,27 @@ For more information about Hive, please see [Hive](./hive).
 
 ### Connect to Iceberg
 
-See [Iceberg](./iceberg)
+See [Iceberg](./iceberg.md)
 
 ### Connect to Hudi
 
-See [Hudi](./hudi)
+See [Hudi](./hudi.md)
 
 ### Connect to Elasticsearch
 
-See [Elasticsearch](./elasticsearch)
+See [Elasticsearch](./es.md)
 
 ### Connect to JDBC
 
-See [JDBC](./jdbc)
+See [JDBC](./jdbc.md)
 
 ## Column Type Mapping
 
 After you create a Catalog, Doris will automatically synchronize the databases and tables from the corresponding external catalog to it. The following shows how Doris maps different types of catalogs and tables.
 
-<version since="dev">
+<version since="1.2.2">
 
-As for types that cannot be mapped to a Doris column type, such as `map` and `struct` , Doris will map them to an UNSUPPORTED type. Here are examples of queries in a table containing UNSUPPORTED types:
+As for types that cannot be mapped to a Doris column type, such as `UNION` and `INTERVAL` , Doris will map them to an UNSUPPORTED type. Here are examples of queries in a table containing UNSUPPORTED types:
 
 Suppose the table is of the following schema:
 
@@ -311,11 +311,9 @@ Users need to manually update the metadata using the  [REFRESH CATALOG](https://
 
 ### Automatic Update
 
-<version since="dev">
+<version since="1.2.2"></version>
 
 Currently, Doris only supports automatic update of metadata in Hive Metastore (HMS). It perceives changes in metadata by the FE node which regularly reads the notification events from HMS. The supported events are as follows:
-
-</version>
 
 | Event           | Corresponding Update Operation                               |
 | :-------------- | :----------------------------------------------------------- |

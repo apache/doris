@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_join", "query,p0") {
+suite("test_join", "nereids_p0") {
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
-    sql "SET enable_fallback_to_original_planner=false" 
+    sql "SET enable_fallback_to_original_planner=false"
+    sql 'set parallel_fragment_exec_instance_num = 2;'
     sql"use test_query_db"
 
     def tbName1 = "test"
@@ -28,6 +28,14 @@ suite("test_join", "query,p0") {
 
     sql"drop view if exists empty"
     sql"create view empty as select * from baseall where k1 = 0"
+
+    qt_agg_sql1 """select /*+SET_VAR(disable_nereids_rules='TWO_PHASE_AGGREGATE_WITH_COUNT_DISTINCT_MULTI')*/ count(distinct k1, NULL) from test;"""
+    qt_agg_sql2 """select /*+SET_VAR(disable_nereids_rules='TWO_PHASE_AGGREGATE_WITH_COUNT_DISTINCT_MULTI')*/ count(distinct k1, NULL), avg(k2) from baseall;"""
+    qt_agg_sql3 """select /*+SET_VAR(disable_nereids_rules='TWO_PHASE_AGGREGATE_WITH_COUNT_DISTINCT_MULTI')*/ k1,count(distinct k2,k3),min(k4),count(*) from baseall group by k1 order by k1;"""
+
+    qt_agg_sql4 """select /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_COUNT_DISTINCT_MULTI')*/ count(distinct k1, NULL) from test;"""
+    qt_agg_sql5 """select /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_COUNT_DISTINCT_MULTI')*/ count(distinct k1, NULL), avg(k2) from baseall;"""
+    qt_agg_sql6 """select /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_COUNT_DISTINCT_MULTI')*/ k1,count(distinct k2,k3),min(k4),count(*) from baseall group by k1 order by k1;"""
 
     order_sql """select j.*, d.* from ${tbName2} j full outer join ${tbName1} d on (j.k1=d.k1) order by j.k1, j.k2, j.k3, j.k4, d.k1, d.k2
             limit 100"""
@@ -1241,27 +1249,4 @@ suite("test_join", "query,p0") {
     qt_sql """select k1 from test right semi join baseall on false order by k1;"""
     qt_sql """select k1 from test right anti join baseall on true order by k1;"""
     qt_sql """select k1 from test right anti join baseall on false order by k1;"""
-
-    // test bucket shuffle join, github issue #6171
-    sql"""create database if not exists test_issue_6171"""
-    sql"""use test_issue_6171"""
-    List table_list = ["T_DORIS_A", "T_DORIS_B", "T_DORIS_C", "T_DORIS_D", "T_DORIS_E"]
-    List column_list = [",APPLY_CRCL bigint(19)",
-                   ",FACTOR_FIN_VALUE decimal(19,2),PRJT_ID bigint(19)",
-                   "",
-                   ",LIMIT_ID bigint(19),CORE_ID bigint(19)",
-                   ",SHARE_ID bigint,SPONSOR_ID bigint"]
-    table_list.eachWithIndex {tb, idx ->
-        sql"""drop table if exists ${tb}"""
-        sql"""create table if not exists ${tb} (ID bigint not null ${column_list[idx]}) 
-                UNIQUE KEY(`ID`) 
-                DISTRIBUTED BY HASH(`ID`) BUCKETS 32 
-                PROPERTIES("replication_num"="1");"""
-    }
-    def ret = sql"""desc SELECT B.FACTOR_FIN_VALUE, D.limit_id FROM T_DORIS_A A LEFT JOIN T_DORIS_B B ON B.PRJT_ID = A.ID 
-            LEFT JOIN T_DORIS_C C ON A.apply_crcl = C.id JOIN T_DORIS_D D ON C.ID = D.CORE_ID order by 
-            B.FACTOR_FIN_VALUE, D.limit_id desc;"""
-    logger.info(ret.toString())
-    assertTrue(ret.toString().contains("  |  join op: INNER JOIN(BROADCAST)"))
-    sql"""drop database test_issue_6171"""
 }

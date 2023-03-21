@@ -2136,6 +2136,22 @@ true	abc	def	2022-10-11	1.234	1	2	99	2022-10-22T10:59:59	34.123
 1	980dd890-f7fe-4fff-999d-873516108b2e
 2	980dd890-f7fe-4fff-999d-873516108b2e
 
+-- !test_insert1 --
+doris1	18
+
+-- !test_insert2 --
+doris2	19
+doris3	20
+
+-- !test_insert3 --
+doris2	19
+doris2	19
+doris3	20
+doris3	20
+
+-- !specified_database --
+doris_test
+
 -- !test_old --
 123	abc
 123	abc

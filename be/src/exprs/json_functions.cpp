@@ -31,10 +31,9 @@
 #include <string_view>
 #include <vector>
 
+#include "common/compiler_util.h"
 #include "common/logging.h"
-#include "exprs/anyval_util.h"
 #include "gutil/strings/stringpiece.h"
-#include "rapidjson/error/en.h"
 #include "udf/udf.h"
 #include "util/string_util.h"
 
@@ -43,40 +42,6 @@ namespace doris {
 // static const re2::RE2 JSON_PATTERN("^([a-zA-Z0-9_\\-\\:\\s#\\|\\.]*)(?:\\[([0-9]+)\\])?");
 // json path cannot contains: ", [, ]
 static const re2::RE2 JSON_PATTERN("^([^\\\"\\[\\]]*)(?:\\[([0-9]+|\\*)\\])?");
-
-rapidjson::Value JsonFunctions::parse_str_with_flag(const StringVal& arg, const StringVal& flag,
-                                                    const int num,
-                                                    rapidjson::Document::AllocatorType& allocator) {
-    rapidjson::Value val;
-    if (arg.is_null || *(flag.ptr + num) == '0') { //null
-        rapidjson::Value nullObject(rapidjson::kNullType);
-        val = nullObject;
-    } else if (*(flag.ptr + num) == '1') { //bool
-        bool res = ((arg == "1") ? true : false);
-        val.SetBool(res);
-    } else if (*(flag.ptr + num) == '2') { //int
-        std::stringstream ss;
-        ss << arg.ptr;
-        int number = 0;
-        ss >> number;
-        val.SetInt(number);
-    } else if (*(flag.ptr + num) == '3') { //double
-        std::stringstream ss;
-        ss << arg.ptr;
-        double number = 0.0;
-        ss >> number;
-        val.SetDouble(number);
-    } else if (*(flag.ptr + num) == '4' || *(flag.ptr + num) == '5') {
-        StringPiece str((char*)arg.ptr, arg.len);
-        if (*(flag.ptr + num) == '4') {
-            str = str.substr(1, str.length() - 2);
-        }
-        val.SetString(str.data(), str.length(), allocator);
-    } else {
-        DCHECK(false) << "parse json type error with unknown type";
-    }
-    return val;
-}
 
 rapidjson::Value* JsonFunctions::match_value(const std::vector<JsonPath>& parsed_paths,
                                              rapidjson::Value* document,
@@ -281,6 +246,72 @@ void JsonFunctions::get_parsed_paths(const std::vector<std::string>& path_exprs,
             parsed_paths->emplace_back(std::move(col), idx, true);
         }
     }
+}
+
+Status JsonFunctions::extract_from_object(simdjson::ondemand::object& obj,
+                                          const std::vector<JsonPath>& jsonpath,
+                                          simdjson::ondemand::value* value) noexcept {
+// Return DataQualityError when it's a malformed json.
+// Otherwise the path was not found, due to array out of bound or not exist
+#define HANDLE_SIMDJSON_ERROR(err, msg)                                                        \
+    do {                                                                                       \
+        const simdjson::error_code& _err = err;                                                \
+        const std::string& _msg = msg;                                                         \
+        if (UNLIKELY(_err)) {                                                                  \
+            if (_err == simdjson::NO_SUCH_FIELD || _err == simdjson::INDEX_OUT_OF_BOUNDS) {    \
+                return Status::NotFound(                                                       \
+                        fmt::format("err: {}, msg: {}", simdjson::error_message(_err), _msg)); \
+            }                                                                                  \
+            return Status::DataQualityError(                                                   \
+                    fmt::format("err: {}, msg: {}", simdjson::error_message(_err), _msg));     \
+        }                                                                                      \
+    } while (false);
+
+    if (jsonpath.size() <= 1) {
+        // The first elem of json path should be '$'.
+        // A valid json path's size is >= 2.
+        return Status::DataQualityError("empty json path");
+    }
+
+    simdjson::ondemand::value tvalue;
+
+    // Skip the first $.
+    for (int i = 1; i < jsonpath.size(); i++) {
+        if (UNLIKELY(!jsonpath[i].is_valid)) {
+            return Status::DataQualityError(fmt::format("invalid json path: {}", jsonpath[i].key));
+        }
+
+        const std::string& col = jsonpath[i].key;
+        int index = jsonpath[i].idx;
+
+        // Since the simdjson::ondemand::object cannot be converted to simdjson::ondemand::value,
+        // we have to do some special treatment for the second elem of json path.
+        // If the key is not found in json object, simdjson::NO_SUCH_FIELD would be returned.
+        if (i == 1) {
+            HANDLE_SIMDJSON_ERROR(obj.find_field_unordered(col).get(tvalue),
+                                  fmt::format("unable to find field: {}", col));
+        } else {
+            HANDLE_SIMDJSON_ERROR(tvalue.find_field_unordered(col).get(tvalue),
+                                  fmt::format("unable to find field: {}", col));
+        }
+
+        // TODO support [*] which idex == -2
+        if (index != -1) {
+            // try to access tvalue as array.
+            // If the index is beyond the length of array, simdjson::INDEX_OUT_OF_BOUNDS would be returned.
+            simdjson::ondemand::array arr;
+            HANDLE_SIMDJSON_ERROR(tvalue.get_array().get(arr),
+                                  fmt::format("failed to access field as array, field: {}", col));
+
+            HANDLE_SIMDJSON_ERROR(
+                    arr.at(index).get(tvalue),
+                    fmt::format("failed to access array field: {}, index: {}", col, index));
+        }
+    }
+
+    std::swap(*value, tvalue);
+
+    return Status::OK();
 }
 
 } // namespace doris

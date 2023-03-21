@@ -34,7 +34,6 @@
 #endif
 
 #include <functional>
-using std::binary_function;
 using std::less;
 #include <string>
 using std::string;
@@ -143,7 +142,7 @@ const char* strncaseprefix(const char* haystack, int haystack_size, const char* 
 // char* literals). Templated so searching a const char* returns a const char*,
 // and searching a non-const char* returns a non-const char*.
 template <class CharStar>
-inline CharStar var_strprefix(CharStar str, const char* prefix) {
+CharStar var_strprefix(CharStar str, const char* prefix) {
     const int len = strlen(prefix);
     return strncmp(str, prefix, len) == 0 ? str + len : NULL;
 }
@@ -151,7 +150,7 @@ inline CharStar var_strprefix(CharStar str, const char* prefix) {
 // Same as var_strprefix() (immediately above), but matches a case-insensitive
 // prefix.
 template <class CharStar>
-inline CharStar var_strcaseprefix(CharStar str, const char* prefix) {
+CharStar var_strcaseprefix(CharStar str, const char* prefix) {
     const int len = strlen(prefix);
     return strncasecmp(str, prefix, len) == 0 ? str + len : NULL;
 }
@@ -253,7 +252,7 @@ char* AdjustedLastPos(const char* str, char separator, int n);
 // Compares two char* strings for equality. (Works with NULL, which compares
 // equal only to another NULL). Useful in hash tables:
 //    hash_map<const char*, Value, hash<const char*>, streq> ht;
-struct streq : public binary_function<const char*, const char*, bool> {
+struct streq {
     bool operator()(const char* s1, const char* s2) const {
         return ((s1 == 0 && s2 == 0) || (s1 && s2 && *s1 == *s2 && strcmp(s1, s2) == 0));
     }
@@ -262,7 +261,7 @@ struct streq : public binary_function<const char*, const char*, bool> {
 // Compares two char* strings. (Works with NULL, which compares greater than any
 // non-NULL). Useful in maps:
 //    map<const char*, Value, strlt> m;
-struct strlt : public binary_function<const char*, const char*, bool> {
+struct strlt {
     bool operator()(const char* s1, const char* s2) const {
         return (s1 != s2) && (s2 == 0 || (s1 != 0 && strcmp(s1, s2) < 0));
     }

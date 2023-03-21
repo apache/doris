@@ -60,3 +60,29 @@
 -- !test_aggregate_retention_13 --
 3	2	1
 
+-- !test_aggregate_retention_14 --
+0
+
+-- !test_aggregate_retention_15 --
+0
+
+-- !test_aggregate_retention_16 --
+12
+
+-- !test_aggregate_retention_17 --
+0	2022-10-12T00:00
+0	2022-10-13T00:00
+0	2022-10-14T00:00
+0	2022-10-15T00:00
+0	2022-10-16T00:00
+0	2022-10-17T00:00
+0	2022-10-18T00:00
+0	2022-10-19T00:00
+0	2022-10-20T00:00
+0	2022-10-21T00:00
+0	2022-10-22T00:00
+0	2022-10-23T00:00
+
+-- !test_aggregate_retention_18 --
+0	[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+

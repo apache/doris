@@ -18,8 +18,10 @@
 package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -27,7 +29,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.util.TreeStringUtils;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -59,11 +61,11 @@ public class Group {
 
     // Map of cost lower bounds
     // Map required plan props to cost lower bound of corresponding plan
-    private final Map<PhysicalProperties, Pair<Double, GroupExpression>> lowestCostPlans = Maps.newHashMap();
+    private final Map<PhysicalProperties, Pair<Cost, GroupExpression>> lowestCostPlans = Maps.newHashMap();
 
     private boolean isExplored = false;
 
-    private StatsDeriveResult statistics;
+    private Statistics statistics;
 
     /**
      * Constructor for Group.
@@ -76,8 +78,22 @@ public class Group {
         this.logicalProperties = logicalProperties;
     }
 
+    /**
+     * Construct a Group without any group expression
+     *
+     * @param groupId the groupId in memo
+     */
+    public Group(GroupId groupId, LogicalProperties logicalProperties) {
+        this.groupId = groupId;
+        this.logicalProperties = logicalProperties;
+    }
+
     public GroupId getGroupId() {
         return groupId;
+    }
+
+    public List<PhysicalProperties> getAllProperties() {
+        return new ArrayList<>(lowestCostPlans.keySet());
     }
 
     /**
@@ -123,8 +139,6 @@ public class Group {
     public GroupExpression getLogicalExpression() {
         Preconditions.checkArgument(logicalExpressions.size() == 1,
                 "There should be only one Logical Expression in Group");
-        Preconditions.checkArgument(physicalExpressions.isEmpty(),
-                "The Physical Expression list in Group should be empty");
         return logicalExpressions.get(0);
     }
 
@@ -176,7 +190,7 @@ public class Group {
      * @param physicalProperties the physical property constraints
      * @return {@link Optional} of cost and {@link GroupExpression} of physical plan pair.
      */
-    public Optional<Pair<Double, GroupExpression>> getLowestCostPlan(PhysicalProperties physicalProperties) {
+    public Optional<Pair<Cost, GroupExpression>> getLowestCostPlan(PhysicalProperties physicalProperties) {
         if (physicalProperties == null || lowestCostPlans.isEmpty()) {
             return Optional.empty();
         }
@@ -193,9 +207,9 @@ public class Group {
     /**
      * Set or update lowestCostPlans: properties --> Pair.of(cost, expression)
      */
-    public void setBestPlan(GroupExpression expression, double cost, PhysicalProperties properties) {
+    public void setBestPlan(GroupExpression expression, Cost cost, PhysicalProperties properties) {
         if (lowestCostPlans.containsKey(properties)) {
-            if (lowestCostPlans.get(properties).first > cost) {
+            if (lowestCostPlans.get(properties).first.getValue() > cost.getValue()) {
                 lowestCostPlans.put(properties, Pair.of(cost, expression));
             }
         } else {
@@ -206,8 +220,9 @@ public class Group {
     /**
      * replace best plan with new properties
      */
-    public void replaceBestPlanProperty(PhysicalProperties oldProperty, PhysicalProperties newProperty, double cost) {
-        Pair<Double, GroupExpression> pair = lowestCostPlans.get(oldProperty);
+    public void replaceBestPlanProperty(PhysicalProperties oldProperty,
+            PhysicalProperties newProperty, Cost cost) {
+        Pair<Cost, GroupExpression> pair = lowestCostPlans.get(oldProperty);
         GroupExpression lowestGroupExpr = pair.second;
         lowestGroupExpr.updateLowestCostTable(newProperty,
                 lowestGroupExpr.getInputPropertiesList(oldProperty), cost);
@@ -219,11 +234,11 @@ public class Group {
      * replace oldGroupExpression with newGroupExpression in lowestCostPlans.
      */
     public void replaceBestPlanGroupExpr(GroupExpression oldGroupExpression, GroupExpression newGroupExpression) {
-        Map<PhysicalProperties, Pair<Double, GroupExpression>> needReplaceBestExpressions = Maps.newHashMap();
-        for (Iterator<Entry<PhysicalProperties, Pair<Double, GroupExpression>>> iterator =
+        Map<PhysicalProperties, Pair<Cost, GroupExpression>> needReplaceBestExpressions = Maps.newHashMap();
+        for (Iterator<Entry<PhysicalProperties, Pair<Cost, GroupExpression>>> iterator =
                 lowestCostPlans.entrySet().iterator(); iterator.hasNext(); ) {
-            Map.Entry<PhysicalProperties, Pair<Double, GroupExpression>> entry = iterator.next();
-            Pair<Double, GroupExpression> pair = entry.getValue();
+            Map.Entry<PhysicalProperties, Pair<Cost, GroupExpression>> entry = iterator.next();
+            Pair<Cost, GroupExpression> pair = entry.getValue();
             if (pair.second.equals(oldGroupExpression)) {
                 needReplaceBestExpressions.put(entry.getKey(), Pair.of(pair.first, newGroupExpression));
                 iterator.remove();
@@ -232,11 +247,11 @@ public class Group {
         lowestCostPlans.putAll(needReplaceBestExpressions);
     }
 
-    public StatsDeriveResult getStatistics() {
+    public Statistics getStatistics() {
         return statistics;
     }
 
-    public void setStatistics(StatsDeriveResult statistics) {
+    public void setStatistics(Statistics statistics) {
         this.statistics = statistics;
     }
 
@@ -332,7 +347,8 @@ public class Group {
             if (!target.lowestCostPlans.containsKey(physicalProperties)) {
                 target.lowestCostPlans.put(physicalProperties, costAndGroupExpr);
             } else {
-                if (costAndGroupExpr.first < target.lowestCostPlans.get(physicalProperties).first) {
+                if (costAndGroupExpr.first.getValue()
+                        < target.lowestCostPlans.get(physicalProperties).first.getValue()) {
                     target.lowestCostPlans.put(physicalProperties, costAndGroupExpr);
                 }
             }
@@ -345,8 +361,16 @@ public class Group {
         }
     }
 
+    /**
+     * This function used to check whether the group is an end node in DPHyp
+     */
     public boolean isJoinGroup() {
-        return getLogicalExpression().getPlan() instanceof LogicalJoin;
+        Plan plan = getLogicalExpression().getPlan();
+        if (plan instanceof LogicalJoin) {
+            // Right now, we only support inner join
+            return ((LogicalJoin) plan).getJoinType() == JoinType.INNER_JOIN;
+        }
+        return false;
     }
 
     public boolean isProjectGroup() {
@@ -372,7 +396,16 @@ public class Group {
 
     @Override
     public String toString() {
-        return "Group[" + groupId + "]";
+        StringBuilder str = new StringBuilder("Group[" + groupId + "]\n");
+        str.append("  logical expressions:\n");
+        for (GroupExpression logicalExpression : logicalExpressions) {
+            str.append("    ").append(logicalExpression).append("\n");
+        }
+        str.append("  physical expressions:\n");
+        for (GroupExpression physicalExpression : physicalExpressions) {
+            str.append("    ").append(physicalExpression).append("\n");
+        }
+        return str.toString();
     }
 
     /**
@@ -383,7 +416,7 @@ public class Group {
     public String treeString() {
         Function<Object, String> toString = obj -> {
             if (obj instanceof Group) {
-                return obj.toString();
+                return "Group[" + ((Group) obj).groupId + "]";
             } else if (obj instanceof GroupExpression) {
                 return ((GroupExpression) obj).getPlan().toString();
             } else if (obj instanceof Pair) {

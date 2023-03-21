@@ -25,6 +25,7 @@
 #include "common/logging.h"
 #include "common/utils.h"
 #include "exec/text_converter.hpp"
+#include "io/cache/block/block_file_cache_profile.h"
 #include "olap/iterators.h"
 #include "runtime/descriptors.h"
 #include "runtime/raw_value.h"
@@ -49,7 +50,6 @@ VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t
           _next_range(0),
           _cur_reader(nullptr),
           _cur_reader_eof(false),
-          _mem_pool(std::make_unique<MemPool>()),
           _kv_cache(kv_cache),
           _strict_mode(false) {
     if (scan_range.params.__isset.strict_mode) {
@@ -60,6 +60,7 @@ VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t
 Status VFileScanner::prepare(
         VExprContext** vconjunct_ctx_ptr,
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
+    RETURN_IF_ERROR(VScanner::prepare(_state, vconjunct_ctx_ptr));
     _colname_to_value_range = colname_to_value_range;
 
     _get_block_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerGetBlockTime");
@@ -77,14 +78,9 @@ Status VFileScanner::prepare(
     _io_ctx.reset(new IOContext());
     _io_ctx->file_cache_stats = _file_cache_statistics.get();
     _io_ctx->query_id = &_state->query_id();
-
-    if (vconjunct_ctx_ptr != nullptr) {
-        // Copy vconjunct_ctx_ptr from scan node to this scanner's _vconjunct_ctx.
-        RETURN_IF_ERROR((*vconjunct_ctx_ptr)->clone(_state, &_vconjunct_ctx));
-    }
+    _io_ctx->enable_file_cache = _state->query_options().enable_file_cache;
 
     if (_is_load) {
-        _src_block_mem_reuse = true;
         _src_row_desc.reset(new RowDescriptor(_state->desc_tbl(),
                                               std::vector<TupleId>({_input_tuple_desc->id()}),
                                               std::vector<bool>({false})));
@@ -153,7 +149,6 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
             RETURN_IF_ERROR(
                     _cur_reader->get_next_block(_src_block_ptr, &read_rows, &_cur_reader_eof));
         }
-
         // use read_rows instead of _src_block_ptr->rows(), because the first column of _src_block_ptr
         // may not be filled after calling `get_next_block()`, so _src_block_ptr->rows() may return wrong result.
         if (read_rows > 0) {
@@ -180,7 +175,6 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
     //     state->update_num_rows_load_unselected(_counter.num_rows_unselected);
     //     _reset_counter();
     // }
-
     return Status::OK();
 }
 
@@ -206,7 +200,7 @@ Status VFileScanner::_init_src_block(Block* block) {
     for (auto& slot : _input_tuple_desc->slots()) {
         DataTypePtr data_type;
         auto it = _name_to_col_type.find(slot->col_name());
-        if (it == _name_to_col_type.end()) {
+        if (it == _name_to_col_type.end() || _is_dynamic_schema) {
             // not exist in file, using type from _input_tuple_desc
             data_type =
                     DataTypeFactory::instance().create_data_type(slot->type(), slot->is_nullable());
@@ -233,12 +227,19 @@ Status VFileScanner::_cast_to_input_block(Block* block) {
     if (!_is_load) {
         return Status::OK();
     }
+    if (_is_dynamic_schema) {
+        return Status::OK();
+    }
     SCOPED_TIMER(_cast_to_input_block_timer);
     // cast primitive type(PT0) to primitive type(PT1)
     size_t idx = 0;
     for (auto& slot_desc : _input_tuple_desc->slots()) {
         if (_name_to_col_type.find(slot_desc->col_name()) == _name_to_col_type.end()) {
             // skip columns which does not exist in file
+            continue;
+        }
+        if (slot_desc->type().is_variant_type()) {
+            // skip variant type
             continue;
         }
         auto& arg = _src_block_ptr->get_by_name(slot_desc->col_name());
@@ -373,26 +374,21 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
     size_t rows = _src_block.rows();
     auto filter_column = vectorized::ColumnUInt8::create(rows, 1);
     auto& filter_map = filter_column->get_data();
-    auto origin_column_num = _src_block.columns();
 
     for (auto slot_desc : _output_tuple_desc->slots()) {
         if (!slot_desc->is_materialized()) {
             continue;
         }
         int dest_index = ctx_idx++;
+        vectorized::ColumnPtr column_ptr;
 
         auto* ctx = _dest_vexpr_ctx[dest_index];
         int result_column_id = -1;
         // PT1 => dest primitive type
         RETURN_IF_ERROR(ctx->execute(&_src_block, &result_column_id));
-        bool is_origin_column = result_column_id < origin_column_num;
-        auto column_ptr =
-                is_origin_column && _src_block_mem_reuse
-                        ? _src_block.get_by_position(result_column_id).column->clone_resized(rows)
-                        : _src_block.get_by_position(result_column_id).column;
+        column_ptr = _src_block.get_by_position(result_column_id).column;
         // column_ptr maybe a ColumnConst, convert it to a normal column
         column_ptr = column_ptr->convert_to_full_column_if_const();
-
         DCHECK(column_ptr != nullptr);
 
         // because of src_slot_desc is always be nullable, so the column_ptr after do dest_expr
@@ -454,11 +450,7 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
     }
 
     // after do the dest block insert operation, clear _src_block to remove the reference of origin column
-    if (_src_block_mem_reuse) {
-        _src_block.clear_column_data(origin_column_num);
-    } else {
-        _src_block.clear();
-    }
+    _src_block.clear();
 
     size_t dest_size = block->columns();
     // do filter
@@ -466,6 +458,7 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
                                                     std::make_shared<vectorized::DataTypeUInt8>(),
                                                     "filter column"));
     RETURN_IF_ERROR(vectorized::Block::filter_block(block, dest_size, dest_size));
+
     _counter.num_rows_filtered += rows - block->rows();
     return Status::OK();
 }
@@ -499,8 +492,8 @@ Status VFileScanner::_get_next_reader() {
                 IcebergTableReader* iceberg_reader =
                         new IcebergTableReader((GenericReader*)parquet_reader, _profile, _state,
                                                _params, range, _kv_cache, _io_ctx.get());
-                iceberg_reader->init_reader(_file_col_names, _col_id_name_map,
-                                            _colname_to_value_range, _push_down_expr);
+                init_status = iceberg_reader->init_reader(_file_col_names, _col_id_name_map,
+                                                          _colname_to_value_range, _push_down_expr);
                 RETURN_IF_ERROR(iceberg_reader->init_row_filters(range));
                 _cur_reader.reset((GenericReader*)iceberg_reader);
             } else {
@@ -532,7 +525,8 @@ Status VFileScanner::_get_next_reader() {
         }
         case TFileFormatType::FORMAT_JSON: {
             _cur_reader.reset(new NewJsonReader(_state, _profile, &_counter, _params, range,
-                                                _file_slot_descs, &_scanner_eof, _io_ctx.get()));
+                                                _file_slot_descs, &_scanner_eof, _io_ctx.get(),
+                                                _is_dynamic_schema));
             init_status = ((NewJsonReader*)(_cur_reader.get()))->init_reader();
             break;
         }
@@ -724,6 +718,9 @@ Status VFileScanner::_init_expr_ctxes() {
             }
         }
     }
+    // If last slot is_variant from stream plan which indicate table is dynamic schema
+    _is_dynamic_schema =
+            _output_tuple_desc && _output_tuple_desc->slots().back()->type().is_variant_type();
     return Status::OK();
 }
 
@@ -750,6 +747,11 @@ Status VFileScanner::close(RuntimeState* state) {
 
     if (_push_down_expr) {
         _push_down_expr->close(state);
+    }
+
+    if (config::enable_file_cache) {
+        io::FileCacheProfileReporter cache_profile(_profile);
+        cache_profile.update(_file_cache_statistics.get());
     }
 
     RETURN_IF_ERROR(VScanner::close(state));

@@ -26,13 +26,13 @@ import java.util.TreeSet;
 public class LogicalUnaryPatternGenerator extends PatternGenerator {
 
     public LogicalUnaryPatternGenerator(PatternGeneratorAnalyzer analyzer,
-            ClassDeclaration opType, Set<String> parentClass) {
-        super(analyzer, opType, parentClass);
+            ClassDeclaration opType, Set<String> parentClass, boolean isMemoPattern) {
+        super(analyzer, opType, parentClass, isMemoPattern);
     }
 
     @Override
     public String genericType() {
-        return "<" + opType.name + "<GroupPlan>>";
+        return "<" + opType.name + "<" + childType() + ">>";
     }
 
     @Override
@@ -44,7 +44,9 @@ public class LogicalUnaryPatternGenerator extends PatternGenerator {
     public Set<String> getImports() {
         Set<String> imports = new TreeSet<>();
         imports.add(opType.getFullQualifiedName());
-        imports.add("org.apache.doris.nereids.trees.plans.GroupPlan");
+        if (isMemoPattern) {
+            imports.add("org.apache.doris.nereids.trees.plans.GroupPlan");
+        }
         imports.add("org.apache.doris.nereids.trees.plans.Plan");
         enumFieldPatternInfos.stream()
                 .map(info -> info.enumFullName)

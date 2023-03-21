@@ -23,7 +23,6 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/geo")
 
 add_library(Geo STATIC
     geo_common.cpp
-    geo_functions.cpp
     geo_types.cpp
     wkt_parse.cpp
     ${GENSRC_DIR}/geo/wkt_lex.l.cpp
@@ -34,7 +33,7 @@ include(CheckCXXCompilerFlag)
 set(WARNING_OPTION "-Wno-unused-but-set-variable")
 check_cxx_compiler_flag(${WARNING_OPTION} HAS_WARNING_OPTION)
 if (HAS_WARNING_OPTION)
-    target_compile_options(Geo PRIVATE ${WARNING_OPTION})
+    target_compile_options(Geo PRIVATE ${WARNING_OPTION} "-Wno-unused-macros")
 endif()
 
 add_custom_command(

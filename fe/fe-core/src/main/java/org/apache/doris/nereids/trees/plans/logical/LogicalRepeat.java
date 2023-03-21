@@ -41,7 +41,7 @@ import java.util.Optional;
  * LogicalRepeat.
  */
 public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE>
-        implements Repeat<CHILD_TYPE> {
+        implements Repeat<CHILD_TYPE>, OutputSavePoint {
 
     // max num of distinct sets in grouping sets clause
     public static final int MAX_GROUPING_SETS_NUM = 64;
@@ -68,7 +68,7 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         super(PlanType.LOGICAL_REPEAT, groupExpression, logicalProperties, child);
         this.groupingSets = Objects.requireNonNull(groupingSets, "groupingSets can not be null")
                 .stream()
-                .map(groupingSet -> ImmutableList.copyOf(groupingSet))
+                .map(ImmutableList::copyOf)
                 .collect(ImmutableList.toImmutableList());
         this.outputExpressions = ImmutableList.copyOf(
                 Objects.requireNonNull(outputExpressions, "outputExpressions can not be null"));

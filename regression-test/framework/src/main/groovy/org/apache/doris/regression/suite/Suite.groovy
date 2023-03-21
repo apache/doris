@@ -25,6 +25,7 @@ import com.google.common.collect.ImmutableList
 import org.apache.doris.regression.action.BenchmarkAction
 import org.apache.doris.regression.util.DataUtils
 import org.apache.doris.regression.util.OutputUtils
+import org.apache.doris.regression.action.CreateMVAction
 import org.apache.doris.regression.action.ExplainAction
 import org.apache.doris.regression.action.RestoreAction
 import org.apache.doris.regression.action.StreamLoadAction
@@ -271,6 +272,14 @@ class Suite implements GroovyInterceptable {
         runAction(new ExplainAction(context), actionSupplier)
     }
 
+    void createMV(String sql) {
+        (new CreateMVAction(context, sql)).run()
+    }
+
+    void createMV(String sql, String expection) {
+        (new CreateMVAction(context, sql, expection)).run()
+    }
+
     void test(Closure actionSupplier) {
         runAction(new TestAction(context), actionSupplier)
     }
@@ -320,6 +329,20 @@ class Suite implements GroovyInterceptable {
         Hdfs hdfs = new Hdfs(hdfsFs, hdfsUser, dataDir)
         String remotePath = hdfs.upload(localFile)
         return remotePath;
+    }
+
+    String getLoalFilePath(String fileName) {
+        if (!new File(fileName).isAbsolute()) {
+            fileName = new File(context.dataPath, fileName).getAbsolutePath()
+        }
+        def file = new File(fileName)
+        if (!file.exists()) {
+            log.warn("Stream load input file not exists: ${file}".toString())
+            throw new IllegalStateException("Stream load input file not exists: ${file}");
+        }
+        def localFile = file.canonicalPath
+        log.info("Set stream load input: ${file.canonicalPath}".toString())
+        return localFile;
     }
 
     boolean enableBrokerLoad() {
@@ -452,11 +475,11 @@ class Suite implements GroovyInterceptable {
                     { row ->  OutputUtils.toCsvString(row) },
                     "Check tag '${tag}' failed", meta)
             } catch (Throwable t) {
-                throw new IllegalStateException("Check tag '${tag}' failed, sql:\n${sql}", t)
+                throw new IllegalStateException("Check tag '${tag}' failed, sql:\n${arg}", t)
             }
             if (errorMsg != null) {
                 logger.warn("expect results: " + expectCsvResults + "\nrealResults: " + realResults)
-                throw new IllegalStateException("Check tag '${tag}' failed:\n${errorMsg}\n\nsql:\n${sql}")
+                throw new IllegalStateException("Check tag '${tag}' failed:\n${errorMsg}\n\nsql:\n${arg}")
             }
         }
     }
@@ -496,5 +519,6 @@ class Suite implements GroovyInterceptable {
             return metaClass.invokeMethod(this, name, args)
         }
     }
+
 }
 

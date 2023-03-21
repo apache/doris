@@ -210,10 +210,10 @@ if [[ "${IMAGE_TOOL}" -eq 1 ]]; then
         echo "Internal Error. USE IMAGE_TOOL like : ./start_fe.sh --image image_path"
     fi
 elif [[ "${RUN_DAEMON}" -eq 1 ]]; then
-    nohup ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:OnOutOfMemoryError="kill -9 %p" org.apache.doris.PaloFe ${HELPER:+${HELPER}} "$@" >>"${LOG_DIR}/fe.out" 2>&1 </dev/null &
+    nohup ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" org.apache.doris.PaloFe ${HELPER:+${HELPER}} "$@" >>"${LOG_DIR}/fe.out" 2>&1 </dev/null &
 else
     export DORIS_LOG_TO_STDERR=1
-    ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:OnOutOfMemoryError="kill -9 %p" org.apache.doris.PaloFe ${HELPER:+${HELPER}} ${OPT_VERSION:+${OPT_VERSION}} "$@" </dev/null
+    ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" org.apache.doris.PaloFe ${HELPER:+${HELPER}} ${OPT_VERSION:+${OPT_VERSION}} "$@" </dev/null
 fi
 
 echo $! >"${pidfile}"

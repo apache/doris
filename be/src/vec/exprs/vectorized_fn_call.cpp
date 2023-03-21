@@ -21,10 +21,9 @@
 
 #include "common/consts.h"
 #include "common/status.h"
-#include "exprs/anyval_util.h"
 #include "fmt/format.h"
 #include "fmt/ranges.h"
-#include "udf/udf_internal.h"
+#include "udf/udf.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/function_java_udf.h"
@@ -42,8 +41,7 @@ doris::Status VectorizedFnCall::prepare(doris::RuntimeState* state,
     argument_template.reserve(_children.size());
     std::vector<std::string_view> child_expr_name;
     for (auto child : _children) {
-        auto column = child->data_type()->create_column();
-        argument_template.emplace_back(std::move(column), child->data_type(), child->expr_name());
+        argument_template.emplace_back(nullptr, child->data_type(), child->expr_name());
         child_expr_name.emplace_back(child->expr_name());
     }
     if (_fn.binary_type == TFunctionBinaryType::RPC) {
@@ -65,6 +63,7 @@ doris::Status VectorizedFnCall::prepare(doris::RuntimeState* state,
     }
     VExpr::register_function_context(state, context);
     _expr_name = fmt::format("{}({})", _fn.name.function_name, child_expr_name);
+    _can_fast_execute = _function->can_fast_execute();
 
     return Status::OK();
 }
@@ -95,10 +94,11 @@ doris::Status VectorizedFnCall::execute(VExprContext* context, doris::vectorized
     size_t num_columns_without_result = block->columns();
     // prepare a column to save result
     block->insert({nullptr, _data_type, _expr_name});
-    if (_function->can_fast_execute()) {
-        bool ok = fast_execute(context->fn_context(_fn_context_index), *block, arguments,
-                               num_columns_without_result, block->rows());
-        if (ok) {
+    if (_can_fast_execute) {
+        // if not find fast execute result column, means do not need check fast execute again
+        _can_fast_execute = fast_execute(context->fn_context(_fn_context_index), *block, arguments,
+                                         num_columns_without_result, block->rows());
+        if (_can_fast_execute) {
             *result_column_id = num_columns_without_result;
             return Status::OK();
         }

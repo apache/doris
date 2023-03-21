@@ -101,6 +101,10 @@ public interface LoadTaskInfo {
         return false;
     }
 
+    default int getSkipLines() {
+        return 0;
+    }
+
     class ImportColumnDescs {
         public List<ImportColumnDesc> descs = Lists.newArrayList();
         public boolean isColumnDescsRewrited = false;

@@ -25,7 +25,6 @@
 #include "common/status.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/result_queue_mgr.h"
-#include "runtime/thread_resource_mgr.h"
 
 namespace doris {
 
@@ -33,15 +32,12 @@ class ExternalScanContextMgrTest : public testing::Test {
 public:
     ExternalScanContextMgrTest() {
         FragmentMgr* fragment_mgr = new FragmentMgr(&_exec_env);
-        ThreadResourceMgr* thread_mgr = new ThreadResourceMgr();
         ResultQueueMgr* result_queue_mgr = new ResultQueueMgr();
         _exec_env._fragment_mgr = fragment_mgr;
-        _exec_env._thread_mgr = thread_mgr;
         _exec_env._result_queue_mgr = result_queue_mgr;
     }
     virtual ~ExternalScanContextMgrTest() {
         delete _exec_env._fragment_mgr;
-        delete _exec_env._thread_mgr;
         delete _exec_env._result_queue_mgr;
     }
 

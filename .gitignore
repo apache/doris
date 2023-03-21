@@ -44,6 +44,7 @@ docs/.temp
 # output, thirdparty, extension
 output/
 rpc_data/
+metastore_db/
 thirdparty/src*
 thirdparty/installed*
 
@@ -91,6 +92,11 @@ tools/**/TPC-H_Tools_v*/
 tools/**/tpc-h_v*.docx
 tools/**/tpc-h_v*.pdf
 tools/**/tpch-data/
+tools/single-node-cluster/fe*
 
 # be-ut
 data_test
+lru_cache_test
+
+/conf/log4j2-spring.xml
+/fe/fe-core/src/test/resources/real-help-resource.zip

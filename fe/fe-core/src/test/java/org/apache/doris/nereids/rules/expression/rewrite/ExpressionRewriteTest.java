@@ -175,20 +175,20 @@ public class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
         executor = new ExpressionRuleExecutor(ImmutableList.of(InPredicateToEqualToRule.INSTANCE));
 
         assertRewrite("a in (1)", "a = 1");
-        assertRewrite("a in (1, 2)", "a in (1, 2)");
+        assertRewrite("a in (1, 2)", "((a = 1) OR (a = 2))");
         assertRewrite("a not in (1)", "not a = 1");
-        assertRewrite("a not in (1, 2)", "not a in (1, 2)");
+        assertRewrite("a not in (1, 2)", "not ((a = 1) OR (a = 2))");
         assertRewrite("a in (a in (1))", "a = (a = 1)");
-        assertRewrite("a in (a in (1, 2))", "a = (a in (1, 2))");
+        assertRewrite("a in (a in (1, 2))", "a = ((a = 1) OR (a = 2))");
         assertRewrite("(a in (1)) in (1)", "(a = 1) = 1");
-        assertRewrite("(a in (1, 2)) in (1)", "(a in (1, 2)) = 1");
-        assertRewrite("(a in (1)) in (1, 2)", "(a = 1) in (1, 2)");
+        assertRewrite("(a in (1, 2)) in (1)", "((a = 1) OR (a = 2)) = 1");
+        assertRewrite("(a in (1)) in (1, 2)", "((a = 1) = 1) OR ((a = 1) = 2)");
         assertRewrite("case a when b in (1) then a else c end in (1)",
                 "case a when b = 1 then a else c end = 1");
         assertRewrite("case a when b not in (1) then a else c end not in (1)",
                 "not case a when not b = 1 then a else c end = 1");
         assertRewrite("case a when b not in (1) then a else c end in (1, 2)",
-                "case a when not b = 1 then a else c end in (1, 2)");
+                "(CASE  WHEN (a = ( not (b = 1))) THEN a ELSE c END = 1) OR (CASE  WHEN (a = ( not (b = 1))) THEN a ELSE c END = 2)");
 
     }
 
@@ -226,11 +226,10 @@ public class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
 
     @Test
     public void testSimplifyComparisonPredicateRule() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(SimplifyComparisonPredicate.INSTANCE));
+        executor = new ExpressionRuleExecutor(ImmutableList.of(SimplifyCastRule.INSTANCE, SimplifyComparisonPredicate.INSTANCE));
 
-        Expression dtv2 = new DateTimeV2Literal(1, 1, 1, 1, 1, 1);
+        Expression dtv2 = new DateTimeV2Literal(1, 1, 1, 1, 1, 1, 0);
         Expression dt = new DateTimeLiteral(1, 1, 1, 1, 1, 1);
-        Expression dtNoTime = new DateTimeLiteral(1, 1, 1, 0, 0, 0);
         Expression dv2 = new DateV2Literal(1, 1, 1);
         Expression dv2PlusOne = new DateV2Literal(1, 1, 2);
         Expression d = new DateLiteral(1, 1, 1);
@@ -252,17 +251,6 @@ public class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
                 new EqualTo(new Cast(dv2, DateTimeV2Type.SYSTEM_DEFAULT), dtv2),
                 new EqualTo(new Cast(dv2, DateTimeV2Type.SYSTEM_DEFAULT), dtv2));
 
-        // DateTime -> DateV2
-        assertRewrite(
-                new GreaterThan(new Cast(dv2, DateTimeV2Type.SYSTEM_DEFAULT), dt),
-                new GreaterThan(dv2, dv2));
-        assertRewrite(
-                new LessThan(new Cast(dv2, DateTimeV2Type.SYSTEM_DEFAULT), dt),
-                new LessThan(dv2, dv2PlusOne));
-        assertRewrite(
-                new EqualTo(new Cast(dv2, DateTimeV2Type.SYSTEM_DEFAULT), dt),
-                new EqualTo(new Cast(dv2, DateTimeV2Type.SYSTEM_DEFAULT), dt));
-
         // DateTimeV2 -> Date
         assertRewrite(
                 new GreaterThan(new Cast(d, DateTimeV2Type.SYSTEM_DEFAULT), dtv2),
@@ -274,24 +262,8 @@ public class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
                 new EqualTo(new Cast(d, DateTimeV2Type.SYSTEM_DEFAULT), dtv2),
                 new EqualTo(new Cast(d, DateTimeV2Type.SYSTEM_DEFAULT), dtv2));
 
-        // DateTime -> Date
-        assertRewrite(
-                new GreaterThan(new Cast(d, DateTimeV2Type.SYSTEM_DEFAULT), dt),
-                new GreaterThan(new Cast(d, DateTimeType.INSTANCE), dt));
-        assertRewrite(
-                new LessThan(new Cast(d, DateTimeV2Type.SYSTEM_DEFAULT), dt),
-                new LessThan(new Cast(d, DateTimeType.INSTANCE), dt));
-        assertRewrite(
-                new EqualTo(new Cast(d, DateTimeV2Type.SYSTEM_DEFAULT), dt),
-                new EqualTo(new Cast(d, DateTimeV2Type.SYSTEM_DEFAULT), dt));
-
-        // DateV2 -> Date
-        assertRewrite(
-                new GreaterThan(new Cast(d, DateTimeV2Type.SYSTEM_DEFAULT), dv2),
-                new GreaterThan(new Cast(d, DateTimeType.INSTANCE), dtNoTime));
-
         // test hour, minute and second all zero
-        Expression dtv2AtZeroClock = new DateTimeV2Literal(1, 1, 1, 0, 0, 0);
+        Expression dtv2AtZeroClock = new DateTimeV2Literal(1, 1, 1, 0, 0, 0, 0);
         assertRewrite(
                 new GreaterThan(new Cast(dv2, DateTimeV2Type.SYSTEM_DEFAULT), dtv2AtZeroClock),
                 new GreaterThan(dv2, dv2));

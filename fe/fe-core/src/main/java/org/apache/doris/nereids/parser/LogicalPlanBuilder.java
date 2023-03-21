@@ -29,9 +29,11 @@ import org.apache.doris.nereids.DorisParser.ArithmeticBinaryContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticUnaryContext;
 import org.apache.doris.nereids.DorisParser.BitOperationContext;
 import org.apache.doris.nereids.DorisParser.BooleanLiteralContext;
-import org.apache.doris.nereids.DorisParser.BracketStyleHintContext;
+import org.apache.doris.nereids.DorisParser.BracketJoinHintContext;
+import org.apache.doris.nereids.DorisParser.BracketRelationHintContext;
 import org.apache.doris.nereids.DorisParser.ColumnReferenceContext;
-import org.apache.doris.nereids.DorisParser.CommentStyleHintContext;
+import org.apache.doris.nereids.DorisParser.CommentJoinHintContext;
+import org.apache.doris.nereids.DorisParser.CommentRelationHintContext;
 import org.apache.doris.nereids.DorisParser.ComparisonContext;
 import org.apache.doris.nereids.DorisParser.CreateRowPolicyContext;
 import org.apache.doris.nereids.DorisParser.CteContext;
@@ -98,6 +100,8 @@ import org.apache.doris.nereids.DorisParser.TypeConstructorContext;
 import org.apache.doris.nereids.DorisParser.UnitIdentifierContext;
 import org.apache.doris.nereids.DorisParser.UserVariableContext;
 import org.apache.doris.nereids.DorisParser.WhereClauseContext;
+import org.apache.doris.nereids.DorisParser.WindowFrameContext;
+import org.apache.doris.nereids.DorisParser.WindowSpecContext;
 import org.apache.doris.nereids.DorisParserBaseVisitor;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
@@ -146,6 +150,8 @@ import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
@@ -188,6 +194,7 @@ import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
@@ -215,8 +222,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.nereids.trees.plans.logical.UsingJoin;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
@@ -247,6 +253,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -320,7 +327,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String functionName = ctx.functionName.getText();
         List<Expression> arguments = ctx.expression().stream()
                 .<Expression>map(this::typedVisit)
-                .collect(Collectors.toList());
+                .collect(ImmutableList.toImmutableList());
         Function unboundFunction = new UnboundFunction(functionName, arguments);
         return new LogicalGenerate<>(ImmutableList.of(unboundFunction),
                 ImmutableList.of(new UnboundSlot(generateName, columnName)), plan);
@@ -343,13 +350,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalSubQueryAlias<Plan> visitAliasQuery(AliasQueryContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             LogicalPlan queryPlan = plan(ctx.query());
-            List<String> columnNames = null;
-            if (ctx.columnAliases() != null) {
-                columnNames = ctx.columnAliases().identifier().stream()
+            Optional<List<String>> columnNames = optionalVisit(ctx.columnAliases(), () ->
+                    ctx.columnAliases().identifier().stream()
                     .map(RuleContext::getText)
-                    .collect(ImmutableList.toImmutableList());
-            }
-            return new LogicalSubQueryAlias<>(ctx.identifier().getText(), Optional.ofNullable(columnNames), queryPlan);
+                    .collect(ImmutableList.toImmutableList())
+            );
+            return new LogicalSubQueryAlias<>(ctx.identifier().getText(), columnNames, queryPlan);
         });
     }
 
@@ -447,7 +453,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     private LogicalPlan withCheckPolicy(LogicalPlan plan) {
-        return new LogicalCheckPolicy(plan);
+        return new LogicalCheckPolicy<>(plan);
     }
 
     @Override
@@ -463,8 +469,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 partitionNames.addAll(visitIdentifierList(ctx.specifiedPartition().identifierList()));
             }
         }
+
+        final List<String> relationHints;
+        if (ctx.relationHint() != null) {
+            relationHints = typedVisit(ctx.relationHint());
+        } else {
+            relationHints = ImmutableList.of();
+        }
+
         LogicalPlan checkedRelation = withCheckPolicy(
-                new UnboundRelation(RelationUtil.newRelationId(), tableId, partitionNames, isTempPart));
+                new UnboundRelation(RelationUtil.newRelationId(), tableId, partitionNames, isTempPart, relationHints));
         LogicalPlan plan = withTableAlias(checkedRelation, ctx.tableAlias());
         for (LateralViewContext lateralViewContext : ctx.lateralView()) {
             plan = withGenerate(plan, lateralViewContext);
@@ -516,7 +530,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         .map(RuleContext::getText)
                         .collect(ImmutableList.toImmutableList());
             } else {
-                target = Collections.emptyList();
+                target = ImmutableList.of();
             }
             return new UnboundStar(target);
         });
@@ -829,9 +843,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public Expression visitDate_sub(Date_subContext ctx) {
         Expression timeStamp = (Expression) visit(ctx.timestamp);
         Expression amount = (Expression) visit(ctx.unitsAmount);
-        if (! (amount.getDataType() instanceof TinyIntType)) {
-            amount = new Cast(amount, IntegerType.INSTANCE);
-        }
         if (ctx.unit == null) {
             //use "DAY" as unit by default
             return new DaysSub(timeStamp, amount);
@@ -884,7 +895,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Expression e = getExpression(context.value);
         List<WhenClause> whenClauses = context.whenClause().stream()
                 .map(w -> new WhenClause(new EqualTo(e, getExpression(w.condition)), getExpression(w.result)))
-                .collect(Collectors.toList());
+                .collect(ImmutableList.toImmutableList());
         if (context.elseExpression == null) {
             return new CaseWhen(whenClauses);
         }
@@ -907,7 +918,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public Expression visitSearchedCase(DorisParser.SearchedCaseContext context) {
         List<WhenClause> whenClauses = context.whenClause().stream()
                 .map(w -> new WhenClause(getExpression(w.condition), getExpression(w.result)))
-                .collect(Collectors.toList());
+                .collect(ImmutableList.toImmutableList());
         if (context.elseExpression == null) {
             return new CaseWhen(whenClauses);
         }
@@ -916,8 +927,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Expression visitCast(DorisParser.CastContext ctx) {
-        return ParserUtils.withOrigin(ctx, () ->
-                new Cast(getExpression(ctx.expression()), typedVisit(ctx.dataType())));
+        DataType dataType = typedVisit(ctx.dataType());
+        Expression cast = ParserUtils.withOrigin(ctx, () ->
+                new Cast(getExpression(ctx.expression()), dataType));
+        if (dataType.isStringLikeType() && ((CharacterType) dataType).getLen() >= 0) {
+            List<Expression> args = ImmutableList.of(
+                    cast,
+                    new TinyIntLiteral((byte) 1),
+                    Literal.of(((CharacterType) dataType).getLen())
+            );
+            return new UnboundFunction("substr", args);
+        } else {
+            return cast;
+        }
     }
 
     @Override
@@ -951,13 +973,103 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     if (!unboundStars.get(0).getQualifier().isEmpty()) {
                         throw new ParseException("'*' can not has qualifier: " + unboundStars.size(), ctx);
                     }
+                    if (ctx.windowSpec() != null) {
+                        // todo: support count(*) as window function
+                        throw new ParseException(
+                                "COUNT(*) isn't supported as window function; can use COUNT(col)", ctx);
+                    }
                     return new Count();
                 }
                 throw new ParseException("'*' can only be used in conjunction with COUNT: " + functionName, ctx);
             } else {
-                return new UnboundFunction(functionName, isDistinct, params);
+                UnboundFunction function = new UnboundFunction(functionName, isDistinct, params);
+                if (ctx.windowSpec() != null) {
+                    if (isDistinct) {
+                        throw new ParseException("DISTINCT not allowed in analytic function: " + functionName, ctx);
+                    }
+                    return withWindowSpec(ctx.windowSpec(), function);
+                }
+                return function;
             }
         });
+    }
+
+    /**
+     * deal with window function definition
+     */
+    private WindowExpression withWindowSpec(WindowSpecContext ctx, Expression function) {
+        List<Expression> partitionKeyList = Lists.newArrayList();
+        if (ctx.partitionClause() != null) {
+            partitionKeyList = visit(ctx.partitionClause().expression(), Expression.class);
+        }
+
+        List<OrderExpression> orderKeyList = Lists.newArrayList();
+        if (ctx.sortClause() != null) {
+            orderKeyList = visit(ctx.sortClause().sortItem(), OrderKey.class).stream()
+                .map(orderKey -> new OrderExpression(orderKey))
+                .collect(Collectors.toList());
+        }
+
+        if (ctx.windowFrame() != null) {
+            return new WindowExpression(function, partitionKeyList, orderKeyList, withWindowFrame(ctx.windowFrame()));
+        }
+        return new WindowExpression(function, partitionKeyList, orderKeyList);
+    }
+
+    /**
+     * deal with optional expressions
+     */
+    private <T, C> Optional<C> optionalVisit(T ctx, Supplier<C> func) {
+        return Optional.ofNullable(ctx).map(a -> func.get());
+    }
+
+    /**
+     * deal with window frame
+     */
+    private WindowFrame withWindowFrame(WindowFrameContext ctx) {
+        WindowFrame.FrameUnitsType frameUnitsType = WindowFrame.FrameUnitsType.valueOf(
+                ctx.frameUnits().getText().toUpperCase());
+        WindowFrame.FrameBoundary leftBoundary = withFrameBound(ctx.start);
+        if (ctx.end != null) {
+            WindowFrame.FrameBoundary rightBoundary = withFrameBound(ctx.end);
+            return new WindowFrame(frameUnitsType, leftBoundary, rightBoundary);
+        }
+        return new WindowFrame(frameUnitsType, leftBoundary);
+    }
+
+    private WindowFrame.FrameBoundary withFrameBound(DorisParser.FrameBoundaryContext ctx) {
+        Optional<Expression> expression = Optional.empty();
+        if (ctx.expression() != null) {
+            expression = Optional.of(getExpression(ctx.expression()));
+            // todo: use isConstant() to resolve Function in expression; currently we only
+            //  support literal expression
+            if (!expression.get().isLiteral()) {
+                throw new ParseException("Unsupported expression in WindowFrame : " + expression, ctx);
+            }
+        }
+
+        WindowFrame.FrameBoundType frameBoundType = null;
+        switch (ctx.boundType.getType()) {
+            case DorisParser.PRECEDING:
+                if (ctx.UNBOUNDED() != null) {
+                    frameBoundType = WindowFrame.FrameBoundType.UNBOUNDED_PRECEDING;
+                } else {
+                    frameBoundType = WindowFrame.FrameBoundType.PRECEDING;
+                }
+                break;
+            case DorisParser.CURRENT:
+                frameBoundType = WindowFrame.FrameBoundType.CURRENT_ROW;
+                break;
+            case DorisParser.FOLLOWING:
+                if (ctx.UNBOUNDED() != null) {
+                    frameBoundType = WindowFrame.FrameBoundType.UNBOUNDED_FOLLOWING;
+                } else {
+                    frameBoundType = WindowFrame.FrameBoundType.FOLLOWING;
+                }
+                break;
+            default:
+        }
+        return new WindowFrame.FrameBoundary(expression, frameBoundType);
     }
 
     @Override
@@ -1043,7 +1155,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public Literal visitStringLiteral(StringLiteralContext ctx) {
         // TODO: add unescapeSQLString.
         String txt = ctx.STRING().getText();
-        String s = txt.substring(1, txt.length() - 1);
+        String s = escapeBackSlash(txt.substring(1, txt.length() - 1));
         return new VarcharLiteral(s);
     }
 
@@ -1118,6 +1230,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                                 ExpressionUtils.EMPTY_CONDITION,
                                 ExpressionUtils.EMPTY_CONDITION,
                                 JoinHint.NONE,
+                                Optional.empty(),
                                 left,
                                 right);
                 left = withJoinRelations(left, relation);
@@ -1247,7 +1360,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             if (offsetToken != null) {
                 offset = Long.parseLong(offsetToken.getText());
             }
-            return new LogicalLimit<>(limit, offset, input);
+            return new LogicalLimit<>(limit, offset, LimitPhase.ORIGIN, input);
         });
     }
 
@@ -1296,11 +1409,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     if (!expressions.stream().allMatch(UnboundSlot.class::isInstance)) {
                         throw new ParseException("only column name is supported in except clause", selectColumnCtx);
                     }
-                    project = new LogicalProject<>(ImmutableList.of(new UnboundStar(Collections.emptyList())),
+                    project = new LogicalProject<>(ImmutableList.of(new UnboundStar(ImmutableList.of())),
                         expressions, aggregate, isDistinct);
                 } else {
                     List<NamedExpression> projects = getNamedExpressions(selectColumnCtx.namedExpressionSeq());
-                    project = new LogicalProject<>(projects, Collections.emptyList(), aggregate, isDistinct);
+                    project = new LogicalProject<>(projects, ImmutableList.of(), aggregate, isDistinct);
                 }
                 return new LogicalHaving<>(ExpressionUtils.extractConjunctionToSet(
                         getExpression((havingClause.get().booleanExpression()))), project);
@@ -1340,6 +1453,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 joinType = JoinType.RIGHT_OUTER_JOIN;
             } else if (join.joinType().INNER() != null) {
                 joinType = JoinType.INNER_JOIN;
+            } else if (join.joinCriteria() != null) {
+                joinType = JoinType.INNER_JOIN;
             } else {
                 joinType = JoinType.CROSS_JOIN;
             }
@@ -1353,10 +1468,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     throw new ParseException("Invalid join hint: " + hint, hintCtx);
                 }
             }).orElse(JoinHint.NONE);
-            // TODO: natural join, lateral join, using join, union join
+            // TODO: natural join, lateral join, union join
             JoinCriteriaContext joinCriteria = join.joinCriteria();
             Optional<Expression> condition = Optional.empty();
-            List<UnboundSlot> ids = null;
+            List<Expression> ids = null;
             if (joinCriteria != null) {
                 if (join.joinType().CROSS() != null) {
                     throw new ParseException("Cross join can't be used with ON clause", joinCriteria);
@@ -1365,8 +1480,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     condition = Optional.ofNullable(getExpression(joinCriteria.booleanExpression()));
                 } else if (joinCriteria.USING() != null) {
                     ids = visitIdentifierList(joinCriteria.identifierList())
-                                    .stream().map(UnboundSlot::quoted).collect(
-                                            Collectors.toList());
+                            .stream().map(UnboundSlot::quoted)
+                            .collect(ImmutableList.toImmutableList());
                 }
             } else {
                 // keep same with original planner, allow cross/inner join
@@ -1379,11 +1494,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         condition.map(ExpressionUtils::extractConjunction)
                                 .orElse(ExpressionUtils.EMPTY_CONDITION),
                         joinHint,
+                        Optional.empty(),
                         last,
                         plan(join.relationPrimary()));
             } else {
-                last = new UsingJoin(joinType, last,
-                        plan(join.relationPrimary()), Collections.emptyList(), ids, joinHint);
+                last = new UsingJoin<>(joinType, last,
+                        plan(join.relationPrimary()), ImmutableList.of(), ids, joinHint);
+
             }
         }
         return last;
@@ -1415,13 +1532,27 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public String visitBracketStyleHint(BracketStyleHintContext ctx) {
+    public String visitBracketJoinHint(BracketJoinHintContext ctx) {
         return ctx.identifier().getText();
     }
 
     @Override
-    public Object visitCommentStyleHint(CommentStyleHintContext ctx) {
+    public String visitCommentJoinHint(CommentJoinHintContext ctx) {
         return ctx.identifier().getText();
+    }
+
+    @Override
+    public List<String> visitBracketRelationHint(BracketRelationHintContext ctx) {
+        return ctx.identifier().stream()
+                .map(RuleContext::getText)
+                .collect(ImmutableList.toImmutableList());
+    }
+
+    @Override
+    public Object visitCommentRelationHint(CommentRelationHintContext ctx) {
+        return ctx.identifier().stream()
+                .map(RuleContext::getText)
+                .collect(ImmutableList.toImmutableList());
     }
 
     private LogicalPlan withProjection(LogicalPlan input, SelectColumnClauseContext selectCtx,
@@ -1436,7 +1567,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     if (!expressions.stream().allMatch(UnboundSlot.class::isInstance)) {
                         throw new ParseException("only column name is supported in except clause", selectCtx);
                     }
-                    return new LogicalProject<>(ImmutableList.of(new UnboundStar(Collections.emptyList())),
+                    return new LogicalProject<>(ImmutableList.of(new UnboundStar(ImmutableList.of())),
                             expressions, input, isDistinct);
                 } else {
                     List<NamedExpression> projects = getNamedExpressions(selectCtx.namedExpressionSeq());

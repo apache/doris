@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotNotFromChildren;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -62,17 +63,17 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
         notFromChildren = notFromChildren.stream()
                 .filter(s -> !childrenOutput.contains(s.getExprId()))
                 .collect(Collectors.toSet());
-        notFromChildren = removeValidVirtualSlots(notFromChildren, childrenOutput);
+        notFromChildren = removeValidSlotsNotFromChildren(notFromChildren, childrenOutput);
         if (!notFromChildren.isEmpty()) {
-            throw new AnalysisException(String.format("Input slot(s) not in child's output: %s",
+            throw new AnalysisException(String.format("Input slot(s) not in child's output: %s in plan: %s",
                     StringUtils.join(notFromChildren.stream()
                             .map(ExpressionTrait::toSql)
-                            .collect(Collectors.toSet()), ", ")));
+                            .collect(Collectors.toSet()), ", "), plan));
         }
     }
 
-    private Set<Slot> removeValidVirtualSlots(Set<Slot> virtualSlots, Set<ExprId> childrenOutput) {
-        return virtualSlots.stream()
+    private Set<Slot> removeValidSlotsNotFromChildren(Set<Slot> slots, Set<ExprId> childrenOutput) {
+        return slots.stream()
                 .filter(expr -> {
                     if (expr instanceof VirtualSlotReference) {
                         List<Expression> realExpressions = ((VirtualSlotReference) expr).getRealExpressions();
@@ -85,7 +86,7 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                                 .flatMap(Set::stream)
                                 .anyMatch(realUsedExpr -> !childrenOutput.contains(realUsedExpr.getExprId()));
                     } else {
-                        return true;
+                        return !(expr instanceof SlotNotFromChildren);
                     }
                 })
                 .collect(Collectors.toSet());

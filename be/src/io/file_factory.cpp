@@ -19,24 +19,21 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "io/broker_reader.h"
 #include "io/broker_writer.h"
-#include "io/buffered_reader.h"
 #include "io/fs/broker_file_system.h"
 #include "io/fs/file_reader_options.h"
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
+#include "io/fs/remote_file_system.h"
 #include "io/fs/s3_file_system.h"
-#include "io/hdfs_file_reader.h"
 #include "io/hdfs_writer.h"
-#include "io/local_file_reader.h"
 #include "io/local_file_writer.h"
-#include "io/s3_reader.h"
 #include "io/s3_writer.h"
+#include "olap/iterators.h"
 #include "runtime/exec_env.h"
-#include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
+#include "runtime/stream_load/stream_load_context.h"
 
 namespace doris {
 
@@ -70,95 +67,18 @@ Status FileFactory::create_file_writer(TFileType::type type, ExecEnv* env,
     return Status::OK();
 }
 
-// ============================
-// broker scan node/unique ptr
-Status FileFactory::create_file_reader(TFileType::type type, ExecEnv* env, RuntimeProfile* profile,
-                                       const std::vector<TNetworkAddress>& broker_addresses,
-                                       const std::map<std::string, std::string>& properties,
-                                       const TBrokerRangeDesc& range, int64_t start_offset,
-                                       std::unique_ptr<FileReader>& file_reader) {
-    FileReader* file_reader_ptr;
-    switch (type) {
-    case TFileType::FILE_LOCAL: {
-        file_reader_ptr = new LocalFileReader(range.path, start_offset);
-        break;
-    }
-    case TFileType::FILE_BROKER: {
-        file_reader_ptr = new BufferedReader(
-                profile,
-                new BrokerReader(env, broker_addresses, properties, range.path, start_offset,
-                                 range.__isset.file_size ? range.file_size : 0));
-        break;
-    }
-    case TFileType::FILE_S3: {
-        file_reader_ptr =
-                new BufferedReader(profile, new S3Reader(properties, range.path, start_offset));
-        break;
-    }
-    case TFileType::FILE_HDFS: {
-        FileReader* hdfs_reader = nullptr;
-        hdfs_reader = new HdfsFileReader(range.hdfs_params, range.path, start_offset);
-        file_reader_ptr = new BufferedReader(profile, hdfs_reader);
-        break;
-    }
-    default:
-        return Status::InternalError("unsupported file reader type: " + std::to_string(type));
-    }
-    file_reader.reset(file_reader_ptr);
-
-    return Status::OK();
-}
-
-// ============================
-// file scan node/unique ptr
-Status FileFactory::create_file_reader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                                       const std::string& path, int64_t start_offset,
-                                       int64_t file_size, int64_t buffer_size,
-                                       std::unique_ptr<FileReader>& file_reader) {
-    FileReader* file_reader_ptr;
-    TFileType::type type = params.file_type;
-    switch (type) {
-    case TFileType::FILE_LOCAL: {
-        file_reader_ptr = new LocalFileReader(path, start_offset);
-        break;
-    }
-    case TFileType::FILE_S3: {
-        file_reader_ptr = new S3Reader(params.properties, path, start_offset);
-        break;
-    }
-    case TFileType::FILE_HDFS: {
-        file_reader_ptr = new HdfsFileReader(params.hdfs_params, path, start_offset);
-        break;
-    }
-    case TFileType::FILE_BROKER: {
-        file_reader_ptr = new BrokerReader(ExecEnv::GetInstance(), params.broker_addresses,
-                                           params.properties, path, start_offset, file_size);
-        break;
-    }
-    default:
-        return Status::InternalError("unsupported file reader type: {}", std::to_string(type));
-    }
-
-    if (buffer_size > 0) {
-        file_reader.reset(new BufferedReader(profile, file_reader_ptr, buffer_size));
-    } else {
-        file_reader.reset(file_reader_ptr);
-    }
-    return Status::OK();
-}
-
 Status FileFactory::create_file_reader(RuntimeProfile* /*profile*/,
                                        const FileSystemProperties& system_properties,
                                        const FileDescription& file_description,
                                        std::shared_ptr<io::FileSystem>* file_system,
                                        io::FileReaderSPtr* file_reader, IOContext* io_ctx) {
     TFileType::type type = system_properties.system_type;
-    std::string cache_policy = "no_cache";
-    if (config::enable_file_cache) {
-        cache_policy = "file_block_cache";
+    auto cache_policy = io::FileCachePolicy::NO_CACHE;
+    if (config::enable_file_cache && io_ctx->enable_file_cache) {
+        cache_policy = io::FileCachePolicy::FILE_BLOCK_CACHE;
     }
-    io::FileReaderOptions reader_options(io::cache_type_from_string(cache_policy),
-                                         io::FileBlockCachePathPolicy());
+    io::FileBlockCachePathPolicy file_block_cache;
+    io::FileReaderOptions reader_options(cache_policy, file_block_cache);
     switch (type) {
     case TFileType::FILE_LOCAL: {
         RETURN_IF_ERROR(io::global_local_filesystem()->open_file(
@@ -189,19 +109,11 @@ Status FileFactory::create_file_reader(RuntimeProfile* /*profile*/,
 
 // file scan node/stream load pipe
 Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderSPtr* file_reader) {
-    *file_reader = ExecEnv::GetInstance()->new_load_stream_mgr()->get(load_id);
-    if (!(*file_reader)) {
+    auto stream_load_ctx = ExecEnv::GetInstance()->new_load_stream_mgr()->get(load_id);
+    if (!stream_load_ctx) {
         return Status::InternalError("unknown stream load id: {}", UniqueId(load_id).to_string());
     }
-    return Status::OK();
-}
-
-Status FileFactory::create_pipe_reader(const TUniqueId& load_id,
-                                       std::shared_ptr<FileReader>& file_reader) {
-    file_reader = ExecEnv::GetInstance()->load_stream_mgr()->get(load_id);
-    if (!file_reader) {
-        return Status::InternalError("unknown stream load id: {}", UniqueId(load_id).to_string());
-    }
+    *file_reader = stream_load_ctx->pipe;
     return Status::OK();
 }
 
@@ -235,9 +147,10 @@ Status FileFactory::create_s3_reader(const std::map<std::string, std::string>& p
     }
     S3Conf s3_conf;
     RETURN_IF_ERROR(ClientFactory::convert_properties_to_s3_conf(prop, s3_uri, &s3_conf));
-    *s3_file_system = io::S3FileSystem::create(s3_conf, "");
-    RETURN_IF_ERROR((std::static_pointer_cast<io::S3FileSystem>(*s3_file_system))->connect());
-    RETURN_IF_ERROR((*s3_file_system)->open_file(s3_uri.get_key(), reader_options, reader, io_ctx));
+    std::shared_ptr<io::RemoteFileSystem> tmp_fs = io::S3FileSystem::create(std::move(s3_conf), "");
+    RETURN_IF_ERROR(tmp_fs->connect());
+    RETURN_IF_ERROR(tmp_fs->open_file(s3_uri.get_key(), reader_options, reader, io_ctx));
+    *s3_file_system = std::move(tmp_fs);
     return Status::OK();
 }
 

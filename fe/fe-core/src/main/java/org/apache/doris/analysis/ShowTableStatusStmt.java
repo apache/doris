@@ -101,7 +101,7 @@ public class ShowTableStatusStmt extends ShowStmt {
             }
         }
 
-        if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(), db, PrivPredicate.SHOW)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), db, PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, analyzer.getQualifiedUser(), db);
         }
     }

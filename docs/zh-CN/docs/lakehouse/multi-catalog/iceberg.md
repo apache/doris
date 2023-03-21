@@ -31,11 +31,12 @@ under the License.
 
 1. 支持 Iceberg V1/V2 表格式。
 2. V2 格式仅支持 Position Delete 方式，不支持 Equality Delete。
-3. 目前仅支持 Hive Metastore 类型的 Catalog。所以使用方式和 Hive Catalog 基本一致。
 
 ## 创建 Catalog
 
-和 Hive Catalog 基本一致，这里仅给出简单示例。其他示例可参阅 [Hive Catalog](./hive)。
+### 基于Hive Metastore创建Catalog
+
+和 Hive Catalog 基本一致，这里仅给出简单示例。其他示例可参阅 [Hive Catalog](./hive.md)。
 
 ```sql
 CREATE CATALOG iceberg PROPERTIES (
@@ -50,9 +51,77 @@ CREATE CATALOG iceberg PROPERTIES (
 );
 ```
 
+### 基于Iceberg API创建Catalog
+
+<version since="dev">
+
+使用Iceberg API访问元数据的方式，支持Hive、REST、Glue等服务作为Iceberg的Catalog。
+
+</version>
+
+#### Hive Metastore作为元数据服务
+
+```sql
+CREATE CATALOG iceberg PROPERTIES (
+    'type'='iceberg',
+    'iceberg.catalog.type'='hms',
+    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
+    'hadoop.username' = 'hive',
+    'dfs.nameservices'='your-nameservice',
+    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
+    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
+);
+```
+
+#### Glue Catalog作为元数据服务
+
+```sql
+CREATE CATALOG glue PROPERTIES (
+"type"="iceberg",
+"iceberg.catalog.type" = "glue",
+"glue.endpoint" = "https://glue.us-east-1.amazonaws.com",
+"warehouse" = "s3://bucket/warehouse",
+"AWS_ENDPOINT" = "s3.us-east-1.amazonaws.com",
+"AWS_REGION" = "us-east-1",
+"AWS_ACCESS_KEY" = "ak",
+"AWS_SECRET_KEY" = "sk",
+"use_path_style" = "true"
+);
+```
+
+`glue.endpoint`: Glue Endpoint. 参阅：[AWS Glue endpoints and quotas](https://docs.aws.amazon.com/general/latest/gr/glue.html).
+
+`warehouse`: Glue Warehouse Location. Glue Catalog的根路径，用于指定数据存放位置。
+
+属性详情参见 [Iceberg Glue Catalog](https://iceberg.apache.org/docs/latest/aws/#glue-catalog)
+
+- REST Catalog作为元数据服务
+
+该方式需要预先提供REST服务，用户需实现获取Iceberg元数据的REST接口。
+
+```sql
+CREATE CATALOG iceberg PROPERTIES (
+    'type'='iceberg',
+    'iceberg.catalog.type'='rest',
+    'uri' = 'http://172.21.0.1:8181',
+);
+```
+
+若数据存放在S3上，properties中可以使用以下参数
+
+```
+"AWS_ACCESS_KEY" = "ak"
+"AWS_SECRET_KEY" = "sk"
+"AWS_REGION" = "region-name"
+"AWS_ENDPOINT" = "http://endpoint-uri"
+"AWS_CREDENTIALS_PROVIDER" = "provider-class-name" // 可选，默认凭证类基于BasicAWSCredentials实现。
+```
+
 ## 列类型映射
 
-和 Hive Catalog 一致，可参阅 [Hive Catalog](./hive) 中 **列类型映射** 一节。
+和 Hive Catalog 一致，可参阅 [Hive Catalog](./hive.md) 中 **列类型映射** 一节。
 
 ## Time Travel
 

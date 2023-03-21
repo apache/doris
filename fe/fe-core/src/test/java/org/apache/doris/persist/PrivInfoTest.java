@@ -23,8 +23,8 @@ import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.meta.MetaContext;
-import org.apache.doris.mysql.privilege.PaloPrivilege;
 import org.apache.doris.mysql.privilege.PrivBitSet;
+import org.apache.doris.mysql.privilege.Privilege;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -49,7 +49,7 @@ public class PrivInfoTest {
 
     @Test
     public void test() throws IOException {
-        PrivInfo privInfo = new PrivInfo(UserIdentity.ROOT, PrivBitSet.of(PaloPrivilege.ADMIN_PRIV),
+        PrivInfo privInfo = new PrivInfo(UserIdentity.ROOT, PrivBitSet.of(Privilege.ADMIN_PRIV),
                 new byte[] {'a', 'b', 'c'}, "role", PasswordOptions.UNSET_OPTION);
 
         // 1. Write objects to file
@@ -73,7 +73,7 @@ public class PrivInfoTest {
 
     @Test
     public void testWithTablePattern() throws IOException {
-        PrivInfo privInfo = new PrivInfo(UserIdentity.ROOT, TablePattern.ALL, PrivBitSet.of(PaloPrivilege.DROP_PRIV),
+        PrivInfo privInfo = new PrivInfo(UserIdentity.ROOT, TablePattern.ALL, PrivBitSet.of(Privilege.DROP_PRIV),
                 new byte[] {'a', 'b', 'c'}, "role");
 
         // 1. Write objects to file
@@ -99,7 +99,7 @@ public class PrivInfoTest {
     @Test
     public void testWithResourcePattern() throws IOException {
         PrivInfo privInfo = new PrivInfo(UserIdentity.ROOT, new ResourcePattern("res1"),
-                PrivBitSet.of(PaloPrivilege.DROP_PRIV), new byte[] {'a', 'b', 'c'}, "role");
+                PrivBitSet.of(Privilege.DROP_PRIV), new byte[] {'a', 'b', 'c'}, "role");
 
         // 1. Write objects to file
         File file = new File("./privInfo");

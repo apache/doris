@@ -97,6 +97,9 @@ private:
     int64_t _jobject_to_datetime(JNIEnv* env, jobject jobj, bool is_datetime_v2);
     Status _cast_string_to_array(const SlotDescriptor* slot_desc, Block* block, int column_index,
                                  int rows);
+    Status _convert_batch_result_set(JNIEnv* env, jobject jobj, const SlotDescriptor* slot_desc,
+                                     vectorized::IColumn* column_ptr, int num_rows,
+                                     int column_index);
 
     const JdbcConnectorParam& _conn_param;
     //java.sql.Types: https://docs.oracle.com/javase/7/docs/api/constant-values.html#java.sql.Types.INTEGER
@@ -104,7 +107,7 @@ private:
             {-7, TYPE_BOOLEAN}, {-6, TYPE_TINYINT},  {5, TYPE_SMALLINT}, {4, TYPE_INT},
             {-5, TYPE_BIGINT},  {12, TYPE_STRING},   {7, TYPE_FLOAT},    {8, TYPE_DOUBLE},
             {91, TYPE_DATE},    {93, TYPE_DATETIME}, {2, TYPE_DECIMALV2}};
-    bool _closed;
+    bool _closed = false;
     jclass _executor_clazz;
     jclass _executor_list_clazz;
     jclass _executor_object_clazz;
@@ -116,6 +119,24 @@ private:
     jmethodID _executor_has_next_id;
     jmethodID _executor_block_rows_id;
     jmethodID _executor_get_blocks_id;
+    jmethodID _executor_get_boolean_result;
+    jmethodID _executor_get_tinyint_result;
+    jmethodID _executor_get_smallint_result;
+    jmethodID _executor_get_int_result;
+    jmethodID _executor_get_bigint_result;
+    jmethodID _executor_get_largeint_result;
+    jmethodID _executor_get_float_result;
+    jmethodID _executor_get_double_result;
+    jmethodID _executor_get_char_result;
+    jmethodID _executor_get_string_result;
+    jmethodID _executor_get_date_result;
+    jmethodID _executor_get_datev2_result;
+    jmethodID _executor_get_datetime_result;
+    jmethodID _executor_get_datetimev2_result;
+    jmethodID _executor_get_decimalv2_result;
+    jmethodID _executor_get_decimal32_result;
+    jmethodID _executor_get_decimal64_result;
+    jmethodID _executor_get_decimal128_result;
     jmethodID _executor_get_types_id;
     jmethodID _executor_get_arr_list_id;
     jmethodID _executor_get_arr_type_id;
@@ -124,12 +145,13 @@ private:
     jmethodID _executor_get_list_size_id;
     jmethodID _executor_convert_date_id;
     jmethodID _executor_convert_datetime_id;
+    jmethodID _executor_convert_array_id;
     jmethodID _get_bytes_id;
     jmethodID _to_string_id;
     jmethodID _executor_begin_trans_id;
     jmethodID _executor_finish_trans_id;
     jmethodID _executor_abort_trans_id;
-    bool _need_cast_array_type;
+    bool _need_cast_array_type = false;
     std::map<int, int> _map_column_idx_to_cast_idx;
     std::vector<DataTypePtr> _input_array_string_types;
     std::vector<MutableColumnPtr>

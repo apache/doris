@@ -55,6 +55,7 @@ import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.MysqlServerStatusFlag;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.plugin.AuditEvent.EventType;
 import org.apache.doris.proto.Data;
 import org.apache.doris.qe.QueryState.MysqlStateType;
@@ -273,7 +274,8 @@ public class ConnectProcessor {
                 .setReturnRows(ctx.getReturnRows())
                 .setStmtId(ctx.getStmtId())
                 .setQueryId(ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()))
-                .setTraceId(spanContext.isValid() ? spanContext.getTraceId() : "");
+                .setTraceId(spanContext.isValid() ? spanContext.getTraceId() : "")
+                .setFuzzyVariables(ctx.getSessionVariable().printFuzzyVariables());
 
         if (ctx.getState().isQuery()) {
             MetricRepo.COUNTER_QUERY_ALL.increase(1L);
@@ -412,7 +414,9 @@ public class ConnectProcessor {
                 executor.execute();
                 if (i != stmts.size() - 1) {
                     ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS;
-                    finalizeCommand();
+                    if (ctx.getState().getStateType() != MysqlStateType.ERR) {
+                        finalizeCommand();
+                    }
                 }
                 auditAfterExec(auditStmt, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog());
                 // execute failed, skip remaining stmts
@@ -507,8 +511,8 @@ public class ConnectProcessor {
 
         table.readLock();
         try {
-            MysqlSerializer serializer = ctx.getSerializer();
             MysqlChannel channel = ctx.getMysqlChannel();
+            MysqlSerializer serializer = channel.getSerializer();
 
             // Send fields
             // NOTE: Field list doesn't send number of fields
@@ -591,7 +595,7 @@ public class ConnectProcessor {
             return null;
         }
 
-        MysqlSerializer serializer = ctx.getSerializer();
+        MysqlSerializer serializer = ctx.getMysqlChannel().getSerializer();
         serializer.reset();
         packet.writeTo(serializer);
         return serializer.toByteBuffer();
@@ -632,6 +636,10 @@ public class ConnectProcessor {
                 || executor.getParsedStmt() instanceof LogicalPlanAdapter
                 || executor.getParsedStmt() instanceof InsertStmt)) {
             executor.writeProfile(true);
+            StatsErrorEstimator statsErrorEstimator = ConnectContext.get().getStatsErrorEstimator();
+            if (statsErrorEstimator != null) {
+                statsErrorEstimator.updateProfile(ConnectContext.get().queryId());
+            }
         }
     }
 

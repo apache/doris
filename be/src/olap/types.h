@@ -31,10 +31,11 @@
 #include "olap/olap_define.h"
 #include "runtime/collection_value.h"
 #include "runtime/jsonb_value.h"
+#include "runtime/map_value.h"
 #include "runtime/mem_pool.h"
+#include "runtime/struct_value.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_utils.h"
-#include "util/mem_util.hpp"
 #include "util/mysql_global.h"
 #include "util/slice.h"
 #include "util/string_parser.hpp"
@@ -62,7 +63,6 @@ TypeInfoPtr create_dynamic_type_info_ptr(const TypeInfo* type_info);
 class TypeInfo {
 public:
     virtual ~TypeInfo() = default;
-    virtual bool equal(const void* left, const void* right) const = 0;
     virtual int cmp(const void* left, const void* right) const = 0;
 
     virtual void deep_copy(void* dest, const void* src, MemPool* mem_pool) const = 0;
@@ -80,15 +80,13 @@ public:
     virtual void set_to_max(void* buf) const = 0;
     virtual void set_to_min(void* buf) const = 0;
 
-    virtual const size_t size() const = 0;
+    virtual size_t size() const = 0;
 
     virtual FieldType type() const = 0;
 };
 
 class ScalarTypeInfo : public TypeInfo {
 public:
-    bool equal(const void* left, const void* right) const override { return _equal(left, right); }
-
     int cmp(const void* left, const void* right) const override { return _cmp(left, right); }
 
     void deep_copy(void* dest, const void* src, MemPool* mem_pool) const override {
@@ -110,14 +108,13 @@ public:
 
     void set_to_max(void* buf) const override { _set_to_max(buf); }
     void set_to_min(void* buf) const override { _set_to_min(buf); }
-    const size_t size() const override { return _size; }
+    size_t size() const override { return _size; }
 
     FieldType type() const override { return _field_type; }
 
     template <typename TypeTraitsClass>
     ScalarTypeInfo(TypeTraitsClass t)
-            : _equal(TypeTraitsClass::equal),
-              _cmp(TypeTraitsClass::cmp),
+            : _cmp(TypeTraitsClass::cmp),
               _deep_copy(TypeTraitsClass::deep_copy),
               _direct_copy(TypeTraitsClass::direct_copy),
               _direct_copy_may_cut(TypeTraitsClass::direct_copy_may_cut),
@@ -129,10 +126,8 @@ public:
               _field_type(TypeTraitsClass::type) {}
 
 private:
-    bool (*_equal)(const void* left, const void* right);
     int (*_cmp)(const void* left, const void* right);
 
-    void (*_shallow_copy)(void* dest, const void* src);
     void (*_deep_copy)(void* dest, const void* src, MemPool* mem_pool);
     void (*_direct_copy)(void* dest, const void* src);
     void (*_direct_copy_may_cut)(void* dest, const void* src);
@@ -155,41 +150,6 @@ public:
     explicit ArrayTypeInfo(TypeInfoPtr item_type_info)
             : _item_type_info(std::move(item_type_info)), _item_size(_item_type_info->size()) {}
     ~ArrayTypeInfo() override = default;
-
-    inline bool equal(const void* left, const void* right) const override {
-        auto l_value = reinterpret_cast<const CollectionValue*>(left);
-        auto r_value = reinterpret_cast<const CollectionValue*>(right);
-        if (l_value->length() != r_value->length()) {
-            return false;
-        }
-        size_t len = l_value->length();
-
-        if (!l_value->has_null() && !r_value->has_null()) {
-            for (size_t i = 0; i < len; ++i) {
-                if (!_item_type_info->equal((uint8_t*)(l_value->data()) + i * _item_size,
-                                            (uint8_t*)(r_value->data()) + i * _item_size)) {
-                    return false;
-                }
-            }
-        } else {
-            for (size_t i = 0; i < len; ++i) {
-                if (l_value->is_null_at(i)) {
-                    if (r_value->is_null_at(i)) { // both are null
-                        continue;
-                    } else { // left is null & right is not null
-                        return false;
-                    }
-                } else if (r_value->is_null_at(i)) { // left is not null & right is null
-                    return false;
-                }
-                if (!_item_type_info->equal((uint8_t*)(l_value->data()) + i * _item_size,
-                                            (uint8_t*)(r_value->data()) + i * _item_size)) {
-                    return false;
-                }
-            }
-        }
-        return true;
-    }
 
     int cmp(const void* left, const void* right) const override {
         auto l_value = reinterpret_cast<const CollectionValue*>(left);
@@ -287,8 +247,7 @@ public:
         if (src_value->has_null()) {
             // direct copy null_signs
             dest_value->set_null_signs(reinterpret_cast<bool*>(*base));
-            memory_copy(dest_value->mutable_null_signs(), src_value->null_signs(),
-                        src_value->length());
+            memcpy(dest_value->mutable_null_signs(), src_value->null_signs(), src_value->length());
         }
         *base += nulls_size + src_value->length() * _item_type_info->size();
 
@@ -352,7 +311,7 @@ public:
         DCHECK(false) << "set_to_min of list is not implemented.";
     }
 
-    const size_t size() const override { return sizeof(CollectionValue); }
+    size_t size() const override { return sizeof(CollectionValue); }
 
     FieldType type() const override { return OLAP_FIELD_TYPE_ARRAY; }
 
@@ -361,6 +320,270 @@ public:
 private:
     TypeInfoPtr _item_type_info;
     const size_t _item_size;
+};
+///====================== MapType Info ==========================///
+class MapTypeInfo : public TypeInfo {
+public:
+    explicit MapTypeInfo(TypeInfoPtr key_type_info, TypeInfoPtr value_type_info)
+            : _key_type_info(std::move(key_type_info)),
+              _value_type_info(std::move(value_type_info)) {}
+    ~MapTypeInfo() override = default;
+
+    int cmp(const void* left, const void* right) const override {
+        auto l_value = reinterpret_cast<const MapValue*>(left);
+        auto r_value = reinterpret_cast<const MapValue*>(right);
+        uint32_t l_size = l_value->size();
+        uint32_t r_size = r_value->size();
+        if (l_size < r_size) {
+            return -1;
+        } else if (l_size > r_size) {
+            return 1;
+        } else {
+            // now we use collection value in array to pack map k-v
+            auto l_k = reinterpret_cast<const CollectionValue*>(l_value->key_data());
+            auto l_v = reinterpret_cast<const CollectionValue*>(l_value->value_data());
+            auto r_k = reinterpret_cast<const CollectionValue*>(r_value->key_data());
+            auto r_v = reinterpret_cast<const CollectionValue*>(r_value->value_data());
+            auto key_arr = new ArrayTypeInfo(create_static_type_info_ptr(_key_type_info.get()));
+            auto val_arr = new ArrayTypeInfo(create_static_type_info_ptr(_value_type_info.get()));
+            if (int kc = key_arr->cmp(l_k, r_k) != 0) {
+                return kc;
+            } else {
+                return val_arr->cmp(l_v, r_v);
+            }
+        }
+    }
+
+    void deep_copy(void* dest, const void* src, MemPool* mem_pool) const override { DCHECK(false); }
+
+    void direct_copy(void* dest, const void* src) const override { CHECK(false); }
+
+    void direct_copy(uint8_t** base, void* dest, const void* src) const { CHECK(false); }
+
+    void direct_copy_may_cut(void* dest, const void* src) const override { direct_copy(dest, src); }
+
+    Status from_string(void* buf, const std::string& scan_key, const int precision = 0,
+                       const int scale = 0) const override {
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
+    }
+
+    std::string to_string(const void* src) const override {
+        auto src_ = reinterpret_cast<const MapValue*>(src);
+        auto src_key = reinterpret_cast<const CollectionValue*>(src_->key_data());
+        auto src_val = reinterpret_cast<const CollectionValue*>(src_->value_data());
+        size_t key_slot_size = _key_type_info->size();
+        size_t val_slot_size = _value_type_info->size();
+        std::string result = "{";
+
+        for (size_t i = 0; i < src_key->length(); ++i) {
+            std::string k_s =
+                    _key_type_info->to_string((uint8_t*)(src_key->data()) + key_slot_size);
+            std::string v_s =
+                    _key_type_info->to_string((uint8_t*)(src_val->data()) + val_slot_size);
+            result += k_s + ":" + v_s;
+            if (i != src_key->length() - 1) {
+                result += ", ";
+            }
+        }
+        result += "}";
+        return result;
+    }
+
+    void set_to_max(void* buf) const override {
+        DCHECK(false) << "set_to_max of list is not implemented.";
+    }
+
+    void set_to_min(void* buf) const override {
+        DCHECK(false) << "set_to_min of list is not implemented.";
+    }
+
+    size_t size() const override { return sizeof(MapValue); }
+
+    FieldType type() const override { return OLAP_FIELD_TYPE_MAP; }
+
+    inline const TypeInfo* get_key_type_info() const { return _key_type_info.get(); }
+    inline const TypeInfo* get_value_type_info() const { return _value_type_info.get(); }
+
+private:
+    TypeInfoPtr _key_type_info;
+    TypeInfoPtr _value_type_info;
+};
+
+class StructTypeInfo : public TypeInfo {
+public:
+    explicit StructTypeInfo(std::vector<TypeInfoPtr>& type_infos) {
+        for (TypeInfoPtr& type_info : type_infos) {
+            _type_infos.push_back(std::move(type_info));
+        }
+    }
+    ~StructTypeInfo() override = default;
+
+    int cmp(const void* left, const void* right) const override {
+        auto l_value = reinterpret_cast<const StructValue*>(left);
+        auto r_value = reinterpret_cast<const StructValue*>(right);
+        uint32_t l_size = l_value->size();
+        uint32_t r_size = r_value->size();
+        size_t cur = 0;
+
+        if (!l_value->has_null() && !r_value->has_null()) {
+            while (cur < l_size && cur < r_size) {
+                int result =
+                        _type_infos[cur]->cmp(l_value->child_value(cur), r_value->child_value(cur));
+                if (result != 0) {
+                    return result;
+                }
+                ++cur;
+            }
+        } else {
+            while (cur < l_size && cur < r_size) {
+                if (l_value->is_null_at(cur)) {
+                    if (!r_value->is_null_at(cur)) { // left is null & right is not null
+                        return -1;
+                    }
+                } else if (r_value->is_null_at(cur)) { // left is not null & right is null
+                    return 1;
+                } else { // both are not null
+                    int result = _type_infos[cur]->cmp(l_value->child_value(cur),
+                                                       r_value->child_value(cur));
+                    if (result != 0) {
+                        return result;
+                    }
+                }
+                ++cur;
+            }
+        }
+
+        if (l_size < r_size) {
+            return -1;
+        } else if (l_size > r_size) {
+            return 1;
+        } else {
+            return 0;
+        }
+    }
+
+    void deep_copy(void* dest, const void* src, MemPool* mem_pool) const override {
+        auto dest_value = reinterpret_cast<StructValue*>(dest);
+        auto src_value = reinterpret_cast<const StructValue*>(src);
+
+        if (src_value->size() == 0) {
+            new (dest_value) StructValue(src_value->size());
+            return;
+        }
+
+        dest_value->set_size(src_value->size());
+        dest_value->set_has_null(src_value->has_null());
+
+        size_t allocate_size = src_value->size() * sizeof(*src_value->values());
+        // allocate memory for children value
+        for (size_t i = 0; i < src_value->size(); ++i) {
+            if (src_value->is_null_at(i)) continue;
+            allocate_size += _type_infos[i]->size();
+        }
+
+        dest_value->set_values((void**)mem_pool->allocate(allocate_size));
+        auto ptr = reinterpret_cast<uint8_t*>(dest_value->mutable_values());
+        ptr += dest_value->size() * sizeof(*dest_value->values());
+
+        for (size_t i = 0; i < src_value->size(); ++i) {
+            dest_value->set_child_value(nullptr, i);
+            if (src_value->is_null_at(i)) continue;
+            dest_value->set_child_value(ptr, i);
+            ptr += _type_infos[i]->size();
+        }
+
+        // copy children value
+        for (size_t i = 0; i < src_value->size(); ++i) {
+            if (src_value->is_null_at(i)) continue;
+            _type_infos[i]->deep_copy(dest_value->mutable_child_value(i), src_value->child_value(i),
+                                      mem_pool);
+        }
+    }
+
+    void direct_copy(void* dest, const void* src) const override {
+        auto dest_value = static_cast<StructValue*>(dest);
+        auto base = reinterpret_cast<uint8_t*>(dest_value->mutable_values());
+        direct_copy(&base, dest, src);
+    }
+
+    void direct_copy(uint8_t** base, void* dest, const void* src) const {
+        auto dest_value = static_cast<StructValue*>(dest);
+        auto src_value = static_cast<const StructValue*>(src);
+
+        dest_value->set_size(src_value->size());
+        dest_value->set_has_null(src_value->has_null());
+        *base += src_value->size() * sizeof(*src_value->values());
+
+        for (size_t i = 0; i < src_value->size(); ++i) {
+            dest_value->set_child_value(nullptr, i);
+            if (src_value->is_null_at(i)) continue;
+            dest_value->set_child_value(*base, i);
+            *base += _type_infos[i]->size();
+        }
+
+        for (size_t i = 0; i < src_value->size(); ++i) {
+            if (dest_value->is_null_at(i)) {
+                continue;
+            }
+            auto dest_address = dest_value->mutable_child_value(i);
+            auto src_address = src_value->child_value(i);
+            if (_type_infos[i]->type() == OLAP_FIELD_TYPE_STRUCT) {
+                dynamic_cast<const StructTypeInfo*>(_type_infos[i].get())
+                        ->direct_copy(base, dest_address, src_address);
+            } else if (_type_infos[i]->type() == OLAP_FIELD_TYPE_ARRAY) {
+                dynamic_cast<const ArrayTypeInfo*>(_type_infos[i].get())
+                        ->direct_copy(base, dest_address, src_address);
+            } else {
+                if (is_olap_string_type(_type_infos[i]->type())) {
+                    auto dest_slice = reinterpret_cast<Slice*>(dest_address);
+                    auto src_slice = reinterpret_cast<const Slice*>(src_address);
+                    dest_slice->data = reinterpret_cast<char*>(*base);
+                    dest_slice->size = src_slice->size;
+                    *base += src_slice->size;
+                }
+                _type_infos[i]->direct_copy(dest_address, src_address);
+            }
+        }
+    }
+
+    void direct_copy_may_cut(void* dest, const void* src) const override { direct_copy(dest, src); }
+
+    Status from_string(void* buf, const std::string& scan_key, const int precision = 0,
+                       const int scale = 0) const override {
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
+    }
+
+    std::string to_string(const void* src) const override {
+        auto src_value = reinterpret_cast<const StructValue*>(src);
+        std::string result = "{";
+
+        for (size_t i = 0; i < src_value->size(); ++i) {
+            std::string field_value = _type_infos[i]->to_string(src_value->child_value(i));
+            result += field_value;
+            if (i < src_value->size() - 1) {
+                result += ", ";
+            }
+        }
+        result += "}";
+        return result;
+    }
+
+    void set_to_max(void* buf) const override {
+        DCHECK(false) << "set_to_max of list is not implemented.";
+    }
+
+    void set_to_min(void* buf) const override {
+        DCHECK(false) << "set_to_min of list is not implemented.";
+    }
+
+    size_t size() const override { return sizeof(StructValue); }
+
+    FieldType type() const override { return OLAP_FIELD_TYPE_STRUCT; }
+
+    inline const std::vector<TypeInfoPtr>* type_infos() const { return &_type_infos; }
+
+private:
+    std::vector<TypeInfoPtr> _type_infos;
 };
 
 bool is_scalar_type(FieldType field_type);
@@ -498,14 +721,21 @@ template <>
 struct CppTypeTraits<OLAP_FIELD_TYPE_OBJECT> {
     using CppType = Slice;
 };
-
 template <>
 struct CppTypeTraits<OLAP_FIELD_TYPE_QUANTILE_STATE> {
     using CppType = Slice;
 };
 template <>
+struct CppTypeTraits<OLAP_FIELD_TYPE_STRUCT> {
+    using CppType = StructValue;
+};
+template <>
 struct CppTypeTraits<OLAP_FIELD_TYPE_ARRAY> {
     using CppType = CollectionValue;
+};
+template <>
+struct CppTypeTraits<OLAP_FIELD_TYPE_MAP> {
+    using CppType = MapValue;
 };
 template <FieldType field_type>
 struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
@@ -520,10 +750,6 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
 
     static inline void set_cpp_type_value(void* address, const CppType& value) {
         memcpy(address, &value, sizeof(CppType));
-    }
-
-    static inline bool equal(const void* left, const void* right) {
-        return get_cpp_type_value(left) == get_cpp_type_value(right);
     }
 
     static inline int cmp(const void* left, const void* right) {
@@ -1014,11 +1240,6 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATETIME>
 
 template <>
 struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_CHAR> {
-    static bool equal(const void* left, const void* right) {
-        auto l_slice = reinterpret_cast<const Slice*>(left);
-        auto r_slice = reinterpret_cast<const Slice*>(right);
-        return *l_slice == *r_slice;
-    }
     static int cmp(const void* left, const void* right) {
         auto l_slice = reinterpret_cast<const Slice*>(left);
         auto r_slice = reinterpret_cast<const Slice*>(right);
@@ -1034,7 +1255,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_F
         }
 
         auto slice = reinterpret_cast<Slice*>(buf);
-        memory_copy(slice->data, scan_key.c_str(), value_len);
+        memcpy(slice->data, scan_key.c_str(), value_len);
         if (slice->size < value_len) {
             /*
              * CHAR type is of fixed length. Size in slice can be modified
@@ -1057,14 +1278,14 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_F
         auto l_slice = reinterpret_cast<Slice*>(dest);
         auto r_slice = reinterpret_cast<const Slice*>(src);
         l_slice->data = reinterpret_cast<char*>(mem_pool->allocate(r_slice->size));
-        memory_copy(l_slice->data, r_slice->data, r_slice->size);
+        memcpy(l_slice->data, r_slice->data, r_slice->size);
         l_slice->size = r_slice->size;
     }
 
     static void direct_copy(void* dest, const void* src) {
         auto l_slice = reinterpret_cast<Slice*>(dest);
         auto r_slice = reinterpret_cast<const Slice*>(src);
-        memory_copy(l_slice->data, r_slice->data, r_slice->size);
+        memcpy(l_slice->data, r_slice->data, r_slice->size);
         l_slice->size = r_slice->size;
     }
 
@@ -1082,7 +1303,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_F
 
         auto min_size =
                 MAX_ZONE_MAP_INDEX_SIZE >= r_slice->size ? r_slice->size : MAX_ZONE_MAP_INDEX_SIZE;
-        memory_copy(l_slice->data, r_slice->data, min_size);
+        memcpy(l_slice->data, r_slice->data, min_size);
         l_slice->size = min_size;
     }
 };
@@ -1099,7 +1320,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> : public FieldTypeTraits<OLAP_FI
         }
 
         auto slice = reinterpret_cast<Slice*>(buf);
-        memory_copy(slice->data, scan_key.c_str(), value_len);
+        memcpy(slice->data, scan_key.c_str(), value_len);
         slice->size = value_len;
         return Status::OK();
     }
@@ -1122,7 +1343,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_STRING> : public FieldTypeTraits<OLAP_FIE
         }
 
         auto slice = reinterpret_cast<Slice*>(buf);
-        memory_copy(slice->data, scan_key.c_str(), value_len);
+        memcpy(slice->data, scan_key.c_str(), value_len);
         slice->size = value_len;
         return Status::OK();
     }
@@ -1177,7 +1398,7 @@ struct TypeTraits : public FieldTypeTraits<field_type> {
 };
 
 template <FieldType field_type>
-inline const TypeInfo* get_scalar_type_info() {
+const TypeInfo* get_scalar_type_info() {
     static constexpr TypeTraits<field_type> traits;
     static ScalarTypeInfo scalar_type_info(traits);
     return &scalar_type_info;

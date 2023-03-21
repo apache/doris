@@ -22,6 +22,7 @@ import org.apache.doris.common.CheckpointException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.monitor.jvm.JvmService;
 import org.apache.doris.monitor.jvm.JvmStats;
@@ -184,14 +185,14 @@ public class Checkpoint extends MasterDaemon {
         if (!allFrontends.isEmpty()) {
             otherNodesCount = allFrontends.size() - 1; // skip master itself
             for (Frontend fe : allFrontends) {
-                String host = fe.getHost();
+                String host = fe.getIp();
                 if (host.equals(Env.getServingEnv().getMasterIp())) {
                     // skip master itself
                     continue;
                 }
                 int port = Config.http_port;
 
-                String url = "http://" + host + ":" + port + "/put?version=" + replayedJournalId
+                String url = "http://" + NetUtils.getHostPortInAccessibleFormat(host, port) + "/put?version=" + replayedJournalId
                         + "&port=" + port;
                 LOG.info("Put image:{}", url);
 
@@ -226,7 +227,7 @@ public class Checkpoint extends MasterDaemon {
                 long deleteVersion = storage.getLatestValidatedImageSeq();
                 if (successPushed > 0) {
                     for (Frontend fe : allFrontends) {
-                        String host = fe.getHost();
+                        String host = fe.getIp();
                         if (host.equals(Env.getServingEnv().getMasterIp())) {
                             // skip master itself
                             continue;
@@ -241,7 +242,7 @@ public class Checkpoint extends MasterDaemon {
                              * any non-master node's current replayed journal id. otherwise,
                              * this lagging node can never get the deleted journal.
                              */
-                            idURL = new URL("http://" + host + ":" + port + "/journal_id");
+                            idURL = new URL("http://" + NetUtils.getHostPortInAccessibleFormat(host, port) + "/journal_id");
                             conn = (HttpURLConnection) idURL.openConnection();
                             conn.setConnectTimeout(CONNECT_TIMEOUT_SECOND * 1000);
                             conn.setReadTimeout(READ_TIMEOUT_SECOND * 1000);

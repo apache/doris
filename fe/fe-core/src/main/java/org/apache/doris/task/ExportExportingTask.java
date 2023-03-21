@@ -264,7 +264,7 @@ public class ExportExportingTask extends MasterTask {
         summaryProfile.addInfoString(ProfileManager.QUERY_TYPE, "Export");
         summaryProfile.addInfoString(ProfileManager.QUERY_STATE, job.getState().toString());
         summaryProfile.addInfoString(ProfileManager.DORIS_VERSION, Version.DORIS_BUILD_VERSION);
-        summaryProfile.addInfoString(ProfileManager.USER, "xxx");
+        summaryProfile.addInfoString(ProfileManager.USER, job.getUser());
         summaryProfile.addInfoString(ProfileManager.DEFAULT_DB, String.valueOf(job.getDbId()));
         summaryProfile.addInfoString(ProfileManager.SQL_STATEMENT, job.getSql());
         profile.addChild(summaryProfile);

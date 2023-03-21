@@ -342,6 +342,10 @@ Status VFileResultWriter::_write_csv_file(const Block& block) {
                     _plain_text_outstream << col.type->to_string(*col.column, i);
                     break;
                 }
+                case TYPE_MAP: {
+                    _plain_text_outstream << col.type->to_string(*col.column, i);
+                    break;
+                }
                 default: {
                     // not supported type, like BITMAP, just export null
                     _plain_text_outstream << NULL_IN_CSV;

@@ -24,6 +24,8 @@ import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.ScalarFunction;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
@@ -63,11 +65,21 @@ public class IsNullPredicate extends Predicate {
                     isNotNullSymbol, Lists.newArrayList(t), Type.BOOLEAN, NullableMode.ALWAYS_NOT_NULLABLE));
 
             // for array type
+            for (Type complexType : Lists.newArrayList(Type.ARRAY, Type.MAP)) {
+                functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(IS_NULL, isNullSymbol,
+                        Lists.newArrayList(complexType), Type.BOOLEAN, NullableMode.ALWAYS_NOT_NULLABLE));
+
+                functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(IS_NOT_NULL,
+                        isNotNullSymbol, Lists.newArrayList(complexType), Type.BOOLEAN,
+                        NullableMode.ALWAYS_NOT_NULLABLE));
+            }
+
+            Type nullStruct = new StructType(Lists.newArrayList(new StructField("null_pred", Type.NULL)));
             functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(IS_NULL, isNullSymbol,
-                    Lists.newArrayList(Type.ARRAY), Type.BOOLEAN, NullableMode.ALWAYS_NOT_NULLABLE));
+                    Lists.newArrayList(nullStruct), Type.BOOLEAN, NullableMode.ALWAYS_NOT_NULLABLE));
 
             functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(IS_NOT_NULL,
-                    isNotNullSymbol, Lists.newArrayList(Type.ARRAY), Type.BOOLEAN, NullableMode.ALWAYS_NOT_NULLABLE));
+                    isNotNullSymbol, Lists.newArrayList(nullStruct), Type.BOOLEAN, NullableMode.ALWAYS_NOT_NULLABLE));
         }
     }
 
@@ -154,8 +166,8 @@ public class IsNullPredicate extends Predicate {
      * fix issue 6390
      */
     @Override
-    public Expr getResultValue() throws AnalysisException {
-        recursiveResetChildrenResult();
+    public Expr getResultValue(boolean inView) throws AnalysisException {
+        recursiveResetChildrenResult(inView);
         final Expr childValue = getChild(0);
         if (!(childValue instanceof LiteralExpr)) {
             return this;

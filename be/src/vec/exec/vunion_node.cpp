@@ -263,7 +263,6 @@ Status VUnionNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VUnionNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_CANCELLED(state);
-    // RETURN_IF_ERROR(QueryMaintenance(state));
 
     // TODO: Rethink the logic, which cause close the exec node twice.
     if (_to_close_child_idx != -1) {
@@ -284,6 +283,7 @@ Status VUnionNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     } else if (has_more_const(state)) {
         RETURN_IF_ERROR(get_next_const(state, block));
     }
+    RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block, block->columns()));
 
     *eos = (!has_more_passthrough() && !has_more_materialized() && !has_more_const(state));
     reached_limit(block, eos);
@@ -330,7 +330,8 @@ Block VUnionNode::materialize_block(Block* src_block, int child_idx) {
     ColumnsWithTypeAndName colunms;
     for (size_t i = 0; i < child_exprs.size(); ++i) {
         int result_column_id = -1;
-        child_exprs[i]->execute(src_block, &result_column_id);
+        auto state = child_exprs[i]->execute(src_block, &result_column_id);
+        CHECK(state.ok()) << state.to_string();
         colunms.emplace_back(src_block->get_by_position(result_column_id));
     }
     _child_row_idx += src_block->rows();

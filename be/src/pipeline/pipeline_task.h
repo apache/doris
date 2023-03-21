@@ -48,7 +48,7 @@ namespace doris::pipeline {
  * transfer 8 (RUNNABLE -> FINISHED): this pipeline task completed and no resource need to be released
  * transfer 9 (RUNNABLE -> RUNNABLE): this pipeline task yields CPU and re-enters the runnable queue if it is runnable and has occupied CPU for a max time slice
  */
-enum PipelineTaskState : uint8_t {
+enum class PipelineTaskState : uint8_t {
     NOT_READY = 0, // do not prepare
     BLOCKED_FOR_DEPENDENCY = 1,
     BLOCKED_FOR_SOURCE = 2,
@@ -101,7 +101,7 @@ public:
               _opened(false),
               _can_steal(pipeline->_can_steal),
               _state(state),
-              _cur_state(NOT_READY),
+              _cur_state(PipelineTaskState::NOT_READY),
               _data_state(SourceState::DEPEND_ON_SOURCE),
               _fragment_context(fragment_context),
               _parent_profile(parent_profile) {}
@@ -177,9 +177,7 @@ public:
 
     std::string debug_string() const;
 
-    RuntimeState* runtime_state() { return _state; }
-
-    const uint32_t total_schedule_time() const { return _schedule_time; }
+    uint32_t total_schedule_time() const { return _schedule_time; }
 
     static constexpr auto THREAD_TIME_SLICE = 100'000'000L;
 

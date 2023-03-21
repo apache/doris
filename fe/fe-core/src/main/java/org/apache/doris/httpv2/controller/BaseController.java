@@ -26,9 +26,9 @@ import org.apache.doris.common.Config;
 import org.apache.doris.httpv2.HttpAuthManager;
 import org.apache.doris.httpv2.HttpAuthManager.SessionValue;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
-import org.apache.doris.mysql.privilege.PaloPrivilege;
 import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.Privilege;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.SystemInfoService;
@@ -71,8 +71,8 @@ public class BaseController {
             UserIdentity currentUser = checkPassword(authInfo);
 
             if (checkAuth) {
-                checkGlobalAuth(currentUser, PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
-                        PaloPrivilege.NODE_PRIV), CompoundPredicate.Operator.OR));
+                checkGlobalAuth(currentUser, PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
+                        Privilege.NODE_PRIV), CompoundPredicate.Operator.OR));
             }
 
             SessionValue value = new SessionValue();
@@ -80,7 +80,7 @@ public class BaseController {
             value.password = authInfo.password;
             addSession(request, response, value);
 
-            ConnectContext ctx = new ConnectContext(null);
+            ConnectContext ctx = new ConnectContext();
             ctx.setQualifiedUser(authInfo.fullUserName);
             ctx.setRemoteIP(authInfo.remoteIp);
             ctx.setCurrentUserIdentity(currentUser);
@@ -124,16 +124,16 @@ public class BaseController {
             return null;
         }
 
-        if (checkAuth && !Env.getCurrentEnv().getAuth().checkGlobalPriv(sessionValue.currentUser,
-                PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
-                        PaloPrivilege.NODE_PRIV), CompoundPredicate.Operator.OR))) {
+        if (checkAuth && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(sessionValue.currentUser,
+                PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
+                        Privilege.NODE_PRIV), CompoundPredicate.Operator.OR))) {
             // need to check auth and check auth failed
             return null;
         }
 
         updateCookieAge(request, PALO_SESSION_ID, PALO_SESSION_EXPIRED_TIME, response);
 
-        ConnectContext ctx = new ConnectContext(null);
+        ConnectContext ctx = new ConnectContext();
         ctx.setQualifiedUser(sessionValue.currentUser.getQualifiedUser());
         ctx.setRemoteIP(request.getRemoteHost());
         ctx.setCurrentUserIdentity(sessionValue.currentUser);
@@ -191,7 +191,7 @@ public class BaseController {
     }
 
     protected void checkGlobalAuth(UserIdentity currentUser, PrivPredicate predicate) throws UnauthorizedException {
-        if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(currentUser, predicate)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(currentUser, predicate)) {
             throw new UnauthorizedException("Access denied; you need (at least one of) the "
                     + predicate.getPrivs().toString() + " privilege(s) for this operation");
         }
@@ -199,7 +199,7 @@ public class BaseController {
 
     protected void checkDbAuth(UserIdentity currentUser, String db, PrivPredicate predicate)
             throws UnauthorizedException {
-        if (!Env.getCurrentEnv().getAuth().checkDbPriv(currentUser, db, predicate)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(currentUser, db, predicate)) {
             throw new UnauthorizedException("Access denied; you need (at least one of) the "
                     + predicate.getPrivs().toString() + " privilege(s) for this operation");
         }
@@ -207,7 +207,7 @@ public class BaseController {
 
     protected void checkTblAuth(UserIdentity currentUser, String db, String tbl, PrivPredicate predicate)
             throws UnauthorizedException {
-        if (!Env.getCurrentEnv().getAuth().checkTblPriv(currentUser, db, tbl, predicate)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUser, db, tbl, predicate)) {
             throw new UnauthorizedException("Access denied; you need (at least one of) the "
                     + predicate.getPrivs().toString() + " privilege(s) for this operation");
         }

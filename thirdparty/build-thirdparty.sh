@@ -367,11 +367,11 @@ build_thrift() {
 
     if [[ "${KERNEL}" != 'Darwin' ]]; then
         cflags="-I${TP_INCLUDE_DIR}"
-        cxxflags="-I${TP_INCLUDE_DIR} ${warning_unused_but_set_variable}"
+        cxxflags="-I${TP_INCLUDE_DIR} ${warning_unused_but_set_variable} -Wno-inconsistent-missing-override"
         ldflags="-L${TP_LIB_DIR} --static"
     else
-        cflags="-I${TP_INCLUDE_DIR} -Wno-implicit-function-declaration"
-        cxxflags="-I${TP_INCLUDE_DIR} ${warning_unused_but_set_variable}"
+        cflags="-I${TP_INCLUDE_DIR} -Wno-implicit-function-declaration -Wno-inconsistent-missing-override"
+        cxxflags="-I${TP_INCLUDE_DIR} ${warning_unused_but_set_variable} -Wno-inconsistent-missing-override"
         ldflags="-L${TP_LIB_DIR}"
     fi
 
@@ -858,7 +858,8 @@ build_librdkafka() {
     # PKG_CONFIG="pkg-config --static"
 
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
-        LDFLAGS="-L${TP_LIB_DIR} -lssl -lcrypto -lzstd -lz -lsasl2" \
+        LDFLAGS="-L${TP_LIB_DIR} -lssl -lcrypto -lzstd -lz -lsasl2 \
+        -lgssapi_krb5 -lkrb5 -lkrb5support -lk5crypto -lcom_err -lresolv" \
         ./configure --prefix="${TP_INSTALL_DIR}" --enable-static --enable-sasl --disable-c11threads
 
     make -j "${PARALLEL}"
@@ -931,7 +932,7 @@ build_arrow() {
     export ARROW_LZ4_URL="${TP_SOURCE_DIR}/${LZ4_NAME}"
     export ARROW_FLATBUFFERS_URL="${TP_SOURCE_DIR}/${FLATBUFFERS_NAME}"
     export ARROW_ZSTD_URL="${TP_SOURCE_DIR}/${ZSTD_NAME}"
-    export ARROW_JEMALLOC_URL="${TP_SOURCE_DIR}/${JEMALLOC_NAME}"
+    export ARROW_JEMALLOC_URL="${TP_SOURCE_DIR}/${JEMALLOC_ARROW_NAME}"
     export ARROW_Thrift_URL="${TP_SOURCE_DIR}/${THRIFT_NAME}"
     export ARROW_SNAPPY_URL="${TP_SOURCE_DIR}/${SNAPPY_NAME}"
     export ARROW_ZLIB_URL="${TP_SOURCE_DIR}/${ZLIB_NAME}"
@@ -1404,8 +1405,8 @@ build_hdfs3() {
 
 # jemalloc
 build_jemalloc() {
-    check_if_source_exist "${JEMALLOC_SOURCE}"
-    cd "${TP_SOURCE_DIR}/${JEMALLOC_SOURCE}"
+    check_if_source_exist "${JEMALLOC_DORIS_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${JEMALLOC_DORIS_SOURCE}"
 
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
@@ -1550,12 +1551,27 @@ build_concurrentqueue() {
     cp ./*.h "${TP_INSTALL_DIR}/include/"
 }
 
+# fast_float
+build_fast_float() {
+    check_if_source_exist "${FAST_FLOAT_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${FAST_FLOAT_SOURCE}"
+    cp -r ./include/fast_float "${TP_INSTALL_DIR}/include/"
+}
+
 #clucene
 build_clucene() {
     if [[ "$(uname -m)" == 'x86_64' ]]; then
         USE_AVX2="${USE_AVX2:-1}"
     else
         USE_AVX2="${USE_AVX2:-0}"
+    fi
+    if [[ -z "${USE_BTHREAD_SCANNER}" ]]; then
+        USE_BTHREAD_SCANNER='OFF'
+    fi
+    if [[ ${USE_BTHREAD_SCANNER} == "ON" ]]; then
+        USE_BTHREAD=1
+    else
+        USE_BTHREAD=0
     fi
 
     check_if_source_exist "${CLUCENE_SOURCE}"
@@ -1574,6 +1590,7 @@ build_clucene() {
         -DCMAKE_CXX_FLAGS="-fno-omit-frame-pointer ${warning_narrowing}" \
         -DUSE_STAT64=0 \
         -DUSE_AVX2="${USE_AVX2}" \
+        -DUSE_BTHREAD="${USE_BTHREAD}" \
         -DCMAKE_BUILD_TYPE=RelWithDebInfo \
         -DBUILD_CONTRIBS_LIB=ON ..
     ${BUILD_SYSTEM} -j "${PARALLEL}"
@@ -1584,6 +1601,16 @@ build_clucene() {
         mkdir -p "${TP_INSTALL_DIR}"/share
     fi
     cp -rf src/contribs-lib/CLucene/analysis/jieba/dict "${TP_INSTALL_DIR}"/share/
+}
+
+# hadoop_libs_x86
+build_hadoop_libs_x86() {
+    check_if_source_exist "${HADOOP_LIBS_X86_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${HADOOP_LIBS_X86_SOURCE}"
+    mkdir -p "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
+    mkdir -p "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
+    cp ./include/hdfs.h "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
+    cp -r ./* "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
 }
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then
@@ -1648,6 +1675,11 @@ build_libbacktrace
 build_sse2neon
 build_xxhash
 build_concurrentqueue
+build_fast_float
 build_clucene
+
+if [[ "$(uname -m)" == 'x86_64' ]]; then
+    build_hadoop_libs_x86
+fi
 
 echo "Finished to build all thirdparties"

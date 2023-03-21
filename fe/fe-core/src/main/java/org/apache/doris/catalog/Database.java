@@ -71,6 +71,8 @@ import java.util.stream.Collectors;
 public class Database extends MetaObject implements Writable, DatabaseIf<Table> {
     private static final Logger LOG = LogManager.getLogger(Database.class);
 
+    private static final String TRANSACTION_QUOTA_SIZE = "transactionQuotaSize";
+
     private long id;
     private volatile String fullQualifiedName;
     private String clusterName;
@@ -90,6 +92,8 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     private volatile long dataQuotaBytes;
 
     private volatile long replicaQuotaSize;
+
+    private volatile long transactionQuotaSize;
 
     private volatile boolean isDropped;
 
@@ -118,6 +122,9 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         this.lowerCaseToTableName = Maps.newConcurrentMap();
         this.dataQuotaBytes = Config.default_db_data_quota_bytes;
         this.replicaQuotaSize = Config.default_db_replica_quota_size;
+        this.transactionQuotaSize = Config.default_db_max_running_txn_num == -1L
+                ? Config.max_running_txn_num_per_db
+                : Config.default_db_max_running_txn_num;
         this.dbState = DbState.NORMAL;
         this.attachDbName = "";
         this.clusterName = "";
@@ -213,12 +220,29 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         this.replicaQuotaSize = newQuota;
     }
 
+    public void setTransactionQuotaSize(long newQuota) {
+        writeLock();
+        try {
+            Preconditions.checkArgument(newQuota >= 0L);
+            LOG.info("database[{}] try to set transaction quota from {} to {}",
+                    fullQualifiedName, transactionQuotaSize, newQuota);
+            this.transactionQuotaSize = newQuota;
+            this.dbProperties.put(TRANSACTION_QUOTA_SIZE, String.valueOf(transactionQuotaSize));
+        } finally {
+            writeUnlock();
+        }
+    }
+
     public long getDataQuota() {
         return dataQuotaBytes;
     }
 
     public long getReplicaQuota() {
         return replicaQuotaSize;
+    }
+
+    public long getTransactionQuotaSize() {
+        return transactionQuotaSize;
     }
 
     public DatabaseProperty getDbProperties() {
@@ -603,6 +627,13 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_105) {
             dbProperties = DatabaseProperty.read(in);
+            String txnQuotaStr = dbProperties.getOrDefault(TRANSACTION_QUOTA_SIZE,
+                    String.valueOf(Config.max_running_txn_num_per_db));
+            transactionQuotaSize = Long.parseLong(txnQuotaStr);
+        } else {
+            transactionQuotaSize = Config.default_db_max_running_txn_num == -1L
+                    ? Config.max_running_txn_num_per_db
+                    : Config.default_db_max_running_txn_num;
         }
     }
 

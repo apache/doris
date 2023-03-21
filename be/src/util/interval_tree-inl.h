@@ -70,7 +70,7 @@ void IntervalTree<Traits>::FindIntersectingInterval(const QueryPointType& lower_
 }
 
 template <class Traits>
-static bool LessThan(const typename Traits::point_type& a, const typename Traits::point_type& b) {
+bool LessThan(const typename Traits::point_type& a, const typename Traits::point_type& b) {
     return Traits::compare(a, b) < 0;
 }
 

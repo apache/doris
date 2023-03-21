@@ -20,13 +20,12 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Optional;
@@ -39,18 +38,14 @@ public class LogicalFileScan extends LogicalRelation {
     /**
      * Constructor for LogicalFileScan.
      */
-    public LogicalFileScan(RelationId id, ExternalTable table, List<String> qualifier,
+    public LogicalFileScan(ObjectId id, ExternalTable table, List<String> qualifier,
                            Optional<GroupExpression> groupExpression,
                            Optional<LogicalProperties> logicalProperties) {
         super(id, PlanType.LOGICAL_FILE_SCAN, table, qualifier,
                 groupExpression, logicalProperties);
     }
 
-    public LogicalFileScan(RelationId id, ExternalTable table) {
-        this(id, table, ImmutableList.of());
-    }
-
-    public LogicalFileScan(RelationId id, ExternalTable table, List<String> qualifier) {
+    public LogicalFileScan(ObjectId id, ExternalTable table, List<String> qualifier) {
         this(id, table, qualifier, Optional.empty(), Optional.empty());
     }
 

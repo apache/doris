@@ -65,7 +65,10 @@ The final result of the import is returned to the user by Coordinator BE.
 
 ## Support data format
 
-Stream Load currently supports data formats: CSV (text), JSON, <version since="1.2" type="inline"> PARQUET and ORC</version>.
+Stream Load currently supports data formats: CSV (text), JSON
+
+<version since="1.2"> PARQUET and ORC</version> 1.2+ support PARQUET and ORC
+
 ## Basic operations
 ### Create Load
 
@@ -160,6 +163,12 @@ The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
     columns: tmp_c1, tmp_c2, c1 = year(tmp_c1), c2 = mouth(tmp_c2)
     Tmp_* is a placeholder, representing two original columns in the original file.
     ```
+  
++ format
+
+  Specify the import data format, support csv, json, the default is csv
+
+  <version since="1.2"> format </version> 1.2 supports csv_with_names (support csv file line header filter), csv_with_names_and_types (support csv file first two lines filter), parquet, orc
 
 + exec\_mem\_limit
 
@@ -172,13 +181,9 @@ The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
 
   Stream load import can enable two-stage transaction commit mode: in the stream load process, the data is written and the information is returned to the user. At this time, the data is invisible and the transaction status is `PRECOMMITTED`. After the user manually triggers the commit operation, the data is visible.
 
-  The default two-phase bulk transaction commit is off.
-
-  > **Open method:** Configure `disable_stream_load_2pc=false` in be.conf and declare `two_phase_commit=true` in HEADER.
-
   Example：
 
-	1. Initiate a stream load pre-commit operation
+    1. Initiate a stream load pre-commit operation
   ```shell
   curl  --location-trusted -u user:passwd -H "two_phase_commit:true" -T test.txt http://fe_host:http_port/api/{db}/{table}/_stream_load
   {

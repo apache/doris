@@ -25,7 +25,12 @@ import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VarcharType;
 
 import org.apache.commons.lang3.StringUtils;
 
@@ -233,29 +238,33 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
         } else if (targetType.isBigIntType()) {
             return Literal.of(Double.valueOf(desc).longValue());
         } else if (targetType.isLargeIntType()) {
-            return Literal.of(new BigInteger(desc));
+            return Literal.of(new BigDecimal(desc).toBigInteger());
         } else if (targetType.isFloatType()) {
-            return Literal.of(Float.parseFloat(desc));
+            return Literal.of(Double.valueOf(desc).floatValue());
         } else if (targetType.isDoubleType()) {
             return Literal.of(Double.parseDouble(desc));
         } else if (targetType.isCharType()) {
-            return new CharLiteral(desc, ((CharType) targetType).getLen());
+            if (((CharType) targetType).getLen() >= desc.length()) {
+                return new CharLiteral(desc, ((CharType) targetType).getLen());
+            }
         } else if (targetType.isVarcharType()) {
-            return new VarcharLiteral(desc, desc.length());
-        } else if (targetType.isStringLikeType()) {
-            return Literal.of(desc);
+            return new VarcharLiteral(desc, ((VarcharType) targetType).getLen());
+        } else if (targetType instanceof StringType) {
+            return new StringLiteral(desc);
         } else if (targetType.isDateType()) {
             return new DateLiteral(desc);
         } else if (targetType.isDateTimeType()) {
             return new DateTimeLiteral(desc);
         } else if (targetType.isDecimalV2Type()) {
-            return new DecimalLiteral(BigDecimal.valueOf(Double.parseDouble(desc)));
-        } else if (targetType.isDateV2()) {
+            return new DecimalLiteral((DecimalV2Type) targetType, new BigDecimal(desc));
+        } else if (targetType.isDecimalV3Type()) {
+            return new DecimalV3Literal((DecimalV3Type) targetType, new BigDecimal(desc));
+        } else if (targetType.isDateV2Type()) {
             return new DateV2Literal(desc);
         } else if (targetType.isDateTimeV2Type()) {
-            return new DateTimeV2Literal(desc);
+            return new DateTimeV2Literal((DateTimeV2Type) targetType, desc);
         }
-        throw new AnalysisException("no support cast!");
+        throw new AnalysisException("cannot cast " + desc + " from type " + this.dataType + " to type " + targetType);
     }
 
     public boolean isCharacterLiteral() {

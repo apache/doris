@@ -25,7 +25,7 @@
 #include "exprs/hybrid_set.h"
 #include "gen_cpp/Exprs_types.h"
 #include "runtime/types.h"
-#include "udf/udf_internal.h"
+#include "udf/udf.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/functions/function.h"
@@ -103,6 +103,8 @@ public:
     TExprOpcode::type op() const { return _opcode; }
 
     void add_child(VExpr* expr) { _children.push_back(expr); }
+    VExpr* get_child(int i) const { return _children[i]; }
+    int get_num_children() const { return _children.size(); }
 
     static Status create_expr_tree(ObjectPool* pool, const TExpr& texpr, VExprContext** ctx);
 
@@ -149,9 +151,9 @@ public:
     /// the output. Returns nullptr if the argument is not constant. The returned ColumnPtr is
     /// owned by this expr. This should only be called after Open() has been called on this
     /// expr.
-    Status get_const_col(VExprContext* context, ColumnPtrWrapper** output);
+    Status get_const_col(VExprContext* context, std::shared_ptr<ColumnPtrWrapper>* column_wrapper);
 
-    int fn_context_index() const { return _fn_context_index; };
+    int fn_context_index() const { return _fn_context_index; }
 
     static const VExpr* expr_without_cast(const VExpr* expr) {
         if (expr->node_type() == doris::TExprNodeType::CAST_EXPR) {

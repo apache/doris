@@ -1,6 +1,6 @@
 ---
 {
-    "title": "索引",
+    "title": "索引概述",
     "language": "zh-CN"
 }
 ---
@@ -23,11 +23,13 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-# 索引
+# 索引概述
 
 索引用于帮助快速过滤或查找数据。
 
-目前 Doris 主要支持两类索引：内建的智能索引，包括前缀索引和 ZoneMap 索引。用户创建的二级索引，包括 [Bloom Filter 索引](./bloomfilter) 和[Bitmap倒排索引](./bitmap-index)。
+目前 Doris 主要支持两类索引：
+1. 内建的智能索引，包括前缀索引和 ZoneMap 索引。
+2. 用户手动创建的二级索引，包括 [倒排索引](./inverted-index.md)、 [bloomfilter索引](./bloomfilter.md)、 [ngram bloomfilter索引](./ngram-bloomfilter-index.md) 和[bitmap索引](./bitmap-index.md)。
 
 其中 ZoneMap 索引是在列存格式上，对每一列自动维护的索引信息，包括 Min/Max，Null 值个数等等。这种索引对用户透明。
 

@@ -39,6 +39,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -101,18 +102,23 @@ public abstract class Type {
     public static final ScalarType CHAR = ScalarType.createCharType(-1);
     public static final ScalarType BITMAP = new ScalarType(PrimitiveType.BITMAP);
     public static final ScalarType QUANTILE_STATE = new ScalarType(PrimitiveType.QUANTILE_STATE);
+    public static final ScalarType LAMBDA_FUNCTION = new ScalarType(PrimitiveType.LAMBDA_FUNCTION);
     // Only used for alias function, to represent any type in function args
     public static final ScalarType ALL = new ScalarType(PrimitiveType.ALL);
     public static final MapType MAP = new MapType();
     public static final ArrayType ARRAY = ArrayType.create();
     public static final StructType STRUCT = new StructType();
+    public static final VariantType VARIANT = new VariantType();
 
     private static final Logger LOG = LogManager.getLogger(Type.class);
     private static final ArrayList<ScalarType> integerTypes;
+    private static final ArrayList<ScalarType> stringTypes;
     private static final ArrayList<ScalarType> numericTypes;
     private static final ArrayList<ScalarType> numericDateTimeTypes;
     private static final ArrayList<ScalarType> supportedTypes;
     private static final ArrayList<Type> arraySubTypes;
+    private static final ArrayList<Type> mapSubTypes;
+    private static final ArrayList<Type> structSubTypes;
     private static final ArrayList<ScalarType> trivialTypes;
 
     static {
@@ -122,6 +128,11 @@ public abstract class Type {
         integerTypes.add(INT);
         integerTypes.add(BIGINT);
         integerTypes.add(LARGEINT);
+
+        stringTypes = Lists.newArrayList();
+        stringTypes.add(CHAR);
+        stringTypes.add(VARCHAR);
+        stringTypes.add(STRING);
 
         numericTypes = Lists.newArrayList();
         numericTypes.addAll(integerTypes);
@@ -150,9 +161,6 @@ public abstract class Type {
         trivialTypes.add(TIME);
         trivialTypes.add(TIMEV2);
         trivialTypes.add(JSONB);
-        trivialTypes.add(DECIMAL32);
-        trivialTypes.add(DECIMAL64);
-        trivialTypes.add(DECIMAL128);
 
         supportedTypes = Lists.newArrayList();
         supportedTypes.addAll(trivialTypes);
@@ -174,6 +182,38 @@ public abstract class Type {
         arraySubTypes.add(CHAR);
         arraySubTypes.add(VARCHAR);
         arraySubTypes.add(STRING);
+        arraySubTypes.add(DECIMAL32);
+        arraySubTypes.add(DECIMAL64);
+        arraySubTypes.add(DECIMAL128);
+
+        mapSubTypes = Lists.newArrayList();
+        mapSubTypes.add(BOOLEAN);
+        mapSubTypes.addAll(integerTypes);
+        mapSubTypes.add(FLOAT);
+        mapSubTypes.add(DOUBLE);
+        mapSubTypes.add(DECIMALV2);
+        mapSubTypes.add(DATE);
+        mapSubTypes.add(DATETIME);
+        mapSubTypes.add(DATEV2);
+        mapSubTypes.add(DATETIMEV2);
+        mapSubTypes.add(CHAR);
+        mapSubTypes.add(VARCHAR);
+        mapSubTypes.add(STRING);
+        mapSubTypes.add(NULL);
+
+        structSubTypes = Lists.newArrayList();
+        structSubTypes.add(BOOLEAN);
+        structSubTypes.addAll(integerTypes);
+        structSubTypes.add(FLOAT);
+        structSubTypes.add(DOUBLE);
+        structSubTypes.add(DECIMALV2);
+        structSubTypes.add(DATE);
+        structSubTypes.add(DATETIME);
+        structSubTypes.add(DATEV2);
+        structSubTypes.add(DATETIMEV2);
+        structSubTypes.add(CHAR);
+        structSubTypes.add(VARCHAR);
+        structSubTypes.add(STRING);
     }
 
     public static final Set<Class> DATE_SUPPORTED_JAVA_TYPE = Sets.newHashSet(LocalDate.class, java.util.Date.class,
@@ -201,10 +241,15 @@ public abstract class Type {
                     .put(PrimitiveType.DECIMAL32, Sets.newHashSet(BigDecimal.class))
                     .put(PrimitiveType.DECIMAL64, Sets.newHashSet(BigDecimal.class))
                     .put(PrimitiveType.DECIMAL128, Sets.newHashSet(BigDecimal.class))
+                    .put(PrimitiveType.ARRAY, Sets.newHashSet(ArrayList.class))
                     .build();
 
     public static ArrayList<ScalarType> getIntegerTypes() {
         return integerTypes;
+    }
+
+    public static ArrayList<ScalarType> getStringTypes() {
+        return stringTypes;
     }
 
     public static ArrayList<ScalarType> getNumericTypes() {
@@ -225,6 +270,21 @@ public abstract class Type {
 
     public static ArrayList<Type> getArraySubTypes() {
         return arraySubTypes;
+    }
+
+    public static ArrayList<Type> getMapSubTypes() {
+        return mapSubTypes;
+    }
+
+    public static ArrayList<Type> getStructSubTypes() {
+        return structSubTypes;
+    }
+
+    /**
+     * Return true if this is complex type and support subType
+     */
+    public boolean supportSubType(Type subType) {
+        return false;
     }
 
     /**
@@ -326,12 +386,13 @@ public abstract class Type {
     // 3. don't support group by
     // 4. don't support index
     public boolean isOnlyMetricType() {
-        return isObjectStored() || isArrayType();
+        return isObjectStored() || isComplexType() || isJsonbType();
     }
 
     public static final String OnlyMetricTypeErrorMsg =
-            "Doris hll, bitmap and array column must use with specific function, and don't support filter or group by."
-                    + "please run 'help hll' or 'help bitmap' or 'help array' in your mysql client.";
+            "Doris hll, bitmap, array, map, struct, jsonb column must use with specific function, and don't"
+                    + " support filter or group by. please run 'help hll' or 'help bitmap' or 'help array'"
+                    + " or 'help map' or 'help struct' or 'help jsonb' in your mysql client.";
 
     public boolean isHllType() {
         return isScalarType(PrimitiveType.HLL);
@@ -343,6 +404,10 @@ public abstract class Type {
 
     public boolean isQuantileStateType() {
         return isScalarType(PrimitiveType.QUANTILE_STATE);
+    }
+
+    public boolean isLambdaFunctionType() {
+        return isScalarType(PrimitiveType.LAMBDA_FUNCTION);
     }
 
     public boolean isObjectStored() {
@@ -419,6 +484,10 @@ public abstract class Type {
         return isStructType() || isCollectionType();
     }
 
+    public boolean isVariantType() {
+        return this instanceof VariantType;
+    }
+
     public boolean isCollectionType() {
         return isMapType() || isArrayType() || isMultiRowType();
     }
@@ -445,6 +514,25 @@ public abstract class Type {
 
     public boolean isDateV2() {
         return isScalarType(PrimitiveType.DATEV2);
+    }
+
+    public boolean isDateV2OrDateTimeV2() {
+        return isScalarType(PrimitiveType.DATEV2) || isScalarType(PrimitiveType.DATETIMEV2);
+    }
+
+    public boolean hasTemplateType() {
+        return false;
+    }
+
+    // return a new type without template type, by specialize tempalte type in this type
+    public Type specializeTemplateType(Type specificType, Map<String, Type> specializedTypeMap,
+                                       boolean useSpecializedType) throws TypeException {
+        if (hasTemplateType()) {
+            // throw exception by default, sub class should specialize tempalte type properly
+            throw new TypeException("specializeTemplateType not implemented");
+        } else {
+            return this;
+        }
     }
 
     /**
@@ -524,12 +612,9 @@ public abstract class Type {
             return ScalarType.isImplicitlyCastable((ScalarType) t1, (ScalarType) t2, strict);
         }
         if (t1.isComplexType() || t2.isComplexType()) {
-            if (t1.isArrayType() && t2.isArrayType()) {
+            if ((t1.isArrayType() && t2.isArrayType()) || (t1.isMapType() && t2.isMapType())
+                    || (t1.isStructType() && t2.isStructType())) {
                 return t1.matchesType(t2);
-            } else if (t1.isMapType() && t2.isMapType()) {
-                return true;
-            } else if (t1.isStructType() && t2.isStructType()) {
-                return true;
             }
             return false;
         }
@@ -541,10 +626,16 @@ public abstract class Type {
             return ScalarType.canCastTo((ScalarType) sourceType, (ScalarType) targetType);
         } else if (sourceType.isArrayType() && targetType.isArrayType()) {
             return ArrayType.canCastTo((ArrayType) sourceType, (ArrayType) targetType);
+        } else if (sourceType.isMapType() && targetType.isMapType()) {
+            return MapType.canCastTo((MapType) sourceType, (MapType) targetType);
         } else if (targetType.isArrayType() && !((ArrayType) targetType).getItemType().isScalarType()
                 && !sourceType.isNull()) {
             // TODO: current not support cast any non-array type(except for null) to nested array type.
             return false;
+        } else if ((targetType.isStructType() || targetType.isMapType()) && sourceType.isStringType()) {
+            return true;
+        } else if (sourceType.isStructType() && targetType.isStructType()) {
+            return StructType.canCastTo((StructType) sourceType, (StructType) targetType);
         }
         return sourceType.isNull() || sourceType.getPrimitiveType().isCharFamily();
     }
@@ -719,6 +810,10 @@ public abstract class Type {
                 return Type.BITMAP;
             case QUANTILE_STATE:
                 return Type.QUANTILE_STATE;
+            case VARIANT:
+                return new VariantType();
+            case LAMBDA_FUNCTION:
+                return Type.LAMBDA_FUNCTION;
             default:
                 return null;
         }
@@ -831,7 +926,7 @@ public abstract class Type {
                     }
                     Pair<Type, Integer> res = fromThrift(col, tmpNodeIdx);
                     tmpNodeIdx = res.second.intValue();
-                    structFields.add(new StructField(name, res.first, comment));
+                    structFields.add(new StructField(name, res.first, comment, true));
                 }
                 type = new StructType(structFields);
                 break;
@@ -1492,7 +1587,10 @@ public abstract class Type {
                         || t1 == PrimitiveType.TIMEV2 || t2 == PrimitiveType.TIMEV2
                         || t1 == PrimitiveType.MAP || t2 == PrimitiveType.MAP
                         || t1 == PrimitiveType.STRUCT || t2 == PrimitiveType.STRUCT
-                        || t1 == PrimitiveType.UNSUPPORTED || t2 == PrimitiveType.UNSUPPORTED) {
+                        || t1 == PrimitiveType.TEMPLATE || t2 == PrimitiveType.TEMPLATE
+                        || t1 == PrimitiveType.UNSUPPORTED || t2 == PrimitiveType.UNSUPPORTED
+                        || t1 == PrimitiveType.VARIANT || t2 == PrimitiveType.VARIANT
+                        || t1 == PrimitiveType.LAMBDA_FUNCTION || t2 == PrimitiveType.LAMBDA_FUNCTION) {
                     continue;
                 }
                 Preconditions.checkNotNull(compatibilityMatrix[i][j]);
@@ -1637,13 +1735,13 @@ public abstract class Type {
 
     private static Type getDateComparisonResultType(ScalarType t1, ScalarType t2) {
         if (t1.isDate() && t2.isDate()) {
-            return ScalarType.getDefaultDateType(Type.DATE);
+            return Type.DATE;
         } else if ((t1.isDateV2() && t2.isDate()) || t1.isDate() && t2.isDateV2()) {
             return Type.DATEV2;
         } else if (t1.isDateV2() && t2.isDateV2()) {
             return Type.DATEV2;
         } else if (t1.isDatetime() && t2.isDatetime()) {
-            return ScalarType.getDefaultDateType(Type.DATETIME);
+            return Type.DATETIME;
         } else if (t1.isDatetime() && t2.isDatetimeV2()) {
             return t2;
         } else if (t1.isDatetimeV2() && t2.isDatetime()) {
@@ -1657,7 +1755,7 @@ public abstract class Type {
         } else if (t2.isDateV2() || t1.isDateV2()) {
             return Type.DATETIMEV2;
         } else {
-            return ScalarType.getDefaultDateType(Type.DATETIME);
+            return Type.DATETIME;
         }
     }
 
@@ -1683,13 +1781,12 @@ public abstract class Type {
             case FLOAT:
             case DOUBLE:
             case TIME:
+            case TIMEV2:
             case CHAR:
             case VARCHAR:
             case STRING:
             case HLL:
                 return Type.DOUBLE;
-            case TIMEV2:
-                return Type.DEFAULT_TIMEV2;
             case DECIMALV2:
                 return Type.DECIMALV2;
             case DECIMAL32:
@@ -1704,13 +1801,9 @@ public abstract class Type {
         }
     }
 
-    public int getStorageLayoutBytes() {
-        return 0;
-    }
-
     public int getIndexSize() {
         if (this.getPrimitiveType() == PrimitiveType.CHAR) {
-            return ((ScalarType) this).getLength();
+            return this.getLength();
         } else {
             return this.getPrimitiveType().getOlapColumnIndexSize();
         }

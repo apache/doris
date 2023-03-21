@@ -33,7 +33,7 @@ public:
     template <PrimitiveType type>
     static BasePtr get_function() {
         return new MinMaxNumFunc<typename PrimitiveTypeTraits<type>::CppType>();
-    };
+    }
 };
 
 class HybridSetTraits {
@@ -45,7 +45,7 @@ public:
         using Set =
                 std::conditional_t<std::is_same_v<CppType, StringRef>, StringSet, HybridSet<type>>;
         return new Set();
-    };
+    }
 };
 
 class BloomFilterTraits {
@@ -54,7 +54,7 @@ public:
     template <PrimitiveType type>
     static BasePtr get_function() {
         return new BloomFilterFunc<type>();
-    };
+    }
 };
 
 class BitmapFilterTraits {
@@ -63,7 +63,7 @@ public:
     template <PrimitiveType type>
     static BasePtr get_function() {
         return new BitmapFilterFunc<type>();
-    };
+    }
 };
 
 template <class Traits>
@@ -155,9 +155,9 @@ inline auto create_bitmap_filter(PrimitiveType type) {
 }
 
 template <PrimitiveType PT>
-inline ColumnPredicate* create_olap_column_predicate(
-        uint32_t column_id, const std::shared_ptr<BloomFilterFuncBase>& filter, int be_exec_version,
-        const TabletColumn*) {
+ColumnPredicate* create_olap_column_predicate(uint32_t column_id,
+                                              const std::shared_ptr<BloomFilterFuncBase>& filter,
+                                              int be_exec_version, const TabletColumn*) {
     std::shared_ptr<BloomFilterFuncBase> filter_olap;
     filter_olap.reset(create_bloom_filter(PT));
     filter_olap->light_copy(filter.get());
@@ -165,9 +165,9 @@ inline ColumnPredicate* create_olap_column_predicate(
 }
 
 template <PrimitiveType PT>
-inline ColumnPredicate* create_olap_column_predicate(
-        uint32_t column_id, const std::shared_ptr<BitmapFilterFuncBase>& filter,
-        int be_exec_version, const TabletColumn*) {
+ColumnPredicate* create_olap_column_predicate(uint32_t column_id,
+                                              const std::shared_ptr<BitmapFilterFuncBase>& filter,
+                                              int be_exec_version, const TabletColumn*) {
     if constexpr (PT == TYPE_TINYINT || PT == TYPE_SMALLINT || PT == TYPE_INT ||
                   PT == TYPE_BIGINT) {
         std::shared_ptr<BitmapFilterFuncBase> filter_olap;
@@ -180,17 +180,16 @@ inline ColumnPredicate* create_olap_column_predicate(
 }
 
 template <PrimitiveType PT>
-inline ColumnPredicate* create_olap_column_predicate(uint32_t column_id,
-                                                     const std::shared_ptr<HybridSetBase>& filter,
-                                                     int, const TabletColumn* column = nullptr) {
+ColumnPredicate* create_olap_column_predicate(uint32_t column_id,
+                                              const std::shared_ptr<HybridSetBase>& filter, int,
+                                              const TabletColumn* column = nullptr) {
     return new InListPredicateBase<PT, PredicateType::IN_LIST>(column_id, filter, column->length());
 }
 
 template <typename T>
-inline ColumnPredicate* create_column_predicate(uint32_t column_id,
-                                                const std::shared_ptr<T>& filter, FieldType type,
-                                                int be_exec_version,
-                                                const TabletColumn* column = nullptr) {
+ColumnPredicate* create_column_predicate(uint32_t column_id, const std::shared_ptr<T>& filter,
+                                         FieldType type, int be_exec_version,
+                                         const TabletColumn* column = nullptr) {
     switch (type) {
 #define M(NAME)                                                                                \
     case OLAP_FIELD_##NAME: {                                                                  \

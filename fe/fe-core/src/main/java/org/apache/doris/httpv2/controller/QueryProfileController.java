@@ -22,6 +22,7 @@ import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -35,6 +36,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/rest/v1")
@@ -43,6 +45,7 @@ public class QueryProfileController extends BaseController {
 
     private static final String ID = "id";
     private static final String DETAIL_COL = "Detail";
+    private static final Set<String> QUERY_ID_TYPES = ImmutableSet.of("Query", "Load");
 
     @RequestMapping(path = "/query_profile/{" + ID + "}", method = RequestMethod.GET)
     public Object profile(@PathVariable(value = ID) String id) {
@@ -66,7 +69,9 @@ public class QueryProfileController extends BaseController {
 
     private void addFinishedQueryInfo(Map<String, Object> result) {
         List<List<String>> finishedQueries = ProfileManager.getInstance().getAllQueries();
-        List<String> columnHeaders = Lists.newLinkedList(ProfileManager.PROFILE_HEADERS);
+        List<String> columnHeaders = Lists.newLinkedList();
+        columnHeaders.addAll(ProfileManager.PROFILE_HEADERS);
+        columnHeaders.addAll(ProfileManager.EXECUTION_HEADERS);
         int jobIdIndex = -1;
         int queryIdIndex = -1;
         int queryTypeIndex = -1;
@@ -96,7 +101,7 @@ public class QueryProfileController extends BaseController {
             List<String> realRow = Lists.newLinkedList(row);
 
             String queryType = realRow.get(queryTypeIndex);
-            String id = "Query".equals(queryType) ? realRow.get(queryIdIndex) : realRow.get(jobIdIndex);
+            String id = (QUERY_ID_TYPES.contains(queryType)) ? realRow.get(queryIdIndex) : realRow.get(jobIdIndex);
 
             realRow.add(0, id);
             Map<String, Object> rowMap = new HashMap<>();

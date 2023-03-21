@@ -16,7 +16,7 @@
 // under the License.
 
 #include "runtime/runtime_state.h"
-#include "udf/udf_internal.h"
+#include "udf/udf.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
@@ -117,8 +117,7 @@ struct StrToDate {
                 null_map[i] = 1;
             }
             if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
-                if (context->impl()->get_return_type().type ==
-                    doris_udf::FunctionContext::Type::TYPE_DATETIME) {
+                if (context->get_return_type().type == doris::PrimitiveType::TYPE_DATETIME) {
                     ts_val.to_datetime();
                 } else {
                     ts_val.cast_to_date();
@@ -314,7 +313,7 @@ public:
 
     String get_name() const override { return name; }
 
-    bool use_default_implementation_for_constants() const override { return false; }
+    bool use_default_implementation_for_constants() const override { return true; }
 
     size_t get_number_of_arguments() const override { return 1; }
 
@@ -328,8 +327,7 @@ public:
                         size_t result, size_t input_rows_count) override {
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
 
-        ColumnPtr argument_column =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        ColumnPtr& argument_column = block.get_by_position(arguments[0]).column;
         auto data_col = assert_cast<const ColumnVector<Int32>*>(argument_column.get());
 
         ColumnPtr res_column;
@@ -399,7 +397,7 @@ struct UnixTimeStampImpl {
                                size_t input_rows_count) {
         auto col_result = ColumnVector<Int32>::create();
         col_result->resize(1);
-        col_result->get_data()[0] = context->impl()->state()->timestamp_ms() / 1000;
+        col_result->get_data()[0] = context->state()->timestamp_ms() / 1000;
         auto col_const = ColumnConst::create(std::move(col_result), input_rows_count);
         block.replace_by_position(result, std::move(col_const));
         return Status::OK();
@@ -411,68 +409,121 @@ struct UnixTimeStampDateImpl {
     static DataTypes get_variadic_argument_types() { return {std::make_shared<DateType>()}; }
 
     static DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) {
-        return make_nullable(std::make_shared<DataTypeInt32>());
+        RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(DataTypeInt32);
     }
 
     static Status execute_impl(FunctionContext* context, Block& block,
                                const ColumnNumbers& arguments, size_t result,
                                size_t input_rows_count) {
-        const ColumnPtr col_source = block.get_by_position(arguments[0]).column;
-
+        const ColumnPtr& col_source = block.get_by_position(arguments[0]).column;
         auto col_result = ColumnVector<Int32>::create();
         auto null_map = ColumnVector<UInt8>::create();
+        auto& col_result_data = col_result->get_data();
 
         col_result->resize(input_rows_count);
-        null_map->resize(input_rows_count);
 
-        auto& col_result_data = col_result->get_data();
-        auto& null_map_data = null_map->get_data();
+        if constexpr (std::is_same_v<DateType, DataTypeDate>) {
+            null_map->resize(input_rows_count);
+            auto& null_map_data = null_map->get_data();
 
-        for (int i = 0; i < input_rows_count; i++) {
-            if (col_source->is_null_at(i)) {
-                null_map_data[i] = true;
-                continue;
-            }
+            for (int i = 0; i < input_rows_count; i++) {
+                if (col_source->is_null_at(i)) {
+                    null_map_data[i] = true;
+                    continue;
+                }
 
-            StringRef source = col_source->get_data_at(i);
-            if constexpr (std::is_same_v<DateType, DataTypeDate>) {
+                StringRef source = col_source->get_data_at(i);
                 const VecDateTimeValue& ts_value =
                         reinterpret_cast<const VecDateTimeValue&>(*source.data);
                 int64_t timestamp;
-                if (!ts_value.unix_timestamp(&timestamp,
-                                             context->impl()->state()->timezone_obj())) {
-                    null_map_data[i] = true;
-                } else {
-                    null_map_data[i] = false;
-                    col_result_data[i] = UnixTimeStampImpl::trim_timestamp(timestamp);
-                }
-            } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
-                const DateV2Value<DateV2ValueType>& ts_value =
-                        reinterpret_cast<const DateV2Value<DateV2ValueType>&>(*source.data);
-                int64_t timestamp;
-                if (!ts_value.unix_timestamp(&timestamp,
-                                             context->impl()->state()->timezone_obj())) {
-                    null_map_data[i] = true;
-                } else {
-                    null_map_data[i] = false;
-                    col_result_data[i] = UnixTimeStampImpl::trim_timestamp(timestamp);
-                }
-            } else {
-                const DateV2Value<DateTimeV2ValueType>& ts_value =
-                        reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(*source.data);
-                int64_t timestamp;
-                if (!ts_value.unix_timestamp(&timestamp,
-                                             context->impl()->state()->timezone_obj())) {
+                if (!ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj())) {
                     null_map_data[i] = true;
                 } else {
                     null_map_data[i] = false;
                     col_result_data[i] = UnixTimeStampImpl::trim_timestamp(timestamp);
                 }
             }
-        }
+            block.replace_by_position(
+                    result, ColumnNullable::create(std::move(col_result), std::move(null_map)));
+        } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
+            const auto is_nullable = block.get_by_position(arguments[0]).type->is_nullable();
+            if (is_nullable) {
+                null_map->resize(input_rows_count);
+                auto& null_map_data = null_map->get_data();
+                for (int i = 0; i < input_rows_count; i++) {
+                    if (col_source->is_null_at(i)) {
+                        DCHECK(is_nullable);
+                        null_map_data[i] = true;
+                        continue;
+                    }
 
-        block.replace_by_position(
-                result, ColumnNullable::create(std::move(col_result), std::move(null_map)));
+                    StringRef source = col_source->get_data_at(i);
+                    const DateV2Value<DateV2ValueType>& ts_value =
+                            reinterpret_cast<const DateV2Value<DateV2ValueType>&>(*source.data);
+                    int64_t timestamp;
+                    if (!ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj())) {
+                        null_map_data[i] = true;
+                    } else {
+                        null_map_data[i] = false;
+                        col_result_data[i] = UnixTimeStampImpl::trim_timestamp(timestamp);
+                    }
+                }
+                block.replace_by_position(
+                        result, ColumnNullable::create(std::move(col_result), std::move(null_map)));
+            } else {
+                for (int i = 0; i < input_rows_count; i++) {
+                    DCHECK(!col_source->is_null_at(i));
+                    StringRef source = col_source->get_data_at(i);
+                    const DateV2Value<DateV2ValueType>& ts_value =
+                            reinterpret_cast<const DateV2Value<DateV2ValueType>&>(*source.data);
+                    int64_t timestamp;
+                    const auto valid =
+                            ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj());
+                    DCHECK(valid);
+                    col_result_data[i] = UnixTimeStampImpl::trim_timestamp(timestamp);
+                }
+                block.replace_by_position(result, std::move(col_result));
+            }
+        } else {
+            const auto is_nullable = block.get_by_position(arguments[0]).type->is_nullable();
+            if (is_nullable) {
+                null_map->resize(input_rows_count);
+                auto& null_map_data = null_map->get_data();
+                for (int i = 0; i < input_rows_count; i++) {
+                    if (col_source->is_null_at(i)) {
+                        DCHECK(is_nullable);
+                        null_map_data[i] = true;
+                        continue;
+                    }
+
+                    StringRef source = col_source->get_data_at(i);
+                    const DateV2Value<DateTimeV2ValueType>& ts_value =
+                            reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(*source.data);
+                    int64_t timestamp;
+                    if (!ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj())) {
+                        null_map_data[i] = true;
+                    } else {
+                        null_map_data[i] = false;
+                        col_result_data[i] = UnixTimeStampImpl::trim_timestamp(timestamp);
+                    }
+                }
+                block.replace_by_position(
+                        result, ColumnNullable::create(std::move(col_result), std::move(null_map)));
+            } else {
+                for (int i = 0; i < input_rows_count; i++) {
+                    DCHECK(!col_source->is_null_at(i));
+                    StringRef source = col_source->get_data_at(i);
+                    const DateV2Value<DateTimeV2ValueType>& ts_value =
+                            reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(*source.data);
+                    int64_t timestamp;
+                    const auto valid =
+                            ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj());
+                    DCHECK(valid);
+                    col_result_data[i] = UnixTimeStampImpl::trim_timestamp(timestamp);
+                }
+                block.replace_by_position(result, std::move(col_result));
+            }
+        }
 
         return Status::OK();
     }
@@ -523,7 +574,7 @@ struct UnixTimeStampStrImpl {
             }
 
             int64_t timestamp;
-            if (!ts_value.unix_timestamp(&timestamp, context->impl()->state()->timezone_obj())) {
+            if (!ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj())) {
                 null_map_data[i] = true;
             } else {
                 null_map_data[i] = false;
@@ -576,7 +627,7 @@ public:
 
     String get_name() const override { return name; }
 
-    bool use_default_implementation_for_nulls() const override { return true; }
+    bool use_default_implementation_for_nulls() const override { return false; }
 
     bool use_default_implementation_for_constants() const override { return true; }
 
@@ -587,11 +638,17 @@ public:
     // input DateTime and Date, return Date
     // input DateTimeV2 and DateV2, return DateV2
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
+        bool is_nullable = false;
+        for (auto it : arguments) {
+            is_nullable = is_nullable || it.type->is_nullable();
+        }
+
         if constexpr (std::is_same_v<DateType, DataTypeDateTime> ||
                       std::is_same_v<DateType, DataTypeDate>) {
             return make_nullable(std::make_shared<DataTypeDate>());
         } else {
-            return make_nullable(std::make_shared<DataTypeDateV2>());
+            return is_nullable ? make_nullable(std::make_shared<DataTypeDateV2>())
+                               : std::make_shared<DataTypeDateV2>();
         }
     }
 
@@ -620,38 +677,66 @@ struct LastDayImpl {
     static Status execute_impl(FunctionContext* context, Block& block,
                                const ColumnNumbers& arguments, size_t result,
                                size_t input_rows_count) {
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        const auto is_nullable = block.get_by_position(result).type->is_nullable();
         ColumnPtr res_column;
-        ColumnPtr argument_column =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        if constexpr (std::is_same_v<DateType, DataTypeDateTime> ||
-                      std::is_same_v<DateType, DataTypeDate>) {
-            auto data_col = assert_cast<const ColumnVector<Int64>*>(argument_column.get());
-            res_column = ColumnInt64::create(input_rows_count);
-            execute_straight<VecDateTimeValue, Int64, Int64>(
-                    input_rows_count, null_map->get_data(), data_col->get_data(),
-                    static_cast<ColumnVector<Int64>*>(res_column->assume_mutable().get())
-                            ->get_data());
+        ColumnPtr argument_column = remove_nullable(block.get_by_position(arguments[0]).column)
+                                            ->convert_to_full_column_if_const();
+        if (is_nullable) {
+            auto null_map = ColumnUInt8::create(input_rows_count, 0);
+            if constexpr (std::is_same_v<DateType, DataTypeDateTime> ||
+                          std::is_same_v<DateType, DataTypeDate>) {
+                auto data_col = assert_cast<const ColumnVector<Int64>*>(argument_column.get());
+                res_column = ColumnInt64::create(input_rows_count);
+                execute_straight<VecDateTimeValue, Int64, Int64>(
+                        input_rows_count, null_map->get_data(), data_col->get_data(),
+                        static_cast<ColumnVector<Int64>*>(res_column->assume_mutable().get())
+                                ->get_data());
 
-        } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
-            auto data_col = assert_cast<const ColumnVector<UInt32>*>(argument_column.get());
-            res_column = ColumnVector<UInt32>::create(input_rows_count);
-            execute_straight<DateV2Value<DateV2ValueType>, UInt32, UInt32>(
-                    input_rows_count, null_map->get_data(), data_col->get_data(),
-                    static_cast<ColumnVector<UInt32>*>(res_column->assume_mutable().get())
-                            ->get_data());
+            } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
+                auto data_col = assert_cast<const ColumnVector<UInt32>*>(argument_column.get());
+                res_column = ColumnVector<UInt32>::create(input_rows_count);
+                execute_straight<DateV2Value<DateV2ValueType>, UInt32, UInt32>(
+                        input_rows_count, null_map->get_data(), data_col->get_data(),
+                        static_cast<ColumnVector<UInt32>*>(res_column->assume_mutable().get())
+                                ->get_data());
 
-        } else if constexpr (std::is_same_v<DateType, DataTypeDateTimeV2>) {
-            auto data_col = assert_cast<const ColumnVector<UInt64>*>(argument_column.get());
-            res_column = ColumnVector<UInt32>::create(input_rows_count);
-            execute_straight<DateV2Value<DateTimeV2ValueType>, UInt32, UInt64>(
-                    input_rows_count, null_map->get_data(), data_col->get_data(),
-                    static_cast<ColumnVector<UInt32>*>(res_column->assume_mutable().get())
-                            ->get_data());
+            } else if constexpr (std::is_same_v<DateType, DataTypeDateTimeV2>) {
+                auto data_col = assert_cast<const ColumnVector<UInt64>*>(argument_column.get());
+                res_column = ColumnVector<UInt32>::create(input_rows_count);
+                execute_straight<DateV2Value<DateTimeV2ValueType>, UInt32, UInt64>(
+                        input_rows_count, null_map->get_data(), data_col->get_data(),
+                        static_cast<ColumnVector<UInt32>*>(res_column->assume_mutable().get())
+                                ->get_data());
+            }
+            if (const auto* nullable_col = check_and_get_column<ColumnNullable>(
+                        block.get_by_position(arguments[0]).column.get())) {
+                NullMap& result_null_map = assert_cast<ColumnUInt8&>(*null_map).get_data();
+                const NullMap& src_null_map =
+                        assert_cast<const ColumnUInt8&>(nullable_col->get_null_map_column())
+                                .get_data();
+                VectorizedUtils::update_null_map(result_null_map, src_null_map);
+            }
+            block.replace_by_position(result,
+                                      ColumnNullable::create(res_column, std::move(null_map)));
+        } else {
+            if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
+                auto data_col = assert_cast<const ColumnVector<UInt32>*>(argument_column.get());
+                res_column = ColumnVector<UInt32>::create(input_rows_count);
+                execute_straight<DateV2Value<DateV2ValueType>, UInt32, UInt32>(
+                        input_rows_count, data_col->get_data(),
+                        static_cast<ColumnVector<UInt32>*>(res_column->assume_mutable().get())
+                                ->get_data());
+
+            } else if constexpr (std::is_same_v<DateType, DataTypeDateTimeV2>) {
+                auto data_col = assert_cast<const ColumnVector<UInt64>*>(argument_column.get());
+                res_column = ColumnVector<UInt32>::create(input_rows_count);
+                execute_straight<DateV2Value<DateTimeV2ValueType>, UInt32, UInt64>(
+                        input_rows_count, data_col->get_data(),
+                        static_cast<ColumnVector<UInt32>*>(res_column->assume_mutable().get())
+                                ->get_data());
+            }
+            block.replace_by_position(result, std::move(res_column));
         }
-
-        block.replace_by_position(
-                result, ColumnNullable::create(std::move(res_column), std::move(null_map)));
         return Status::OK();
     }
 
@@ -699,6 +784,31 @@ struct LastDayImpl {
         }
     }
 
+    template <typename DateValueType, typename ReturnType, typename InputDateType>
+    static void execute_straight(size_t input_rows_count,
+                                 const PaddedPODArray<InputDateType>& data_col,
+                                 PaddedPODArray<ReturnType>& res_data) {
+        for (int i = 0; i < input_rows_count; i++) {
+            if constexpr (std::is_same_v<DateValueType, DateV2Value<DateV2ValueType>>) {
+                const auto& cur_data = data_col[i];
+                auto ts_value = binary_cast<UInt32, DateValueType>(cur_data);
+                DCHECK(ts_value.is_valid_date());
+                int day = get_last_month_day(ts_value.year(), ts_value.month());
+                ts_value.template set_time_unit<TimeUnit::DAY>(day);
+                res_data[i] = binary_cast<DateValueType, UInt32>(ts_value);
+            } else {
+                const auto& cur_data = data_col[i];
+                auto ts_value = binary_cast<UInt64, DateValueType>(cur_data);
+                DCHECK(ts_value.is_valid_date());
+                int day = get_last_month_day(ts_value.year(), ts_value.month());
+                ts_value.template set_time_unit<TimeUnit::DAY>(day);
+                ts_value.set_time(ts_value.year(), ts_value.month(), day, 0, 0, 0, 0);
+                UInt64 cast_value = binary_cast<DateValueType, UInt64>(ts_value);
+                DataTypeDateTimeV2::cast_to_date_v2(cast_value, res_data[i]);
+            }
+        }
+    }
+
     static int get_last_month_day(int year, int month) {
         bool is_leap_year = doris::is_leap(year);
         if (month == 2) {
@@ -721,37 +831,66 @@ struct MondayImpl {
     static Status execute_impl(FunctionContext* context, Block& block,
                                const ColumnNumbers& arguments, size_t result,
                                size_t input_rows_count) {
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        const auto is_nullable = block.get_by_position(result).type->is_nullable();
+        ColumnPtr argument_column = remove_nullable(block.get_by_position(arguments[0]).column)
+                                            ->convert_to_full_column_if_const();
         ColumnPtr res_column;
-        ColumnPtr argument_column =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        if constexpr (std::is_same_v<DateType, DataTypeDateTime> ||
-                      std::is_same_v<DateType, DataTypeDate>) {
-            auto data_col = assert_cast<const ColumnVector<Int64>*>(argument_column.get());
-            res_column = ColumnInt64::create(input_rows_count);
-            execute_straight<VecDateTimeValue, Int64, Int64>(
-                    input_rows_count, null_map->get_data(), data_col->get_data(),
-                    static_cast<ColumnVector<Int64>*>(res_column->assume_mutable().get())
-                            ->get_data());
+        if (is_nullable) {
+            auto null_map = ColumnUInt8::create(input_rows_count, 0);
+            if constexpr (std::is_same_v<DateType, DataTypeDateTime> ||
+                          std::is_same_v<DateType, DataTypeDate>) {
+                auto data_col = assert_cast<const ColumnVector<Int64>*>(argument_column.get());
+                res_column = ColumnInt64::create(input_rows_count);
+                execute_straight<VecDateTimeValue, Int64, Int64>(
+                        input_rows_count, null_map->get_data(), data_col->get_data(),
+                        static_cast<ColumnVector<Int64>*>(res_column->assume_mutable().get())
+                                ->get_data());
 
-        } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
-            auto data_col = assert_cast<const ColumnVector<UInt32>*>(argument_column.get());
-            res_column = ColumnVector<UInt32>::create(input_rows_count);
-            execute_straight<DateV2Value<DateV2ValueType>, UInt32, UInt32>(
-                    input_rows_count, null_map->get_data(), data_col->get_data(),
-                    static_cast<ColumnVector<UInt32>*>(res_column->assume_mutable().get())
-                            ->get_data());
+            } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
+                auto data_col = assert_cast<const ColumnVector<UInt32>*>(argument_column.get());
+                res_column = ColumnVector<UInt32>::create(input_rows_count);
+                execute_straight<DateV2Value<DateV2ValueType>, UInt32, UInt32>(
+                        input_rows_count, null_map->get_data(), data_col->get_data(),
+                        static_cast<ColumnVector<UInt32>*>(res_column->assume_mutable().get())
+                                ->get_data());
 
-        } else if constexpr (std::is_same_v<DateType, DataTypeDateTimeV2>) {
-            auto data_col = assert_cast<const ColumnVector<UInt64>*>(argument_column.get());
-            res_column = ColumnVector<UInt32>::create(input_rows_count);
-            execute_straight<DateV2Value<DateTimeV2ValueType>, UInt32, UInt64>(
-                    input_rows_count, null_map->get_data(), data_col->get_data(),
-                    static_cast<ColumnVector<UInt32>*>(res_column->assume_mutable().get())
-                            ->get_data());
+            } else if constexpr (std::is_same_v<DateType, DataTypeDateTimeV2>) {
+                auto data_col = assert_cast<const ColumnVector<UInt64>*>(argument_column.get());
+                res_column = ColumnVector<UInt32>::create(input_rows_count);
+                execute_straight<DateV2Value<DateTimeV2ValueType>, UInt32, UInt64>(
+                        input_rows_count, null_map->get_data(), data_col->get_data(),
+                        static_cast<ColumnVector<UInt32>*>(res_column->assume_mutable().get())
+                                ->get_data());
+            }
+            if (const auto* nullable_col = check_and_get_column<ColumnNullable>(
+                        block.get_by_position(arguments[0]).column.get())) {
+                NullMap& result_null_map = assert_cast<ColumnUInt8&>(*null_map).get_data();
+                const NullMap& src_null_map =
+                        assert_cast<const ColumnUInt8&>(nullable_col->get_null_map_column())
+                                .get_data();
+                VectorizedUtils::update_null_map(result_null_map, src_null_map);
+            }
+            block.replace_by_position(result,
+                                      ColumnNullable::create(res_column, std::move(null_map)));
+        } else {
+            if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
+                auto data_col = assert_cast<const ColumnVector<UInt32>*>(argument_column.get());
+                res_column = ColumnVector<UInt32>::create(input_rows_count);
+                execute_straight<DateV2Value<DateV2ValueType>, UInt32, UInt32>(
+                        input_rows_count, data_col->get_data(),
+                        static_cast<ColumnVector<UInt32>*>(res_column->assume_mutable().get())
+                                ->get_data());
+
+            } else if constexpr (std::is_same_v<DateType, DataTypeDateTimeV2>) {
+                auto data_col = assert_cast<const ColumnVector<UInt64>*>(argument_column.get());
+                res_column = ColumnVector<UInt32>::create(input_rows_count);
+                execute_straight<DateV2Value<DateTimeV2ValueType>, UInt32, UInt64>(
+                        input_rows_count, data_col->get_data(),
+                        static_cast<ColumnVector<UInt32>*>(res_column->assume_mutable().get())
+                                ->get_data());
+            }
+            block.replace_by_position(result, std::move(res_column));
         }
-        block.replace_by_position(
-                result, ColumnNullable::create(std::move(res_column), std::move(null_map)));
         return Status::OK();
     }
 
@@ -808,6 +947,49 @@ struct MondayImpl {
                     null_map[i] = 1;
                     continue;
                 }
+                if (is_special_day(ts_value.year(), ts_value.month(), ts_value.day())) {
+                    ts_value.set_time(ts_value.year(), ts_value.month(), 1, 0, 0, 0, 0);
+                    UInt64 cast_value = binary_cast<DateValueType, UInt64>(ts_value);
+                    DataTypeDateTimeV2::cast_to_date_v2(cast_value, res_data[i]);
+                    continue;
+                }
+                // day_of_week, from 1(Mon) to 7(Sun)
+                int day_of_week = ts_value.weekday() + 1;
+                int gap_of_monday = day_of_week - 1;
+                TimeInterval interval(DAY, gap_of_monday, true);
+                ts_value.template date_add_interval<DAY>(interval);
+                ts_value.set_time(ts_value.year(), ts_value.month(), ts_value.day(), 0, 0, 0, 0);
+                UInt64 cast_value = binary_cast<DateValueType, UInt64>(ts_value);
+                DataTypeDateTimeV2::cast_to_date_v2(cast_value, res_data[i]);
+            }
+        }
+    }
+
+    template <typename DateValueType, typename ReturnType, typename InputDateType>
+    static void execute_straight(size_t input_rows_count,
+                                 const PaddedPODArray<InputDateType>& data_col,
+                                 PaddedPODArray<ReturnType>& res_data) {
+        for (int i = 0; i < input_rows_count; i++) {
+            if constexpr (std::is_same_v<DateValueType, DateV2Value<DateV2ValueType>>) {
+                const auto& cur_data = data_col[i];
+                auto ts_value = binary_cast<UInt32, DateValueType>(cur_data);
+                DCHECK(ts_value.is_valid_date());
+                if (is_special_day(ts_value.year(), ts_value.month(), ts_value.day())) {
+                    ts_value.template set_time_unit<TimeUnit::DAY>(1);
+                    res_data[i] = binary_cast<DateValueType, UInt32>(ts_value);
+                    continue;
+                }
+
+                // day_of_week, from 1(Mon) to 7(Sun)
+                int day_of_week = ts_value.weekday() + 1;
+                int gap_of_monday = day_of_week - 1;
+                TimeInterval interval(DAY, gap_of_monday, true);
+                ts_value.template date_add_interval<DAY>(interval);
+                res_data[i] = binary_cast<DateValueType, UInt32>(ts_value);
+            } else {
+                const auto& cur_data = data_col[i];
+                auto ts_value = binary_cast<UInt64, DateValueType>(cur_data);
+                DCHECK(ts_value.is_valid_date());
                 if (is_special_day(ts_value.year(), ts_value.month(), ts_value.day())) {
                     ts_value.set_time(ts_value.year(), ts_value.month(), 1, 0, 0, 0, 0);
                     UInt64 cast_value = binary_cast<DateValueType, UInt64>(ts_value);

@@ -21,6 +21,7 @@
 #include "exec/olap_common.h"
 #include "exprs/function_filter.h"
 #include "exprs/runtime_filter.h"
+#include "util/lock.h"
 #include "vec/exec/scan/scanner_context.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr.h"
@@ -48,7 +49,14 @@ struct FilterPredicates {
 class VScanNode : public ExecNode {
 public:
     VScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
-            : ExecNode(pool, tnode, descs), _runtime_filter_descs(tnode.runtime_filters) {}
+            : ExecNode(pool, tnode, descs), _runtime_filter_descs(tnode.runtime_filters) {
+        if (!tnode.__isset.conjuncts || tnode.conjuncts.empty()) {
+            // Which means the request could be fullfilled in a single segment iterator request.
+            if (tnode.limit > 0 && tnode.limit < 1024) {
+                _should_run_serial = true;
+            }
+        }
+    }
     virtual ~VScanNode() = default;
 
     friend class VScanner;
@@ -93,6 +101,10 @@ public:
     bool runtime_filters_are_ready_or_timeout();
 
     Status try_close();
+
+    bool should_run_serial() const { return _should_run_serial; }
+    bool ready_to_open() { return _shared_scanner_controller->scanner_context_is_ready(id()); }
+    bool ready_to_read() { return !_scanner_ctx->empty_in_queue(_context_queue_id); }
 
     enum class PushDownType {
         // The predicate can not be pushed down to data source
@@ -147,12 +159,14 @@ protected:
 
     virtual Status _should_push_down_function_filter(VectorizedFnCall* fn_call,
                                                      VExprContext* expr_ctx,
-                                                     StringVal* constant_str,
-                                                     doris_udf::FunctionContext** fn_ctx,
+                                                     StringRef* constant_str,
+                                                     doris::FunctionContext** fn_ctx,
                                                      PushDownType& pdt) {
         pdt = PushDownType::UNACCEPTABLE;
         return Status::OK();
     }
+
+    virtual bool _should_push_down_common_expr() { return false; }
 
     virtual PushDownType _should_push_down_bloom_filter() { return PushDownType::UNACCEPTABLE; }
 
@@ -166,8 +180,12 @@ protected:
     // Only predicate on key column can be pushed down.
     virtual bool _is_key_column(const std::string& col_name) { return false; }
 
+    Status _prepare_scanners();
+
 protected:
     RuntimeState* _state;
+    bool _is_pipeline_scan = false;
+    bool _shared_scan_opt = false;
     // For load scan node, there should be both input and output tuple descriptor.
     // For query scan node, there is only output_tuple_desc.
     TupleId _input_tuple_id = -1;
@@ -192,7 +210,7 @@ protected:
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
     // Set to true if the runtime filter is ready.
     std::vector<bool> _runtime_filter_ready_flag;
-    std::mutex _rf_locks;
+    doris::Mutex _rf_locks;
     std::map<int, RuntimeFilterContext*> _conjunct_id_to_runtime_filter_ctxs;
     phmap::flat_hash_set<VExpr*> _rf_vexpr_set;
     // True means all runtime filters are applied to scanners
@@ -242,16 +260,24 @@ protected:
 
     bool _need_agg_finalize = true;
     bool _blocked_by_rf = false;
+    // If the query like select * from table limit 10; then the query should run in
+    // single scanner to avoid too many scanners which will cause lots of useless read.
+    bool _should_run_serial = false;
 
     // Every time vconjunct_ctx_ptr is updated, the old ctx will be stored in this vector
     // so that it will be destroyed uniformly at the end of the query.
     std::vector<std::unique_ptr<VExprContext*>> _stale_vexpr_ctxs;
+    std::unique_ptr<VExprContext*> _common_vexpr_ctxs_pushdown = nullptr;
 
     // If sort info is set, push limit to each scanner;
     int64_t _limit_per_scanner = -1;
 
 protected:
-    std::unique_ptr<RuntimeProfile> _scanner_profile;
+    std::shared_ptr<vectorized::SharedScannerController> _shared_scanner_controller;
+    bool _should_create_scanner = false;
+    int _context_queue_id = -1;
+
+    std::shared_ptr<RuntimeProfile> _scanner_profile;
 
     // rows read from the scanner (including those discarded by (pre)filters)
     RuntimeProfile::Counter* _rows_read_counter;
@@ -327,6 +353,7 @@ private:
 
     Status _normalize_compound_predicate(
             vectorized::VExpr* expr, VExprContext* expr_ctx, PushDownType* pdt,
+            bool is_runtimer_filter_predicate,
             const std::function<bool(const std::vector<VExpr*>&, const VSlotRef**, VExpr**)>&
                     in_predicate_checker,
             const std::function<bool(const std::vector<VExpr*>&, const VSlotRef**, VExpr**)>&

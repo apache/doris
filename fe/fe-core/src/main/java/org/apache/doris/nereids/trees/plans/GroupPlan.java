@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLeaf;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
 
@@ -36,6 +37,7 @@ import java.util.Optional;
  * as a place-holder when do match root.
  */
 public class GroupPlan extends LogicalLeaf {
+
     private final Group group;
 
     public GroupPlan(Group group) {
@@ -55,6 +57,11 @@ public class GroupPlan extends LogicalLeaf {
     @Override
     public List<? extends Expression> getExpressions() {
         return ImmutableList.of();
+    }
+
+    @Override
+    public Statistics getStats() {
+        throw new IllegalStateException("GroupPlan can not invoke getStats()");
     }
 
     @Override

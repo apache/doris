@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.thrift.TRuntimeFilterType;
@@ -26,34 +27,43 @@ import org.apache.doris.thrift.TRuntimeFilterType;
  */
 public class RuntimeFilter {
 
-    private final Slot srcSlot;
-
-    private Slot targetSlot;
-
     private final RuntimeFilterId id;
-
     private final TRuntimeFilterType type;
-
+    private final Expression srcSlot;
+    //bitmap filter support target expression like  k1+1, abs(k1)
+    //targetExpression is an expression on targetSlot, in which there is only one non-const slot
+    private Expression targetExpression;
+    private Slot targetSlot;
     private final int exprOrder;
+    private AbstractPhysicalJoin builderNode;
 
-    private boolean finalized = false;
-
-    private PhysicalHashJoin builderNode;
+    private boolean bitmapFilterNotIn;
 
     /**
      * constructor
      */
-    public RuntimeFilter(RuntimeFilterId id, Slot src, Slot target, TRuntimeFilterType type,
-            int exprOrder, PhysicalHashJoin builderNode) {
+    public RuntimeFilter(RuntimeFilterId id, Expression src, Slot target, TRuntimeFilterType type,
+            int exprOrder, AbstractPhysicalJoin builderNode) {
+        this(id, src, target, target, type, exprOrder, builderNode, false);
+    }
+
+    /**
+     * constructor
+     */
+    public RuntimeFilter(RuntimeFilterId id, Expression src, Slot target, Expression targetExpression,
+            TRuntimeFilterType type,
+            int exprOrder, AbstractPhysicalJoin builderNode, boolean bitmapFilterNotIn) {
         this.id = id;
         this.srcSlot = src;
         this.targetSlot = target;
+        this.targetExpression = targetExpression;
         this.type = type;
         this.exprOrder = exprOrder;
         this.builderNode = builderNode;
+        this.bitmapFilterNotIn = bitmapFilterNotIn;
     }
 
-    public Slot getSrcExpr() {
+    public Expression getSrcExpr() {
         return srcSlot;
     }
 
@@ -73,11 +83,16 @@ public class RuntimeFilter {
         return exprOrder;
     }
 
-    public PhysicalHashJoin getBuilderNode() {
+    public AbstractPhysicalJoin getBuilderNode() {
         return builderNode;
     }
 
-    public void setFinalized() {
-        this.finalized = true;
+    public boolean isBitmapFilterNotIn() {
+        return bitmapFilterNotIn;
     }
+
+    public Expression getTargetExpression() {
+        return targetExpression;
+    }
+
 }

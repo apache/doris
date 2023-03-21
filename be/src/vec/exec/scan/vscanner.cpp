@@ -33,11 +33,19 @@ VScanner::VScanner(RuntimeState* state, VScanNode* parent, int64_t limit, Runtim
     _is_load = (_input_tuple_desc != nullptr);
 }
 
+Status VScanner::prepare(RuntimeState* state, VExprContext** vconjunct_ctx_ptr) {
+    if (vconjunct_ctx_ptr != nullptr) {
+        // Copy vconjunct_ctx_ptr from scan node to this scanner's _vconjunct_ctx.
+        RETURN_IF_ERROR((*vconjunct_ctx_ptr)->clone(_state, &_vconjunct_ctx));
+    }
+    return Status::OK();
+}
+
 Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
     // only empty block should be here
     DCHECK(block->rows() == 0);
     SCOPED_RAW_TIMER(&_per_scanner_timer);
-    int64_t raw_rows_threshold = raw_rows_read() + config::doris_scanner_row_num;
+    int64_t rows_read_threshold = _num_rows_read + config::doris_scanner_row_num;
     if (!block->mem_reuse()) {
         for (const auto slot_desc : _output_tuple_desc->slots()) {
             if (!slot_desc->need_materialize()) {
@@ -52,6 +60,9 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
 
     {
         do {
+            // if step 2 filter all rows of block, and block will be reused to get next rows,
+            // must clear row_same_bit of block, or will get wrong row_same_bit.size() which not equal block.rows()
+            block->clear_same_bit();
             // 1. Get input block from scanner
             {
                 SCOPED_TIMER(_parent->_scan_timer);
@@ -67,10 +78,15 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
             {
                 SCOPED_TIMER(_parent->_filter_timer);
                 RETURN_IF_ERROR(_filter_output_block(block));
-                // record rows return (after filter) for _limit check
-                _num_rows_return += block->rows();
             }
-        } while (block->rows() == 0 && !(*eof) && raw_rows_read() < raw_rows_threshold);
+            // record rows return (after filter) for _limit check
+            _num_rows_return += block->rows();
+        } while (!state->is_cancelled() && block->rows() == 0 && !(*eof) &&
+                 _num_rows_read < rows_read_threshold);
+    }
+
+    if (state->is_cancelled()) {
+        return Status::Cancelled("cancelled");
     }
 
     // set eof to true if per scanner limit is reached
@@ -124,6 +140,9 @@ Status VScanner::close(RuntimeState* state) {
     }
     if (_vconjunct_ctx) {
         _vconjunct_ctx->close(state);
+    }
+    if (_common_vexpr_ctxs_pushdown) {
+        _common_vexpr_ctxs_pushdown->close(state);
     }
 
     COUNTER_UPDATE(_parent->_scanner_wait_worker_timer, _scanner_wait_worker_timer);

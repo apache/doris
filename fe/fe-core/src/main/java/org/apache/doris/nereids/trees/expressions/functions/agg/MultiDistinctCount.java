@@ -32,7 +32,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
 /** MultiDistinctCount */
 public class MultiDistinctCount extends AggregateFunction
@@ -48,13 +47,13 @@ public class MultiDistinctCount extends AggregateFunction
     public MultiDistinctCount(Expression arg0, Expression... varArgs) {
         super("multi_distinct_count", true, ExpressionUtils.mergeArguments(arg0, varArgs).stream()
                 .map(arg -> arg.getDataType() instanceof DateLikeType ? new Cast(arg, BigIntType.INSTANCE) : arg)
-                .collect(Collectors.toList()));
+                .collect(ImmutableList.toImmutableList()));
     }
 
     public MultiDistinctCount(boolean distinct, Expression arg0, Expression... varArgs) {
-        super("multi_distinct_count", true, ExpressionUtils.mergeArguments(arg0, varArgs).stream()
+        super("multi_distinct_count", distinct, ExpressionUtils.mergeArguments(arg0, varArgs).stream()
                 .map(arg -> arg.getDataType() instanceof DateLikeType ? new Cast(arg, BigIntType.INSTANCE) : arg)
-                .collect(Collectors.toList()));
+                .collect(ImmutableList.toImmutableList()));
     }
 
     @Override

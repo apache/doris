@@ -41,7 +41,7 @@ element_at
 
 Returns an element of an array located at the input position. If there is no element at the position, return NULL.
 
-`position` is 1-based and support negtive number.
+`position` is 1-based and support negative number.
 
 ### notice
 
@@ -65,7 +65,7 @@ mysql> SELECT id,c_array,element_at(c_array, 5) FROM `array_test`;
 +------+-----------------+--------------------------+
 ```
 
-negtive `position` example:
+negative `position` example:
 
 ```
 mysql> set enable_vectorized_engine=true;

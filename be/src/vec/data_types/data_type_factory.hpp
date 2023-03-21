@@ -21,6 +21,7 @@
 #pragma once
 #include <mutex>
 #include <string>
+#include <type_traits>
 
 #include "arrow/type.h"
 #include "common/consts.h"
@@ -37,10 +38,13 @@
 #include "vec/data_types/data_type_fixed_length_object.h"
 #include "vec/data_types/data_type_hll.h"
 #include "vec/data_types/data_type_jsonb.h"
+#include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_quantilestate.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_struct.h"
 
 namespace doris::vectorized {
 
@@ -82,6 +86,7 @@ public:
                     {"Jsonb", std::make_shared<DataTypeJsonb>()},
                     {"BitMap", std::make_shared<DataTypeBitMap>()},
                     {"Hll", std::make_shared<DataTypeHLL>()},
+                    {"QuantileState", std::make_shared<DataTypeQuantileStateDouble>()},
             };
             for (auto const& [key, val] : base_type_map) {
                 instance.register_data_type(key, val);
@@ -95,7 +100,10 @@ public:
         });
         return instance;
     }
+
+    // TODO(xy): support creator to create dynamic struct type
     DataTypePtr get(const std::string& name) { return _data_type_map[name]; }
+    // TODO(xy): support creator to create dynamic struct type
     const std::string& get(const DataTypePtr& data_type) const {
         auto type_ptr = data_type->is_nullable()
                                 ? ((DataTypeNullable*)(data_type.get()))->get_nested_type()
@@ -106,6 +114,33 @@ public:
             }
             if (is_decimal(type_ptr) && type_ptr->get_type_id() == entity.first->get_type_id()) {
                 return entity.second;
+            }
+            if (is_array(type_ptr) && is_array(entity.first)) {
+                auto nested_nullable_type_ptr =
+                        (assert_cast<const DataTypeArray*>(type_ptr.get()))->get_nested_type();
+                auto nested_nullable_entity_ptr =
+                        (assert_cast<const DataTypeArray*>(entity.first.get()))->get_nested_type();
+                // There must be nullable inside array type.
+                if (nested_nullable_type_ptr->is_nullable() &&
+                    nested_nullable_entity_ptr->is_nullable()) {
+                    auto nested_type_ptr = ((DataTypeNullable*)(nested_nullable_type_ptr.get()))
+                                                   ->get_nested_type();
+                    auto nested_entity_ptr = ((DataTypeNullable*)(nested_nullable_entity_ptr.get()))
+                                                     ->get_nested_type();
+                    if (is_decimal(nested_type_ptr) &&
+                        nested_type_ptr->get_type_id() == nested_entity_ptr->get_type_id()) {
+                        return entity.second;
+                    }
+                }
+            }
+        }
+        if (type_ptr->get_type_id() == TypeIndex::Struct ||
+            type_ptr->get_type_id() == TypeIndex::Map) {
+            DataTypeFactory::instance().register_data_type(type_ptr->get_name(), type_ptr);
+            for (const auto& entity : _invert_data_type_map) {
+                if (entity.first->equals(*type_ptr)) {
+                    return entity.second;
+                }
             }
         }
         return _empty_string;

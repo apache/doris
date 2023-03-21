@@ -22,12 +22,10 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/exprs")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/exprs")
 
 add_library(Exprs
-  anyval_util.cpp
   block_bloom_filter_avx_impl.cc
   block_bloom_filter_impl.cc
   runtime_filter.cpp
   runtime_filter_rpc.cpp
-  like_predicate.cpp
   math_functions.cpp
   rpc_fn_comm.cpp
   string_functions.cpp

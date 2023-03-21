@@ -34,17 +34,17 @@ doris::Status VCastExpr::prepare(doris::RuntimeState* state, const doris::RowDes
     DCHECK_EQ(_children.size(), 1);
     auto child = _children[0];
     const auto& child_name = child->expr_name();
-    auto child_column = child->data_type()->create_column();
 
     // create a const string column
     _target_data_type = _data_type;
+    // TODO(xy): support return struct type name
     _target_data_type_name = DataTypeFactory::instance().get(_target_data_type);
     _cast_param_data_type = std::make_shared<DataTypeString>();
     _cast_param = _cast_param_data_type->create_column_const(1, _target_data_type_name);
 
     ColumnsWithTypeAndName argument_template;
     argument_template.reserve(2);
-    argument_template.emplace_back(std::move(child_column), child->data_type(), child_name);
+    argument_template.emplace_back(nullptr, child->data_type(), child_name);
     argument_template.emplace_back(_cast_param, _cast_param_data_type, _target_data_type_name);
     _function = SimpleFunctionFactory::instance().get_function(function_name, argument_template,
                                                                _data_type);

@@ -333,4 +333,39 @@ public class MultiTableMaterializedViewTest extends TestWithFeService {
                 + "AS SELECT t1.username ,t2.pv FROM t_user t1 LEFT JOIN t_user_pv t2 on t1.id = t2.id").execute();
         Assertions.assertNull(connectContext.getState().getErrorCode(), connectContext.getState().getErrorMessage());
     }
+
+    @Test
+    public void testCreateWithHint() throws Exception {
+        createTable("CREATE TABLE t_user ("
+                + "  event_day DATE,"
+                + "  id bigint,"
+                + "  username varchar(20)"
+                + ")"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 10 "
+                + "PROPERTIES ('replication_num' = '1')"
+        );
+        createTable("CREATE TABLE t_user_pv("
+                + "  event_day DATE,"
+                + "  id bigint,"
+                + "  pv bigint"
+                + ")"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 10 "
+                + "PROPERTIES ('replication_num' = '1')"
+        );
+        new StmtExecutor(connectContext, "CREATE MATERIALIZED VIEW mv "
+                + "BUILD IMMEDIATE REFRESH COMPLETE "
+                + "DISTRIBUTED BY HASH(username) BUCKETS 10 "
+                + "PROPERTIES ('replication_num' = '1') "
+                + "AS SELECT /*+ SET_VAR(exec_mem_limit=1048576, query_timeout=3600) */ "
+                + "t1.username ,t2.pv FROM t_user t1 LEFT JOIN t_user_pv t2 on t1.id = t2.id").execute();
+        Assertions.assertNull(connectContext.getState().getErrorCode(), connectContext.getState().getErrorMessage());
+        ShowExecutor showExecutor = new ShowExecutor(connectContext,
+                (ShowStmt) parseAndAnalyzeStmt("show create table mv"));
+        ShowResultSet resultSet = showExecutor.execute();
+        String result = resultSet.getResultRows().get(0).get(1);
+        Assertions.assertTrue(
+                result.contains("SELECT /*+ SET_VAR(exec_mem_limit=1048576, query_timeout=3600) */")
+                        || result.contains("SELECT /*+ SET_VAR(query_timeout=3600, exec_mem_limit=1048576) */")
+        );
+    }
 }

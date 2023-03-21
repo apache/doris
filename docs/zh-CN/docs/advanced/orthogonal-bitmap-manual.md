@@ -145,6 +145,36 @@ orthogonal_bitmap_union_count(bitmap_column)
 
 查询规划上分2层，在第一层be节点（update、serialize）对所有bitmap求并集，再对并集的结果bitmap求count，count值序列化后发送至第二层be节点（merge、finalize），在第二层be节点对所有来源于第一层节点的count值循环求sum
 
+#### orthogonal_bitmap_expr_calculate
+
+求表达式bitmap交并差集合计算函数。
+
+语法：
+
+orthogonal_bitmap_expr_calculate(bitmap_column, filter_column, input_string)
+
+参数：
+
+第一个参数是Bitmap列，第二个参数是用来过滤的维度列，即计算的key列，第三个参数是计算表达式字符串，含义是依据key列进行bitmap交并差集表达式计算
+
+表达式支持的计算符：& 代表交集计算，| 代表并集计算，- 代表差集计算, ^ 代表异或计算，\ 代表转义字符
+
+说明：
+
+查询规划上聚合分2层，第一层be聚合节点计算包括init、update、serialize步骤，第二层be聚合节点计算包括merge、finalize步骤。在第一层be节点，init阶段解析input_string字符串，转换为后缀表达式（逆波兰式），解析出计算key值，并在map<key, bitmap>结构中初始化；update阶段，底层内核scan维度列（filter_column）数据后回调update函数，然后以计算key为单位对上一步的map结构中的bitmap进行聚合；serialize阶段，根据后缀表达式，解析出计算key列的bitmap，利用栈结构先进后出原则，进行bitmap交并差集合计算，然后对最终的结果bitmap序列化后发送至第二层聚合be节点。在第二层聚合be节点，对所有来源于第一层节点的bitmap值求并集，并返回最终bitmap结果
+
+#### orthogonal_bitmap_expr_calculate_count 
+
+求表达式bitmap交并差集合计算count函数, 语法和参数同orthogonal_bitmap_expr_calculate。
+
+语法：
+
+orthogonal_bitmap_expr_calculate_count(bitmap_column, filter_column, input_string)
+
+说明：
+
+查询规划上聚合分2层，第一层be聚合节点计算包括init、update、serialize步骤，第二层be聚合节点计算包括merge、finalize步骤。在第一层be节点，init阶段解析input_string字符串，转换为后缀表达式（逆波兰式），解析出计算key值，并在map<key, bitmap>结构中初始化；update阶段，底层内核scan维度列（filter_column）数据后回调update函数，然后以计算key为单位对上一步的map结构中的bitmap进行聚合；serialize阶段，根据后缀表达式，解析出计算key列的bitmap，利用栈结构先进后出原则，进行bitmap交并差集合计算，然后对最终的结果bitmap的count值序列化后发送至第二层聚合be节点。在第二层聚合be节点，对所有来源于第一层节点的count值求加和，并返回最终count结果。
+
 ### 使用场景
 
 符合对bitmap进行正交计算的场景，如在用户行为分析中，计算留存，漏斗，用户画像等。
@@ -160,4 +190,16 @@ orthogonal_bitmap_union_count(bitmap_column)
 
 ```sql
 select orthogonal_bitmap_union_count(user_id) from user_tag_bitmap where tag in (13080800, 11110200);
+```
+
+bitmap交并差集合混合计算：
+
+```sql
+select orthogonal_bitmap_expr_calculate_count(user_id, tag, '(833736|999777)&(1308083|231207)&(1000|20000-30000)') from user_tag_bitmap where tag in (833736,999777,130808,231207,1000,20000,30000);
+注：1000、20000、30000等整形tag，代表用户不同标签
+```
+
+```sql
+select orthogonal_bitmap_expr_calculate_count(user_id, tag, '(A:a/b|B:2\\-4)&(C:1-D:12)&E:23') from user_str_tag_bitmap where tag in ('A:a/b', 'B:2-4', 'C:1', 'D:12', 'E:23');
+ 注：'A:a/b', 'B:2-4'等是字符串类型tag，代表用户不同标签, 其中'B:2-4'需要转义成'B:2\\-4'
 ```

@@ -235,6 +235,22 @@ private:
         } else if (which.is_date_time()) {
             res = _execute_number<ColumnDateTime>(src_column, src_offsets, src_null_map, sep_str,
                                                   null_replace_str, nested_type, dest_column_ptr);
+        } else if (which.is_date_v2()) {
+            res = _execute_number<ColumnDateV2>(src_column, src_offsets, src_null_map, sep_str,
+                                                null_replace_str, nested_type, dest_column_ptr);
+        } else if (which.is_date_time_v2()) {
+            res = _execute_number<ColumnDateTimeV2>(src_column, src_offsets, src_null_map, sep_str,
+                                                    null_replace_str, nested_type, dest_column_ptr);
+        } else if (which.is_decimal32()) {
+            res = _execute_number<ColumnDecimal32>(src_column, src_offsets, src_null_map, sep_str,
+                                                   null_replace_str, nested_type, dest_column_ptr);
+        } else if (which.is_decimal64()) {
+            res = _execute_number<ColumnDecimal64>(src_column, src_offsets, src_null_map, sep_str,
+                                                   null_replace_str, nested_type, dest_column_ptr);
+        } else if (which.is_decimal128i()) {
+            res = _execute_number<ColumnDecimal128I>(src_column, src_offsets, src_null_map, sep_str,
+                                                     null_replace_str, nested_type,
+                                                     dest_column_ptr);
         } else if (which.is_decimal128()) {
             res = _execute_number<ColumnDecimal128>(src_column, src_offsets, src_null_map, sep_str,
                                                     null_replace_str, nested_type, dest_column_ptr);

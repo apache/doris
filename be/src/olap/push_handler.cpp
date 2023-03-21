@@ -197,7 +197,6 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
         context.rowset_state = PREPARED;
         context.segments_overlap = OVERLAP_UNKNOWN;
         context.tablet_schema = tablet_schema;
-        context.oldest_write_timestamp = UnixSeconds();
         context.newest_write_timestamp = UnixSeconds();
         res = cur_tablet->create_rowset_writer(context, &rowset_writer);
         if (!res.ok()) {
@@ -247,11 +246,6 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
             // 4. Read data from broker and write into cur_tablet
             VLOG_NOTICE << "start to convert etl file to delta.";
             while (!reader->eof()) {
-                if (reader->mem_pool()->mem_tracker()->consumption() >
-                    config::flush_size_for_sparkload) {
-                    RETURN_NOT_OK(rowset_writer->flush());
-                    reader->mem_pool()->free_all();
-                }
                 res = reader->next(&block);
                 if (!res.ok()) {
                     LOG(WARNING) << "read next row failed."
@@ -325,8 +319,6 @@ Status PushBrokerReader::init(const Schema* schema, const TBrokerScanRange& t_sc
     }
     _runtime_profile = _runtime_state->runtime_profile();
     _runtime_profile->set_name("PushBrokerReader");
-    _mem_pool.reset(new MemPool());
-    _tuple_buffer_pool.reset(new MemPool());
 
     _counter.reset(new ScannerCounter());
 

@@ -24,9 +24,9 @@ namespace doris {
 class SchemaDummyScanner : public SchemaScanner {
 public:
     SchemaDummyScanner();
-    virtual ~SchemaDummyScanner();
-    virtual Status start(RuntimeState* state = nullptr);
-    virtual Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos);
+    ~SchemaDummyScanner() override;
+    Status start(RuntimeState* state = nullptr) override;
+    Status get_next_block(vectorized::Block* block, bool* eos) override;
 };
 
 } // namespace doris

@@ -50,6 +50,7 @@ import org.apache.doris.analysis.CancelBackupStmt;
 import org.apache.doris.analysis.CancelExportStmt;
 import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.CleanLabelStmt;
+import org.apache.doris.analysis.CleanProfileStmt;
 import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.CreateClusterStmt;
 import org.apache.doris.analysis.CreateDataSyncJobStmt;
@@ -90,7 +91,6 @@ import org.apache.doris.analysis.DropUserStmt;
 import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.InstallPluginStmt;
 import org.apache.doris.analysis.LinkDbStmt;
-import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.MigrateDbStmt;
 import org.apache.doris.analysis.PauseRoutineLoadStmt;
 import org.apache.doris.analysis.PauseSyncJobStmt;
@@ -111,11 +111,10 @@ import org.apache.doris.analysis.StopSyncJobStmt;
 import org.apache.doris.analysis.SyncStmt;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
-import org.apache.doris.analysis.UpdateStmt;
 import org.apache.doris.catalog.EncryptKeyHelper;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.load.EtlJobType;
+import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.load.sync.SyncJobManager;
 import org.apache.doris.statistics.StatisticsRepository;
 
@@ -170,17 +169,6 @@ public class DdlExecutor {
             env.alterView((AlterViewStmt) ddlStmt);
         } else if (ddlStmt instanceof CancelAlterTableStmt) {
             env.cancelAlter((CancelAlterTableStmt) ddlStmt);
-        } else if (ddlStmt instanceof LoadStmt) {
-            LoadStmt loadStmt = (LoadStmt) ddlStmt;
-            EtlJobType jobType = loadStmt.getEtlJobType();
-            if (jobType == EtlJobType.UNKNOWN) {
-                throw new DdlException("Unknown load job type");
-            }
-            if (jobType == EtlJobType.HADOOP) {
-                throw new DdlException("Load job by hadoop cluster is disabled."
-                        + " Try using broker load. See 'help broker load;'");
-            }
-            env.getLoadManager().createLoadJobFromStmt(loadStmt);
         } else if (ddlStmt instanceof CancelExportStmt) {
             env.getExportMgr().cancelExportJob((CancelExportStmt) ddlStmt);
         } else if (ddlStmt instanceof CancelLoadStmt) {
@@ -195,8 +183,6 @@ public class DdlExecutor {
             env.getRoutineLoadManager().stopRoutineLoadJob((StopRoutineLoadStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterRoutineLoadStmt) {
             env.getRoutineLoadManager().alterRoutineLoadJob((AlterRoutineLoadStmt) ddlStmt);
-        } else if (ddlStmt instanceof UpdateStmt) {
-            env.getUpdateManager().handleUpdate((UpdateStmt) ddlStmt);
         } else if (ddlStmt instanceof DeleteStmt) {
             env.getDeleteHandler().process((DeleteStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateUserStmt) {
@@ -336,6 +322,8 @@ public class DdlExecutor {
             env.getCatalogMgr().refreshCatalog((RefreshCatalogStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterUserStmt) {
             env.getAuth().alterUser((AlterUserStmt) ddlStmt);
+        } else if (ddlStmt instanceof CleanProfileStmt) {
+            ProfileManager.getInstance().cleanProfile();
         } else if (ddlStmt instanceof DropTableStatsStmt) {
             // TODO: support later
         } else {

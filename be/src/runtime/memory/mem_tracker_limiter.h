@@ -105,7 +105,8 @@ public:
     int64_t limit() const { return _limit; }
     bool limit_exceeded() const { return _limit >= 0 && _limit < consumption(); }
 
-    Status check_limit(int64_t bytes);
+    Status check_limit(int64_t bytes = 0);
+    bool is_overcommit_tracker() const { return type() == Type::QUERY || type() == Type::LOAD; }
 
     // Returns the maximum consumption that can be made without exceeding the limit on
     // this tracker limiter.
@@ -124,6 +125,8 @@ public:
     }
 
     static void refresh_global_counter();
+    static void refresh_all_tracker_profile();
+
     Snapshot make_snapshot() const;
     // Returns a list of all the valid tracker snapshots.
     static void make_process_snapshots(std::vector<MemTracker::Snapshot>* snapshots);
@@ -135,6 +138,7 @@ public:
     void print_log_usage(const std::string& msg);
     void enable_print_log_usage() { _enable_print_log_usage = true; }
     static void enable_print_log_process_usage() { _enable_print_log_process_usage = true; }
+    static std::string log_process_usage_str(const std::string& msg, bool with_stacktrace = true);
     static void print_log_process_usage(const std::string& msg, bool with_stacktrace = true);
 
     // Log the memory usage when memory limit is exceeded.
@@ -144,26 +148,44 @@ public:
                                        int64_t failed_allocation_size = 0);
 
     // Start canceling from the query with the largest memory usage until the memory of min_free_mem size is freed.
-    static int64_t free_top_memory_query(int64_t min_free_mem);
+    // vm_rss_str and mem_available_str recorded when gc is triggered, for log printing.
+    static int64_t free_top_memory_query(int64_t min_free_mem, const std::string& vm_rss_str,
+                                         const std::string& mem_available_str,
+                                         Type type = Type::QUERY);
+    static int64_t free_top_memory_load(int64_t min_free_mem, const std::string& vm_rss_str,
+                                        const std::string& mem_available_str) {
+        return free_top_memory_query(min_free_mem, vm_rss_str, mem_available_str, Type::LOAD);
+    }
     // Start canceling from the query with the largest memory overcommit ratio until the memory
     // of min_free_mem size is freed.
-    static int64_t free_top_overcommit_query(int64_t min_free_mem);
+    static int64_t free_top_overcommit_query(int64_t min_free_mem, const std::string& vm_rss_str,
+                                             const std::string& mem_available_str,
+                                             Type type = Type::QUERY);
+    static int64_t free_top_overcommit_load(int64_t min_free_mem, const std::string& vm_rss_str,
+                                            const std::string& mem_available_str) {
+        return free_top_overcommit_query(min_free_mem, vm_rss_str, mem_available_str, Type::LOAD);
+    }
     // only for Type::QUERY or Type::LOAD.
     static TUniqueId label_to_queryid(const std::string& label) {
+        if (label.rfind("Query#Id=", 0) != 0 && label.rfind("Load#Id=", 0) != 0) {
+            return TUniqueId();
+        }
         auto queryid = split(label, "#Id=")[1];
         TUniqueId querytid;
         parse_id(queryid, &querytid);
         return querytid;
-    };
+    }
 
     static std::string process_mem_log_str() {
         return fmt::format(
-                "OS physical memory {}, process memory used {} limit {}, sys mem available {} low "
-                "water mark {}, refresh interval memory growth {} B",
+                "OS physical memory {}. Process memory usage {}, limit {}, soft limit {}. Sys "
+                "available memory {}, low water mark {}, warning water mark {}. Refresh interval "
+                "memory growth {} B",
                 PrettyPrinter::print(MemInfo::physical_mem(), TUnit::BYTES),
                 PerfCounters::get_vm_rss_str(), MemInfo::mem_limit_str(),
-                MemInfo::sys_mem_available_str(),
+                MemInfo::soft_mem_limit_str(), MemInfo::sys_mem_available_str(),
                 PrettyPrinter::print(MemInfo::sys_mem_available_low_water_mark(), TUnit::BYTES),
+                PrettyPrinter::print(MemInfo::sys_mem_available_warning_water_mark(), TUnit::BYTES),
                 MemInfo::refresh_interval_memory_growth);
     }
 
@@ -195,7 +217,7 @@ private:
                 "failed alloc size {}, exceeded tracker:<{}>, limit {}, peak "
                 "used {}, current used {}",
                 print_bytes(bytes), exceed_tracker->label(), print_bytes(exceed_tracker->limit()),
-                print_bytes(exceed_tracker->_consumption->value()),
+                print_bytes(exceed_tracker->_consumption->peak_value()),
                 print_bytes(exceed_tracker->_consumption->current_value()));
     }
 
@@ -263,7 +285,7 @@ inline bool MemTrackerLimiter::try_consume(int64_t bytes, std::string& failed_ms
         return false;
     }
 
-    if (_limit < 0 || (_type == Type::QUERY && config::enable_query_memroy_overcommit)) {
+    if (_limit < 0 || (is_overcommit_tracker() && config::enable_query_memroy_overcommit)) {
         _consumption->add(bytes); // No limit at this tracker.
     } else {
         if (!_consumption->try_add(bytes, _limit)) {
@@ -280,7 +302,7 @@ inline Status MemTrackerLimiter::check_limit(int64_t bytes) {
     if (sys_mem_exceed_limit_check(bytes)) {
         return Status::MemoryLimitExceeded(process_limit_exceeded_errmsg_str(bytes));
     }
-    if (bytes <= 0 || (_type == Type::QUERY && config::enable_query_memroy_overcommit)) {
+    if (bytes <= 0 || (is_overcommit_tracker() && config::enable_query_memroy_overcommit)) {
         return Status::OK();
     }
     if (_limit > 0 && _consumption->current_value() + bytes > _limit) {

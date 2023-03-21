@@ -18,35 +18,30 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.AuthType;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.catalog.HdfsResource;
-import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
-import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.api.CurrentNotificationEventId;
-import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.NotificationEventResponse;
 import org.apache.hadoop.security.UserGroupInformation;
-import org.apache.iceberg.Schema;
-import org.apache.iceberg.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 /**
  * External catalog for hive metastore compatible data sources.
@@ -58,6 +53,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     protected PooledHiveMetaStoreClient client;
     // Record the latest synced event id when processing hive events
     private long lastSyncedEventId;
+    public static final String ENABLE_SELF_SPLITTER = "enable.self.splitter";
 
     /**
      * Default constructor for HMSExternalCatalog.
@@ -68,6 +64,40 @@ public class HMSExternalCatalog extends ExternalCatalog {
         props = HMSResource.getPropertiesFromDLF(props);
         props = HMSResource.getPropertiesFromGlue(props);
         catalogProperty = new CatalogProperty(resource, props);
+    }
+
+    @Override
+    public void checkProperties() throws DdlException {
+        super.checkProperties();
+        // check the dfs.ha properties
+        // 'dfs.nameservices'='your-nameservice',
+        // 'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
+        // 'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
+        // 'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
+        // 'dfs.client.failover.proxy.provider.your-nameservice'='xxx'
+        String dfsNameservices = catalogProperty.getOrDefault(HdfsResource.DSF_NAMESERVICES, "");
+        if (Strings.isNullOrEmpty(dfsNameservices)) {
+            return;
+        }
+        String namenodes = catalogProperty.getOrDefault("dfs.ha.namenodes." + dfsNameservices, "");
+        if (Strings.isNullOrEmpty(namenodes)) {
+            throw new DdlException("Missing dfs.ha.namenodes." + dfsNameservices + " property");
+        }
+        String[] names = namenodes.split(",");
+        for (String name : names) {
+            String address = catalogProperty.getOrDefault("dfs.namenode.rpc-address." + dfsNameservices + "." + name,
+                    "");
+            if (Strings.isNullOrEmpty(address)) {
+                throw new DdlException(
+                        "Missing dfs.namenode.rpc-address." + dfsNameservices + "." + name + " property");
+            }
+        }
+        String failoverProvider = catalogProperty.getOrDefault("dfs.client.failover.proxy.provider." + dfsNameservices,
+                "");
+        if (Strings.isNullOrEmpty(failoverProvider)) {
+            throw new DdlException(
+                    "Missing dfs.client.failover.proxy.provider." + dfsNameservices + " property");
+        }
     }
 
     public String getHiveMetastoreUris() {
@@ -172,42 +202,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
     public PooledHiveMetaStoreClient getClient() {
         makeSureInitialized();
         return client;
-    }
-
-    @Override
-    public List<Column> getSchema(String dbName, String tblName) {
-        makeSureInitialized();
-        List<FieldSchema> schema = getClient().getSchema(dbName, tblName);
-        Optional<ExternalDatabase> db = getDb(dbName);
-        if (db.isPresent()) {
-            Optional table = db.get().getTable(tblName);
-            if (table.isPresent()) {
-                HMSExternalTable hmsTable = (HMSExternalTable) table.get();
-                if (hmsTable.getDlaType().equals(HMSExternalTable.DLAType.ICEBERG)) {
-                    return getIcebergSchema(hmsTable, schema);
-                }
-            }
-        }
-        List<Column> tmpSchema = Lists.newArrayListWithCapacity(schema.size());
-        for (FieldSchema field : schema) {
-            tmpSchema.add(new Column(field.getName(),
-                    HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType()), true, null,
-                    true, null, field.getComment(), true, null, -1));
-        }
-        return tmpSchema;
-    }
-
-    private List<Column> getIcebergSchema(HMSExternalTable table, List<FieldSchema> hmsSchema) {
-        Table icebergTable = HiveMetaStoreClientHelper.getIcebergTable(table);
-        Schema schema = icebergTable.schema();
-        List<Column> tmpSchema = Lists.newArrayListWithCapacity(hmsSchema.size());
-        for (FieldSchema field : hmsSchema) {
-            tmpSchema.add(new Column(field.getName(),
-                    HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType()), true, null,
-                    true, null, field.getComment(), true, null,
-                    schema.caseInsensitiveFindField(field.getName()).fieldId()));
-        }
-        return tmpSchema;
     }
 
     public void setLastSyncedEventId(long lastSyncedEventId) {

@@ -50,6 +50,7 @@ public class AggregateFunction extends Function {
             "dense_rank", "multi_distinct_count", "multi_distinct_sum", FunctionSet.HLL_UNION_AGG,
             FunctionSet.HLL_UNION, FunctionSet.BITMAP_UNION, FunctionSet.BITMAP_INTERSECT,
             FunctionSet.ORTHOGONAL_BITMAP_INTERSECT, FunctionSet.ORTHOGONAL_BITMAP_INTERSECT_COUNT,
+            FunctionSet.ORTHOGONAL_BITMAP_EXPR_CALCULATE_COUNT, FunctionSet.ORTHOGONAL_BITMAP_EXPR_CALCULATE,
             FunctionSet.INTERSECT_COUNT, FunctionSet.ORTHOGONAL_BITMAP_UNION_COUNT,
             FunctionSet.COUNT, "approx_count_distinct", "ndv", FunctionSet.BITMAP_UNION_INT,
             FunctionSet.BITMAP_UNION_COUNT, "ndv_no_finalize", FunctionSet.WINDOW_FUNNEL, FunctionSet.RETENTION,
@@ -57,6 +58,9 @@ public class AggregateFunction extends Function {
 
     public static ImmutableSet<String> ALWAYS_NULLABLE_AGGREGATE_FUNCTION_NAME_SET =
             ImmutableSet.of("stddev_samp", "variance_samp", "var_samp", "percentile_approx");
+
+    public static ImmutableSet<String> CUSTOM_AGGREGATE_FUNCTION_NAME_SET =
+            ImmutableSet.of("group_concat");
 
     public static ImmutableSet<String> SUPPORT_ORDER_BY_AGGREGATE_FUNCTION_NAME_SET = ImmutableSet.of("group_concat");
 
@@ -169,7 +173,9 @@ public class AggregateFunction extends Function {
                 AggregateFunction.NOT_NULLABLE_AGGREGATE_FUNCTION_NAME_SET.contains(fnName.getFunction())
                         ? NullableMode.ALWAYS_NOT_NULLABLE :
                 AggregateFunction.ALWAYS_NULLABLE_AGGREGATE_FUNCTION_NAME_SET.contains(fnName.getFunction())
-                        ? NullableMode.ALWAYS_NULLABLE : NullableMode.DEPEND_ON_ARGUMENT);
+                        ? NullableMode.ALWAYS_NULLABLE :
+                AggregateFunction.CUSTOM_AGGREGATE_FUNCTION_NAME_SET.contains(fnName.getFunction())
+                        ? NullableMode.CUSTOM : NullableMode.DEPEND_ON_ARGUMENT);
         setLocation(location);
         this.intermediateType = (intermediateType.equals(retType)) ? null : intermediateType;
         this.updateFnSymbol = updateFnSymbol;
@@ -366,7 +372,7 @@ public class AggregateFunction extends Function {
         }
 
         public static AggregateFunctionBuilder createUdfBuilder() {
-            return new AggregateFunctionBuilder(TFunctionBinaryType.NATIVE);
+            return new AggregateFunctionBuilder(TFunctionBinaryType.JAVA_UDF);
         }
 
         public AggregateFunctionBuilder name(FunctionName name) {
@@ -493,6 +499,10 @@ public class AggregateFunction extends Function {
 
     public boolean isAnalyticFn() {
         return isAnalyticFn;
+    }
+
+    public void setIsAnalyticFn(boolean isAnalyticFn) {
+        this.isAnalyticFn = isAnalyticFn;
     }
 
     public boolean isAggregateFn() {

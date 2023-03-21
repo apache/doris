@@ -47,7 +47,7 @@ under the License.
     2. Elasticsearch: Access ES data sources.
     3. JDBC: Access MySQL through the JDBC protocol.
     
-    Documentation: https://doris.apache.org/zh-CN/docs/dev/lakehouse/multi-catalog)
+    Documentation: https://doris.apache.org//docs/dev/lakehouse/multi-catalog)
 
     > Note: The corresponding permission level will also be changed automatically, see the "Upgrade Notes" section for details.
     
@@ -55,7 +55,7 @@ under the License.
 
 In the new version, it is no longer necessary to change the data file synchronously for the operation of adding and subtracting columns to the data table, and only need to update the metadata in FE, thus realizing the millisecond-level Schema Change operation. Through this function, the DDL synchronization capability of upstream CDC data can be realized. For example, users can use Flink CDC to realize DML and DDL synchronization from upstream database to Doris.
 
-Documentation: https://doris.apache.org/zh-CN/docs/dev/sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE
+Documentation: https://doris.apache.org//docs/dev/sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE
 
 When creating a table, set `"light_schema_change"="true"` in properties.
 
@@ -69,7 +69,7 @@ When creating a table, set `"light_schema_change"="true"` in properties.
 	  - SQL Server
 	  - Clickhouse
 
-	Documentation: https://doris.apache.org/zh-CN/docs/dev/ecosystem/external-table/jdbc-of-doris/
+	Documentation: [https://doris.apache.org/en/docs/dev/lakehouse/multi-catalog/jdbc](https://doris.apache.org/docs/dev/lakehouse/multi-catalog/jdbc/)
 
 	> Note: The ODBC feature will be removed in a later version, please try to switch to the JDBC.
 
@@ -77,7 +77,7 @@ When creating a table, set `"light_schema_change"="true"` in properties.
 
 	Supports writing UDF/UDAF in Java, which is convenient for users to use custom functions in the Java ecosystem. At the same time, through technologies such as off-heap memory and Zero Copy, the efficiency of cross-language data access has been greatly improved.
 
-	Document: https://doris.apache.org/zh-CN/docs/dev/ecosystem/udf/java-user-defined-function
+	Document: https://doris.apache.org//docs/dev/ecosystem/udf/java-user-defined-function
 
 	Example: https://github.com/apache/doris/tree/master/samples/doris-demo
 	
@@ -85,7 +85,7 @@ When creating a table, set `"light_schema_change"="true"` in properties.
 
 	Supports accessing remote user-defined function services through RPC, thus completely eliminating language restrictions for users to write UDFs. Users can use any programming language to implement custom functions to complete complex data analysis work.
 
-	Documentation: https://doris.apache.org/zh-CN/docs/ecosystem/udf/remote-user-defined-function
+	Documentation: https://doris.apache.org//docs/ecosystem/udf/remote-user-defined-function
 
 	Example: https://github.com/apache/doris/tree/master/samples/doris-demo
         
@@ -95,17 +95,17 @@ When creating a table, set `"light_schema_change"="true"` in properties.
 
 		Array types are supported. It also supports nested array types. In some scenarios such as user portraits and tags, the Array type can be used to better adapt to business scenarios. At the same time, in the new version, we have also implemented a large number of data-related functions to better support the application of data types in actual scenarios.
 
-	Documentation: https://doris.apache.org/zh-CN/docs/dev/sql-manual/sql-reference/Data-Types/ARRAY
+	Documentation: https://doris.apache.org//docs/dev/sql-manual/sql-reference/Data-Types/ARRAY
 
-	Related functions: https://doris.apache.org/zh-CN/docs/dev/sql-manual/sql-functions/array-functions/array_max
+	Related functions: https://doris.apache.org//docs/dev/sql-manual/sql-functions/array-functions/array_max
         
 	- Jsonb type
 
 		Support binary Json data type: Jsonb. This type provides a more compact json encoding format, and at the same time provides data access in the encoding format. Compared with json data stored in strings, it is several times newer and can be improved.
 
-	Documentation: https://doris.apache.org/zh-CN/docs/dev/sql-manual/sql-reference/Data-Types/JSONB
+	Documentation: https://doris.apache.org//docs/dev/sql-manual/sql-reference/Data-Types/JSONB
 
-	Related functions: https://doris.apache.org/zh-CN/docs/dev/sql-manual/sql-functions/json-functions/jsonb_parse
+	Related functions: https://doris.apache.org//docs/dev/sql-manual/sql-functions/json-functions/jsonb_parse
           
 	- Date V2
 	
@@ -122,7 +122,7 @@ When creating a table, set `"light_schema_change"="true"` in properties.
 
 1. A new memory management framework
 
-	Documentation: https://doris.apache.org/zh-CN/docs/dev/admin-manual/maint-monitor/memory-management/memory-tracker
+	Documentation: https://doris.apache.org//docs/dev/admin-manual/maint-monitor/memory-management/memory-tracker
 
 2. Table Valued Function
 
@@ -144,9 +144,9 @@ When creating a table, set `"light_schema_change"="true"` in properties.
 
     Documentation:
     
-    https://doris.apache.org/zh-CN/docs/dev/sql-manual/sql-functions/table-functions/s3
+    https://doris.apache.org//docs/dev/sql-manual/sql-functions/table-functions/s3
     
-    https://doris.apache.org/zh-CN/docs/dev/sql-manual/sql-functions/table-functions/hdfs
+    https://doris.apache.org//docs/dev/sql-manual/sql-functions/table-functions/hdfs
         
 3. A more convenient way to create partitions
 
@@ -156,7 +156,7 @@ When creating a table, set `"light_schema_change"="true"` in properties.
 
 	For tables with Light Schema Change enabled, column renaming is supported.
 
-	Documentation: https://doris.apache.org/zh-CN/docs/dev/sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-RENAME
+	Documentation: https://doris.apache.org//docs/dev/sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-RENAME
 	
 5. Richer permission management
 
@@ -164,53 +164,53 @@ When creating a table, set `"light_schema_change"="true"` in properties.
 	
 		Row-level permissions can be created with the `CREATE ROW POLICY` command.
 	
-		Documentation: https://doris.apache.org/zh-CN/docs/dev/sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-POLICY
+		Documentation: https://doris.apache.org//docs/dev/sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-POLICY
 	
 	- Support specifying password strength, expiration time, etc.
 	
 	- Support for locking accounts after multiple failed logins.
 	
-		Documentation: https://doris.apache.org/zh-CN/docs/dev/sql-manual/sql-reference/Account-Management-Statements/ALTER-USER
+		Documentation: https://doris.apache.org//docs/dev/sql-manual/sql-reference/Account-Management-Statements/ALTER-USER
 
 6. Import
 
 	- CSV import supports csv files with header.
 	
-		Search for `csv_with_names` in the documentation: https://doris.apache.org/zh-CN/docs/dev/sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD/
+		Search for `csv_with_names` in the documentation: https://doris.apache.org//docs/dev/sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD/
 	
 	- Stream Load adds `hidden_columns`, which can explicitly specify the delete flag column and sequence column.
 	
-		Search for `hidden_columns` in the documentation: https://doris.apache.org/zh-CN/docs/dev/sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD
+		Search for `hidden_columns` in the documentation: https://doris.apache.org//docs/dev/sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD
 	
 	- Spark Load supports Parquet and ORC file import.
 	
 	- Support for cleaning completed imported Labels
 	  
-	  Documentation: https://doris.apache.org/zh-CN/docs/dev/sql-manual/sql-reference/Data-Manipulation-Statements/Load/CLEAN-LABEL
+	  Documentation: https://doris.apache.org//docs/dev/sql-manual/sql-reference/Data-Manipulation-Statements/Load/CLEAN-LABEL
 	
 	- Support batch cancellation of import jobs by status
 	
-		Documentation: https://doris.apache.org/zh-CN/docs/dev/sql-manual/sql-reference/Data-Manipulation-Statements/Load/CANCEL-LOAD
+		Documentation: https://doris.apache.org//docs/dev/sql-manual/sql-reference/Data-Manipulation-Statements/Load/CANCEL-LOAD
 	
 	- Added support for Alibaba Cloud oss, Tencent Cloud cos/chdfs and Huawei Cloud obs in broker load.
 		
-		Documentation: https://doris.apache.org/zh-CN/docs/dev/advanced/broker
+		Documentation: https://doris.apache.org//docs/dev/advanced/broker
 	
 	- Support access to hdfs through hive-site.xml file configuration.
 	
-		Documentation: https://doris.apache.org/zh-CN/docs/dev/admin-manual/config/config-dir
+		Documentation: https://doris.apache.org//docs/dev/admin-manual/config/config-dir
 
 7. Support viewing the contents of the catalog recycle bin through `SHOW CATALOG RECYCLE BIN` function.
 
-	Documentation: https://doris.apache.org/zh-CN/docs/dev/sql-manual/sql-reference/Show-Statements/SHOW-CATALOG-RECYCLE-BIN
+	Documentation: https://doris.apache.org//docs/dev/sql-manual/sql-reference/Show-Statements/SHOW-CATALOG-RECYCLE-BIN
 
 8. Support `SELECT * EXCEPT` syntax.
 
-	Documentation: https://doris.apache.org/zh-CN/docs/dev/data-table/basic-usage
+	Documentation: https://doris.apache.org//docs/dev/data-table/basic-usage
 
 9. OUTFILE supports ORC format export. And supports multi-byte delimiters.
     
-	Documentation: https://doris.apache.org/zh-CN/docs/dev/sql-manual/sql-reference/Data-Manipulation-Statements/OUTFILE
+	Documentation: https://doris.apache.org//docs/dev/sql-manual/sql-reference/Data-Manipulation-Statements/OUTFILE
 
 10. Support to modify the number of Query Profiles that can be saved through configuration.
 
@@ -218,19 +218,19 @@ When creating a table, set `"light_schema_change"="true"` in properties.
 	
 11. The DELETE statement supports IN predicate conditions. And it supports partition pruning.
 
-	Documentation: https://doris.apache.org/zh-CN/docs/dev/sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/DELETE
+	Documentation: https://doris.apache.org//docs/dev/sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/DELETE
 
 12. The default value of the time column supports using `CURRENT_TIMESTAMP`
 
-	Search for "CURRENT_TIMESTAMP" in the documentation: https://doris.apache.org/zh-CN/docs/dev/sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE
+	Search for "CURRENT_TIMESTAMP" in the documentation: https://doris.apache.org//docs/dev/sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE
 
 13. Add two system tables: backends, rowsets
 
 	Documentation:
 
-	https://doris.apache.org/zh-CN/docs/dev/admin-manual/system-table/backends
+	https://doris.apache.org//docs/dev/admin-manual/system-table/backends
 
-	https://doris.apache.org/zh-CN/docs/dev/admin-manual/system-table/rowsets
+	https://doris.apache.org//docs/dev/admin-manual/system-table/rowsets
 
 14. Backup and restore
 
@@ -238,23 +238,23 @@ When creating a table, set `"light_schema_change"="true"` in properties.
 	
 	- The Restore job supports `reserve_dynamic_partition_enable` parameter, so that the restored table keeps the dynamic partition enabled.
 	
-	Documentation: https://doris.apache.org/zh-CN/docs/dev/sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/RESTORE
+	Documentation: https://doris.apache.org//docs/dev/sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/RESTORE
 	
 	- Support backup and restore operations through the built-in libhdfs, no longer rely on broker.
 	
-	Documentation: https://doris.apache.org/zh-CN/docs/dev/sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/CREATE-REPOSITORY
+	Documentation: https://doris.apache.org//docs/dev/sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/CREATE-REPOSITORY
 
 15. Support data balance between multiple disks on the same machine
 
 	Documentation:
 	
-	https://doris.apache.org/zh-CN/docs/dev/sql-manual/sql-reference/Database-Administration-Statements/ADMIN-REBALANCE-DISK
+	https://doris.apache.org//docs/dev/sql-manual/sql-reference/Database-Administration-Statements/ADMIN-REBALANCE-DISK
 	
-	https://doris.apache.org/zh-CN/docs/dev/sql-manual/sql-reference/Database-Administration-Statements/ADMIN-CANCEL-REBALANCE-DISK
+	https://doris.apache.org//docs/dev/sql-manual/sql-reference/Database-Administration-Statements/ADMIN-CANCEL-REBALANCE-DISK
 
 16. Routine Load supports subscribing to Kerberos-authenticated Kafka services.
 
-	Search for kerberos in the documentation: https://doris.apache.org/zh-CN/docs/dev/data-operate/import/import-way/routine-load-manual
+	Search for kerberos in the documentation: https://doris.apache.org//docs/dev/data-operate/import/import-way/routine-load-manual
 
 17. New built-in-function
 
@@ -354,7 +354,7 @@ When creating a table, set `"light_schema_change"="true"` in properties.
 
    - Add `skip_storage_engine_merge` variable for debugging unique or agg model data (#11952)
     
-     Documentation: https://doris.apache.org/zh-CN/docs/dev/advanced/variables
+     Documentation: https://doris.apache.org//docs/dev/advanced/variables
 
 - The BE startup script will check whether the value is greater than 200W through `/proc/sys/vm/max_map_count`. Otherwise, the startup fails. (#11052)
 
@@ -399,10 +399,10 @@ When creating a table, set `"light_schema_change"="true"` in properties.
 - In `SHOW CREATE TABLE`, the content of comment is changed from double quotes to single quotes (#10327)
 
 - Support ordinary users to obtain query profile through http command. (#14016)
-Documentation: https://doris.apache.org/zh-CN/docs/dev/admin-manual/http-actions/fe/manager/query-profile-action
+Documentation: https://doris.apache.org//docs/dev/admin-manual/http-actions/fe/manager/query-profile-action
 
 - Optimized the way to specify the sequence column, you can directly specify the column name. (#13872)
-Documentation: https://doris.apache.org/zh-CN/docs/dev/data-operate/update-delete/sequence-column-manual
+Documentation: https://doris.apache.org//docs/dev/data-operate/update-delete/sequence-column-manual
 
 - Increase the space usage of remote storage in the results returned by `show backends` and `show tablets` (#11450)
 
@@ -414,11 +414,11 @@ other
 - Support Docker official image.
 
 - Support compiling Doris on MacOS(x86/M1) and ubuntu-22.04
-  Documentation: https://doris.apache.org/zh-CN/docs/dev/install/source-install/compilation-mac/
+  Documentation: https://doris.apache.org//docs/dev/install/source-install/compilation-mac/
 
 - Support for image file verification.
 
-  Documentation: https://doris.apache.org/zh-CN/docs/dev/admin-manual/maint-monitor/metadata-operation/
+  Documentation: https://doris.apache.org//docs/dev/admin-manual/maint-monitor/metadata-operation/
 
 - script related
 
@@ -428,15 +428,15 @@ other
 
  - Support to get the data and related table creation statement of a tablet through the `ADMIN COPY TABLET` command, for local problem debugging (#12176)
 
-	Documentation: https://doris.apache.org/zh-CN/docs/dev/sql-manual/sql-reference/Database-Administration-Statements/ADMIN-COPY-TABLET
+	Documentation: https://doris.apache.org//docs/dev/sql-manual/sql-reference/Database-Administration-Statements/ADMIN-COPY-TABLET
 
 - Support to obtain a table creation statement related to a SQL statement through the http api for local problem reproduction (#11979)
 
-	Documentation: https://doris.apache.org/zh-CN/docs/dev/admin-manual/http-actions/fe/query-schema-action
+	Documentation: https://doris.apache.org//docs/dev/admin-manual/http-actions/fe/query-schema-action
 
 - Support to close the compaction function of this table when creating a table, for testing (#11743)
 
-	Search for "disble_auto_compaction" in the documentation: https://doris.apache.org/zh-CN/docs/dev/sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE
+	Search for "disble_auto_compaction" in the documentation: https://doris.apache.org//docs/dev/sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE
 	
 # Big Thanks
 

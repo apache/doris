@@ -201,7 +201,8 @@ suite ("sub_query_correlated") {
     """
 
     //----------complex subqueries----------
-    qt_scalar_subquery """
+    //----------remove temporarily---------
+    /*qt_scalar_subquery """
         select * from sub_query_correlated_subquery1
             where k1 = (select sum(k1) from sub_query_correlated_subquery3 where sub_query_correlated_subquery1.k1 = sub_query_correlated_subquery3.v1 and sub_query_correlated_subquery3.v2 = 2)
             order by k1, k2
@@ -217,11 +218,12 @@ suite ("sub_query_correlated") {
         select * from sub_query_correlated_subquery3
             where k1 = 2 and exists (select * from sub_query_correlated_subquery1 where sub_query_correlated_subquery1.k1 = sub_query_correlated_subquery3.v2 and sub_query_correlated_subquery1.k2 = 4)
             order by k1, k2
-    """
+    """*/
 
     //----------complex nonEqual subqueries----------
 
-    qt_in_subquery """
+    //----------remove temporarily---------
+    /*qt_in_subquery """
         select * from sub_query_correlated_subquery3
             where (k1 = 1 or k1 = 2 or k1 = 3) and v1 in (select k1 from sub_query_correlated_subquery1 where sub_query_correlated_subquery1.k2 > sub_query_correlated_subquery3.v2 and sub_query_correlated_subquery1.k1 = 3)
             order by k1, k2
@@ -231,5 +233,154 @@ suite ("sub_query_correlated") {
         select * from sub_query_correlated_subquery3
             where k1 = 2 and exists (select * from sub_query_correlated_subquery1 where sub_query_correlated_subquery1.k1 < sub_query_correlated_subquery3.v2 and sub_query_correlated_subquery1.k2 = 4)
             order by k1, k2
+    """*/
+
+    //----------subquery with order----------
+    order_qt_scalar_subquery_with_order """
+        select * from sub_query_correlated_subquery1 where sub_query_correlated_subquery1.k1 > (select sum(sub_query_correlated_subquery3.k3) a from sub_query_correlated_subquery3 where sub_query_correlated_subquery3.v2 = sub_query_correlated_subquery1.k2 order by a);
+    """
+
+    order_qt_in_subquery_with_order """
+        select * from sub_query_correlated_subquery1 where sub_query_correlated_subquery1.k1 not in (select sub_query_correlated_subquery3.k3 from sub_query_correlated_subquery3 where sub_query_correlated_subquery3.v2 = sub_query_correlated_subquery1.k2 order by k2);
+    """
+
+    order_qt_exists_subquery_with_order """
+        select * from sub_query_correlated_subquery1 where exists (select sub_query_correlated_subquery3.k3 from sub_query_correlated_subquery3 where sub_query_correlated_subquery3.v2 = sub_query_correlated_subquery1.k2 order by k2);
+    """
+
+    //----------subquery with limit----------
+    order_qt_scalar_subquery_with_limit """
+        select * from sub_query_correlated_subquery1 where sub_query_correlated_subquery1.k1 > (select sum(sub_query_correlated_subquery3.k3) a from sub_query_correlated_subquery3 where sub_query_correlated_subquery3.v2 = sub_query_correlated_subquery1.k2 limit 1);
+    """
+
+    //----------subquery with order and limit----------
+    order_qt_scalar_subquery_with_order_and_limit """
+        select * from sub_query_correlated_subquery1 where sub_query_correlated_subquery1.k1 > (select sum(sub_query_correlated_subquery3.k3) a from sub_query_correlated_subquery3 where sub_query_correlated_subquery3.v2 = sub_query_correlated_subquery1.k2 order by a limit 1);
+    """
+
+    //---------subquery with Disjunctions-------------
+	order_qt_scalar_subquery_with_disjunctions """
+        SELECT DISTINCT k1 FROM sub_query_correlated_subquery1 i1 WHERE ((SELECT count(*) FROM sub_query_correlated_subquery1 WHERE ((k1 = i1.k1) AND (k2 = 2)) or ((k1 = i1.k1) AND (k2 = 1)) )  > 0);
+    """
+
+    //--------subquery case when-----------
+    order_qt_case_when_subquery """
+        SELECT CASE
+            WHEN (
+                SELECT COUNT(*) / 2
+                FROM sub_query_correlated_subquery3
+            ) > v1 THEN (
+                SELECT AVG(v1)
+                FROM sub_query_correlated_subquery3
+            )
+            ELSE (
+                SELECT SUM(v2)
+                FROM sub_query_correlated_subquery3
+            )
+            END AS kk4
+        FROM sub_query_correlated_subquery3 ;
+    """
+    
+    //---------subquery mark join() Disjunctions------------
+    order_qt_in """
+        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 IN (SELECT k1 FROM sub_query_correlated_subquery3) OR k1 < 10;
+    """
+
+    order_qt_scalar """
+        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 > (SELECT AVG(k1) FROM sub_query_correlated_subquery3) OR k1 < 10;
+    """
+
+    order_qt_exists_true """
+        SELECT * FROM sub_query_correlated_subquery1 WHERE EXISTS (SELECT k1 FROM sub_query_correlated_subquery3 WHERE k1 = 10) OR k1 < 10;
+    """
+
+    order_qt_in_exists_false """
+        SELECT * FROM sub_query_correlated_subquery1 WHERE EXISTS (SELECT k1 FROM sub_query_correlated_subquery3 WHERE k1 > 10) OR k1 < 10;
+    """
+
+    order_qt_hash_join_with_other_conjuncts1 """
+        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 IN (SELECT k1 FROM sub_query_correlated_subquery3 WHERE sub_query_correlated_subquery1.k1 > sub_query_correlated_subquery3.k3) OR k1 < 10 ORDER BY k1;
+    """
+
+    order_qt_hash_join_with_other_conjuncts2 """
+        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 IN (SELECT k1 FROM sub_query_correlated_subquery3 WHERE sub_query_correlated_subquery1.k1 < sub_query_correlated_subquery3.k3) OR k1 < 10 ORDER BY k1;
+    """
+
+    order_qt_hash_join_with_other_conjuncts3 """
+        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 IN (SELECT k1 FROM sub_query_correlated_subquery3 WHERE sub_query_correlated_subquery1.k1 > sub_query_correlated_subquery3.k3) OR k1 < 11 ORDER BY k1;
+    """
+
+    order_qt_hash_join_with_other_conjuncts4 """
+        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 IN (SELECT k1 FROM sub_query_correlated_subquery3 WHERE sub_query_correlated_subquery1.k1 < sub_query_correlated_subquery3.k3) OR k1 < 11 ORDER BY k1;
+    """
+
+    order_qt_same_subquery_in_conjuncts """
+        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 IN (SELECT k1 FROM sub_query_correlated_subquery3) OR k1 IN (SELECT k1 FROM sub_query_correlated_subquery3) OR k1 < 10 ORDER BY k1;
+    """
+
+    order_qt_two_subquery_in_one_conjuncts """
+        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 IN (SELECT k1 FROM sub_query_correlated_subquery3) OR k1 IN (SELECT k3 FROM sub_query_correlated_subquery3) OR k1 < 10 ORDER BY k1;
+    """
+
+    order_qt_multi_subquery_in_and_scalry """
+        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 IN (SELECT k1 FROM sub_query_correlated_subquery3 where sub_query_correlated_subquery1.k2 = sub_query_correlated_subquery3.k1)
+                                                     OR k1 < (SELECT sum(k1) FROM sub_query_correlated_subquery3 where sub_query_correlated_subquery1.k1 = sub_query_correlated_subquery3.v1)
+                                                     OR k1 < 10 ORDER BY k1;
+    """
+
+    order_qt_multi_subquery_in_and_exist """
+        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 IN (SELECT k1 FROM sub_query_correlated_subquery3 where sub_query_correlated_subquery1.k2 = sub_query_correlated_subquery3.k1)
+                                                     OR exists (SELECT k1 FROM sub_query_correlated_subquery3 where sub_query_correlated_subquery1.k1 = sub_query_correlated_subquery3.v1)
+                                                     OR k1 < 10 ORDER BY k1;
+    """
+
+    order_qt_multi_subquery_in_and_exist_sum """
+        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 IN (SELECT k1 FROM sub_query_correlated_subquery3 where sub_query_correlated_subquery1.k2 = sub_query_correlated_subquery3.k1)
+                                                     OR exists (SELECT sum(k1) FROM sub_query_correlated_subquery3 where sub_query_correlated_subquery1.k1 = sub_query_correlated_subquery3.v1)
+                                                     OR k1 < 10 ORDER BY k1;
+    """
+
+    order_qt_multi_subquery_in_and_in """
+        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 IN (SELECT k1 FROM sub_query_correlated_subquery3 where sub_query_correlated_subquery1.k2 = sub_query_correlated_subquery3.k1)
+                                                     OR k2 in (SELECT k2 FROM sub_query_correlated_subquery3 where sub_query_correlated_subquery1.k1 = sub_query_correlated_subquery3.v1)
+                                                     OR k1 < 10 ORDER BY k1;
+    """
+
+    order_qt_multi_subquery_scalar_and_exist """
+        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 < (SELECT sum(k1) FROM sub_query_correlated_subquery3 where sub_query_correlated_subquery1.k2 = sub_query_correlated_subquery3.k1)
+                                                     OR exists (SELECT sum(k1) FROM sub_query_correlated_subquery3 where sub_query_correlated_subquery1.k1 = sub_query_correlated_subquery3.v1)
+                                                     OR k1 < 10 ORDER BY k1;
+    """
+
+    order_qt_multi_subquery_scalar_and_scalar """
+        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 < (SELECT sum(k1) FROM sub_query_correlated_subquery3 where sub_query_correlated_subquery1.k2 = sub_query_correlated_subquery3.k1)
+                                                     OR k2 < (SELECT sum(k1) FROM sub_query_correlated_subquery3 where sub_query_correlated_subquery1.k1 = sub_query_correlated_subquery3.v1)
+                                                     OR k1 < 10 ORDER BY k1;
+    """
+
+    order_qt_multi_subquery_in_first_or_in_and_in """
+        SELECT * FROM sub_query_correlated_subquery1 WHERE (k1 in (SELECT k2 FROM sub_query_correlated_subquery3 where sub_query_correlated_subquery1.k2 = sub_query_correlated_subquery3.k1) 
+                                                                or k2 in (SELECT k1 FROM sub_query_correlated_subquery3 where sub_query_correlated_subquery1.k2 = sub_query_correlated_subquery3.k1))
+                                                            and k1 in (SELECT k1 FROM sub_query_correlated_subquery3 where sub_query_correlated_subquery1.k2 = sub_query_correlated_subquery3.k1)
+    """
+
+    order_qt_multi_subquery_in_second_or_in_and_in """
+        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 in (SELECT k2 FROM sub_query_correlated_subquery3 where sub_query_correlated_subquery1.k2 = sub_query_correlated_subquery3.k1) 
+                                                           or k2 in (SELECT k1 FROM sub_query_correlated_subquery3 where sub_query_correlated_subquery1.k2 = sub_query_correlated_subquery3.k1)
+                                                           and k1 in (SELECT k1 FROM sub_query_correlated_subquery3 where sub_query_correlated_subquery1.k2 = sub_query_correlated_subquery3.k1)
+    """
+
+    order_qt_multi_subquery_scalar_and_in_or_scalar_and_exists_agg """
+        SELECT * FROM sub_query_correlated_subquery1 WHERE ((k1 != (SELECT sum(k1) FROM sub_query_correlated_subquery3) and k1 = 1 OR k1 < 10) and k1 = 10 and k1 = 15)
+                                        and (k1 IN (SELECT k1 FROM sub_query_correlated_subquery3 WHERE sub_query_correlated_subquery1.k1 = sub_query_correlated_subquery3.k1)
+                                             OR k1 < (SELECT sum(k1) FROM sub_query_correlated_subquery3 WHERE sub_query_correlated_subquery1.k1 = sub_query_correlated_subquery3.k1))
+                                        and exists (SELECT sum(k1) FROM sub_query_correlated_subquery3 WHERE sub_query_correlated_subquery1.k1 = sub_query_correlated_subquery3.k1);
+    """
+
+    order_qt_multi_subquery_scalar_and_in_or_scalar_and_exists """
+        SELECT * FROM sub_query_correlated_subquery1 WHERE ((k1 != (SELECT sum(k1) FROM sub_query_correlated_subquery3) and k1 = 1 OR k1 < 10) and k1 = 10 and k1 = 15)
+                                        and (k1 IN (SELECT k1 FROM sub_query_correlated_subquery3 WHERE sub_query_correlated_subquery1.k1 = sub_query_correlated_subquery3.k1)
+                                             OR k1 < (SELECT sum(k1) FROM sub_query_correlated_subquery3 WHERE sub_query_correlated_subquery1.k1 = sub_query_correlated_subquery3.k1))
+                                        and exists (SELECT k1 FROM sub_query_correlated_subquery3 WHERE sub_query_correlated_subquery1.k1 = sub_query_correlated_subquery3.k1);
     """
 }

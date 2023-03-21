@@ -22,7 +22,7 @@
 
 #include "common/status.h"
 #include "runtime/runtime_state.h"
-#include "udf/udf_internal.h"
+#include "udf/udf.h"
 #include "util/binary_cast.hpp"
 #include "util/type_traits.h"
 #include "vec/columns/column_nullable.h"
@@ -34,6 +34,7 @@
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/runtime/vdatetime_value.h"
+#include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
 
@@ -126,6 +127,10 @@ struct TimeStampImpl {
     static constexpr auto name = "timestamp";
 
     static inline auto execute(const OpArgType& t) { return t; }
+
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<typename DateTraits<ArgType>::DateType>()};
+    }
 };
 
 template <typename ArgType>
@@ -251,6 +256,24 @@ struct TransformerToStringOneArgument {
             null_map[i] = !date_time_value.is_valid_date();
         }
     }
+
+    static void vector(FunctionContext* context,
+                       const PaddedPODArray<typename Transform::OpArgType>& ts,
+                       ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
+        const auto len = ts.size();
+        res_data.resize(len * Transform::max_size);
+        res_offsets.resize(len);
+
+        size_t offset = 0;
+        for (int i = 0; i < len; ++i) {
+            const auto& t = ts[i];
+            const auto& date_time_value =
+                    reinterpret_cast<const typename DateTraits<typename Transform::OpArgType>::T&>(
+                            t);
+            res_offsets[i] = Transform::execute(date_time_value, res_data, offset);
+            DCHECK(date_time_value.is_valid_date());
+        }
+    }
 };
 
 template <typename Transform>
@@ -273,7 +296,7 @@ struct TransformerToStringTwoArgument {
             if constexpr (is_specialization_of_v<Transform, FromUnixTimeImpl>) {
                 std::tie(new_offset, is_null) =
                         Transform::execute(t, StringRef(format.c_str(), format.size()), res_data,
-                                           offset, context->impl()->state()->timezone_obj());
+                                           offset, context->state()->timezone_obj());
             } else {
                 std::tie(new_offset, is_null) = Transform::execute(
                         t, StringRef(format.c_str(), format.size()), res_data, offset);
@@ -298,6 +321,17 @@ struct Transformer {
                                    .is_valid_date();
         }
     }
+
+    static void vector(const PaddedPODArray<FromType>& vec_from, PaddedPODArray<ToType>& vec_to) {
+        size_t size = vec_from.size();
+        vec_to.resize(size);
+
+        for (size_t i = 0; i < size; ++i) {
+            vec_to[i] = Transform::execute(vec_from[i]);
+            DCHECK(((typename DateTraits<typename Transform::OpArgType>::T&)(vec_from[i]))
+                           .is_valid_date());
+        }
+    }
 };
 
 template <typename FromType, typename ToType>
@@ -320,21 +354,49 @@ struct Transformer<FromType, ToType, ToYearImpl<FromType>> {
             null_map_ptr[i] = to_ptr[i] > MAX_YEAR;
         }
     }
+
+    static void vector(const PaddedPODArray<FromType>& vec_from, PaddedPODArray<ToType>& vec_to) {
+        size_t size = vec_from.size();
+        vec_to.resize(size);
+
+        auto* __restrict to_ptr = vec_to.data();
+        auto* __restrict from_ptr = vec_from.data();
+
+        for (size_t i = 0; i < size; ++i) {
+            to_ptr[i] = ToYearImpl<FromType>::execute(from_ptr[i]);
+        }
+    }
 };
 
 template <typename FromType, typename ToType, typename Transform>
 struct DateTimeTransformImpl {
     static Status execute(Block& block, const ColumnNumbers& arguments, size_t result,
-                          size_t /*input_rows_count*/) {
+                          size_t input_rows_count) {
         using Op = Transformer<FromType, ToType, Transform>;
 
-        const ColumnPtr source_col = block.get_by_position(arguments[0]).column;
+        const auto is_nullable = block.get_by_position(result).type->is_nullable();
+
+        const ColumnPtr source_col = remove_nullable(block.get_by_position(arguments[0]).column);
         if (const auto* sources = check_and_get_column<ColumnVector<FromType>>(source_col.get())) {
             auto col_to = ColumnVector<ToType>::create();
-            auto null_map = ColumnVector<UInt8>::create();
-            Op::vector(sources->get_data(), col_to->get_data(), null_map->get_data());
-            block.replace_by_position(
-                    result, ColumnNullable::create(std::move(col_to), std::move(null_map)));
+            if (is_nullable) {
+                auto null_map = ColumnVector<UInt8>::create(input_rows_count);
+                Op::vector(sources->get_data(), col_to->get_data(), null_map->get_data());
+                if (const auto* nullable_col = check_and_get_column<ColumnNullable>(
+                            block.get_by_position(arguments[0]).column.get())) {
+                    NullMap& result_null_map = assert_cast<ColumnUInt8&>(*null_map).get_data();
+                    const NullMap& src_null_map =
+                            assert_cast<const ColumnUInt8&>(nullable_col->get_null_map_column())
+                                    .get_data();
+
+                    VectorizedUtils::update_null_map(result_null_map, src_null_map);
+                }
+                block.replace_by_position(
+                        result, ColumnNullable::create(std::move(col_to), std::move(null_map)));
+            } else {
+                Op::vector(sources->get_data(), col_to->get_data());
+                block.replace_by_position(result, std::move(col_to));
+            }
         } else {
             return Status::RuntimeError("Illegal column {} of first argument of function {}",
                                         block.get_by_position(arguments[0]).column->get_name(),

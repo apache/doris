@@ -18,6 +18,7 @@
 package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -26,12 +27,18 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.HashMap;
 import java.util.Map;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 @RestController
 public class HealthAction extends RestBaseController {
 
     @RequestMapping(path = "/api/health", method = RequestMethod.GET)
-    public Object execute() {
+    public Object execute(HttpServletRequest request, HttpServletResponse response) {
+        if (Config.enable_all_http_auth) {
+            executeCheckPassword(request, response);
+        }
+
         Map<String, Object> result = new HashMap<>();
         result.put("total_backend_num", Env.getCurrentSystemInfo().getBackendIds(false).size());
         result.put("online_backend_num", Env.getCurrentSystemInfo().getBackendIds(true).size());

@@ -19,8 +19,9 @@ package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
 import org.apache.doris.nereids.trees.expressions.ExprId;
-import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 
@@ -28,7 +29,9 @@ import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.Maps;
 
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import javax.annotation.concurrent.GuardedBy;
 
 /**
@@ -40,14 +43,20 @@ public class StatementContext {
 
     private OriginStatement originStatement;
 
+    private int maxNAryInnerJoin = 0;
+
     private final IdGenerator<ExprId> exprIdGenerator = ExprId.createGenerator();
 
-    private final IdGenerator<RelationId> relationIdGenerator = RelationId.createGenerator();
+    private final IdGenerator<ObjectId> objectIdGenerator = ObjectId.createGenerator();
 
     @GuardedBy("this")
     private final Map<String, Supplier<Object>> contextCacheMap = Maps.newLinkedHashMap();
 
     private StatementBase parsedStatement;
+
+    private Set<String> columnNames;
+
+    private ColumnAliasGenerator columnAliasGenerator;
 
     public StatementContext() {
         this.connectContext = ConnectContext.get();
@@ -74,6 +83,16 @@ public class StatementContext {
         return originStatement;
     }
 
+    public void setMaxNArayInnerJoin(int maxNAryInnerJoin) {
+        if (maxNAryInnerJoin > this.maxNAryInnerJoin) {
+            this.maxNAryInnerJoin = maxNAryInnerJoin;
+        }
+    }
+
+    public int getMaxNAryInnerJoin() {
+        return maxNAryInnerJoin;
+    }
+
     public StatementBase getParsedStatement() {
         return parsedStatement;
     }
@@ -82,8 +101,8 @@ public class StatementContext {
         return exprIdGenerator.getNextId();
     }
 
-    public RelationId getNextRelationId() {
-        return relationIdGenerator.getNextId();
+    public ObjectId getNextObjectId() {
+        return objectIdGenerator.getNextId();
     }
 
     public void setParsedStatement(StatementBase parsedStatement) {
@@ -98,5 +117,23 @@ public class StatementContext {
             supplier = cacheSupplier;
         }
         return supplier.get();
+    }
+
+    public Set<String> getColumnNames() {
+        return columnNames == null ? new HashSet<>() : columnNames;
+    }
+
+    public void setColumnNames(Set<String> columnNames) {
+        this.columnNames = columnNames;
+    }
+
+    public ColumnAliasGenerator getColumnAliasGenerator() {
+        return columnAliasGenerator == null
+            ? columnAliasGenerator = new ColumnAliasGenerator(this)
+            : columnAliasGenerator;
+    }
+
+    public String generateColumnName() {
+        return getColumnAliasGenerator().getNextAlias();
     }
 }

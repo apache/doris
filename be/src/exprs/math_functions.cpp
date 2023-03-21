@@ -26,9 +26,9 @@
 #include <iomanip>
 #include <random>
 #include <sstream>
+#include <string_view>
 
 #include "common/compiler_util.h"
-#include "exprs/anyval_util.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/large_int_value.h"
 #include "util/simd/vstring_function.h"
@@ -36,9 +36,9 @@
 
 namespace doris {
 
-const char* MathFunctions::_s_alphanumeric_chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+constexpr std::string_view alphanumeric_chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
-const double log_10[] = {
+constexpr double log_10[] = {
         1e000, 1e001, 1e002, 1e003, 1e004, 1e005, 1e006, 1e007, 1e008, 1e009, 1e010, 1e011, 1e012,
         1e013, 1e014, 1e015, 1e016, 1e017, 1e018, 1e019, 1e020, 1e021, 1e022, 1e023, 1e024, 1e025,
         1e026, 1e027, 1e028, 1e029, 1e030, 1e031, 1e032, 1e033, 1e034, 1e035, 1e036, 1e037, 1e038,
@@ -100,7 +100,7 @@ double MathFunctions::my_double_round(double value, int64_t dec, bool dec_unsign
     return tmp2;
 }
 
-StringVal MathFunctions::decimal_to_base(FunctionContext* ctx, int64_t src_num, int8_t dest_base) {
+StringRef MathFunctions::decimal_to_base(FunctionContext* ctx, int64_t src_num, int8_t dest_base) {
     // Max number of digits of any base (base 2 gives max digits), plus sign.
     const size_t max_digits = sizeof(uint64_t) * 8 + 1;
     char buf[max_digits];
@@ -117,7 +117,7 @@ StringVal MathFunctions::decimal_to_base(FunctionContext* ctx, int64_t src_num, 
     }
     int abs_base = std::abs(dest_base);
     do {
-        buf[buf_index] = _s_alphanumeric_chars[temp_num % abs_base];
+        buf[buf_index] = alphanumeric_chars[temp_num % abs_base];
         temp_num /= abs_base;
         --buf_index;
         ++result_len;
@@ -127,7 +127,9 @@ StringVal MathFunctions::decimal_to_base(FunctionContext* ctx, int64_t src_num, 
         buf[buf_index] = '-';
         ++result_len;
     }
-    return AnyValUtil::from_buffer_temp(ctx, buf + max_digits - result_len, result_len);
+    StringRef result = ctx->create_temp_string_val(result_len);
+    memcpy(const_cast<char*>(result.data), buf + max_digits - result_len, result_len);
+    return result;
 }
 
 bool MathFunctions::decimal_in_base_to_decimal(int64_t src_num, int8_t src_base, int64_t* result) {

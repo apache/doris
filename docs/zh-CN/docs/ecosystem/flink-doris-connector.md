@@ -70,6 +70,7 @@ Flink Doris Connector 可以支持通过 Flink 操作（读取、插入、修改
 export THRIFT_BIN=/opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift
 #export MVN_BIN=
 #export JAVA_HOME=
+```
 
 安装 `thrift` 0.13.0 版本(注意：`Doris` 0.15 和最新的版本基于 `thrift` 0.13.0 构建, 之前的版本依然使用`thrift` 0.9.3 构建)
  Windows: 
@@ -88,16 +89,17 @@ export THRIFT_BIN=/opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift
  参考链接: `https://gist.github.com/tonydeng/02e571f273d6cce4230dc8d5f394493c`
  
  Linux:
-    1.下载源码包：`wget https://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.tar.gz`
-    2.安装依赖：`yum install -y autoconf automake libtool cmake ncurses-devel openssl-devel lzo-devel zlib-devel gcc gcc-c++`
-    3.`tar zxvf thrift-0.13.0.tar.gz`
-    4.`cd thrift-0.13.0`
-    5.`./configure --without-tests`
-    6.`make`
-    7.`make install`
-   安装完成后查看版本：thrift --version  
-   注：如果编译过Doris，则不需要安装thrift,可以直接使用 $DORIS_HOME/thirdparty/installed/bin/thrift
-```
+  ```bash
+    1. wget https://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.tar.gz  # 下载源码包
+    2. yum install -y autoconf automake libtool cmake ncurses-devel openssl-devel lzo-devel zlib-devel gcc gcc-c++  # 安装依赖
+    3. tar zxvf thrift-0.13.0.tar.gz
+    4. cd thrift-0.13.0
+    5. ./configure --without-tests
+    6. make
+    7. make install
+    8. thrift --version  # 安装完成后查看版本
+   ```
+   注：如果编译过Doris，则不需要安装thrift,可以直接使用 `$DORIS_HOME/thirdparty/installed/bin/thrift`
 
 在源码目录下执行：
 
@@ -105,17 +107,16 @@ export THRIFT_BIN=/opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift
 sh build.sh
 
   Usage:
-    build.sh --flink version --scala version # specify flink and scala version
-    build.sh --tag                           # this is a build from tag
+    build.sh --flink version # specify flink version (after flink-doris-connector v1.2 and flink-1.15, there is no need to provide scala version)
+    build.sh --tag           # this is a build from tag
   e.g.:
-    build.sh --flink 1.14.3 --scala 2.12
+    build.sh --flink 1.16.0
     build.sh --tag
-
-然后按照你需要版本执行命令编译即可,例如：
-sh build.sh --flink 1.14.3 --scala 2.12
 ```
+然后按照你需要版本执行命令编译即可,例如：
+`sh build.sh --flink 1.16.0`
 
-编译成功后，会在 `target/` 目录下生成文件，如：`flink-doris-connector-1.14_2.12-1.1.0-SNAPSHOT.jar` 。将此文件复制到 `Flink` 的 `ClassPath` 中即可使用 `Flink-Doris-Connector` 。例如， `Local` 模式运行的 `Flink` ，将此文件放入 `lib/` 文件夹下。 `Yarn` 集群模式运行的 `Flink` ，则将此文件放入预部署包中。
+编译成功后，会在 `target/` 目录下生成文件，如：`flink-doris-connector-1.16-1.3.0-SNAPSHOT.jar` 。将此文件复制到 `Flink` 的 `classpath` 中即可使用 `Flink-Doris-Connector` 。例如， `Local` 模式运行的 `Flink` ，将此文件放入 `lib/` 文件夹下。 `Yarn` 集群模式运行的 `Flink` ，则将此文件放入预部署包中。
 
 **备注**
 
@@ -142,7 +143,7 @@ enable_http_server_v2 = true
 
 **备注**
 
-1.请根据不同的 Flink 和 Scala 版本替换对应的 Connector 和 Flink 依赖版本。
+1.请根据不同的 Flink 版本替换对应的 Connector 和 Flink 依赖版本。
 
 2.也可从[这里](https://repo.maven.apache.org/maven2/org/apache/doris/)下载相关版本jar包。 
 
@@ -288,8 +289,8 @@ executionBuilder.setLabelPrefix("label-doris") //streamload label prefix
                 .setStreamLoadProp(properties); //streamload params
 
 //flink rowdata‘s schema
-String[] fields = {"city", "longitude", "latitude"};
-DataType[] types = {DataTypes.VARCHAR(256), DataTypes.DOUBLE(), DataTypes.DOUBLE()};
+String[] fields = {"city", "longitude", "latitude", "destroy_date"};
+DataType[] types = {DataTypes.VARCHAR(256), DataTypes.DOUBLE(), DataTypes.DOUBLE(), DataTypes.DATE()};
 
 builder.setDorisReadOptions(DorisReadOptions.builder().build())
         .setDorisExecutionOptions(executionBuilder.build())
@@ -304,10 +305,11 @@ DataStream<RowData> source = env.fromElements("")
     .map(new MapFunction<String, RowData>() {
         @Override
         public RowData map(String value) throws Exception {
-            GenericRowData genericRowData = new GenericRowData(3);
+            GenericRowData genericRowData = new GenericRowData(4);
             genericRowData.setField(0, StringData.fromString("beijing"));
             genericRowData.setField(1, 116.405419);
             genericRowData.setField(2, 39.916927);
+            genericRowData.setField(3, LocalDate.now().toEpochDay());
             return genericRowData;
         }
     });
@@ -315,6 +317,34 @@ DataStream<RowData> source = env.fromElements("")
 source.sinkTo(builder.build());
 ```
 
+**SchemaChange 数据流**
+```java
+// enable checkpoint
+env.enableCheckpointing(10000);
+
+Properties props = new Properties();
+props.setProperty("format", "json");
+props.setProperty("read_json_by_line", "true");
+DorisOptions dorisOptions = DorisOptions.builder()
+        .setFenodes("127.0.0.1:8030")
+        .setTableIdentifier("test.t1")
+        .setUsername("root")
+        .setPassword("").build();
+
+DorisExecutionOptions.Builder  executionBuilder = DorisExecutionOptions.builder();
+executionBuilder.setLabelPrefix("label-doris" + UUID.randomUUID())
+        .setStreamLoadProp(props).setDeletable(true);
+
+DorisSink.Builder<String> builder = DorisSink.builder();
+builder.setDorisReadOptions(DorisReadOptions.builder().build())
+        .setDorisExecutionOptions(executionBuilder.build())
+        .setDorisOptions(dorisOptions)
+        .setSerializer(JsonDebeziumSchemaSerializer.builder().setDorisOptions(dorisOptions).build());
+
+env.fromSource(mySqlSource, WatermarkStrategy.noWatermarks(), "MySQL Source")//.print();
+        .sinkTo(builder.build());
+```
+参考： [CDCSchemaChangeExample](https://github.com/apache/doris-flink-connector/blob/master/flink-doris-connector/src/test/java/org/apache/doris/flink/CDCSchemaChangeExample.java)
 
 
 ## 配置
@@ -405,7 +435,7 @@ insert into doris_sink select id,name from cdc_mysql_source;
 
 ## Java示例
 
-`samples/doris-demo/` 下提供了 Java 版本的示例，可供参考，查看点击[这里](https://github.com/apache/incubator-doris/tree/master/samples/doris-demo/)
+`samples/doris-demo/` 下提供了 Java 版本的示例，可供参考，查看点击[这里](https://github.com/apache/doris/tree/master/samples/doris-demo/)
 
 ## 最佳实践
 
@@ -471,3 +501,7 @@ Connector1.1.0版本以前，是攒批写入的，写入均是由数据驱动，
 9. **tablet writer write failed, tablet_id=190958, txn_id=3505530, err=-235**
 
 通常发生在Connector1.1.0之前，是由于写入频率过快，导致版本过多。可以通过设置sink.batch.size 和 sink.batch.interval参数来降低Streamload的频率。
+
+10. **Flink导入有脏数据，如何跳过？**
+
+Flink在数据导入时，如果有脏数据，比如字段格式、长度等问题，会导致StreamLoad报错，此时Flink会不断的重试。如果需要跳过，可以通过禁用StreamLoad的严格模式(strict_mode=false,max_filter_ratio=1)或者在Sink算子之前对数据做过滤。

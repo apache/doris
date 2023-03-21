@@ -22,11 +22,11 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import java.util.List;
 import java.util.Objects;
@@ -43,7 +43,7 @@ public class PhysicalFileScan extends PhysicalRelation {
     /**
      * Constructor for PhysicalFileScan.
      */
-    public PhysicalFileScan(RelationId id, ExternalTable table, List<String> qualifier,
+    public PhysicalFileScan(ObjectId id, ExternalTable table, List<String> qualifier,
                             DistributionSpec distributionSpec, Optional<GroupExpression> groupExpression,
                             LogicalProperties logicalProperties) {
         super(id, PlanType.PHYSICAL_FILE_SCAN, qualifier, groupExpression, logicalProperties);
@@ -54,12 +54,12 @@ public class PhysicalFileScan extends PhysicalRelation {
     /**
      * Constructor for PhysicalFileScan.
      */
-    public PhysicalFileScan(RelationId id, ExternalTable table, List<String> qualifier,
+    public PhysicalFileScan(ObjectId id, ExternalTable table, List<String> qualifier,
                             DistributionSpec distributionSpec, Optional<GroupExpression> groupExpression,
                             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
-                            StatsDeriveResult statsDeriveResult) {
+                            Statistics statistics) {
         super(id, PlanType.PHYSICAL_FILE_SCAN, qualifier, groupExpression, logicalProperties,
-                physicalProperties, statsDeriveResult);
+                physicalProperties, statistics);
         this.table = table;
         this.distributionSpec = distributionSpec;
     }
@@ -69,7 +69,7 @@ public class PhysicalFileScan extends PhysicalRelation {
         return Utils.toSqlString("PhysicalFileScan",
             "qualified", Utils.qualifiedName(qualifier, table.getName()),
             "output", getOutput(),
-            "stats", statsDeriveResult
+            "stats", statistics
         );
     }
 
@@ -112,8 +112,8 @@ public class PhysicalFileScan extends PhysicalRelation {
 
     @Override
     public PhysicalFileScan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
-                                                       StatsDeriveResult statsDeriveResult) {
+                                                       Statistics statistics) {
         return new PhysicalFileScan(id, table, qualifier, distributionSpec, groupExpression, getLogicalProperties(),
-            physicalProperties, statsDeriveResult);
+            physicalProperties, statistics);
     }
 }

@@ -41,7 +41,6 @@
 namespace doris {
 
 #define COUNTER_SIZE (sizeof(void*))
-#define BUFFER_SIZE 256
 #define PRETTY_PRINT_WIDTH 13
 
 static std::unordered_map<std::string, std::string> _process_state;

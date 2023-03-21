@@ -74,7 +74,7 @@ public class AliasFunction extends Function {
     public static AliasFunction createFunction(FunctionName functionName, Type[] argTypes, Type retType,
             boolean hasVarArgs, List<String> parameters, Expr originFunction) {
         AliasFunction aliasFunction = new AliasFunction(functionName, Arrays.asList(argTypes), retType, hasVarArgs);
-        aliasFunction.setBinaryType(TFunctionBinaryType.NATIVE);
+        aliasFunction.setBinaryType(TFunctionBinaryType.JAVA_UDF);
         aliasFunction.setUserVisible(true);
         aliasFunction.originFunction = originFunction;
         aliasFunction.parameters = parameters;

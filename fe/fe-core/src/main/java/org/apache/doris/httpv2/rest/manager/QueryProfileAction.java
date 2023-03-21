@@ -27,10 +27,12 @@ import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.profile.ProfileTreeNode;
 import org.apache.doris.common.profile.ProfileTreePrinter;
 import org.apache.doris.common.util.ProfileManager;
+import org.apache.doris.common.util.ProfileManager.ProfileElement;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.RestBaseController;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
@@ -175,7 +177,7 @@ public class QueryProfileAction extends RestBaseController {
 
         // add node information
         for (List<String> query : queries) {
-            query.add(1, Env.getCurrentEnv().getSelfNode().first + ":" + Config.http_port);
+            query.add(1, Env.getCurrentEnv().getSelfNode().getIp() + ":" + Config.http_port);
         }
 
         if (!Strings.isNullOrEmpty(search)) {
@@ -234,7 +236,7 @@ public class QueryProfileAction extends RestBaseController {
         // Only admin or root user can see all profile.
         // Common user can only review the query of their own.
         String user = ConnectContext.get().getCurrentUserIdentity().getQualifiedUser();
-        if (!user.equalsIgnoreCase(PaloAuth.ADMIN_USER) && !user.equalsIgnoreCase(PaloAuth.ROOT_USER)) {
+        if (!user.equalsIgnoreCase(Auth.ADMIN_USER) && !user.equalsIgnoreCase(Auth.ROOT_USER)) {
             queryStream = queryStream.filter(q -> q.get(1).equals(user));
         }
         if (!Strings.isNullOrEmpty(queryId)) {
@@ -333,6 +335,22 @@ public class QueryProfileAction extends RestBaseController {
             return ResponseEntityBuilder.ok(queryId);
         }
         return ResponseEntityBuilder.badRequest("not found query id");
+    }
+
+    /**
+     *  Query qError.
+     */
+    @RequestMapping(path = "/qerror/{id}", method = RequestMethod.GET)
+    public ResponseEntity<String> getStats(@PathVariable(value = "id") String id) {
+        ProfileElement profile = ProfileManager.getInstance().findProfileElementObject(id);
+        if (profile == null) {
+            return ResponseEntityBuilder.notFound(null);
+        }
+        StatsErrorEstimator statsErrorEstimator = profile.statsErrorEstimator;
+        if (statsErrorEstimator == null) {
+            return ResponseEntityBuilder.notFound(null);
+        }
+        return ResponseEntity.ok(GsonUtils.GSON.toJson(statsErrorEstimator));
     }
 
     @RequestMapping(path = "/profile/fragments/{query_id}", method = RequestMethod.GET)
@@ -471,7 +489,7 @@ public class QueryProfileAction extends RestBaseController {
 
     private void checkAuthByUserAndQueryId(String queryId) throws AuthenticationException {
         String user = ConnectContext.get().getCurrentUserIdentity().getQualifiedUser();
-        if (!user.equalsIgnoreCase(PaloAuth.ADMIN_USER) && !user.equalsIgnoreCase(PaloAuth.ROOT_USER)) {
+        if (!user.equalsIgnoreCase(Auth.ADMIN_USER) && !user.equalsIgnoreCase(Auth.ROOT_USER)) {
             ProfileManager.getInstance().checkAuthByUserAndQueryId(user, queryId);
         }
     }

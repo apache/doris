@@ -39,6 +39,7 @@ message PScalarType {
 message PStructField {
     required string name = 1;
     optional string comment = 2;
+    optional bool contains_null = 3;
 };
 
 message PTypeNode {
@@ -104,6 +105,8 @@ message PGenericType {
         FIXEDLENGTHOBJECT = 30;
         JSONB = 31;
         DECIMAL128I = 32;
+        VARIANT = 33;
+        QUANTILE_STATE = 34;
         UNKNOWN = 999;
     }
     required TypeId id = 2;

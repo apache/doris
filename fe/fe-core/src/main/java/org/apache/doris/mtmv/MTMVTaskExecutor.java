@@ -108,7 +108,6 @@ public class MTMVTaskExecutor implements Comparable<MTMVTaskExecutor> {
         ctx.setQueryId(queryId);
 
         taskContext.setCtx(ctx);
-        taskContext.setRemoteIp(ctx.getRemoteIp());
         taskContext.setTask(task);
         taskContext.setJob(job);
 
@@ -123,6 +122,10 @@ public class MTMVTaskExecutor implements Comparable<MTMVTaskExecutor> {
 
     public MTMVTask getTask() {
         return task;
+    }
+
+    public void setTask(MTMVTask task) {
+        this.task = task;
     }
 
     public MTMVTask initTask(String taskId, Long createTime) {

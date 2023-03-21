@@ -60,7 +60,6 @@ Status BitmapIndexIterator::read_bitmap(rowid_t ordinal, roaring::Roaring* resul
     DCHECK(num_to_read == num_read);
 
     *result = roaring::Roaring::read(column->get_data_at(0).data, false);
-    _pool->clear();
     return Status::OK();
 }
 

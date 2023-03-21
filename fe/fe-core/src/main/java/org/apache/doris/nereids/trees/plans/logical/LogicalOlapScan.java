@@ -28,9 +28,9 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
-import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -42,7 +42,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -81,7 +80,7 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
     /**
      * Selected tablet ids to read data from.
      */
-    private final ImmutableList<Long> selectedTabletIds;
+    private final List<Long> selectedTabletIds;
 
     /**
      * Status to indicate tablets are pruned or not.
@@ -98,39 +97,53 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
     private final boolean partitionPruned;
     private final List<Long> manuallySpecifiedPartitions;
 
-    private final ImmutableList<Long> selectedPartitionIds;
+    private final List<Long> selectedPartitionIds;
 
-    public LogicalOlapScan(RelationId id, OlapTable table) {
+    ///////////////////////////////////////////////////////////////////////////
+    // Members for hints.
+    ///////////////////////////////////////////////////////////////////////////
+    private final List<String> hints;
+
+    public LogicalOlapScan(ObjectId id, OlapTable table) {
         this(id, table, ImmutableList.of());
     }
 
-    public LogicalOlapScan(RelationId id, OlapTable table, List<String> qualifier) {
+    public LogicalOlapScan(ObjectId id, OlapTable table, List<String> qualifier) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
                 table.getPartitionIds(), false,
                 ImmutableList.of(), false,
-                -1, false, PreAggStatus.on(), Collections.emptyList());
+                -1, false, PreAggStatus.on(), ImmutableList.of(), ImmutableList.of());
     }
 
-    public LogicalOlapScan(RelationId id, OlapTable table, List<String> qualifier, List<Long> specifiedPartitions) {
+    public LogicalOlapScan(ObjectId id, OlapTable table, List<String> qualifier, List<String> hints) {
+        this(id, table, qualifier, Optional.empty(), Optional.empty(),
+                table.getPartitionIds(), false,
+                ImmutableList.of(), false,
+                -1, false, PreAggStatus.on(), ImmutableList.of(), hints);
+    }
+
+    public LogicalOlapScan(ObjectId id, OlapTable table, List<String> qualifier, List<Long> specifiedPartitions,
+            List<String> hints) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
                 specifiedPartitions, false, ImmutableList.of(), false,
-                -1, false, PreAggStatus.on(), specifiedPartitions);
+                -1, false, PreAggStatus.on(), specifiedPartitions, hints);
     }
 
-    public LogicalOlapScan(RelationId id, Table table, List<String> qualifier) {
+    public LogicalOlapScan(ObjectId id, Table table, List<String> qualifier) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
                 ((OlapTable) table).getPartitionIds(), false, ImmutableList.of(), false,
-                -1, false, PreAggStatus.on(), ImmutableList.of());
+                -1, false, PreAggStatus.on(), ImmutableList.of(), ImmutableList.of());
     }
 
     /**
      * Constructor for LogicalOlapScan.
      */
-    public LogicalOlapScan(RelationId id, Table table, List<String> qualifier,
+    public LogicalOlapScan(ObjectId id, Table table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             List<Long> selectedPartitionIds, boolean partitionPruned,
             List<Long> selectedTabletIds, boolean tabletPruned,
-            long selectedIndexId, boolean indexSelected, PreAggStatus preAggStatus, List<Long> partitions) {
+            long selectedIndexId, boolean indexSelected, PreAggStatus preAggStatus, List<Long> partitions,
+            List<String> hints) {
 
         super(id, PlanType.LOGICAL_OLAP_SCAN, table, qualifier,
                 groupExpression, logicalProperties);
@@ -143,6 +156,7 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
         this.manuallySpecifiedPartitions = ImmutableList.copyOf(partitions);
         this.selectedPartitionIds = ImmutableList.copyOf(
                 Objects.requireNonNull(selectedPartitionIds, "selectedPartitionIds can not be null"));
+        this.hints = Objects.requireNonNull(hints, "hints can not be null");
     }
 
     public List<Long> getSelectedPartitionIds() {
@@ -166,7 +180,6 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
     public String toString() {
         return Utils.toSqlString("LogicalOlapScan",
                 "qualified", qualifiedName(),
-                "output", getOutput(),
                 "indexName", getSelectedMaterializedIndexName().orElse("<index_not_selected>"),
                 "selectedIndexId", selectedIndexId,
                 "preAgg", preAggStatus
@@ -187,7 +200,8 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
                 && Objects.equals(selectedIndexId, ((LogicalOlapScan) o).selectedIndexId)
                 && Objects.equals(indexSelected, ((LogicalOlapScan) o).indexSelected)
                 && Objects.equals(selectedTabletIds, ((LogicalOlapScan) o).selectedTabletIds)
-                && Objects.equals(tabletPruned, ((LogicalOlapScan) o).tabletPruned);
+                && Objects.equals(tabletPruned, ((LogicalOlapScan) o).tabletPruned)
+                && Objects.equals(hints, ((LogicalOlapScan) o).hints);
     }
 
     @Override
@@ -195,39 +209,46 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
         return Objects.hash(id,
                 selectedPartitionIds, partitionPruned,
                 selectedIndexId, indexSelected,
-                selectedTabletIds, tabletPruned);
+                selectedTabletIds, tabletPruned,
+                hints);
     }
 
     @Override
     public LogicalOlapScan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalOlapScan(id, (Table) table, qualifier, groupExpression, Optional.of(getLogicalProperties()),
                 selectedPartitionIds, partitionPruned, selectedTabletIds, tabletPruned,
-                selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions);
+                selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions, hints);
     }
 
     @Override
     public LogicalOlapScan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new LogicalOlapScan(id, (Table) table, qualifier, Optional.empty(), logicalProperties,
                 selectedPartitionIds, partitionPruned, selectedTabletIds, tabletPruned,
-                selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions);
+                selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions, hints);
     }
 
     public LogicalOlapScan withSelectedPartitionIds(List<Long> selectedPartitionIds) {
         return new LogicalOlapScan(id, (Table) table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
                 selectedPartitionIds, true, selectedTabletIds, tabletPruned,
-                selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions);
+                selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions, hints);
     }
 
     public LogicalOlapScan withMaterializedIndexSelected(PreAggStatus preAgg, long indexId) {
         return new LogicalOlapScan(id, (Table) table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
                 selectedPartitionIds, partitionPruned, selectedTabletIds, tabletPruned,
-                indexId, true, preAgg, manuallySpecifiedPartitions);
+                indexId, true, preAgg, manuallySpecifiedPartitions, hints);
     }
 
     public LogicalOlapScan withSelectedTabletIds(List<Long> selectedTabletIds) {
         return new LogicalOlapScan(id, (Table) table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
                 selectedPartitionIds, partitionPruned, selectedTabletIds, true,
-                selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions);
+                selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions, hints);
+    }
+
+    public LogicalOlapScan withPreAggStatus(PreAggStatus preAggStatus) {
+        return new LogicalOlapScan(id, (Table) table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
+                selectedPartitionIds, partitionPruned, selectedTabletIds, true,
+                selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions, hints);
     }
 
     @Override
@@ -281,6 +302,9 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
 
     @Override
     public List<Slot> computeNonUserVisibleOutput() {
+        // if (getTable().getIndexIdToMeta().size() == 1) {
+        //     return ImmutableList.of();
+        // }
         Set<String> baseSchemaColNames = table.getBaseSchema().stream()
                 .map(Column::getName)
                 .collect(Collectors.toSet());
@@ -302,4 +326,7 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
         return manuallySpecifiedPartitions;
     }
 
+    public List<String> getHints() {
+        return hints;
+    }
 }

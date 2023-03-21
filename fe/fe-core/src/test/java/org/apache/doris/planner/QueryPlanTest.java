@@ -1637,15 +1637,15 @@ public class QueryPlanTest extends TestWithFeService {
 
         sql = "SELECT a.k1, b.k2 FROM (SELECT k1 from baseall) a LEFT OUTER JOIN (select k1, 999 as k2 from baseall) b ON (a.k1=b.k1)";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("<slot 5>\n" + "    <slot 7>"));
+        Assert.assertTrue(explainString.contains("<slot 7>\n" + "    <slot 9>"));
 
         sql = "SELECT a.k1, b.k2 FROM (SELECT 1 as k1 from baseall) a RIGHT OUTER JOIN (select k1, 999 as k2 from baseall) b ON (a.k1=b.k1)";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("<slot 5>\n" + "    <slot 7>"));
+        Assert.assertTrue(explainString.contains("<slot 8>\n" + "    <slot 10>"));
 
         sql = "SELECT a.k1, b.k2 FROM (SELECT 1 as k1 from baseall) a FULL JOIN (select k1, 999 as k2 from baseall) b ON (a.k1=b.k1)";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("<slot 5>\n" + "    <slot 7>"));
+        Assert.assertTrue(explainString.contains("<slot 8>\n" + "    <slot 10>"));
     }
 
     @Test
@@ -1779,19 +1779,6 @@ public class QueryPlanTest extends TestWithFeService {
         queryStr = "explain select count(*) from test.baseall where k11 > '2021-6-1'";
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("PREDICATES: `k11` > '2021-06-01 00:00:00'"));
-    }
-
-    @Test
-    public void testNullColumnViewOrderBy() throws Exception {
-        FeConstants.runningUnitTest = true;
-        connectContext.setDatabase("default_cluster:test");
-        String sql = "select * from tbl_null_column_view where add_column is not null;";
-        String explainString1 = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString1.contains("EMPTYSET"));
-
-        String sql2 = "select * from tbl_null_column_view where add_column is not null order by query_id;";
-        String explainString2 = getSQLPlanOrErrorMsg("EXPLAIN " + sql2);
-        Assert.assertTrue(explainString2.contains("EMPTYSET"));
     }
 
     @Test

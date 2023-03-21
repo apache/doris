@@ -20,7 +20,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.rules.analysis.BindSlotReference.BoundStar;
+import org.apache.doris.nereids.trees.expressions.BoundStar;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -33,7 +33,6 @@ import org.apache.doris.nereids.util.Utils;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -41,7 +40,8 @@ import java.util.Optional;
 /**
  * Logical project plan.
  */
-public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Project {
+public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE>
+        implements Project, OutputSavePoint {
 
     private final List<NamedExpression> projects;
     private final List<NamedExpression> excepts;
@@ -52,7 +52,7 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     private final boolean isDistinct;
 
     public LogicalProject(List<NamedExpression> projects, CHILD_TYPE child) {
-        this(projects, Collections.emptyList(), true, child, false);
+        this(projects, ImmutableList.of(), true, child, false);
     }
 
     public LogicalProject(List<NamedExpression> projects, List<NamedExpression> excepts, CHILD_TYPE child) {
@@ -65,7 +65,7 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     }
 
     public LogicalProject(List<NamedExpression> projects, CHILD_TYPE child, boolean isDistinct) {
-        this(projects, Collections.emptyList(), true, child, isDistinct);
+        this(projects, ImmutableList.of(), true, child, isDistinct);
     }
 
     public LogicalProject(List<NamedExpression> projects, List<NamedExpression> excepts, CHILD_TYPE child,
@@ -116,7 +116,8 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalProject",
+        return Utils.toSqlString("LogicalProject[" + id.asInt() + "]",
+                "distinct", isDistinct,
                 "projects", projects,
                 "excepts", excepts,
                 "canEliminate", canEliminate

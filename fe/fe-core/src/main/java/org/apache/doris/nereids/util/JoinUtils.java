@@ -27,8 +27,10 @@ import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContains;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
@@ -137,6 +139,39 @@ public class JoinUtils {
     }
 
     /**
+     * This is used for bitmap runtime filter only.
+     * Extract bitmap_contains conjunct:
+     * like: bitmap_contains(a, b) and ..., Not(bitmap_contains(a, b)) and ...,
+     * where `a` and `b` are from right child and left child, respectively.
+     *
+     * @return condition for bitmap runtime filter: bitmap_contains
+     */
+    public static List<Expression> extractBitmapRuntimeFilterConditions(List<Slot> leftSlots,
+            List<Slot> rightSlots, List<Expression> onConditions) {
+        List<Expression> result = Lists.newArrayList();
+        for (Expression expr : onConditions) {
+            BitmapContains bitmapContains = null;
+            if (expr instanceof Not) {
+                List<Expression> notChildren = ExpressionUtils.extractConjunction(expr.child(0));
+                if (notChildren.size() == 1 && notChildren.get(0) instanceof BitmapContains) {
+                    bitmapContains = (BitmapContains) notChildren.get(0);
+                }
+            } else if (expr instanceof BitmapContains) {
+                bitmapContains = (BitmapContains) expr;
+            }
+            if (bitmapContains == null) {
+                continue;
+            }
+            //first child in right, second child in left
+            if (leftSlots.containsAll(bitmapContains.child(1).collect(Slot.class::isInstance))
+                    && rightSlots.containsAll(bitmapContains.child(0).collect(Slot.class::isInstance))) {
+                result.add(expr);
+            }
+        }
+        return result;
+    }
+
+    /**
      * Get all used slots from onClause of join.
      * Return pair of left used slots and right used slots.
      */
@@ -179,6 +214,10 @@ public class JoinUtils {
 
     public static boolean shouldNestedLoopJoin(Join join) {
         return join.getHashJoinConjuncts().isEmpty();
+    }
+
+    public static boolean shouldNestedLoopJoin(JoinType joinType, List<Expression> hashConjuncts) {
+        return hashConjuncts.isEmpty();
     }
 
     /**
@@ -289,44 +328,55 @@ public class JoinUtils {
         return false;
     }
 
-    /**
-     * replace JoinConjuncts by using slots map.
-     */
-    public static List<Expression> replaceJoinConjuncts(List<Expression> joinConjuncts,
-            Map<ExprId, Slot> replaceMaps) {
-        return joinConjuncts.stream()
-                .map(expr ->
-                        expr.rewriteUp(e -> {
-                            if (e instanceof Slot && replaceMaps.containsKey(((Slot) e).getExprId())) {
-                                return replaceMaps.get(((Slot) e).getExprId());
-                            } else {
-                                return e;
-                            }
-                        })
-                ).collect(Collectors.toList());
-    }
-
-    /**
-     * When project not empty, we add all slots used by hashOnCondition into projects.
-     */
-    public static void addSlotsUsedByOn(Set<Slot> usedSlots, List<NamedExpression> projects) {
-        if (projects.isEmpty()) {
-            return;
-        }
-        Set<ExprId> projectExprIdSet = projects.stream()
-                .map(NamedExpression::getExprId)
-                .collect(Collectors.toSet());
-        usedSlots.forEach(slot -> {
-            if (!projectExprIdSet.contains(slot.getExprId())) {
-                projects.add(slot);
-            }
-        });
-    }
-
     public static Set<ExprId> getJoinOutputExprIdSet(Plan left, Plan right) {
         Set<ExprId> joinOutputExprIdSet = new HashSet<>();
         joinOutputExprIdSet.addAll(left.getOutputExprIdSet());
         joinOutputExprIdSet.addAll(right.getOutputExprIdSet());
         return joinOutputExprIdSet;
+    }
+
+    private static List<Slot> applyNullable(List<Slot> slots, boolean nullable) {
+        return slots.stream().map(o -> o.withNullable(nullable))
+                .collect(ImmutableList.toImmutableList());
+    }
+
+    /**
+     * calculate the output slot of a join operator according join type and its children
+     *
+     * @param joinType the type of join operator
+     * @param left left child
+     * @param right right child
+     * @return return the output slots
+     */
+    public static List<Slot> getJoinOutput(JoinType joinType, Plan left, Plan right) {
+        switch (joinType) {
+            case LEFT_SEMI_JOIN:
+            case LEFT_ANTI_JOIN:
+            case NULL_AWARE_LEFT_ANTI_JOIN:
+                return ImmutableList.copyOf(left.getOutput());
+            case RIGHT_SEMI_JOIN:
+            case RIGHT_ANTI_JOIN:
+                return ImmutableList.copyOf(right.getOutput());
+            case LEFT_OUTER_JOIN:
+                return ImmutableList.<Slot>builder()
+                        .addAll(left.getOutput())
+                        .addAll(applyNullable(right.getOutput(), true))
+                        .build();
+            case RIGHT_OUTER_JOIN:
+                return ImmutableList.<Slot>builder()
+                        .addAll(applyNullable(left.getOutput(), true))
+                        .addAll(right.getOutput())
+                        .build();
+            case FULL_OUTER_JOIN:
+                return ImmutableList.<Slot>builder()
+                        .addAll(applyNullable(left.getOutput(), true))
+                        .addAll(applyNullable(right.getOutput(), true))
+                        .build();
+            default:
+                return ImmutableList.<Slot>builder()
+                        .addAll(left.getOutput())
+                        .addAll(right.getOutput())
+                        .build();
+        }
     }
 }

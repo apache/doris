@@ -26,7 +26,6 @@
 #include <string>
 
 #include "common/object_pool.h"
-#include "exprs/anyval_util.h"
 #include "exprs/json_functions.h"
 #include "runtime/runtime_state.h"
 #include "util/stopwatch.hpp"

@@ -26,6 +26,9 @@ under the License.
 
 # Doris NGram BloomFilter索引及使用使用场景
 
+<version since="2.0.0">
+</version>
+
 为了提升like的查询性能，增加了NGram BloomFilter索引，其实现主要参照了ClickHouse的ngrambf。
 
 ## NGram BloomFilter创建

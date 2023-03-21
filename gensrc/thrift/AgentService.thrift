@@ -40,6 +40,8 @@ struct TTabletSchema {
     12: optional i32 sort_col_num
     13: optional bool disable_auto_compaction
     14: optional bool store_row_column = false
+    15: optional bool is_dynamic_schema = false
+    16: optional i32 version_col_idx = -1
 }
 
 // this enum stands for different storage format in src_backends
@@ -57,28 +59,38 @@ enum TTabletType {
 }
 
 struct TS3StorageParam {
-    1: optional string s3_endpoint
-    2: optional string s3_region
-    3: optional string s3_ak
-    4: optional string s3_sk
-    5: optional i32 s3_max_conn = 50
-    6: optional i32 s3_request_timeout_ms = 3000
-    7: optional i32 s3_conn_timeout_ms = 1000
+    1: optional string endpoint
+    2: optional string region
+    3: optional string ak
+    4: optional string sk
+    5: optional i32 max_conn = 50
+    6: optional i32 request_timeout_ms = 3000
+    7: optional i32 conn_timeout_ms = 1000
     8: optional string root_path
     9: optional string bucket
 }
 
-struct TGetStoragePolicy {
-    1: optional string policy_name
-    2: optional i64 cooldown_datetime
-    3: optional i64 cooldown_ttl
-    4: optional TS3StorageParam s3_storage_param
-    5: optional string md5_checksum
+struct TStoragePolicy {
+    1: optional i64 id
+    2: optional string name
+    3: optional i64 version // alter version
+    4: optional i64 cooldown_datetime
+    5: optional i64 cooldown_ttl
+    6: optional i64 resource_id
 }
 
-struct TGetStoragePolicyResult {
-    1: optional Status.TStatus status
-    2: optional list<TGetStoragePolicy> result_entrys
+struct TStorageResource {
+    1: optional i64 id
+    2: optional string name
+    3: optional i64 version // alter version
+    4: optional TS3StorageParam s3_storage_param
+    // more storage resource type
+}
+
+struct TPushStoragePolicyReq {
+    1: optional list<TStoragePolicy> storage_policy
+    2: optional list<TStorageResource> resource
+    3: optional list<i64> dropped_storage_policy
 }
 
 enum TCompressionType {
@@ -116,8 +128,9 @@ struct TCreateTabletReq {
     // 15: optional TStorageParam storage_param
     16: optional TCompressionType compression_type = TCompressionType.LZ4F
     17: optional Types.TReplicaId replica_id = 0
-    18: optional string storage_policy
+    // 18: optional string storage_policy
     19: optional bool enable_unique_key_merge_on_write = false
+    20: optional i64 storage_policy_id
 }
 
 struct TDropTabletReq {
@@ -153,6 +166,19 @@ struct TAlterTabletReqV2 {
     8: optional TAlterTabletType alter_tablet_type = TAlterTabletType.SCHEMA_CHANGE
     9: optional Descriptors.TDescriptorTable desc_tbl
     10: optional list<Descriptors.TColumn> columns
+}
+
+struct TAlterInvertedIndexReq {
+    1: required Types.TTabletId tablet_id
+    2: required Types.TSchemaHash schema_hash
+    3: optional Types.TVersion alter_version
+    4: optional TAlterTabletType alter_tablet_type = TAlterTabletType.SCHEMA_CHANGE
+    5: optional bool is_drop_op= false
+    6: optional list<Descriptors.TOlapTableIndex> alter_inverted_indexes
+    7: optional list<Descriptors.TOlapTableIndex> indexes
+    8: optional list<Descriptors.TColumn> columns
+    9: optional i64 job_id
+    10: optional i64 expiration
 }
 
 struct TAlterMaterializedViewParam {
@@ -336,7 +362,8 @@ struct TTabletMetaInfo {
     3: optional Types.TPartitionId partition_id
     4: optional TTabletMetaType meta_type
     5: optional bool is_in_memory
-    6: optional string storage_policy;
+    // 6: optional string storage_policy;
+    7: optional i64 storage_policy_id
 }
 
 struct TUpdateTabletMetaInfoReq {
@@ -390,8 +417,10 @@ struct TAgentTaskRequest {
     26: optional TUpdateTabletMetaInfoReq update_tablet_meta_info_req
     27: optional TCompactionReq compaction_req
     28: optional TStorageMigrationReqV2 storage_migration_req_v2
-    29: optional TGetStoragePolicy update_policy
+    // DEPRECATED 29: optional TGetStoragePolicy update_policy
     30: optional TPushCooldownConfReq push_cooldown_conf
+    31: optional TPushStoragePolicyReq push_storage_policy_req
+    32: optional TAlterInvertedIndexReq alter_inverted_index_req
 }
 
 struct TAgentResult {

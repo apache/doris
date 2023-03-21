@@ -25,7 +25,9 @@
 #include <string>
 #include <vector>
 
+#include "common/consts.h"
 #include "util/binary_cast.hpp"
+#include "vec/common/int_exp.h"
 
 namespace doris {
 
@@ -33,6 +35,9 @@ class BitmapValue;
 class HyperLogLog;
 struct decimal12_t;
 struct uint24_t;
+
+template <typename T>
+class QuantileState;
 
 namespace vectorized {
 
@@ -80,6 +85,10 @@ enum class TypeIndex {
     FixedLengthObject,
     JSONB,
     Decimal128I,
+    Map,
+    Struct,
+    VARIANT,
+    QuantileState,
 };
 
 struct Consted {
@@ -201,6 +210,11 @@ struct TypeName<HyperLogLog> {
     static const char* get() { return "HLL"; }
 };
 
+template <>
+struct TypeName<QuantileState<double>> {
+    static const char* get() { return "QuantileState"; }
+};
+
 template <typename T>
 struct TypeId;
 template <>
@@ -243,6 +257,10 @@ template <>
 struct TypeId<Float64> {
     static constexpr const TypeIndex value = TypeIndex::Float64;
 };
+template <>
+struct TypeId<String> {
+    static constexpr const TypeIndex value = TypeIndex::String;
+};
 
 /// Not a data type in database, defined just for convenience.
 using Strings = std::vector<String>;
@@ -265,6 +283,21 @@ using DateV2 = UInt32;
 using DateTimeV2 = UInt64;
 
 struct Int128I {};
+
+template <typename T>
+inline T decimal_scale_multiplier(UInt32 scale);
+template <>
+inline Int32 decimal_scale_multiplier<Int32>(UInt32 scale) {
+    return common::exp10_i32(scale);
+}
+template <>
+inline Int64 decimal_scale_multiplier<Int64>(UInt32 scale) {
+    return common::exp10_i64(scale);
+}
+template <>
+inline Int128 decimal_scale_multiplier<Int128>(UInt32 scale) {
+    return common::exp10_i128(scale);
+}
 
 /// Own FieldType for Decimal.
 /// It is only a "storage" for decimal. To perform operations, you also have to provide a scale (number of digits after point).
@@ -323,6 +356,55 @@ struct Decimal {
     const Decimal<T>& operator%=(const T& x) {
         value %= x;
         return *this;
+    }
+
+    std::string to_string(UInt32 scale) const {
+        if (value == std::numeric_limits<T>::min()) {
+            fmt::memory_buffer buffer;
+            fmt::format_to(buffer, "{}", value);
+            std::string res {buffer.data(), buffer.size()};
+            res.insert(res.size() - scale, ".");
+            return res;
+        }
+
+        static constexpr auto precision =
+                std::is_same_v<T, Int32>
+                        ? BeConsts::MAX_DECIMAL32_PRECISION
+                        : (std::is_same_v<T, Int64> ? BeConsts::MAX_DECIMAL64_PRECISION
+                                                    : BeConsts::MAX_DECIMAL128_PRECISION);
+        bool is_nagetive = value < 0;
+        int max_result_length = precision + (scale > 0) // Add a space for decimal place
+                                + (scale == precision)  // Add a space for leading 0
+                                + (is_nagetive);        // Add a space for negative sign
+        std::string str = std::string(max_result_length, '0');
+
+        T abs_value = value;
+        int pos = 0;
+
+        if (is_nagetive) {
+            abs_value = -value;
+            str[pos++] = '-';
+        }
+
+        T whole_part = abs_value;
+        T frac_part;
+        if (scale) {
+            whole_part = abs_value / decimal_scale_multiplier<T>(scale);
+            frac_part = abs_value % decimal_scale_multiplier<T>(scale);
+        }
+        auto end = fmt::format_to(str.data() + pos, "{}", whole_part);
+        pos = end - str.data();
+
+        if (scale) {
+            str[pos++] = '.';
+            for (auto end_pos = pos + scale - 1; end_pos >= pos && frac_part > 0;
+                 --end_pos, frac_part /= 10) {
+                str[end_pos] += frac_part % 10;
+            }
+        }
+
+        str.resize(pos + scale);
+        return str;
     }
 
     T value;
@@ -505,6 +587,8 @@ inline const char* getTypeName(TypeIndex idx) {
         return "Array";
     case TypeIndex::Tuple:
         return "Tuple";
+    case TypeIndex::Map:
+        return "Map";
     case TypeIndex::Set:
         return "Set";
     case TypeIndex::Interval:
@@ -517,6 +601,8 @@ inline const char* getTypeName(TypeIndex idx) {
         return "AggregateFunction";
     case TypeIndex::LowCardinality:
         return "LowCardinality";
+    case TypeIndex::VARIANT:
+        return "Variant";
     case TypeIndex::BitMap:
         return TypeName<BitmapValue>::get();
     case TypeIndex::HLL:
@@ -525,6 +611,10 @@ inline const char* getTypeName(TypeIndex idx) {
         return "FixedLengthObject";
     case TypeIndex::JSONB:
         return "JSONB";
+    case TypeIndex::Struct:
+        return "Struct";
+    case TypeIndex::QuantileState:
+        return TypeName<QuantileState<double>>::get();
     }
 
     __builtin_unreachable();
@@ -541,6 +631,15 @@ struct std::hash<doris::vectorized::Decimal<T>> {
 template <>
 struct std::hash<doris::vectorized::Decimal128> {
     size_t operator()(const doris::vectorized::Decimal128& x) const {
+        return std::hash<doris::vectorized::Int64>()(x.value >> 64) ^
+               std::hash<doris::vectorized::Int64>()(
+                       x.value & std::numeric_limits<doris::vectorized::UInt64>::max());
+    }
+};
+
+template <>
+struct std::hash<doris::vectorized::Decimal128I> {
+    size_t operator()(const doris::vectorized::Decimal<doris::vectorized::Int128I>& x) const {
         return std::hash<doris::vectorized::Int64>()(x.value >> 64) ^
                std::hash<doris::vectorized::Int64>()(
                        x.value & std::numeric_limits<doris::vectorized::UInt64>::max());

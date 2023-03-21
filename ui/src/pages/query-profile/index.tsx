@@ -18,11 +18,12 @@
  */
 
 import React, {useEffect, useRef, useState} from 'react';
-import {Button, Col, Row, Typography} from 'antd';
+import {Button, Col, Row, Typography, Space} from 'antd';
 import {queryProfile} from 'Src/api/api';
 import Table from 'Src/components/table';
 import {useHistory} from 'react-router-dom';
 import {Result} from '@src/interfaces/http.interface';
+import {replaceToTxt} from 'Src/utils/utils';
 
 const {Text, Title} = Typography;
 export default function QueryProfile(params: any) {
@@ -75,6 +76,21 @@ export default function QueryProfile(params: any) {
         history.push('/QueryProfile/');
     }
 
+    function download(profile: string) {
+        const profileTxt = replaceToTxt(profile);
+        const blob = new Blob([profileTxt], {
+            type: "text/plain",
+        });
+        const tagA = document.createElement("a");
+        tagA.download = `profile_${new Date().valueOf()}.txt`;
+        tagA.style.display = "none";
+        tagA.href = URL.createObjectURL(blob);
+        document.body.appendChild(tagA);
+        tagA.click();
+        URL.revokeObjectURL(tagA.href);
+        document.body.removeChild(tagA);
+    }
+
     return (
         <Typography style={{padding: '30px'}}>
             <Title>Finished Queries</Title>
@@ -82,7 +98,12 @@ export default function QueryProfile(params: any) {
             <Row style={{paddingBottom: '15px'}}>
                 <Col span={12}><Text strong={true}>This table lists the latest 100 queries</Text></Col>
                 <Col span={12} style={{textAlign: 'right'}}>
-                    {profile ? <Button type="primary" onClick={goPrev}>back</Button> : ''}
+                    {profile ? <Space>
+                        <Button type="primary" onClick={goPrev}>back</Button>
+                        <Button onClick={() => {
+                            download(profile)
+                        }}>download</Button>
+                    </Space> : ''}
                 </Col>
             </Row>
             {

@@ -32,7 +32,6 @@ namespace doris {
 TestEnv::TestEnv() {
     // Some code will use ExecEnv::GetInstance(), so init the global ExecEnv singleton
     _exec_env = ExecEnv::GetInstance();
-    _exec_env->_thread_mgr = new ThreadResourceMgr(2);
     _exec_env->_result_queue_mgr = new ResultQueueMgr();
     // TODO may need rpc support, etc.
 }
@@ -49,7 +48,6 @@ void TestEnv::init_tmp_file_mgr(const std::vector<std::string>& tmp_dirs, bool o
 
 TestEnv::~TestEnv() {
     SAFE_DELETE(_exec_env->_result_queue_mgr);
-    SAFE_DELETE(_exec_env->_thread_mgr);
 
     if (_engine == StorageEngine::_s_instance) {
         // the engine instance is created by this test env

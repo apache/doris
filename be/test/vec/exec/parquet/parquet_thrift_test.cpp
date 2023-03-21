@@ -227,7 +227,7 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
 
 static void create_block(std::unique_ptr<vectorized::Block>& block) {
     // Current supported column type:
-    SchemaScanner::ColumnDesc column_descs[] = {
+    std::vector<SchemaScanner::ColumnDesc> column_descs = {
             {"tinyint_col", TYPE_TINYINT, sizeof(int8_t), true},
             {"smallint_col", TYPE_SMALLINT, sizeof(int16_t), true},
             {"int_col", TYPE_INT, sizeof(int32_t), true},
@@ -246,8 +246,7 @@ static void create_block(std::unique_ptr<vectorized::Block>& block) {
             {"date_col", TYPE_DATE, sizeof(DateTimeValue), true},
             {"date_v2_col", TYPE_DATEV2, sizeof(uint32_t), true},
             {"timestamp_v2_col", TYPE_DATETIMEV2, sizeof(DateTimeValue), true, 18, 0}};
-    SchemaScanner schema_scanner(column_descs,
-                                 sizeof(column_descs) / sizeof(SchemaScanner::ColumnDesc));
+    SchemaScanner schema_scanner(column_descs);
     ObjectPool object_pool;
     SchemaScannerParam param;
     schema_scanner.init(&param, &object_pool);
@@ -347,7 +346,7 @@ TEST_F(ParquetThriftReaderTest, dict_decoder) {
 }
 
 TEST_F(ParquetThriftReaderTest, group_reader) {
-    SchemaScanner::ColumnDesc column_descs[] = {
+    std::vector<SchemaScanner::ColumnDesc> column_descs = {
             {"tinyint_col", TYPE_TINYINT, sizeof(int8_t), true},
             {"smallint_col", TYPE_SMALLINT, sizeof(int16_t), true},
             {"int_col", TYPE_INT, sizeof(int32_t), true},
@@ -362,8 +361,7 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
             {"char_col", TYPE_CHAR, sizeof(StringRef), true},
             {"varchar_col", TYPE_VARCHAR, sizeof(StringRef), true},
             {"date_col", TYPE_DATE, sizeof(DateTimeValue), true}};
-    int num_cols = sizeof(column_descs) / sizeof(SchemaScanner::ColumnDesc);
-    SchemaScanner schema_scanner(column_descs, num_cols);
+    SchemaScanner schema_scanner(column_descs);
     ObjectPool object_pool;
     SchemaScannerParam param;
     schema_scanner.init(&param, &object_pool);
@@ -377,13 +375,14 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
         {
             TTypeNode node;
             node.__set_type(TTypeNodeType::ARRAY);
-            node.contains_null = true;
+            std::vector<bool> contains_nulls {true};
+            node.__set_contains_nulls(contains_nulls);
             TTypeNode inner;
             inner.__set_type(TTypeNodeType::SCALAR);
             TScalarType scalar_type;
             scalar_type.__set_type(TPrimitiveType::STRING);
             inner.__set_scalar_type(scalar_type);
-            inner.contains_null = true;
+            inner.__set_contains_nulls(contains_nulls);
             type.types.push_back(node);
             type.types.push_back(inner);
         }

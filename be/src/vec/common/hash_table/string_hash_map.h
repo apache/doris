@@ -213,13 +213,13 @@ public:
 template <typename TMapped, typename Allocator>
 struct HashTableTraits<StringHashMap<TMapped, Allocator>> {
     static constexpr bool is_phmap = false;
-    static constexpr bool is_parallel_phmap = false;
     static constexpr bool is_string_hash_table = true;
+    static constexpr bool is_partitioned_table = false;
 };
 
 template <template <typename> class Derived, typename TMapped, typename Allocator>
 struct HashTableTraits<Derived<StringHashMap<TMapped, Allocator>>> {
     static constexpr bool is_phmap = false;
-    static constexpr bool is_parallel_phmap = false;
     static constexpr bool is_string_hash_table = true;
+    static constexpr bool is_partitioned_table = false;
 };

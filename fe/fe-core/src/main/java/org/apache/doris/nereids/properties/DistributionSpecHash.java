@@ -289,10 +289,13 @@ public class DistributionSpecHash extends DistributionSpec {
      * Enums for concrete shuffle type.
      */
     public enum ShuffleType {
+        // 1. The following properties are the required properties for children
         // require, need to satisfy the distribution spec by aggregation way.
         AGGREGATE,
         // require, need to satisfy the distribution spec by join way.
         JOIN,
+
+        // 2. The following properties are the output properties from some operators
         // output, for olap scan node and colocate join
         NATURAL,
         // output, for all join except colocate join

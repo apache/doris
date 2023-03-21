@@ -27,6 +27,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -98,7 +99,7 @@ public class LoadingTaskPlanner {
         this.sendBatchParallelism = sendBatchParallelism;
         this.useNewLoadScanNode = useNewLoadScanNode;
         this.userInfo = userInfo;
-        if (Env.getCurrentEnv().getAuth()
+        if (Env.getCurrentEnv().getAccessManager()
                 .checkDbPriv(userInfo, Env.getCurrentInternalCatalog().getDbNullable(dbId).getFullName(),
                         PrivPredicate.SELECT)) {
             this.analyzer.setUDFAllowed(true);
@@ -143,10 +144,28 @@ public class LoadingTaskPlanner {
             }
         }
 
+        if (table.isDynamicSchema()) {
+            // Dynamic table for s3load ...
+            descTable.addReferencedTable(table);
+            // For reference table
+            scanTupleDesc.setTableId((int) table.getId());
+            // Add a implict container column "DORIS_DYNAMIC_COL" for dynamic columns
+            SlotDescriptor slotDesc = descTable.addSlotDescriptor(scanTupleDesc);
+            Column col = new Column(Column.DYNAMIC_COLUMN_NAME, Type.VARIANT, false, null, false, "",
+                                    "stream load auto dynamic column");
+            slotDesc.setIsMaterialized(true);
+            // Non-nullable slots will have 0 for the byte offset and -1 for the bit mask
+            slotDesc.setNullIndicatorBit(-1);
+            slotDesc.setNullIndicatorByte(0);
+            slotDesc.setColumn(col);
+            slotDesc.setIsNullable(false);
+            LOG.debug("plan scanTupleDesc{}", scanTupleDesc.toString());
+        }
+
         // Generate plan trees
         // 1. Broker scan node
         ScanNode scanNode;
-        scanNode = new ExternalFileScanNode(new PlanNodeId(nextNodeId++), scanTupleDesc);
+        scanNode = new ExternalFileScanNode(new PlanNodeId(nextNodeId++), scanTupleDesc, false);
         ((ExternalFileScanNode) scanNode).setLoadInfo(loadJobId, txnId, table, brokerDesc, fileGroups,
                 fileStatusesList, filesAdded, strictMode, loadParallelism, userInfo);
         scanNode.init(analyzer);
@@ -198,6 +217,12 @@ public class LoadingTaskPlanner {
         Set<Long> specifiedPartitionIds = Sets.newHashSet();
         for (BrokerFileGroup brokerFileGroup : fileGroups) {
             if (brokerFileGroup.getPartitionIds() != null) {
+                for (long partitionId : brokerFileGroup.getPartitionIds()) {
+                    if (!table.getPartitionInfo().getIsMutable(partitionId)) {
+                        throw new LoadException("Can't load data to immutable partition, table: "
+                            + table.getName() + ", partition: " + table.getPartition(partitionId));
+                    }
+                }
                 specifiedPartitionIds.addAll(brokerFileGroup.getPartitionIds());
             }
             // all file group in fileGroups should have same partitions, so only need to get partition ids

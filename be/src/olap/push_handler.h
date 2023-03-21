@@ -39,8 +39,6 @@ class RowCursor;
 
 class PushHandler {
 public:
-    using SchemaMapping = std::vector<ColumnMapping>;
-
     PushHandler() = default;
     ~PushHandler() = default;
 
@@ -62,7 +60,6 @@ private:
     Status _do_streaming_ingestion(TabletSharedPtr tablet, const TPushReq& request,
                                    PushType push_type, std::vector<TTabletInfo>* tablet_info_vec);
 
-private:
     // mainly tablet_id, version and delta file path
     TPushReq _request;
 
@@ -89,15 +86,12 @@ public:
         return Status::OK();
     }
     bool eof() const { return _eof; }
-    MemPool* mem_pool() { return _mem_pool.get(); }
 
 private:
     bool _ready;
     bool _eof;
     std::unique_ptr<RuntimeState> _runtime_state;
     RuntimeProfile* _runtime_profile;
-    std::unique_ptr<MemPool> _mem_pool;
-    std::unique_ptr<MemPool> _tuple_buffer_pool;
     std::unique_ptr<ScannerCounter> _counter;
     std::unique_ptr<BaseScanner> _scanner;
     // Not used, just for placeholding

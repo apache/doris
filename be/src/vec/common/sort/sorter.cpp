@@ -225,7 +225,7 @@ Status MergeSorterState::_create_intermediate_merger(int num_blocks,
                 stream_id, spilled_block_reader, block_spill_profile_));
         child_block_suppliers.emplace_back(std::bind(std::mem_fn(&BlockSpillReader::read),
                                                      spilled_block_reader.get(),
-                                                     std::placeholders::_1));
+                                                     std::placeholders::_1, std::placeholders::_2));
         spilled_block_readers_.emplace_back(std::move(spilled_block_reader));
 
         spilled_sorted_block_streams_.pop_front();
@@ -250,7 +250,7 @@ Status Sorter::partial_sort(Block& src_block, Block& dest_block) {
             if (column_id < 0) {
                 continue;
             }
-            if (convert_nullable_flags[i]) {
+            if (i < convert_nullable_flags.size() && convert_nullable_flags[i]) {
                 auto column_ptr = make_nullable(src_block.get_by_position(column_id).column);
                 new_block.insert(
                         {column_ptr, make_nullable(src_block.get_by_position(column_id).type), ""});
@@ -338,16 +338,25 @@ Status FullSorter::_do_sort() {
         // to order the block in _block_priority_queue.
         // if one block totally greater the heap top of _block_priority_queue
         // we can throw the block data directly.
-        if (_state->num_rows() < _limit) {
-            _block_priority_queue.emplace(
-                    _pool->add(new MergeSortCursorImpl(desc_block, _sort_description)));
+        if (_state->num_rows() < _offset + _limit) {
             _state->add_sorted_block(desc_block);
+            // if it's spilled, sorted_block is not added into sorted block vector,
+            // so it's should not be added to _block_priority_queue, since
+            // sorted_block will be destroyed when _do_sort is finished
+            if (!_state->is_spilled()) {
+                _block_priority_queue.emplace(_pool->add(
+                        new MergeSortCursorImpl(_state->last_sorted_block(), _sort_description)));
+            }
         } else {
-            MergeSortBlockCursor block_cursor(
-                    _pool->add(new MergeSortCursorImpl(desc_block, _sort_description)));
+            auto tmp_cursor_impl =
+                    std::make_unique<MergeSortCursorImpl>(desc_block, _sort_description);
+            MergeSortBlockCursor block_cursor(tmp_cursor_impl.get());
             if (!block_cursor.totally_greater(_block_priority_queue.top())) {
                 _state->add_sorted_block(desc_block);
-                _block_priority_queue.push(block_cursor);
+                if (!_state->is_spilled()) {
+                    _block_priority_queue.emplace(_pool->add(new MergeSortCursorImpl(
+                            _state->last_sorted_block(), _sort_description)));
+                }
             }
         }
     } else {

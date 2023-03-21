@@ -64,7 +64,7 @@ public class AuditEvent {
     public int errorCode = 0;
     @AuditField(value = "ErrorMessage")
     public String errorMessage = "";
-    @AuditField(value = "Time")
+    @AuditField(value = "Time(ms)")
     public long queryTime = -1;
     @AuditField(value = "ScanBytes")
     public long scanBytes = -1;
@@ -92,6 +92,8 @@ public class AuditEvent {
     public String sqlDigest = "";
     @AuditField(value = "TraceId")
     public String traceId = "";
+    @AuditField(value = "FuzzyVariables")
+    public String fuzzyVariables = "";
 
     public static class AuditEventBuilder {
 
@@ -211,6 +213,11 @@ public class AuditEvent {
 
         public AuditEventBuilder setTraceId(String traceId) {
             auditEvent.traceId = traceId;
+            return this;
+        }
+
+        public AuditEventBuilder setFuzzyVariables(String variables) {
+            auditEvent.fuzzyVariables = variables;
             return this;
         }
 

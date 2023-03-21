@@ -34,7 +34,6 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoField;
 import java.time.temporal.WeekFields;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -131,7 +130,9 @@ public class MultiPartitionDesc implements AllPartitionDesc {
         }
         WeekFields weekFields = WeekFields.of(DayOfWeek.of(startDayOfWeek), 1);
         while (startTime.isBefore(this.endTime)) {
-            PartitionValue lowerPartitionValue = new PartitionValue(startTime.format(dateTypeFormat()));
+            PartitionValue lowerPartitionValue = new PartitionValue(
+                    startTime.format(dateTypeFormat(partitionKeyDesc.getLowerValues().get(0).getStringValue()))
+            );
             switch (this.timeUnitType) {
                 case HOUR:
                     partitionName = partitionPrefix + startTime.format(DateTimeFormatter.ofPattern(HOURS_FORMAT));
@@ -167,7 +168,9 @@ public class MultiPartitionDesc implements AllPartitionDesc {
             if (this.timeUnitType != TimestampArithmeticExpr.TimeUnit.DAY && startTime.isAfter(this.endTime)) {
                 startTime = this.endTime;
             }
-            PartitionValue upperPartitionValue = new PartitionValue(startTime.format(dateTypeFormat()));
+            PartitionValue upperPartitionValue = new PartitionValue(
+                    startTime.format(dateTypeFormat(partitionKeyDesc.getUpperValues().get(0).getStringValue()))
+            );
             PartitionKeyDesc partitionKeyDesc = PartitionKeyDesc.createFixed(
                     Lists.newArrayList(lowerPartitionValue),
                     Lists.newArrayList(upperPartitionValue)
@@ -225,7 +228,7 @@ public class MultiPartitionDesc implements AllPartitionDesc {
             throw new AnalysisException("Multi partition time interval mush be larger than zero.");
         }
         try {
-            this.timeUnitType = TimestampArithmeticExpr.TimeUnit.valueOf(timeType);
+            this.timeUnitType = TimestampArithmeticExpr.TimeUnit.valueOf(timeType.toUpperCase());
         } catch (Exception e) {
             throw new AnalysisException("Multi build partition got an unknow time interval type: "
                     + timeType);
@@ -295,21 +298,12 @@ public class MultiPartitionDesc implements AllPartitionDesc {
         return res;
     }
 
-    private DateTimeFormatter dateTypeFormat() {
-        return DateTimeFormatter.ofPattern(this.timeUnitType.equals(TimeUnit.HOUR) ? DATETIME_FORMAT : DATE_FORMAT);
-    }
-
-
-    private List<AllPartitionDesc> aaa(int ii) throws AnalysisException {
-        List<AllPartitionDesc> res = new ArrayList<>();
-        for (int i = 0; i < ii; i++) {
-            if (ii % 2 == 1) {
-                res.add(new MultiPartitionDesc(null, null));
-            } else {
-                res.add(new SinglePartitionDesc(true, "-", null, null));
-            }
+    private DateTimeFormatter dateTypeFormat(String dateTimeStr) {
+        String s = DATE_FORMAT;
+        if (this.timeUnitType.equals(TimeUnit.HOUR) || dateTimeStr.length() == 19) {
+            s = DATETIME_FORMAT;
         }
-        return res;
+        return DateTimeFormatter.ofPattern(s);
     }
 
 }

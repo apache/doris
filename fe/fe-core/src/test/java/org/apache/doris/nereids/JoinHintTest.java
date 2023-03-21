@@ -23,7 +23,7 @@ import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.MatchingUtils;
-import org.apache.doris.nereids.util.PatternMatchSupported;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.HashJoinNode.DistributionMode;
@@ -38,7 +38,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-class JoinHintTest extends TestWithFeService implements PatternMatchSupported {
+class JoinHintTest extends TestWithFeService implements MemoPatternMatchSupported {
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -117,15 +117,15 @@ class JoinHintTest extends TestWithFeService implements PatternMatchSupported {
                     physicalDistribute(
                             physicalProject(
                                     physicalHashJoin(
-                                            physicalHashJoin(),
-                                            physicalDistribute().when(dis -> {
+                                            physicalHashJoin(physicalDistribute().when(dis -> {
                                                 DistributionSpec spec = dis.getDistributionSpec();
                                                 Assertions.assertTrue(spec instanceof DistributionSpecHash);
                                                 DistributionSpecHash hashSpec = (DistributionSpecHash) spec;
                                                 Assertions.assertEquals(ShuffleType.ENFORCED,
                                                         hashSpec.getShuffleType());
                                                 return true;
-                                            })
+                                            }), physicalDistribute()),
+                                            physicalDistribute()
                                     ).when(join -> join.getHint() == JoinHint.SHUFFLE_RIGHT)
                             )
                     )

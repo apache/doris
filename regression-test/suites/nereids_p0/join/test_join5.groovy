@@ -15,11 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_join5", "query,p0") {
+suite("test_join5", "nereids_p0") {
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
-    sql "SET enable_fallback_to_original_planner=false" 
-    def DBname = "regression_test_join5"
+    sql "SET enable_fallback_to_original_planner=false"
+    def DBname = "nereids_regression_test_join5"
     sql "DROP DATABASE IF EXISTS ${DBname}"
     sql "CREATE DATABASE IF NOT EXISTS ${DBname}"
     sql "use ${DBname}"
@@ -119,7 +118,9 @@ suite("test_join5", "query,p0") {
     sql " insert into c (name, a) values ('A', 'p');"
     sql " insert into c (name, a) values ('B', 'q');"
     sql " insert into c (name, a) values ('C', null);"
-
+    
+    sql """set parallel_fragment_exec_instance_num=8"""
+        
     qt_join5 """
         select c.name, ss.code, ss.b_cnt, ss.const
         from c left join

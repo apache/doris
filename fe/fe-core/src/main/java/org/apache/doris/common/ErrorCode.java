@@ -56,6 +56,8 @@ public enum ErrorCode {
             + " host '%s'"),
     ERR_TABLEACCESS_DENIED_ERROR(1142, new byte[]{'4', '2', '0', '0', '0'}, "%s command denied to user '%s'@'%s' for "
             + "table '%s'"),
+    ERR_NOT_ALLOWED_COMMAND(1148, new byte[]{'4', '2', '0', '0', '0'}, "The used command is not allowed"
+            + " with this MySQL version"),
     ERR_WRONG_COLUMN_NAME(1166, new byte[]{'4', '2', '0', '0', '0'}, "Incorrect column name '%s'. Column regex is '%s'"),
     ERR_UNKNOWN_SYSTEM_VARIABLE(1193, new byte[]{'H', 'Y', '0', '0', '0'}, "Unknown system variable '%s'"),
     ERR_BAD_SLAVE(1200, new byte[]{'H', 'Y', '0', '0', '0'}, "The server is not configured as slave; fix in config "
@@ -1186,7 +1188,10 @@ public enum ErrorCode {
      + "the length of table name '%s' is %d which is greater than the configuration 'table_name_length_limit' (%d)."),
 
     ERR_NONSUPPORT_TIME_TRAVEL_TABLE(5090, new byte[]{'4', '2', '0', '0', '0'}, "Only iceberg external"
-     + " table supports time travel in current version");
+     + " table supports time travel in current version"),
+
+    ERR_NONSSL_HANDSHAKE_RESPONSE(5091, new byte[] {'4', '2', '0', '0'},
+            "SSL mode on but received non-ssl handshake response from client.");
 
     // This is error code
     private final int code;

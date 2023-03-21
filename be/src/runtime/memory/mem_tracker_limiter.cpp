@@ -23,6 +23,7 @@
 #include <queue>
 
 #include "runtime/fragment_mgr.h"
+#include "runtime/load_channel_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/pretty_printer.h"
@@ -47,10 +48,10 @@ MemTrackerLimiter::MemTrackerLimiter(Type type, const std::string& label, int64_
                                      RuntimeProfile* profile,
                                      const std::string& profile_counter_name) {
     DCHECK_GE(byte_limit, -1);
-    if (profile == nullptr) {
-        _consumption = std::make_shared<RuntimeProfile::HighWaterMarkCounter>(TUnit::BYTES);
-    } else {
-        _consumption = profile->AddSharedHighWaterMarkCounter(profile_counter_name, TUnit::BYTES);
+    _consumption = std::make_shared<MemCounter>();
+    if (profile != nullptr) {
+        _profile_counter =
+                profile->AddSharedHighWaterMarkCounter(profile_counter_name, TUnit::BYTES);
     }
     _type = type;
     _label = label;
@@ -91,7 +92,7 @@ MemTracker::Snapshot MemTrackerLimiter::make_snapshot() const {
     snapshot.label = _label;
     snapshot.limit = _limit;
     snapshot.cur_consumption = _consumption->current_value();
-    snapshot.peak_consumption = _consumption->value();
+    snapshot.peak_consumption = _consumption->peak_value();
     return snapshot;
 }
 
@@ -107,6 +108,15 @@ void MemTrackerLimiter::refresh_global_counter() {
     }
     for (auto it : type_mem_sum) {
         MemTrackerLimiter::TypeMemSum[it.first]->set(it.second);
+    }
+}
+
+void MemTrackerLimiter::refresh_all_tracker_profile() {
+    for (unsigned i = 0; i < mem_tracker_limiter_pool.size(); ++i) {
+        std::lock_guard<std::mutex> l(mem_tracker_limiter_pool[i].group_lock);
+        for (auto tracker : mem_tracker_limiter_pool[i].trackers) {
+            tracker->refresh_profile_counter();
+        }
     }
 }
 
@@ -195,26 +205,35 @@ void MemTrackerLimiter::print_log_usage(const std::string& msg) {
     }
 }
 
+std::string MemTrackerLimiter::log_process_usage_str(const std::string& msg, bool with_stacktrace) {
+    std::string detail = msg;
+    detail += "\nProcess Memory Summary:\n    " + MemTrackerLimiter::process_mem_log_str();
+    if (with_stacktrace) detail += "\nAlloc Stacktrace:\n" + get_stack_trace();
+    std::vector<MemTracker::Snapshot> snapshots;
+    MemTrackerLimiter::make_process_snapshots(&snapshots);
+    MemTrackerLimiter::make_type_snapshots(&snapshots, MemTrackerLimiter::Type::GLOBAL);
+
+    // Add additional tracker printed when memory exceeds limit.
+    snapshots.emplace_back(
+            ExecEnv::GetInstance()->load_channel_mgr()->mem_tracker()->make_snapshot());
+
+    detail += "\nMemory Tracker Summary:";
+    for (const auto& snapshot : snapshots) {
+        if (snapshot.label == "" && snapshot.parent_label == "") {
+            detail += "\n    " + MemTrackerLimiter::type_log_usage(snapshot);
+        } else if (snapshot.parent_label == "") {
+            detail += "\n    " + MemTrackerLimiter::log_usage(snapshot);
+        } else {
+            detail += "\n    " + MemTracker::log_usage(snapshot);
+        }
+    }
+    return detail;
+}
+
 void MemTrackerLimiter::print_log_process_usage(const std::string& msg, bool with_stacktrace) {
     if (MemTrackerLimiter::_enable_print_log_process_usage) {
         MemTrackerLimiter::_enable_print_log_process_usage = false;
-        std::string detail = msg;
-        detail += "\nProcess Memory Summary:\n    " + MemTrackerLimiter::process_mem_log_str();
-        if (with_stacktrace) detail += "\nAlloc Stacktrace:\n" + get_stack_trace();
-        std::vector<MemTracker::Snapshot> snapshots;
-        MemTrackerLimiter::make_process_snapshots(&snapshots);
-        MemTrackerLimiter::make_type_snapshots(&snapshots, MemTrackerLimiter::Type::GLOBAL);
-        detail += "\nMemory Tracker Summary:";
-        for (const auto& snapshot : snapshots) {
-            if (snapshot.label == "" && snapshot.parent_label == "") {
-                detail += "\n    " + MemTrackerLimiter::type_log_usage(snapshot);
-            } else if (snapshot.parent_label == "") {
-                detail += "\n    " + MemTrackerLimiter::log_usage(snapshot);
-            } else {
-                detail += "\n    " + MemTracker::log_usage(snapshot);
-            }
-        }
-        LOG(WARNING) << detail;
+        LOG(WARNING) << log_process_usage_str(msg, with_stacktrace);
     }
 }
 
@@ -239,7 +258,9 @@ Status MemTrackerLimiter::fragment_mem_limit_exceeded(RuntimeState* state, const
     return Status::MemoryLimitExceeded(failed_msg);
 }
 
-int64_t MemTrackerLimiter::free_top_memory_query(int64_t min_free_mem) {
+int64_t MemTrackerLimiter::free_top_memory_query(int64_t min_free_mem,
+                                                 const std::string& vm_rss_str,
+                                                 const std::string& mem_available_str, Type type) {
     std::priority_queue<std::pair<int64_t, std::string>,
                         std::vector<std::pair<int64_t, std::string>>,
                         std::greater<std::pair<int64_t, std::string>>>
@@ -252,16 +273,20 @@ int64_t MemTrackerLimiter::free_top_memory_query(int64_t min_free_mem) {
         int64_t freed_mem = 0;
         while (!min_pq.empty()) {
             TUniqueId cancelled_queryid = label_to_queryid(min_pq.top().second);
+            if (cancelled_queryid == TUniqueId()) {
+                min_pq.pop();
+                continue;
+            }
             ExecEnv::GetInstance()->fragment_mgr()->cancel_query(
                     cancelled_queryid, PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED,
-                    fmt::format("Process has no memory available, cancel top memory usage query: "
-                                "query memory tracker <{}> consumption {}, backend {} "
+                    fmt::format("Process has no memory available, cancel top memory usage {}: "
+                                "{} memory tracker <{}> consumption {}, backend {} "
                                 "process memory used {} exceed limit {} or sys mem available {} "
                                 "less than low water mark {}. Execute again after enough memory, "
                                 "details see be.INFO.",
-                                min_pq.top().second, print_bytes(min_pq.top().first),
-                                BackendOptions::get_localhost(), PerfCounters::get_vm_rss_str(),
-                                MemInfo::mem_limit_str(), MemInfo::sys_mem_available_str(),
+                                TypeString[type], TypeString[type], min_pq.top().second,
+                                print_bytes(min_pq.top().first), BackendOptions::get_localhost(),
+                                vm_rss_str, MemInfo::mem_limit_str(), mem_available_str,
                                 print_bytes(MemInfo::sys_mem_available_low_water_mark())));
 
             freed_mem += min_pq.top().first;
@@ -270,7 +295,8 @@ int64_t MemTrackerLimiter::free_top_memory_query(int64_t min_free_mem) {
             min_pq.pop();
         }
         if (!usage_strings.empty()) {
-            LOG(INFO) << "Process GC Free Top Memory Usage Query: " << join(usage_strings, ",");
+            LOG(INFO) << "Process GC Free Top Memory Usage " << TypeString[type] << ": "
+                      << join(usage_strings, ",");
         }
         return freed_mem;
     };
@@ -278,7 +304,14 @@ int64_t MemTrackerLimiter::free_top_memory_query(int64_t min_free_mem) {
     for (unsigned i = 1; i < mem_tracker_limiter_pool.size(); ++i) {
         std::lock_guard<std::mutex> l(mem_tracker_limiter_pool[i].group_lock);
         for (auto tracker : mem_tracker_limiter_pool[i].trackers) {
-            if (tracker->type() == Type::QUERY) {
+            if (tracker->type() == type) {
+                if (tracker->consumption() <= 104857600) { // 100M small query does not cancel
+                    continue;
+                }
+                if (ExecEnv::GetInstance()->fragment_mgr()->query_is_canceled(
+                            label_to_queryid(tracker->label()))) {
+                    continue;
+                }
                 if (tracker->consumption() > min_free_mem) {
                     std::priority_queue<std::pair<int64_t, std::string>,
                                         std::vector<std::pair<int64_t, std::string>>,
@@ -304,7 +337,10 @@ int64_t MemTrackerLimiter::free_top_memory_query(int64_t min_free_mem) {
     return cancel_top_query(min_pq);
 }
 
-int64_t MemTrackerLimiter::free_top_overcommit_query(int64_t min_free_mem) {
+int64_t MemTrackerLimiter::free_top_overcommit_query(int64_t min_free_mem,
+                                                     const std::string& vm_rss_str,
+                                                     const std::string& mem_available_str,
+                                                     Type type) {
     std::priority_queue<std::pair<int64_t, std::string>,
                         std::vector<std::pair<int64_t, std::string>>,
                         std::greater<std::pair<int64_t, std::string>>>
@@ -314,19 +350,23 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(int64_t min_free_mem) {
     for (unsigned i = 1; i < mem_tracker_limiter_pool.size(); ++i) {
         std::lock_guard<std::mutex> l(mem_tracker_limiter_pool[i].group_lock);
         for (auto tracker : mem_tracker_limiter_pool[i].trackers) {
-            if (tracker->type() == Type::QUERY) {
-                int64_t overcommit_ratio =
-                        (static_cast<double>(tracker->consumption()) / tracker->limit()) * 10000;
-                if (overcommit_ratio == 0) { // Small query does not cancel
+            if (tracker->type() == type) {
+                if (tracker->consumption() <= 104857600) { // 100M small query does not cancel
                     continue;
                 }
+                if (ExecEnv::GetInstance()->fragment_mgr()->query_is_canceled(
+                            label_to_queryid(tracker->label()))) {
+                    continue;
+                }
+                int64_t overcommit_ratio =
+                        (static_cast<double>(tracker->consumption()) / tracker->limit()) * 10000;
                 min_pq.push(std::pair<int64_t, std::string>(overcommit_ratio, tracker->label()));
                 query_consumption[tracker->label()] = tracker->consumption();
             }
         }
     }
 
-    // Minor gc does not cancel when there is only one query. full gc conver.
+    // Minor gc does not cancel when there is only one query.
     if (query_consumption.size() <= 1) {
         return 0;
     }
@@ -342,18 +382,21 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(int64_t min_free_mem) {
     int64_t freed_mem = 0;
     while (!max_pq.empty()) {
         TUniqueId cancelled_queryid = label_to_queryid(max_pq.top().second);
+        if (cancelled_queryid == TUniqueId()) {
+            max_pq.pop();
+            continue;
+        }
         int64_t query_mem = query_consumption[max_pq.top().second];
         ExecEnv::GetInstance()->fragment_mgr()->cancel_query(
                 cancelled_queryid, PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED,
-                fmt::format("Process has less memory, cancel top memory overcommit query: "
-                            "query memory tracker <{}> consumption {}, backend {} "
+                fmt::format("Process has less memory, cancel top memory overcommit {}: "
+                            "{} memory tracker <{}> consumption {}, backend {} "
                             "process memory used {} exceed soft limit {} or sys mem available {} "
                             "less than warning water mark {}. Execute again after enough memory, "
                             "details see be.INFO.",
-                            max_pq.top().second, print_bytes(query_mem),
-                            BackendOptions::get_localhost(), PerfCounters::get_vm_rss_str(),
-                            print_bytes(MemInfo::soft_mem_limit()),
-                            MemInfo::sys_mem_available_str(),
+                            TypeString[type], TypeString[type], max_pq.top().second,
+                            print_bytes(query_mem), BackendOptions::get_localhost(), vm_rss_str,
+                            MemInfo::soft_mem_limit_str(), mem_available_str,
                             print_bytes(MemInfo::sys_mem_available_warning_water_mark())));
 
         usage_strings.push_back(fmt::format("{} memory usage {} Bytes, overcommit ratio: {}",
@@ -365,7 +408,8 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(int64_t min_free_mem) {
         max_pq.pop();
     }
     if (!usage_strings.empty()) {
-        LOG(INFO) << "Process GC Free Top Memory Overcommit Query: " << join(usage_strings, ",");
+        LOG(INFO) << "Process GC Free Top Memory Overcommit " << TypeString[type] << ": "
+                  << join(usage_strings, ",");
     }
     return freed_mem;
 }

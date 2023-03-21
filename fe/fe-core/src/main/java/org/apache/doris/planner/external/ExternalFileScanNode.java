@@ -25,7 +25,9 @@ import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.NullLiteral;
+import org.apache.doris.analysis.SchemaChangeExpr;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -38,17 +40,25 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.HMSExternalTable;
+import org.apache.doris.catalog.external.IcebergExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.load.BrokerFileGroup;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.external.iceberg.IcebergApiSource;
+import org.apache.doris.planner.external.iceberg.IcebergHMSSource;
+import org.apache.doris.planner.external.iceberg.IcebergScanProvider;
+import org.apache.doris.planner.external.iceberg.IcebergSource;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
+import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanNode;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileScanSlotInfo;
@@ -66,6 +76,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * ExternalFileScanNode for the file access type of catalog, now only support
@@ -103,7 +114,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
     }
 
     private Type type = Type.QUERY;
-    private final BackendPolicy backendPolicy = new BackendPolicy();
+    private final FederationBackendPolicy backendPolicy = new FederationBackendPolicy();
 
     // Only for load job.
     // Save all info about load attributes and files.
@@ -129,9 +140,12 @@ public class ExternalFileScanNode extends ExternalScanNode {
      * External file scan node for:
      * 1. Query hms table
      * 2. Load from file
+     * needCheckColumnPriv: Some of ExternalFileScanNode do not need to check column priv
+     * eg: s3 tvf, load scan node.
+     * These scan nodes do not have corresponding catalog/database/table info, so no need to do priv check
      */
-    public ExternalFileScanNode(PlanNodeId id, TupleDescriptor desc) {
-        super(id, desc, "EXTERNAL_FILE_SCAN_NODE", StatisticalType.FILE_SCAN_NODE);
+    public ExternalFileScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
+        super(id, desc, "EXTERNAL_FILE_SCAN_NODE", StatisticalType.FILE_SCAN_NODE, needCheckColumnPriv);
     }
 
     // Only for broker load job.
@@ -149,9 +163,10 @@ public class ExternalFileScanNode extends ExternalScanNode {
 
     // Only for stream load/routine load job.
     public void setLoadInfo(TUniqueId loadId, long txnId, Table targetTable, BrokerDesc brokerDesc,
-            BrokerFileGroup fileGroup, TBrokerFileStatus fileStatus, boolean strictMode, TFileType fileType) {
+            BrokerFileGroup fileGroup, TBrokerFileStatus fileStatus, boolean strictMode, TFileType fileType,
+            List<String> hiddenColumns) {
         FileGroupInfo fileGroupInfo = new FileGroupInfo(loadId, txnId, targetTable, brokerDesc,
-                fileGroup, fileStatus, strictMode, fileType);
+                fileGroup, fileStatus, strictMode, fileType, hiddenColumns);
         fileGroupInfos.add(fileGroupInfo);
         this.type = Type.LOAD;
     }
@@ -175,6 +190,9 @@ public class ExternalFileScanNode extends ExternalScanNode {
                 } else if (this.desc.getTable() instanceof FunctionGenTable) {
                     FunctionGenTable table = (FunctionGenTable) this.desc.getTable();
                     initFunctionGenTable(table, (ExternalFileTableValuedFunction) table.getTvf());
+                } else if (this.desc.getTable() instanceof IcebergExternalTable) {
+                    IcebergExternalTable table = (IcebergExternalTable) this.desc.getTable();
+                    initIcebergExternalTable(table);
                 }
                 break;
             case LOAD:
@@ -211,6 +229,9 @@ public class ExternalFileScanNode extends ExternalScanNode {
                 } else if (this.desc.getTable() instanceof FunctionGenTable) {
                     FunctionGenTable table = (FunctionGenTable) this.desc.getTable();
                     initFunctionGenTable(table, (ExternalFileTableValuedFunction) table.getTvf());
+                } else if (this.desc.getTable() instanceof IcebergExternalTable) {
+                    IcebergExternalTable table = (IcebergExternalTable) this.desc.getTable();
+                    initIcebergExternalTable(table);
                 }
                 break;
             default:
@@ -229,6 +250,30 @@ public class ExternalFileScanNode extends ExternalScanNode {
         }
     }
 
+    /**
+     * Reset required_slots in contexts. This is called after Nereids planner do the projection.
+     * In the projection process, some slots may be removed. So call this to update the slots info.
+     */
+    @Override
+    public void updateRequiredSlots(PlanTranslatorContext planTranslatorContext,
+            Set<SlotId> requiredByProjectSlotIdSet) throws UserException {
+        for (int i = 0; i < contexts.size(); i++) {
+            ParamCreateContext context = contexts.get(i);
+            FileScanProviderIf scanProvider = scanProviders.get(i);
+            context.params.unsetRequiredSlots();
+            for (SlotDescriptor slot : desc.getSlots()) {
+                if (!slot.isMaterialized()) {
+                    continue;
+                }
+
+                TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
+                slotInfo.setSlotId(slot.getId().asInt());
+                slotInfo.setIsFileSlot(!scanProvider.getPathPartitionKeys().contains(slot.getColumn().getName()));
+                context.params.addToRequiredSlots(slotInfo);
+            }
+        }
+    }
+
     private void initHMSExternalTable(HMSExternalTable hmsTable) throws UserException {
         Preconditions.checkNotNull(hmsTable);
 
@@ -244,13 +289,39 @@ public class ExternalFileScanNode extends ExternalScanNode {
                 scanProvider = new HudiScanProvider(hmsTable, desc, columnNameToRange);
                 break;
             case ICEBERG:
-                scanProvider = new IcebergScanProvider(hmsTable, analyzer, desc, columnNameToRange);
+                IcebergSource hmsSource = new IcebergHMSSource(hmsTable, desc, columnNameToRange);
+                scanProvider = new IcebergScanProvider(hmsSource, analyzer);
                 break;
             case HIVE:
                 scanProvider = new HiveScanProvider(hmsTable, desc, columnNameToRange);
                 break;
             default:
                 throw new UserException("Unknown table type: " + hmsTable.getDlaType());
+        }
+        this.scanProviders.add(scanProvider);
+    }
+
+    private void initIcebergExternalTable(IcebergExternalTable icebergTable) throws UserException {
+        Preconditions.checkNotNull(icebergTable);
+        if (icebergTable.isView()) {
+            throw new AnalysisException(
+                String.format("Querying external view '%s.%s' is not supported", icebergTable.getDbName(),
+                        icebergTable.getName()));
+        }
+
+        FileScanProviderIf scanProvider;
+        String catalogType = icebergTable.getIcebergCatalogType();
+        switch (catalogType) {
+            case IcebergExternalCatalog.ICEBERG_HMS:
+            case IcebergExternalCatalog.ICEBERG_REST:
+            case IcebergExternalCatalog.ICEBERG_DLF:
+            case IcebergExternalCatalog.ICEBERG_GLUE:
+                IcebergSource icebergSource = new IcebergApiSource(
+                        icebergTable, desc, columnNameToRange);
+                scanProvider = new IcebergScanProvider(icebergSource, analyzer);
+                break;
+            default:
+                throw new UserException("Unknown iceberg catalog type: " + catalogType);
         }
         this.scanProviders.add(scanProvider);
     }
@@ -342,6 +413,12 @@ public class ExternalFileScanNode extends ExternalScanNode {
             createScanRangeLocations(context, scanProvider);
             this.inputSplitsNum += scanProvider.getInputSplitNum();
             this.totalFileSize += scanProvider.getInputFileSize();
+            TableIf table = desc.getTable();
+            if (table instanceof HMSExternalTable) {
+                if (((HMSExternalTable) table).getDlaType().equals(HMSExternalTable.DLAType.HIVE)) {
+                    genSlotToSchemaIdMap(context);
+                }
+            }
             if (scanProvider instanceof HiveScanProvider) {
                 this.totalPartitionNum = ((HiveScanProvider) scanProvider).getTotalPartitionNum();
                 this.readPartitionNum = ((HiveScanProvider) scanProvider).getReadPartitionNum();
@@ -349,7 +426,8 @@ public class ExternalFileScanNode extends ExternalScanNode {
         }
     }
 
-    public void finalizeForNerieds() throws UserException {
+    @Override
+    public void finalizeForNereids() throws UserException {
         Preconditions.checkState(contexts.size() == scanProviders.size(),
                 contexts.size() + " vs. " + scanProviders.size());
         for (int i = 0; i < contexts.size(); ++i) {
@@ -361,6 +439,12 @@ public class ExternalFileScanNode extends ExternalScanNode {
             createScanRangeLocations(context, scanProvider);
             this.inputSplitsNum += scanProvider.getInputSplitNum();
             this.totalFileSize += scanProvider.getInputFileSize();
+            TableIf table = desc.getTable();
+            if (table instanceof HMSExternalTable) {
+                if (((HMSExternalTable) table).getDlaType().equals(HMSExternalTable.DLAType.HIVE)) {
+                    genSlotToSchemaIdMap(context);
+                }
+            }
             if (scanProvider instanceof HiveScanProvider) {
                 this.totalPartitionNum = ((HiveScanProvider) scanProvider).getTotalPartitionNum();
                 this.readPartitionNum = ((HiveScanProvider) scanProvider).getReadPartitionNum();
@@ -408,7 +492,12 @@ public class ExternalFileScanNode extends ExternalScanNode {
                 }
             } else {
                 if (column.isAllowNull()) {
-                    expr = NullLiteral.create(org.apache.doris.catalog.Type.VARCHAR);
+                    if (type == Type.LOAD) {
+                        // In load process, the source type is string.
+                        expr = NullLiteral.create(org.apache.doris.catalog.Type.VARCHAR);
+                    } else {
+                        expr = NullLiteral.create(column.getType());
+                    }
                 } else {
                     expr = null;
                 }
@@ -528,6 +617,10 @@ public class ExternalFileScanNode extends ExternalScanNode {
                 String name = "jsonb_parse_" + nullable + "_error_to_null";
                 expr = new FunctionCallExpr(name, args);
                 expr.analyze(analyzer);
+            } else if (dstType == PrimitiveType.VARIANT) {
+                // Generate SchemaChange expr for dynamicly generating columns
+                TableIf targetTbl = desc.getTable();
+                expr = new SchemaChangeExpr((SlotRef) expr, (int) targetTbl.getId());
             } else {
                 expr = castToSlot(destSlotDesc, expr);
             }
@@ -575,6 +668,22 @@ public class ExternalFileScanNode extends ExternalScanNode {
         scanProvider.createScanRangeLocations(context, backendPolicy, scanRangeLocations);
     }
 
+    private void genSlotToSchemaIdMap(ParamCreateContext context) {
+        List<Column> baseSchema = desc.getTable().getBaseSchema();
+        Map<String, Integer> columnNameToPosition = Maps.newHashMap();
+        for (SlotDescriptor slot : desc.getSlots()) {
+            int idx = 0;
+            for (Column col : baseSchema) {
+                if (col.getName().equals(slot.getColumn().getName())) {
+                    columnNameToPosition.put(col.getName(), idx);
+                    break;
+                }
+                idx += 1;
+            }
+        }
+        context.params.setSlotNameToSchemaPos(columnNameToPosition);
+    }
+
     @Override
     public int getNumInstances() {
         return scanRangeLocations.size();
@@ -597,6 +706,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
+        output.append(prefix).append("table: ").append(desc.getTable().getName()).append("\n");
         if (!conjuncts.isEmpty()) {
             output.append(prefix).append("predicates: ").append(getExplainString(conjuncts)).append("\n");
         }
@@ -610,6 +720,24 @@ public class ExternalFileScanNode extends ExternalScanNode {
         output.append(prefix).append("partition=").append(readPartitionNum).append("/").append(totalPartitionNum)
                 .append("\n");
 
+        if (detailLevel == TExplainLevel.VERBOSE) {
+            output.append(prefix).append("backends:").append("\n");
+            for (TScanRangeLocations locations : scanRangeLocations) {
+                output.append(prefix).append("  ").append(locations.getLocations().get(0).backend_id).append("\n");
+                List<TFileRangeDesc> files = locations.getScanRange().getExtScanRange().getFileScanRange().getRanges();
+                for (int i = 0; i < 3; i++) {
+                    if (i >= files.size()) {
+                        break;
+                    }
+                    TFileRangeDesc file = files.get(i);
+                    output.append(prefix).append("    ").append(file.getPath())
+                            .append(" start: ").append(file.getStartOffset())
+                            .append(" length: ").append(file.getFileSize())
+                            .append("\n");
+                }
+            }
+        }
+
         output.append(prefix);
         if (cardinality > 0) {
             output.append(String.format("cardinality=%s, ", cardinality));
@@ -622,6 +750,4 @@ public class ExternalFileScanNode extends ExternalScanNode {
         return output.toString();
     }
 }
-
-
 

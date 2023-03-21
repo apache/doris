@@ -58,8 +58,7 @@ using ConstAggregateDataPtr = const char*;
   */
 class IAggregateFunction {
 public:
-    IAggregateFunction(const DataTypes& argument_types_, const Array& parameters_)
-            : argument_types(argument_types_), parameters(parameters_) {}
+    IAggregateFunction(const DataTypes& argument_types_) : argument_types(argument_types_) {}
 
     /// Get main function name.
     virtual String get_name() const = 0;
@@ -192,7 +191,6 @@ public:
                                                    const size_t num_rows, Arena* arena) const = 0;
 
     const DataTypes& get_argument_types() const { return argument_types; }
-    const Array& get_parameters() const { return parameters; }
 
     virtual MutableColumnPtr create_serialize_column() const { return ColumnString::create(); }
 
@@ -200,15 +198,14 @@ public:
 
 protected:
     DataTypes argument_types;
-    Array parameters;
 };
 
 /// Implement method to obtain an address of 'add' function.
 template <typename Derived>
 class IAggregateFunctionHelper : public IAggregateFunction {
 public:
-    IAggregateFunctionHelper(const DataTypes& argument_types_, const Array& parameters_)
-            : IAggregateFunction(argument_types_, parameters_) {}
+    IAggregateFunctionHelper(const DataTypes& argument_types_)
+            : IAggregateFunction(argument_types_) {}
 
     void destroy_vec(AggregateDataPtr __restrict place,
                      const size_t num_rows) const noexcept override {
@@ -320,13 +317,13 @@ public:
 
     void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
                                            const size_t num_rows, Arena* arena) const override {
-        VectorBufferWriter writter(static_cast<ColumnString&>(*dst));
+        VectorBufferWriter writter(assert_cast<ColumnString&>(*dst));
         streaming_agg_serialize(columns, writter, num_rows, arena);
     }
 
     void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
                                          MutableColumnPtr& dst) const override {
-        VectorBufferWriter writter(static_cast<ColumnString&>(*dst));
+        VectorBufferWriter writter(assert_cast<ColumnString&>(*dst));
         static_cast<const Derived*>(this)->serialize(place, writter);
         writter.commit();
     }
@@ -381,8 +378,8 @@ protected:
     }
 
 public:
-    IAggregateFunctionDataHelper(const DataTypes& argument_types_, const Array& parameters_)
-            : IAggregateFunctionHelper<Derived>(argument_types_, parameters_) {}
+    IAggregateFunctionDataHelper(const DataTypes& argument_types_)
+            : IAggregateFunctionHelper<Derived>(argument_types_) {}
 
     void create(AggregateDataPtr __restrict place) const override { new (place) Data; }
 
@@ -430,9 +427,9 @@ public:
             : _function(function),
               _data(std::make_unique<AggregateData[]>(function->size_of_data())) {
         _function->create(_data.get());
-    };
+    }
     ~AggregateFunctionGuard() { _function->destroy(_data.get()); }
-    AggregateDataPtr data() { return _data.get(); };
+    AggregateDataPtr data() { return _data.get(); }
 
 private:
     const IAggregateFunction* _function;

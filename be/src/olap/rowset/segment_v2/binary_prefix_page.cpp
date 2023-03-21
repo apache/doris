@@ -207,41 +207,6 @@ Status BinaryPrefixPageDecoder::seek_at_or_after_value(const void* value, bool* 
     }
 }
 
-Status BinaryPrefixPageDecoder::_read_next_value_to_output(Slice prev, MemPool* mem_pool,
-                                                           Slice* output) {
-    if (_cur_pos >= _num_values) {
-        return Status::NotFound("no more value to read");
-    }
-    uint32_t shared_len;
-    uint32_t non_shared_len;
-    auto data_ptr = _decode_value_lengths(_next_ptr, &shared_len, &non_shared_len);
-    if (data_ptr == nullptr) {
-        return Status::Corruption("Failed to decode value at position {}", _cur_pos);
-    }
-
-    output->size = shared_len + non_shared_len;
-    if (output->size > 0) {
-        output->data = (char*)mem_pool->allocate(output->size);
-        memcpy(output->data, prev.data, shared_len);
-        memcpy(output->data + shared_len, data_ptr, non_shared_len);
-    }
-
-    _next_ptr = data_ptr + non_shared_len;
-    return Status::OK();
-}
-
-Status BinaryPrefixPageDecoder::_copy_current_to_output(MemPool* mem_pool, Slice* output) {
-    output->size = _current_value.size();
-    if (output->size > 0) {
-        output->data = (char*)mem_pool->allocate(output->size);
-        if (output->data == nullptr) {
-            return Status::MemoryAllocFailed("failed to allocate {} bytes", output->size);
-        }
-        memcpy(output->data, _current_value.data(), output->size);
-    }
-    return Status::OK();
-}
-
 Status BinaryPrefixPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
     DCHECK(_parsed);
     if (PREDICT_FALSE(*n == 0 || _cur_pos >= _num_values)) {

@@ -99,7 +99,7 @@ public class DataGenScanNode extends ScanNode {
             TScanRangeLocations locations = new TScanRangeLocations();
             TScanRangeLocation location = new TScanRangeLocation();
             location.setBackendId(task.getBackend().getId());
-            location.setServer(new TNetworkAddress(task.getBackend().getHost(), task.getBackend().getBePort()));
+            location.setServer(new TNetworkAddress(task.getBackend().getIp(), task.getBackend().getBePort()));
             locations.addToLocations(location);
             locations.setScanRange(task.getExecParams());
             result.add(locations);
@@ -117,5 +117,10 @@ public class DataGenScanNode extends ScanNode {
         } catch (AnalysisException e) {
             throw new NereidsException("Can not compute shard locations for DataGenScanNode: " + e.getMessage(), e);
         }
+    }
+
+    @Override
+    public boolean needToCheckColumnPriv() {
+        return false;
     }
 }

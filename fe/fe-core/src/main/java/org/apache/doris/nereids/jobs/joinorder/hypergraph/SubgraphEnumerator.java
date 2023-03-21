@@ -89,8 +89,8 @@ public class SubgraphEnumerator {
         LongBitmapSubsetIterator subsetIterator = LongBitmap.getSubsetIterator(neighborhood);
         for (long subset : subsetIterator) {
             long newCsg = LongBitmap.newBitmapUnion(csg, subset);
+            edgeCalculator.unionEdges(csg, subset);
             if (receiver.contain(newCsg)) {
-                edgeCalculator.unionEdges(csg, subset);
                 if (!emitCsg(newCsg)) {
                     return false;
                 }
@@ -113,14 +113,14 @@ public class SubgraphEnumerator {
         for (long subset : subsetIterator) {
             long newCmp = LongBitmap.newBitmapUnion(cmp, subset);
             // We need to check whether Cmp is connected and then try to find hyper edge
+            edgeCalculator.unionEdges(cmp, subset);
             if (receiver.contain(newCmp)) {
-                edgeCalculator.unionEdges(cmp, subset);
                 // We check all edges for finding an edge.
                 List<Edge> edges = edgeCalculator.connectCsgCmp(csg, newCmp);
                 if (edges.isEmpty()) {
                     continue;
                 }
-                if (!receiver.emitCsgCmp(csg, newCmp, edges, hyperGraph.getComplexProject())) {
+                if (!receiver.emitCsgCmp(csg, newCmp, edges)) {
                     return false;
                 }
             }
@@ -150,7 +150,7 @@ public class SubgraphEnumerator {
             List<Edge> edges = edgeCalculator.connectCsgCmp(csg, cmp);
 
             if (!edges.isEmpty()) {
-                if (!receiver.emitCsgCmp(csg, cmp, edges, hyperGraph.getComplexProject())) {
+                if (!receiver.emitCsgCmp(csg, cmp, edges)) {
                     return false;
                 }
             }

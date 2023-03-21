@@ -35,7 +35,7 @@
                     "label": "Construct Docker",
                     "items": [
                         "install/construct-docker/construct-docker-image",
-                        "install/construct-docker/construct-docker-compose"
+                        "install/construct-docker/run-docker-cluster"
                     ]
                 }
             ]
@@ -49,12 +49,15 @@
                 "data-table/basic-usage",
                 "data-table/hit-the-rollup",
                 "data-table/best-practice",
+                "data-table/dynamic-schema-table",
                 {
                     "type": "category",
                     "label": "Index",
                     "items": [
-                        "data-table/index/bloomfilter",
                         "data-table/index/prefix-index",
+                        "data-table/index/inverted-index",
+                        "data-table/index/bloomfilter",
+                        "data-table/index/ngram-bloomfilter-index",
                         "data-table/index/bitmap-index"
                     ]
                 }
@@ -92,6 +95,7 @@
                                 "data-operate/import/import-way/routine-load-manual",
                                 "data-operate/import/import-way/spark-load-manual",
                                 "data-operate/import/import-way/stream-load-manual",
+                                "data-operate/import/import-way/mysql-load-manual",
                                 "data-operate/import/import-way/s3-load-manual",
                                 "data-operate/import/import-way/insert-into-manual",
                                 "data-operate/import/import-way/load-json-format"
@@ -157,6 +161,7 @@
                         "advanced/join-optimization/doris-join-optimization"
                     ]
                 },
+                "advanced/pipeline-execution-engine",
                 "advanced/materialized-view",
                 "advanced/broker",
                 {
@@ -165,7 +170,8 @@
                     "items": [
                         "advanced/best-practice/query-analysis",
                         "advanced/best-practice/import-analysis",
-                        "advanced/best-practice/debug-log"
+                        "advanced/best-practice/debug-log",
+                        "advanced/best-practice/compaction"
                     ]
                 },
                 "advanced/resource",
@@ -175,7 +181,9 @@
                 "advanced/time-zone",
                 "advanced/small-file-mgr",
                 "advanced/cold_hot_separation",
-                "advanced/compute_node"
+                "advanced/compute_node",
+                "advanced/hight-concurrent-point-query",
+                "advanced/nereids"
             ]
         },
         {
@@ -206,7 +214,8 @@
                         "lakehouse/external-table/hive"
                     ]
                 },
-                "lakehouse/file"
+                "lakehouse/file",
+                "lakehouse/filecache"
             ]
         },
         {
@@ -216,24 +225,13 @@
                 "ecosystem/spark-doris-connector",
                 "ecosystem/flink-doris-connector",
                 "ecosystem/datax",
+                "ecosystem/kyuubi",
                 "ecosystem/mysql-to-doris",
                 "ecosystem/logstash",
                 "ecosystem/plugin-development-manual",
                 "ecosystem/audit-plugin",
                 "ecosystem/cloudcanal",
                 "ecosystem/hive-bitmap-udf",
-                {
-                    "type": "category",
-                    "label": "Doris Manager",
-                    "items": [
-                        "ecosystem/doris-manager/compiling-deploying",
-                        "ecosystem/doris-manager/initializing",
-                        "ecosystem/doris-manager/cluster-managenent",
-                        "ecosystem/doris-manager/space-list",
-                        "ecosystem/doris-manager/space-management",
-                        "ecosystem/doris-manager/system-settings"
-                    ]
-                },
                 {
                     "type": "category",
                     "label": "SeaTunnel",
@@ -276,6 +274,7 @@
                                 "sql-manual/sql-functions/array-functions/array",
                                 "sql-manual/sql-functions/array-functions/array_max",
                                 "sql-manual/sql-functions/array-functions/array_min",
+                                "sql-manual/sql-functions/array-functions/array_map",
                                 "sql-manual/sql-functions/array-functions/array_avg",
                                 "sql-manual/sql-functions/array-functions/array_sum",
                                 "sql-manual/sql-functions/array-functions/array_size",
@@ -294,8 +293,12 @@
                                 "sql-manual/sql-functions/array-functions/array_join",
                                 "sql-manual/sql-functions/array-functions/array_with_constant",
                                 "sql-manual/sql-functions/array-functions/array_enumerate",
+                                "sql-manual/sql-functions/array-functions/array_enumerate_uniq",
                                 "sql-manual/sql-functions/array-functions/array_popback",
+                                "sql-manual/sql-functions/array-functions/array_popfront",
+                                "sql-manual/sql-functions/array-functions/array_pushfront",
                                 "sql-manual/sql-functions/array-functions/array_compact",
+                                "sql-manual/sql-functions/array-functions/array_concat",
                                 "sql-manual/sql-functions/array-functions/arrays_overlap",
                                 "sql-manual/sql-functions/array-functions/countequal",
                                 "sql-manual/sql-functions/array-functions/element_at"
@@ -347,6 +350,7 @@
                                 "sql-manual/sql-functions/date-time-functions/date_trunc",
                                 "sql-manual/sql-functions/date-time-functions/date_format",
                                 "sql-manual/sql-functions/date-time-functions/datediff",
+                                "sql-manual/sql-functions/date-time-functions/microseconds_add",
                                 "sql-manual/sql-functions/date-time-functions/minutes_add",
                                 "sql-manual/sql-functions/date-time-functions/minutes_diff",
                                 "sql-manual/sql-functions/date-time-functions/minutes_sub",
@@ -543,6 +547,8 @@
                                 "sql-manual/sql-functions/bitmap-functions/bitmap_intersect",
                                 "sql-manual/sql-functions/bitmap-functions/orthogonal_bitmap_intersect",
                                 "sql-manual/sql-functions/bitmap-functions/orthogonal_bitmap_intersect_count",
+                                "sql-manual/sql-functions/bitmap-functions/orthogonal_bitmap_expr_calculate",
+                                "sql-manual/sql-functions/bitmap-functions/orthogonal_bitmap_expr_calculate_count",
                                 "sql-manual/sql-functions/bitmap-functions/bitmap_hash64"
                             ]
                         },
@@ -579,7 +585,8 @@
                                 "sql-manual/sql-functions/json-functions/get_json_string",
                                 "sql-manual/sql-functions/json-functions/json_array",
                                 "sql-manual/sql-functions/json-functions/json_object",
-                                "sql-manual/sql-functions/json-functions/json_quote"
+                                "sql-manual/sql-functions/json-functions/json_quote",
+                                "sql-manual/sql-functions/json-functions/json_valid"
                             ]
                         },
                         {
@@ -830,7 +837,8 @@
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Load/PAUSE-SYNC-JOB",
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD",
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-SYNC-JOB",
-                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD"
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD",
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Load/MYSQL-LOAD"
                                     ]
                                 },
                                 {
@@ -889,6 +897,7 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-CATALOG",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-DATABASE",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-MATERIALIZED-VIEW",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-LOAD",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-ROUTINE-LOAD",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-FUNCTION",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-COLUMNS",
@@ -1028,6 +1037,7 @@
                 "admin-manual/query-profile",
                 "admin-manual/tracing",
                 "admin-manual/optimization",
+                "admin-manual/certificate",
                 {
                     "type": "category",
                     "label": "Maintenance and Monitor",
@@ -1094,69 +1104,72 @@
                             "type": "category",
                             "label": "FE",
                             "items": [
-                                {
-                                    "type": "category",
-                                    "label": "MANAGER",
-                                    "items": [
-                                        "admin-manual/http-actions/fe/manager/query-profile-action",
-                                        "admin-manual/http-actions/fe/manager/node-action",
-                                        "admin-manual/http-actions/fe/manager/cluster-action"
-                                    ]
-                                },
-                                "admin-manual/http-actions/fe/get-load-state",
-                                "admin-manual/http-actions/fe/bootstrap-action",
-                                "admin-manual/http-actions/fe/ha-action",
-                                "admin-manual/http-actions/fe/meta-replay-state-action",
-                                "admin-manual/http-actions/fe/statement-execution-action",
-                                "admin-manual/http-actions/fe/profile-action",
-                                "admin-manual/http-actions/fe/meta-info-action",
-                                "admin-manual/http-actions/fe/meta-action",
-                                "admin-manual/http-actions/fe/query-profile-action",
-                                "admin-manual/http-actions/fe/show-data-action",
                                 "admin-manual/http-actions/fe/config-action",
-                                "admin-manual/http-actions/fe/get-log-file-action",
-                                "admin-manual/http-actions/fe/connection-action",
-                                "admin-manual/http-actions/fe/system-action",
-                                "admin-manual/http-actions/fe/table-schema-action",
-                                "admin-manual/http-actions/fe/show-meta-info-action",
+                                "admin-manual/http-actions/fe/ha-action",
                                 "admin-manual/http-actions/fe/hardware-info-action",
+                                "admin-manual/http-actions/fe/help-action",
                                 "admin-manual/http-actions/fe/log-action",
-                                "admin-manual/http-actions/fe/cancel-load-action",
+                                "admin-manual/http-actions/fe/login-action",
                                 "admin-manual/http-actions/fe/logout-action",
-                                "admin-manual/http-actions/fe/backends-action",
-                                "admin-manual/http-actions/fe/get-load-info-action",
-                                "admin-manual/http-actions/fe/show-runtime-info-action",
-                                "admin-manual/http-actions/fe/query-detail-action",
-                                "admin-manual/http-actions/fe/upload-action",
+                                "admin-manual/http-actions/fe/query-profile-action-controller",
                                 "admin-manual/http-actions/fe/session-action",
-                                "admin-manual/http-actions/fe/table-row-count-action",
-                                "admin-manual/http-actions/fe/get-small-file",
-                                "admin-manual/http-actions/fe/table-query-plan-action",
-                                "admin-manual/http-actions/fe/set-config-action",
-                                "admin-manual/http-actions/fe/row-count-action",
-                                "admin-manual/http-actions/fe/get-ddl-stmt-action",
-                                "admin-manual/http-actions/fe/show-proc-action",
+                                "admin-manual/http-actions/fe/system-action",
+                                "admin-manual/http-actions/fe/colocate-meta-action",
+                                "admin-manual/http-actions/fe/meta-action",
+                                "admin-manual/http-actions/fe/cluster-action",
+                                "admin-manual/http-actions/fe/node-action",
+                                "admin-manual/http-actions/fe/query-profile-action",
+                                "admin-manual/http-actions/fe/backends-action",
+                                "admin-manual/http-actions/fe/bootstrap-action",
+                                "admin-manual/http-actions/fe/cancel-load-action",
                                 "admin-manual/http-actions/fe/check-decommission-action",
-                                "admin-manual/http-actions/fe/health-action",
                                 "admin-manual/http-actions/fe/check-storage-type-action",
-                                "admin-manual/http-actions/fe/query-schema-action"
+                                "admin-manual/http-actions/fe/connection-action",
+                                "admin-manual/http-actions/fe/extra-basepath-action",
+                                "admin-manual/http-actions/fe/fe-version-info-action",
+                                "admin-manual/http-actions/fe/get-ddl-stmt-action",
+                                "admin-manual/http-actions/fe/get-load-info-action",
+                                "admin-manual/http-actions/fe/get-load-state",
+                                "admin-manual/http-actions/fe/get-log-file-action",
+                                "admin-manual/http-actions/fe/get-small-file",
+                                "admin-manual/http-actions/fe/health-action",
+                                "admin-manual/http-actions/fe/meta-info-action",
+                                "admin-manual/http-actions/fe/meta-replay-state-action",
+                                "admin-manual/http-actions/fe/metrics-action",
+                                "admin-manual/http-actions/fe/profile-action",
+                                "admin-manual/http-actions/fe/query-detail-action",
+                                "admin-manual/http-actions/fe/query-schema-action",
+                                "admin-manual/http-actions/fe/row-count-action",
+                                "admin-manual/http-actions/fe/set-config-action",
+                                "admin-manual/http-actions/fe/show-data-action",
+                                "admin-manual/http-actions/fe/show-meta-info-action",
+                                "admin-manual/http-actions/fe/show-proc-action",
+                                "admin-manual/http-actions/fe/show-runtime-info-action",
+                                "admin-manual/http-actions/fe/statement-execution-action",
+                                "admin-manual/http-actions/fe/table-query-plan-action",
+                                "admin-manual/http-actions/fe/table-row-count-action",
+                                "admin-manual/http-actions/fe/table-schema-action",
+                                "admin-manual/http-actions/fe/upload-action",
+                                "admin-manual/http-actions/fe/import-action",
+                                "admin-manual/http-actions/fe/meta-info-action-V2",
+                                "admin-manual/http-actions/fe/statistic-action"
                             ]
                         },
-                        "admin-manual/http-actions/restore-tablet",
-                        "admin-manual/http-actions/pad-rowset",
-                        "admin-manual/http-actions/get-load-state",
-                        "admin-manual/http-actions/tablet-migration-action",
-                        "admin-manual/http-actions/cancel-label",
-                        "admin-manual/http-actions/profile-action",
-                        "admin-manual/http-actions/show-data-action",
-                        "admin-manual/http-actions/tablets_distribution",
-                        "admin-manual/http-actions/connection-action",
-                        "admin-manual/http-actions/compaction-action",
-                        "admin-manual/http-actions/query-detail-action",
-                        "admin-manual/http-actions/get-tablets",
-                        "admin-manual/http-actions/fe-get-log-file",
-                        "admin-manual/http-actions/check-reset-rpc-cache",
-                        "admin-manual/http-actions/check-tablet-segment-action"
+                        {
+                            "type": "category",
+                            "label": "BE",
+                            "items": [
+                                "admin-manual/http-actions/be/be-version-info-action",
+                                "admin-manual/http-actions/be/restore-tablet",
+                                "admin-manual/http-actions/be/pad-rowset",
+                                "admin-manual/http-actions/be/tablet-migration-action",
+                                "admin-manual/http-actions/be/tablets_distribution",
+                                "admin-manual/http-actions/be/compaction-action",
+                                "admin-manual/http-actions/be/get-tablets",
+                                "admin-manual/http-actions/be/check-reset-rpc-cache",
+                                "admin-manual/http-actions/be/check-tablet-segment-action"
+                            ]
+                        }
                     ]
                 }
             ]
@@ -1182,6 +1195,7 @@
             "type": "category",
             "label": "Release notes",
             "items": [
+                "releasenotes/release-1.2.2",
                 "releasenotes/release-1.2.1",
                 "releasenotes/release-1.2.0",
                 "releasenotes/release-1.1.5",

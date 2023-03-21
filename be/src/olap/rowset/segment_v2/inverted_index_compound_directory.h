@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "io/fs/file_system.h"
+#include "util/lock.h"
 
 namespace doris {
 
@@ -49,7 +50,7 @@ class CLUCENE_EXPORT DorisCompoundDirectory : public lucene::store::Directory {
 private:
     int filemode;
 
-    std::mutex _this_lock;
+    doris::Mutex _this_lock;
 
 protected:
     DorisCompoundDirectory();
@@ -115,7 +116,7 @@ class DorisCompoundDirectory::FSIndexInput : public lucene::store::BufferedIndex
         io::FileReaderSPtr _reader;
         uint64_t _length;
         int64_t _fpos;
-        std::mutex _shared_lock;
+        doris::Mutex* _shared_lock;
         char path[4096];
         SharedHandle(const char* path);
         ~SharedHandle() override;
@@ -127,7 +128,7 @@ class DorisCompoundDirectory::FSIndexInput : public lucene::store::BufferedIndex
     FSIndexInput(SharedHandle* handle, int32_t buffer_size) : BufferedIndexInput(buffer_size) {
         this->_pos = 0;
         this->_handle = handle;
-    };
+    }
 
 protected:
     FSIndexInput(const FSIndexInput& clone);
@@ -145,7 +146,7 @@ public:
     const char* getObjectName() const override { return getClassName(); }
     static const char* getClassName() { return "FSIndexInput"; }
 
-    std::mutex _this_lock;
+    doris::Mutex _this_lock;
 
 protected:
     // Random-access methods

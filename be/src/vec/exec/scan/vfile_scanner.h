@@ -21,7 +21,7 @@
 #include "exec/text_converter.h"
 #include "exprs/function_filter.h"
 #include "io/file_factory.h"
-#include "runtime/tuple.h"
+#include "vec/common/schema_util.h"
 #include "vec/exec/format/format_common.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/scan/vscanner.h"
@@ -44,17 +44,13 @@ public:
     Status prepare(VExprContext** vconjunct_ctx_ptr,
                    std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
 
-    doris::TabletStorageType get_storage_type() override {
-        return doris::TabletStorageType::STORAGE_TYPE_REMOTE;
-    }
-
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) override;
 
     Status _get_next_reader();
 
     // TODO: cast input block columns type to string.
-    Status _cast_src_block(Block* block) { return Status::OK(); };
+    Status _cast_src_block(Block* block) { return Status::OK(); }
 
 protected:
     std::unique_ptr<TextConverter> _text_converter;
@@ -104,16 +100,12 @@ protected:
     // row desc for default exprs
     std::unique_ptr<RowDescriptor> _default_val_row_desc;
 
-    // Mem pool used to allocate _src_tuple and _src_tuple_row
-    std::unique_ptr<MemPool> _mem_pool;
-
     KVCache<std::string>& _kv_cache;
 
     bool _scanner_eof = false;
     int _rows = 0;
     int _num_of_columns_from_file;
 
-    bool _src_block_mem_reuse = false;
     bool _strict_mode;
 
     bool _src_block_init = false;
@@ -121,6 +113,7 @@ protected:
     Block _src_block;
 
     VExprContext* _push_down_expr = nullptr;
+    bool _is_dynamic_schema = false;
 
     std::unique_ptr<FileCacheStatistics> _file_cache_statistics;
     std::unique_ptr<IOContext> _io_ctx;

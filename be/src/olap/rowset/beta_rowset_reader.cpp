@@ -38,8 +38,12 @@ void BetaRowsetReader::reset_read_options() {
     _read_options.delete_condition_predicates = std::make_shared<AndBlockColumnPredicate>();
     _read_options.column_predicates.clear();
     _read_options.col_id_to_predicates.clear();
-    _read_options.col_id_to_del_predicates.clear();
+    _read_options.del_predicates_for_zone_map.clear();
     _read_options.key_ranges.clear();
+}
+
+RowsetReaderSharedPtr BetaRowsetReader::clone() {
+    return RowsetReaderSharedPtr(new BetaRowsetReader(_rowset));
 }
 
 bool BetaRowsetReader::update_profile(RuntimeProfile* profile) {
@@ -50,7 +54,8 @@ bool BetaRowsetReader::update_profile(RuntimeProfile* profile) {
 }
 
 Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context,
-                                               std::vector<RowwiseIterator*>* out_iters,
+                                               std::vector<RowwiseIteratorUPtr>* out_iters,
+                                               const std::pair<int, int>& segment_offset,
                                                bool use_cache) {
     RETURN_NOT_OK(_rowset->load());
     _context = read_context;
@@ -62,10 +67,13 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     }
 
     // convert RowsetReaderContext to StorageReadOptions
+    _read_options.block_row_max = read_context->batch_size;
     _read_options.stats = _stats;
     _read_options.push_down_agg_type_opt = _context->push_down_agg_type_opt;
     _read_options.remaining_vconjunct_root = _context->remaining_vconjunct_root;
+    _read_options.common_vexpr_ctxs_pushdown = _context->common_vexpr_ctxs_pushdown;
     _read_options.rowset_id = _rowset->rowset_id();
+    _read_options.version = _rowset->version();
     _read_options.tablet_id = _rowset->rowset_meta()->tablet_id();
     if (read_context->lower_bound_keys != nullptr) {
         for (int i = 0; i < read_context->lower_bound_keys->size(); ++i) {
@@ -81,7 +89,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     if (read_context->delete_handler != nullptr) {
         read_context->delete_handler->get_delete_conditions_after_version(
                 _rowset->end_version(), _read_options.delete_condition_predicates.get(),
-                &_read_options.col_id_to_del_predicates);
+                &_read_options.del_predicates_for_zone_map);
     }
 
     std::vector<uint32_t> read_columns;
@@ -162,6 +170,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.read_orderby_key_columns = read_context->read_orderby_key_columns;
     _read_options.io_ctx.reader_type = read_context->reader_type;
     _read_options.runtime_state = read_context->runtime_state;
+    _read_options.output_columns = read_context->output_columns;
 
     // load segments
     // use cache is true when do vertica compaction
@@ -170,91 +179,102 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
                                                            should_use_cache));
 
     // create iterator for each segment
-    std::vector<std::unique_ptr<RowwiseIterator>> seg_iterators;
-    for (auto& seg_ptr : _segment_cache_handle.get_segments()) {
+    auto& segments = _segment_cache_handle.get_segments();
+    auto [seg_start, seg_end] = segment_offset;
+    if (seg_start == seg_end) {
+        seg_start = 0;
+        seg_end = segments.size();
+    }
+
+    for (int i = seg_start; i < seg_end; i++) {
+        auto& seg_ptr = segments[i];
         std::unique_ptr<RowwiseIterator> iter;
         auto s = seg_ptr->new_iterator(*_input_schema, _read_options, &iter);
         if (!s.ok()) {
             LOG(WARNING) << "failed to create iterator[" << seg_ptr->id() << "]: " << s.to_string();
             return Status::Error<ROWSET_READER_INIT>();
         }
-        seg_iterators.push_back(std::move(iter));
-    }
-
-    for (auto& owned_it : seg_iterators) {
-        auto st = owned_it->init(_read_options);
+        if (iter->empty()) {
+            continue;
+        }
+        auto st = iter->init(_read_options);
         if (!st.ok()) {
             LOG(WARNING) << "failed to init iterator: " << st.to_string();
             return Status::Error<ROWSET_READER_INIT>();
         }
-        // transfer ownership of segment iterator to `_iterator`
-        out_iters->push_back(owned_it.release());
+        out_iters->push_back(std::move(iter));
     }
+
     return Status::OK();
 }
 
-Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
+Status BetaRowsetReader::init(RowsetReaderContext* read_context,
+                              const std::pair<int, int>& segment_offset) {
     _context = read_context;
-    std::vector<RowwiseIterator*> iterators;
-    RETURN_NOT_OK(get_segment_iterators(_context, &iterators));
+    std::vector<RowwiseIteratorUPtr> iterators;
+    RETURN_NOT_OK(get_segment_iterators(_context, &iterators, segment_offset));
 
     // merge or union segment iterator
-    RowwiseIterator* final_iterator;
     if (read_context->need_ordered_result && _rowset->rowset_meta()->is_segments_overlapping()) {
-        final_iterator = vectorized::new_merge_iterator(
-                iterators, read_context->sequence_id_idx, read_context->is_unique,
+        auto sequence_loc = -1;
+        if (read_context->sequence_id_idx != -1) {
+            for (size_t loc = 0; loc < read_context->return_columns->size(); loc++) {
+                if (read_context->return_columns->at(loc) == read_context->sequence_id_idx) {
+                    sequence_loc = loc;
+                    break;
+                }
+            }
+        }
+        _iterator = vectorized::new_merge_iterator(
+                std::move(iterators), sequence_loc, read_context->is_unique,
                 read_context->read_orderby_key_reverse, read_context->merged_rows);
     } else {
         if (read_context->read_orderby_key_reverse) {
             // reverse iterators to read backward for ORDER BY key DESC
             std::reverse(iterators.begin(), iterators.end());
         }
-        final_iterator = vectorized::new_union_iterator(iterators);
+        _iterator = vectorized::new_union_iterator(std::move(iterators));
     }
 
-    auto s = final_iterator->init(_read_options);
+    auto s = _iterator->init(_read_options);
     if (!s.ok()) {
         LOG(WARNING) << "failed to init iterator: " << s.to_string();
+        _iterator.reset();
         return Status::Error<ROWSET_READER_INIT>();
     }
-    _iterator.reset(final_iterator);
     return Status::OK();
 }
 
 Status BetaRowsetReader::next_block(vectorized::Block* block) {
     SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
+    if (_empty) {
+        return Status::Error<END_OF_FILE>();
+    }
+
     do {
         auto s = _iterator->next_batch(block);
         if (!s.ok()) {
-            if (s.is<END_OF_FILE>()) {
-                return Status::Error<END_OF_FILE>();
-            } else {
+            if (!s.is<END_OF_FILE>()) {
                 LOG(WARNING) << "failed to read next block: " << s.to_string();
-                return Status::Error<ROWSET_READ_FAILED>();
             }
+            return s;
         }
-    } while (block->rows() == 0);
+    } while (block->empty());
 
     return Status::OK();
 }
 
 Status BetaRowsetReader::next_block_view(vectorized::BlockView* block_view) {
     SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
-    if (config::enable_storage_vectorization && _context->is_vec) {
-        do {
-            auto s = _iterator->next_block_view(block_view);
-            if (!s.ok()) {
-                if (s.is<END_OF_FILE>()) {
-                    return Status::Error<END_OF_FILE>();
-                } else {
-                    LOG(WARNING) << "failed to read next block: " << s.to_string();
-                    return Status::Error<ROWSET_READ_FAILED>();
-                }
+    do {
+        auto s = _iterator->next_block_view(block_view);
+        if (!s.ok()) {
+            if (!s.is<END_OF_FILE>()) {
+                LOG(WARNING) << "failed to read next block view: " << s.to_string();
             }
-        } while (block_view->empty());
-    } else {
-        return Status::NotSupported("block view only support enable_storage_vectorization");
-    }
+            return s;
+        }
+    } while (block_view->empty());
 
     return Status::OK();
 }

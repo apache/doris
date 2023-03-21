@@ -25,9 +25,11 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.base.Preconditions;
@@ -65,11 +67,11 @@ public class PushdownExpressionsInHashCondition extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalJoin()
                 .when(join -> join.getHashJoinConjuncts().stream().anyMatch(equalTo ->
-                        equalTo.children().stream().anyMatch(e -> !(e instanceof Slot))))
+                        equalTo.children().stream().anyMatch(e -> !ExpressionUtils.checkTypeSkipCast(e, Slot.class))))
                 .then(join -> {
                     List<List<Expression>> exprsOfHashConjuncts =
                             Lists.newArrayList(Lists.newArrayList(), Lists.newArrayList());
-                    Map<Expression, Alias> exprMap = Maps.newHashMap();
+                    Map<Expression, NamedExpression> exprMap = Maps.newHashMap();
                     join.getHashJoinConjuncts().forEach(conjunct -> {
                         Preconditions.checkArgument(conjunct instanceof EqualTo);
                         // sometimes: t1 join t2 on t2.a + 1 = t1.a + 2, so check the situation, but actually it
@@ -78,22 +80,33 @@ public class PushdownExpressionsInHashCondition extends OneRewriteRuleFactory {
                                 (EqualTo) conjunct, join.left().getOutputSet());
                         exprsOfHashConjuncts.get(0).add(conjunct.child(0));
                         exprsOfHashConjuncts.get(1).add(conjunct.child(1));
-                        conjunct.children().forEach(expr ->
-                                exprMap.put(expr, new Alias(expr, "expr_" + expr.toSql())));
+                        conjunct.children().forEach(expr -> {
+                            if ((expr instanceof SlotReference)) {
+                                exprMap.put(expr, (SlotReference) expr);
+                            } else {
+                                exprMap.put(expr, new Alias(expr, "expr_" + expr.toSql()));
+                            }
+                        });
                     });
                     Iterator<List<Expression>> iter = exprsOfHashConjuncts.iterator();
                     return join.withHashJoinConjunctsAndChildren(
                             join.getHashJoinConjuncts().stream()
                                     .map(equalTo -> equalTo.withChildren(equalTo.children()
                                             .stream().map(expr -> exprMap.get(expr).toSlot())
-                                            .collect(Collectors.toList())))
-                                    .collect(Collectors.toList()),
+                                            .collect(ImmutableList.toImmutableList())))
+                                    .collect(ImmutableList.toImmutableList()),
                             join.children().stream().map(
-                                    plan -> new LogicalProject<>(new ImmutableList.Builder<NamedExpression>()
-                                            .addAll(iter.next().stream().map(expr -> exprMap.get(expr))
-                                                    .collect(Collectors.toList()))
-                                            .addAll(getOutput(plan, join)).build(), plan))
-                                    .collect(Collectors.toList()));
+                                        plan -> {
+                                            Set<NamedExpression> projectSet = Sets.newHashSet();
+                                            projectSet.addAll(iter.next().stream().map(exprMap::get)
+                                                    .collect(Collectors.toList()));
+                                            projectSet.addAll(getOutput(plan, join));
+                                            List<NamedExpression> projectList = projectSet.stream()
+                                                    .collect(ImmutableList.toImmutableList());
+                                            return new LogicalProject<>(projectList, plan);
+                                        }
+                                    )
+                                    .collect(ImmutableList.toImmutableList()));
                 }).toRule(RuleType.PUSHDOWN_EXPRESSIONS_IN_HASH_CONDITIONS);
     }
 

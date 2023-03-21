@@ -23,6 +23,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "exception.h"
+#include "network_util.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "util/brpc_client_cache.h"
@@ -38,7 +39,7 @@ constexpr size_t MIN_HTTP_BRPC_SIZE = (1ULL << 31);
 
 // Embed column_values and brpc request serialization string in controller attachment.
 template <typename Params, typename Closure>
-inline Status request_embed_attachment_contain_block(Params* brpc_request, Closure* closure) {
+Status request_embed_attachment_contain_block(Params* brpc_request, Closure* closure) {
     auto block = brpc_request->block();
     Status st = request_embed_attachment(brpc_request, block.column_values(), closure);
     block.set_column_values("");
@@ -61,19 +62,20 @@ inline bool enable_http_send_block(
 }
 
 template <typename Closure>
-inline void transmit_block(PBackendService_Stub& stub, Closure* closure,
-                           const PTransmitDataParams& params) {
+void transmit_block(PBackendService_Stub& stub, Closure* closure,
+                    const PTransmitDataParams& params) {
     closure->cntl.http_request().Clear();
     stub.transmit_block(&closure->cntl, &params, &closure->result, closure);
 }
 
 template <typename Closure>
-inline Status transmit_block_http(RuntimeState* state, Closure* closure,
-                                  PTransmitDataParams& params, TNetworkAddress brpc_dest_addr) {
+Status transmit_block_http(RuntimeState* state, Closure* closure, PTransmitDataParams& params,
+                           TNetworkAddress brpc_dest_addr) {
     RETURN_IF_ERROR(request_embed_attachment_contain_block(&params, closure));
 
-    std::string brpc_url =
-            fmt::format("http://{}:{}", brpc_dest_addr.hostname, brpc_dest_addr.port);
+    //format an ipv6 address
+    std::string brpc_url = get_brpc_http_url(brpc_dest_addr.hostname, brpc_dest_addr.port);
+
     std::shared_ptr<PBackendService_Stub> brpc_http_stub =
             state->exec_env()->brpc_internal_client_cache()->get_new_client_no_cache(brpc_url,
                                                                                      "http");
@@ -90,8 +92,8 @@ inline Status transmit_block_http(RuntimeState* state, Closure* closure,
 // This can avoid reaching the upper limit of the ProtoBuf Request length (2G),
 // and it is expected that performance can be improved.
 template <typename Params, typename Closure>
-inline void request_row_batch_transfer_attachment(Params* brpc_request,
-                                                  const std::string& tuple_data, Closure* closure) {
+void request_row_batch_transfer_attachment(Params* brpc_request, const std::string& tuple_data,
+                                           Closure* closure) {
     auto row_batch = brpc_request->mutable_row_batch();
     row_batch->set_tuple_data("");
     brpc_request->set_transfer_by_attachment(true);
@@ -105,8 +107,8 @@ inline void request_row_batch_transfer_attachment(Params* brpc_request,
 // This can avoid reaching the upper limit of the ProtoBuf Request length (2G),
 // and it is expected that performance can be improved.
 template <typename Params, typename Closure>
-inline void request_block_transfer_attachment(Params* brpc_request,
-                                              const std::string& column_values, Closure* closure) {
+void request_block_transfer_attachment(Params* brpc_request, const std::string& column_values,
+                                       Closure* closure) {
     auto block = brpc_request->mutable_block();
     block->set_column_values("");
     brpc_request->set_transfer_by_attachment(true);
@@ -118,8 +120,7 @@ inline void request_block_transfer_attachment(Params* brpc_request,
 // TODO(zxy) delete in v1.3 version
 // Controller Attachment transferred to RowBatch in ProtoBuf Request.
 template <typename Params>
-inline void attachment_transfer_request_row_batch(const Params* brpc_request,
-                                                  brpc::Controller* cntl) {
+void attachment_transfer_request_row_batch(const Params* brpc_request, brpc::Controller* cntl) {
     Params* req = const_cast<Params*>(brpc_request);
     if (req->has_row_batch() && req->transfer_by_attachment()) {
         auto rb = req->mutable_row_batch();
@@ -132,7 +133,7 @@ inline void attachment_transfer_request_row_batch(const Params* brpc_request,
 // TODO(zxy) delete in v1.3 version
 // Controller Attachment transferred to Block in ProtoBuf Request.
 template <typename Params>
-inline void attachment_transfer_request_block(const Params* brpc_request, brpc::Controller* cntl) {
+void attachment_transfer_request_block(const Params* brpc_request, brpc::Controller* cntl) {
     Params* req = const_cast<Params*>(brpc_request);
     if (req->has_block() && req->transfer_by_attachment()) {
         auto block = req->mutable_block();
@@ -142,18 +143,8 @@ inline void attachment_transfer_request_block(const Params* brpc_request, brpc::
     }
 }
 
-// Embed tuple_data and brpc request serialization string in controller attachment.
 template <typename Params, typename Closure>
-inline Status request_embed_attachment_contain_tuple(Params* brpc_request, Closure* closure) {
-    auto row_batch = brpc_request->row_batch();
-    Status st = request_embed_attachment(brpc_request, row_batch.tuple_data(), closure);
-    row_batch.set_tuple_data("");
-    return st;
-}
-
-template <typename Params, typename Closure>
-inline Status request_embed_attachment(Params* brpc_request, const std::string& data,
-                                       Closure* closure) {
+Status request_embed_attachment(Params* brpc_request, const std::string& data, Closure* closure) {
     butil::IOBuf attachment;
 
     // step1: serialize brpc_request to string, and append to attachment.
@@ -181,29 +172,19 @@ inline Status request_embed_attachment(Params* brpc_request, const std::string& 
     return Status::OK();
 }
 
-// Extract the brpc request and tuple data from the controller attachment,
-// and put the tuple data into the request.
-template <typename Params>
-inline Status attachment_extract_request_contain_tuple(const Params* brpc_request,
-                                                       brpc::Controller* cntl) {
-    Params* req = const_cast<Params*>(brpc_request);
-    auto rb = req->mutable_row_batch();
-    return attachment_extract_request(req, cntl, rb->mutable_tuple_data());
-}
-
 // Extract the brpc request and block from the controller attachment,
 // and put the block into the request.
 template <typename Params>
-inline Status attachment_extract_request_contain_block(const Params* brpc_request,
-                                                       brpc::Controller* cntl) {
+Status attachment_extract_request_contain_block(const Params* brpc_request,
+                                                brpc::Controller* cntl) {
     Params* req = const_cast<Params*>(brpc_request);
     auto block = req->mutable_block();
     return attachment_extract_request(req, cntl, block->mutable_column_values());
 }
 
 template <typename Params>
-inline Status attachment_extract_request(const Params* brpc_request, brpc::Controller* cntl,
-                                         std::string* data) {
+Status attachment_extract_request(const Params* brpc_request, brpc::Controller* cntl,
+                                  std::string* data) {
     const butil::IOBuf& io_buf = cntl->request_attachment();
 
     // step1: deserialize request string to brpc_request from attachment.

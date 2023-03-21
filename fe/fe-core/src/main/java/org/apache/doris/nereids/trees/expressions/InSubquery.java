@@ -95,16 +95,12 @@ public class InSubquery extends SubqueryExpr {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
+        if (!super.equals(o)) {
             return false;
         }
         InSubquery inSubquery = (InSubquery) o;
         return Objects.equals(this.compareExpr, inSubquery.getCompareExpr())
-                && checkEquals(this.queryPlan, inSubquery.queryPlan)
-                && Objects.equals(this.isNot, inSubquery.isNot);
+                && this.isNot == inSubquery.isNot;
     }
 
     @Override

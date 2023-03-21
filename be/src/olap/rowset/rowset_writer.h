@@ -36,10 +36,6 @@ public:
 
     virtual Status init(const RowsetWriterContext& rowset_writer_context) = 0;
 
-    // Memory note: input `row` is guaranteed to be copied into writer's internal buffer, including all slice data
-    // referenced by `row`. That means callers are free to de-allocate memory for `row` after this method returns.
-    virtual Status add_row(const RowCursor& row) = 0;
-
     virtual Status add_block(const vectorized::Block* block) {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
     }
@@ -91,6 +87,10 @@ public:
     }
 
     virtual int32_t get_atomic_num_segment() const = 0;
+
+    virtual bool is_doing_segcompaction() const = 0;
+
+    virtual Status wait_flying_segcompaction() = 0;
 
 private:
     DISALLOW_COPY_AND_ASSIGN(RowsetWriter);

@@ -38,7 +38,6 @@ public enum JoinType {
     RIGHT_ANTI_JOIN,
     CROSS_JOIN,
     NULL_AWARE_LEFT_ANTI_JOIN,
-    USING_JOIN,
     ;
 
     private static final Map<JoinType, JoinType> joinSwapMap = ImmutableMap
@@ -132,6 +131,10 @@ public enum JoinType {
     public final boolean isSemiOrAntiJoin() {
         return this == LEFT_SEMI_JOIN || this == RIGHT_SEMI_JOIN || this == LEFT_ANTI_JOIN
                 || this == NULL_AWARE_LEFT_ANTI_JOIN || this == RIGHT_ANTI_JOIN;
+    }
+
+    public final boolean isSemiJoin() {
+        return this == LEFT_SEMI_JOIN || this == RIGHT_SEMI_JOIN;
     }
 
     public final boolean isOuterJoin() {

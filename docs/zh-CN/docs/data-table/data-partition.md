@@ -48,7 +48,7 @@ under the License.
 
 多个 Tablet 在逻辑上归属于不同的分区（Partition）。一个 Tablet 只属于一个 Partition。而一个 Partition 包含若干个 Tablet。因为 Tablet 在物理上是独立存储的，所以可以视为 Partition 在物理上也是独立。Tablet 是数据移动、复制等操作的最小物理存储单元。
 
-若干个 Partition 组成一个 Table。Partition 可以视为是逻辑上最小的管理单元。数据的导入与删除，都可以或仅能针对一个 Partition 进行。
+若干个 Partition 组成一个 Table。Partition 可以视为是逻辑上最小的管理单元。数据的导入与删除，仅能针对一个 Partition 进行。
 
 ## 数据划分
 
@@ -316,7 +316,7 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
    
    在以上示例中，我们指定 `id`(INT 类型) 和 `city`(VARCHAR 类型) 作为分区列。以上示例最终得到的分区如下：
    
-   ```
+   ```text
    * p1_city: [("1", "Beijing"), ("1", "Shanghai")]
    * p2_city: [("2", "Beijing"), ("2", "Shanghai")]
    * p3_city: [("3", "Beijing"), ("3", "Shanghai")]
@@ -324,7 +324,7 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
    
    当用户插入数据时，分区列值会按照顺序依次比较，最终得到对应的分区。举例如下：
    
-   ```
+   ```text
    * 数据  --->  分区
    * 1, Beijing     ---> p1_city
    * 1, Shanghai    ---> p1_city

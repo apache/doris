@@ -21,7 +21,6 @@ import org.apache.doris.analysis.AddBackendClause;
 import org.apache.doris.analysis.AddFollowerClause;
 import org.apache.doris.analysis.AddObserverClause;
 import org.apache.doris.analysis.AlterClause;
-import org.apache.doris.analysis.AlterLoadErrorUrlClause;
 import org.apache.doris.analysis.CancelAlterSystemStmt;
 import org.apache.doris.analysis.CancelStmt;
 import org.apache.doris.analysis.DecommissionBackendClause;
@@ -29,7 +28,9 @@ import org.apache.doris.analysis.DropBackendClause;
 import org.apache.doris.analysis.DropFollowerClause;
 import org.apache.doris.analysis.DropObserverClause;
 import org.apache.doris.analysis.ModifyBackendClause;
+import org.apache.doris.analysis.ModifyBackendHostNameClause;
 import org.apache.doris.analysis.ModifyBrokerClause;
+import org.apache.doris.analysis.ModifyFrontendHostNameClause;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -154,24 +155,30 @@ public class SystemHandler extends AlterHandler {
 
         } else if (alterClause instanceof AddObserverClause) {
             AddObserverClause clause = (AddObserverClause) alterClause;
-            Env.getCurrentEnv().addFrontend(FrontendNodeType.OBSERVER, clause.getHost(), clause.getPort());
+            Env.getCurrentEnv().addFrontend(FrontendNodeType.OBSERVER, clause.getIp(), clause.getHostName(),
+                    clause.getPort());
         } else if (alterClause instanceof DropObserverClause) {
             DropObserverClause clause = (DropObserverClause) alterClause;
-            Env.getCurrentEnv().dropFrontend(FrontendNodeType.OBSERVER, clause.getHost(), clause.getPort());
+            Env.getCurrentEnv().dropFrontend(FrontendNodeType.OBSERVER, clause.getIp(), clause.getHostName(),
+                    clause.getPort());
         } else if (alterClause instanceof AddFollowerClause) {
             AddFollowerClause clause = (AddFollowerClause) alterClause;
-            Env.getCurrentEnv().addFrontend(FrontendNodeType.FOLLOWER, clause.getHost(), clause.getPort());
+            Env.getCurrentEnv().addFrontend(FrontendNodeType.FOLLOWER, clause.getIp(), clause.getHostName(),
+                    clause.getPort());
         } else if (alterClause instanceof DropFollowerClause) {
             DropFollowerClause clause = (DropFollowerClause) alterClause;
-            Env.getCurrentEnv().dropFrontend(FrontendNodeType.FOLLOWER, clause.getHost(), clause.getPort());
+            Env.getCurrentEnv().dropFrontend(FrontendNodeType.FOLLOWER, clause.getIp(), clause.getHostName(),
+                    clause.getPort());
         } else if (alterClause instanceof ModifyBrokerClause) {
             ModifyBrokerClause clause = (ModifyBrokerClause) alterClause;
             Env.getCurrentEnv().getBrokerMgr().execute(clause);
-        } else if (alterClause instanceof AlterLoadErrorUrlClause) {
-            AlterLoadErrorUrlClause clause = (AlterLoadErrorUrlClause) alterClause;
-            Env.getCurrentEnv().getLoadInstance().setLoadErrorHubInfo(clause.getProperties());
         } else if (alterClause instanceof ModifyBackendClause) {
             Env.getCurrentSystemInfo().modifyBackends(((ModifyBackendClause) alterClause));
+        } else if (alterClause instanceof ModifyFrontendHostNameClause) {
+            ModifyFrontendHostNameClause clause = (ModifyFrontendHostNameClause) alterClause;
+            Env.getCurrentEnv().modifyFrontendHostName(clause.getIp(), clause.getNewHostName());
+        } else if (alterClause instanceof ModifyBackendHostNameClause) {
+            Env.getCurrentSystemInfo().modifyBackendHost((ModifyBackendHostNameClause) alterClause);
         } else {
             Preconditions.checkState(false, alterClause.getClass());
         }
@@ -262,7 +269,7 @@ public class SystemHandler extends AlterHandler {
             if (backend.setDecommissioned(false)) {
                 Env.getCurrentEnv().getEditLog().logBackendStateChange(backend);
             } else {
-                LOG.info("backend is not decommissioned[{}]", backend.getHost());
+                LOG.info("backend is not decommissioned[{}]", backend.getIp());
             }
         }
     }

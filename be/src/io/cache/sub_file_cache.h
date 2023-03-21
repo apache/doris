@@ -39,6 +39,8 @@ public:
     Status read_at(size_t offset, Slice result, const IOContext& io_ctx,
                    size_t* bytes_read) override;
 
+    Status read_at_impl(size_t offset, Slice result, const IOContext& io_ctx, size_t* bytes_read);
+
     const Path& path() const override { return _remote_file_reader->path(); }
 
     size_t size() const override { return _remote_file_reader->size(); }
@@ -57,7 +59,7 @@ public:
 
     int64_t get_oldest_match_time() const override {
         return _gc_lru_queue.empty() ? 0 : _gc_lru_queue.top().last_match_time;
-    };
+    }
 
     bool is_gc_finish() const override { return _gc_lru_queue.empty(); }
 
@@ -73,7 +75,9 @@ private:
 
     std::pair<Path, Path> _cache_path(size_t offset);
 
-    void _init();
+    Status _init();
+
+    Status _get_all_sub_file_size(std::map<int64_t, int64_t>* expect_file_size_map);
 
 private:
     struct SubFileInfo {
@@ -95,7 +99,7 @@ private:
     // offset_begin -> local file reader
     std::map<size_t, io::FileReaderSPtr> _cache_file_readers;
 
-    std::once_flag init_flag;
+    bool _is_inited = false;
 };
 
 } // namespace io

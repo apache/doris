@@ -24,17 +24,18 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 
+import com.google.common.base.Strings;
 import org.junit.Assert;
 import org.junit.Test;
 
 public class ShowMTMVJobStmtTest {
     @Test
     public void testNormal() throws UserException, AnalysisException {
-        final Analyzer analyzer =  AccessTestUtil.fetchBlockAnalyzer();
+        final Analyzer analyzer = AccessTestUtil.fetchEmptyDbAnalyzer();
         ShowMTMVJobStmt stmt = new ShowMTMVJobStmt();
         stmt.analyze(analyzer);
         Assert.assertNull(stmt.getJobName());
-        Assert.assertNull(stmt.getDbName());
+        Assert.assertTrue(Strings.isNullOrEmpty(stmt.getDbName()));
         Assert.assertNull(stmt.getMVName());
         Assert.assertEquals(13, stmt.getMetaData().getColumnCount());
         Assert.assertEquals("SHOW MTMV JOB", stmt.toSql());
@@ -42,14 +43,14 @@ public class ShowMTMVJobStmtTest {
         stmt = new ShowMTMVJobStmt("job1");
         stmt.analyze(analyzer);
         Assert.assertNotNull(stmt.getJobName());
-        Assert.assertNull(stmt.getDbName());
+        Assert.assertTrue(Strings.isNullOrEmpty(stmt.getDbName()));
         Assert.assertNull(stmt.getMVName());
         Assert.assertEquals("SHOW MTMV JOB FOR job1", stmt.toSql());
 
         stmt = new ShowMTMVJobStmt("db1", null);
         stmt.analyze(analyzer);
         Assert.assertNull(stmt.getJobName());
-        Assert.assertNotNull(stmt.getDbName());
+        Assert.assertFalse(Strings.isNullOrEmpty(stmt.getDbName()));
         Assert.assertNull(stmt.getMVName());
         Assert.assertEquals("SHOW MTMV JOB FROM db1", stmt.toSql());
 
@@ -57,7 +58,7 @@ public class ShowMTMVJobStmtTest {
         stmt = new ShowMTMVJobStmt(null, tableName);
         stmt.analyze(analyzer);
         Assert.assertNull(stmt.getJobName());
-        Assert.assertNull(stmt.getDbName());
+        Assert.assertTrue(Strings.isNullOrEmpty(stmt.getDbName()));
         Assert.assertNotNull(stmt.getMVName());
         Assert.assertEquals("SHOW MTMV JOB ON `mv1`", stmt.toSql());
 
@@ -65,7 +66,7 @@ public class ShowMTMVJobStmtTest {
         stmt = new ShowMTMVJobStmt(null, tableName);
         stmt.analyze(analyzer);
         Assert.assertNull(stmt.getJobName());
-        Assert.assertNotNull(stmt.getDbName());
+        Assert.assertFalse(Strings.isNullOrEmpty(stmt.getDbName()));
         Assert.assertNotNull(stmt.getMVName());
         Assert.assertEquals("SHOW MTMV JOB ON `db2`.`mv1`", stmt.toSql());
 
@@ -73,17 +74,30 @@ public class ShowMTMVJobStmtTest {
         stmt = new ShowMTMVJobStmt("db1", tableName);
         stmt.analyze(analyzer);
         Assert.assertNull(stmt.getJobName());
-        Assert.assertNotNull(stmt.getDbName());
+        Assert.assertFalse(Strings.isNullOrEmpty(stmt.getDbName()));
         Assert.assertNotNull(stmt.getMVName());
         Assert.assertEquals("SHOW MTMV JOB FROM db1 ON `mv1`", stmt.toSql());
     }
 
     @Test(expected = UserException.class)
     public void testConflictDbName() throws UserException, AnalysisException {
-        final Analyzer analyzer =  AccessTestUtil.fetchBlockAnalyzer();
+        final Analyzer analyzer = AccessTestUtil.fetchBlockAnalyzer();
         TableName tableName = new TableName(null, "db2", "mv1");
-
         ShowMTMVJobStmt stmt = new ShowMTMVJobStmt("db1", tableName);
         stmt.analyze(analyzer);
+    }
+
+    @Test
+    public void testDefaultDb() throws UserException {
+        final Analyzer analyzer = AccessTestUtil.fetchBlockAnalyzer();
+        ShowMTMVJobStmt stmt = new ShowMTMVJobStmt();
+        stmt.analyze(analyzer);
+        Assert.assertNull(stmt.getJobName());
+        Assert.assertEquals("testCluster:testDb", stmt.getDbName());
+        Assert.assertNull(stmt.getMVName());
+        Assert.assertEquals(13, stmt.getMetaData().getColumnCount());
+        Assert.assertEquals("SHOW MTMV JOB", stmt.toSql());
+        Assert.assertFalse(stmt.isShowAllJobs());
+        Assert.assertTrue(stmt.isShowAllJobsFromDb());
     }
 }
