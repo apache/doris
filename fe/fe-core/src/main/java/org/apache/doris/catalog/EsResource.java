@@ -136,6 +136,15 @@ public class EsResource extends Resource {
         }
     }
 
+    public static void fillUrlsWithSchema(String[] urls, boolean isSslEnabled) {
+        for (int i = 0; i < urls.length; i++) {
+            String seed = urls[i].trim();
+            if (!seed.startsWith("http://") && !seed.startsWith("https://")) {
+                urls[i] = (isSslEnabled ? "https://" : "http://") + seed;
+            }
+        }
+    }
+
     private Map<String, String> processCompatibleProperties(Map<String, String> props) {
         // Compatible with ES catalog properties
         Map<String, String> properties = Maps.newHashMap(props);
