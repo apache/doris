@@ -270,23 +270,23 @@ PROPERTIES (
 
 ### ClickHouse
 
-|                  ClickHouse                  |          Doris           |
-|:--------------------------------------------:|:------------------------:|
-|                   Boolean                    |         BOOLEAN          |
-|                    String                    |          STRING          |
-|                 Date/Date32                  |       DATE/DATEV2        |
-|             DateTime/DateTime64              |   DATETIME/DATETIMEV2    |
-|                   Float32                    |          FLOAT           |
-|                   Float64                    |          DOUBLE          |
-|                     Int8                     |         TINYINT          |
-|                 Int16/UInt8                  |         SMALLINT         |
-|                 Int32/UInt16                 |           INT            |
-|                 Int64/Uint32                 |          BIGINT          |
-|                Int128/UInt64                 |         LARGEINT         |
-|            Int256/UInt128/UInt256            |          STRING          |
-|                   Decimal                    | DECIMAL/DECIMALV3/STRING |
-|             Enum/IPv4/IPv6/UUID              |          STRING          |
-| <version since="dev" type="inline"> Array(T) |   Array<T> </version>    |
+|                       ClickHouse                        |          Doris           |
+|:-------------------------------------------------------:|:------------------------:|
+|                         Boolean                         |         BOOLEAN          |
+|                         String                          |          STRING          |
+|                       Date/Date32                       |       DATE/DATEV2        |
+|                   DateTime/DateTime64                   |   DATETIME/DATETIMEV2    |
+|                         Float32                         |          FLOAT           |
+|                         Float64                         |          DOUBLE          |
+|                          Int8                           |         TINYINT          |
+|                       Int16/UInt8                       |         SMALLINT         |
+|                      Int32/UInt16                       |           INT            |
+|                      Int64/Uint32                       |          BIGINT          |
+|                      Int128/UInt64                      |         LARGEINT         |
+|                 Int256/UInt128/UInt256                  |          STRING          |
+|                         Decimal                         | DECIMAL/DECIMALV3/STRING |
+|                   Enum/IPv4/IPv6/UUID                   |          STRING          |
+| <version since="dev" type="inline"> Array(T) </version> |         Array<T>         |
 
 **注意：**
 
