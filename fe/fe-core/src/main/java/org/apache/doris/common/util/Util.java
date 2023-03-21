@@ -48,6 +48,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.function.LongUnaryOperator;
 import java.util.function.Predicate;
 
 public class Util {
@@ -89,6 +90,21 @@ public class Util {
         TYPE_STRING_MAP.put(PrimitiveType.ARRAY, "array<%s>");
         TYPE_STRING_MAP.put(PrimitiveType.VARIANT, "variant");
         TYPE_STRING_MAP.put(PrimitiveType.NULL_TYPE, "null");
+    }
+
+    public static LongUnaryOperator overflowSafeIncrement() {
+        return original -> {
+            if (original == Long.MAX_VALUE) {
+                return Long.MAX_VALUE;
+            }
+            long r = original + 1;
+            if (r == Long.MAX_VALUE || ((original ^ r) & (1 ^ r)) < 0) {
+                // unbounded reached
+                return Long.MAX_VALUE;
+            } else {
+                return r;
+            }
+        };
     }
 
     private static class CmdWorker extends Thread {

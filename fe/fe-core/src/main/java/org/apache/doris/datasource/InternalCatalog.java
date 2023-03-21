@@ -532,6 +532,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             fullNameToDb.remove(db.getFullName());
             DropDbInfo info = new DropDbInfo(dbName, stmt.isForceDrop(), recycleTime);
             Env.getCurrentEnv().getEditLog().logDropDb(info);
+            Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getCurrentCatalog().getId(), db.getId());
         } finally {
             unlock();
         }
@@ -573,6 +574,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 } else {
                     Env.getCurrentEnv().eraseDatabase(db.getId(), false);
                 }
+                Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getInternalCatalog().getId(), db.getId());
             } finally {
                 db.writeUnlock();
             }
@@ -864,6 +866,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
             DropInfo info = new DropInfo(db.getId(), table.getId(), -1L, stmt.isForceDrop(), recycleTime);
             Env.getCurrentEnv().getEditLog().logDropTable(info);
+            Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getCurrentCatalog().getId(),
+                    db.getId(), table.getId());
         } finally {
             db.writeUnlock();
         }
@@ -909,6 +913,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         table.writeLock();
         try {
             unprotectDropTable(db, table, isForceDrop, true, recycleTime);
+            Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentInternalCatalog().getId(), db.getId(),
+                    tableId);
         } finally {
             table.writeUnlock();
             db.writeUnlock();

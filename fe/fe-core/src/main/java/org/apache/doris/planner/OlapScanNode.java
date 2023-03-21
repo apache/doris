@@ -64,6 +64,7 @@ import org.apache.doris.resource.Tag;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsDeriveResult;
 import org.apache.doris.statistics.StatsRecursiveDerive;
+import org.apache.doris.statistics.query.StatsDelta;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TExplainLevel;
@@ -171,6 +172,8 @@ public class OlapScanNode extends ScanNode {
 
     // List of tablets will be scanned by current olap_scan_node
     private ArrayList<Long> scanTabletIds = Lists.newArrayList();
+
+    private ArrayList<Long> scanReplicaIds = Lists.newArrayList();
 
     private Set<Long> sampleTabletIds = Sets.newHashSet();
     private TableSample tableSample;
@@ -782,6 +785,7 @@ public class OlapScanNode extends ScanNode {
                     errs.add(err);
                     continue;
                 }
+                scanReplicaIds.add(replica.getId());
                 String ip = backend.getHost();
                 int port = backend.getBePort();
                 TScanRangeLocation scanRangeLocation = new TScanRangeLocation(new TNetworkAddress(ip, port));
@@ -1511,5 +1515,14 @@ public class OlapScanNode extends ScanNode {
                 outputColumnUniqueIds.add(slot.getColumn().getUniqueId());
             }
         }
+    }
+
+    @Override
+    public StatsDelta genStatsDelta() throws AnalysisException {
+        return new StatsDelta(Env.getCurrentEnv().getCurrentCatalog().getId(),
+                Env.getCurrentEnv().getCurrentCatalog().getDbOrAnalysisException(
+                        olapTable.getQualifiedDbName()).getId(),
+                olapTable.getId(), selectedIndexId == -1 ? olapTable.getBaseIndexId() : selectedIndexId,
+                scanReplicaIds);
     }
 }

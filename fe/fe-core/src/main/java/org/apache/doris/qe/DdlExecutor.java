@@ -51,6 +51,7 @@ import org.apache.doris.analysis.CancelExportStmt;
 import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.CleanLabelStmt;
 import org.apache.doris.analysis.CleanProfileStmt;
+import org.apache.doris.analysis.CleanQueryStatsStmt;
 import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.CreateDataSyncJobStmt;
 import org.apache.doris.analysis.CreateDbStmt;
@@ -115,6 +116,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.load.sync.SyncJobManager;
+import org.apache.doris.persist.CleanQueryStatsInfo;
 import org.apache.doris.statistics.StatisticsRepository;
 
 /**
@@ -257,8 +259,8 @@ public class DdlExecutor {
             if (!syncJobMgr.isJobNameExist(createSyncJobStmt.getDbName(), createSyncJobStmt.getJobName())) {
                 syncJobMgr.addDataSyncJob((CreateDataSyncJobStmt) ddlStmt);
             } else {
-                throw new DdlException("The syncJob with jobName '" + createSyncJobStmt.getJobName()
-                        + "' in database [" + createSyncJobStmt.getDbName() + "] is already exists.");
+                throw new DdlException("The syncJob with jobName '" + createSyncJobStmt.getJobName() + "' in database ["
+                        + createSyncJobStmt.getDbName() + "] is already exists.");
             }
         } else if (ddlStmt instanceof ResumeSyncJobStmt) {
             env.getSyncJobManager().resumeSyncJob((ResumeSyncJobStmt) ddlStmt);
@@ -322,6 +324,26 @@ public class DdlExecutor {
             env.getAnalysisManager().dropStats((DropStatsStmt) ddlStmt);
         } else if (ddlStmt instanceof KillAnalysisJobStmt) {
             env.getAnalysisManager().handleKillAnalyzeStmt((KillAnalysisJobStmt) ddlStmt);
+        } else if (ddlStmt instanceof CleanQueryStatsStmt) {
+            CleanQueryStatsStmt stmt = (CleanQueryStatsStmt) ddlStmt;
+            CleanQueryStatsInfo cleanQueryStatsInfo = null;
+            switch (stmt.getScope()) {
+                case ALL:
+                    cleanQueryStatsInfo = new CleanQueryStatsInfo(
+                            CleanQueryStatsStmt.Scope.ALL, env.getCurrentCatalog().getName(), null, null);
+                    break;
+                case DB:
+                    cleanQueryStatsInfo = new CleanQueryStatsInfo(CleanQueryStatsStmt.Scope.DB,
+                            env.getCurrentCatalog().getName(), stmt.getDbName(), null);
+                    break;
+                case TABLE:
+                    cleanQueryStatsInfo = new CleanQueryStatsInfo(CleanQueryStatsStmt.Scope.TABLE,
+                            env.getCurrentCatalog().getName(), stmt.getDbName(), stmt.getTableName().getTbl());
+                    break;
+                default:
+                    throw new DdlException("Unknown scope: " + stmt.getScope());
+            }
+            env.cleanQueryStats(cleanQueryStatsInfo);
         } else {
             throw new DdlException("Unknown statement.");
         }
