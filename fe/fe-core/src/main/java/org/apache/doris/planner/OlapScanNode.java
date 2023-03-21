@@ -1077,9 +1077,6 @@ public class OlapScanNode extends ScanNode {
             sortInfo.getMaterializedOrderingExprs().forEach(expr -> {
                 output.append(prefix).append(prefix).append(expr.toSql()).append("\n");
             });
-            if (sortInfo.useTwoPhaseRead()) {
-                output.append(prefix).append("OPT TWO PHASE\n");
-            }
         }
         if (sortLimit != -1) {
             output.append(prefix).append("SORT LIMIT: ").append(sortLimit).append("\n");
