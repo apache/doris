@@ -1602,8 +1602,8 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
     Status st;
     try {
         st = _next_batch_internal(block);
-    } catch (const vectorized::Exception& e) {
-        st = Status::Error(e.code(), e.what());
+    } catch (const doris::Exception& e) {
+        st = Status::Error(e.code(), e.to_string());
     }
     return st;
 }

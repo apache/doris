@@ -308,8 +308,8 @@ Status FullSorter::append_block(Block* block) {
             try {
                 RETURN_IF_CATCH_BAD_ALLOC(data[i].column->assume_mutable()->insert_range_from(
                         *arrival_data[i].column->convert_to_full_column_if_const().get(), 0, sz));
-            } catch (const Exception& e) {
-                return Status::Error(e.code(), e.what());
+            } catch (const doris::Exception& e) {
+                return Status::Error(e.code(), e.to_string());
             }
         }
         block->clear_column_data();

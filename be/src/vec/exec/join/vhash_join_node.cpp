@@ -511,8 +511,8 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
                     *_hash_table_variants, *_process_hashtable_ctx_variants,
                     make_bool_variant(_need_null_map_for_probe),
                     make_bool_variant(_probe_ignore_null));
-        } catch (const Exception& e) {
-            return Status::Error(e.code(), e.what());
+        } catch (const doris::Exception& e) {
+            return Status::Error(e.code(), e.to_string());
         }
     } else if (_probe_eos) {
         if (_is_right_semi_anti || (_is_outer_join && _join_op != TJoinOp::LEFT_OUTER_JOIN)) {

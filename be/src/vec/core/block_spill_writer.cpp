@@ -93,8 +93,8 @@ Status BlockSpillWriter::write(const Block& block) {
                     dst_data[col_idx].column->assume_mutable()->insert_range_from(
                             *src_data[col_idx].column, row_idx, block_rows);
                 }
-            } catch (const Exception& e) {
-                return Status::Error(e.code(), e.what());
+            } catch (const doris::Exception& e) {
+                return Status::Error(e.code(), e.to_string());
             }
 
             RETURN_IF_ERROR(_write_internal(tmp_block_));
