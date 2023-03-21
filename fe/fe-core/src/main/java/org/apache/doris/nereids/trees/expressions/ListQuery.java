@@ -24,7 +24,9 @@ import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
 
+import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Encapsulate LogicalPlan as Expression.
@@ -33,6 +35,10 @@ import java.util.Objects;
 public class ListQuery extends SubqueryExpr implements LeafExpression {
     public ListQuery(LogicalPlan subquery) {
         super(Objects.requireNonNull(subquery, "subquery can not be null"));
+    }
+
+    public ListQuery(LogicalPlan subquery, List<Slot> correlateSlots, Optional<Expression> typeCoercionExpr) {
+        super(subquery, correlateSlots, typeCoercionExpr);
     }
 
     @Override
@@ -53,5 +59,13 @@ public class ListQuery extends SubqueryExpr implements LeafExpression {
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitListQuery(this, context);
+    }
+
+    @Override
+    public Expression withTypeCoercion(DataType dataType) {
+        return new ListQuery(queryPlan, correlateSlots,
+                dataType == queryPlan.getOutput().get(0).getDataType()
+                    ? Optional.of(queryPlan.getOutput().get(0))
+                    : Optional.of(new Cast(queryPlan.getOutput().get(0), dataType)));
     }
 }
