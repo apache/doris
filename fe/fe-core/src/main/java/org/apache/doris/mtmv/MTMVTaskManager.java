@@ -460,13 +460,16 @@ public class MTMVTaskManager {
         }
         try {
             Set<String> taskSet = new HashSet<>(taskIds);
-            // check the running task since the task was killed but was not move the history queue.
+            // Pending tasks will be clear directly. So we don't drop it again here.
+            // Check the running task since the task was killed but was not move to the history queue.
             for (long key : runningTaskMap.keySet()) {
-                if (taskSet.contains(runningTaskMap.get(key).getTask().getTaskId())) {
+                MTMVTaskExecutor executor = runningTaskMap.get(key);
+                // runningTaskMap may be removed in the runningIterator
+                if (executor != null && taskSet.contains(executor.getTask().getTaskId())) {
                     runningTaskMap.remove(key);
                 }
             }
-            // try to remove task in history tasks. pending tasks will be clear directly.
+            // Try to remove history tasks.
             getHistoryTasks().removeIf(mtmvTask -> taskSet.contains(mtmvTask.getTaskId()));
             if (!isReplay) {
                 Env.getCurrentEnv().getEditLog().logDropMTMVTasks(taskIds);
