@@ -37,6 +37,11 @@
 # eg. [['element_at', '%element_extract%'], 'V', ['MAP<K, V>', 'K'], 'ALWAYS_NULLABLE', ['K', 'V']],
 #     'K' and 'V' is type template and will be specialized at runtime in FE to match specific args.
 #
+# 'template_types' support variadic template is now support variadic template.
+# eg. [['struct'], 'STRUCT<TYPES>', ['TYPES...'], 'ALWAYS_NOT_NULLABLE', ['...TYPES']],
+#     Inspired by C++ std::vector::emplace_back() function. '...TYPES' is variadic template and will
+#     be expanded to normal templates at runtime in FE to match variadic args. Please ensure that the
+#     variadic template is placed at the last position of all templates.
 visible_functions = [
     # Bit and Byte functions
     # For functions corresponding to builtin operators, we can reuse the implementations
@@ -75,11 +80,9 @@ visible_functions = [
     [['map_values'], 'ARRAY<V>', ['MAP<K, V>'], '', ['K', 'V']],
 
     # struct functions
-    [['struct'], 'STRUCT<TYPES>', ['TYPES'], 'ALWAYS_NOT_NULLABLE', ['...TYPES']],
-    [['named_struct'], 'STRUCT<TYPES>', ['TYPES'], 'ALWAYS_NOT_NULLABLE', ['...TYPES']],
-
-    # test
-    [['struct'], 'STRUCT<T, TYPES>', ['T', 'TYPES'], 'ALWAYS_NOT_NULLABLE', ['T', '...TYPES']],
+    [['struct'], 'STRUCT<TYPES>', ['TYPES...'], 'ALWAYS_NOT_NULLABLE', ['...TYPES']],
+    [['named_struct'], 'STRUCT<TYPES>', ['TYPES...'], 'ALWAYS_NOT_NULLABLE', ['...TYPES']],
+    [['element_at', '%element_extract%'], 'VARCHAR', ['STRUCT<TYPES>', 'VARCHAR'], 'ALWAYS_NULLABLE', ['...TYPES']],
 
     # array functions
     [['array'], 'ARRAY', ['BOOLEAN', '...'], 'ALWAYS_NOT_NULLABLE'],

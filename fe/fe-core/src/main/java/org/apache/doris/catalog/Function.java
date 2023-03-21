@@ -30,7 +30,6 @@ import org.apache.doris.thrift.TFunctionBinaryType;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.commons.io.output.NullOutputStream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -859,9 +858,8 @@ public class Function implements Writable {
         return false;
     }
 
-    public void expandVariadicTemplate(Type[] args) throws TypeException {
-        // collect expand size of variadic template
-        Map<String, Integer> expandSizeMap = Maps.newHashMap();
+    // collect expand size of variadic template
+    public void collectTemplateExpandSize(Type[] args, Map<String, Integer> expandSizeMap) throws TypeException {
         for (int i = argTypes.length - 1; i >= 0; i--) {
             if (argTypes[i].hasTemplateType()) {
                 if (argTypes[i].needExpandTemplateType()) {
@@ -869,24 +867,6 @@ public class Function implements Writable {
                             Arrays.copyOfRange(args, i, args.length), expandSizeMap);
                 }
             }
-        }
-
-        // expand the variadic template in arg types
-        List<Type> newArgTypes = Lists.newArrayList();
-        for (Type argType : argTypes) {
-            if (argType.needExpandTemplateType()) {
-                newArgTypes.addAll(argType.expandVariadicTemplateType(expandSizeMap));
-            } else {
-                newArgTypes.add(argType);
-            }
-        }
-        argTypes = newArgTypes.toArray(new Type[0]);
-
-        // expand the variadic template in ret type
-        if (retType.needExpandTemplateType()) {
-            List<Type> newRetType = retType.expandVariadicTemplateType(expandSizeMap);
-            Preconditions.checkState(newRetType.size() == 1);
-            retType = newRetType.get(0);
         }
     }
 

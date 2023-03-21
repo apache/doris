@@ -1321,15 +1321,36 @@ public class FunctionSet<T> {
                         + "  return: " + templateFunction.getReturnType());
             LOG.debug("requestFunction signature: " + requestFunction.signatureString()
                         + "  return: " + requestFunction.getReturnType());
-            Function specializedFunction = templateFunction;
+            List<Type> newArgTypes = Lists.newArrayList();
+            List<Type> newRetType = Lists.newArrayList();
             if (isVariadic) {
-                templateFunction.expandVariadicTemplate(requestFunction.getArgs());
+                Map<String, Integer> expandSizeMap = Maps.newHashMap();
+                templateFunction.collectTemplateExpandSize(requestFunction.getArgs(), expandSizeMap);
+                // expand the variadic template in arg types
+                for (Type argType : templateFunction.getArgs()) {
+                    if (argType.needExpandTemplateType()) {
+                        newArgTypes.addAll(argType.expandVariadicTemplateType(expandSizeMap));
+                    } else {
+                        newArgTypes.add(argType);
+                    }
+                }
+
+                // expand the variadic template in ret type
+                if (templateFunction.getReturnType().needExpandTemplateType()) {
+                    newRetType.addAll(templateFunction.getReturnType().expandVariadicTemplateType(expandSizeMap));
+                    Preconditions.checkState(newRetType.size() == 1);
+                } else {
+                    newRetType.add(templateFunction.getReturnType());
+                }
+            } else {
+                newArgTypes.addAll(Lists.newArrayList(templateFunction.getArgs()));
+                newRetType.add(templateFunction.getReturnType());
             }
+            Function specializedFunction = templateFunction;
             if (templateFunction instanceof ScalarFunction) {
                 ScalarFunction f = (ScalarFunction) templateFunction;
-                specializedFunction = new ScalarFunction(f.getFunctionName(), Lists.newArrayList(f.getArgs()),
-                                            f.getReturnType(), f.hasVarArgs(), f.getSymbolName(), f.getBinaryType(),
-                                            f.isUserVisible(), f.isVectorized(), f.getNullableMode());
+                specializedFunction = new ScalarFunction(f.getFunctionName(), newArgTypes, newRetType.get(0), f.hasVarArgs(),
+                        f.getSymbolName(), f.getBinaryType(), f.isUserVisible(), f.isVectorized(), f.getNullableMode());
             } else {
                 // TODO(xk)
             }
@@ -1337,10 +1358,12 @@ public class FunctionSet<T> {
             Map<String, Type> specializedTypeMap = Maps.newHashMap();
             for (int i = 0; i < args.length; i++) {
                 if (args[i].hasTemplateType()) {
+                    hasTemplateType = true;
                     args[i] = args[i].specializeTemplateType(requestFunction.getArgs()[i], specializedTypeMap, false);
                 }
             }
             if (specializedFunction.getReturnType().hasTemplateType()) {
+                hasTemplateType = true;
                 specializedFunction.setReturnType(
                         specializedFunction.getReturnType().specializeTemplateType(
                         requestFunction.getReturnType(), specializedTypeMap, true));

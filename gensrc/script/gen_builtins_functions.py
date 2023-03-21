@@ -115,6 +115,9 @@ def generate_fe_datatype(str_type, template_types):
     # delete whitespace
     str_type = str_type.replace(' ', '').replace('\t', '')
 
+    # delete ellipsis dots
+    str_type = str_type.replace('...', '')
+
     # process template
     if str_type in template_types:
         return 'new TemplateType("{0}")'.format(str_type)
