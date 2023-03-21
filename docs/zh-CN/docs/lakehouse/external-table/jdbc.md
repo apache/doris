@@ -286,11 +286,11 @@ PROPERTIES (
 |            Int256/UInt128/UInt256            |          STRING          |
 |                   Decimal                    | DECIMAL/DECIMALV3/STRING |
 |             Enum/IPv4/IPv6/UUID              |          STRING          |
-| <version since="dev" type="inline"> Array(T) |         Array<T>         |
+| <version since="dev" type="inline"> Array(T) |   Array<T> </version>    |
 
 **注意：**
 
-- <version since="dev" type="inline"> 对于ClickHouse里的Array类型,可用Doris的Array类型来匹配，Array内的基础类型匹配参考基础类型匹配规则即可，不支持嵌套Array
+- <version since="dev" type="inline"> 对于ClickHouse里的Array类型,可用Doris的Array类型来匹配，Array内的基础类型匹配参考基础类型匹配规则即可，不支持嵌套Array </version>
 - 对于ClickHouse里的一些特殊类型，如UUID,IPv4,IPv6,Enum8可以用Doris的Varchar/String类型来匹配,但是在显示上IPv4,IPv6会额外在数据最前面显示一个`/`,需要自己用`split_part`函数处理
 - 对于ClickHouse的Geo类型Point,无法进行匹配
 

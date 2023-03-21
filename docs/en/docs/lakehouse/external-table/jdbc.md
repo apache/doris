@@ -292,12 +292,12 @@ The followings list how data types in different databases are mapped in Doris.
 |            Int256/UInt128/UInt256            |          STRING          |
 |                   Decimal                    | DECIMAL/DECIMALV3/STRING |
 |             Enum/IPv4/IPv6/UUID              |          STRING          |
-| <version since="dev" type="inline"> Array(T) |         Array<T>         |
+| <version since="dev" type="inline"> Array(T) |   Array<T> </version>    |
 
 
 **Note:**
 
-- <version since="dev" type="inline"> For Array types in ClickHouse, use Doris's Array type to match them. For basic types in an Array, see Basic type matching rules. Nested arrays are not supported
+- <version since="dev" type="inline"> For Array types in ClickHouse, use Doris's Array type to match them. For basic types in an Array, see Basic type matching rules. Nested arrays are not supported. </version> 
 - Some data types in ClickHouse, such as UUID, IPv4, IPv6, and Enum8, will be mapped to Varchar/String in Doris. IPv4 and IPv6 will be displayed with an `/` as a prefix. You can use the `split_part` function to remove the `/` .
 - The Point Geo type in ClickHouse cannot be mapped in Doris by far. 
 
