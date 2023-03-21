@@ -263,7 +263,7 @@ public class VariableMgr {
         }
 
         if (setVar.getType() == SetType.GLOBAL) {
-            setGlobalVarAndWriteEditLog(ctx, attr.name(), setVar.getValue().getStringValue());
+            setGlobalVarAndWriteEditLog(ctx, attr.name(), value);
         }
 
         // No matter this is a global setting or not, always set session variable.
