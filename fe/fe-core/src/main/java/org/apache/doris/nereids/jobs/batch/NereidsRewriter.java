@@ -97,8 +97,9 @@ public class NereidsRewriter extends BatchRewriteJob {
             ),
 
             topic("Subquery unnesting",
+                custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION, AggScalarSubQueryToWindowFunction::new),
+
                 bottomUp(
-                    new AggScalarSubQueryToWindowFunction(),
                     new EliminateUselessPlanUnderApply(),
 
                     // CorrelateApplyToUnCorrelateApply and ApplyToJoin

@@ -17,9 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
+import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -46,6 +44,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
+import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -85,7 +85,7 @@ import java.util.stream.Collectors;
  * WHERE l_quantity < avg_l_quantity;
  */
 
-public class AggScalarSubQueryToWindowFunction implements RewriteRuleFactory {
+public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobContext> implements CustomRewriter {
     private static final ImmutableSet<Class<? extends AggregateFunction>> SUPPORTED_FUNCTION = ImmutableSet.of(
             Min.class, Max.class, Count.class, Sum.class, Avg.class
     );
@@ -99,18 +99,41 @@ public class AggScalarSubQueryToWindowFunction implements RewriteRuleFactory {
     private List<LogicalPlan> innerPlans = null;
 
     @Override
-    public List<Rule> buildRules() {
-        return ImmutableList.of(
-                RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION.build(
-                        logicalFilter(logicalProject(logicalApply(any(), logicalAggregate())))
-                                .when(node -> {
-                                    LogicalApply<?, ?> apply = node.child().child();
-                                    return apply.isScalar() && apply.isCorrelated();
-                                })
-                                .when(this::check)
-                                .then(this::trans)
-                )
-        );
+    public Plan rewriteRoot(Plan plan, JobContext context) {
+        return plan.accept(this, context);
+    }
+
+    @Override
+    public Plan visitLogicalFilter(LogicalFilter filter, JobContext context) {
+        if (!checkPattern(filter)) {
+            return filter;
+        }
+        LogicalFilter<LogicalProject<LogicalApply<Plan, LogicalAggregate<Plan>>>> node
+                = ((LogicalFilter<LogicalProject<LogicalApply<Plan, LogicalAggregate<Plan>>>>) filter);
+
+        LogicalApply<Plan, LogicalAggregate<Plan>> apply = node.child().child();
+        outerPlans = new PlanCollector().collect(((LogicalPlan) apply.left()));
+        innerPlans = new PlanCollector().collect(apply.right());
+        if (!check(node)) {
+            return filter;
+        }
+        return trans(node);
+    }
+
+    private boolean checkPattern(LogicalFilter filter) {
+        if (!(filter.child() instanceof LogicalProject)) {
+            return false;
+        }
+        LogicalProject project = (LogicalProject) filter.child();
+        if (project.child() == null || !(project.child() instanceof LogicalApply)) {
+            return false;
+        }
+        LogicalApply apply = ((LogicalApply<?, ?>) project.child());
+        if (!apply.isScalar() || !apply.isCorrelated()) {
+            return false;
+        }
+        return apply.left() != null && apply.right() instanceof LogicalAggregate
+                && ((LogicalAggregate<?>) apply.right()).child() != null;
     }
 
     private boolean check(LogicalFilter<LogicalProject<LogicalApply<Plan, LogicalAggregate<Plan>>>> node) {
