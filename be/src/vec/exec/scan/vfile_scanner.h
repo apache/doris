@@ -119,8 +119,8 @@ protected:
     // for tracing dynamic schema
     std::unique_ptr<vectorized::schema_util::FullBaseSchemaView> _full_base_schema_view;
 
-    std::unique_ptr<FileCacheStatistics> _file_cache_statistics;
-    std::unique_ptr<IOContext> _io_ctx;
+    std::unique_ptr<io::FileCacheStatistics> _file_cache_statistics;
+    std::unique_ptr<io::IOContext> _io_ctx;
 
 private:
     RuntimeProfile::Counter* _get_block_timer = nullptr;

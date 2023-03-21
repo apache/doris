@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "io/io_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowid_conversion.h"
 #include "olap/rowset/rowset_writer.h"

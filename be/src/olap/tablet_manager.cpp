@@ -730,7 +730,7 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
     if (!status.ok()) {
         LOG(WARNING) << "fail to load tablet because can not parse meta_binary string. "
                      << "tablet_id=" << tablet_id << ", schema_hash=" << schema_hash
-                     << ", path=" << data_dir->path();
+                     << ", path=" << data_dir->path() << ", status: " << status;
         return Status::Error<HEADER_PB_PARSE_FAILED>();
     }
     tablet_meta->init_rs_metas_fs(data_dir->fs());

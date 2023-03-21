@@ -15,34 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+#include "io/fs/file_reader.h"
 
-#include <stdio.h>
-
-#include "io/file_writer.h"
+#include "io/fs/file_system.h"
+#include "io/io_common.h"
+#include "util/async_io.h"
 
 namespace doris {
+namespace io {
 
-class RuntimeState;
+Status FileReader::read_at(size_t offset, Slice result, size_t* bytes_read,
+                           const IOContext* io_ctx) {
+    if (bthread_self() == 0) {
+        return read_at_impl(offset, result, bytes_read, io_ctx);
+    }
+    Status s;
+    auto task = [&] { s = read_at_impl(offset, result, bytes_read, io_ctx); };
+    AsyncIO::run_task(task, fs()->type());
+    return s;
+}
 
-class LocalFileWriter : public FileWriter {
-public:
-    LocalFileWriter(const std::string& path, int64_t start_offset);
-
-    ~LocalFileWriter() override;
-
-    Status open() override;
-
-    virtual Status write(const uint8_t* buf, size_t buf_len, size_t* written_len) override;
-
-    virtual Status close() override;
-
-private:
-    static Status _check_file_path(const std::string& file_path);
-
-    std::string _path;
-    int64_t _start_offset;
-    FILE* _fp;
-};
-
-} // end namespace doris
+} // namespace io
+} // namespace doris
