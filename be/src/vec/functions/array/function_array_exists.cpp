@@ -55,7 +55,8 @@ public:
         const auto& first_off_data = assert_cast<const ColumnArray::ColumnOffsets&>(
                 first_col_array.get_offsets_column());
 
-        const auto& nested_nullable_column = assert_cast<const ColumnNullable&>(*first_col_array.get_data_ptr());
+        const auto& nested_nullable_column =
+                assert_cast<const ColumnNullable&>(*first_col_array.get_data_ptr());
         const auto nested_column = nested_nullable_column.get_nested_column_ptr();
         const size_t nested_column_size = nested_column->size();
         MutableColumnPtr result_null_map = nested_nullable_column.get_null_map_column_ptr()->clone_resized(nested_column_size);
