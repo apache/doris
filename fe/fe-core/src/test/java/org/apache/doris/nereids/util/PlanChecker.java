@@ -162,12 +162,6 @@ public class PlanChecker {
         return this;
     }
 
-    public PlanChecker applyBottomUp(List<Rule> rule) {
-        cascadesContext.bottomUpRewrite(rule);
-        MemoValidator.validate(cascadesContext.getMemo());
-        return this;
-    }
-
     /**
      * apply a bottom up rewrite rule if you not care the ruleId
      *
