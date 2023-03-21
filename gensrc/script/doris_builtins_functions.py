@@ -64,6 +64,16 @@ visible_functions = [
     [['bitnot'], 'BIGINT', ['BIGINT'], ''],
     [['bitnot'], 'LARGEINT', ['LARGEINT'], ''],
 
+    # map functions
+    [['map'], 'MAP<K, V>', ['K', 'V', '...'], 'ALWAYS_NOT_NULLABLE', ['K', 'V']],
+    [['element_at', '%element_extract%'], 'V', ['MAP<K, V>', 'K'], 'ALWAYS_NULLABLE', ['K', 'V']],
+    [['size', 'map_size'], 'BIGINT', ['MAP<K, V>'], '', ['K', 'V']],
+    [['map_contains_key'], 'BOOLEAN', ['MAP<K, V>', 'K'], 'ALWAYS_NULLABLE', ['K', 'V']],
+    [['map_contains_value'], 'BOOLEAN', ['MAP<K, V>', 'V'], 'ALWAYS_NULLABLE', ['K', 'V']],
+    #[['map_contains_key_like'], 'BOOLEAN', ['MAP<K, V>', 'K'], '', ['K', 'V']],
+    [['map_keys'], 'ARRAY<K>', ['MAP<K, V>'], '', ['K', 'V']],
+    [['map_values'], 'ARRAY<V>', ['MAP<K, V>'], '', ['K', 'V']],
+
     # array functions
     [['array'], 'ARRAY', ['BOOLEAN', '...'], 'ALWAYS_NOT_NULLABLE'],
     [['array'], 'ARRAY', ['TINYINT', '...'], 'ALWAYS_NOT_NULLABLE'],
@@ -102,9 +112,6 @@ visible_functions = [
     [['element_at', '%element_extract%'], 'DECIMAL128', ['ARRAY_DECIMAL128', 'BIGINT'], 'ALWAYS_NULLABLE'],
     [['element_at', '%element_extract%'], 'VARCHAR', ['ARRAY_VARCHAR', 'BIGINT'], 'ALWAYS_NULLABLE'],
     [['element_at', '%element_extract%'], 'STRING', ['ARRAY_STRING', 'BIGINT'], 'ALWAYS_NULLABLE'],
-
-    # map element
-    [['element_at', '%element_extract%'], 'V', ['MAP<K, V>', 'K'], 'ALWAYS_NULLABLE', ['K', 'V']],
 
     [['arrays_overlap'], 'BOOLEAN', ['ARRAY_BOOLEAN', 'ARRAY_BOOLEAN'], 'ALWAYS_NULLABLE'],
     [['arrays_overlap'], 'BOOLEAN', ['ARRAY_TINYINT', 'ARRAY_TINYINT'], 'ALWAYS_NULLABLE'],
@@ -585,6 +592,25 @@ visible_functions = [
     [['array_popfront'], 'ARRAY_VARCHAR', ['ARRAY_VARCHAR'], ''],
     [['array_popfront'], 'ARRAY_STRING', ['ARRAY_STRING'], ''],
     [['array_map'], 'ARRAY',   ['LAMBDA_FUNCTION', 'ARRAY', '...'], ''],
+    [['array_filter'], 'ARRAY_BOOLEAN',['ARRAY_BOOLEAN', 'ARRAY_BOOLEAN'], ''],
+    [['array_filter'], 'ARRAY_TINYINT',['ARRAY_TINYINT', 'ARRAY_BOOLEAN'], ''],
+    [['array_filter'], 'ARRAY_SMALLINT',['ARRAY_SMALLINT', 'ARRAY_BOOLEAN'], ''],
+    [['array_filter'], 'ARRAY_INT',['ARRAY_INT', 'ARRAY_BOOLEAN'], ''],
+    [['array_filter'], 'ARRAY_BIGINT',['ARRAY_BIGINT', 'ARRAY_BOOLEAN'], ''],
+    [['array_filter'], 'ARRAY_LARGEINT',['ARRAY_LARGEINT', 'ARRAY_BOOLEAN'], ''],
+    [['array_filter'], 'ARRAY_TINYINT',['ARRAY_TINYINT', 'ARRAY_BOOLEAN'], ''],
+    [['array_filter'], 'ARRAY_FLOAT',['ARRAY_FLOAT', 'ARRAY_BOOLEAN'], ''],
+    [['array_filter'], 'ARRAY_DOUBLE',['ARRAY_DOUBLE', 'ARRAY_BOOLEAN'], ''],
+    [['array_filter'], 'ARRAY_VARCHAR',['ARRAY_VARCHAR', 'ARRAY_BOOLEAN'], ''],
+    [['array_filter'], 'ARRAY_STRING',['ARRAY_STRING', 'ARRAY_BOOLEAN'], ''],
+    [['array_filter'], 'ARRAY_DECIMALV2',['ARRAY_DECIMALV2', 'ARRAY_BOOLEAN'], ''],
+    [['array_filter'], 'ARRAY_DECIMAL32',['ARRAY_DECIMAL32', 'ARRAY_BOOLEAN'], ''],
+    [['array_filter'], 'ARRAY_DECIMAL64',['ARRAY_DECIMAL64', 'ARRAY_BOOLEAN'], ''],
+    [['array_filter'], 'ARRAY_DECIMAL128',['ARRAY_DECIMAL128', 'ARRAY_BOOLEAN'], ''],
+    [['array_filter'], 'ARRAY_DATETIME',['ARRAY_DATETIME', 'ARRAY_BOOLEAN'], ''],
+    [['array_filter'], 'ARRAY_DATE',['ARRAY_DATE', 'ARRAY_BOOLEAN'], ''],
+    [['array_filter'], 'ARRAY_DATETIMEV2',['ARRAY_DATETIMEV2', 'ARRAY_BOOLEAN'], ''],
+    [['array_filter'], 'ARRAY_DATEV2',['ARRAY_DATEV2', 'ARRAY_BOOLEAN'], ''],
 
     [['array_pushfront'], 'ARRAY_BOOLEAN',    ['ARRAY_BOOLEAN', 'BOOLEAN'], 'ALWAYS_NULLABLE'],
     [['array_pushfront'], 'ARRAY_TINYINT',    ['ARRAY_TINYINT', 'TINYINT'], 'ALWAYS_NULLABLE'],

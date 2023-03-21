@@ -1224,6 +1224,19 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return true;
     }
 
+
+    /**
+     * Returns true if expr have child bound by tids, otherwise false.
+     */
+    public boolean isRelativedByTupleIds(List<TupleId> tids) {
+        for (Expr child : children) {
+            if (child.isRelativedByTupleIds(tids)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * Returns true if expr is fully bound by slotId, otherwise false.
      */

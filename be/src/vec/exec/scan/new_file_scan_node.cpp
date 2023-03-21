@@ -93,7 +93,8 @@ Status NewFileScanNode::_init_scanners(std::list<VScanner*>* scanners) {
                                              runtime_profile(), _kv_cache);
         _scanner_pool.add(scanner);
         RETURN_IF_ERROR(((VFileScanner*)scanner)
-                                ->prepare(_vconjunct_ctx_ptr.get(), &_colname_to_value_range));
+                                ->prepare(_vconjunct_ctx_ptr.get(), &_colname_to_value_range,
+                                          &_colname_to_slot_id));
         scanners->push_back(scanner);
     }
 

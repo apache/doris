@@ -76,7 +76,7 @@ public class ShowCreateFunctionStmt extends ShowStmt {
         }
 
         // analyze function name
-        functionName.analyze(analyzer);
+        functionName.analyze(analyzer, SetType.DEFAULT);
 
         // check operation privilege
         if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SHOW)) {

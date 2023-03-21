@@ -1,0 +1,22 @@
+{
+  "test_field_alias": {
+    "mappings": {
+      "properties": {
+        "test1": {
+          "type": "date"
+        },
+        "test2": {
+          "type": "alias",
+          "path": "test1"
+        },
+        "test3": {
+          "type": "date"
+        },
+        "test4": {
+          "type": "alias",
+          "path": "_id"
+        }
+      }
+    }
+  }
+}

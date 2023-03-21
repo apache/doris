@@ -27,7 +27,7 @@ under the License.
 # Seatunnel
 The newest [Apache SeaTunnel (formerly waterdrop )](https://seatunnel.apache.org) already supports Doris's connector, SeaTunnel can use Spark engine and Flink engine to synchronize data to Doris.
 ## Flink Sink Doris(2.x)
-Seatunnel Flink Sink Doris [plugin code](https://github.com/apache/incubator-seatunnel/tree/dev/seatunnel-connectors/seatunnel-connectors-flink/seatunnel-connector-flink-doris)
+Seatunnel Flink Sink Doris [plugin code](https://github.com/apache/incubator-seatunnel)
 
 ### Options
 | name | type | required | default value | engine |

@@ -303,6 +303,7 @@ public class OriginalPlanner extends Planner {
                         && ((SortNode) singleNodePlan).getChild(0) instanceof OlapScanNode) {
                     // Double check this plan to ensure it's a general topn query
                     injectRowIdColumnSlot();
+                    ((SortNode) singleNodePlan).setUseTwoPhaseReadOpt(true);
                 } else {
                     // This is not a general topn query, rollback needMaterialize flag
                     for (SlotDescriptor slot : analyzer.getDescTbl().getSlotDescs().values()) {

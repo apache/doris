@@ -24,7 +24,6 @@ import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.PartitionNames;
@@ -1078,9 +1077,6 @@ public class OlapScanNode extends ScanNode {
             sortInfo.getMaterializedOrderingExprs().forEach(expr -> {
                 output.append(prefix).append(prefix).append(expr.toSql()).append("\n");
             });
-            if (sortInfo.useTwoPhaseRead()) {
-                output.append(prefix).append("OPT TWO PHASE\n");
-            }
         }
         if (sortLimit != -1) {
             output.append(prefix).append("SORT LIMIT: ").append(sortLimit).append("\n");
@@ -1119,8 +1115,13 @@ public class OlapScanNode extends ScanNode {
 
     @Override
     public int getNumInstances() {
+        // In pipeline exec engine, the instance num equals be_num * parallel instance.
+        // so here we need count distinct be_num to do the work. make sure get right instance
         if (ConnectContext.get().getSessionVariable().enablePipelineEngine()) {
-            return ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+            int parallelInstance = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+            long numBackend = result.stream().flatMap(rangeLoc -> rangeLoc.getLocations().stream())
+                        .map(loc -> loc.backend_id).distinct().count();
+            return (int) (parallelInstance * numBackend);
         }
         return result.size();
     }
@@ -1385,46 +1386,5 @@ public class OlapScanNode extends ScanNode {
                 outputColumnUniqueIds.add(slot.getColumn().getUniqueId());
             }
         }
-    }
-
-    public void setOutputSmap(ExprSubstitutionMap smap, Analyzer analyzer) {
-        if (smap.getRhs().stream().anyMatch(expr -> !(expr instanceof SlotRef))) {
-            if (outputTupleDesc == null) {
-                outputTupleDesc = analyzer.getDescTbl().createTupleDescriptor("OlapScanNode");
-                outputTupleDesc.setTable(this.olapTable);
-            }
-            if (projectList == null) {
-                projectList = Lists.newArrayList();
-            }
-            List<Expr> newRhs = Lists.newArrayList();
-            List<Expr> newLhs = Lists.newArrayList();
-            for (Expr expr : smap.getRhs()) {
-                if (expr instanceof SlotRef && !((SlotRef) expr).getDesc().isMaterialized()) {
-                    continue;
-                }
-                if (outputSmap.mappingForRhsExpr(expr) != null) {
-                    newLhs.add(outputSmap.mappingForRhsExpr(expr));
-                    newRhs.add(expr);
-                } else {
-                    SlotDescriptor slotDesc = analyzer.addSlotDescriptor(outputTupleDesc);
-                    slotDesc.initFromExpr(expr);
-                    slotDesc.setIsMaterialized(true);
-                    slotDesc.materializeSrcExpr();
-                    projectList.add(expr);
-                    newLhs.add(smap.mappingForRhsExpr(expr));
-                    newRhs.add(new SlotRef(slotDesc));
-                }
-            }
-            outputSmap = new ExprSubstitutionMap(newLhs, newRhs);
-        } else {
-            outputSmap = smap;
-        }
-    }
-
-    public List<TupleId> getOutputTupleIds() {
-        if (outputTupleDesc != null) {
-            return Lists.newArrayList(outputTupleDesc.getId());
-        }
-        return tupleIds;
     }
 }
