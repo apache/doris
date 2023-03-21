@@ -65,6 +65,22 @@ suite("test_stream_load", "p0") {
     sql "sync"
     qt_sql "select * from ${tableName} order by k1, k2"
 
+    // test strict_mode null success
+    streamLoad {
+        table "${tableName}"
+
+        set 'column_separator', '|'
+        set 'columns', 'k1, k2, v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12'
+        set 'partitions', 'partition_a, partition_b, partition_c, partition_d'
+        set 'strict_mode', 'true'
+
+        file 'test_strict_mode_null.csv'
+        time 10000 // limit inflight 10s
+    }
+
+    sql "sync"
+    qt_sql "select * from ${tableName} order by k1, k2"
+
     // test strict_mode fail
     streamLoad {
         table "${tableName}"
