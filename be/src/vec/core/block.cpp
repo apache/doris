@@ -29,7 +29,6 @@
 #include "runtime/descriptors.h"
 #include "udf/udf.h"
 #include "util/block_compression.h"
-#include "util/exception.h"
 #include "util/faststring.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
@@ -789,10 +788,8 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
     try {
         column_values.resize(content_uncompressed_size);
     } catch (...) {
-        std::exception_ptr p = std::current_exception();
-        std::string msg =
-                fmt::format("Try to alloc {} bytes for pblock column values failed. reason {}",
-                            content_uncompressed_size, get_current_exception_type_name(p));
+        std::string msg = fmt::format("Try to alloc {} bytes for pblock column values failed.",
+                                      content_uncompressed_size);
         LOG(WARNING) << msg;
         return Status::BufferAllocFailed(msg);
     }
