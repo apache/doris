@@ -63,8 +63,11 @@ private:
 
     void ALWAYS_INLINE check_chars_length(size_t total_length, size_t element_number) const {
         if (UNLIKELY(total_length > MAX_STRING_SIZE)) {
-            LOG(FATAL) << "string column length is too large: total_length=" << total_length
-                       << " ,element_number=" << element_number;
+            throw Exception(
+                    fmt::format(
+                            "string column length is too large: total_length={}, element_number={}",
+                            total_length, element_number),
+                    TStatusCode::VEC_EXCEPTION);
         }
     }
 
