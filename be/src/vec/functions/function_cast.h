@@ -113,45 +113,54 @@ struct ConvertImpl {
                     col_null_map_to = ColumnUInt8::create(size, 0);
                     vec_null_map_to = col_null_map_to->get_data().data();
                 }
-                for (size_t i = 0; i < size; ++i) {
-                    if constexpr (IsDataTypeDecimal<FromDataType> &&
-                                  IsDataTypeDecimal<ToDataType>) {
-                        vec_to[i] = convert_decimals<FromDataType, ToDataType>(
-                                vec_from[i], vec_from.get_scale(), vec_to.get_scale(),
-                                vec_null_map_to ? &vec_null_map_to[i] : vec_null_map_to);
-                    } else if constexpr (IsDataTypeDecimal<FromDataType> &&
-                                         IsDataTypeNumber<ToDataType>) {
-                        vec_to[i] = convert_from_decimal<FromDataType, ToDataType>(
-                                vec_from[i], vec_from.get_scale());
-                    } else if constexpr (IsDataTypeNumber<FromDataType> &&
-                                         IsDataTypeDecimal<ToDataType>) {
-                        vec_to[i] = convert_to_decimal<FromDataType, ToDataType>(
-                                vec_from[i], vec_to.get_scale(),
-                                vec_null_map_to ? &vec_null_map_to[i] : vec_null_map_to);
-                    } else if constexpr (IsTimeType<FromDataType> &&
-                                         IsDataTypeDecimal<ToDataType>) {
-                        vec_to[i] = convert_to_decimal<DataTypeInt64, ToDataType>(
-                                reinterpret_cast<const VecDateTimeValue&>(vec_from[i]).to_int64(),
-                                vec_to.get_scale(),
-                                vec_null_map_to ? &vec_null_map_to[i] : vec_null_map_to);
-                    } else if constexpr (IsDateV2Type<FromDataType> &&
-                                         IsDataTypeDecimal<ToDataType>) {
-                        vec_to[i] = convert_to_decimal<DataTypeUInt32, ToDataType>(
-                                reinterpret_cast<const DateV2Value<DateV2ValueType>&>(vec_from[i])
-                                        .to_date_int_val(),
-                                vec_to.get_scale(),
-                                vec_null_map_to ? &vec_null_map_to[i] : vec_null_map_to);
-                    } else if constexpr (IsDateTimeV2Type<FromDataType> &&
-                                         IsDataTypeDecimal<ToDataType>) {
-                        // TODO: should we consider the scale of datetimev2?
-                        vec_to[i] = convert_to_decimal<DataTypeUInt64, ToDataType>(
-                                reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(
-                                        vec_from[i])
-                                        .to_date_int_val(),
-                                vec_to.get_scale(),
-                                vec_null_map_to ? &vec_null_map_to[i] : vec_null_map_to);
+                if constexpr (IsDataTypeDecimal<FromDataType> && IsDataTypeDecimal<ToDataType>) {
+                    convert_decimal_cols<FromDataType, ToDataType>(
+                            vec_from, vec_to, vec_from.get_scale(), vec_to.get_scale(),
+                            vec_null_map_to);
+                } else {
+                    for (size_t i = 0; i < size; ++i) {
+                        if constexpr (IsDataTypeDecimal<FromDataType> &&
+                                      IsDataTypeDecimal<ToDataType>) {
+                            vec_to[i] = convert_decimals<FromDataType, ToDataType>(
+                                    vec_from[i], vec_from.get_scale(), vec_to.get_scale(),
+                                    vec_null_map_to ? &vec_null_map_to[i] : vec_null_map_to);
+                        } else if constexpr (IsDataTypeDecimal<FromDataType> &&
+                                             IsDataTypeNumber<ToDataType>) {
+                            vec_to[i] = convert_from_decimal<FromDataType, ToDataType>(
+                                    vec_from[i], vec_from.get_scale());
+                        } else if constexpr (IsDataTypeNumber<FromDataType> &&
+                                             IsDataTypeDecimal<ToDataType>) {
+                            vec_to[i] = convert_to_decimal<FromDataType, ToDataType>(
+                                    vec_from[i], vec_to.get_scale(),
+                                    vec_null_map_to ? &vec_null_map_to[i] : vec_null_map_to);
+                        } else if constexpr (IsTimeType<FromDataType> &&
+                                             IsDataTypeDecimal<ToDataType>) {
+                            vec_to[i] = convert_to_decimal<DataTypeInt64, ToDataType>(
+                                    reinterpret_cast<const VecDateTimeValue&>(vec_from[i])
+                                            .to_int64(),
+                                    vec_to.get_scale(),
+                                    vec_null_map_to ? &vec_null_map_to[i] : vec_null_map_to);
+                        } else if constexpr (IsDateV2Type<FromDataType> &&
+                                             IsDataTypeDecimal<ToDataType>) {
+                            vec_to[i] = convert_to_decimal<DataTypeUInt32, ToDataType>(
+                                    reinterpret_cast<const DateV2Value<DateV2ValueType>&>(
+                                            vec_from[i])
+                                            .to_date_int_val(),
+                                    vec_to.get_scale(),
+                                    vec_null_map_to ? &vec_null_map_to[i] : vec_null_map_to);
+                        } else if constexpr (IsDateTimeV2Type<FromDataType> &&
+                                             IsDataTypeDecimal<ToDataType>) {
+                            // TODO: should we consider the scale of datetimev2?
+                            vec_to[i] = convert_to_decimal<DataTypeUInt64, ToDataType>(
+                                    reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(
+                                            vec_from[i])
+                                            .to_date_int_val(),
+                                    vec_to.get_scale(),
+                                    vec_null_map_to ? &vec_null_map_to[i] : vec_null_map_to);
+                        }
                     }
                 }
+
                 if (check_overflow) {
                     block.replace_by_position(
                             result,

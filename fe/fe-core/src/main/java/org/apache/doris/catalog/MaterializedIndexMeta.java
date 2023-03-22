@@ -67,6 +67,8 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
     @SerializedName(value = "maxColUniqueId")
     private int maxColUniqueId = Column.COLUMN_UNIQUE_ID_INIT_VALUE;
 
+    private Expr whereClause;
+
     private static final Logger LOG = LogManager.getLogger(MaterializedIndexMeta.class);
 
 
@@ -84,6 +86,14 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         Preconditions.checkState(keysType != null);
         this.keysType = keysType;
         this.defineStmt = defineStmt;
+    }
+
+    public void setWhereClause(Expr whereClause) {
+        this.whereClause = whereClause;
+    }
+
+    public Expr getWhereClause() {
+        return whereClause;
     }
 
     public long getIndexId() {
@@ -258,6 +268,7 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         CreateMaterializedViewStmt stmt;
         try {
             stmt = (CreateMaterializedViewStmt) SqlParserUtils.getStmt(parser, defineStmt.idx);
+            setWhereClause(stmt.getWhereClause());
             stmt.setIsReplay(true);
             stmt.rewriteToBitmapWithCheck();
             Map<String, Expr> columnNameToDefineExpr = stmt.parseDefineExprWithoutAnalyze();
