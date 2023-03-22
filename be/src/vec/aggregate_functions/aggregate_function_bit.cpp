@@ -25,21 +25,16 @@
 
 namespace doris::vectorized {
 
-template <template <typename> class Data>
-AggregateFunctionPtr createAggregateFunctionBitwise(const std::string& name,
-                                                    const DataTypes& argument_types,
-                                                    const bool result_is_nullable) {
-    return creator_with_integer_type::create<AggregateFunctionBitwise, Data>(result_is_nullable,
-                                                                             argument_types);
-}
-
 void register_aggregate_function_bit(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function_both("group_bit_or",
-                                   createAggregateFunctionBitwise<AggregateFunctionGroupBitOrData>);
     factory.register_function_both(
-            "group_bit_and", createAggregateFunctionBitwise<AggregateFunctionGroupBitAndData>);
+            "group_bit_or", creator_with_integer_type::creator<AggregateFunctionBitwise,
+                                                               AggregateFunctionGroupBitOrData>);
     factory.register_function_both(
-            "group_bit_xor", createAggregateFunctionBitwise<AggregateFunctionGroupBitXorData>);
+            "group_bit_and", creator_with_integer_type::creator<AggregateFunctionBitwise,
+                                                                AggregateFunctionGroupBitAndData>);
+    factory.register_function_both(
+            "group_bit_xor", creator_with_integer_type::creator<AggregateFunctionBitwise,
+                                                                AggregateFunctionGroupBitXorData>);
 }
 
 } // namespace doris::vectorized

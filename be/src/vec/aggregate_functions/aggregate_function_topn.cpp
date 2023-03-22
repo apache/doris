@@ -26,10 +26,10 @@ AggregateFunctionPtr create_aggregate_function_topn(const std::string& name,
                                                     const bool result_is_nullable) {
     if (argument_types.size() == 2) {
         return creator_without_type::create<AggregateFunctionTopN<AggregateFunctionTopNImplInt>>(
-                result_is_nullable, argument_types);
+                argument_types, result_is_nullable);
     } else if (argument_types.size() == 3) {
         return creator_without_type::create<AggregateFunctionTopN<AggregateFunctionTopNImplIntInt>>(
-                result_is_nullable, argument_types);
+                argument_types, result_is_nullable);
     }
     return nullptr;
 }
@@ -44,7 +44,7 @@ AggregateFunctionPtr create_topn_array(const DataTypes& argument_types,
     if (which.idx == TypeIndex::TYPE)                                                    \
         return creator_without_type::create<AggregateFunctionTopNArray<                  \
                 AggregateFunctionTemplate<TYPE, has_default_param>, TYPE, is_weighted>>( \
-                result_is_nullable, argument_types);
+                argument_types, result_is_nullable);
     FOR_NUMERIC_TYPES(DISPATCH)
     FOR_DECIMAL_TYPES(DISPATCH)
 #undef DISPATCH
@@ -52,22 +52,22 @@ AggregateFunctionPtr create_topn_array(const DataTypes& argument_types,
     if (which.is_string_or_fixed_string()) {
         return creator_without_type::create<AggregateFunctionTopNArray<
                 AggregateFunctionTemplate<std::string, has_default_param>, std::string,
-                is_weighted>>(result_is_nullable, argument_types);
+                is_weighted>>(argument_types, result_is_nullable);
     }
     if (which.is_date_or_datetime()) {
         return creator_without_type::create<AggregateFunctionTopNArray<
                 AggregateFunctionTemplate<Int64, has_default_param>, Int64, is_weighted>>(
-                result_is_nullable, argument_types);
+                argument_types, result_is_nullable);
     }
     if (which.is_date_v2()) {
         return creator_without_type::create<AggregateFunctionTopNArray<
                 AggregateFunctionTemplate<UInt32, has_default_param>, UInt32, is_weighted>>(
-                result_is_nullable, argument_types);
+                argument_types, result_is_nullable);
     }
     if (which.is_date_time_v2()) {
         return creator_without_type::create<AggregateFunctionTopNArray<
                 AggregateFunctionTemplate<UInt64, has_default_param>, UInt64, is_weighted>>(
-                result_is_nullable, argument_types);
+                argument_types, result_is_nullable);
     }
 
     LOG(WARNING) << fmt::format("Illegal argument  type for aggregate function topn_array is: {}",

@@ -37,21 +37,21 @@ AggregateFunctionPtr create_aggregate_function_uniq(const std::string& name,
         WhichDataType which(argument_type);
 
         AggregateFunctionPtr res(creator_with_numeric_type::create<AggregateFunctionUniq, Data>(
-                result_is_nullable, argument_types));
+                argument_types, result_is_nullable));
         if (res) {
             return res;
         } else if (which.is_decimal32()) {
             return creator_without_type::create<AggregateFunctionUniq<Decimal32, Data<Int32>>>(
-                    result_is_nullable, argument_types);
+                    argument_types, result_is_nullable);
         } else if (which.is_decimal64()) {
             return creator_without_type::create<AggregateFunctionUniq<Decimal64, Data<Int64>>>(
-                    result_is_nullable, argument_types);
+                    argument_types, result_is_nullable);
         } else if (which.is_decimal128() || which.is_decimal128i()) {
             return creator_without_type::create<AggregateFunctionUniq<Decimal128, Data<Int128>>>(
-                    result_is_nullable, argument_types);
+                    argument_types, result_is_nullable);
         } else if (which.is_string_or_fixed_string()) {
             return creator_without_type::create<AggregateFunctionUniq<String, Data<String>>>(
-                    result_is_nullable, argument_types);
+                    argument_types, result_is_nullable);
         }
     }
 

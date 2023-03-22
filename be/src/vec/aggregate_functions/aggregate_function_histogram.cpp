@@ -30,11 +30,11 @@ AggregateFunctionPtr create_agg_function_histogram(const DataTypes& argument_typ
     if (has_input_param) {
         return creator_without_type::create<
                 AggregateFunctionHistogram<AggregateFunctionHistogramData<T>, T, true>>(
-                result_is_nullable, argument_types);
+                argument_types, result_is_nullable);
     } else {
         return creator_without_type::create<
                 AggregateFunctionHistogram<AggregateFunctionHistogramData<T>, T, false>>(
-                result_is_nullable, argument_types);
+                argument_types, result_is_nullable);
     }
 }
 

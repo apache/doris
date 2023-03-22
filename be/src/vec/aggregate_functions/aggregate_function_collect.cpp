@@ -28,11 +28,11 @@ AggregateFunctionPtr do_create_agg_function_collect(bool distinct, const DataTyp
     if (distinct) {
         return creator_without_type::create<
                 AggregateFunctionCollect<AggregateFunctionCollectSetData<T, HasLimit>, HasLimit>>(
-                result_is_nullable, argument_types);
+                argument_types, result_is_nullable);
     } else {
         return creator_without_type::create<
                 AggregateFunctionCollect<AggregateFunctionCollectListData<T, HasLimit>, HasLimit>>(
-                result_is_nullable, argument_types);
+                argument_types, result_is_nullable);
     }
 }
 

@@ -118,7 +118,7 @@ struct AggregateFunction {
 
     static auto create(const DataTypePtr& data_type_ptr) -> AggregateFunctionPtr {
         return AggregateFunctionPtr(creator_with_type::create<Function>(
-                true, DataTypes {make_nullable(data_type_ptr)}));
+                DataTypes {make_nullable(data_type_ptr)}, true));
     }
 };
 

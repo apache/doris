@@ -17,8 +17,6 @@
 
 #include "vec/aggregate_functions/aggregate_function_orthogonal_bitmap.h"
 
-#include <memory>
-
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/helpers.h"
 #include "vec/data_types/data_type_string.h"
@@ -40,13 +38,13 @@ AggregateFunctionPtr create_aggregate_function_orthogonal(const std::string& nam
 
         AggregateFunctionPtr res(
                 creator_with_type_base<true, true, false, 1>::create<AggFunctionOrthBitmapFunc,
-                                                                     Impl>(result_is_nullable,
-                                                                           argument_types));
+                                                                     Impl>(argument_types,
+                                                                           result_is_nullable));
         if (res) {
             return res;
         } else if (which.is_string_or_fixed_string()) {
             res = creator_without_type::create<AggFunctionOrthBitmapFunc<Impl<std::string_view>>>(
-                    result_is_nullable, argument_types);
+                    argument_types, result_is_nullable);
             return res;
         }
 

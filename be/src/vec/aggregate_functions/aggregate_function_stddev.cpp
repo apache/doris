@@ -19,7 +19,6 @@
 
 #include "common/logging.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-#include "vec/aggregate_functions/factory_helpers.h"
 #include "vec/aggregate_functions/helpers.h"
 namespace doris::vectorized {
 
@@ -31,12 +30,12 @@ AggregateFunctionPtr create_function_single_value(const String& name,
                                                   const bool result_is_nullable,
                                                   bool custom_nullable) {
     WhichDataType which(remove_nullable(argument_types[0]));
-#define DISPATCH(TYPE)                                                          \
-    if (which.idx == TypeIndex::TYPE)                                           \
-        return creator_without_type::create<AggregateFunctionTemplate<          \
-                NameData<Data<TYPE, BaseData<TYPE, is_stddev>>>, is_nullable>>( \
-                result_is_nullable,                                             \
-                custom_nullable ? remove_nullable(argument_types) : argument_types);
+#define DISPATCH(TYPE)                                                              \
+    if (which.idx == TypeIndex::TYPE)                                               \
+        return creator_without_type::create<AggregateFunctionTemplate<              \
+                NameData<Data<TYPE, BaseData<TYPE, is_stddev>>>, is_nullable>>(     \
+                custom_nullable ? remove_nullable(argument_types) : argument_types, \
+                result_is_nullable);
     FOR_NUMERIC_TYPES(DISPATCH)
 #undef DISPATCH
 
@@ -44,8 +43,8 @@ AggregateFunctionPtr create_function_single_value(const String& name,
     if (which.idx == TypeIndex::TYPE)                                                  \
         return creator_without_type::create<AggregateFunctionTemplate<                 \
                 NameData<Data<TYPE, BaseDatadecimal<TYPE, is_stddev>>>, is_nullable>>( \
-                result_is_nullable,                                                    \
-                custom_nullable ? remove_nullable(argument_types) : argument_types);
+                custom_nullable ? remove_nullable(argument_types) : argument_types,    \
+                result_is_nullable);
     FOR_DECIMAL_TYPES(DISPATCH)
 #undef DISPATCH
 

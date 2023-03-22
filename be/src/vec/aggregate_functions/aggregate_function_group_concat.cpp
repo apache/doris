@@ -29,11 +29,11 @@ AggregateFunctionPtr create_aggregate_function_group_concat(const std::string& n
     if (argument_types.size() == 1) {
         return creator_without_type::create<
                 AggregateFunctionGroupConcat<AggregateFunctionGroupConcatImplStr>>(
-                result_is_nullable, argument_types);
+                argument_types, result_is_nullable);
     } else if (argument_types.size() == 2) {
         return creator_without_type::create<
                 AggregateFunctionGroupConcat<AggregateFunctionGroupConcatImplStrStr>>(
-                result_is_nullable, argument_types);
+                argument_types, result_is_nullable);
     }
 
     LOG(WARNING) << fmt::format("Illegal number {} of argument for aggregate function {}",

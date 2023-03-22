@@ -34,13 +34,13 @@ AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
 
     AggregateFunctionPtr res(creator_with_numeric_type::create<AggregateFunctionsSingleValue, Data,
                                                                SingleValueDataFixed>(
-            result_is_nullable, argument_types));
+            argument_types, result_is_nullable));
     if (res) {
         return res;
     }
     res = creator_with_decimal_type::create<AggregateFunctionsSingleValue, Data,
-                                            SingleValueDataDecimal>(result_is_nullable,
-                                                                    argument_types);
+                                            SingleValueDataDecimal>(argument_types,
+                                                                    result_is_nullable);
     if (res) {
         return res;
     }
@@ -49,23 +49,23 @@ AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
 
     if (which.idx == TypeIndex::String) {
         return creator_without_type::create<
-                AggregateFunctionsSingleValue<Data<SingleValueDataString>>>(result_is_nullable,
-                                                                            argument_types);
+                AggregateFunctionsSingleValue<Data<SingleValueDataString>>>(argument_types,
+                                                                            result_is_nullable);
     }
     if (which.idx == TypeIndex::DateTime || which.idx == TypeIndex::Date) {
         return creator_without_type::create<
                 AggregateFunctionsSingleValue<Data<SingleValueDataFixed<Int64>>>>(
-                result_is_nullable, argument_types);
+                argument_types, result_is_nullable);
     }
     if (which.idx == TypeIndex::DateV2) {
         return creator_without_type::create<
                 AggregateFunctionsSingleValue<Data<SingleValueDataFixed<UInt32>>>>(
-                result_is_nullable, argument_types);
+                argument_types, result_is_nullable);
     }
     if (which.idx == TypeIndex::DateTimeV2) {
         return creator_without_type::create<
                 AggregateFunctionsSingleValue<Data<SingleValueDataFixed<UInt64>>>>(
-                result_is_nullable, argument_types);
+                argument_types, result_is_nullable);
     }
     return nullptr;
 }
