@@ -57,20 +57,20 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
 
     // List of request property to children
     // Example: Physical Hash Join
-    // [ child item: [leftProperties, rightPropertie]]
+    // [ child item: [leftProperties, rightProperties]]
     // [ [Properties {"", ANY}, Properties {"", BROADCAST}],
     //   [Properties {"", SHUFFLE_JOIN}, Properties {"", SHUFFLE_JOIN}]]
     private List<List<PhysicalProperties>> requestChildrenPropertiesList;
-    private List<List<PhysicalProperties>> outputChildrenPropertiesList = new ArrayList<>();
+    private final List<List<PhysicalProperties>> outputChildrenPropertiesList = new ArrayList<>();
 
     // index of List<request property to children>
     private int requestPropertiesIndex = 0;
 
     private final List<GroupExpression> lowestCostChildren = Lists.newArrayList();
 
-    // current child index of travsing all children
+    // current child index of traversing all children
     private int curChildIndex = -1;
-    // child index in the last time of travsing all children
+    // child index in the last time of traversing all children
     private int prevChildIndex = -1;
 
     public CostAndEnforcerJob(GroupExpression groupExpression, JobContext context) {

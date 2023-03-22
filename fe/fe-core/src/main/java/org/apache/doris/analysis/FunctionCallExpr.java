@@ -31,6 +31,8 @@ import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -1327,6 +1329,13 @@ public class FunctionCallExpr extends Expr {
                                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
                         }
                     }
+                    // find from the internal database first, if not, then from the global functions
+                    if (fn == null) {
+                        Function searchDesc =
+                                new Function(fnName, Arrays.asList(collectChildReturnTypes()), Type.INVALID, false);
+                        fn = Env.getCurrentEnv().getGlobalFunctionMgr().getFunction(searchDesc,
+                                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+                    }
                 }
             }
         }
@@ -1557,6 +1566,16 @@ public class FunctionCallExpr extends Expr {
             if (children.size() > 0) {
                 this.type = children.get(0).getType();
             }
+        } else if (fnName.getFunction().equalsIgnoreCase("array_zip")) {
+            // collect the child types to make a STRUCT type
+            Type[] childTypes = collectChildReturnTypes();
+            ArrayList<StructField> fields = new ArrayList<>();
+
+            for (int i = 0; i < childTypes.length; i++) {
+                fields.add(new StructField(((ArrayType) childTypes[i]).getItemType()));
+            }
+
+            this.type = new ArrayType(new StructType(fields));
         }
 
         if (this.type instanceof ArrayType) {

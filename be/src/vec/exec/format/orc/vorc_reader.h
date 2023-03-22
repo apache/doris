@@ -47,11 +47,11 @@ public:
 
     OrcReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
               const TFileRangeDesc& range, const std::vector<std::string>& column_names,
-              size_t batch_size, const std::string& ctz, IOContext* io_ctx);
+              size_t batch_size, const std::string& ctz, io::IOContext* io_ctx);
 
     OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
               const std::vector<std::string>& column_names, const std::string& ctz,
-              IOContext* io_ctx);
+              io::IOContext* io_ctx);
 
     ~OrcReader() override;
 
@@ -277,7 +277,7 @@ private:
 
     std::shared_ptr<io::FileSystem> _file_system;
 
-    IOContext* _io_ctx;
+    io::IOContext* _io_ctx;
 
     // only for decimal
     DecimalScaleParams _decimal_scale_params;
@@ -286,8 +286,11 @@ private:
 class ORCFileInputStream : public orc::InputStream {
 public:
     ORCFileInputStream(const std::string& file_name, io::FileReaderSPtr file_reader,
-                       OrcReader::Statistics* statistics)
-            : _file_name(file_name), _file_reader(file_reader), _statistics(statistics) {}
+                       OrcReader::Statistics* statistics, const io::IOContext* io_ctx)
+            : _file_name(file_name),
+              _file_reader(file_reader),
+              _statistics(statistics),
+              _io_ctx(io_ctx) {}
 
     ~ORCFileInputStream() override = default;
 
@@ -304,6 +307,7 @@ private:
     io::FileReaderSPtr _file_reader;
     // Owned by OrcReader
     OrcReader::Statistics* _statistics;
+    const io::IOContext* _io_ctx;
 };
 
 } // namespace doris::vectorized

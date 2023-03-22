@@ -162,6 +162,9 @@ public:
     }
 
     JsonbField& operator=(JsonbField&& x) {
+        if (data) {
+            delete[] data;
+        }
         data = x.data;
         size = x.size;
         x.data = nullptr;

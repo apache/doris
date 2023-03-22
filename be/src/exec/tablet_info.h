@@ -29,8 +29,8 @@
 #include "gen_cpp/descriptors.pb.h"
 #include "olap/tablet_schema.h"
 #include "runtime/descriptors.h"
-#include "runtime/raw_value.h"
 #include "vec/core/block.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 
@@ -40,6 +40,7 @@ struct OlapTableIndexSchema {
     int32_t schema_hash;
     std::vector<TabletColumn*> columns;
     std::vector<TabletIndex*> indexes;
+    vectorized::VExprContext* where_clause = nullptr;
 
     void to_protobuf(POlapTableIndexSchema* pindex) const;
 };
@@ -171,7 +172,6 @@ private:
         return part->start_key.second == -1 || !comparator(key, &part->start_key);
     }
 
-private:
     // this partition only valid in this schema
     std::shared_ptr<OlapTableSchemaParam> _schema;
     TOlapTablePartitionParam _t_param;

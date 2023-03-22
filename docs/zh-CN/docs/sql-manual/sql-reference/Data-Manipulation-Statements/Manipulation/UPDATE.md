@@ -37,7 +37,7 @@ UPDATE
 #### Syntax
 
 ```sql
-UPDATE target_table
+UPDATE target_table [table_alias]
     SET assignment_list
     WHERE condition
 
@@ -54,7 +54,7 @@ value:
 <version since="dev">
 
 ```sql
-UPDATE target_table
+UPDATE target_table [table_alias]
     SET assignment_list
     [ FROM additional_tables]
     WHERE condition
@@ -72,11 +72,10 @@ UPDATE target_table
 
 <version since="dev">
 
-UPDATE_FROM
++ table_alias: 表的别名
++ FROM additional_tables: 指定一个或多个表，用于选中更新的行，或者获取更新的值。注意，如需要在此列表中再次使用目标表，需要为其显式指定别名。
 
 </version>
-
-+ FROM additional_tables: 指定一个或多个表，用于选中更新的行，或者获取更新的值。注意，如需要在此列表中再次使用目标表，需要为其显式指定别名。
 
 #### Note
 

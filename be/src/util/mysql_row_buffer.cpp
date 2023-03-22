@@ -186,7 +186,8 @@ static char* add_time(double data, char* pos, bool dynamic_mode) {
     return pos + length;
 }
 
-static char* add_datetime(const DateTimeValue& data, char* pos, bool dynamic_mode) {
+template <typename DateType>
+static char* add_datetime(const DateType& data, char* pos, bool dynamic_mode) {
     int length = data.to_buffer(pos + !dynamic_mode);
     if (!dynamic_mode) {
         int1store(pos++, length);
@@ -416,16 +417,7 @@ template <bool is_binary_format>
 template <typename DateType>
 int MysqlRowBuffer<is_binary_format>::push_vec_datetime(DateType& data) {
     if constexpr (is_binary_format) {
-        DateTimeValue datetime_val;
-        if constexpr (std::is_same_v<DateType, vectorized::VecDateTimeValue>) {
-            data.convert_vec_dt_to_dt(&datetime_val);
-        } else if constexpr (std::is_same_v<DateType,
-                                            vectorized::DateV2Value<vectorized::DateV2ValueType>> ||
-                             std::is_same_v<DateType, vectorized::DateV2Value<
-                                                              vectorized::DateTimeV2ValueType>>) {
-            datetime_val.convert_from_date_v2(&data);
-        }
-        return push_datetime(datetime_val);
+        return push_datetime(data);
     }
 
     char buf[64];
@@ -434,7 +426,8 @@ int MysqlRowBuffer<is_binary_format>::push_vec_datetime(DateType& data) {
 }
 
 template <bool is_binary_format>
-int MysqlRowBuffer<is_binary_format>::push_datetime(const DateTimeValue& data) {
+template <typename DateType>
+int MysqlRowBuffer<is_binary_format>::push_datetime(const DateType& data) {
     if constexpr (is_binary_format) {
         char buff[12], *pos;
         size_t length;
@@ -447,10 +440,19 @@ int MysqlRowBuffer<is_binary_format>::push_datetime(const DateTimeValue& data) {
         pos[4] = (uchar)data.hour();
         pos[5] = (uchar)data.minute();
         pos[6] = (uchar)data.second();
-        int4store(pos + 7, data.microsecond());
-        if (data.microsecond()) {
-            length = 11;
-        } else if (data.hour() || data.minute() || data.second()) {
+        if constexpr (std::is_same_v<DateType,
+                                     vectorized::DateV2Value<vectorized::DateV2ValueType>> ||
+                      std::is_same_v<DateType,
+                                     vectorized::DateV2Value<vectorized::DateTimeV2ValueType>>) {
+            int4store(pos + 7, data.microsecond());
+            if (data.microsecond()) {
+                length = 11;
+            }
+        } else {
+            int4store(pos + 7, 0);
+        }
+
+        if (data.hour() || data.minute() || data.second()) {
             length = 7;
         } else if (data.year() || data.month() || data.day()) {
             length = 4;

@@ -25,57 +25,32 @@ namespace io {
 class LocalFileSystem final : public FileSystem {
 public:
     static std::shared_ptr<LocalFileSystem> create(Path path, std::string id = "");
-
     ~LocalFileSystem() override;
 
-    Status create_file(const Path& path, FileWriterPtr* writer) override;
+    /// hard link dest file to src file
+    Status link_file(const Path& src, const Path& dest);
 
-    Status create_file_impl(const Path& path, FileWriterPtr* writer);
-
-    Status open_file(const Path& path, const FileReaderOptions& reader_options,
-                     FileReaderSPtr* reader, IOContext* io_ctx) override {
-        return open_file(path, reader, io_ctx);
-    }
-
-    Status open_file(const Path& path, FileReaderSPtr* reader, IOContext* io_ctx) override;
-
-    Status open_file_impl(const Path& path, FileReaderSPtr* reader, IOContext* io_ctx);
-
-    Status delete_file(const Path& path) override;
-
-    Status delete_file_impl(const Path& path);
-
-    Status create_directory(const Path& path) override;
-
-    Status create_directory_impl(const Path& path);
-
-    Status delete_directory(const Path& path) override;
-
-    Status delete_directory_impl(const Path& path);
-
-    Status link_file(const Path& src, const Path& dest) override;
-
+protected:
+    Status create_file_impl(const Path& file, FileWriterPtr* writer) override;
+    Status open_file_impl(const Path& file, const FileReaderOptions& reader_options,
+                          FileReaderSPtr* reader) override;
+    Status create_directory_impl(const Path& dir) override;
+    Status delete_file_impl(const Path& file) override;
+    Status delete_directory_impl(const Path& dir) override;
+    Status batch_delete_impl(const std::vector<Path>& files) override;
+    Status exists_impl(const Path& path, bool* res) const override;
+    Status file_size_impl(const Path& file, size_t* file_size) const override;
+    Status list_impl(const Path& dir, bool only_file, std::vector<FileInfo>* files,
+                     bool* exists) override;
+    Status rename_impl(const Path& orig_name, const Path& new_name) override;
+    Status rename_dir_impl(const Path& orig_name, const Path& new_name) override;
     Status link_file_impl(const Path& src, const Path& dest);
-
-    Status exists(const Path& path, bool* res) const override;
-
-    Status exists_impl(const Path& path, bool* res) const;
-
-    Status file_size(const Path& path, size_t* file_size) const override;
-
-    Status file_size_impl(const Path& path, size_t* file_size) const;
-
-    Status list(const Path& path, std::vector<Path>* files) override;
-
-    Status list_impl(const Path& path, std::vector<Path>* files);
 
 private:
     LocalFileSystem(Path&& root_path, std::string&& id = "");
-
-    Path absolute_path(const Path& path) const;
 };
 
-const FileSystemSPtr& global_local_filesystem();
+const std::shared_ptr<LocalFileSystem>& global_local_filesystem();
 
 } // namespace io
 } // namespace doris

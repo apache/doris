@@ -825,6 +825,8 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
                     _tasks.push_back(agent_task_req);
                     _worker_thread_condition_variable.notify_one();
                 }
+                LOG(INFO) << "wait for previous publish version task to be done"
+                          << "transaction_id: " << publish_version_req.transaction_id;
                 break;
             } else {
                 LOG_WARNING("failed to publish version")
@@ -1402,10 +1404,14 @@ void TaskWorkerPool::_upload_worker_thread_callback() {
         std::map<int64_t, std::vector<std::string>> tablet_files;
         std::unique_ptr<SnapshotLoader> loader = std::make_unique<SnapshotLoader>(
                 _env, upload_request.job_id, agent_task_req.signature, upload_request.broker_addr,
-                upload_request.broker_prop,
+                upload_request.broker_prop);
+        Status status = loader->init(
                 upload_request.__isset.storage_backend ? upload_request.storage_backend
-                                                       : TStorageBackendType::type::BROKER);
-        Status status = loader->upload(upload_request.src_dest_map, &tablet_files);
+                                                       : TStorageBackendType::type::BROKER,
+                upload_request.__isset.location ? upload_request.location : "");
+        if (status.ok()) {
+            status = loader->upload(upload_request.src_dest_map, &tablet_files);
+        }
 
         if (!status.ok()) {
             LOG_WARNING("failed to upload")
@@ -1454,10 +1460,14 @@ void TaskWorkerPool::_download_worker_thread_callback() {
 
         std::unique_ptr<SnapshotLoader> loader = std::make_unique<SnapshotLoader>(
                 _env, download_request.job_id, agent_task_req.signature,
-                download_request.broker_addr, download_request.broker_prop,
+                download_request.broker_addr, download_request.broker_prop);
+        Status status = loader->init(
                 download_request.__isset.storage_backend ? download_request.storage_backend
-                                                         : TStorageBackendType::type::BROKER);
-        Status status = loader->download(download_request.src_dest_map, &downloaded_tablet_ids);
+                                                         : TStorageBackendType::type::BROKER,
+                download_request.__isset.location ? download_request.location : "");
+        if (status.ok()) {
+            status = loader->download(download_request.src_dest_map, &downloaded_tablet_ids);
+        }
 
         if (!status.ok()) {
             LOG_WARNING("failed to download")
@@ -1767,6 +1777,7 @@ void TaskWorkerPool::_push_storage_policy_worker_thread_callback() {
                 continue;
             }
             if (resource.__isset.s3_storage_param) {
+                Status st;
                 S3Conf s3_conf;
                 s3_conf.ak = std::move(resource.s3_storage_param.ak);
                 s3_conf.sk = std::move(resource.s3_storage_param.sk);
@@ -1777,14 +1788,13 @@ void TaskWorkerPool::_push_storage_policy_worker_thread_callback() {
                 s3_conf.connect_timeout_ms = resource.s3_storage_param.conn_timeout_ms;
                 s3_conf.max_connections = resource.s3_storage_param.max_conn;
                 s3_conf.request_timeout_ms = resource.s3_storage_param.request_timeout_ms;
-                std::shared_ptr<io::S3FileSystem> s3_fs;
+                std::shared_ptr<io::S3FileSystem> fs;
                 if (existed_resource.fs == nullptr) {
-                    s3_fs = io::S3FileSystem::create(s3_conf, std::to_string(resource.id));
+                    st = io::S3FileSystem::create(s3_conf, std::to_string(resource.id), &fs);
                 } else {
-                    s3_fs = std::static_pointer_cast<io::S3FileSystem>(existed_resource.fs);
-                    s3_fs->set_conf(s3_conf);
+                    fs = std::static_pointer_cast<io::S3FileSystem>(existed_resource.fs);
+                    fs->set_conf(s3_conf);
                 }
-                auto st = s3_fs->connect();
                 if (!st.ok()) {
                     LOG(WARNING) << "update s3 resource failed: " << st;
                 } else {
@@ -1792,7 +1802,7 @@ void TaskWorkerPool::_push_storage_policy_worker_thread_callback() {
                             .tag("resource_id", resource.id)
                             .tag("resource_name", resource.name)
                             .tag("s3_conf", s3_conf.to_string());
-                    put_storage_resource(resource.id, {std::move(s3_fs), resource.version});
+                    put_storage_resource(resource.id, {std::move(fs), resource.version});
                 }
             } else {
                 LOG(WARNING) << "unknown resource=" << resource;

@@ -34,16 +34,18 @@ public class UploadTask extends AgentTask {
     private FsBroker broker;
     private Map<String, String> brokerProperties;
     private StorageBackend.StorageType storageType;
+    private String location;
 
     public UploadTask(TResourceInfo resourceInfo, long backendId, long signature, long jobId, Long dbId,
             Map<String, String> srcToDestPath, FsBroker broker, Map<String, String> brokerProperties,
-            StorageBackend.StorageType storageType) {
+            StorageBackend.StorageType storageType, String location) {
         super(resourceInfo, backendId, TTaskType.UPLOAD, dbId, -1, -1, -1, -1, signature);
         this.jobId = jobId;
         this.srcToDestPath = srcToDestPath;
         this.broker = broker;
         this.brokerProperties = brokerProperties;
         this.storageType = storageType;
+        this.location = location;
     }
 
     public long getJobId() {
@@ -67,6 +69,7 @@ public class UploadTask extends AgentTask {
         TUploadReq request = new TUploadReq(jobId, srcToDestPath, address);
         request.setBrokerProp(brokerProperties);
         request.setStorageBackend(storageType.toThrift());
+        request.setLocation(location);
         return request;
     }
 }
