@@ -867,7 +867,7 @@ public class EditLog {
                 }
                 case OperationType.OP_CREATE_CATALOG: {
                     CatalogLog log = (CatalogLog) journal.getData();
-                    env.getCatalogMgr().replayCreateCatalog(log);
+                    env.getCatalogMgr().replayCreateCatalog(log, true);
                     break;
                 }
                 case OperationType.OP_DROP_CATALOG: {
