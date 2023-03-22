@@ -60,6 +60,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.stream.IntStream;
@@ -77,6 +78,7 @@ public class OneRangePartitionEvaluator
     private List<Literal> uppers;
     private List<List<Expression>> inputs;
     private Map<Slot, Boolean> partitionSlotContainsNull;
+    private Map<Slot, PartitionSlotType> slotToType;
 
     /** OneRangePartitionEvaluator */
     public OneRangePartitionEvaluator(long partitionId, List<Slot> partitionSlots,
@@ -93,6 +95,9 @@ public class OneRangePartitionEvaluator
 
         PartitionRangeExpander expander = new PartitionRangeExpander();
         this.partitionSlotTypes = expander.computePartitionSlotTypes(lowers, uppers);
+        this.slotToType = IntStream.range(0, partitionSlots.size())
+                .mapToObj(index -> Pair.of(partitionSlots.get(index), partitionSlotTypes.get(index)))
+                .collect(ImmutableMap.toImmutableMap(Pair::key, Pair::value));
 
         this.partitionSlotContainsNull = IntStream.range(0, partitionSlots.size())
             .mapToObj(index -> {
@@ -230,14 +235,14 @@ public class OneRangePartitionEvaluator
         greaterThan = (GreaterThan) result.result;
         if (greaterThan.left() instanceof Slot && greaterThan.right() instanceof Literal) {
             Slot slot = (Slot) greaterThan.left();
-            if (context.defaultColumnRanges.containsKey(slot)) {
+            if (isPartitionSlot(slot)) {
                 Map<Slot, ColumnRange> leftColumnRanges = result.childrenResult.get(0).columnRanges;
                 ColumnRange greaterThenRange = ColumnRange.greaterThan((Literal) greaterThan.right());
                 result = intersectSlotRange(result, leftColumnRanges, slot, greaterThenRange);
             }
         } else if (greaterThan.left() instanceof Literal && greaterThan.right() instanceof Slot) {
             Slot slot = (Slot) greaterThan.right();
-            if (context.defaultColumnRanges.containsKey(slot)) {
+            if (isPartitionSlot(slot)) {
                 Map<Slot, ColumnRange> rightColumnRanges = result.childrenResult.get(1).columnRanges;
                 ColumnRange lessThenRange = ColumnRange.lessThen((Literal) greaterThan.left());
                 result = intersectSlotRange(result, rightColumnRanges, slot, lessThenRange);
@@ -255,14 +260,14 @@ public class OneRangePartitionEvaluator
         greaterThanEqual = (GreaterThanEqual) result.result;
         if (greaterThanEqual.left() instanceof Slot && greaterThanEqual.right() instanceof Literal) {
             Slot slot = (Slot) greaterThanEqual.left();
-            if (context.defaultColumnRanges.containsKey(slot)) {
+            if (isPartitionSlot(slot)) {
                 Map<Slot, ColumnRange> leftColumnRanges = result.childrenResult.get(0).columnRanges;
                 ColumnRange atLeastRange = ColumnRange.atLeast((Literal) greaterThanEqual.right());
                 result = intersectSlotRange(result, leftColumnRanges, slot, atLeastRange);
             }
         } else if (greaterThanEqual.left() instanceof Literal && greaterThanEqual.right() instanceof Slot) {
             Slot slot = (Slot) greaterThanEqual.right();
-            if (context.defaultColumnRanges.containsKey(slot)) {
+            if (isPartitionSlot(slot)) {
                 Map<Slot, ColumnRange> rightColumnRanges = result.childrenResult.get(1).columnRanges;
                 ColumnRange atMostRange = ColumnRange.atMost((Literal) greaterThanEqual.left());
                 result = intersectSlotRange(result, rightColumnRanges, slot, atMostRange);
@@ -280,14 +285,14 @@ public class OneRangePartitionEvaluator
         lessThan = (LessThan) result.result;
         if (lessThan.left() instanceof Slot && lessThan.right() instanceof Literal) {
             Slot slot = (Slot) lessThan.left();
-            if (context.defaultColumnRanges.containsKey(slot)) {
+            if (isPartitionSlot(slot)) {
                 Map<Slot, ColumnRange> leftColumnRanges = result.childrenResult.get(0).columnRanges;
                 ColumnRange greaterThenRange = ColumnRange.lessThen((Literal) lessThan.right());
                 result = intersectSlotRange(result, leftColumnRanges, slot, greaterThenRange);
             }
         } else if (lessThan.left() instanceof Literal && lessThan.right() instanceof Slot) {
             Slot slot = (Slot) lessThan.right();
-            if (context.defaultColumnRanges.containsKey(slot)) {
+            if (isPartitionSlot(slot)) {
                 Map<Slot, ColumnRange> rightColumnRanges = result.childrenResult.get(1).columnRanges;
                 ColumnRange lessThenRange = ColumnRange.greaterThan((Literal) lessThan.left());
                 result = intersectSlotRange(result, rightColumnRanges, slot, lessThenRange);
@@ -305,14 +310,14 @@ public class OneRangePartitionEvaluator
         lessThanEqual = (LessThanEqual) result.result;
         if (lessThanEqual.left() instanceof Slot && lessThanEqual.right() instanceof Literal) {
             Slot slot = (Slot) lessThanEqual.left();
-            if (context.defaultColumnRanges.containsKey(slot)) {
+            if (isPartitionSlot(slot)) {
                 Map<Slot, ColumnRange> leftColumnRanges = result.childrenResult.get(0).columnRanges;
                 ColumnRange atLeastRange = ColumnRange.atMost((Literal) lessThanEqual.right());
                 result = intersectSlotRange(result, leftColumnRanges, slot, atLeastRange);
             }
         } else if (lessThanEqual.left() instanceof Literal && lessThanEqual.right() instanceof Slot) {
             Slot slot = (Slot) lessThanEqual.right();
-            if (context.defaultColumnRanges.containsKey(slot)) {
+            if (isPartitionSlot(slot)) {
                 Map<Slot, ColumnRange> rightColumnRanges = result.childrenResult.get(1).columnRanges;
                 ColumnRange atMostRange = ColumnRange.atLeast((Literal) lessThanEqual.left());
                 result = intersectSlotRange(result, rightColumnRanges, slot, atMostRange);
@@ -330,14 +335,14 @@ public class OneRangePartitionEvaluator
         equalTo = (EqualTo) result.result;
         if (equalTo.left() instanceof Slot && equalTo.right() instanceof Literal) {
             Slot slot = (Slot) equalTo.left();
-            if (context.defaultColumnRanges.containsKey(slot)) {
+            if (isPartitionSlot(slot)) {
                 Map<Slot, ColumnRange> leftColumnRanges = result.childrenResult.get(0).columnRanges;
                 ColumnRange atLeastRange = ColumnRange.singleton((Literal) equalTo.right());
                 result = intersectSlotRange(result, leftColumnRanges, slot, atLeastRange);
             }
         } else if (equalTo.left() instanceof Literal && equalTo.right() instanceof Slot) {
             Slot slot = (Slot) equalTo.right();
-            if (context.defaultColumnRanges.containsKey(slot)) {
+            if (isPartitionSlot(slot)) {
                 Map<Slot, ColumnRange> rightColumnRanges = result.childrenResult.get(1).columnRanges;
                 ColumnRange atMostRange = ColumnRange.singleton((Literal) equalTo.left());
                 result = intersectSlotRange(result, rightColumnRanges, slot, atMostRange);
@@ -375,13 +380,14 @@ public class OneRangePartitionEvaluator
         }
 
         Expression child = isNull.child();
-        if (!(child instanceof Slot) || !context.defaultColumnRanges.containsKey((Slot) child)) {
+        if (!(child instanceof Slot) || !isPartitionSlot((Slot) child)) {
             return result;
         }
 
-        boolean containsNull = partitionSlotContainsNull.get((Slot) child);
-        return new EvaluateRangeResult(containsNull ? BooleanLiteral.TRUE : BooleanLiteral.FALSE,
-                result.columnRanges, result.childrenResult);
+        if (!partitionSlotContainsNull.get((Slot) child)) {
+            return new EvaluateRangeResult(BooleanLiteral.FALSE, result.columnRanges, result.childrenResult);
+        }
+        return result;
     }
 
     @Override
@@ -562,7 +568,12 @@ public class OneRangePartitionEvaluator
         }
 
         date = (Date) result.result;
-        if (!(date.child() instanceof Slot) || !context.slotToInput.containsKey((Slot) date.child())) {
+        if (!(date.child() instanceof Slot) || !isPartitionSlot((Slot) date.child())) {
+            return result;
+        }
+        Slot partitionSlot = (Slot) date.child();
+        PartitionSlotType partitionSlotType = getPartitionSlotType(partitionSlot).get();
+        if (partitionSlotType != PartitionSlotType.RANGE) {
             return result;
         }
         DataType childType = date.child().getDataType();
@@ -586,6 +597,14 @@ public class OneRangePartitionEvaluator
         }
 
         return result;
+    }
+
+    private boolean isPartitionSlot(Slot slot) {
+        return slotToType.containsKey(slot);
+    }
+
+    private Optional<PartitionSlotType> getPartitionSlotType(Slot slot) {
+        return Optional.ofNullable(slotToType.get(slot));
     }
 
     /** EvaluateRangeInput */
