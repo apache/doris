@@ -51,8 +51,8 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        int num_position = arguments[0];
-        int value_position = arguments[1];
+        size_t num_position = arguments[0];
+        size_t value_position = arguments[1];
         FunctionType::get_param_position_from_arguments(arguments, num_position, value_position);
         auto num = block.get_by_position(num_position).column->convert_to_full_column_if_const();
         auto value =
@@ -88,8 +88,8 @@ public:
 struct NameArrayWithConstant {
     static constexpr auto name = "array_with_constant";
 
-    static void get_param_position_from_arguments(const ColumnNumbers& arguments, int& num_position,
-                                                  int& value_position) {
+    static void get_param_position_from_arguments(const ColumnNumbers& arguments, size_t& num_position,
+                                                  size_t& value_position) {
         num_position = arguments[0];
         value_position = arguments[1];
     }
@@ -98,8 +98,8 @@ struct NameArrayWithConstant {
 struct NameArrayRepeat {
     static constexpr auto name = "array_repeat";
 
-    static void get_param_position_from_arguments(const ColumnNumbers& arguments, int& num_position,
-                                                  int& value_position) {
+    static void get_param_position_from_arguments(const ColumnNumbers& arguments, size_t& num_position,
+                                                  size_t& value_position) {
         value_position = arguments[0];
         num_position = arguments[1];
     }
