@@ -1253,12 +1253,12 @@ public class MaterializedViewHandler extends AlterHandler {
 
     public void processCreateMultiTablesMaterializedView(CreateMultiTableMaterializedViewStmt addMVClause)
             throws UserException {
-        Map<String, OlapTable> olapTables = addMVClause.getOlapTables();
+        Map<String, Table> olapTables = addMVClause.getTables();
         try {
-            olapTables.values().forEach(Table::writeLock);
+            olapTables.values().forEach(Table::readLock);
             Env.getCurrentEnv().createTable(addMVClause);
         } finally {
-            olapTables.values().forEach(Table::writeUnlock);
+            olapTables.values().forEach(Table::readUnlock);
         }
     }
 }
