@@ -83,7 +83,6 @@ struct StAsText {
         auto size = input->size();
 
         MutableColumnPtr res = nullptr;
-        auto null_type = std::reinterpret_pointer_cast<const DataTypeNullable>(return_type);
         res = ColumnNullable::create(return_type->create_column(), ColumnUInt8::create());
 
         std::unique_ptr<GeoShape> shape;
@@ -117,7 +116,6 @@ struct StX {
         auto size = input->size();
 
         MutableColumnPtr res = nullptr;
-        auto null_type = std::reinterpret_pointer_cast<const DataTypeNullable>(return_type);
         res = ColumnNullable::create(return_type->create_column(), ColumnUInt8::create());
 
         GeoPoint point;
@@ -151,7 +149,6 @@ struct StY {
         auto size = input->size();
 
         MutableColumnPtr res = nullptr;
-        auto null_type = std::reinterpret_pointer_cast<const DataTypeNullable>(return_type);
         res = ColumnNullable::create(return_type->create_column(), ColumnUInt8::create());
 
         GeoPoint point;
@@ -188,7 +185,6 @@ struct StDistanceSphere {
         const auto size = x_lng->size();
 
         MutableColumnPtr res = nullptr;
-        auto null_type = std::reinterpret_pointer_cast<const DataTypeNullable>(return_type);
         res = ColumnNullable::create(return_type->create_column(), ColumnUInt8::create());
 
         for (int row = 0; row < size; ++row) {
@@ -214,7 +210,7 @@ struct StAngleSphere {
     static const size_t NUM_ARGS = 4;
     static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
         DCHECK_EQ(arguments.size(), 4);
-        auto return_type = remove_nullable(block.get_data_type(result));
+        auto return_type = block.get_data_type(result);
 
         auto x_lng = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         auto x_lat = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
@@ -224,7 +220,6 @@ struct StAngleSphere {
         const auto size = x_lng->size();
 
         MutableColumnPtr res = nullptr;
-        auto null_type = std::reinterpret_pointer_cast<const DataTypeNullable>(return_type);
         res = ColumnNullable::create(return_type->create_column(), ColumnUInt8::create());
 
         for (int row = 0; row < size; ++row) {
@@ -261,7 +256,6 @@ struct StCircle {
         const auto size = center_lng->size();
 
         MutableColumnPtr res = nullptr;
-        auto null_type = std::reinterpret_pointer_cast<const DataTypeNullable>(return_type);
         res = ColumnNullable::create(return_type->create_column(), ColumnUInt8::create());
 
         GeoCircle circle;
@@ -305,7 +299,6 @@ struct StContains {
         auto shape2 = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
 
         const auto size = shape1->size();
-        auto null_type = std::reinterpret_pointer_cast<const DataTypeNullable>(return_type);
         auto res = ColumnNullable::create(return_type->create_column(), ColumnUInt8::create());
 
         int i;
@@ -388,7 +381,6 @@ struct StGeoFromText {
         auto& geo = block.get_by_position(arguments[0]).column;
 
         const auto size = geo->size();
-        auto null_type = std::reinterpret_pointer_cast<const DataTypeNullable>(return_type);
         auto res = ColumnNullable::create(return_type->create_column(), ColumnUInt8::create());
 
         GeoParseStatus status;
