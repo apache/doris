@@ -347,6 +347,66 @@ convert_decimals(const typename FromDataType::FieldType& value, UInt32 scale_fro
 }
 
 template <typename FromDataType, typename ToDataType>
+void convert_decimal_cols(
+        const typename ColumnDecimal<typename FromDataType::FieldType>::Container& vec_from,
+        typename ColumnDecimal<typename ToDataType::FieldType>::Container& vec_to,
+        UInt32 scale_from, UInt32 scale_to, UInt8* overflow_flag = nullptr) {
+    using FromFieldType = typename FromDataType::FieldType;
+    using ToFieldType = typename ToDataType::FieldType;
+    using MaxFieldType =
+            std::conditional_t<(sizeof(FromFieldType) == sizeof(ToFieldType)) &&
+                                       (std::is_same_v<ToFieldType, Decimal128I> ||
+                                        std::is_same_v<FromFieldType, Decimal128I>),
+                               Decimal128I,
+                               std::conditional_t<(sizeof(FromFieldType) > sizeof(ToFieldType)),
+                                                  FromFieldType, ToFieldType>>;
+    using MaxNativeType = typename MaxFieldType::NativeType;
+
+    if (scale_to > scale_from) {
+        MaxNativeType multiplier =
+                DataTypeDecimal<MaxFieldType>::get_scale_multiplier(scale_to - scale_from);
+        MaxNativeType res;
+        for (size_t i = 0; i < vec_from.size(); i++) {
+            if (common::mul_overflow(static_cast<MaxNativeType>(vec_from[i]), multiplier, res)) {
+                if (overflow_flag) {
+                    overflow_flag[i] = 1;
+                }
+                VLOG_DEBUG << "Decimal convert overflow";
+                vec_to[i] = res < 0 ? std::numeric_limits<typename ToFieldType::NativeType>::min()
+                                    : std::numeric_limits<typename ToFieldType::NativeType>::max();
+            } else {
+                vec_to[i] = res;
+            }
+        }
+    } else {
+        MaxNativeType multiplier =
+                DataTypeDecimal<MaxFieldType>::get_scale_multiplier(scale_from - scale_to);
+        for (size_t i = 0; i < vec_from.size(); i++) {
+            vec_to[i] = vec_from[i] / multiplier;
+        }
+    }
+
+    if constexpr (sizeof(FromFieldType) > sizeof(ToFieldType)) {
+        for (size_t i = 0; i < vec_from.size(); i++) {
+            if (vec_to[i] < std::numeric_limits<typename ToFieldType::NativeType>::min()) {
+                if (overflow_flag) {
+                    *overflow_flag = 1;
+                }
+                VLOG_DEBUG << "Decimal convert overflow";
+                vec_to[i] = std::numeric_limits<typename ToFieldType::NativeType>::min();
+            }
+            if (vec_to[i] > std::numeric_limits<typename ToFieldType::NativeType>::max()) {
+                if (overflow_flag) {
+                    *overflow_flag = 1;
+                }
+                VLOG_DEBUG << "Decimal convert overflow";
+                vec_to[i] = std::numeric_limits<typename ToFieldType::NativeType>::max();
+            }
+        }
+    }
+}
+
+template <typename FromDataType, typename ToDataType>
 std::enable_if_t<IsDataTypeDecimal<FromDataType> && IsDataTypeNumber<ToDataType>,
                  typename ToDataType::FieldType>
 convert_from_decimal(const typename FromDataType::FieldType& value, UInt32 scale) {
