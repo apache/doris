@@ -2145,9 +2145,7 @@ public class SelectStmt extends QueryStmt {
     @Override
     public String toSql() {
         if (sqlString != null) {
-            if (ToSqlContext.get() == null || ToSqlContext.get().isNeedSlotRefId()) {
-                return sqlString;
-            }
+            return sqlString;
         }
         StringBuilder strBuilder = new StringBuilder();
         if (withClause != null) {
