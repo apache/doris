@@ -313,6 +313,7 @@ Status RowGroupReader::_read_column_data(Block* block, const std::vector<std::st
                     block->replace_by_position(pos, std::move(dict_column));
                 }
                 is_dict_filter = true;
+                break;
             }
         }
 

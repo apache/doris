@@ -49,6 +49,9 @@ public:
         std::vector<std::string> all_read_columns;
         // include predicate_partition_columns & predicate_missing_columns
         std::vector<uint32_t> all_predicate_col_ids;
+        // save slot_id to find dict filter column name, because expr column name may
+        // be different with parquet column name
+        // std::pair<std::vector<col_name>, std::vector<slot_id>>
         std::pair<std::vector<std::string>, std::vector<int>> predicate_columns;
         std::vector<std::string> lazy_read_columns;
         std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
