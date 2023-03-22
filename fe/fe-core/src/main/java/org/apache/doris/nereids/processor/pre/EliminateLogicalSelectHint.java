@@ -76,7 +76,7 @@ public class EliminateLogicalSelectHint extends PlanPreprocessor {
         // enable_fallback_to_original_planner=true and revert it after executing.
         // throw exception to fall back to original planner
         if (!sessionVariable.isEnableNereidsPlanner()) {
-            String key = "enable_fallback_to_original_planner";
+            String key = SessionVariable.ENABLE_FALLBACK_TO_ORIGINAL_PLANNER;
             Optional<String> value = Optional.of("true");
             try {
                 VariableMgr.setVar(sessionVariable, new SetVar(key, new StringLiteral(value.get())));
