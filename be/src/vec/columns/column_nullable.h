@@ -81,6 +81,11 @@ public:
     bool get_bool(size_t n) const override {
         return is_null_at(n) ? false : nested_column->get_bool(n);
     }
+    // column must be nullable(uint8)
+    bool get_bool_inline(size_t n) const {
+        return is_null_at(n) ? false
+                             : assert_cast<const ColumnUInt8*>(nested_column.get())->get_bool(n);
+    }
     UInt64 get64(size_t n) const override { return nested_column->get64(n); }
     StringRef get_data_at(size_t n) const override;
 

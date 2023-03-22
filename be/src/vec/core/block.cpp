@@ -21,6 +21,7 @@
 #include "vec/core/block.h"
 
 #include <fmt/format.h>
+#include <glog/logging.h>
 #include <snappy.h>
 
 #include "agent/be_exec_version_manager.h"
@@ -195,7 +196,7 @@ void Block::erase_tail(size_t start) {
 
 void Block::erase(size_t position) {
     DCHECK(!data.empty()) << "Block is empty";
-    DCHECK(position < data.size()) << fmt::format(
+    DCHECK_LT(position, data.size()) << fmt::format(
             "Position out of bound in Block::erase(), max position = {}", data.size() - 1);
 
     erase_impl(position);
@@ -713,7 +714,7 @@ Block Block::copy_block(const std::vector<int>& column_offset) const {
 }
 
 void Block::append_block_by_selector(MutableBlock* dst, const IColumn::Selector& selector) const {
-    DCHECK(data.size() == dst->mutable_columns().size());
+    DCHECK_EQ(data.size(), dst->mutable_columns().size());
     for (size_t i = 0; i < data.size(); i++) {
         data[i].column->append_data_by_selector(dst->mutable_columns()[i], selector);
     }
