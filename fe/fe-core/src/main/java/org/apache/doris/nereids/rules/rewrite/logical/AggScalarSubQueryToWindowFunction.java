@@ -170,7 +170,7 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         }
         WindowExpression windowFunction = createWindowFunction(apply.getCorrelationSlot(),
                 functions.get(0).withChildren(ImmutableList.of(windowFilterConjunct.child(flag))));
-        Alias windowAlias = new Alias(windowFunction, windowFunction.toString());
+        Alias windowAlias = new Alias(windowFunction, "wf");
         aggOut = new FunctionReplacer().replace(aggOut, windowAlias.toSlot());
         List<Expression> children = Lists.newArrayList(null, null);
         children.set(flag, windowFilterConjunct.child(flag));
