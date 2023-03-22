@@ -207,6 +207,8 @@ public:
     /** Get a list of column names separated by commas. */
     std::string dump_names() const;
 
+    std::string dump_types() const;
+
     /** List of names, types and lengths of columns. Designed for debugging. */
     std::string dump_structure() const;
 
@@ -473,8 +475,19 @@ public:
         return 0;
     }
 
+    std::string dump_types() const {
+        std::string res;
+        for (auto type : _data_types) {
+            if (res.size()) {
+                res += ", ";
+            }
+            res += type->get_name();
+        }
+        return res;
+    }
+
     template <typename T>
-    void merge(T&& block) {
+    Status merge(T&& block) {
         // merge is not supported in dynamic block
         if (_columns.size() == 0 && _data_types.size() == 0) {
             _data_types = block.get_data_types();
@@ -491,7 +504,11 @@ public:
             }
             initialize_index_by_name();
         } else {
-            DCHECK_EQ(_columns.size(), block.columns());
+            if (_columns.size() != block.columns()) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                        "Merge block not match, self:[{}], input:[{}], ", dump_types(),
+                        block.dump_types());
+            }
             for (int i = 0; i < _columns.size(); ++i) {
                 if (!_data_types[i]->equals(*block.get_by_position(i).type)) {
                     DCHECK(_data_types[i]->is_nullable())
@@ -513,6 +530,7 @@ public:
                 }
             }
         }
+        return Status::OK();
     }
 
     Block to_block(int start_column = 0);
