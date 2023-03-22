@@ -51,7 +51,7 @@ CELLARS=(
     texinfo
     coreutils
     gnu-getopt
-    python
+    python@3
     cmake
     ninja
     ccache
@@ -61,7 +61,7 @@ CELLARS=(
     wget
     pcre
     maven
-    llvm
+    llvm@15
 )
 for cellar in "\${CELLARS[@]}"; do
     EXPORT_CELLARS="\${HOMEBREW_REPO_PREFIX}/opt/\${cellar}/bin:\${EXPORT_CELLARS}"
