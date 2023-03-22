@@ -32,12 +32,14 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
         Assertions.assertTrue(PlanChecker.from(createCascadesContext(TPCHUtils.Q2))
                 .analyze(TPCHUtils.Q2)
                 .applyTopDown(new AggScalarSubQueryToWindowFunction())
+                .rewrite()
                 .getPlan()
                 .anyMatch(LogicalWindow.class::isInstance));
 
         Assertions.assertTrue(PlanChecker.from(createCascadesContext(TPCHUtils.Q17))
                 .analyze(TPCHUtils.Q17)
                 .applyTopDown(new AggScalarSubQueryToWindowFunction())
+                .rewrite()
                 .getPlan()
                 .anyMatch(LogicalWindow.class::isInstance));
     }

@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -157,23 +158,27 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         LogicalApply<Plan, LogicalAggregate<Plan>> apply = node.child().child();
 
         Expression windowFilterConjunct = apply.getSubCorrespondingConject().get();
-        NamedExpression aggOut = apply.right().getOutputExpressions().get(0);
+        Preconditions.checkArgument(apply.right().getOutputExpressions().get(0) instanceof Alias);
+        Alias aggOutAlias = ((Alias) apply.right().getOutputExpressions().get(0));
+        ExprId aggOutId = aggOutAlias.getExprId();
+        Expression aggOut = aggOutAlias.child(0);
 
         int flag = 0;
         if (windowFilterConjunct.child(0) instanceof Alias
-                && ((Alias) windowFilterConjunct.child(0)).getExprId().equals(aggOut.getExprId())) {
+                && ((Alias) windowFilterConjunct.child(0)).getExprId().equals(aggOutId)) {
             flag = 1;
         }
         WindowExpression windowFunction = createWindowFunction(apply.getCorrelationSlot(),
                 functions.get(0).withChildren(ImmutableList.of(windowFilterConjunct.child(flag))));
-        aggOut = ((NamedExpression) new FunctionReplacer().replace(aggOut, windowFunction));
+        Alias windowAlias = new Alias(windowFunction, windowFunction.toString());
+        aggOut = new FunctionReplacer().replace(aggOut, windowAlias.toSlot());
         List<Expression> children = Lists.newArrayList(null, null);
         children.set(flag, windowFilterConjunct.child(flag));
         children.set(flag ^ 1, aggOut);
-        windowFilterConjunct.withChildren(children);
+        windowFilterConjunct = windowFilterConjunct.withChildren(children);
 
         LogicalFilter newFilter = ((LogicalFilter) node.withChildren(apply.left()));
-        LogicalWindow newWindow = new LogicalWindow<>(ImmutableList.of(aggOut), newFilter);
+        LogicalWindow newWindow = new LogicalWindow<>(ImmutableList.of(windowAlias), newFilter);
         LogicalFilter windowFilter = new LogicalFilter<>(ImmutableSet.of(windowFilterConjunct), newWindow);
         return node.child().withChildren(windowFilter);
     }
@@ -341,7 +346,6 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
 
         @Override
         public Expression visitAggregateFunction(AggregateFunction f, Expression wf) {
-            Preconditions.checkArgument(((WindowExpression) wf).getFunction().getClass().equals(f.getClass()));
             return wf;
         }
     }
