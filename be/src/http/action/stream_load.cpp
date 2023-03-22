@@ -603,7 +603,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
 
     auto& query_options = ctx->put_result.params.query_options;
     if (query_options.__isset.is_report_success && query_options.is_report_success &&
-        !config::enable_stream_load_log) {
+        !config::enable_stream_load_profile_log) {
         query_options.is_report_success = false;
     }
 

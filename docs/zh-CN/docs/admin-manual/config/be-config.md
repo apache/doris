@@ -783,7 +783,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * 默认值： 100
 * 可动态修改：是
 
-#### `enable_stream_load_log`
+#### `enable_stream_load_profile_log`
 
 * 类型：bool
 * 描述：是否将 stream load profile 打印到日志。
