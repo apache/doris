@@ -736,5 +736,4 @@ public class ExecutableFunctions {
     public static DateTimeLiteral secondsSub(DateTimeLiteral date, IntegerLiteral second) throws AnalysisException {
         return secondsAdd(date, new IntegerLiteral(-second.getValue()));
     }
-
 }
