@@ -19,39 +19,63 @@ package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
+import org.apache.doris.nereids.rules.exploration.ExplorationRuleFactory;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
+import com.google.common.collect.ImmutableList;
+
 import java.util.ArrayList;
+import java.util.List;
 
 /**
  * LogicalJoin(SemiJoin(A, B), C) -> SemiJoin(LogicalJoin(A, C), B)
  */
-public class LogicalJoinSemiJoinTransposeProject extends OneExplorationRuleFactory {
+public class LogicalJoinSemiJoinTransposeProject implements ExplorationRuleFactory {
 
     public static final LogicalJoinSemiJoinTransposeProject INSTANCE = new LogicalJoinSemiJoinTransposeProject();
 
     @Override
-    public Rule build() {
-        return logicalJoin(logicalProject(logicalJoin()), group())
-                .when(topJoin -> (topJoin.left().child().getJoinType().isLeftSemiOrAntiJoin()
-                        && (topJoin.getJoinType().isInnerJoin()
-                        || topJoin.getJoinType().isLeftOuterJoin())))
-                .whenNot(topJoin -> topJoin.hasJoinHint() || topJoin.left().child().hasJoinHint())
-                .whenNot(LogicalJoin::isMarkJoin)
-                .when(join -> JoinReorderUtils.isAllSlotProject(join.left()))
-                .then(topJoin -> {
-                    LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left().child();
-                    GroupPlan a = bottomJoin.left();
-                    GroupPlan b = bottomJoin.right();
-                    GroupPlan c = topJoin.right();
+    public List<Rule> buildRules() {
+        return ImmutableList.of(
+                logicalJoin(logicalProject(logicalJoin()), group())
+                        .when(topJoin -> (topJoin.left().child().getJoinType().isLeftSemiOrAntiJoin()
+                                && (topJoin.getJoinType().isInnerJoin()
+                                || topJoin.getJoinType().isLeftOuterJoin())))
+                        .whenNot(topJoin -> topJoin.hasJoinHint() || topJoin.left().child().hasJoinHint())
+                        .whenNot(LogicalJoin::isMarkJoin)
+                        .when(join -> JoinReorderUtils.isAllSlotProject(join.left()))
+                        .then(topJoin -> {
+                            LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left().child();
+                            GroupPlan a = bottomJoin.left();
+                            GroupPlan b = bottomJoin.right();
+                            GroupPlan c = topJoin.right();
 
-                    // Discard this project, because it is useless.
-                    Plan newBottomJoin = topJoin.withChildren(a, c);
-                    Plan newTopJoin = bottomJoin.withChildren(newBottomJoin, b);
-                    return JoinReorderUtils.projectOrSelfInOrder(new ArrayList<>(topJoin.getOutput()), newTopJoin);
-                }).toRule(RuleType.LOGICAL_JOIN_LOGICAL_SEMI_JOIN_TRANSPOSE_PROJECT);
+                            // Discard this project, because it is useless.
+                            Plan newBottomJoin = topJoin.withChildren(a, c);
+                            Plan newTopJoin = bottomJoin.withChildren(newBottomJoin, b);
+                            return JoinReorderUtils.projectOrSelf(new ArrayList<>(topJoin.getOutput()),
+                                    newTopJoin);
+                        }).toRule(RuleType.LOGICAL_JOIN_LOGICAL_SEMI_JOIN_TRANSPOSE_PROJECT),
+
+                logicalJoin(group(), logicalProject(logicalJoin()))
+                        .when(topJoin -> (topJoin.right().child().getJoinType().isLeftSemiOrAntiJoin()
+                                && (topJoin.getJoinType().isInnerJoin()
+                                || topJoin.getJoinType().isRightOuterJoin())))
+                        .when(join -> JoinReorderUtils.isAllSlotProject(join.right()))
+                        .then(topJoin -> {
+                            LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.right().child();
+                            GroupPlan a = topJoin.left();
+                            GroupPlan b = bottomJoin.left();
+                            GroupPlan c = bottomJoin.right();
+
+                            // Discard this project, because it is useless.
+                            Plan newBottomJoin = topJoin.withChildren(a, b);
+                            Plan newTopJoin = bottomJoin.withChildren(newBottomJoin, c);
+                            return JoinReorderUtils.projectOrSelf(new ArrayList<>(topJoin.getOutput()),
+                                    newTopJoin);
+                        }).toRule(RuleType.LOGICAL_JOIN_LOGICAL_SEMI_JOIN_TRANSPOSE)
+        );
     }
 }
