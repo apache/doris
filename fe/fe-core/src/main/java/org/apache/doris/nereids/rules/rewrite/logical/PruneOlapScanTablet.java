@@ -34,10 +34,11 @@ import org.apache.doris.planner.HashDistributionPruner;
 import org.apache.doris.planner.PartitionColumnFilter;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Maps;
 
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -51,18 +52,21 @@ public class PruneOlapScanTablet extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalFilter(logicalOlapScan())
-                .when(filter -> !filter.child().isTabletPruned())
                 .then(filter -> {
                     LogicalOlapScan olapScan = filter.child();
                     OlapTable table = olapScan.getTable();
-                    List<Long> selectedTabletIds = Lists.newArrayList();
+                    Builder<Long> selectedTabletIdsBuilder = ImmutableList.builder();
                     for (Long id : olapScan.getSelectedPartitionIds()) {
                         Partition partition = table.getPartition(id);
                         MaterializedIndex index = partition.getIndex(olapScan.getSelectedIndexId());
-                        selectedTabletIds.addAll(getSelectedTabletIds(filter.getConjuncts(),
+                        selectedTabletIdsBuilder.addAll(getSelectedTabletIds(filter.getConjuncts(),
                                 index, partition.getDistributionInfo()));
                     }
-                    return filter.withChildren(olapScan.withSelectedTabletIds(ImmutableList.copyOf(selectedTabletIds)));
+                    List<Long> selectedTabletIds = selectedTabletIdsBuilder.build();
+                    if (new HashSet(selectedTabletIds).equals(new HashSet(olapScan.getSelectedTabletIds()))) {
+                        return null;
+                    }
+                    return filter.withChildren(olapScan.withSelectedTabletIds(selectedTabletIds));
                 }).toRule(RuleType.OLAP_SCAN_TABLET_PRUNE);
     }
 
@@ -74,12 +78,12 @@ public class PruneOlapScanTablet extends OneRewriteRuleFactory {
         HashDistributionInfo hashInfo = (HashDistributionInfo) info;
         Map<String, PartitionColumnFilter> filterMap = Maps.newHashMap();
         expressions.stream().map(ExpressionUtils::checkAndMaybeCommute).filter(Optional::isPresent)
-                        .forEach(expr -> new ExpressionColumnFilterConverter(filterMap).convert(expr.get()));
+                .forEach(expr -> new ExpressionColumnFilterConverter(filterMap).convert(expr.get()));
         return new HashDistributionPruner(index.getTabletIdsInOrder(),
                 hashInfo.getDistributionColumns(),
                 filterMap,
                 hashInfo.getBucketNum()
-                ).prune();
+        ).prune();
     }
 }
 
