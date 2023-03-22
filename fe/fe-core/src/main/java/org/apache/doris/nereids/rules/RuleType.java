@@ -134,6 +134,8 @@ public enum RuleType {
     LOGICAL_SEMI_JOIN_LOGICAL_JOIN_TRANSPOSE(RuleTypeClass.REWRITE),
     LOGICAL_SEMI_JOIN_LOGICAL_JOIN_TRANSPOSE_PROJECT(RuleTypeClass.REWRITE),
     LOGICAL_SEMI_JOIN_COMMUTE(RuleTypeClass.REWRITE),
+    LOGICAL_SEMI_JOIN_AGG_TRANSPOSE(RuleTypeClass.REWRITE),
+    LOGICAL_SEMI_JOIN_AGG_TRANSPOSE_PROJECT(RuleTypeClass.REWRITE),
 
     // expression of plan rewrite
     REWRITE_ONE_ROW_RELATION_EXPRESSION(RuleTypeClass.REWRITE),
@@ -189,7 +191,6 @@ public enum RuleType {
     COUNT_DISTINCT_REWRITE(RuleTypeClass.REWRITE),
     INNER_TO_CROSS_JOIN(RuleTypeClass.REWRITE),
     CROSS_TO_INNER_JOIN(RuleTypeClass.REWRITE),
-    REWRITE_SENTINEL(RuleTypeClass.REWRITE),
 
     // split limit
     SPLIT_LIMIT(RuleTypeClass.REWRITE),
@@ -211,8 +212,7 @@ public enum RuleType {
     ADJUST_NULLABLE_ON_SORT(RuleTypeClass.REWRITE),
     ADJUST_NULLABLE_ON_TOP_N(RuleTypeClass.REWRITE),
 
-    // Join Reorder
-    JOIN_REORDER(RuleTypeClass.REWRITE),
+    REWRITE_SENTINEL(RuleTypeClass.REWRITE),
 
     // exploration rules
     TEST_EXPLORATION(RuleTypeClass.EXPLORATION),
