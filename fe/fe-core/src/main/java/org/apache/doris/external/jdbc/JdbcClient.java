@@ -17,6 +17,7 @@
 
 package org.apache.doris.external.jdbc;
 
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.PrimitiveType;
@@ -577,7 +578,12 @@ public class JdbcClient {
                 || ckType.startsWith("FixedString")) {
             return ScalarType.createStringType();
         } else if (ckType.startsWith("DateTime")) {
-            return ScalarType.getDefaultDateType(Type.DATETIME);
+            return ScalarType.createDatetimeV2Type(0);
+        } else if (ckType.startsWith("Array")) {
+            String cktype = ckType.substring(6, ckType.length() - 1);
+            fieldSchema.setDataTypeName(cktype);
+            Type type = clickhouseTypeToDoris(fieldSchema);
+            return ArrayType.create(type, true);
         }
         switch (ckType) {
             case "Bool":
