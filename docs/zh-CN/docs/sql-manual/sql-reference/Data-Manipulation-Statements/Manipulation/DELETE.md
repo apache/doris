@@ -41,7 +41,7 @@ DELETE
 语法一：该语法只能指定过滤谓词
 
 ```SQL
-DELETE FROM table_name [PARTITION partition_name | PARTITIONS (partition_name [, partition_name])]
+DELETE FROM table_name [table_alias] [PARTITION partition_name | PARTITIONS (partition_name [, partition_name])]
 WHERE
 column_name op { value | value_list } [ AND column_name op { value | value_list } ...];
 ```
@@ -51,7 +51,7 @@ column_name op { value | value_list } [ AND column_name op { value | value_list 
 语法二：该语法只能在UNIQUE KEY模型表上使用
 
 ```sql
-DELETE FROM table_name
+DELETE FROM table_name [table_alias]
     [PARTITION partition_name | PARTITIONS (partition_name [, partition_name])]
     [USING additional_tables]
     WHERE condition
@@ -79,6 +79,7 @@ DELETE FROM table_name
 
 <version since="dev">
 
++ table_alias: 表的别名
 + USING additional_tables: 如果需要在WHERE语句中使用其他的表来帮助识别需要删除的行，则可以在USING中指定这些表或者查询。
 
 </version>

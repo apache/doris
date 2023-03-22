@@ -79,6 +79,7 @@ DELETE FROM table_name
 
 <version since="dev">
 
++ table_alias: alias of table
 + USING additional_tables: If you need to refer to additional tables in the WHERE clause to help identify the rows to be removed, then specify those table names in the USING clause. You can also use the USING clause to specify subqueries that identify the rows to be removed.
 
 </version>
