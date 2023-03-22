@@ -39,8 +39,10 @@ import java.util.List;
  * normalize expression of plan rule set.
  */
 public class ExpressionNormalization extends ExpressionRewrite {
-
+    // we should run supportJavaDateFormatter before foldConstantRule or be will fold
+    // from_unixtime(timestamp, 'yyyyMMdd') to 'yyyyMMdd'
     public static final List<ExpressionRewriteRule> NORMALIZE_REWRITE_RULES = ImmutableList.of(
+            SupportJavaDateFormatter.INSTANCE,
             NormalizeBinaryPredicatesRule.INSTANCE,
             BetweenToCompoundRule.INSTANCE,
             InPredicateToEqualToRule.INSTANCE,
