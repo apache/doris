@@ -21,10 +21,10 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
-import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsBuilder;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -33,6 +33,7 @@ import java.util.stream.Collectors;
  * TODO: Update other props in the ColumnStats properly.
  */
 public class JoinEstimation {
+
     private static Statistics estimateInnerJoin(Statistics crossJoinStats, List<Expression> joinConditions) {
         List<Pair<Expression, Double>> sortedJoinConditions = joinConditions.stream()
                 .map(expression -> Pair.of(expression, estimateJoinConditionSel(crossJoinStats, expression)))
@@ -51,7 +52,7 @@ public class JoinEstimation {
         for (int i = 0; i < sortedJoinConditions.size(); i++) {
             sel *= Math.pow(sortedJoinConditions.get(i).second, 1 / Math.pow(2, i));
         }
-        return crossJoinStats.withSel(sel);
+        return crossJoinStats.updateRowCountOnly(crossJoinStats.getRowCount() * sel);
     }
 
     private static double estimateJoinConditionSel(Statistics crossJoinStats, Expression joinCond) {
@@ -69,13 +70,19 @@ public class JoinEstimation {
                 .putColumnStatistics(leftStats.columnStatistics())
                 .putColumnStatistics(rightStats.columnStatistics())
                 .build();
-        List<Expression> joinConditions = join.getHashJoinConjuncts();
-        Statistics innerJoinStats = estimateInnerJoin(crossJoinStats, joinConditions);
-        if (!join.getOtherJoinConjuncts().isEmpty()) {
-            FilterEstimation filterEstimation = new FilterEstimation();
-            innerJoinStats = filterEstimation.estimate(
-                    ExpressionUtils.and(join.getOtherJoinConjuncts()), innerJoinStats);
+        Statistics innerJoinStats = null;
+        if (crossJoinStats.getRowCount() != 0) {
+            List<Expression> joinConditions = new ArrayList<>(join.getHashJoinConjuncts());
+            joinConditions.addAll(join.getOtherJoinConjuncts());
+            innerJoinStats = estimateInnerJoin(crossJoinStats, joinConditions);
+        } else {
+            innerJoinStats = crossJoinStats;
         }
+        // if (!join.getOtherJoinConjuncts().isEmpty()) {
+        //     FilterEstimation filterEstimation = new FilterEstimation();
+        //     innerJoinStats = filterEstimation.estimate(
+        //             ExpressionUtils.and(join.getOtherJoinConjuncts()), innerJoinStats);
+        // }
         innerJoinStats.setWidth(leftStats.getWidth() + rightStats.getWidth());
         innerJoinStats.setPenalty(0);
         double rowCount;
