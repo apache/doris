@@ -49,7 +49,7 @@ public class PlanUtils {
         Set<Slot> leftSlots = left.getOutputSet();
         Set<Slot> buffer = Sets.newHashSet(slots);
         buffer.removeAll(leftSlots);
-        return buffer.isEmpty() ? expression.commute() : expression;
+        return buffer.isEmpty() ? expression : expression.commute();
     }
 
 }
