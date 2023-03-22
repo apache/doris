@@ -73,13 +73,13 @@ Status VMysqlScanNode::prepare(RuntimeState* state) {
     // new one scanner
     _mysql_scanner.reset(new (std::nothrow) MysqlScanner(_my_param));
 
-    if (_mysql_scanner.get() == nullptr) {
+    if (_mysql_scanner == nullptr) {
         return Status::InternalError("new a mysql scanner failed.");
     }
 
     _text_converter.reset(new (std::nothrow) TextConverter('\\'));
 
-    if (_text_converter.get() == nullptr) {
+    if (_text_converter == nullptr) {
         return Status::InternalError("new a text convertor failed.");
     }
 
