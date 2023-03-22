@@ -60,7 +60,7 @@ public class MVExprEquivalent {
 
         String fnName = fnExpr.getFnName().getFunction();
 
-        String slotName = MaterializedIndexMeta.normalizeName(fnExpr.getChild(0).toSqlWithoutTbl());
+        String slotName = MaterializedIndexMeta.normalizeName(fnExpr.getChild(0).toSqlWithOriginalName());
 
         if (!CreateMaterializedViewStmt.isMVColumnAggregate(slotName)) {
             return false;
@@ -76,14 +76,15 @@ public class MVExprEquivalent {
         }
 
         return CreateMaterializedViewStmt
-                .mvColumnBreaker(slotName).equals(MaterializedIndexMeta.normalizeName(mvArgument.toSqlWithoutTbl()));
+                .mvColumnBreaker(slotName)
+                .equals(MaterializedIndexMeta.normalizeName(mvArgument.toSqlWithOriginalName()));
     }
 
     // count(k1) = sum(case when ... k1)
     public static boolean sumArgumentEqual(Expr expr, Expr mvArgument) {
         try {
-            String lhs = CountFieldToSum.slotToCaseWhen(expr).toSqlWithoutTbl();
-            String rhs = mvArgument.toSqlWithoutTbl();
+            String lhs = CountFieldToSum.slotToCaseWhen(expr).toSqlWithOriginalName();
+            String rhs = mvArgument.toSqlWithOriginalName();
             return lhs.equalsIgnoreCase(rhs);
         } catch (AnalysisException e) {
             return false;
@@ -93,9 +94,10 @@ public class MVExprEquivalent {
     // to_bitmap(k1) = to_bitmap_with_check(k1)
     public static boolean bitmapArgumentEqual(Expr expr, Expr mvArgument) {
         String lhs = MaterializedIndexMeta
-                .normalizeName(expr.toSqlWithoutTbl().replace(FunctionSet.TO_BITMAP_WITH_CHECK, FunctionSet.TO_BITMAP));
+                .normalizeName(
+                        expr.toSqlWithOriginalName().replace(FunctionSet.TO_BITMAP_WITH_CHECK, FunctionSet.TO_BITMAP));
         String rhs = MaterializedIndexMeta.normalizeName(
-                mvArgument.toSqlWithoutTbl().replace(FunctionSet.TO_BITMAP_WITH_CHECK, FunctionSet.TO_BITMAP));
+                mvArgument.toSqlWithOriginalName().replace(FunctionSet.TO_BITMAP_WITH_CHECK, FunctionSet.TO_BITMAP));
         return CreateMaterializedViewStmt
                 .mvColumnBreaker(lhs).equalsIgnoreCase(rhs);
     }

@@ -75,7 +75,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     // supports negation.
     private static final String NEGATE_FN = "negate";
 
-    protected boolean disableTableName = false;
+    protected boolean showOriginalName = false;
 
     // to be used where we can't come up with a better estimate
     public static final double DEFAULT_SELECTIVITY = 0.1;
@@ -913,17 +913,17 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return (printSqlInParens) ? "(" + toSqlImpl() + ")" : toSqlImpl();
     }
 
-    public void setDisableTableName(boolean value) {
-        disableTableName = value;
+    public void setShowOriginalName(boolean value) {
+        showOriginalName = value;
         for (Expr child : children) {
-            child.setDisableTableName(value);
+            child.setShowOriginalName(value);
         }
     }
 
-    public String toSqlWithoutTbl() {
-        setDisableTableName(true);
+    public String toSqlWithOriginalName() {
+        setShowOriginalName(true);
         String result = toSql();
-        setDisableTableName(false);
+        setShowOriginalName(false);
         return result;
     }
 
@@ -2198,11 +2198,12 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
 
     public boolean matchExprs(List<Expr> exprs, SelectStmt stmt, boolean ignoreAlias, String tableName)
             throws AnalysisException {
-        String name = MaterializedIndexMeta.normalizeName(toSqlWithoutTbl());
+        String name = MaterializedIndexMeta.normalizeName(toSqlWithOriginalName());
         for (Expr expr : exprs) {
             if (CreateMaterializedViewStmt.isMVColumnNormal(name)
-                    && MaterializedIndexMeta.normalizeName(expr.toSqlWithoutTbl()).equals(CreateMaterializedViewStmt
-                            .mvColumnBreaker(name))) {
+                    && MaterializedIndexMeta.normalizeName(expr.toSqlWithOriginalName())
+                            .equals(CreateMaterializedViewStmt
+                                    .mvColumnBreaker(name))) {
                 return true;
             }
             if (MVExprEquivalent.aggregateArgumentEqual(this, expr)) {

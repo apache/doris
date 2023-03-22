@@ -89,7 +89,7 @@ public class SelectStmt extends QueryStmt {
     protected GroupByClause groupByClause;
     private List<Expr> originalExpr;
 
-    private Expr havingClause;  // original having clause
+    private Expr havingClause; // original having clause
     protected Expr whereClause;
     // havingClause with aliases and agg output resolved
     private Expr havingPred;
@@ -181,8 +181,8 @@ public class SelectStmt extends QueryStmt {
         originalWhereClause = (other.originalWhereClause != null) ? other.originalWhereClause.clone() : null;
         groupByClause = (other.groupByClause != null) ? other.groupByClause.clone() : null;
         havingClause = (other.havingClause != null) ? other.havingClause.clone() : null;
-        havingClauseAfterAnaylzed =
-                other.havingClauseAfterAnaylzed != null ? other.havingClauseAfterAnaylzed.clone() : null;
+        havingClauseAfterAnaylzed = other.havingClauseAfterAnaylzed != null ? other.havingClauseAfterAnaylzed.clone()
+                : null;
 
         colLabels = Lists.newArrayList(other.colLabels);
         aggInfo = (other.aggInfo != null) ? other.aggInfo.clone() : null;
@@ -675,7 +675,7 @@ public class SelectStmt extends QueryStmt {
         }
 
         if (needToSql) {
-            sqlString = toSql();
+            sqlString = toSqlWithOriginalName();
         }
 
         resolveInlineViewRefs(analyzer);
@@ -1391,7 +1391,7 @@ public class SelectStmt extends QueryStmt {
                                 }
                             }
                         }
-                        removeConstGroupingKey = ! keyInSelectList;
+                        removeConstGroupingKey = !keyInSelectList;
                     }
                     if (removeConstGroupingKey) {
                         someGroupExprRemoved = true;
@@ -1493,7 +1493,7 @@ public class SelectStmt extends QueryStmt {
         // check that all post-agg exprs point to agg output
         for (int i = 0; i < selectList.getItems().size(); ++i) {
             if (!resultExprs.get(i).isBoundByTupleIds(groupingByTupleIds)) {
-                if (CreateMaterializedViewStmt.isMVColumn(resultExprs.get(i).toSqlWithoutTbl())) {
+                if (CreateMaterializedViewStmt.isMVColumn(resultExprs.get(i).toSqlWithOriginalName())) {
                     List<TupleId> tupleIds = Lists.newArrayList();
                     List<SlotId> slotIds = Lists.newArrayList();
                     resultExprs.get(i).getIds(tupleIds, slotIds);
@@ -2150,7 +2150,7 @@ public class SelectStmt extends QueryStmt {
         }
         StringBuilder strBuilder = new StringBuilder();
         if (withClause != null) {
-            strBuilder.append(withClause.toSql());
+            strBuilder.append(showOriginalName ? withClause.toSqlWithOriginalName() : withClause.toSql());
             strBuilder.append(" ");
         }
 
@@ -2171,7 +2171,8 @@ public class SelectStmt extends QueryStmt {
         ConnectContext ctx = ConnectContext.get();
         if (ctx == null || ctx.getSessionVariable().internalSession || toSQLWithSelectList || resultExprs.isEmpty()) {
             for (int i = 0; i < selectList.getItems().size(); i++) {
-                strBuilder.append(selectList.getItems().get(i).toSql());
+                strBuilder.append(showOriginalName ? selectList.getItems().get(i).toSqlWithOriginalName()
+                        : selectList.getItems().get(i).toSql());
                 strBuilder.append((i + 1 != selectList.getItems().size()) ? ", " : "");
             }
         } else {
@@ -2182,9 +2183,11 @@ public class SelectStmt extends QueryStmt {
                     strBuilder.append(", ");
                 }
                 if (needToSql && CollectionUtils.isNotEmpty(originalExpr)) {
-                    strBuilder.append(originalExpr.get(i).toSql());
+                    strBuilder.append(showOriginalName ? originalExpr.get(i).toSqlWithOriginalName()
+                            : originalExpr.get(i).toSql());
                 } else {
-                    strBuilder.append(resultExprs.get(i).toSql());
+                    strBuilder.append(
+                            showOriginalName ? resultExprs.get(i).toSqlWithOriginalName() : resultExprs.get(i).toSql());
                 }
                 strBuilder.append(" AS ").append(SqlUtils.getIdentSql(colLabels.get(i)));
             }
@@ -2192,29 +2195,30 @@ public class SelectStmt extends QueryStmt {
 
         // From clause
         if (!fromClause.isEmpty()) {
-            strBuilder.append(fromClause.toSql());
+            strBuilder.append(showOriginalName ? fromClause.toSqlWithOriginalName() : fromClause.toSql());
         }
 
         // Where clause
         if (whereClause != null) {
             strBuilder.append(" WHERE ");
-            strBuilder.append(whereClause.toSql());
+            strBuilder.append(showOriginalName ? whereClause.toSqlWithOriginalName() : whereClause.toSql());
         }
         // Group By clause
         if (groupByClause != null) {
             strBuilder.append(" GROUP BY ");
-            strBuilder.append(groupByClause.toSql());
+            strBuilder.append(showOriginalName ? groupByClause.toSqlWithOriginalName() : groupByClause.toSql());
         }
         // Having clause
         if (havingClause != null) {
             strBuilder.append(" HAVING ");
-            strBuilder.append(havingClause.toSql());
+            strBuilder.append(showOriginalName ? havingClause.toSqlWithOriginalName() : havingClause.toSql());
         }
         // Order By clause
         if (orderByElements != null) {
             strBuilder.append(" ORDER BY ");
             for (int i = 0; i < orderByElements.size(); ++i) {
-                strBuilder.append(orderByElements.get(i).getExpr().toSql());
+                strBuilder.append(showOriginalName ? orderByElements.get(i).getExpr().toSqlWithOriginalName()
+                        : orderByElements.get(i).getExpr().toSql());
                 if (sortInfo != null) {
                     strBuilder.append((sortInfo.getIsAscOrder().get(i)) ? " ASC" : " DESC");
                 }

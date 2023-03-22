@@ -110,7 +110,7 @@ public class BaseViewStmt extends DdlStmt {
                 // after being analyzed, the toSql() of SlotRef will output like "<slot 10> col as col",
                 // we don't need the slot id info, so using ToSqlContext to remove it.
                 toSqlContext.setNeedSlotRefId(false);
-                inlineViewDef = viewDefStmt.toSql();
+                inlineViewDef = viewDefStmt.toSqlWithOriginalName();
             }
             return;
         }
@@ -124,7 +124,7 @@ public class BaseViewStmt extends DdlStmt {
             // after being analyzed, the toSql() of SlotRef will output like "<slot 10> col as col",
             // we don't need the slot id info, so using ToSqlContext to remove it.
             toSqlContext.setNeedSlotRefId(false);
-            inlineViewDef = cloneStmt.toSql();
+            inlineViewDef = cloneStmt.toSqlWithOriginalName();
         }
     }
 

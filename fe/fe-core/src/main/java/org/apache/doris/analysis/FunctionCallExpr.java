@@ -515,7 +515,7 @@ public class FunctionCallExpr extends Expr {
             len = len - 1;
         }
         for (int i = 0; i < len; ++i) {
-            if (i == 1 && (fnName.getFunction().equalsIgnoreCase("aes_decrypt")
+            if (!showOriginalName && i == 1 && (fnName.getFunction().equalsIgnoreCase("aes_decrypt")
                     || fnName.getFunction().equalsIgnoreCase("aes_encrypt")
                     || fnName.getFunction().equalsIgnoreCase("sm4_decrypt")
                     || fnName.getFunction().equalsIgnoreCase("sm4_encrypt"))) {

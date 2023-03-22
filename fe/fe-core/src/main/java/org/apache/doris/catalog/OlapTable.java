@@ -419,8 +419,8 @@ public class OlapTable extends Table {
     public boolean findWhereClause(Expr whereClause) {
         for (MaterializedIndexMeta meta : getVisibleIndexIdToMeta().values()) {
             if (meta.getWhereClause() != null) {
-                if (MaterializedIndexMeta.matchColumnName(meta.getWhereClause().toSqlWithoutTbl(),
-                        whereClause.toSqlWithoutTbl())) {
+                if (MaterializedIndexMeta.matchColumnName(meta.getWhereClause().toSqlWithOriginalName(),
+                        whereClause.toSqlWithOriginalName())) {
                     return true;
                 }
             }

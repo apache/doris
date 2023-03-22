@@ -169,6 +169,7 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
     private Set<TupleId> disableTuplesMVRewriter = Sets.newHashSet();
 
     protected boolean toSQLWithSelectList;
+    protected boolean showOriginalName = false;
     protected boolean isPointQuery;
     protected boolean toSQLWithHint;
 
@@ -830,6 +831,17 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
 
     public String toSqlWithSelectList() {
         toSQLWithSelectList = true;
+        return toSql();
+    }
+
+    public String toSqlWithSelectListOriginalName() {
+        toSQLWithSelectList = true;
+        showOriginalName = true;
+        return toSqlWithOriginalName();
+    }
+
+    public String toSqlWithOriginalName() {
+        showOriginalName = true;
         return toSql();
     }
 

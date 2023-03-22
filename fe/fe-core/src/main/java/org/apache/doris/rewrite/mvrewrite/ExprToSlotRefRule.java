@@ -138,7 +138,7 @@ public class ExprToSlotRefRule implements ExprRewriteRule {
             FunctionCallExpr newCount = new FunctionCallExpr("sum", params);
 
             String mvColumnName = CreateMaterializedViewStmt
-                    .mvColumnBuilder(AggregateType.SUM, caseWhen.toSqlWithoutTbl());
+                    .mvColumnBuilder(AggregateType.SUM, caseWhen.toSqlWithOriginalName());
             Column mvColumn = olapTable.getVisibleColumn(mvColumnName);
 
             if (mvColumn != null) {
@@ -174,7 +174,7 @@ public class ExprToSlotRefRule implements ExprRewriteRule {
             return expr;
         }
         String mvColumnName = CreateMaterializedViewStmt
-                .mvColumnBuilder(AggregateType.BITMAP_UNION, child0.toSqlWithoutTbl());
+                .mvColumnBuilder(AggregateType.BITMAP_UNION, child0.toSqlWithOriginalName());
         Column mvColumn = olapTable.getVisibleColumn(mvColumnName);
 
         if (mvColumn == null) {
@@ -197,7 +197,7 @@ public class ExprToSlotRefRule implements ExprRewriteRule {
             return expr;
         }
         String mvColumnName = CreateMaterializedViewStmt
-                .mvColumnBuilder(AggregateType.HLL_UNION, child0.toSqlWithoutTbl());
+                .mvColumnBuilder(AggregateType.HLL_UNION, child0.toSqlWithOriginalName());
         Column mvColumn = olapTable.getVisibleColumn(mvColumnName);
 
         if (mvColumn != null) {
@@ -242,11 +242,11 @@ public class ExprToSlotRefRule implements ExprRewriteRule {
 
         Column mvColumn = olapTable.getVisibleColumn(
                 CreateMaterializedViewStmt.mvAggregateColumnBuilder(expr.getFnName().getFunction(),
-                        child0.toSqlWithoutTbl()));
+                        child0.toSqlWithOriginalName()));
         if (mvColumn == null) {
             mvColumn = olapTable.getVisibleColumn(
                     CreateMaterializedViewStmt.mvAggregateColumnBuilder(expr.getFnName().getFunction(),
-                            CreateMaterializedViewStmt.mvColumnBuilder(child0.toSqlWithoutTbl())));
+                            CreateMaterializedViewStmt.mvColumnBuilder(child0.toSqlWithOriginalName())));
         }
 
         if (mvColumn != null) {
@@ -261,7 +261,7 @@ public class ExprToSlotRefRule implements ExprRewriteRule {
             TableName tableName)
             throws AnalysisException {
         Column mvColumn = olapTable
-                .getVisibleColumn(CreateMaterializedViewStmt.mvColumnBuilder(expr.toSqlWithoutTbl()));
+                .getVisibleColumn(CreateMaterializedViewStmt.mvColumnBuilder(expr.toSqlWithOriginalName()));
 
         if (mvColumn == null) {
             return expr;

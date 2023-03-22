@@ -464,8 +464,8 @@ public class InlineViewRef extends TableRef {
             aliasSql = ToSqlUtils.getIdentSql(alias);
         }
         StringBuilder sb = new StringBuilder();
-        sb.append("(").append(queryStmt.toSql()).append(") ")
-            .append(aliasSql);
+        sb.append("(").append(showOriginalName ? queryStmt.toSqlWithOriginalName() : queryStmt.toSql()).append(") ")
+                .append(aliasSql);
 
         return sb.toString();
     }

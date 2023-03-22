@@ -127,6 +127,10 @@ public abstract class StatementBase implements ParseNode {
         return "";
     }
 
+    public String toSqlWithOriginalName() {
+        return "";
+    }
+
     public abstract RedirectStatus getRedirectStatus();
 
     /**

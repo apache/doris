@@ -231,7 +231,7 @@ public class SlotRef extends Expr {
 
     @Override
     public String toSqlImpl() {
-        if (disableTableName && label != null) {
+        if (showOriginalName && label != null) {
             return label;
         }
 
@@ -251,16 +251,16 @@ public class SlotRef extends Expr {
                 return label;
             }
         } else if (desc.getSourceExprs() != null) {
-            if (!disableTableName && (ToSqlContext.get() == null || ToSqlContext.get().isNeedSlotRefId())) {
+            if (!showOriginalName && (ToSqlContext.get() == null || ToSqlContext.get().isNeedSlotRefId())) {
                 if (desc.getId().asInt() != 1) {
                     sb.append("<slot " + desc.getId().asInt() + ">");
                 }
             }
             for (Expr expr : desc.getSourceExprs()) {
-                if (!disableTableName) {
+                if (!showOriginalName) {
                     sb.append(" ");
                 }
-                sb.append(disableTableName ? expr.toSqlWithoutTbl() : expr.toSql());
+                sb.append(showOriginalName ? expr.toSqlWithOriginalName() : expr.toSql());
             }
             return sb.toString();
         } else {
@@ -545,7 +545,7 @@ public class SlotRef extends Expr {
 
     @Override
     public boolean haveMvSlot() {
-        String name = MaterializedIndexMeta.normalizeName(toSqlWithoutTbl());
+        String name = MaterializedIndexMeta.normalizeName(toSqlWithOriginalName());
         return CreateMaterializedViewStmt.isMVColumn(name);
     }
 
@@ -580,11 +580,12 @@ public class SlotRef extends Expr {
             }
         }
 
-        String name = MaterializedIndexMeta.normalizeName(aliasExpr.toSqlWithoutTbl());
+        String name = MaterializedIndexMeta.normalizeName(aliasExpr.toSqlWithOriginalName());
         for (Expr expr : exprs) {
             if (CreateMaterializedViewStmt.isMVColumnNormal(name)
-                    && MaterializedIndexMeta.normalizeName(expr.toSqlWithoutTbl()).equals(CreateMaterializedViewStmt
-                            .mvColumnBreaker(name))) {
+                    && MaterializedIndexMeta.normalizeName(expr.toSqlWithOriginalName())
+                            .equals(CreateMaterializedViewStmt
+                                    .mvColumnBreaker(name))) {
                 return true;
             }
         }

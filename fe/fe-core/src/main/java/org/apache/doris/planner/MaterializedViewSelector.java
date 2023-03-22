@@ -325,8 +325,9 @@ public class MaterializedViewSelector {
             }
 
             if (entry.getValue().getWhereClause() != null) {
-                if (selectStmt.getOriginalWhereClause() == null || !entry.getValue().getWhereClause().toSqlWithoutTbl()
-                        .equals(selectStmt.getOriginalWhereClause().toSqlWithoutTbl())) {
+                if (selectStmt.getOriginalWhereClause() == null
+                        || !entry.getValue().getWhereClause().toSqlWithOriginalName()
+                                .equals(selectStmt.getOriginalWhereClause().toSqlWithOriginalName())) {
                     iterator.remove();
                 }
                 continue;
@@ -522,8 +523,8 @@ public class MaterializedViewSelector {
             if (expr == null) {
                 throw new AnalysisException("match expr input null");
             }
-            if (expr.toSqlWithoutTbl() == null) {
-                throw new AnalysisException("expr.toSqlWithoutTbl() is null, expr.toSql()=" + expr.toSql());
+            if (expr.toSqlWithOriginalName() == null) {
+                throw new AnalysisException("expr.toSqlWithOriginalName() is null, expr.toSql()=" + expr.toSql());
             }
 
             if (expr instanceof VirtualSlotRef) {

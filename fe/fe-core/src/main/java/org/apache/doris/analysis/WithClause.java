@@ -67,6 +67,8 @@ public class WithClause implements ParseNode {
         this.views = views;
     }
 
+    private boolean showOriginalName = false;
+
     /**
      * Analyzes all views and registers them with the analyzer. Enforces scoping rules.
      * All local views registered with the analyzer are have QueryStmts with resolved
@@ -139,15 +141,22 @@ public class WithClause implements ParseNode {
         List<String> viewStrings = Lists.newArrayList();
         for (View view : views) {
             // Enclose the view alias and explicit labels in quotes if Hive cannot parse it
-            // without quotes. This is needed for view compatibility between Impala and Hive.
+            // without quotes. This is needed for view compatibility between Impala and
+            // Hive.
             String aliasSql = ToSqlUtils.getIdentSql(view.getName());
             if (view.hasColLabels()) {
                 aliasSql += "(" + Joiner.on(", ").join(
                         ToSqlUtils.getIdentSqlList(view.getOriginalColLabels())) + ")";
             }
-            viewStrings.add(aliasSql + " AS (" + view.getQueryStmt().toSqlWithSelectList() + ")");
+            viewStrings.add(aliasSql + " AS (" + (showOriginalName ? view.getQueryStmt().toSqlWithSelectList()
+                    : view.getQueryStmt().toSqlWithSelectListOriginalName()) + ")");
         }
         return "WITH " + Joiner.on(",").join(viewStrings);
+    }
+
+    public String toSqlWithOriginalName() {
+        showOriginalName = true;
+        return toSql();
     }
 
     public String toDigest() {

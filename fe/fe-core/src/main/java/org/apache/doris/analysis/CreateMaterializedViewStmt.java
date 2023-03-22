@@ -267,9 +267,9 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         List<Expr> selectExprs = selectStmt.getSelectList().getExprs();
         for (Expr expr : selectExprs) {
             boolean match = false;
-            String lhs = selectStmt.getExprFromAliasSMap(expr).toSqlWithoutTbl();
+            String lhs = selectStmt.getExprFromAliasSMap(expr).toSqlWithOriginalName();
             for (Expr groupExpr : groupingExprs) {
-                String rhs = selectStmt.getExprFromAliasSMap(groupExpr).toSqlWithoutTbl();
+                String rhs = selectStmt.getExprFromAliasSMap(groupExpr).toSqlWithOriginalName();
                 if (lhs.equalsIgnoreCase(rhs)) {
                     match = true;
                     break;
@@ -277,7 +277,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             }
             if (!match) {
                 for (Expr groupExpr : aggregateExprs) {
-                    String rhs = selectStmt.getExprFromAliasSMap(groupExpr).toSqlWithoutTbl();
+                    String rhs = selectStmt.getExprFromAliasSMap(groupExpr).toSqlWithOriginalName();
                     if (lhs.equalsIgnoreCase(rhs)) {
                         match = true;
                         break;
