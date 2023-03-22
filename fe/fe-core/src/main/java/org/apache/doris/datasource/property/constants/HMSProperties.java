@@ -17,7 +17,16 @@
 
 package org.apache.doris.datasource.property.constants;
 
+import java.util.Collections;
+import java.util.List;
 
-public class ObsConstants {
+public class HMSProperties {
+    public static final String HIVE_METASTORE_TYPE = "hive.metastore.type";
+    public static final String DLF_TYPE = "dlf";
+    public static final String GLUE_TYPE = "glue";
+    public static final String HIVE_VERSION = "hive.version";
+    // required
+    public static final String HIVE_METASTORE_URIS = "hive.metastore.uris";
+    public static final List<String> REQUIRED_FIELDS = Collections.singletonList(HMSProperties.HIVE_METASTORE_URIS);
 
 }

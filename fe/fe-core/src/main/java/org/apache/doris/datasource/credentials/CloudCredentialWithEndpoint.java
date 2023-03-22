@@ -15,10 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.property.constants;
+package org.apache.doris.datasource.credentials;
 
-public class GenericConstants {
-    public static final String ROLE_ACCESS_KEY = "role.access_key";
-    public static final String ROLE_SECRET_KEY = "role.secret_key";
-    public static final String ROLE_SESSION_TOKEN = "role.session_token";
+public class CloudCredentialWithEndpoint extends CloudCredential {
+
+    private String endpoint;
+    private String region;
+
+    public CloudCredentialWithEndpoint(String endpoint, String region, CloudCredential credential) {
+        this.endpoint = endpoint;
+        this.region = region;
+        setAccessKey(credential.getAccessKey());
+        setSecretKey(credential.getSecretKey());
+        setSessionToken(credential.getSessionToken());
+    }
+
+    public String getEndpoint() {
+        return endpoint;
+    }
+
+    public void setEndpoint(String endpoint) {
+        this.endpoint = endpoint;
+    }
+
+    public String getRegion() {
+        return region;
+    }
+
+    public void setRegion(String region) {
+        this.region = region;
+    }
 }

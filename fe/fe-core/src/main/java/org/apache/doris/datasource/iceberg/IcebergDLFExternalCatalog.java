@@ -17,9 +17,10 @@
 
 package org.apache.doris.datasource.iceberg;
 
-import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.iceberg.dlf.DLFCatalog;
+import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.property.constants.HMSProperties;
 
 import java.util.Map;
 
@@ -27,8 +28,8 @@ public class IcebergDLFExternalCatalog extends IcebergExternalCatalog {
 
     public IcebergDLFExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
         super(catalogId, name);
-        props.put(HMSResource.HIVE_METASTORE_TYPE, "dlf");
-        props = HMSResource.getPropertiesFromDLF(props);
+        props.put(HMSProperties.HIVE_METASTORE_TYPE, "dlf");
+        props = PropertyConverter.convert(props);
         catalogProperty = new CatalogProperty(resource, props);
     }
 

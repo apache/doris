@@ -17,10 +17,21 @@
 
 package org.apache.doris.datasource.property.constants;
 
-public class MetadataConstants {
-    public static final String META_ENDPOINT = "meta.endpoint";
-    public static final String META_REGION = "meta.region";
-    public static final String META_ACCESS_KEY = "meta.role.access_key";
-    public static final String META_SECRET_KEY = "meta.role.secret_key";
-    public static final String META_SESSION_TOKEN = "meta.role.session_token";
+
+import org.apache.doris.datasource.credentials.CloudCredential;
+
+import java.util.Map;
+
+public class ObsProperties extends BaseProperties {
+    public static final String OBS_FS_PREFIX = "fs.obs";
+
+    public static final String ENDPOINT = "obs.endpoint";
+    public static final String REGION = "obs.region";
+    public static final String ACCESS_KEY = "obs.access_key";
+    public static final String SECRET_KEY = "obs.secret_key";
+    public static final String SESSION_TOKEN = "obs.session_token";
+
+    public static CloudCredential getCredential(Map<String, String> props) {
+        return getCloudCredential(props, ACCESS_KEY, SECRET_KEY, SESSION_TOKEN);
+    }
 }

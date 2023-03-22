@@ -17,10 +17,19 @@
 
 package org.apache.doris.datasource.property.constants;
 
-public class StorageConstants {
-    public static final String STORAGE_ENDPOINT = "storage.endpoint";
-    public static final String STORAGE_REGION = "storage.region";
-    public static final String STORAGE_ACCESS_KEY = "storage.role.access_key";
-    public static final String STORAGE_SECRET_KEY = "storage.role.secret_key";
-    public static final String STORAGE_SESSION_TOKEN = "storage.role.session_token";
+import org.apache.doris.datasource.credentials.CloudCredential;
+
+import java.util.Map;
+
+public class GlueProperties extends BaseProperties {
+    public static final String ENDPOINT = "glue.endpoint";
+    public static final String REGION = "glue.region";
+    public static final String ACCESS_KEY = "glue.access_key";
+    public static final String SECRET_KEY = "glue.secret_key";
+    public static final String SESSION_TOKEN = "glue.session_token";
+
+
+    public static CloudCredential getCredential(Map<String, String> props) {
+        return getCloudCredential(props, ACCESS_KEY, SECRET_KEY, SESSION_TOKEN);
+    }
 }

@@ -74,7 +74,6 @@ import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsTable;
-import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.HiveTable;
 import org.apache.doris.catalog.IcebergTable;
@@ -138,6 +137,7 @@ import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
+import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.external.elasticsearch.EsRepository;
 import org.apache.doris.external.hudi.HudiProperty;
 import org.apache.doris.external.hudi.HudiTable;
@@ -2415,8 +2415,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         hiveTable.setComment(stmt.getComment());
         // check hive table whether exists in hive database
         HiveConf hiveConf = new HiveConf();
-        hiveConf.set(HMSResource.HIVE_METASTORE_URIS,
-                hiveTable.getHiveProperties().get(HMSResource.HIVE_METASTORE_URIS));
+        hiveConf.set(HMSProperties.HIVE_METASTORE_URIS,
+                hiveTable.getHiveProperties().get(HMSProperties.HIVE_METASTORE_URIS));
         PooledHiveMetaStoreClient client = new PooledHiveMetaStoreClient(hiveConf, 1);
         if (!client.tableExists(hiveTable.getHiveDb(), hiveTable.getHiveTable())) {
             throw new DdlException(String.format("Table [%s] dose not exist in Hive.", hiveTable.getHiveDbTable()));
@@ -2438,7 +2438,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         HudiUtils.validateCreateTable(hudiTable);
         // check hudi table whether exists in hive database
         HiveConf hiveConf = new HiveConf();
-        hiveConf.set(HMSResource.HIVE_METASTORE_URIS,
+        hiveConf.set(HMSProperties.HIVE_METASTORE_URIS,
                 hudiTable.getTableProperties().get(HudiProperty.HUDI_HIVE_METASTORE_URIS));
         PooledHiveMetaStoreClient client = new PooledHiveMetaStoreClient(hiveConf, 1);
         if (!client.tableExists(hudiTable.getHmsDatabaseName(), hudiTable.getHmsTableName())) {

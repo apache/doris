@@ -19,7 +19,6 @@ package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.datasource.CatalogProperty;
 
-import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.aws.glue.GlueCatalog;
@@ -31,6 +30,9 @@ import java.util.stream.Collectors;
 
 public class IcebergGlueExternalCatalog extends IcebergExternalCatalog {
 
+    // As a default placeholder. The path just use for 'create table', query stmt will not use it.
+    private static final String CHECKED_WAREHOUSE = "s3://doris";
+
     public IcebergGlueExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
         super(catalogId, name);
         catalogProperty = new CatalogProperty(resource, props);
@@ -40,17 +42,12 @@ public class IcebergGlueExternalCatalog extends IcebergExternalCatalog {
     protected void initLocalObjectsImpl() {
         icebergCatalogType = ICEBERG_GLUE;
         GlueCatalog glueCatalog = new GlueCatalog();
-        // AWSGlueAsync glueClient;
         Configuration conf = setGlueProperties(getConfiguration());
         glueCatalog.setConf(conf);
         // initialize glue catalog
         Map<String, String> catalogProperties = catalogProperty.getHadoopProperties();
-        // check AwsProperties.GLUE_CATALOG_ENDPOINT
-        String metastoreUris = catalogProperty.getOrDefault(CatalogProperties.WAREHOUSE_LOCATION, "");
-        if (StringUtils.isEmpty(metastoreUris)) {
-            throw new IllegalArgumentException("Missing glue properties 'warehouse'.");
-        }
-        catalogProperties.put(CatalogProperties.WAREHOUSE_LOCATION, metastoreUris);
+        String warehouse = catalogProperty.getOrDefault(CatalogProperties.WAREHOUSE_LOCATION, CHECKED_WAREHOUSE);
+        catalogProperties.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
         glueCatalog.initialize(icebergCatalogType, catalogProperties);
         catalog = glueCatalog;
     }

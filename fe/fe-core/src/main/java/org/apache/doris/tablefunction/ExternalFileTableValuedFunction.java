@@ -29,6 +29,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
+import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.external.ExternalFileScanNode;
@@ -153,7 +154,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         if (fileType == TFileType.FILE_HDFS) {
             return locationProperties.get(HdfsTableValuedFunction.HADOOP_FS_NAME);
         } else if (fileType == TFileType.FILE_S3) {
-            return locationProperties.get(S3TableValuedFunction.S3_ENDPOINT);
+            return locationProperties.get(S3Properties.Environment.ENDPOINT);
         }
         return "";
     }

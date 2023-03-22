@@ -17,8 +17,8 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.common.Config;
+import org.apache.doris.datasource.property.constants.S3Properties;
 
 import org.apache.commons.collections.map.CaseInsensitiveMap;
 import org.apache.commons.lang3.StringUtils;
@@ -64,10 +64,10 @@ public abstract class StorageDesc {
                 String region = hostSplit[0];
                 String s3Endpoint = new URIBuilder(uri).setHost("s3." + host).build().toString();
                 properties.clear();
-                properties.put(S3Resource.S3_ENDPOINT, s3Endpoint);
-                properties.put(S3Resource.S3_REGION, region);
-                properties.put(S3Resource.S3_ACCESS_KEY, ciProperties.get(BOS_ACCESS_KEY).toString());
-                properties.put(S3Resource.S3_SECRET_KEY, ciProperties.get(BOS_SECRET_ACCESS_KEY).toString());
+                properties.put(S3Properties.Environment.ENDPOINT, s3Endpoint);
+                properties.put(S3Properties.Environment.REGION, region);
+                properties.put(S3Properties.Environment.ACCESS_KEY, ciProperties.get(BOS_ACCESS_KEY).toString());
+                properties.put(S3Properties.Environment.SECRET_KEY, ciProperties.get(BOS_SECRET_ACCESS_KEY).toString());
                 storageType = StorageBackend.StorageType.S3;
                 convertedToS3 = true;
                 LOG.info("skip BROKER and access S3 directly.");

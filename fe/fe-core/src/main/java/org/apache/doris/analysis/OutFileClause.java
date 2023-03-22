@@ -18,10 +18,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.backup.HdfsStorage;
-import org.apache.doris.backup.S3Storage;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -33,7 +31,8 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.property.CloudProperty;
+import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TParquetCompressionType;
@@ -634,7 +633,7 @@ public class OutFileClause {
             if (entry.getKey().startsWith(BROKER_PROP_PREFIX) && !entry.getKey().equals(PROP_BROKER_NAME)) {
                 brokerProps.put(entry.getKey().substring(BROKER_PROP_PREFIX.length()), entry.getValue());
                 processedPropKeys.add(entry.getKey());
-            } else if (entry.getKey().toUpperCase().startsWith(S3Resource.S3_PROPERTIES_PREFIX)) {
+            } else if (entry.getKey().toUpperCase().startsWith(S3Properties.Environment.PROPERTIES_PREFIX)) {
                 brokerProps.put(entry.getKey(), entry.getValue());
                 processedPropKeys.add(entry.getKey());
             } else if (entry.getKey().contains(HdfsResource.HADOOP_FS_NAME)
@@ -649,11 +648,11 @@ public class OutFileClause {
             }
         }
         if (storageType == StorageBackend.StorageType.S3) {
-            if (properties.containsKey(CloudProperty.USE_PATH_STYLE)) {
-                brokerProps.put(CloudProperty.USE_PATH_STYLE, properties.get(CloudProperty.USE_PATH_STYLE));
-                processedPropKeys.add(CloudProperty.USE_PATH_STYLE);
+            if (properties.containsKey(PropertyConverter.USE_PATH_STYLE)) {
+                brokerProps.put(PropertyConverter.USE_PATH_STYLE, properties.get(PropertyConverter.USE_PATH_STYLE));
+                processedPropKeys.add(PropertyConverter.USE_PATH_STYLE);
             }
-            S3Storage.checkS3(brokerProps);
+            S3Properties.requiredS3Properties(brokerProps);
         } else if (storageType == StorageBackend.StorageType.HDFS) {
             if (!brokerProps.containsKey(HdfsResource.HADOOP_FS_NAME)) {
                 brokerProps.put(HdfsResource.HADOOP_FS_NAME, HdfsStorage.getFsName(filePath));

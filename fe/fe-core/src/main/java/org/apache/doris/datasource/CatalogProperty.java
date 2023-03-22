@@ -18,11 +18,10 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.datasource.property.CloudProperty;
+import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Strings;
@@ -94,12 +93,11 @@ public class CatalogProperty implements Writable {
     }
 
     public void modifyCatalogProps(Map<String, String> props) {
-        props = HMSResource.getPropertiesFromGlue(props);
-        properties.putAll(props);
+        properties.putAll(PropertyConverter.convert(props));
     }
 
     private Map<String, String> getStorageProperties() {
-        return CloudProperty.convert(getProperties());
+        return PropertyConverter.convert(getProperties());
     }
 
     public Map<String, String> getHadoopProperties() {

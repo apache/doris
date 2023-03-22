@@ -19,7 +19,6 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.AuthType;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
@@ -27,6 +26,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
+import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.property.constants.HMSProperties;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -61,8 +62,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     public HMSExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
         super(catalogId, name);
         this.type = "hms";
-        props = HMSResource.getPropertiesFromDLF(props);
-        props = HMSResource.getPropertiesFromGlue(props);
+        props = PropertyConverter.convert(props);
         catalogProperty = new CatalogProperty(resource, props);
     }
 
@@ -101,7 +101,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     public String getHiveMetastoreUris() {
-        return catalogProperty.getOrDefault(HMSResource.HIVE_METASTORE_URIS, "");
+        return catalogProperty.getOrDefault(HMSProperties.HIVE_METASTORE_URIS, "");
     }
 
     @Override

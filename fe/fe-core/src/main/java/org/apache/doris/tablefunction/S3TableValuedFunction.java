@@ -22,13 +22,13 @@ import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
+import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.thrift.TFileType;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections.map.CaseInsensitiveMap;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 
@@ -44,24 +44,18 @@ import java.util.Map;
  * https://bucket.us-east-1.amazonaws.com/csv/taxi.csv with "use_path_style"="false"
  */
 public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
-    private static final Logger LOG = LogManager.getLogger(BrokerDesc.class);
     public static final String NAME = "s3";
     public static final String S3_URI = "uri";
-    public static final String S3_AK = "AWS_ACCESS_KEY";
-    public static final String S3_SK = "AWS_SECRET_KEY";
-    public static final String S3_ENDPOINT = "AWS_ENDPOINT";
-    public static final String S3_REGION = "AWS_REGION";
     private static final String AK = "access_key";
     private static final String SK = "secret_key";
 
-    private static final String USE_PATH_STYLE = "use_path_style";
     private static final String REGION = "region";
 
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
                         .add(S3_URI)
                         .add(AK)
                         .add(SK)
-                        .add(USE_PATH_STYLE)
+                        .add(PropertyConverter.USE_PATH_STYLE)
                         .add(REGION)
                         .build();
     private S3URI s3uri;
@@ -86,7 +80,7 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
             forceVirtualHosted = true;
         } else {
             // not s3 protocol, forceVirtualHosted is determined by USE_PATH_STYLE.
-            forceVirtualHosted = !Boolean.valueOf(validParams.get(USE_PATH_STYLE)).booleanValue();
+            forceVirtualHosted = !Boolean.parseBoolean(validParams.get(PropertyConverter.USE_PATH_STYLE));
         }
 
         try {
@@ -111,18 +105,18 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         }
         s3AK = validParams.getOrDefault(AK, "");
         s3SK = validParams.getOrDefault(SK, "");
-        String usePathStyle = validParams.getOrDefault(USE_PATH_STYLE, "false");
+        String usePathStyle = validParams.getOrDefault(PropertyConverter.USE_PATH_STYLE, "false");
 
         parseProperties(validParams);
 
         // set S3 location properties
         // these five properties is necessary, no one can be lost.
         locationProperties = Maps.newHashMap();
-        locationProperties.put(S3_ENDPOINT, endPoint);
-        locationProperties.put(S3_AK, s3AK);
-        locationProperties.put(S3_SK, s3SK);
-        locationProperties.put(S3_REGION, validParams.getOrDefault(REGION, ""));
-        locationProperties.put(USE_PATH_STYLE, usePathStyle);
+        locationProperties.put(S3Properties.Environment.ENDPOINT, endPoint);
+        locationProperties.put(S3Properties.Environment.ACCESS_KEY, s3AK);
+        locationProperties.put(S3Properties.Environment.SECRET_KEY, s3SK);
+        locationProperties.put(S3Properties.Environment.REGION, validParams.getOrDefault(REGION, ""));
+        locationProperties.put(PropertyConverter.USE_PATH_STYLE, usePathStyle);
 
         parseFile();
     }
