@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
@@ -173,8 +174,15 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         // build window function, replace the slot
         List<Expression> windowAggSlots = windowFilterConjunct.left().collectToList(Slot.class::isInstance);
         Preconditions.checkArgument(windowAggSlots.size() == 1);
+
+        // adjust agg function's nullable.
+        AggregateFunction function = functions.get(0);
+        if (function instanceof NullableAggregateFunction) {
+            function = ((NullableAggregateFunction) function).withAlwaysNullable(false);
+        }
+
         WindowExpression windowFunction = createWindowFunction(apply.getCorrelationSlot(),
-                functions.get(0).withChildren(windowAggSlots));
+                function.withChildren(windowAggSlots));
         NamedExpression windowFunctionAlias = new Alias(windowFunction, "wf");
 
         // build filter conjunct, get the alias of the agg output and extract its child.
