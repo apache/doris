@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.InternalCatalog;
 
 import com.google.common.collect.ArrayListMultimap;
@@ -46,10 +47,10 @@ public class GroupByClauseTest {
         try {
             Field f = analyzer.getClass().getDeclaredField("tupleByAlias");
             f.setAccessible(true);
-            Multimap<String, TupleDescriptor> tupleByAlias = ArrayListMultimap.create();
+            Multimap<String, Pair<Boolean, TupleDescriptor>> tupleByAlias = ArrayListMultimap.create();
             TupleDescriptor td = new TupleDescriptor(new TupleId(0));
             td.setTable(analyzerBase.getTableOrAnalysisException(new TableName(internalCtl, "testdb", "t")));
-            tupleByAlias.put("testdb.t", td);
+            tupleByAlias.put("testdb.t", Pair.of(false, td));
             f.set(analyzer, tupleByAlias);
         } catch (NoSuchFieldException e) {
             e.printStackTrace();

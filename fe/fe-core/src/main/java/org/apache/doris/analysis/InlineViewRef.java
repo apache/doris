@@ -200,7 +200,7 @@ public class InlineViewRef extends TableRef {
         }
         //TODO(chenhao16): fix TableName in Db.Table style
         // name.analyze(analyzer);
-        desc = analyzer.registerTableRef(this);
+        desc = analyzer.registerTableRef(this, true);
         isAnalyzed = true;  // true now that we have assigned desc
 
         // For constant selects we materialize its exprs into a tuple.
