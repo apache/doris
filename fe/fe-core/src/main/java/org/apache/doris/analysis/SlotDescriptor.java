@@ -80,7 +80,7 @@ public class SlotDescriptor {
         this.isMultiRef = false;
     }
 
-    SlotDescriptor(SlotId id, TupleDescriptor parent, SlotDescriptor src) {
+    public SlotDescriptor(SlotId id, TupleDescriptor parent, SlotDescriptor src) {
         this.id = id;
         this.parent = parent;
         this.byteOffset = src.byteOffset;
@@ -152,6 +152,10 @@ public class SlotDescriptor {
         this.column = column;
         this.type = column.getType();
         this.originType = column.getOriginType();
+    }
+
+    public void setSrcColumn(Column column) {
+        this.column = column;
     }
 
     public boolean isMaterialized() {

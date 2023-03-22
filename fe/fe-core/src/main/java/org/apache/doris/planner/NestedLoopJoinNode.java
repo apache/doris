@@ -70,8 +70,8 @@ public class NestedLoopJoinNode extends JoinNodeBase {
 
     public NestedLoopJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, TableRef innerRef) {
         super(id, "NESTED LOOP JOIN", StatisticalType.NESTED_LOOP_JOIN_NODE, outer, inner, innerRef);
-        tupleIds.addAll(outer.getTupleIds());
-        tupleIds.addAll(inner.getTupleIds());
+        tupleIds.addAll(outer.getOutputTupleIds());
+        tupleIds.addAll(inner.getOutputTupleIds());
     }
 
     public boolean canParallelize() {
