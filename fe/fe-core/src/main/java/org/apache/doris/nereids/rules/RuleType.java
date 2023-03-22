@@ -133,6 +133,7 @@ public enum RuleType {
     COLUMN_PRUNE_FILTER_CHILD(RuleTypeClass.REWRITE),
     PRUNE_ONE_ROW_RELATION_COLUMN(RuleTypeClass.REWRITE),
     COLUMN_PRUNE_SORT_CHILD(RuleTypeClass.REWRITE),
+    COLUMN_PRUNE_SORT(RuleTypeClass.REWRITE),
     COLUMN_PRUNE_JOIN_CHILD(RuleTypeClass.REWRITE),
     COLUMN_PRUNE_REPEAT_CHILD(RuleTypeClass.REWRITE),
     // expression of plan rewrite
