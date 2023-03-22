@@ -37,6 +37,9 @@
 namespace doris {
 
 const static std::string HEADER_JSON = "application/json";
+const static std::string OP = "op";
+const static std::string DATA_SIZE = "data_size";
+const static std::string HEADER = "header";
 
 Status MetaAction::_handle_header(HttpRequest* req, std::string* json_meta) {
     req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.c_str());
@@ -60,26 +63,37 @@ Status MetaAction::_handle_header(HttpRequest* req, std::string* json_meta) {
         LOG(WARNING) << "no tablet for tablet_id:" << tablet_id;
         return Status::InternalError("no tablet exist");
     }
-    TabletMetaSharedPtr tablet_meta(new TabletMeta());
-    tablet->generate_tablet_meta_copy(tablet_meta);
-    json2pb::Pb2JsonOptions json_options;
-    json_options.pretty_json = true;
-    json_options.bytes_to_base64 = enable_byte_to_base64;
-    tablet_meta->to_json(json_meta, json_options);
-    return Status::OK();
+    std::string operation = req->param(OP);
+    if (operation == HEADER) {
+        TabletMetaSharedPtr tablet_meta(new TabletMeta());
+        tablet->generate_tablet_meta_copy(tablet_meta);
+        json2pb::Pb2JsonOptions json_options;
+        json_options.pretty_json = true;
+        json_options.bytes_to_base64 = enable_byte_to_base64;
+        tablet_meta->to_json(json_meta, json_options);
+        return Status::OK();
+    } else if (operation == DATA_SIZE) {
+        EasyJson data_size;
+        {
+            std::shared_lock rowset_ldlock(tablet->get_header_lock());
+            data_size["local_data_size"] = tablet->tablet_local_size();
+            data_size["remote_data_size"] = tablet->tablet_remote_size();
+        }
+        *json_meta = data_size.ToString();
+        return Status::OK();
+    }
+    return Status::InternalError("invalid operation");
 }
 
 void MetaAction::handle(HttpRequest* req) {
-    if (_meta_type == META_TYPE::HEADER) {
-        std::string json_meta;
-        Status status = _handle_header(req, &json_meta);
-        std::string status_result = status.to_json();
-        LOG(INFO) << "handle request result:" << status_result;
-        if (status.ok()) {
-            HttpChannel::send_reply(req, HttpStatus::OK, json_meta);
-        } else {
-            HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, status_result);
-        }
+    std::string json_meta;
+    Status status = _handle_header(req, &json_meta);
+    std::string status_result = status.to_json();
+    LOG(INFO) << "handle request result:" << status_result;
+    if (status.ok()) {
+        HttpChannel::send_reply(req, HttpStatus::OK, json_meta);
+    } else {
+        HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, status_result);
     }
 }
 

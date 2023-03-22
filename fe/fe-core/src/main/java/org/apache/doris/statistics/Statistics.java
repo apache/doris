@@ -83,14 +83,25 @@ public class Statistics {
         return rowCount;
     }
 
+    /*
+     * Return a stats with new rowCount and fix each column stats.
+     */
     public Statistics withRowCount(double rowCount) {
+        if (Double.isNaN(rowCount)) {
+            return this;
+        }
         Statistics statistics = new Statistics(rowCount, new HashMap<>(expressionToColumnStats), width, penalty);
         statistics.fix(rowCount, StatsMathUtil.nonZeroDivisor(this.rowCount));
         return statistics;
     }
 
+    public Statistics updateRowCountOnly(double rowCount) {
+        return new Statistics(rowCount, expressionToColumnStats);
+    }
+
     public void fix(double newRowCount, double originRowCount) {
         double sel = newRowCount / originRowCount;
+
         for (Entry<Expression, ColumnStatistic> entry : expressionToColumnStats.entrySet()) {
             ColumnStatistic columnStatistic = entry.getValue();
             ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(columnStatistic);

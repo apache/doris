@@ -70,8 +70,6 @@ public:
 
 private:
     Status read_record_batch(bool* eof);
-    Status handle_timestamp(const std::shared_ptr<arrow::TimestampArray>& ts_array, uint8_t* buf,
-                            int32_t* wbtyes);
 
 private:
     Status read_next_batch();

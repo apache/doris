@@ -48,7 +48,6 @@ namespace doris {
  *
  */
 using int128_t = __int128;
-class DateTimeValue;
 class DecimalV2Value;
 
 template <bool is_binary_format = false>
@@ -73,7 +72,8 @@ public:
     int push_float(float data);
     int push_double(double data);
     int push_time(double data);
-    int push_datetime(const DateTimeValue& data);
+    template <typename DateType>
+    int push_datetime(const DateType& data);
     int push_decimal(const DecimalV2Value& data, int round_scale);
     int push_string(const char* str, int64_t length);
     int push_null();

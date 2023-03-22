@@ -250,10 +250,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             }
             long id = Env.getCurrentEnv().getNextId();
             CatalogLog log = CatalogFactory.constructorCatalogLog(id, stmt);
-            CatalogIf catalog = replayCreateCatalog(log);
-            if (catalog instanceof ExternalCatalog) {
-                ((ExternalCatalog) catalog).checkProperties();
-            }
+            replayCreateCatalog(log, false);
             Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_CREATE_CATALOG, log);
         } finally {
             writeUnlock();
@@ -461,10 +458,13 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     /**
      * Reply for create catalog event.
      */
-    public CatalogIf replayCreateCatalog(CatalogLog log) throws DdlException {
+    public CatalogIf replayCreateCatalog(CatalogLog log, boolean isReplay) throws DdlException {
         writeLock();
         try {
             CatalogIf catalog = CatalogFactory.constructorFromLog(log);
+            if (!isReplay && catalog instanceof ExternalCatalog) {
+                ((ExternalCatalog) catalog).checkProperties();
+            }
             addCatalog(catalog);
             return catalog;
         } finally {

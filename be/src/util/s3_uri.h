@@ -19,6 +19,7 @@
 
 #include <string>
 
+#include "common/status.h"
 #include "util/string_util.h"
 
 namespace doris {
@@ -26,7 +27,7 @@ namespace doris {
 class S3URI {
 public:
     S3URI(const std::string& location) : _location(location) {}
-    bool parse();
+    Status parse();
     const std::string& get_bucket() const { return _bucket; }
     const std::string& get_key() const { return _key; }
     const std::string& get_location() const { return _location; }

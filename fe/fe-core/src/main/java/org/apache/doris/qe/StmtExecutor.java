@@ -1498,7 +1498,9 @@ public class StmtExecutor implements ProfileWriter {
             InterruptedException, ExecutionException, TimeoutException {
         TransactionEntry txnEntry = context.getTxnEntry();
         TTxnParams txnConf = txnEntry.getTxnConf();
+        SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
         long timeoutSecond = ConnectContext.get().getExecTimeout();
+
         TransactionState.LoadJobSourceType sourceType = TransactionState.LoadJobSourceType.INSERT_STREAMING;
         Database dbObj = Env.getCurrentInternalCatalog()
                 .getDbOrException(dbName, s -> new TException("database is invalid for dbName: " + s));
@@ -1528,10 +1530,17 @@ public class StmtExecutor implements ProfileWriter {
         }
 
         TStreamLoadPutRequest request = new TStreamLoadPutRequest();
+
+        long maxExecMemByte = sessionVariable.getMaxExecMemByte();
+        String timeZone = sessionVariable.getTimeZone();
+        int sendBatchParallelism = sessionVariable.getSendBatchParallelism();
+
         request.setTxnId(txnConf.getTxnId()).setDb(txnConf.getDb())
                 .setTbl(txnConf.getTbl())
                 .setFileType(TFileType.FILE_STREAM).setFormatType(TFileFormatType.FORMAT_CSV_PLAIN)
-                .setMergeType(TMergeType.APPEND).setThriftRpcTimeoutMs(5000).setLoadId(context.queryId());
+                .setMergeType(TMergeType.APPEND).setThriftRpcTimeoutMs(5000).setLoadId(context.queryId())
+                .setExecMemLimit(maxExecMemByte).setTimeout((int) timeoutSecond)
+                .setTimezone(timeZone).setSendBatchParallelism(sendBatchParallelism);
 
         // execute begin txn
         InsertStreamTxnExecutor executor = new InsertStreamTxnExecutor(txnEntry);
@@ -2011,6 +2020,7 @@ public class StmtExecutor implements ProfileWriter {
         if (MysqlStateType.OK.equals(context.getState().getStateType())) {
             try {
                 parsedStmt = ctasStmt.getInsertStmt();
+                parsedStmt.setUserInfo(context.getCurrentUserIdentity());
                 execute();
                 if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
                     LOG.warn("CTAS insert data error, stmt={}", ctasStmt.toSql());

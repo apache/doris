@@ -26,21 +26,91 @@
 namespace doris {
 namespace io {
 
-Status RemoteFileSystem::open_file(const Path& path, const FileReaderOptions& reader_options,
-                                   FileReaderSPtr* reader, IOContext* io_ctx) {
+Status RemoteFileSystem::upload(const Path& local_file, const Path& dest_file) {
+    auto dest_path = absolute_path(dest_file);
     if (bthread_self() == 0) {
-        return open_file_impl(path, reader_options, reader, io_ctx);
+        return upload_impl(local_file, dest_path);
     }
     Status s;
-    auto task = [&] { s = open_file_impl(path, reader_options, reader, io_ctx); };
-    AsyncIO::run_task(task, io::FileSystemType::S3);
+    auto task = [&] { s = upload_impl(local_file, dest_path); };
+    AsyncIO::run_task(task, _type);
+    return s;
+}
+
+Status RemoteFileSystem::batch_upload(const std::vector<Path>& local_files,
+                                      const std::vector<Path>& remote_files) {
+    std::vector<Path> remote_paths;
+    for (auto& path : remote_files) {
+        remote_paths.push_back(absolute_path(path));
+    }
+    if (bthread_self() == 0) {
+        return batch_upload_impl(local_files, remote_paths);
+    }
+    Status s;
+    auto task = [&] { s = batch_upload_impl(local_files, remote_paths); };
+    AsyncIO::run_task(task, _type);
+    return s;
+}
+
+Status RemoteFileSystem::direct_upload(const Path& remote_file, const std::string& content) {
+    auto remote_path = absolute_path(remote_file);
+    if (bthread_self() == 0) {
+        return direct_upload_impl(remote_path, content);
+    }
+    Status s;
+    auto task = [&] { s = direct_upload_impl(remote_path, content); };
+    AsyncIO::run_task(task, _type);
+    return s;
+}
+
+Status RemoteFileSystem::upload_with_checksum(const Path& local_file, const Path& remote,
+                                              const std::string& checksum) {
+    auto remote_path = absolute_path(remote);
+    if (bthread_self() == 0) {
+        return upload_with_checksum_impl(local_file, remote_path, checksum);
+    }
+    Status s;
+    auto task = [&] { s = upload_with_checksum_impl(local_file, remote_path, checksum); };
+    AsyncIO::run_task(task, _type);
+    return s;
+}
+
+Status RemoteFileSystem::download(const Path& remote_file, const Path& local) {
+    auto remote_path = absolute_path(remote_file);
+    if (bthread_self() == 0) {
+        return download_impl(remote_path, local);
+    }
+    Status s;
+    auto task = [&] { s = download_impl(remote_path, local); };
+    AsyncIO::run_task(task, _type);
+    return s;
+}
+
+Status RemoteFileSystem::direct_download(const Path& remote_file, std::string* content) {
+    auto remote_path = absolute_path(remote_file);
+    if (bthread_self() == 0) {
+        return direct_download_impl(remote_path, content);
+    }
+    Status s;
+    auto task = [&] { s = direct_download_impl(remote_path, content); };
+    AsyncIO::run_task(task, _type);
+    return s;
+}
+
+Status RemoteFileSystem::connect() {
+    if (bthread_self() == 0) {
+        return connect_impl();
+    }
+    Status s;
+    auto task = [&] { s = connect_impl(); };
+    AsyncIO::run_task(task, _type);
     return s;
 }
 
 Status RemoteFileSystem::open_file_impl(const Path& path, const FileReaderOptions& reader_options,
-                                        FileReaderSPtr* reader, IOContext* io_ctx) {
+                                        FileReaderSPtr* reader) {
     FileReaderSPtr raw_reader;
-    RETURN_IF_ERROR(open_file(path, &raw_reader, io_ctx));
+    RETURN_IF_ERROR(open_file_internal(path, &raw_reader));
     switch (reader_options.cache_type) {
     case io::FileCachePolicy::NO_CACHE: {
         *reader = raw_reader;
@@ -57,11 +127,9 @@ Status RemoteFileSystem::open_file_impl(const Path& path, const FileReaderOption
         break;
     }
     case io::FileCachePolicy::FILE_BLOCK_CACHE: {
-        DCHECK(io_ctx);
         StringPiece str(raw_reader->path().native());
         std::string cache_path = reader_options.path_policy.get_cache_path(path.native());
-        *reader =
-                std::make_shared<CachedRemoteFileReader>(std::move(raw_reader), cache_path, io_ctx);
+        *reader = std::make_shared<CachedRemoteFileReader>(std::move(raw_reader), cache_path);
         break;
     }
     default: {
