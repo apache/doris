@@ -1143,6 +1143,18 @@ public class OlapScanNode extends ScanNode {
     }
 
     @Override
+    public boolean shouldColoAgg() {
+        // In pipeline exec engine, the instance num is parallel instance. we should disable colo agg
+        // in parallelInstance >= tablet_num * 2 to use more thread to speed up the query
+        if (ConnectContext.get().getSessionVariable().enablePipelineEngine()) {
+            int parallelInstance = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+            return parallelInstance < result.size() * 2;
+        } else {
+            return true;
+        }
+    }
+
+    @Override
     protected void toThrift(TPlanNode msg) {
         List<String> keyColumnNames = new ArrayList<String>();
         List<TPrimitiveType> keyColumnTypes = new ArrayList<TPrimitiveType>();

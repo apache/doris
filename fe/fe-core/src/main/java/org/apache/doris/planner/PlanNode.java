@@ -829,6 +829,10 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return numInstances;
     }
 
+    public boolean shouldColoAgg() {
+        return true;
+    }
+
     public void setNumInstances(int numInstances) {
         this.numInstances = numInstances;
     }
