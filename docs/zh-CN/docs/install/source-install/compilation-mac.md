@@ -38,7 +38,7 @@ under the License.
 1. 使用[Homebrew](https://brew.sh/)安装依赖
     ```shell
     brew install automake autoconf libtool pkg-config texinfo coreutils gnu-getopt \
-        python cmake ninja ccache bison byacc gettext wget pcre maven llvm openjdk@11 npm
+        python@3 cmake ninja ccache bison byacc gettext wget pcre maven llvm@15 openjdk@11 npm
     ```
 
 2. 编译源码
