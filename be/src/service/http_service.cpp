@@ -128,8 +128,8 @@ Status HttpService::start() {
         _ev_http_server->register_handler(HttpMethod::GET, "/metrics", action);
     }
 
-    MetaAction* meta_action = _pool.add(new MetaAction(HEADER));
-    _ev_http_server->register_handler(HttpMethod::GET, "/api/meta/header/{tablet_id}", meta_action);
+    MetaAction* meta_action = _pool.add(new MetaAction());
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/meta/{op}/{tablet_id}", meta_action);
 
 #ifndef BE_TEST
     // Register BE checksum action
