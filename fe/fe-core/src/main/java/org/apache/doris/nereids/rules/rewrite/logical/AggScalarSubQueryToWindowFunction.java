@@ -189,7 +189,7 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         LogicalFilter newFilter = ((LogicalFilter) node.withChildren(apply.left()));
         LogicalWindow newWindow = new LogicalWindow<>(ImmutableList.of(windowFunctionAlias), newFilter);
         LogicalFilter windowFilter = new LogicalFilter<>(ImmutableSet.of(windowFilterConjunct), newWindow);
-        return node.child().withChildren(windowFilter);
+        return windowFilter;
     }
 
     // check children's nodes because query process will be changed
