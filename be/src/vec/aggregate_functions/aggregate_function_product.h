@@ -37,9 +37,9 @@ template <typename T>
 struct AggregateFunctionProductData {
     T product {};
 
-    void add(T value) { product *= value; }
+    void add(T value, UInt32) { product *= value; }
 
-    void merge(const AggregateFunctionProductData& other) { product *= other.product; }
+    void merge(const AggregateFunctionProductData& other, UInt32) { product *= other.product; }
 
     void write(BufferWritable& buffer) const { write_binary(product, buffer); }
 
@@ -54,18 +54,42 @@ template <>
 struct AggregateFunctionProductData<Decimal128> {
     Decimal128 product {};
 
-    void add(Decimal128 value) {
+    void add(Decimal128 value, UInt32) {
         DecimalV2Value decimal_product(static_cast<Int128>(product));
         DecimalV2Value decimal_value(static_cast<Int128>(value));
         DecimalV2Value ret = decimal_product * decimal_value;
         memcpy(&product, &ret, sizeof(Decimal128));
     }
 
-    void merge(const AggregateFunctionProductData& other) {
+    void merge(const AggregateFunctionProductData& other, UInt32) {
         DecimalV2Value decimal_product(static_cast<Int128>(product));
         DecimalV2Value decimal_value(static_cast<Int128>(other.product));
         DecimalV2Value ret = decimal_product * decimal_value;
         memcpy(&product, &ret, sizeof(Decimal128));
+    }
+
+    void write(BufferWritable& buffer) const { write_binary(product, buffer); }
+
+    void read(BufferReadable& buffer) { read_binary(product, buffer); }
+
+    Decimal128 get() const { return product; }
+
+    void reset(Decimal128 value) { product = std::move(value); }
+};
+
+template <>
+struct AggregateFunctionProductData<Decimal128I> {
+    Decimal128I product {};
+
+    template <typename NestedType>
+    void add(Decimal<NestedType> value, UInt32 scale) {
+        product *= value;
+        product /= DataTypeDecimal<Decimal128I>::get_scale_multiplier(scale);
+    }
+
+    void merge(const AggregateFunctionProductData& other, UInt32 scale) {
+        product *= other.product;
+        product /= DataTypeDecimal<Decimal128I>::get_scale_multiplier(scale);
     }
 
     void write(BufferWritable& buffer) const { write_binary(product, buffer); }
@@ -105,7 +129,7 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
         const auto& column = static_cast<const ColVecType&>(*columns[0]);
-        this->data(place).add(column.get_data()[row_num]);
+        this->data(place).add(column.get_data()[row_num], scale);
     }
 
     void reset(AggregateDataPtr place) const override {
@@ -118,7 +142,7 @@ public:
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena*) const override {
-        this->data(place).merge(this->data(rhs));
+        this->data(place).merge(this->data(rhs), scale);
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
