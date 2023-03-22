@@ -213,6 +213,24 @@ void LRUCache::_lru_append(LRUHandle* list, LRUHandle* e) {
     e->prev = list->prev;
     e->prev->next = e;
     e->next->prev = e;
+
+    // _cache_value_check_timestamp is true,
+    // means evict entry will depends on the timestamp asc set,
+    // the timestamp is updated by higher level caller,
+    // and the timestamp of hit entry is different with the insert entry,
+    // that is why need check timestamp to evict entry,
+    // in order to keep the survival time of hit entries
+    // longer than the entries just inserted,
+    // so use asc set to sorted these entries's timestamp and LRUHandle*
+    if (_cache_value_check_timestamp) {
+        if (e->priority == CachePriority::NORMAL) {
+            _sorted_normal_entries_with_timestamp.insert(
+                    std::make_pair(_cache_value_time_extractor(e->value), e));
+        } else if (e->priority == CachePriority::DURABLE) {
+            _sorted_durable_entries_with_timestamp.insert(
+                    std::make_pair(_cache_value_time_extractor(e->value), e));
+        }
+    }
 }
 
 Cache::Handle* LRUCache::lookup(const CacheKey& key, uint32_t hash) {
@@ -259,23 +277,6 @@ void LRUCache::release(Cache::Handle* handle) {
                     _lru_append(&_lru_normal, e);
                 } else if (e->priority == CachePriority::DURABLE) {
                     _lru_append(&_lru_durable, e);
-                }
-                // _cache_value_check_timestamp is true,
-                // means evict entry will depends on the timestamp asc set,
-                // the timestamp is updated by higher level caller,
-                // and the timestamp of hit entry is different with the insert entry,
-                // that is why need check timestamp to evict entry,
-                // in order to keep the survival time of hit entries
-                // longer than the entries just inserted,
-                // so use asc set to sorted these entries's timestamp and LRUHandle*
-                if (_cache_value_check_timestamp) {
-                    if (e->priority == CachePriority::NORMAL) {
-                        _sorted_normal_entries_with_timestamp.insert(
-                                std::make_pair(_cache_value_time_extractor(e->value), e));
-                    } else if (e->priority == CachePriority::DURABLE) {
-                        _sorted_durable_entries_with_timestamp.insert(
-                                std::make_pair(_cache_value_time_extractor(e->value), e));
-                    }
                 }
             }
         }
