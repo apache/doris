@@ -30,7 +30,7 @@ struct StPoint {
     static const size_t NUM_ARGS = 2;
     static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
         DCHECK_EQ(arguments.size(), 2);
-        auto return_type = remove_nullable(block.get_data_type(result));
+        auto return_type = block.get_data_type(result);
 
         auto column_x =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
@@ -39,8 +39,7 @@ struct StPoint {
 
         const auto size = column_x->size();
 
-        MutableColumnPtr res = nullptr;
-        res = ColumnNullable::create(return_type->create_column(), ColumnUInt8::create());
+        MutableColumnPtr res = return_type->create_column();
 
         GeoPoint point;
         std::string buf;
@@ -76,14 +75,13 @@ struct StAsText {
     static const size_t NUM_ARGS = 1;
     static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
         DCHECK_EQ(arguments.size(), 1);
-        auto return_type = remove_nullable(block.get_data_type(result));
+        auto return_type = block.get_data_type(result);
 
         auto& input = block.get_by_position(arguments[0]).column;
 
         auto size = input->size();
 
-        MutableColumnPtr res = nullptr;
-        res = ColumnNullable::create(return_type->create_column(), ColumnUInt8::create());
+        MutableColumnPtr res = return_type->create_column();
 
         std::unique_ptr<GeoShape> shape;
         for (int row = 0; row < size; ++row) {
@@ -109,14 +107,13 @@ struct StX {
     static const size_t NUM_ARGS = 1;
     static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
         DCHECK_EQ(arguments.size(), 1);
-        auto return_type = remove_nullable(block.get_data_type(result));
+        auto return_type = block.get_data_type(result);
 
         auto& input = block.get_by_position(arguments[0]).column;
 
         auto size = input->size();
 
-        MutableColumnPtr res = nullptr;
-        res = ColumnNullable::create(return_type->create_column(), ColumnUInt8::create());
+        MutableColumnPtr res = return_type->create_column();
 
         GeoPoint point;
         for (int row = 0; row < size; ++row) {
@@ -142,14 +139,13 @@ struct StY {
     static const size_t NUM_ARGS = 1;
     static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
         DCHECK_EQ(arguments.size(), 1);
-        auto return_type = remove_nullable(block.get_data_type(result));
+        auto return_type = block.get_data_type(result);
 
         auto& input = block.get_by_position(arguments[0]).column;
 
         auto size = input->size();
 
-        MutableColumnPtr res = nullptr;
-        res = ColumnNullable::create(return_type->create_column(), ColumnUInt8::create());
+        MutableColumnPtr res = return_type->create_column();
 
         GeoPoint point;
         for (int row = 0; row < size; ++row) {
@@ -175,7 +171,7 @@ struct StDistanceSphere {
     static const size_t NUM_ARGS = 4;
     static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
         DCHECK_EQ(arguments.size(), 4);
-        auto return_type = remove_nullable(block.get_data_type(result));
+        auto return_type = block.get_data_type(result);
 
         auto x_lng = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         auto x_lat = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
@@ -184,8 +180,7 @@ struct StDistanceSphere {
 
         const auto size = x_lng->size();
 
-        MutableColumnPtr res = nullptr;
-        res = ColumnNullable::create(return_type->create_column(), ColumnUInt8::create());
+        MutableColumnPtr res = return_type->create_column();
 
         for (int row = 0; row < size; ++row) {
             double distance = 0;
@@ -219,8 +214,7 @@ struct StAngleSphere {
 
         const auto size = x_lng->size();
 
-        MutableColumnPtr res = nullptr;
-        res = ColumnNullable::create(return_type->create_column(), ColumnUInt8::create());
+        MutableColumnPtr res = return_type->create_column();
 
         for (int row = 0; row < size; ++row) {
             double angle = 0;
@@ -246,7 +240,7 @@ struct StCircle {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           size_t result) {
         DCHECK_EQ(arguments.size(), 3);
-        auto return_type = remove_nullable(block.get_data_type(result));
+        auto return_type = block.get_data_type(result);
         auto center_lng =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         auto center_lat =
@@ -255,8 +249,7 @@ struct StCircle {
 
         const auto size = center_lng->size();
 
-        MutableColumnPtr res = nullptr;
-        res = ColumnNullable::create(return_type->create_column(), ColumnUInt8::create());
+        MutableColumnPtr res = return_type->create_column();
 
         GeoCircle circle;
         std::string buf;
@@ -294,12 +287,12 @@ struct StContains {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           size_t result) {
         DCHECK_EQ(arguments.size(), 2);
-        auto return_type = remove_nullable(block.get_data_type(result));
+        auto return_type = block.get_data_type(result);
         auto shape1 = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         auto shape2 = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
 
         const auto size = shape1->size();
-        auto res = ColumnNullable::create(return_type->create_column(), ColumnUInt8::create());
+        MutableColumnPtr res = return_type->create_column();
 
         int i;
         std::vector<std::shared_ptr<GeoShape>> shapes = {nullptr, nullptr};
@@ -377,11 +370,11 @@ struct StGeoFromText {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           size_t result) {
         DCHECK_EQ(arguments.size(), 1);
-        auto return_type = remove_nullable(block.get_data_type(result));
+        auto return_type = block.get_data_type(result);
         auto& geo = block.get_by_position(arguments[0]).column;
 
         const auto size = geo->size();
-        auto res = ColumnNullable::create(return_type->create_column(), ColumnUInt8::create());
+        MutableColumnPtr res = return_type->create_column();
 
         GeoParseStatus status;
         std::string buf;
