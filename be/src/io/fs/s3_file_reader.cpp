@@ -50,19 +50,8 @@ Status S3FileReader::close() {
     return Status::OK();
 }
 
-Status S3FileReader::read_at(size_t offset, Slice result, const IOContext& io_ctx,
-                             size_t* bytes_read) {
-    if (bthread_self() == 0) {
-        return read_at_impl(offset, result, io_ctx, bytes_read);
-    }
-    Status s;
-    auto task = [&] { s = read_at_impl(offset, result, io_ctx, bytes_read); };
-    AsyncIO::run_task(task, io::FileSystemType::S3);
-    return s;
-}
-
-Status S3FileReader::read_at_impl(size_t offset, Slice result, const IOContext& /*io_ctx*/,
-                                  size_t* bytes_read) {
+Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                                  const IOContext* /*io_ctx*/) {
     DCHECK(!closed());
     if (offset > _file_size) {
         return Status::IOError("offset exceeds file size(offset: {}, file size: {}, path: {})",

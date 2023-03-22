@@ -76,8 +76,8 @@ Status VFileScanner::prepare(
     _convert_to_output_block_timer =
             ADD_TIMER(_parent->_scanner_profile, "FileScannerConvertOuputBlockTime");
 
-    _file_cache_statistics.reset(new FileCacheStatistics());
-    _io_ctx.reset(new IOContext());
+    _file_cache_statistics.reset(new io::FileCacheStatistics());
+    _io_ctx.reset(new io::IOContext());
     _io_ctx->file_cache_stats = _file_cache_statistics.get();
     _io_ctx->query_id = &_state->query_id();
     _io_ctx->enable_file_cache = _state->query_options().enable_file_cache;

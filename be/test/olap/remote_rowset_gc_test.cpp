@@ -53,8 +53,10 @@ public:
         s3_conf.region = config::test_s3_region;
         s3_conf.bucket = config::test_s3_bucket;
         s3_conf.prefix = "remote_rowset_gc_test";
-        auto s3_fs = io::S3FileSystem::create(std::move(s3_conf), std::to_string(kResourceId));
-        ASSERT_TRUE(s3_fs->connect().ok());
+        std::shared_ptr<io::S3FileSystem> s3_fs;
+        ASSERT_TRUE(
+                io::S3FileSystem::create(std::move(s3_conf), std::to_string(kResourceId), &s3_fs)
+                        .ok());
         put_storage_resource(kResourceId, {s3_fs, 1});
         auto storage_policy = std::make_shared<StoragePolicy>();
         storage_policy->name = "TabletCooldownTest";

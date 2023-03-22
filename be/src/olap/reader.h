@@ -22,6 +22,7 @@
 #include "exprs/bitmapfilter_predicate.h"
 #include "exprs/function_filter.h"
 #include "exprs/hybrid_set.h"
+#include "io/io_common.h"
 #include "olap/delete_handler.h"
 #include "olap/row_cursor.h"
 #include "olap/rowset/rowset_reader.h"

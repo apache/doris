@@ -167,12 +167,12 @@ string FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescr
     }
     case TYPE_FLOAT: {
         float val = *reinterpret_cast<const float*>(src);
-        return fmt::format("{:.9g}", val);
+        return fmt::format("{}", val);
     }
     case TYPE_TIME:
     case TYPE_DOUBLE: {
         double val = *reinterpret_cast<double*>(src);
-        return fmt::format("{:.17g}", val);
+        return fmt::format("{}", val);
     }
     case TYPE_CHAR:
     case TYPE_VARCHAR:

@@ -653,6 +653,9 @@ visible_functions = [
     [['array_range'], 'ARRAY_INT', ['INT'], 'ALWAYS_NULLABLE'],
     [['array_range'], 'ARRAY_INT', ['INT', 'INT'], 'ALWAYS_NULLABLE'],
     [['array_range'], 'ARRAY_INT', ['INT', 'INT', 'INT'], 'ALWAYS_NULLABLE'],
+    
+    [['array_zip'], 'ARRAY', ['ARRAY', '...'], ''],
+
     # reverse function for string builtin
     [['reverse'], 'VARCHAR', ['VARCHAR'], ''],
     # reverse function support the longtext
@@ -1585,21 +1588,21 @@ visible_functions = [
     [['murmur_hash3_64'], 'BIGINT', ['STRING', '...'], ''],
 
     # aes and base64 function
-    [['aes_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
-    [['aes_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['aes_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['aes_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
     [['aes_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
     [['aes_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
-    [['sm4_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
-    [['sm4_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['sm4_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['sm4_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
     [['sm4_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
     [['sm4_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
     [['from_base64'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
-    [['aes_encrypt'], 'STRING', ['STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
-    [['aes_decrypt'], 'STRING', ['STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
+    [['aes_encrypt'], 'STRING', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
+    [['aes_decrypt'], 'STRING', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
     [['aes_encrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
     [['aes_decrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
-    [['sm4_encrypt'], 'STRING', ['STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
-    [['sm4_decrypt'], 'STRING', ['STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
+    [['sm4_encrypt'], 'STRING', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
+    [['sm4_decrypt'], 'STRING', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
     [['sm4_encrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
     [['sm4_decrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
     [['from_base64'], 'STRING', ['STRING'], 'ALWAYS_NULLABLE'],

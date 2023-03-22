@@ -22,26 +22,27 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/io")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/io")
 
 set(IO_FILES
-    broker_writer.cpp
-    buffered_reader.cpp
     file_factory.cpp
     hdfs_builder.cpp
-    hdfs_writer.cpp
-    local_file_writer.cpp
-    s3_writer.cpp
     fs/file_reader_options.cpp
-    fs/local_file_reader.cpp
+    fs/file_reader.cpp
+    fs/file_system.cpp
+    fs/remote_file_system.cpp
     fs/local_file_system.cpp
+    fs/local_file_reader.cpp
     fs/local_file_writer.cpp
-    fs/s3_file_reader.cpp
     fs/s3_file_system.cpp
+    fs/s3_file_reader.cpp
     fs/s3_file_writer.cpp
     fs/hdfs_file_system.cpp
     fs/hdfs_file_reader.cpp
+    fs/hdfs_file_writer.cpp
     fs/broker_file_system.cpp
     fs/broker_file_reader.cpp
-    fs/remote_file_system.cpp
+    fs/broker_file_writer.cpp
+    fs/buffered_reader.cpp
     fs/stream_load_pipe.cpp
+    fs/fs_utils.cpp
     cache/dummy_file_cache.cpp
     cache/file_cache.cpp
     cache/file_cache_manager.cpp

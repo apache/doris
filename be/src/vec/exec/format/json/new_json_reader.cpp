@@ -42,7 +42,7 @@ using namespace ErrorCode;
 NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                              const TFileScanRangeParams& params, const TFileRangeDesc& range,
                              const std::vector<SlotDescriptor*>& file_slot_descs, bool* scanner_eof,
-                             IOContext* io_ctx, bool is_dynamic_schema)
+                             io::IOContext* io_ctx, bool is_dynamic_schema)
         : _vhandle_json_callback(nullptr),
           _state(state),
           _profile(profile),
@@ -73,7 +73,8 @@ NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, Scann
 
 NewJsonReader::NewJsonReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                              const TFileRangeDesc& range,
-                             const std::vector<SlotDescriptor*>& file_slot_descs, IOContext* io_ctx)
+                             const std::vector<SlotDescriptor*>& file_slot_descs,
+                             io::IOContext* io_ctx)
         : _vhandle_json_callback(nullptr),
           _state(nullptr),
           _profile(profile),
@@ -156,7 +157,7 @@ Status NewJsonReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
         if (UNLIKELY(_read_json_by_line && _skip_first_line)) {
             size_t size = 0;
             const uint8_t* line_ptr = nullptr;
-            RETURN_IF_ERROR(_line_reader->read_line(&line_ptr, &size, &_reader_eof));
+            RETURN_IF_ERROR(_line_reader->read_line(&line_ptr, &size, &_reader_eof, _io_ctx));
             _skip_first_line = false;
             continue;
         }
@@ -199,7 +200,7 @@ Status NewJsonReader::get_parsed_schema(std::vector<std::string>* col_names,
     std::unique_ptr<uint8_t[]> json_str_ptr;
     size_t size = 0;
     if (_line_reader != nullptr) {
-        RETURN_IF_ERROR(_line_reader->read_line(&json_str, &size, &eof));
+        RETURN_IF_ERROR(_line_reader->read_line(&json_str, &size, &eof, _io_ctx));
     } else {
         size_t read_size = 0;
         RETURN_IF_ERROR(_read_one_message(&json_str_ptr, &read_size));
@@ -334,9 +335,8 @@ Status NewJsonReader::_open_file_reader() {
     if (_params.file_type == TFileType::FILE_STREAM) {
         RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader));
     } else {
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties,
-                                                        _file_description, &_file_system,
-                                                        &_file_reader, _io_ctx));
+        RETURN_IF_ERROR(FileFactory::create_file_reader(
+                _profile, _system_properties, _file_description, &_file_system, &_file_reader));
     }
     return Status::OK();
 }
@@ -400,7 +400,7 @@ Status NewJsonReader::_parse_dynamic_json(bool* is_empty_row, bool* eof, Block& 
     const uint8_t* json_str = nullptr;
     std::unique_ptr<uint8_t[]> json_str_ptr;
     if (_line_reader != nullptr) {
-        RETURN_IF_ERROR(_line_reader->read_line(&json_str, &size, eof));
+        RETURN_IF_ERROR(_line_reader->read_line(&json_str, &size, eof, _io_ctx));
     } else {
         size_t length = 0;
         RETURN_IF_ERROR(_read_one_message(&json_str_ptr, &length));
@@ -637,7 +637,7 @@ Status NewJsonReader::_parse_json_doc(size_t* size, bool* eof) {
     const uint8_t* json_str = nullptr;
     std::unique_ptr<uint8_t[]> json_str_ptr;
     if (_line_reader != nullptr) {
-        RETURN_IF_ERROR(_line_reader->read_line(&json_str, size, eof));
+        RETURN_IF_ERROR(_line_reader->read_line(&json_str, size, eof, _io_ctx));
     } else {
         RETURN_IF_ERROR(_read_one_message(&json_str_ptr, size));
         json_str = json_str_ptr.release();
@@ -1014,7 +1014,7 @@ Status NewJsonReader::_read_one_message(std::unique_ptr<uint8_t[]>* file_buf, si
         size_t file_size = _file_reader->size();
         file_buf->reset(new uint8_t[file_size]);
         Slice result(file_buf->get(), file_size);
-        RETURN_IF_ERROR(_file_reader->read_at(_current_offset, result, *_io_ctx, read_size));
+        RETURN_IF_ERROR(_file_reader->read_at(_current_offset, result, read_size, _io_ctx));
         break;
     }
     case TFileType::FILE_STREAM: {
@@ -1514,7 +1514,7 @@ Status NewJsonReader::_simdjson_parse_json_doc(size_t* size, bool* eof) {
     const uint8_t* json_str = nullptr;
     std::unique_ptr<uint8_t[]> json_str_ptr;
     if (_line_reader != nullptr) {
-        RETURN_IF_ERROR(_line_reader->read_line(&json_str, size, eof));
+        RETURN_IF_ERROR(_line_reader->read_line(&json_str, size, eof, _io_ctx));
     } else {
         size_t length = 0;
         RETURN_IF_ERROR(_read_one_message(&json_str_ptr, &length));

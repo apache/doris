@@ -183,8 +183,6 @@ public class Auth implements Writable {
         readLock();
         try {
             userManager.checkPassword(remoteUser, remoteHost, remotePasswd, randomString, currentUser);
-            Set<String> roles = userRoleManager.getRolesByUser(currentUser.get(0));
-            currentUser.get(0).setRoles(roles);
         } finally {
             readUnlock();
         }
@@ -198,6 +196,15 @@ public class Auth implements Writable {
             return true;
         } catch (AuthenticationException e) {
             return false;
+        }
+    }
+
+    public Set<String> getRolesByUser(UserIdentity user, boolean showUserDefaultRole) {
+        readLock();
+        try {
+            return userRoleManager.getRolesByUser(user, showUserDefaultRole);
+        } finally {
+            readUnlock();
         }
     }
 
@@ -216,10 +223,6 @@ public class Auth implements Writable {
             } finally {
                 readUnlock();
             }
-        }
-        if (currentUser != null) {
-            Set<String> roles = userRoleManager.getRolesByUser(currentUser.get(0));
-            currentUser.get(0).setRoles(roles);
         }
     }
 
@@ -317,6 +320,12 @@ public class Auth implements Writable {
     public void checkColsPriv(UserIdentity currentUser, String ctl, String db, String tbl, Set<String> cols,
             PrivPredicate wanted) throws AuthorizationException {
         // TODO: Support column priv
+        // we check if have tbl priv,until internal support col auth.
+        if (!checkTblPriv(currentUser, ctl, db, tbl, wanted)) {
+            throw new AuthorizationException(String.format(
+                    "Permission denied: user [%s] does not have privilege for [%s] command on [%s].[%s].[%s]",
+                    currentUser, wanted, ctl, db, tbl));
+        }
     }
 
 

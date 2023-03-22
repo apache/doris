@@ -25,7 +25,7 @@
 #include "common/status.h"
 #include "decoder.h"
 #include "gen_cpp/parquet_types.h"
-#include "io/buffered_reader.h"
+#include "io/fs/buffered_reader.h"
 #include "level_decoder.h"
 #include "schema_desc.h"
 #include "util/block_compression.h"
@@ -64,7 +64,7 @@ public:
         int64_t decode_level_time = 0;
     };
 
-    ColumnChunkReader(BufferedStreamReader* reader, tparquet::ColumnChunk* column_chunk,
+    ColumnChunkReader(io::BufferedStreamReader* reader, tparquet::ColumnChunk* column_chunk,
                       FieldSchema* field_schema, cctz::time_zone* ctz);
     ~ColumnChunkReader() = default;
 
@@ -172,7 +172,7 @@ private:
     level_t _max_def_level;
     tparquet::LogicalType _parquet_logical_type;
 
-    BufferedStreamReader* _stream_reader;
+    io::BufferedStreamReader* _stream_reader;
     tparquet::ColumnMetaData _metadata;
     cctz::time_zone* _ctz;
 

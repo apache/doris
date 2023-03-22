@@ -27,6 +27,7 @@ import com.google.common.base.Preconditions;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * A subquery that will return only one row and one column.
@@ -37,8 +38,15 @@ public class ScalarSubquery extends SubqueryExpr implements LeafExpression {
     }
 
     public ScalarSubquery(LogicalPlan subquery, List<Slot> correlateSlots) {
+        this(Objects.requireNonNull(subquery, "subquery can not be null"),
+                Objects.requireNonNull(correlateSlots, "correlateSlots can not be null"),
+                Optional.empty());
+    }
+
+    public ScalarSubquery(LogicalPlan subquery, List<Slot> correlateSlots, Optional<Expression> typeCoercionExpr) {
         super(Objects.requireNonNull(subquery, "subquery can not be null"),
-                Objects.requireNonNull(correlateSlots, "correlateSlots can not be null"));
+                Objects.requireNonNull(correlateSlots, "correlateSlots can not be null"),
+                typeCoercionExpr);
     }
 
     @Override
@@ -59,5 +67,13 @@ public class ScalarSubquery extends SubqueryExpr implements LeafExpression {
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitScalarSubquery(this, context);
+    }
+
+    @Override
+    public Expression withTypeCoercion(DataType dataType) {
+        return new ScalarSubquery(queryPlan, correlateSlots,
+                dataType == queryPlan.getOutput().get(0).getDataType()
+                    ? Optional.of(queryPlan.getOutput().get(0))
+                    : Optional.of(new Cast(queryPlan.getOutput().get(0), dataType)));
     }
 }

@@ -20,11 +20,16 @@ package org.apache.doris.mysql.privilege;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.Auth.PrivLevel;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.HashMultimap;
@@ -56,8 +61,29 @@ public class AccessControllerManager {
     }
 
     private CatalogAccessController getAccessControllerOrDefault(String ctl) {
-        return ctlToCtlAccessController.getOrDefault(ctl, internalAccessController);
+        CatalogAccessController catalogAccessController = ctlToCtlAccessController.get(ctl);
+        if (catalogAccessController != null) {
+            return catalogAccessController;
+        }
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctl);
+        if (catalog != null && catalog instanceof ExternalCatalog) {
+            lazyLoadCtlAccessController((ExternalCatalog) catalog);
+            return ctlToCtlAccessController.get(ctl);
+        }
+
+        return internalAccessController;
     }
+
+    private synchronized void lazyLoadCtlAccessController(ExternalCatalog catalog) {
+        if (ctlToCtlAccessController.containsKey(catalog.getName())) {
+            return;
+        }
+        catalog.initAccessController();
+        if (!ctlToCtlAccessController.containsKey(catalog.getName())) {
+            ctlToCtlAccessController.put(catalog.getName(), internalAccessController);
+        }
+    }
+
 
     public boolean checkIfAccessControllerExist(String ctl) {
         return ctlToCtlAccessController.containsKey(ctl);
@@ -151,22 +177,25 @@ public class AccessControllerManager {
     }
 
     // ==== Column ====
-    public void checkColumnsPriv(UserIdentity currentUser, String ctl, HashMultimap<TableName, String> tableToColsMap,
+    public void checkColumnsPriv(UserIdentity currentUser, String
+            ctl, HashMultimap<TableName, String> tableToColsMap,
             PrivPredicate wanted) throws UserException {
         boolean hasGlobal = sysAccessController.checkGlobalPriv(currentUser, wanted);
         CatalogAccessController accessController = getAccessControllerOrDefault(ctl);
         for (TableName tableName : tableToColsMap.keySet()) {
-            accessController.checkColsPriv(hasGlobal, currentUser, ctl, tableName.getDb(),
+            accessController.checkColsPriv(hasGlobal, currentUser, ctl, ClusterNamespace
+                            .getFullName(SystemInfoService.DEFAULT_CLUSTER, tableName.getDb()),
                     tableName.getTbl(), tableToColsMap.get(tableName), wanted);
         }
     }
 
-    public boolean checkColumnsPriv(UserIdentity currentUser, String db, String tbl, Set<String> cols,
+    public boolean checkColumnsPriv(UserIdentity currentUser, String qualifiedDb, String tbl, Set<String> cols,
             PrivPredicate wanted) {
         boolean hasGlobal = sysAccessController.checkGlobalPriv(currentUser, wanted);
         CatalogAccessController accessController = getAccessControllerOrDefault(Auth.DEFAULT_CATALOG);
         try {
-            accessController.checkColsPriv(hasGlobal, currentUser, Auth.DEFAULT_CATALOG, db, tbl, cols, wanted);
+            accessController
+                    .checkColsPriv(hasGlobal, currentUser, Auth.DEFAULT_CATALOG, qualifiedDb, tbl, cols, wanted);
             return true;
         } catch (AuthorizationException e) {
             return false;

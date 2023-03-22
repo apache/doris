@@ -34,7 +34,7 @@ namespace doris::vectorized {
 
 ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                              const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz,
-                             IOContext* io_ctx, RuntimeState* state)
+                             io::IOContext* io_ctx, RuntimeState* state)
         : _profile(profile),
           _scan_params(params),
           _scan_range(range),
@@ -50,7 +50,7 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
 }
 
 ParquetReader::ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                             IOContext* io_ctx, RuntimeState* state)
+                             io::IOContext* io_ctx, RuntimeState* state)
         : _profile(nullptr),
           _scan_params(params),
           _scan_range(range),
@@ -154,9 +154,8 @@ void ParquetReader::close() {
 
 Status ParquetReader::_open_file() {
     if (_file_reader == nullptr) {
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties,
-                                                        _file_description, &_file_system,
-                                                        &_file_reader, _io_ctx));
+        RETURN_IF_ERROR(FileFactory::create_file_reader(
+                _profile, _system_properties, _file_description, &_file_system, &_file_reader));
     }
     if (_file_metadata == nullptr) {
         if (_file_reader->size() == 0) {
@@ -576,15 +575,14 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
     uint8_t col_index_buff[page_index._column_index_size];
     size_t bytes_read = 0;
     Slice result(col_index_buff, page_index._column_index_size);
-    IOContext io_ctx;
     RETURN_IF_ERROR(
-            _file_reader->read_at(page_index._column_index_start, result, io_ctx, &bytes_read));
+            _file_reader->read_at(page_index._column_index_start, result, &bytes_read, _io_ctx));
     auto& schema_desc = _file_metadata->schema();
     std::vector<RowRange> skipped_row_ranges;
     uint8_t off_index_buff[page_index._offset_index_size];
     Slice res(off_index_buff, page_index._offset_index_size);
     RETURN_IF_ERROR(
-            _file_reader->read_at(page_index._offset_index_start, res, io_ctx, &bytes_read));
+            _file_reader->read_at(page_index._offset_index_start, res, &bytes_read, _io_ctx));
     for (auto& read_col : _read_columns) {
         auto conjunct_iter = _colname_to_value_range->find(read_col._file_slot_name);
         if (_colname_to_value_range->end() == conjunct_iter) {

@@ -333,6 +333,10 @@ public class OlapScanNode extends ScanNode {
         return selectedIndexId;
     }
 
+    public void ignoreConjuncts() {
+        vconjunct = null;
+    }
+
     /**
      * This method is mainly used to update scan range info in OlapScanNode by the
      * new materialized selector.
@@ -465,9 +469,21 @@ public class OlapScanNode extends ScanNode {
             Column baseColumn = slotDescriptor.getColumn();
             Column mvColumn = meta.getColumnByName(baseColumn.getName());
             if (mvColumn == null) {
-                throw new UserException("updateSlotUniqueId: Do not found mvColumn " + baseColumn.getName());
+                boolean isBound = false;
+                for (Expr conjunct : conjuncts) {
+                    if (conjunct.isBound(slotDescriptor.getId())) {
+                        isBound = true;
+                        break;
+                    }
+                }
+                if (isBound) {
+                    slotDescriptor.setIsMaterialized(false);
+                } else {
+                    throw new UserException("updateSlotUniqueId: Do not found mvColumn " + baseColumn.getName());
+                }
+            } else {
+                slotDescriptor.setColumn(mvColumn);
             }
-            slotDescriptor.setColumn(mvColumn);
         }
         LOG.debug("updateSlotUniqueId() slots: {}", desc.getSlots());
     }
@@ -1077,9 +1093,6 @@ public class OlapScanNode extends ScanNode {
             sortInfo.getMaterializedOrderingExprs().forEach(expr -> {
                 output.append(prefix).append(prefix).append(expr.toSql()).append("\n");
             });
-            if (sortInfo.useTwoPhaseRead()) {
-                output.append(prefix).append("OPT TWO PHASE\n");
-            }
         }
         if (sortLimit != -1) {
             output.append(prefix).append("SORT LIMIT: ").append(sortLimit).append("\n");
