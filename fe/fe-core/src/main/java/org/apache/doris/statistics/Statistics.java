@@ -95,10 +95,26 @@ public class Statistics {
         return statistics;
     }
 
+    /**
+     * Update by count.
+     */
     public Statistics updateRowCountOnly(double rowCount) {
-        return new Statistics(rowCount, expressionToColumnStats);
+        Statistics statistics = new Statistics(rowCount, expressionToColumnStats);
+        for (Entry<Expression, ColumnStatistic> entry : expressionToColumnStats.entrySet()) {
+            ColumnStatistic columnStatistic = entry.getValue();
+            ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(columnStatistic);
+            columnStatisticBuilder.setNdv(Math.min(columnStatistic.ndv, rowCount));
+            double nullFactor = (rowCount - columnStatistic.numNulls) / rowCount;
+            columnStatisticBuilder.setNumNulls(nullFactor * rowCount);
+            columnStatisticBuilder.setCount(rowCount);
+            statistics.addColumnStats(entry.getKey(), columnStatisticBuilder.build());
+        }
+        return statistics;
     }
 
+    /**
+     * Fix by sel.
+     */
     public void fix(double newRowCount, double originRowCount) {
         double sel = newRowCount / originRowCount;
 
