@@ -61,7 +61,8 @@ struct DivideIntegralImpl;
 template <typename, typename>
 struct ModuloImpl;
 
-template <template <typename, typename> typename Operation>
+template <template <typename, typename> typename Operation, typename OpA = UInt8,
+          typename OpB = UInt8>
 struct OperationTraits {
     using T = UInt8;
     using Op = Operation<T, T>;
@@ -76,7 +77,9 @@ struct OperationTraits {
             std::is_same_v<Op, MultiplyImpl<T, T>> || std::is_same_v<Op, ModuloImpl<T, T>> ||
             std::is_same_v<Op, DivideFloatingImpl<T, T>> ||
             std::is_same_v<Op, DivideIntegralImpl<T, T>>;
-    static constexpr bool can_overflow = is_plus_minus || is_multiply;
+    static constexpr bool can_overflow =
+            (is_plus_minus || is_multiply) &&
+            (IsDecimalV2<OpA> || IsDecimalV2<OpB> || IsDecimal128I<OpA> || IsDecimal128I<OpB>);
     static constexpr bool has_variadic_argument =
             !std::is_void_v<decltype(has_variadic_argument_types(std::declval<Op>()))>;
 };
@@ -220,7 +223,7 @@ template <typename A, typename B, template <typename, typename> typename Operati
           typename ResultType, bool is_to_null_type, bool return_nullable_type,
           bool check_overflow = true>
 struct DecimalBinaryOperation {
-    using OpTraits = OperationTraits<Operation>;
+    using OpTraits = OperationTraits<Operation, A, B>;
 
     using NativeResultType = typename NativeType<ResultType>::Type;
     using Op = Operation<NativeResultType, NativeResultType>;
