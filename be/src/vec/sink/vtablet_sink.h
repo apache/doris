@@ -41,6 +41,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/columns_number.h"
 #include "vec/core/block.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 
@@ -158,6 +159,9 @@ private:
 class IndexChannel;
 class VOlapTableSink;
 
+// pair<row_id,tablet_id>
+using Payload = std::pair<std::unique_ptr<vectorized::IColumn::Selector>, std::vector<int64_t>>;
+
 class VNodeChannel {
 public:
     VNodeChannel(VOlapTableSink* parent, IndexChannel* index_channel, int64_t node_id);
@@ -177,10 +181,7 @@ public:
 
     Status open_wait();
 
-    Status add_block(vectorized::Block* block,
-                     const std::pair<std::unique_ptr<vectorized::IColumn::Selector>,
-                                     std::vector<int64_t>>& payload,
-                     bool is_append = false);
+    Status add_block(vectorized::Block* block, const Payload* payload, bool is_append = false);
 
     int try_send_and_fetch_status(RuntimeState* state,
                                   std::unique_ptr<ThreadPoolToken>& thread_pool_token);
@@ -315,11 +316,12 @@ protected:
 
 class IndexChannel {
 public:
-    IndexChannel(VOlapTableSink* parent, int64_t index_id) : _parent(parent), _index_id(index_id) {
+    IndexChannel(VOlapTableSink* parent, int64_t index_id, vectorized::VExprContext* where_clause)
+            : _parent(parent), _index_id(index_id), _where_clause(where_clause) {
         _index_channel_tracker =
                 std::make_unique<MemTracker>("IndexChannel:indexID=" + std::to_string(_index_id));
     }
-    ~IndexChannel() = default;
+    ~IndexChannel();
 
     Status init(RuntimeState* state, const std::vector<TTabletWithPartition>& tablets);
 
@@ -353,12 +355,15 @@ public:
     // check whether the rows num written by different replicas is consistent
     Status check_tablet_received_rows_consistency();
 
+    vectorized::VExprContext* get_where_clause() { return _where_clause; }
+
 private:
     friend class VNodeChannel;
     friend class VOlapTableSink;
 
     VOlapTableSink* _parent;
     int64_t _index_id;
+    vectorized::VExprContext* _where_clause;
 
     // from backend channel to tablet_id
     // ATTN: must be placed before `_node_channels` and `_channels_by_tablet`.
@@ -423,9 +428,7 @@ private:
     friend class VNodeChannel;
     friend class IndexChannel;
 
-    using ChannelDistributionPayload = std::vector<std::unordered_map<
-            VNodeChannel*,
-            std::pair<std::unique_ptr<vectorized::IColumn::Selector>, std::vector<int64_t>>>>;
+    using ChannelDistributionPayload = std::vector<std::unordered_map<VNodeChannel*, Payload>>;
 
     // payload for each row
     void _generate_row_distribution_payload(ChannelDistributionPayload& payload,
@@ -550,6 +553,8 @@ private:
 
     VOlapTablePartitionParam* _vpartition = nullptr;
     std::vector<vectorized::VExprContext*> _output_vexpr_ctxs;
+
+    RuntimeState* _state = nullptr;
 };
 
 } // namespace stream_load

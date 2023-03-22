@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite ("multi_slot_k123p") {
+suite ("k123p") {
     sql """ DROP TABLE IF EXISTS d_table; """
 
     sql """
@@ -36,24 +36,48 @@ suite ("multi_slot_k123p") {
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,-3,null,'c';"
 
-    createMV ("create materialized view k123p as select k1,k2+k3 from d_table;")
+    createMV ("""create materialized view k123p1w as select k1,k2+k3 from d_table where k1 = 1;""")
+    createMV ("""create materialized view k123p4w as select k1,k2+k3 from d_table where k4 = "b";""")
 
-    sql "insert into d_table select -4,-4,-4,'d';"
+    sql "insert into d_table select 1,1,1,'a';"
+    sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,-3,null,'c';"
-    qt_select_star "select * from d_table order by k1;"
 
-    streamLoad {
-        table "d_table"
-        set 'column_separator', ','
-        set 'columns', 'k1, k2, k3, k4'
-        file 'multi_slot_k123p.csv'
-        time 10000
-    }
     qt_select_star "select * from d_table order by k1;"
 
     explain {
         sql("select k1,k2+k3 from d_table order by k1;")
-        contains "(k123p)"
+        contains "(d_table)"
     }
     qt_select_mv "select k1,k2+k3 from d_table order by k1;"
+
+    explain {
+        sql("select k1,k2+k3 from d_table where k1 = 1 order by k1;")
+        contains "(k123p1w)"
+    }
+    qt_select_mv "select k1,k2+k3 from d_table where k1 = 1 order by k1;"
+
+    explain {
+        sql("select k1,k2+k3 from d_table where k1 = 2 order by k1;")
+        contains "(d_table)"
+    }
+    qt_select_mv "select k1,k2+k3 from d_table where k1 = 2 order by k1;"
+
+    explain {
+        sql("select k1,k2+k3 from d_table where k1 = '1' order by k1;")
+        contains "(d_table)"
+    }
+    qt_select_mv "select k1,k2+k3 from d_table where k1 = '1' order by k1;"
+
+    explain {
+        sql("select k1,k2+k3 from d_table where k4 = 'b' order by k1;")
+        contains "(k123p4w)"
+    }
+    qt_select_mv "select k1,k2+k3 from d_table where k4 = 'b' order by k1;"
+
+    explain {
+        sql("select k1,k2+k3 from d_table where k4 = 'a' order by k1;")
+        contains "(d_table)"
+    }
+    qt_select_mv "select k1,k2+k3 from d_table where k4 = 'a' order by k1;"
 }
