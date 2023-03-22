@@ -20,36 +20,26 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
-import java.util.List;
+import com.google.common.collect.ImmutableList;
+
+import java.util.stream.Collectors;
 
 /**
- * this rule aims to merge consecutive filters.
- * For example:
- * logical plan tree:
- *                project(a)
- *                  |
- *                project(a,b)
- *                  |
- *                project(a, b, c)
- *                  |
- *                scan
- * transformed to:
- *                project(a)
- *                   |
- *                 scan
+ the sort node will create new slots for order by keys if the order by keys is not in the output
+ so need create a project above sort node to prune the unnecessary order by keys
  */
-public class MergeProjects extends OneRewriteRuleFactory {
-
+public class PruneSortColumns extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalProject(logicalProject()).then(project -> {
-            LogicalProject childProject = project.child();
-            List<NamedExpression> projectExpressions = project.mergeProjections(childProject);
-            LogicalProject newProject = childProject.canEliminate() ? project : childProject;
-            return newProject.withProjectsAndChild(projectExpressions, childProject.child(0));
-        }).toRule(RuleType.MERGE_PROJECTS);
+        return logicalSort()
+                .when(sort -> !sort.isOrderKeysPruned() && !sort.getOutputSet()
+                        .containsAll(sort.getOrderKeys().stream()
+                                .map(orderKey -> orderKey.getExpr()).collect(Collectors.toSet())))
+                .then(sort -> {
+                    return new LogicalProject(sort.getOutput(), ImmutableList.of(), false,
+                            sort.withOrderKeysPruned(true));
+                }).toRule(RuleType.COLUMN_PRUNE_SORT);
     }
 }
