@@ -31,6 +31,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Each task analyze one column.
@@ -72,7 +73,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         List<String> partitionAnalysisSQLs = new ArrayList<>();
         try {
             tbl.readLock();
-            List<String> partNames = info.partitionNames;
+            Set<String> partNames = info.partitionNames;
             for (String partName : partNames) {
                 Partition part = tbl.getPartition(partName);
                 if (part == null) {

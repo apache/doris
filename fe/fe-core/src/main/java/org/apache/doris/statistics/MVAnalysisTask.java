@@ -110,8 +110,9 @@ public class MVAnalysisTask extends BaseAnalysisTask {
                 params.put("idxId", String.valueOf(meta.getIndexId()));
                 String colName = column.getName();
                 params.put("colId", colName);
-                long partId = olapTable.getPartition(partName).getId();
-                params.put("partId", String.valueOf(partId));
+                String partId = olapTable.getPartition(partName) == null ? "NULL" :
+                        String.valueOf(olapTable.getPartition(partName).getId());
+                params.put("partId", partId);
                 params.put("dataSizeFunction", getDataSizeFunction(column));
                 params.put("dbName", info.dbName);
                 params.put("colName", colName);

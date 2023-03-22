@@ -37,8 +37,8 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.commons.lang.StringUtils;
 
 import java.util.List;
@@ -162,11 +162,11 @@ public class AnalyzeStmt extends DdlStmt {
             Set<String> olapPartitionNames = olapTable.getPartitionNames();
             List<String> tempPartitionNames = olapTable.getTempPartitions().stream()
                     .map(Partition::getName).collect(Collectors.toList());
-            Optional<String> optional = names.stream()
+            Optional<String> illegalPartitionName = names.stream()
                     .filter(name -> (tempPartitionNames.contains(name)
                             || !olapPartitionNames.contains(name)))
                     .findFirst();
-            if (optional.isPresent()) {
+            if (illegalPartitionName.isPresent()) {
                 throw new AnalysisException("Temporary partition or partition does not exist");
             }
         }
@@ -212,14 +212,14 @@ public class AnalyzeStmt extends DdlStmt {
         return tableName;
     }
 
-    public List<String> getColumnNames() {
-        return columnNames != null ? columnNames : table.getBaseSchema(false)
-                .stream().map(Column::getName).collect(Collectors.toList());
+    public Set<String> getColumnNames() {
+        return columnNames == null ? table.getBaseSchema(false)
+                .stream().map(Column::getName).collect(Collectors.toSet()) : Sets.newHashSet(columnNames);
     }
 
-    public List<String> getPartitionNames() {
-        return partitionNames != null ? partitionNames.getPartitionNames() :
-                Lists.newArrayList(table.getPartitionNames());
+    public Set<String> getPartitionNames() {
+        return partitionNames == null ? Sets.newHashSet(table.getPartitionNames())
+                : Sets.newHashSet(partitionNames.getPartitionNames());
     }
 
     public Map<String, String> getProperties() {

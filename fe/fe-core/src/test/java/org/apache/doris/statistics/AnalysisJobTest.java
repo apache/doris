@@ -28,14 +28,13 @@ import org.apache.doris.statistics.AnalysisTaskInfo.JobType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.Sets;
 import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-
-import java.util.Collections;
 
 public class AnalysisJobTest extends TestWithFeService {
 
@@ -112,7 +111,7 @@ public class AnalysisJobTest extends TestWithFeService {
                 .setCatalogName("internal").setDbName("default_cluster:analysis_job_test").setTblName("t1")
                 .setColName("col1").setJobType(JobType.MANUAL).setAnalysisMethod(AnalysisMethod.FULL).setAnalysisType(
                         AnalysisType.COLUMN)
-                .setPartitionNames(Collections.singletonList("t1"))
+                .setPartitionNames(Sets.newHashSet("t1"))
                 .build();
         new OlapAnalysisTask(scheduler, analysisJobInfo).execute();
     }

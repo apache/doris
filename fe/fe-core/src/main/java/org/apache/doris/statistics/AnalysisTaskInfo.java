@@ -20,7 +20,7 @@ package org.apache.doris.statistics;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.List;
+import java.util.Set;
 import java.util.StringJoiner;
 
 public class AnalysisTaskInfo {
@@ -63,7 +63,7 @@ public class AnalysisTaskInfo {
 
     public final String colName;
 
-    public final List<String> partitionNames;
+    public final Set<String> partitionNames;
 
     public final Long indexId;
 
@@ -87,7 +87,7 @@ public class AnalysisTaskInfo {
     public final ScheduleType scheduleType;
 
     public AnalysisTaskInfo(long jobId, long taskId, String catalogName, String dbName, String tblName,
-            String colName, List<String> partitionNames, Long indexId, JobType jobType,
+            String colName, Set<String> partitionNames, Long indexId, JobType jobType,
             AnalysisMethod analysisMethod, AnalysisType analysisType, String message,
             int lastExecTimeInMs, AnalysisState state, ScheduleType scheduleType) {
         this.jobId = jobId;

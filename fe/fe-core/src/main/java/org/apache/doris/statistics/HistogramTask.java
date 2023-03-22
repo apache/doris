@@ -27,8 +27,8 @@ import com.google.common.annotations.VisibleForTesting;
 import org.apache.commons.text.StringSubstitutor;
 
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -36,7 +36,7 @@ import java.util.stream.Collectors;
  */
 public class HistogramTask extends BaseAnalysisTask {
 
-    private static final String ANALYZE_HISTOGRAM_SQL_TEMPLATE = "INSERT INTO "
+    private static final String ANALYZE_HISTOGRAM_SQL_TEMPLATE_TABLE = "INSERT INTO "
             + "${internalDB}.${histogramStatTbl} "
             + "SELECT "
             + "    CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS id, "
@@ -51,14 +51,8 @@ public class HistogramTask extends BaseAnalysisTask {
             + "FROM "
             + "    `${dbName}`.`${tblName}`";
 
-    /** To avoid too much data, use the following efficient sampling method */
-    private static final String ANALYZE_HISTOGRAM_SQL_TEMPLATE_PART = ANALYZE_HISTOGRAM_SQL_TEMPLATE
-            + "    PARTITION (${partName})"
-            + "    TABLESAMPLE (${percentValue} PERCENT)";
-
-    /** To avoid too much data, use the following efficient sampling method */
-    private static final String ANALYZE_HISTOGRAM_SQL_TEMPLATE_FULL = ANALYZE_HISTOGRAM_SQL_TEMPLATE
-            + "    TABLESAMPLE (${percentValue} PERCENT)";
+    private static final String ANALYZE_HISTOGRAM_SQL_TEMPLATE_PART = ANALYZE_HISTOGRAM_SQL_TEMPLATE_TABLE
+            + "    PARTITION (${partName})";
 
     @VisibleForTesting
     public HistogramTask() {
@@ -87,11 +81,11 @@ public class HistogramTask extends BaseAnalysisTask {
         params.put("percentValue", String.valueOf((int) (info.sampleRate * 100)));
 
         String histogramSql;
-        List<String> partitionNames = info.partitionNames;
+        Set<String> partitionNames = info.partitionNames;
 
         if (partitionNames.isEmpty()) {
             StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-            histogramSql = stringSubstitutor.replace(ANALYZE_HISTOGRAM_SQL_TEMPLATE_FULL);
+            histogramSql = stringSubstitutor.replace(ANALYZE_HISTOGRAM_SQL_TEMPLATE_TABLE);
         } else {
             try {
                 tbl.readLock();

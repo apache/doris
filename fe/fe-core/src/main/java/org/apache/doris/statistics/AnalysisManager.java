@@ -45,6 +45,7 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -89,8 +90,8 @@ public class AnalysisManager {
         String db = analyzeStmt.getDBName();
         TableName tbl = analyzeStmt.getTblName();
         StatisticsUtil.convertTableNameToObjects(tbl);
-        List<String> colNames = analyzeStmt.getColumnNames();
-        List<String> partitionNames = analyzeStmt.getPartitionNames();
+        Set<String> colNames = analyzeStmt.getColumnNames();
+        Set<String> partitionNames = analyzeStmt.getPartitionNames();
         Map<Long, AnalysisTaskInfo> analysisTaskInfos = new HashMap<>();
         long jobId = Env.getCurrentEnv().getNextId();
         if (colNames != null) {
