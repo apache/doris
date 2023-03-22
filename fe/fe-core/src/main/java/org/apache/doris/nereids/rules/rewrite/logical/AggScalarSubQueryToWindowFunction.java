@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -165,11 +166,11 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         }
         WindowExpression windowFunction = createWindowFunction(apply.getCorrelationSlot(),
                 functions.get(0).withChildren(ImmutableList.of(windowFilterConjunct.child(flag))));
+        aggOut = ((NamedExpression) new FunctionReplacer().replace(aggOut, windowFunction));
         List<Expression> children = Lists.newArrayList(null, null);
         children.set(flag, windowFilterConjunct.child(flag));
-        children.set(flag ^ 1, windowFunction);
+        children.set(flag ^ 1, aggOut);
         windowFilterConjunct.withChildren(children);
-        aggOut = ((NamedExpression) aggOut.withChildren(windowFunction));
 
         LogicalFilter newFilter = ((LogicalFilter) node.withChildren(apply.left()));
         LogicalWindow newWindow = new LogicalWindow<>(ImmutableList.of(aggOut), newFilter);
@@ -330,6 +331,18 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         @Override
         public Boolean visitEqualTo(EqualTo equalTo, Expression expr) {
             return isSameChild(equalTo, expr) || isSameChild(equalTo.commute(), expr);
+        }
+    }
+
+    private static class FunctionReplacer extends DefaultExpressionRewriter<Expression> {
+        public Expression replace(Expression e, Expression wf) {
+            return e.accept(this, wf);
+        }
+
+        @Override
+        public Expression visitAggregateFunction(AggregateFunction f, Expression wf) {
+            Preconditions.checkArgument(((WindowExpression) wf).getFunction().getClass().equals(f.getClass()));
+            return wf;
         }
     }
 }
