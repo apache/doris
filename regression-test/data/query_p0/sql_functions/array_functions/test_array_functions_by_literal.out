@@ -572,17 +572,17 @@ any_any_1_2___any
 -- !sql --
 _
 
--- !sql --
-['_', '_', '_']
+-- !sql_array_with_constant1 --
+['_', '_', '_']	['_', '_', '_']
 
--- !sql --
-['1', '1']
+-- !sql_array_with_constant2 --
+['1', '1']	['1', '1']
 
--- !sql --
-[1223, 1223, 1223, 1223]
+-- !sql_array_with_constant3 --
+[1223, 1223, 1223, 1223]	[1223, 1223, 1223, 1223]
 
--- !sql --
-[NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL]
+-- !sql_array_with_constant4 --
+[NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL]	[NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL]
 
 -- !sql --
 [1, 2, 3, NULL, 4]
