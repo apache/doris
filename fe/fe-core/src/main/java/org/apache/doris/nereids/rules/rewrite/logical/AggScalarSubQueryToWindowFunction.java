@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -50,6 +51,7 @@ import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -156,29 +158,37 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
 
     private Plan trans(LogicalFilter<LogicalProject<LogicalApply<Plan, LogicalAggregate<Plan>>>> node) {
         LogicalApply<Plan, LogicalAggregate<Plan>> apply = node.child().child();
+        LogicalAggregate<Plan> agg = apply.right();
 
-        Expression windowFilterConjunct = apply.getSubCorrespondingConject().get();
-        Preconditions.checkArgument(apply.right().getOutputExpressions().get(0) instanceof Alias);
-        Alias aggOutAlias = ((Alias) apply.right().getOutputExpressions().get(0));
-        ExprId aggOutId = aggOutAlias.getExprId();
-        Expression aggOut = aggOutAlias.child(0);
+        // for example, in tpc-h Q17
+        // window filter conjuncts is cast(l_quantity#id1 as decimal(27, 9)) < `0.2 * avg(l_quantity)`#id2 and
+        // 0.2 * avg(l_quantity#id3) as `0.2 * l_quantity`#id2 of agg's output expression
+        // we change it to cast(l_quantity#id1 as decimal(27, 9)) < 0.2 * `avg(l_quantity#id1) over(window)`#id4
+        // and avg(l_quantity#id1) over(window) as `avg(l_quantity#id1) over(window)`#id4
+        // first we get the slots of the two sides of apply
 
-        int flag = 0;
-        if (windowFilterConjunct.child(0) instanceof Alias
-                && ((Alias) windowFilterConjunct.child(0)).getExprId().equals(aggOutId)) {
-            flag = 1;
-        }
+        Preconditions.checkArgument(apply.getSubCorrespondingConject().get() instanceof ComparisonPredicate);
+        ComparisonPredicate windowFilterConjunct = PlanUtils.maybeCommuteComparisonPredicate(
+                ((ComparisonPredicate) apply.getSubCorrespondingConject().get()), apply.left());
+
+        // build window function, replace the slot
+        List<Expression> windowAggSlots = windowFilterConjunct.left().collectToList(Slot.class::isInstance);
+        Preconditions.checkArgument(windowAggSlots.size() == 1);
         WindowExpression windowFunction = createWindowFunction(apply.getCorrelationSlot(),
-                functions.get(0).withChildren(ImmutableList.of(windowFilterConjunct.child(flag))));
-        Alias windowAlias = new Alias(windowFunction, "wf");
-        aggOut = new FunctionReplacer().replace(aggOut, windowAlias.toSlot());
-        List<Expression> children = Lists.newArrayList(null, null);
-        children.set(flag, windowFilterConjunct.child(flag));
-        children.set(flag ^ 1, aggOut);
-        windowFilterConjunct = windowFilterConjunct.withChildren(children);
+                functions.get(0).withChildren(windowAggSlots));
+        NamedExpression windowFunctionAlias = new Alias(windowFunction, "wf");
+
+        // build filter conjunct, get the alias of the agg output and extract its child.
+        // then replace the agg to window function, then
+        NamedExpression aggOut = agg.getOutputExpressions().get(0);
+        Expression aggOutExpr = aggOut.child(0);
+        aggOutExpr = new FunctionReplacer().replace(aggOutExpr, windowFunctionAlias.toSlot());
+
+        windowFilterConjunct = ((ComparisonPredicate) windowFilterConjunct
+                .withChildren(windowFilterConjunct.child(0), aggOutExpr));
 
         LogicalFilter newFilter = ((LogicalFilter) node.withChildren(apply.left()));
-        LogicalWindow newWindow = new LogicalWindow<>(ImmutableList.of(windowAlias), newFilter);
+        LogicalWindow newWindow = new LogicalWindow<>(ImmutableList.of(windowFunctionAlias), newFilter);
         LogicalFilter windowFilter = new LogicalFilter<>(ImmutableSet.of(windowFilterConjunct), newWindow);
         return node.child().withChildren(windowFilter);
     }
