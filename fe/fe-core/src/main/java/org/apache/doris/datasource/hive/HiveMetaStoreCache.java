@@ -55,6 +55,7 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
+import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.mapred.FileInputFormat;
 import org.apache.hadoop.mapred.InputFormat;
 import org.apache.hadoop.mapred.InputSplit;
@@ -382,6 +383,17 @@ public class HiveMetaStoreCache {
             LOG.debug("invalid table cache for {}.{} in catalog {}, cache num: {}, cost: {} ms",
                     dbName, tblName, catalog.getName(), partitionValues.partitionValuesMap.size(),
                     (System.currentTimeMillis() - start));
+        } else {
+            /**
+             * A file cache entry can be created reference to
+             * {@link org.apache.doris.planner.external.HiveSplitter#getSplits},
+             * so we need to invalidate it if this is a non-partitioned table.
+             *
+             * */
+            Table table = catalog.getClient().getTable(dbName, tblName);
+            // we just need to assign the `location` filed because the `equals` method of `FileCacheKey`
+            // just compares the value of `location`
+            fileCache.invalidate(new FileCacheKey(table.getSd().getLocation(), null));
         }
     }
 
