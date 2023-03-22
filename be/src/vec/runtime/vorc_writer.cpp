@@ -17,7 +17,7 @@
 
 #include "vec/runtime/vorc_writer.h"
 
-#include "io/file_writer.h"
+#include "io/fs/file_writer.h"
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
@@ -28,7 +28,7 @@
 #include "vec/functions/function_helpers.h"
 
 namespace doris::vectorized {
-VOrcOutputStream::VOrcOutputStream(doris::FileWriter* file_writer)
+VOrcOutputStream::VOrcOutputStream(doris::io::FileWriter* file_writer)
         : _file_writer(file_writer), _cur_pos(0), _written_len(0), _name("VOrcOutputStream") {}
 
 VOrcOutputStream::~VOrcOutputStream() {
@@ -49,14 +49,13 @@ void VOrcOutputStream::close() {
 
 void VOrcOutputStream::write(const void* data, size_t length) {
     if (!_is_closed) {
-        size_t written_len = 0;
-        Status st = _file_writer->write(static_cast<const uint8_t*>(data), length, &written_len);
+        Status st = _file_writer->append({static_cast<const uint8_t*>(data), length});
         if (!st.ok()) {
             LOG(WARNING) << "Write to ORC file failed: " << st;
             return;
         }
-        _cur_pos += written_len;
-        _written_len += written_len;
+        _cur_pos += length;
+        _written_len += length;
     }
 }
 
@@ -64,7 +63,7 @@ void VOrcOutputStream::set_written_len(int64_t written_len) {
     _written_len = written_len;
 }
 
-VOrcWriterWrapper::VOrcWriterWrapper(doris::FileWriter* file_writer,
+VOrcWriterWrapper::VOrcWriterWrapper(doris::io::FileWriter* file_writer,
                                      const std::vector<VExprContext*>& output_vexpr_ctxs,
                                      const std::string& schema, bool output_object_data)
         : VFileWriterWrapper(output_vexpr_ctxs, output_object_data),

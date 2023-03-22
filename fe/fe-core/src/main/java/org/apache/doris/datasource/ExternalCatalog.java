@@ -144,7 +144,6 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     protected final void initLocalObjects() {
         if (!objectCreated) {
             initLocalObjectsImpl();
-            initAccessController();
             objectCreated = true;
         }
     }
@@ -165,7 +164,7 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
      * "access_controller.properties.prop2" = "yyy",
      * )
      */
-    private void initAccessController() {
+    public void initAccessController() {
         Map<String, String> properties = getCatalogProperty().getProperties();
         // 1. get access controller class name
         String className = properties.getOrDefault(CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, "");

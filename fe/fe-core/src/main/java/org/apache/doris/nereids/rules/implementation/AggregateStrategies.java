@@ -738,7 +738,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
      *
      *     PhysicalHashAggregate(groupBy=[name], output=[name, count(distinct(id)], mode=BUFFER_TO_RESULT)
      *                                          |
-     *     PhysicalHashAggregate(groupBy=[name, id], output=[name, id], mode=INPUT_TO_RESULT)
+     *     PhysicalHashAggregate(groupBy=[name, id], output=[name, id], mode=INPUT_TO_BUFFER)
      *                                          |
      *                     PhysicalDistribute(distributionSpec=GATHER)
      *                                          |
@@ -748,7 +748,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
      *
      *     PhysicalHashAggregate(groupBy=[name], output=[name, count(distinct(id)], mode=BUFFER_TO_RESULT)
      *                                          |
-     *     PhysicalHashAggregate(groupBy=[name, id], output=[name, id], mode=INPUT_TO_RESULT)
+     *     PhysicalHashAggregate(groupBy=[name, id], output=[name, id], mode=INPUT_TO_BUFFER)
      *                                          |
      *                 PhysicalDistribute(distributionSpec=HASH(name))
      *                                          |

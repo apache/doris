@@ -13,7 +13,6 @@
 
 #include "common/compiler_util.h"
 #include "gen_cpp/Status_types.h" // for TStatus
-#include "service/backend_options.h"
 #ifdef ENABLE_STACKTRACE
 #include "util/stack_util.h"
 #endif
@@ -301,7 +300,6 @@ public:
         if (rhs._err_msg) {
             _err_msg = std::make_unique<ErrMsg>(*rhs._err_msg);
         }
-        _be_ip = rhs._be_ip;
         return *this;
     }
 
@@ -479,12 +477,10 @@ private:
 #endif
     };
     std::unique_ptr<ErrMsg> _err_msg;
-    std::string_view _be_ip = BackendOptions::get_localhost();
 };
 
 inline std::ostream& operator<<(std::ostream& ostr, const Status& status) {
     ostr << '[' << status.code_as_string() << ']';
-    ostr << '[' << status._be_ip << ']';
     ostr << (status._err_msg ? status._err_msg->_msg : "");
 #ifdef ENABLE_STACKTRACE
     if (status._err_msg && !status._err_msg->_stack.empty()) {
@@ -510,7 +506,7 @@ inline std::string Status::to_string() const {
     } while (false)
 
 #define RETURN_ERROR_IF_NON_VEC \
-    return Status::NotSupported("Non-vectorized engine is not supported since Doris 1.3+.");
+    return Status::NotSupported("Non-vectorized engine is not supported since Doris 2.0.");
 
 // End _get_next_span after last call to get_next method
 #define RETURN_IF_ERROR_AND_CHECK_SPAN(stmt, get_next_span, done) \

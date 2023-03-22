@@ -58,10 +58,10 @@ public:
 
     ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                   const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz,
-                  IOContext* io_ctx, RuntimeState* state);
+                  io::IOContext* io_ctx, RuntimeState* state);
 
     ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                  IOContext* io_ctx, RuntimeState* state);
+                  io::IOContext* io_ctx, RuntimeState* state);
 
     ~ParquetReader() override;
     // for test
@@ -208,7 +208,7 @@ private:
     ParquetColumnReader::Statistics _column_statistics;
     ParquetProfile _parquet_profile;
     bool _closed = false;
-    IOContext* _io_ctx;
+    io::IOContext* _io_ctx;
     RuntimeState* _state;
     const TupleDescriptor* _tuple_descriptor;
     const RowDescriptor* _row_descriptor;

@@ -209,11 +209,11 @@ Status FunctionLikeBase::constant_regex_fn_scalar(LikeSearchState* state, const 
 
 Status FunctionLikeBase::regexp_fn_scalar(LikeSearchState* state, const StringRef& val,
                                           const StringRef& pattern, unsigned char* result) {
-    std::string_view re_pattern(pattern.data, pattern.size);
+    std::string re_pattern(pattern.data, pattern.size);
 
     hs_database_t* database = nullptr;
     hs_scratch_t* scratch = nullptr;
-    RETURN_IF_ERROR(hs_prepare(nullptr, re_pattern.data(), &database, &scratch));
+    RETURN_IF_ERROR(hs_prepare(nullptr, re_pattern.c_str(), &database, &scratch));
 
     auto ret = hs_scan(database, val.data, val.size, 0, scratch,
                        doris::vectorized::LikeSearchState::hs_match_handler, (void*)result);
@@ -246,11 +246,11 @@ Status FunctionLikeBase::constant_regex_fn(LikeSearchState* state, const ColumnS
 
 Status FunctionLikeBase::regexp_fn(LikeSearchState* state, const ColumnString& val,
                                    const StringRef& pattern, ColumnUInt8::Container& result) {
-    std::string_view re_pattern(pattern.data, pattern.size);
+    std::string re_pattern(pattern.data, pattern.size);
 
     hs_database_t* database = nullptr;
     hs_scratch_t* scratch = nullptr;
-    RETURN_IF_ERROR(hs_prepare(nullptr, re_pattern.data(), &database, &scratch));
+    RETURN_IF_ERROR(hs_prepare(nullptr, re_pattern.c_str(), &database, &scratch));
 
     auto sz = val.size();
     for (size_t i = 0; i < sz; i++) {
@@ -293,11 +293,11 @@ Status FunctionLikeBase::regexp_fn_predicate(LikeSearchState* state,
                                              const StringRef& pattern,
                                              ColumnUInt8::Container& result, const uint16_t* sel,
                                              size_t sz) {
-    std::string_view re_pattern(pattern.data, pattern.size);
+    std::string re_pattern(pattern.data, pattern.size);
 
     hs_database_t* database = nullptr;
     hs_scratch_t* scratch = nullptr;
-    RETURN_IF_ERROR(hs_prepare(nullptr, re_pattern.data(), &database, &scratch));
+    RETURN_IF_ERROR(hs_prepare(nullptr, re_pattern.c_str(), &database, &scratch));
 
     auto data_ptr = reinterpret_cast<const StringRef*>(val.get_data().data());
     for (size_t i = 0; i < sz; i++) {
@@ -372,10 +372,13 @@ Status FunctionLikeBase::execute_impl(FunctionContext* context, Block& block,
         const auto pattern_col = block.get_by_position(arguments[1]).column;
 
         if (const auto* str_patterns = check_and_get_column<ColumnString>(pattern_col.get())) {
-            DCHECK_EQ(str_patterns->size(), 1);
-            const auto& pattern_val = str_patterns->get_data_at(0);
-            RETURN_IF_ERROR(vector_const(*values, &pattern_val, vec_res, state->function,
-                                         &state->search_state));
+            for (int i = 0; i < input_rows_count; i++) {
+                const auto pattern_val = str_patterns->get_data_at(i);
+                const auto value_val = values->get_data_at(i);
+                (state->scalar_function)(
+                        const_cast<vectorized::LikeSearchState*>(&state->search_state), value_val,
+                        pattern_val, &vec_res[i]);
+            }
         } else if (const auto* const_patterns =
                            check_and_get_column<ColumnConst>(pattern_col.get())) {
             const auto& pattern_val = const_patterns->get_data_at(0);

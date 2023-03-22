@@ -52,7 +52,7 @@ public class StatsErrorEstimator {
     }
 
     /**
-     * Map plan id to stats.
+     * Invoked by PhysicalPlanTranslator, put the translated plan node and corresponding physical plan to estimator.
      */
     public void updateLegacyPlanIdToPhysicalPlan(PlanNode planNode, AbstractPlan physicalPlan) {
         Statistics statistics = physicalPlan.getStats();

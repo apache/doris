@@ -61,6 +61,11 @@ public:
     virtual int64_t get_oldest_match_time() const = 0;
 
 protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const IOContext* io_ctx) override {
+        return Status::NotSupported("dummy file cache only used for GC");
+    }
+
     Status _remove_file(const Path& file, size_t* cleaned_size);
 
     Status _remove_cache_and_done(const Path& cache_file, const Path& cache_done_file,

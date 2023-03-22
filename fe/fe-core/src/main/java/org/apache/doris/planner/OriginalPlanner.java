@@ -165,12 +165,8 @@ public class OriginalPlanner extends Planner {
             singleNodePlan.convertToVectorized();
         }
 
-        if (analyzer.getContext() != null
-                && analyzer.getContext().getSessionVariable().isEnableProjection()
-                && statement instanceof QueryStmt) {
-            ProjectPlanner projectPlanner = new ProjectPlanner(analyzer);
-            projectPlanner.projectSingleNodePlan(queryStmt.getResultExprs(), singleNodePlan);
-        }
+        ProjectPlanner projectPlanner = new ProjectPlanner(analyzer);
+        projectPlanner.projectSingleNodePlan(queryStmt.getResultExprs(), singleNodePlan);
 
         if (statement instanceof InsertStmt) {
             InsertStmt insertStmt = (InsertStmt) statement;
@@ -303,6 +299,7 @@ public class OriginalPlanner extends Planner {
                         && ((SortNode) singleNodePlan).getChild(0) instanceof OlapScanNode) {
                     // Double check this plan to ensure it's a general topn query
                     injectRowIdColumnSlot();
+                    ((SortNode) singleNodePlan).setUseTwoPhaseReadOpt(true);
                 } else {
                     // This is not a general topn query, rollback needMaterialize flag
                     for (SlotDescriptor slot : analyzer.getDescTbl().getSlotDescs().values()) {

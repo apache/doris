@@ -90,12 +90,12 @@ public class PushdownAliasThroughJoin extends OneRewriteRuleFactory {
                 if (leftOutput.equals(leftProjects)) {
                     left = join.left();
                 } else {
-                    left = new LogicalProject<>(leftProjects, join.left());
+                    left = project.withProjectsAndChild(leftProjects, join.left());
                 }
                 if (rightOutput.equals(rightProjects)) {
                     right = join.right();
                 } else {
-                    right = new LogicalProject<>(rightProjects, join.right());
+                    right = project.withProjectsAndChild(rightProjects, join.right());
                 }
 
                 // If condition use alias slot, we should replace condition
@@ -109,7 +109,7 @@ public class PushdownAliasThroughJoin extends OneRewriteRuleFactory {
                 List<Expression> newOther = replaceJoinConjuncts(join.getOtherJoinConjuncts(), replaceMap);
 
                 Plan newJoin = join.withConjunctsChildren(newHash, newOther, left, right);
-                return new LogicalProject<>(newProjects, newJoin);
+                return project.withProjectsAndChild(newProjects, newJoin);
             }).toRule(RuleType.PUSHDOWN_ALIAS_THROUGH_JOIN);
     }
 

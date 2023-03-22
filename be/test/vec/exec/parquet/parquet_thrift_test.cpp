@@ -23,7 +23,7 @@
 #include <string>
 
 #include "exec/schema_scanner.h"
-#include "io/buffered_reader.h"
+#include "io/fs/buffered_reader.h"
 #include "io/fs/local_file_system.h"
 #include "olap/iterators.h"
 #include "runtime/descriptors.h"
@@ -51,7 +51,7 @@ TEST_F(ParquetThriftReaderTest, normal) {
     io::FileSystemSPtr local_fs = io::LocalFileSystem::create("");
     io::FileReaderSPtr reader;
     auto st = local_fs->open_file("./be/test/exec/test_data/parquet_scanner/localfile.parquet",
-                                  &reader, nullptr);
+                                  &reader);
     EXPECT_TRUE(st.ok());
 
     std::shared_ptr<FileMetaData> meta_data;
@@ -83,7 +83,7 @@ TEST_F(ParquetThriftReaderTest, complex_nested_file) {
     io::FileSystemSPtr local_fs = io::LocalFileSystem::create("");
     io::FileReaderSPtr reader;
     auto st = local_fs->open_file("./be/test/exec/test_data/parquet_scanner/hive-complex.parquet",
-                                  &reader, nullptr);
+                                  &reader);
     EXPECT_TRUE(st.ok());
 
     std::shared_ptr<FileMetaData> metadata;
@@ -158,7 +158,7 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
                                   ? chunk_meta.dictionary_page_offset
                                   : chunk_meta.data_page_offset;
     size_t chunk_size = chunk_meta.total_compressed_size;
-    BufferedFileStreamReader stream_reader(file_reader, start_offset, chunk_size, 1024);
+    io::BufferedFileStreamReader stream_reader(file_reader, start_offset, chunk_size, 1024);
 
     cctz::time_zone ctz;
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
@@ -353,7 +353,7 @@ static void read_parquet_data_and_check(const std::string& parquet_file,
 
     io::FileSystemSPtr local_fs = io::LocalFileSystem::create("");
     io::FileReaderSPtr reader;
-    auto st = local_fs->open_file(parquet_file, &reader, nullptr);
+    auto st = local_fs->open_file(parquet_file, &reader);
     EXPECT_TRUE(st.ok());
 
     std::unique_ptr<vectorized::Block> block;
@@ -393,14 +393,13 @@ static void read_parquet_data_and_check(const std::string& parquet_file,
     }
 
     io::FileReaderSPtr result;
-    auto rst = local_fs->open_file(result_file, &result, nullptr);
+    auto rst = local_fs->open_file(result_file, &result);
     EXPECT_TRUE(rst.ok());
     uint8_t result_buf[result->size() + 1];
     result_buf[result->size()] = '\0';
     size_t bytes_read;
     Slice res(result_buf, result->size());
-    IOContext io_ctx;
-    result->read_at(0, res, io_ctx, &bytes_read);
+    result->read_at(0, res, &bytes_read);
     ASSERT_STREQ(block->dump_data(0, rows).c_str(), reinterpret_cast<char*>(result_buf));
 }
 
@@ -475,7 +474,7 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
     io::FileSystemSPtr local_fs = io::LocalFileSystem::create("");
     io::FileReaderSPtr file_reader;
     auto st = local_fs->open_file("./be/test/exec/test_data/parquet_scanner/type-decoder.parquet",
-                                  &file_reader, nullptr);
+                                  &file_reader);
     EXPECT_TRUE(st.ok());
 
     // prepare metadata
@@ -513,14 +512,13 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
 
     io::FileReaderSPtr result;
     auto rst = local_fs->open_file("./be/test/exec/test_data/parquet_scanner/group-reader.txt",
-                                   &result, nullptr);
+                                   &result);
     EXPECT_TRUE(rst.ok());
     uint8_t result_buf[result->size() + 1];
     result_buf[result->size()] = '\0';
     size_t bytes_read;
     Slice res(result_buf, result->size());
-    IOContext io_ctx;
-    result->read_at(0, res, io_ctx, &bytes_read);
+    result->read_at(0, res, &bytes_read);
     ASSERT_STREQ(block.dump_data(0, 10).c_str(), reinterpret_cast<char*>(result_buf));
 }
 } // namespace vectorized

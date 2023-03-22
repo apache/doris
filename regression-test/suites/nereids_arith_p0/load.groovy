@@ -39,7 +39,10 @@ suite("load") {
             `kdt` date null,
             `kdtv2` datev2 null,
             `kdtm` datetime null,
-            `kdtmv2` datetimev2(0) null
+            `kdtmv2` datetimev2(0) null,
+            `kdcml32v3` decimalv3(5, 3) null,
+            `kdcml64v3` decimalv3(10, 5) null,
+            `kdcml128v3` decimalv3(20, 8) null
         ) engine=olap
         DISTRIBUTED BY HASH(`id`) BUCKETS 4
         properties("replication_num" = "1")
@@ -63,7 +66,10 @@ suite("load") {
             `kdt` date not null,
             `kdtv2` datev2 not null,
             `kdtm` datetime not null,
-            `kdtmv2` datetimev2(0) not null
+            `kdtmv2` datetimev2(0) not null,
+            `kdcml32v3` decimalv3(5, 3) not null,
+            `kdcml64v3` decimalv3(10, 5) not null,
+            `kdcml128v3` decimalv3(20, 8) not null
         ) engine=olap
         DISTRIBUTED BY HASH(`id`) BUCKETS 4
         properties("replication_num" = "1")
@@ -76,7 +82,7 @@ suite("load") {
         set 'column_separator', ';'
         set 'columns', '''
             id, kbool, ktint, ksint, kint, kbint, klint, kfloat, kdbl, kdcml, kchr, kvchr, kstr,
-            kdt, kdtv2, kdtm, kdtmv2
+            kdt, kdtv2, kdtm, kdtmv2, kdcml32v3, kdcml64v3, kdcml128v3
             '''
         file "expr_test.dat"
     }
