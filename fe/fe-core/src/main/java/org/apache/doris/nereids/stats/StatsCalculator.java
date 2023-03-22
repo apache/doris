@@ -22,10 +22,12 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.EmptyRelation;
@@ -94,6 +96,7 @@ import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsBuilder;
 
 import com.google.common.collect.Maps;
+import org.apache.commons.collections.CollectionUtils;
 
 import java.util.AbstractMap.SimpleEntry;
 import java.util.HashMap;
@@ -394,9 +397,24 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     private Statistics computeFilter(Filter filter) {
-        FilterEstimation filterEstimation = new FilterEstimation();
         Statistics stats = groupExpression.childStatistics(0);
-        return filterEstimation.estimate(filter.getPredicate(), stats);
+        Plan plan = tryToFindChild(groupExpression);
+        if (plan != null) {
+            if (plan instanceof Aggregate) {
+                Aggregate agg = ((Aggregate<?>) plan);
+                List<NamedExpression> expressions = agg.getOutputExpressions();
+                Set<Slot> slots = expressions
+                        .stream()
+                        .filter(Alias.class::isInstance)
+                        .filter(s -> ((Alias) s).child().anyMatch(AggregateFunction.class::isInstance))
+                        .map(NamedExpression::toSlot).collect(Collectors.toSet());
+                Expression predicate = filter.getPredicate();
+                if (predicate.anyMatch(s -> slots.contains(s))) {
+                    return new FilterEstimation(slots).estimate(filter.getPredicate(), stats);
+                }
+            }
+        }
+        return new FilterEstimation().estimate(filter.getPredicate(), stats);
     }
 
     // TODO: 1. Subtract the pruned partition
@@ -441,13 +459,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         if (!groupByExpressions.isEmpty()) {
             Map<Expression, ColumnStatistic> childSlotToColumnStats = childStats.columnStatistics();
             double inputRowCount = childStats.getRowCount();
-            if (inputRowCount == 0) {
-                //on empty relation, Agg output 1 tuple
-                resultSetCount = 1;
-            } else {
+            if (inputRowCount != 0) {
                 List<ColumnStatistic> groupByKeyStats = groupByExpressions.stream()
-                        .flatMap(expr -> expr.getInputSlots().stream())
-                        .map(Slot::getExprId)
                         .filter(childSlotToColumnStats::containsKey)
                         .map(childSlotToColumnStats::get)
                         .filter(s -> !s.isUnKnown)
@@ -692,4 +705,16 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 .setAvgSizeByte(newAverageRowSize);
         return columnStatisticBuilder.build();
     }
+
+    private Plan tryToFindChild(GroupExpression groupExpression) {
+        List<GroupExpression> groupExprs = groupExpression.child(0).getLogicalExpressions();
+        if (CollectionUtils.isEmpty(groupExprs)) {
+            groupExprs = groupExpression.child(0).getPhysicalExpressions();
+            if (CollectionUtils.isEmpty(groupExprs)) {
+                return null;
+            }
+        }
+        return groupExprs.get(0).getPlan();
+    }
+
 }
