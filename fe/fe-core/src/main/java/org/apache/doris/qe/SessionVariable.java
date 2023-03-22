@@ -523,9 +523,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PIPELINE_ENGINE, fuzzy = true)
     public boolean enablePipelineEngine = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_RPC_OPT_FOR_PIPELINE)
-    public boolean enableRpcOptForPipeline = true;
-
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_OUTFILE)
     public boolean enableParallelOutfile = false;
 
@@ -1333,10 +1330,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean enablePipelineEngine() {
         return enablePipelineEngine;
-    }
-
-    public boolean enableRpcOptForPipeline() {
-        return enableRpcOptForPipeline;
     }
 
     public void setEnablePipelineEngine(boolean enablePipelineEngine) {
