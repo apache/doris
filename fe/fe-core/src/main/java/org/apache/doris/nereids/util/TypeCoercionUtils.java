@@ -240,7 +240,7 @@ public class TypeCoercionUtils {
     private static boolean isSubqueryAndDataTypeIsBitmap(Expression input) {
         return input instanceof SubqueryExpr && input.getDataType().isBitmapType();
     }
-    
+
     private static boolean isVarCharOrStringType(DataType dataType) {
         return dataType instanceof VarcharType || dataType instanceof StringType;
     }
