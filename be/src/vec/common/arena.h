@@ -84,6 +84,7 @@ private:
 
     size_t growth_factor;
     size_t linear_growth_threshold;
+    size_t initial_size;
 
     /// Last contiguous chunk of memory.
     Chunk* head;
@@ -132,6 +133,7 @@ public:
           size_t linear_growth_threshold_ = 128 * 1024 * 1024)
             : growth_factor(growth_factor_),
               linear_growth_threshold(linear_growth_threshold_),
+              initial_size(initial_size_),
               head(new Chunk(initial_size_, nullptr)),
               size_in_bytes(head->size()),
               size_in_allocated(0) {}
@@ -272,6 +274,12 @@ public:
         char* res = aligned_alloc(size, alignment);
         memcpy(res, data, size);
         return res;
+    }
+
+    void clear() {
+        delete head;
+        head = new Chunk(initial_size, nullptr), size_in_bytes = head->size(),
+        size_in_allocated = 0;
     }
 
     /// Size of chunks in bytes.
