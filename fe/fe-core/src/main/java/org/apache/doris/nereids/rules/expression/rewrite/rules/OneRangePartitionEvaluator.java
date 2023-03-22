@@ -573,7 +573,7 @@ public class OneRangePartitionEvaluator
         }
         Slot partitionSlot = (Slot) date.child();
         PartitionSlotType partitionSlotType = getPartitionSlotType(partitionSlot).get();
-        if (partitionSlotType != PartitionSlotType.RANGE) {
+        if (partitionSlotType != PartitionSlotType.RANGE || partitionSlotContainsNull.get(partitionSlot)) {
             return result;
         }
         DataType childType = date.child().getDataType();
