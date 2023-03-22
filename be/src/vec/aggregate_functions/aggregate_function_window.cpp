@@ -30,30 +30,28 @@ namespace doris::vectorized {
 AggregateFunctionPtr create_aggregate_function_dense_rank(const std::string& name,
                                                           const DataTypes& argument_types,
                                                           const bool result_is_nullable) {
-    return AggregateFunctionPtr(creator_without_type::create<WindowFunctionDenseRank>(
-            result_is_nullable, argument_types));
+    return creator_without_type::create<WindowFunctionDenseRank>(result_is_nullable,
+                                                                 argument_types);
 }
 
 AggregateFunctionPtr create_aggregate_function_rank(const std::string& name,
                                                     const DataTypes& argument_types,
                                                     const bool result_is_nullable) {
-    return AggregateFunctionPtr(
-            creator_without_type::create<WindowFunctionRank>(result_is_nullable, argument_types));
+    return creator_without_type::create<WindowFunctionRank>(result_is_nullable, argument_types);
 }
 
 AggregateFunctionPtr create_aggregate_function_row_number(const std::string& name,
                                                           const DataTypes& argument_types,
                                                           const bool result_is_nullable) {
-    return AggregateFunctionPtr(creator_without_type::create<WindowFunctionRowNumber>(
-            result_is_nullable, argument_types));
+    return creator_without_type::create<WindowFunctionRowNumber>(result_is_nullable,
+                                                                 argument_types);
 }
 
 AggregateFunctionPtr create_aggregate_function_ntile(const std::string& name,
                                                      const DataTypes& argument_types,
                                                      const bool result_is_nullable) {
     assert_unary(name, argument_types);
-    return AggregateFunctionPtr(
-            creator_without_type::create<WindowFunctionNTile>(result_is_nullable, argument_types));
+    return creator_without_type::create<WindowFunctionNTile>(result_is_nullable, argument_types);
 }
 
 template <template <typename> class AggregateFunctionTemplate,

@@ -41,14 +41,7 @@ AggregateFunctionPtr create_aggregate_function_avg(const std::string& name,
                                                    const bool result_is_nullable) {
     assert_unary(name, argument_types);
 
-    AggregateFunctionPtr res(
-            creator_with_type::create<AggregateFuncAvg>(result_is_nullable, argument_types));
-
-    if (!res) {
-        LOG(WARNING) << fmt::format("Illegal type {} of argument for aggregate function {}",
-                                    argument_types[0]->get_name(), name);
-    }
-    return res;
+    return creator_with_type::create<AggregateFuncAvg>(result_is_nullable, argument_types);
 }
 
 void register_aggregate_function_avg(AggregateFunctionSimpleFactory& factory) {

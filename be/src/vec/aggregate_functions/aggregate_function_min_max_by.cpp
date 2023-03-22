@@ -28,8 +28,8 @@ namespace doris::vectorized {
 /// min_by, max_by
 template <template <typename> class AggregateFunctionTemplate,
           template <typename, typename> class Data, typename VT>
-IAggregateFunction* create_aggregate_function_min_max_by_impl(const DataTypes& argument_types,
-                                                              const bool result_is_nullable) {
+AggregateFunctionPtr create_aggregate_function_min_max_by_impl(const DataTypes& argument_types,
+                                                               const bool result_is_nullable) {
     WhichDataType which(remove_nullable(argument_types[1]));
 
 #define DISPATCH(TYPE)                                                            \
@@ -74,9 +74,9 @@ IAggregateFunction* create_aggregate_function_min_max_by_impl(const DataTypes& a
 /// min_by, max_by
 template <template <typename> class AggregateFunctionTemplate,
           template <typename, typename> class Data>
-IAggregateFunction* create_aggregate_function_min_max_by(const String& name,
-                                                         const DataTypes& argument_types,
-                                                         const bool result_is_nullable) {
+AggregateFunctionPtr create_aggregate_function_min_max_by(const String& name,
+                                                          const DataTypes& argument_types,
+                                                          const bool result_is_nullable) {
     assert_binary(name, argument_types);
 
     WhichDataType which(remove_nullable(argument_types[0]));
@@ -119,25 +119,13 @@ IAggregateFunction* create_aggregate_function_min_max_by(const String& name,
     return nullptr;
 }
 
-AggregateFunctionPtr create_aggregate_function_max_by(const std::string& name,
-                                                      const DataTypes& argument_types,
-                                                      const bool result_is_nullable) {
-    return AggregateFunctionPtr(create_aggregate_function_min_max_by<AggregateFunctionsMinMaxBy,
-                                                                     AggregateFunctionMaxByData>(
-            name, argument_types, result_is_nullable));
-}
-
-AggregateFunctionPtr create_aggregate_function_min_by(const std::string& name,
-                                                      const DataTypes& argument_types,
-                                                      const bool result_is_nullable) {
-    return AggregateFunctionPtr(create_aggregate_function_min_max_by<AggregateFunctionsMinMaxBy,
-                                                                     AggregateFunctionMinByData>(
-            name, argument_types, result_is_nullable));
-}
-
 void register_aggregate_function_min_max_by(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function_both("max_by", create_aggregate_function_max_by);
-    factory.register_function_both("min_by", create_aggregate_function_min_by);
+    factory.register_function_both(
+            "max_by", create_aggregate_function_min_max_by<AggregateFunctionsMinMaxBy,
+                                                           AggregateFunctionMaxByData>);
+    factory.register_function_both(
+            "min_by", create_aggregate_function_min_max_by<AggregateFunctionsMinMaxBy,
+                                                           AggregateFunctionMinByData>);
 }
 
 } // namespace doris::vectorized

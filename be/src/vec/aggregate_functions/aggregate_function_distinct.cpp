@@ -59,20 +59,19 @@ public:
             }
 
             if (arguments[0]->is_value_unambiguously_represented_in_contiguous_memory_region()) {
-                res.reset(creator_without_type::create<AggregateFunctionDistinct<
-                                  AggregateFunctionDistinctSingleGenericData<true>>>(
-                        result_is_nullable, arguments, nested_function));
+                res = creator_without_type::create<AggregateFunctionDistinct<
+                        AggregateFunctionDistinctSingleGenericData<true>>>(
+                        result_is_nullable, arguments, nested_function);
             } else {
-                res.reset(creator_without_type::create<AggregateFunctionDistinct<
-                                  AggregateFunctionDistinctSingleGenericData<false>>>(
-                        result_is_nullable, arguments, nested_function));
+                res = creator_without_type::create<AggregateFunctionDistinct<
+                        AggregateFunctionDistinctSingleGenericData<false>>>(
+                        result_is_nullable, arguments, nested_function);
             }
             return res;
         }
-        return AggregateFunctionPtr(
-                creator_without_type::create<
-                        AggregateFunctionDistinct<AggregateFunctionDistinctMultipleGenericData>>(
-                        result_is_nullable, arguments, nested_function));
+        return creator_without_type::create<
+                AggregateFunctionDistinct<AggregateFunctionDistinctMultipleGenericData>>(
+                result_is_nullable, arguments, nested_function);
     }
 };
 

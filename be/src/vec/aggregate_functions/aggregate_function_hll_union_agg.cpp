@@ -28,9 +28,8 @@ AggregateFunctionPtr create_aggregate_function_HLL(const std::string& name,
                                                    const DataTypes& argument_types,
                                                    const bool result_is_nullable) {
     assert_arity_at_most<1>(name, argument_types);
-    return AggregateFunctionPtr(
-            creator_without_type::create<AggregateFunctionHLLUnion<Impl<AggregateFunctionHLLData>>>(
-                    result_is_nullable, argument_types));
+    return creator_without_type::create<AggregateFunctionHLLUnion<Impl<AggregateFunctionHLLData>>>(
+            result_is_nullable, argument_types);
 }
 
 void register_aggregate_function_HLL_union_agg(AggregateFunctionSimpleFactory& factory) {

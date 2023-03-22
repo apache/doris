@@ -27,10 +27,10 @@ AggregateFunctionPtr create_aggregate_function_approx_count_distinct(
     AggregateFunctionPtr res = nullptr;
     WhichDataType which(remove_nullable(argument_types[0]));
 
-#define DISPATCH(TYPE, COLUMN_TYPE)                                                                \
-    if (which.idx == TypeIndex::TYPE)                                                              \
-        res.reset(creator_without_type::create<AggregateFunctionApproxCountDistinct<COLUMN_TYPE>>( \
-                result_is_nullable, argument_types));
+#define DISPATCH(TYPE, COLUMN_TYPE)                                                            \
+    if (which.idx == TypeIndex::TYPE)                                                          \
+        res = creator_without_type::create<AggregateFunctionApproxCountDistinct<COLUMN_TYPE>>( \
+                result_is_nullable, argument_types);
     TYPE_TO_COLUMN_TYPE(DISPATCH)
 #undef DISPATCH
 

@@ -45,13 +45,7 @@ template <template <typename> class Function>
 AggregateFunctionPtr create_aggregate_function_sum(const std::string& name,
                                                    const DataTypes& argument_types,
                                                    const bool result_is_nullable) {
-    AggregateFunctionPtr res(
-            creator_with_type::create<Function>(result_is_nullable, argument_types));
-    if (!res) {
-        LOG(WARNING) << fmt::format("Illegal type {} of argument for aggregate function {}",
-                                    argument_types[0]->get_name(), name);
-    }
-    return res;
+    return creator_with_type::create<Function>(result_is_nullable, argument_types);
 }
 
 // do not level up return type for agg reader

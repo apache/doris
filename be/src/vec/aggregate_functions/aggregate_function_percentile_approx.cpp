@@ -28,35 +28,32 @@ AggregateFunctionPtr create_aggregate_function_percentile_approx(const std::stri
                                                                  const DataTypes& argument_types,
                                                                  const bool result_is_nullable) {
     if (argument_types.size() == 1) {
-        return AggregateFunctionPtr(
-                creator_without_type::create<AggregateFunctionPercentileApproxMerge<is_nullable>>(
-                        result_is_nullable, remove_nullable(argument_types)));
+        return creator_without_type::create<AggregateFunctionPercentileApproxMerge<is_nullable>>(
+                result_is_nullable, remove_nullable(argument_types));
     } else if (argument_types.size() == 2) {
-        return AggregateFunctionPtr(creator_without_type::create<
-                                    AggregateFunctionPercentileApproxTwoParams<is_nullable>>(
-                result_is_nullable, remove_nullable(argument_types)));
+        return creator_without_type::create<
+                AggregateFunctionPercentileApproxTwoParams<is_nullable>>(
+                result_is_nullable, remove_nullable(argument_types));
     } else if (argument_types.size() == 3) {
-        return AggregateFunctionPtr(creator_without_type::create<
-                                    AggregateFunctionPercentileApproxThreeParams<is_nullable>>(
-                result_is_nullable, remove_nullable(argument_types)));
+        return creator_without_type::create<
+                AggregateFunctionPercentileApproxThreeParams<is_nullable>>(
+                result_is_nullable, remove_nullable(argument_types));
     }
-    LOG(WARNING) << fmt::format("Illegal number {} of argument for aggregate function {}",
-                                argument_types.size(), name);
     return nullptr;
 }
 
 AggregateFunctionPtr create_aggregate_function_percentile(const std::string& name,
                                                           const DataTypes& argument_types,
                                                           const bool result_is_nullable) {
-    return AggregateFunctionPtr(creator_without_type::create<AggregateFunctionPercentile>(
-            result_is_nullable, argument_types));
+    return creator_without_type::create<AggregateFunctionPercentile>(result_is_nullable,
+                                                                     argument_types);
 }
 
 AggregateFunctionPtr create_aggregate_function_percentile_array(const std::string& name,
                                                                 const DataTypes& argument_types,
                                                                 const bool result_is_nullable) {
-    return AggregateFunctionPtr(creator_without_type::create<AggregateFunctionPercentileArray>(
-            result_is_nullable, argument_types));
+    return creator_without_type::create<AggregateFunctionPercentileArray>(result_is_nullable,
+                                                                          argument_types);
 }
 
 void register_aggregate_function_percentile(AggregateFunctionSimpleFactory& factory) {

@@ -29,8 +29,8 @@ void register_aggregate_function_reader_load(AggregateFunctionSimpleFactory& fac
     };
 
     register_function_both("sum", create_aggregate_function_sum_reader);
-    register_function_both("max", create_aggregate_function_max);
-    register_function_both("min", create_aggregate_function_min);
+    register_function_both("max", create_aggregate_function_single_value<AggregateFunctionMaxData>);
+    register_function_both("min", create_aggregate_function_single_value<AggregateFunctionMinData>);
     register_function_both("bitmap_union", create_aggregate_function_bitmap_union);
     register_function_both("hll_union",
                            create_aggregate_function_HLL<AggregateFunctionHLLUnionImpl>);

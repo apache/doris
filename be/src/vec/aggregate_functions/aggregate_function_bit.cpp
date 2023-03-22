@@ -29,15 +29,8 @@ template <template <typename> class Data>
 AggregateFunctionPtr createAggregateFunctionBitwise(const std::string& name,
                                                     const DataTypes& argument_types,
                                                     const bool result_is_nullable) {
-    AggregateFunctionPtr res(creator_with_integer_type::create<AggregateFunctionBitwise, Data>(
-            result_is_nullable, argument_types));
-    if (res) {
-        return res;
-    }
-
-    LOG(WARNING) << fmt::format("Illegal type " + argument_types[0]->get_name() +
-                                " of argument for aggregate function " + name);
-    return nullptr;
+    return creator_with_integer_type::create<AggregateFunctionBitwise, Data>(result_is_nullable,
+                                                                             argument_types);
 }
 
 void register_aggregate_function_bit(AggregateFunctionSimpleFactory& factory) {
