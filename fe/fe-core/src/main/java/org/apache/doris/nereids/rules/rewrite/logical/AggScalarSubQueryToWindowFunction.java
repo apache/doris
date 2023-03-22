@@ -181,7 +181,7 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         // then replace the agg to window function, then build conjunct
         NamedExpression aggOut = agg.getOutputExpressions().get(0);
         Expression aggOutExpr = aggOut.child(0);
-        aggOutExpr = new FunctionReplacer().replace(aggOutExpr, windowFunctionAlias.toSlot());
+        aggOutExpr = new FunctionReplacer().replace(aggOutExpr, windowFunctionAlias);
 
         windowFilterConjunct = ((ComparisonPredicate) windowFilterConjunct
                 .withChildren(windowFilterConjunct.child(0), aggOutExpr));
