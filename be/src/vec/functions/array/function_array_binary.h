@@ -36,6 +36,8 @@ public:
     bool is_variadic() const override { return false; }
     size_t get_number_of_arguments() const override { return 2; }
 
+    bool use_default_implementation_for_constants() const override { return true; }
+
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DCHECK(is_array(arguments[0])) << arguments[0]->get_name();
         DCHECK(is_array(arguments[1])) << arguments[1]->get_name();
@@ -51,26 +53,26 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        auto left_column =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        auto right_column =
-                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
-        Status ret = Status::RuntimeError(
-                fmt::format("execute failed, unsupported types for function {}({}, {})", get_name(),
-                            block.get_by_position(arguments[0]).type->get_name(),
-                            block.get_by_position(arguments[1]).type->get_name()));
+        const auto& [left_column, left_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+        const auto& [right_column, right_const] =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
+
         // extract array column
         ColumnArrayExecutionData left_data;
         ColumnArrayExecutionData right_data;
         ColumnPtr res_ptr = nullptr;
         if (extract_column_array_info(*left_column, left_data) &&
-            extract_column_array_info(*right_column, right_data)) {
-            ret = Impl::execute(res_ptr, left_data, right_data);
-        }
-        if (ret == Status::OK()) {
+            extract_column_array_info(*right_column, right_data) &&
+            Impl::execute(res_ptr, left_data, right_data, left_const, right_const) ==
+                    Status::OK()) {
             block.replace_by_position(result, std::move(res_ptr));
+            return Status::OK();
         }
-        return ret;
+        return Status::RuntimeError(
+                fmt::format("execute failed, unsupported types for function {}({}, {})", get_name(),
+                            block.get_by_position(arguments[0]).type->get_name(),
+                            block.get_by_position(arguments[1]).type->get_name()));
     }
 };
 

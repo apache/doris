@@ -124,19 +124,16 @@ struct SubstringUtil {
         DCHECK_EQ(arguments.size(), 3);
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
 
-        ColumnPtr argument_columns[3];
-
-        for (int i = 0; i < 3; ++i) {
-            argument_columns[i] =
-                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
-            if (auto* nullable = check_and_get_column<ColumnNullable>(*argument_columns[i])) {
-                // Danger: Here must dispose the null map data first! Because
-                // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
-                // of column nullable mem of null map
-                VectorizedUtils::update_null_map(null_map->get_data(),
-                                                 nullable->get_null_map_data());
-                argument_columns[i] = nullable->get_nested_column_ptr();
-            }
+        const auto& col0 = block.get_by_position(arguments[0]).column;
+        bool col_const[3] = {is_column_const(*col0)};
+        ColumnPtr argument_columns[3] = {
+                col_const[0] ? static_cast<const ColumnConst&>(*col0).convert_to_full_column()
+                             : col0};
+        check_set_nullable(argument_columns[0], null_map);
+        for (int i = 1; i < 3; ++i) {
+            std::tie(argument_columns[i], col_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
+            check_set_nullable(argument_columns[i], null_map);
         }
 
         auto res = ColumnString::create();
@@ -146,20 +143,25 @@ struct SubstringUtil {
                 assert_cast<const ColumnVector<Int32>*>(argument_columns[1].get());
         auto specific_len_column =
                 assert_cast<const ColumnVector<Int32>*>(argument_columns[2].get());
-
-        vector(specific_str_column->get_chars(), specific_str_column->get_offsets(),
-               specific_start_column->get_data(), specific_len_column->get_data(),
-               null_map->get_data(), res->get_chars(), res->get_offsets());
-
+        if (col_const[1] && col_const[2]) {
+            vector_scalar_args(specific_str_column->get_chars(), specific_str_column->get_offsets(),
+                               specific_start_column->get_element(0),
+                               specific_len_column->get_element(0), null_map->get_data(),
+                               res->get_chars(), res->get_offsets());
+        } else {
+            vector3(specific_str_column->get_chars(), specific_str_column->get_offsets(),
+                    specific_start_column->get_data(), specific_len_column->get_data(),
+                    null_map->get_data(), res->get_chars(), res->get_offsets());
+        }
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(res), std::move(null_map));
     }
 
 private:
-    static void vector(const ColumnString::Chars& chars, const ColumnString::Offsets& offsets,
-                       const PaddedPODArray<Int32>& start, const PaddedPODArray<Int32>& len,
-                       NullMap& null_map, ColumnString::Chars& res_chars,
-                       ColumnString::Offsets& res_offsets) {
+    static void vector3(const ColumnString::Chars& chars, const ColumnString::Offsets& offsets,
+                        const PaddedPODArray<Int32>& start, const PaddedPODArray<Int32>& len,
+                        NullMap& null_map, ColumnString::Chars& res_chars,
+                        ColumnString::Offsets& res_offsets) {
         int size = offsets.size();
         res_offsets.resize(size);
         res_chars.reserve(chars.size());
@@ -212,6 +214,76 @@ private:
             int fixed_len = str_size - byte_pos;
             if (fixed_pos + len[i] <= index.size()) {
                 fixed_len = index[fixed_pos + len[i] - 1] - byte_pos;
+            }
+
+            if (byte_pos <= str_size && fixed_len > 0) {
+                // return StringRef(str.data + byte_pos, fixed_len);
+                StringOP::push_value_string(
+                        std::string_view {reinterpret_cast<const char*>(raw_str + byte_pos),
+                                          (size_t)fixed_len},
+                        i, res_chars, res_offsets);
+            } else {
+                StringOP::push_empty_string(i, res_chars, res_offsets);
+            }
+        }
+    }
+    static void vector_scalar_args(const ColumnString::Chars& chars,
+                                   const ColumnString::Offsets& offsets, const Int32& start,
+                                   const Int32& len, NullMap& null_map,
+                                   ColumnString::Chars& res_chars,
+                                   ColumnString::Offsets& res_offsets) {
+        int size = offsets.size();
+        res_offsets.resize(size);
+        res_chars.reserve(chars.size());
+
+        std::array<std::byte, 128 * 1024> buf;
+        PMR::monotonic_buffer_resource pool {buf.data(), buf.size()};
+        PMR::vector<size_t> index {&pool};
+
+        PMR::vector<std::pair<const unsigned char*, int>> strs(&pool);
+        strs.resize(size);
+        auto* __restrict data_ptr = chars.data();
+        auto* __restrict offset_ptr = offsets.data();
+        for (int i = 0; i < size; ++i) {
+            strs[i].first = data_ptr + offset_ptr[i - 1];
+            strs[i].second = offset_ptr[i] - offset_ptr[i - 1];
+        }
+
+        for (int i = 0; i < size; ++i) {
+            auto [raw_str, str_size] = strs[i];
+            // return empty string if start > src.length
+            if (start > str_size || str_size == 0 || start == 0 || len <= 0) {
+                StringOP::push_empty_string(i, res_chars, res_offsets);
+                continue;
+            }
+            // reference to string_function.cpp: substring
+            size_t byte_pos = 0;
+            index.clear();
+            for (size_t j = 0, char_size = 0; j < str_size; j += char_size) {
+                char_size = UTF8_BYTE_LENGTH[(unsigned char)(raw_str)[j]];
+                index.push_back(j);
+                if (start > 0 && index.size() > start + len) {
+                    break;
+                }
+            }
+
+            int fixed_pos = start;
+            if (fixed_pos < -(int)index.size()) {
+                StringOP::push_empty_string(i, res_chars, res_offsets);
+                continue;
+            }
+            if (fixed_pos < 0) {
+                fixed_pos = index.size() + fixed_pos + 1;
+            }
+            if (fixed_pos > index.size()) {
+                StringOP::push_null_string(i, res_chars, res_offsets, null_map);
+                continue;
+            }
+
+            byte_pos = index[fixed_pos - 1];
+            int fixed_len = str_size - byte_pos;
+            if (fixed_pos + len <= index.size()) {
+                fixed_len = index[fixed_pos + len - 1] - byte_pos;
             }
 
             if (byte_pos <= str_size && fixed_len > 0) {
@@ -278,6 +350,7 @@ struct Substr2Impl {
         auto params = ColumnInt32::create(input_rows_count);
         auto& strlen_data = params->get_data();
 
+        //TODO: optimize it.
         auto str_col =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         if (auto* nullable = check_and_get_column<const ColumnNullable>(*str_col)) {

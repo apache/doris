@@ -16,6 +16,8 @@
 // under the License.
 
 #include "exprs/math_functions.h"
+#include "vec/columns/column_const.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/simple_function_factory.h"
@@ -49,29 +51,39 @@ public:
         auto result_column = ColumnString::create();
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
 
-        ColumnPtr argument_columns[3];
+        const auto& col0 = block.get_by_position(arguments[0]).column;
+        bool col_const[3] = {is_column_const(*col0)};
+        ColumnPtr argument_columns[3] = {
+                col_const[0] ? static_cast<const ColumnConst&>(*col0).convert_to_full_column()
+                             : col0};
+        check_set_nullable(argument_columns[0], result_null_map_column);
 
-        for (int i = 0; i < 3; ++i) {
-            argument_columns[i] =
-                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
-            if (auto* nullable = check_and_get_column<ColumnNullable>(*argument_columns[i])) {
-                // Danger: Here must dispose the null map data first! Because
-                // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
-                // of column nullable mem of null map
-                VectorizedUtils::update_null_map(result_null_map_column->get_data(),
-                                                 nullable->get_null_map_data());
-                argument_columns[i] = nullable->get_nested_column_ptr();
-            }
+        for (int i = 1; i < 3; ++i) {
+            std::tie(argument_columns[i], col_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
+            check_set_nullable(argument_columns[i], result_null_map_column);
         }
 
-        execute_straight(
-                context,
-                assert_cast<const typename Impl::DataType::ColumnType*>(argument_columns[0].get()),
-                assert_cast<const ColumnInt8*>(argument_columns[1].get()),
-                assert_cast<const ColumnInt8*>(argument_columns[2].get()),
-                assert_cast<ColumnString*>(result_column.get()),
-                assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data(),
-                input_rows_count);
+        if (col_const[1] && col_const[2]) {
+            execute_const_args(
+                    context,
+                    assert_cast<const typename Impl::DataType::ColumnType*>(
+                            argument_columns[0].get()),
+                    assert_cast<const ColumnInt8*>(argument_columns[1].get())->get_element(0),
+                    assert_cast<const ColumnInt8*>(argument_columns[2].get())->get_element(0),
+                    assert_cast<ColumnString*>(result_column.get()),
+                    assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data(),
+                    input_rows_count);
+        } else {
+            execute_straight(context,
+                             assert_cast<const typename Impl::DataType::ColumnType*>(
+                                     argument_columns[0].get()),
+                             assert_cast<const ColumnInt8*>(argument_columns[1].get()),
+                             assert_cast<const ColumnInt8*>(argument_columns[2].get()),
+                             assert_cast<ColumnString*>(result_column.get()),
+                             assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data(),
+                             input_rows_count);
+        }
 
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(result_column), std::move(result_null_map_column));
@@ -79,11 +91,10 @@ public:
     }
 
 private:
-    void execute_straight(FunctionContext* context,
-                          const typename Impl::DataType::ColumnType* data_column,
-                          const ColumnInt8* src_base_column, const ColumnInt8* dst_base_column,
-                          ColumnString* result_column, NullMap& result_null_map,
-                          size_t input_rows_count) {
+    static ALWAYS_INLINE void execute_straight(
+            FunctionContext* context, const typename Impl::DataType::ColumnType* data_column,
+            const ColumnInt8* src_base_column, const ColumnInt8* dst_base_column,
+            ColumnString* result_column, NullMap& result_null_map, size_t input_rows_count) {
         for (size_t i = 0; i < input_rows_count; i++) {
             if (result_null_map[i]) {
                 result_column->insert_default();
@@ -92,6 +103,29 @@ private:
 
             Int8 src_base = src_base_column->get_element(i);
             Int8 dst_base = dst_base_column->get_element(i);
+            if (std::abs(src_base) < MathFunctions::MIN_BASE ||
+                std::abs(src_base) > MathFunctions::MAX_BASE ||
+                std::abs(dst_base) < MathFunctions::MIN_BASE ||
+                std::abs(dst_base) > MathFunctions::MAX_BASE) {
+                result_null_map[i] = true;
+                result_column->insert_default();
+                continue;
+            }
+
+            Impl::calculate_cell(context, data_column, src_base, dst_base, result_column,
+                                 result_null_map, i);
+        }
+    }
+    static ALWAYS_INLINE void execute_const_args(
+            FunctionContext* context, const typename Impl::DataType::ColumnType* data_column,
+            const Int8 src_base, const Int8 dst_base, ColumnString* result_column,
+            NullMap& result_null_map, size_t input_rows_count) {
+        for (size_t i = 0; i < input_rows_count; i++) {
+            if (result_null_map[i]) {
+                result_column->insert_default();
+                continue;
+            }
+
             if (std::abs(src_base) < MathFunctions::MIN_BASE ||
                 std::abs(src_base) > MathFunctions::MAX_BASE ||
                 std::abs(dst_base) < MathFunctions::MIN_BASE ||

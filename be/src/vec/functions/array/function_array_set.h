@@ -150,7 +150,8 @@ public:
     }
 
     static Status execute(ColumnPtr& res_ptr, const ColumnArrayExecutionData& left_data,
-                          const ColumnArrayExecutionData& right_data) {
+                          const ColumnArrayExecutionData& right_data, bool left_const,
+                          bool right_const) {
         ColumnArrayMutableData dst;
         if (left_data.nested_nullmap_data || right_data.nested_nullmap_data) {
             dst = create_mutable_data(left_data.nested_col, true);
@@ -158,27 +159,77 @@ public:
             dst = create_mutable_data(left_data.nested_col, false);
         }
         ColumnPtr res_column;
-        if (_execute_internal<ColumnString>(dst, left_data, right_data) ||
-            _execute_internal<ColumnDate>(dst, left_data, right_data) ||
-            _execute_internal<ColumnDateTime>(dst, left_data, right_data) ||
-            _execute_internal<ColumnDateV2>(dst, left_data, right_data) ||
-            _execute_internal<ColumnDateTimeV2>(dst, left_data, right_data) ||
-            _execute_internal<ColumnUInt8>(dst, left_data, right_data) ||
-            _execute_internal<ColumnInt8>(dst, left_data, right_data) ||
-            _execute_internal<ColumnInt16>(dst, left_data, right_data) ||
-            _execute_internal<ColumnInt32>(dst, left_data, right_data) ||
-            _execute_internal<ColumnInt64>(dst, left_data, right_data) ||
-            _execute_internal<ColumnInt128>(dst, left_data, right_data) ||
-            _execute_internal<ColumnFloat32>(dst, left_data, right_data) ||
-            _execute_internal<ColumnFloat64>(dst, left_data, right_data) ||
-            _execute_internal<ColumnDecimal32>(dst, left_data, right_data) ||
-            _execute_internal<ColumnDecimal64>(dst, left_data, right_data) ||
-            _execute_internal<ColumnDecimal128I>(dst, left_data, right_data) ||
-            _execute_internal<ColumnDecimal128>(dst, left_data, right_data)) {
-            res_column = assemble_column_array(dst);
-            if (res_column) {
-                res_ptr = std::move(res_column);
-                return Status::OK();
+        if (left_const) {
+            if (_execute_internal_lconst<ColumnString>(dst, left_data, right_data) ||
+                _execute_internal_lconst<ColumnDate>(dst, left_data, right_data) ||
+                _execute_internal_lconst<ColumnDateTime>(dst, left_data, right_data) ||
+                _execute_internal_lconst<ColumnDateV2>(dst, left_data, right_data) ||
+                _execute_internal_lconst<ColumnDateTimeV2>(dst, left_data, right_data) ||
+                _execute_internal_lconst<ColumnUInt8>(dst, left_data, right_data) ||
+                _execute_internal_lconst<ColumnInt8>(dst, left_data, right_data) ||
+                _execute_internal_lconst<ColumnInt16>(dst, left_data, right_data) ||
+                _execute_internal_lconst<ColumnInt32>(dst, left_data, right_data) ||
+                _execute_internal_lconst<ColumnInt64>(dst, left_data, right_data) ||
+                _execute_internal_lconst<ColumnInt128>(dst, left_data, right_data) ||
+                _execute_internal_lconst<ColumnFloat32>(dst, left_data, right_data) ||
+                _execute_internal_lconst<ColumnFloat64>(dst, left_data, right_data) ||
+                _execute_internal_lconst<ColumnDecimal32>(dst, left_data, right_data) ||
+                _execute_internal_lconst<ColumnDecimal64>(dst, left_data, right_data) ||
+                _execute_internal_lconst<ColumnDecimal128I>(dst, left_data, right_data) ||
+                _execute_internal_lconst<ColumnDecimal128>(dst, left_data, right_data)) {
+                res_column = assemble_column_array(dst);
+                if (res_column) {
+                    res_ptr = std::move(res_column);
+                    return Status::OK();
+                }
+            }
+        } else if (right_const) {
+            if (_execute_internal_rconst<ColumnString>(dst, left_data, right_data) ||
+                _execute_internal_rconst<ColumnDate>(dst, left_data, right_data) ||
+                _execute_internal_rconst<ColumnDateTime>(dst, left_data, right_data) ||
+                _execute_internal_rconst<ColumnDateV2>(dst, left_data, right_data) ||
+                _execute_internal_rconst<ColumnDateTimeV2>(dst, left_data, right_data) ||
+                _execute_internal_rconst<ColumnUInt8>(dst, left_data, right_data) ||
+                _execute_internal_rconst<ColumnInt8>(dst, left_data, right_data) ||
+                _execute_internal_rconst<ColumnInt16>(dst, left_data, right_data) ||
+                _execute_internal_rconst<ColumnInt32>(dst, left_data, right_data) ||
+                _execute_internal_rconst<ColumnInt64>(dst, left_data, right_data) ||
+                _execute_internal_rconst<ColumnInt128>(dst, left_data, right_data) ||
+                _execute_internal_rconst<ColumnFloat32>(dst, left_data, right_data) ||
+                _execute_internal_rconst<ColumnFloat64>(dst, left_data, right_data) ||
+                _execute_internal_rconst<ColumnDecimal32>(dst, left_data, right_data) ||
+                _execute_internal_rconst<ColumnDecimal64>(dst, left_data, right_data) ||
+                _execute_internal_rconst<ColumnDecimal128I>(dst, left_data, right_data) ||
+                _execute_internal_rconst<ColumnDecimal128>(dst, left_data, right_data)) {
+                res_column = assemble_column_array(dst);
+                if (res_column) {
+                    res_ptr = std::move(res_column);
+                    return Status::OK();
+                }
+            }
+        } else {
+            if (_execute_internal<ColumnString>(dst, left_data, right_data) ||
+                _execute_internal<ColumnDate>(dst, left_data, right_data) ||
+                _execute_internal<ColumnDateTime>(dst, left_data, right_data) ||
+                _execute_internal<ColumnDateV2>(dst, left_data, right_data) ||
+                _execute_internal<ColumnDateTimeV2>(dst, left_data, right_data) ||
+                _execute_internal<ColumnUInt8>(dst, left_data, right_data) ||
+                _execute_internal<ColumnInt8>(dst, left_data, right_data) ||
+                _execute_internal<ColumnInt16>(dst, left_data, right_data) ||
+                _execute_internal<ColumnInt32>(dst, left_data, right_data) ||
+                _execute_internal<ColumnInt64>(dst, left_data, right_data) ||
+                _execute_internal<ColumnInt128>(dst, left_data, right_data) ||
+                _execute_internal<ColumnFloat32>(dst, left_data, right_data) ||
+                _execute_internal<ColumnFloat64>(dst, left_data, right_data) ||
+                _execute_internal<ColumnDecimal32>(dst, left_data, right_data) ||
+                _execute_internal<ColumnDecimal64>(dst, left_data, right_data) ||
+                _execute_internal<ColumnDecimal128I>(dst, left_data, right_data) ||
+                _execute_internal<ColumnDecimal128>(dst, left_data, right_data)) {
+                res_column = assemble_column_array(dst);
+                if (res_column) {
+                    res_ptr = std::move(res_column);
+                    return Status::OK();
+                }
             }
         }
         return Status::RuntimeError("Unexpected columns: {}, {}", left_data.nested_col->get_name(),
@@ -203,6 +254,66 @@ private:
             size_t left_len = (*left_data.offsets_ptr)[row] - left_off;
             size_t right_off = (*right_data.offsets_ptr)[row - 1];
             size_t right_len = (*right_data.offsets_ptr)[row] - right_off;
+            if constexpr (execute_left_column_first) {
+                impl.template apply<true>(left_data, left_off, left_len, dst, &count);
+                impl.template apply<false>(right_data, right_off, right_len, dst, &count);
+            } else {
+                impl.template apply<false>(right_data, right_off, right_len, dst, &count);
+                impl.template apply<true>(left_data, left_off, left_len, dst, &count);
+            }
+            current += count;
+            dst.offsets_ptr->push_back(current);
+            impl.reset();
+        }
+        return true;
+    }
+    template <typename ColumnType>
+    static bool _execute_internal_lconst(ColumnArrayMutableData& dst,
+                                         const ColumnArrayExecutionData& left_data,
+                                         const ColumnArrayExecutionData& right_data) {
+        using Impl = OpenSetImpl<operation, ColumnType>;
+        if (!check_column<ColumnType>(*left_data.nested_col)) {
+            return false;
+        }
+        constexpr auto execute_left_column_first = Impl::Action::execute_left_column_first;
+        size_t current = 0;
+        Impl impl;
+        for (size_t row = 0; row < left_data.offsets_ptr->size(); ++row) {
+            size_t count = 0;
+            size_t left_off = (*left_data.offsets_ptr)[-1];
+            size_t left_len = (*left_data.offsets_ptr)[0] - left_off;
+            size_t right_off = (*right_data.offsets_ptr)[row - 1];
+            size_t right_len = (*right_data.offsets_ptr)[row] - right_off;
+            if constexpr (execute_left_column_first) {
+                impl.template apply<true>(left_data, left_off, left_len, dst, &count);
+                impl.template apply<false>(right_data, right_off, right_len, dst, &count);
+            } else {
+                impl.template apply<false>(right_data, right_off, right_len, dst, &count);
+                impl.template apply<true>(left_data, left_off, left_len, dst, &count);
+            }
+            current += count;
+            dst.offsets_ptr->push_back(current);
+            impl.reset();
+        }
+        return true;
+    }
+    template <typename ColumnType>
+    static bool _execute_internal_rconst(ColumnArrayMutableData& dst,
+                                         const ColumnArrayExecutionData& left_data,
+                                         const ColumnArrayExecutionData& right_data) {
+        using Impl = OpenSetImpl<operation, ColumnType>;
+        if (!check_column<ColumnType>(*left_data.nested_col)) {
+            return false;
+        }
+        constexpr auto execute_left_column_first = Impl::Action::execute_left_column_first;
+        size_t current = 0;
+        Impl impl;
+        for (size_t row = 0; row < left_data.offsets_ptr->size(); ++row) {
+            size_t count = 0;
+            size_t left_off = (*left_data.offsets_ptr)[row - 1];
+            size_t left_len = (*left_data.offsets_ptr)[row] - left_off;
+            size_t right_off = (*right_data.offsets_ptr)[-1];
+            size_t right_len = (*right_data.offsets_ptr)[0] - right_off;
             if constexpr (execute_left_column_first) {
                 impl.template apply<true>(left_data, left_off, left_len, dst, &count);
                 impl.template apply<false>(right_data, right_off, right_len, dst, &count);

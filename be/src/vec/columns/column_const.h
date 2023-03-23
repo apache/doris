@@ -234,4 +234,10 @@ public:
 */
 std::pair<ColumnPtr, size_t> check_column_const_set_readability(const IColumn& column,
                                                                 const size_t row_num) noexcept;
+
+/*
+ * @return first : data_column_ptr for ColumnConst, itself otherwise.
+ *         second : whether it's ColumnConst.
+*/
+std::pair<const ColumnPtr&, bool> unpack_if_const(const ColumnPtr&) noexcept;
 } // namespace doris::vectorized

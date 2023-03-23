@@ -503,12 +503,9 @@ public:
     static Status get_scale_arg(const ColumnWithTypeAndName& arguments, Int16* scale) {
         const IColumn& scale_column = *arguments.column;
 
-        Int32 scale64 = static_cast<const ColumnInt32*>(
-                                &(is_column_const(scale_column)
-                                          ? static_cast<const ColumnConst*>(&scale_column)
-                                                    ->get_data_column()
-                                          : scale_column))
-                                ->get_element(0);
+        Int32 scale64 = static_cast<const ColumnInt32&>(
+                                static_cast<const ColumnConst*>(&scale_column)->get_data_column())
+                                .get_element(0);
 
         if (scale64 > std::numeric_limits<Int16>::max() ||
             scale64 < std::numeric_limits<Int16>::min()) {

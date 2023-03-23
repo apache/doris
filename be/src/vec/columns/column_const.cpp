@@ -209,4 +209,11 @@ std::pair<ColumnPtr, size_t> check_column_const_set_readability(const IColumn& c
     }
     return result;
 }
+
+std::pair<const ColumnPtr&, bool> unpack_if_const(const ColumnPtr& ptr) noexcept {
+    if (is_column_const(*ptr)) {
+        return std::make_pair(static_cast<const ColumnConst&>(*ptr).get_data_column_ptr(), true);
+    }
+    return std::make_pair(ptr, false);
+}
 } // namespace doris::vectorized
