@@ -92,7 +92,7 @@ public class NereidsRewriter extends BatchRewriteJob {
 
                 // ExtractSingleTableExpressionFromDisjunction conflict to InPredicateToEqualToRule
                 // in the ExpressionNormalization, so must invoke in another job, or else run into
-                // deep loop
+                // dead loop
                 topDown(
                     new ExtractSingleTableExpressionFromDisjunction()
                 )
