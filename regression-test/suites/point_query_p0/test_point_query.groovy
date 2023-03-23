@@ -121,7 +121,9 @@ suite("test_point_query") {
       stmt_fn.setInt(1, 1231)
       stmt_fn.setBigDecimal(2, new BigDecimal("119291.11"))
       stmt_fn.setString(3, "ddd")
-      qe_point_select stmt_fn 
+      qe_point_select stmt_fn
+      qe_point_select stmt_fn
+      qe_point_select stmt_fn
 
       sql """
           ALTER table ${tableName} ADD COLUMN new_column0 INT default "0";

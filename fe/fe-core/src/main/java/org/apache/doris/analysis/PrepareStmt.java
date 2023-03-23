@@ -26,6 +26,7 @@ import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprList;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
 import com.google.protobuf.ByteString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -57,6 +58,9 @@ public class PrepareStmt extends StatementBase {
     int schemaVersion = -1;
     OlapTable tbl;
     ConnectContext context;
+    // Serialized mysql Field, this could avoid serialize mysql field each time sendFields.
+    // Since, serialize fields is too heavy when table is wide
+    Map<String, byte[]> serializedFields =  Maps.newHashMap();
 
     public PrepareStmt(StatementBase stmt, String name, boolean binaryRowFormat) {
         this.inner = stmt;
@@ -91,6 +95,14 @@ public class PrepareStmt extends StatementBase {
 
     public boolean isBinaryProtocol() {
         return binaryRowFormat;
+    }
+
+    public byte[] getSerializedField(String colName) {
+        return serializedFields.getOrDefault(colName, null);
+    }
+
+    public void setSerializedField(String colName, byte[] serializedField) {
+        serializedFields.put(colName, serializedField);
     }
 
     public void cacheSerializedDescriptorTable(DescriptorTable desctbl) {
@@ -227,5 +239,6 @@ public class PrepareStmt extends StatementBase {
         this.id = UUID.randomUUID();
         placeholders.clear();
         inner.reset();
+        serializedFields.clear();
     }
 }
