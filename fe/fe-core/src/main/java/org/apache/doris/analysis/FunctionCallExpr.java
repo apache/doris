@@ -1047,6 +1047,23 @@ public class FunctionCallExpr extends Expr {
                 uncheckedCastChild(compatibleType, i);
             }
         }
+
+        if (fnName.getFunction().equalsIgnoreCase("array_exists")) {
+            Type[] newArgTypes = new Type[1];
+            if (!(getChild(0) instanceof CastExpr)) {
+                Expr castExpr = getChild(0).castTo(ArrayType.create(Type.BOOLEAN, true));
+                this.setChild(0, castExpr);
+                newArgTypes[0] = castExpr.getType();
+            }
+
+            fn = getBuiltinFunction(fnName.getFunction(), newArgTypes,
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+            if (fn == null) {
+                LOG.warn("fn {} not exists", this.toSqlImpl());
+                throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
+            }
+            fn.setReturnType(getChild(0).getType());
+        }
     }
 
     // Provide better error message for some aggregate builtins. These can be
