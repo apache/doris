@@ -88,6 +88,16 @@ public class CaseExpr extends Expr {
         }
     }
 
+    /**
+     * use for Nereids ONLY
+     */
+    public CaseExpr(List<CaseWhenClause> whenClauses, Expr elseExpr) {
+        this(null, whenClauses, elseExpr);
+        // nereids do not have CaseExpr, and nereids will unify the types,
+        // so just use the first then type
+        type = children.get(1).getType();
+    }
+
     protected CaseExpr(CaseExpr other) {
         super(other);
         hasCaseExpr = other.hasCaseExpr;
@@ -427,12 +437,5 @@ public class CaseExpr extends Expr {
             return true;
         }
         return false;
-    }
-
-    @Override
-    public void finalizeImplForNereids() throws AnalysisException {
-        // nereids do not have CaseExpr, and nereids will unify the types,
-        // so just use the first then type
-        type = children.get(1).getType();
     }
 }
