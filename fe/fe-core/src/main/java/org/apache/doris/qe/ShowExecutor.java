@@ -208,6 +208,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLConnection;
 import java.util.ArrayList;
@@ -1197,6 +1198,22 @@ public class ShowExecutor {
         }
 
         Env env = Env.getCurrentEnv();
+        // try to fetch load id from mysql load first and mysql load only support find by label.
+        if (showWarningsStmt.isFindByLabel()) {
+            String label = showWarningsStmt.getLabel();
+            String urlString = env.getLoadManager().getMysqlLoadManager().getErrorUrlByLoadId(label);
+            if (urlString != null && !urlString.isEmpty()) {
+                URL url;
+                try {
+                    url = new URL(urlString);
+                } catch (MalformedURLException e) {
+                    throw new AnalysisException("Invalid url: " + e.getMessage());
+                }
+                handleShowLoadWarningsFromURL(showWarningsStmt, url);
+                return;
+            }
+        }
+
         Database db = env.getInternalCatalog().getDbOrAnalysisException(showWarningsStmt.getDbName());
 
         long dbId = db.getId();
