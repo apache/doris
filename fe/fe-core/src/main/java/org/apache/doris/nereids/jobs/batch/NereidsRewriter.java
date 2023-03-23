@@ -57,6 +57,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeSetOperations;
 import org.apache.doris.nereids.rules.rewrite.logical.NormalizeAggregate;
+import org.apache.doris.nereids.rules.rewrite.logical.NormalizeSort;
 import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanTablet;
 import org.apache.doris.nereids.rules.rewrite.logical.PushFilterInsideJoin;
@@ -120,10 +121,11 @@ public class NereidsRewriter extends BatchRewriteJob {
 
             // The rule modification needs to be done after the subquery is unnested,
             // because for scalarSubQuery, the connection condition is stored in apply in the analyzer phase,
-            // but when normalizeAggregate is performed, the members in apply cannot be obtained,
+            // but when normalizeAggregate/normalizeSort is performed, the members in apply cannot be obtained,
             // resulting in inconsistent output results and results in apply
             topDown(
-                new NormalizeAggregate()
+                new NormalizeAggregate(),
+                new NormalizeSort()
             ),
 
             topDown(
