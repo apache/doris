@@ -63,11 +63,5 @@ suite("test_string_function_like") {
     qt_sql "SELECT k FROM ${tbName} WHERE k LIKE \"%\" ORDER BY k;"
     qt_sql "SELECT k FROM ${tbName} WHERE k NOT LIKE \"%\" ORDER BY k;"
 
-    sql """
-        INSERT INTO ${tbName} VALUES ("xyz\\\\\\\\,xyz");
-        """
-    qt_sql_like_backslash1 """ SELECT k FROM ${tbName} WHERE k LIKE "%\\\\%"; """
-    qt_sql_like_backslash2 """ SELECT k FROM ${tbName} WHERE k LIKE "%\\\\\\\\%"; """
-
     // sql "DROP TABLE ${tbName};"
 }

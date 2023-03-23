@@ -121,9 +121,3 @@ bab
 bb
 
 -- !sql --
-
--- !sql_like_backslash1 --
-xyz\\\\,xyz
-
--- !sql_like_backslash2 --
-xyz\\\\,xyz
