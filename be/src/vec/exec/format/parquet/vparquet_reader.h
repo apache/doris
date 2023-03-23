@@ -61,7 +61,8 @@ public:
 
     ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                   const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz,
-                  io::IOContext* io_ctx, RuntimeState* state, KVCache<std::string>* kv_cache = nullptr);
+                  io::IOContext* io_ctx, RuntimeState* state,
+                  KVCache<std::string>* kv_cache = nullptr);
 
     ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
                   io::IOContext* io_ctx, RuntimeState* state);
@@ -170,9 +171,7 @@ private:
     void _init_bloom_filter();
     Status _process_bloom_filter(bool* filter_group);
     int64_t _get_column_start_offset(const tparquet::ColumnMetaData& column_init_column_readers);
-    std::string _meta_cache_key(const std::string& path) {
-        return "meta_" + path;
-    }
+    std::string _meta_cache_key(const std::string& path) { return "meta_" + path; }
 
     RuntimeProfile* _profile;
     const TFileScanRangeParams& _scan_params;
@@ -183,7 +182,7 @@ private:
     io::FileReaderSPtr _file_reader = nullptr;
     FileMetaData* _file_metadata = nullptr;
     // set to true if _file_metadata is owned by this reader.
-    // otherwise, it is owned by someone else, such as _kv_cache 
+    // otherwise, it is owned by someone else, such as _kv_cache
     bool _is_file_metadata_owned = false;
     const tparquet::FileMetaData* _t_metadata;
     std::unique_ptr<RowGroupReader> _current_group_reader = nullptr;

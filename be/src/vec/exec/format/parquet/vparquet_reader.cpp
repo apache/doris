@@ -34,7 +34,8 @@ namespace doris::vectorized {
 
 ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                              const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz,
-                             io::IOContext* io_ctx, RuntimeState* state, KVCache<std::string>* kv_cache)
+                             io::IOContext* io_ctx, RuntimeState* state,
+                             KVCache<std::string>* kv_cache)
         : _profile(profile),
           _scan_params(params),
           _scan_range(range),
@@ -183,20 +184,22 @@ Status ParquetReader::_open_file() {
             RETURN_IF_ERROR(parse_thrift_footer(_file_reader, &_file_metadata));
         } else {
             _is_file_metadata_owned = false;
-            _file_metadata = _kv_cache->get<
-                    FileMetaData>(_meta_cache_key(_file_reader->path()), [&]() -> FileMetaData* {
-                FileMetaData* meta;
-                Status st = parse_thrift_footer(_file_reader, &meta);
-                if (!st) {
-                    LOG(INFO) << "failed to parse parquet footer for " << _file_description.path << ", err: " << st;
-                    return nullptr;
-                }
-                return meta;
-            });
+            _file_metadata = _kv_cache->get<FileMetaData>(
+                    _meta_cache_key(_file_reader->path()), [&]() -> FileMetaData* {
+                        FileMetaData* meta;
+                        Status st = parse_thrift_footer(_file_reader, &meta);
+                        if (!st) {
+                            LOG(INFO) << "failed to parse parquet footer for "
+                                      << _file_description.path << ", err: " << st;
+                            return nullptr;
+                        }
+                        return meta;
+                    });
         }
 
         if (_file_metadata == nullptr) {
-            return Status::InternalError("failed to get file meta data: {}", _file_description.path);
+            return Status::InternalError("failed to get file meta data: {}",
+                                         _file_description.path);
         }
     }
     return Status::OK();

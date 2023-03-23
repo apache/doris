@@ -35,8 +35,7 @@ namespace doris::vectorized {
 constexpr uint8_t PARQUET_VERSION_NUMBER[4] = {'P', 'A', 'R', '1'};
 constexpr uint32_t PARQUET_FOOTER_SIZE = 8;
 
-static Status parse_thrift_footer(io::FileReaderSPtr file,
-                                  FileMetaData** file_metadata) {
+static Status parse_thrift_footer(io::FileReaderSPtr file, FileMetaData** file_metadata) {
     uint8_t footer[PARQUET_FOOTER_SIZE];
     int64_t file_size = file->size();
     size_t bytes_read = 0;

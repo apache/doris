@@ -96,9 +96,7 @@ private:
     Status _gen_col_name_maps(std::vector<tparquet::KeyValue> parquet_meta_kv);
     void _gen_file_col_names();
     void _gen_new_colname_to_value_range();
-    std::string _delet_file_cache_key(const std::string& path) {
-        return "delete_" + path;
-    }
+    std::string _delet_file_cache_key(const std::string& path) { return "delete_" + path; }
 
     RuntimeProfile* _profile;
     RuntimeState* _state;
