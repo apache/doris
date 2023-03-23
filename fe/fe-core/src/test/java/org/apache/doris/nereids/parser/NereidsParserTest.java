@@ -276,6 +276,14 @@ public class NereidsParserTest extends ParserTestBase {
         NereidsParser nereidsParser1 = new NereidsParser();
         LogicalPlan logicalPlan1 = nereidsParser1.parseSingle(union1);
         System.out.println(logicalPlan1.treeString());
+
+        String union2 = "(SELECT K1, K2, K3, K4, K5, K6, K7, K8, K9, K10, K11 FROM test WHERE K1 > 0)"
+                + " UNION ALL (SELECT 1, 2, 3, 4, 3.14, 'HELLO', 'WORLD', 0.0, 1.1, CAST('1989-03-21' AS DATE), CAST('1989-03-21 13:00:00' AS DATETIME))"
+                + " UNION ALL (SELECT K1, K2, K3, K4, K5, K6, K7, K8, K9, K10, K11 FROM baseall WHERE K3 > 0)"
+                + " ORDER BY K1, K2, K3, K4";
+        NereidsParser nereidsParser2 = new NereidsParser();
+        LogicalPlan logicalPlan2 = nereidsParser2.parseSingle(union2);
+        System.out.println(logicalPlan2.treeString());
     }
 
     @Test

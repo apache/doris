@@ -378,8 +378,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitSetOperation(SetOperationContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
-            LogicalPlan leftQuery = plan(ctx.left.queryTerm());
-            LogicalPlan rightQuery = plan(ctx.right.queryTerm());
+            LogicalPlan leftQuery = plan(ctx.left);
+            LogicalPlan rightQuery = plan(ctx.right);
             Qualifier qualifier;
             if (ctx.setQuantifier() == null || ctx.setQuantifier().DISTINCT() != null) {
                 qualifier = Qualifier.DISTINCT;
@@ -392,14 +392,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     .add(rightQuery)
                     .build();
 
+            LogicalPlan plan = null;
             if (ctx.UNION() != null) {
-                return new LogicalUnion(qualifier, newChildren);
+                plan = new LogicalUnion(qualifier, newChildren);
             } else if (ctx.EXCEPT() != null) {
-                return new LogicalExcept(qualifier, newChildren);
+                plan = new LogicalExcept(qualifier, newChildren);
             } else if (ctx.INTERSECT() != null) {
-                return new LogicalIntersect(qualifier, newChildren);
+                plan = new LogicalIntersect(qualifier, newChildren);
+            } else {
+                throw new ParseException("not support", ctx);
             }
-            throw new ParseException("not support", ctx);
+            return plan;
         });
     }
 

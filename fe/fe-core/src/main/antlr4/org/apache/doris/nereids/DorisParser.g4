@@ -58,17 +58,15 @@ planType
 //  -----------------Query-----------------
 query
     : {!doris_legacy_SQL_syntax}? cte? queryTerm queryOrganization
-    | {doris_legacy_SQL_syntax}? queryTerm
+    | {doris_legacy_SQL_syntax}? queryTerm queryOrganization
     ;
 
+// add queryOrganization for parse (q1) union (q2) union (q3) order by keys, otherwise 'order' will be recognized to be
+// identifier.
 queryTerm
     : queryPrimary                                                                       #queryTermDefault
-    | left=setOpQueryTerm operator=(UNION | EXCEPT | INTERSECT)
-      setQuantifier? right=setOpQueryTerm                                                     #setOperation
-    ;
-
-setOpQueryTerm
-    : LEFT_PAREN queryTerm RIGHT_PAREN
+    | left=queryTerm operator=(UNION | EXCEPT | INTERSECT)
+      setQuantifier? right=queryTerm                                                     #setOperation
     ;
 
 setQuantifier
