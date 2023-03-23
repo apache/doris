@@ -410,8 +410,7 @@ HTTPS bind port. All FE https ports must be same currently.
 
 Default：false
 
-Https enable flag. If the value is false, http is supported. Otherwise, https is supported.
-If https is enabled, http requests are automatically redirected to https.
+Https enable flag. If the value is false, http is supported. Otherwise, both http and https are supported, and http requests are automatically redirected to https.
 If enable_https is true, you need to configure ssl certificate information in fe.conf.
 
 #### `qe_max_connection`
