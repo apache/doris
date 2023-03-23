@@ -757,11 +757,6 @@ public class ArithmeticExpr extends Expr {
     }
 
     @Override
-    public void finalizeImplForNereids() throws AnalysisException {
-
-    }
-
-    @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, op.name());
         out.writeInt(children.size());
