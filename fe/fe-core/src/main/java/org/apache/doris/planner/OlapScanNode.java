@@ -1027,12 +1027,12 @@ public class OlapScanNode extends ScanNode {
         return result;
     }
 
-    // Only called when Coordinator exec in point query
+    // Only called when Coordinator exec in high performance point query
     public List<TScanRangeLocations> lazyEvaluateRangeLocations() throws UserException {
         // Lazy evaluation
         selectedIndexId = olapTable.getBaseIndexId();
-        // TODO(lhy) this function is a heavy operation for point query
-        computeColumnFilter();
+        // Only key columns
+        computeColumnFilter(olapTable.getBaseSchemaKeyColumns());
         computePartitionInfo();
         scanBackendIds.clear();
         scanTabletIds.clear();
