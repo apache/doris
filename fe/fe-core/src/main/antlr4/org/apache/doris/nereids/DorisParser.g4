@@ -57,8 +57,8 @@ planType
 
 //  -----------------Query-----------------
 query
-    : {!doris_legacy_SQL_syntax}? cte? queryTerm queryOrganization
-    | {doris_legacy_SQL_syntax}? queryTerm
+    // : {!doris_legacy_SQL_syntax}? cte? queryTerm queryOrganization
+    : {doris_legacy_SQL_syntax}? queryTerm
     ;
 
 queryTerm
