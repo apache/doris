@@ -143,6 +143,17 @@ public class TableFunctionNode extends PlanNode {
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
         fnCallExprList = new ArrayList<>(lateralViewRefs.stream().map(e -> e.getFnExpr()).collect(Collectors.toList()));
+        Set<SlotRef> outputSlotRef = Sets.newHashSet();
+        for (Expr expr : conjuncts) {
+            expr.getSlotRefsBoundByTupleIds(tupleIds, outputSlotRef);
+            Expr dst = outputSmap.get(expr);
+            if (dst != null) {
+                dst.getSlotRefsBoundByTupleIds(tupleIds, outputSlotRef);
+            }
+        }
+        for (SlotRef slotRef : outputSlotRef) {
+            outputSlotIds.add(slotRef.getSlotId());
+        }
         /*
         When the expression of the lateral view involves the column of the subquery,
         the column needs to be rewritten as the real column in the subquery through childrenSmap.
