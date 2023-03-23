@@ -130,6 +130,8 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         if (project.child() == null || !(project.child() instanceof LogicalApply)) {
             return false;
         }
+        // filter(apply()) may be also ok.
+        // but nereids will match the pattern filter(project(apply()))
         LogicalApply apply = ((LogicalApply<?, ?>) project.child());
         if (!apply.isScalar() || !apply.isCorrelated()) {
             return false;
