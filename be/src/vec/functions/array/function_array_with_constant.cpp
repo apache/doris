@@ -88,8 +88,8 @@ public:
 struct NameArrayWithConstant {
     static constexpr auto name = "array_with_constant";
 
-    static void get_param_position_from_arguments(const ColumnNumbers& arguments, size_t& num_position,
-                                                  size_t& value_position) {
+    static void get_param_position_from_arguments(const ColumnNumbers& arguments,
+                                                  size_t& num_position, size_t& value_position) {
         num_position = arguments[0];
         value_position = arguments[1];
     }
@@ -98,8 +98,8 @@ struct NameArrayWithConstant {
 struct NameArrayRepeat {
     static constexpr auto name = "array_repeat";
 
-    static void get_param_position_from_arguments(const ColumnNumbers& arguments, size_t& num_position,
-                                                  size_t& value_position) {
+    static void get_param_position_from_arguments(const ColumnNumbers& arguments,
+                                                  size_t& num_position, size_t& value_position) {
         value_position = arguments[0];
         num_position = arguments[1];
     }
