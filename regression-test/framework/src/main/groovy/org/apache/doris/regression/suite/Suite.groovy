@@ -400,9 +400,9 @@ class Suite implements GroovyInterceptable {
         List<List<String>> showTaskMetaResult = sql_meta(showTasks)
         int index = showTaskMetaResult.indexOf(['State', 'CHAR'])
         String status = "PENDING"
-        int count = 0
-        int retryTimes = 300
         List<List<Object>> result
+        long startTime = System.currentTimeMillis()
+        long timeoutTimestamp = startTime + 30 * 60 * 1000 // 30 min
         do {
             result = sql(showTasks)
             if (!result.isEmpty()) {
@@ -410,8 +410,7 @@ class Suite implements GroovyInterceptable {
             }
             println "The state of ${showTasks} is ${status}"
             Thread.sleep(1000);
-            count += 1
-        } while (count < retryTimes && (status == 'PENDING' || status == 'RUNNING'))
+        } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING'))
         if (status != "SUCCESS") {
             println "status is not success"
             println result.toString()
