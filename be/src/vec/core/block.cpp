@@ -21,6 +21,7 @@
 #include "vec/core/block.h"
 
 #include <fmt/format.h>
+#include <glog/logging.h>
 #include <snappy.h>
 
 #include "agent/be_exec_version_manager.h"
@@ -195,7 +196,7 @@ void Block::erase_tail(size_t start) {
 
 void Block::erase(size_t position) {
     DCHECK(!data.empty()) << "Block is empty";
-    DCHECK(position < data.size()) << fmt::format(
+    DCHECK_LT(position, data.size()) << fmt::format(
             "Position out of bound in Block::erase(), max position = {}", data.size() - 1);
 
     erase_impl(position);
@@ -338,15 +339,16 @@ size_t Block::rows() const {
 }
 
 std::string Block::each_col_size() const {
-    std::stringstream ss;
+    std::string ss;
     for (const auto& elem : data) {
         if (elem.column) {
-            ss << elem.column->size() << " | ";
+            ss += elem.column->size();
+            ss += " | ";
         } else {
-            ss << "-1 | ";
+            ss += "-1 | ";
         }
     }
-    return ss.str();
+    return ss;
 }
 
 void Block::set_num_rows(size_t length) {
@@ -398,12 +400,25 @@ size_t Block::allocated_bytes() const {
 }
 
 std::string Block::dump_names() const {
-    std::stringstream out;
+    std::string out;
     for (auto it = data.begin(); it != data.end(); ++it) {
-        if (it != data.begin()) out << ", ";
-        out << it->name;
+        if (it != data.begin()) {
+            out += ", ";
+        }
+        out += it->name;
     }
-    return out.str();
+    return out;
+}
+
+std::string Block::dump_types() const {
+    std::string out;
+    for (auto it = data.begin(); it != data.end(); ++it) {
+        if (it != data.begin()) {
+            out += ", ";
+        }
+        out += it->type->get_name();
+    }
+    return out;
 }
 
 std::string Block::dump_data(size_t begin, size_t row_limit) const {
@@ -443,7 +458,7 @@ std::string Block::dump_data(size_t begin, size_t row_limit) const {
                     << std::right;
                 continue;
             }
-            std::string s = "";
+            std::string s;
             if (data[i].column) {
                 s = data[i].to_string(row_num);
             }
@@ -478,15 +493,14 @@ std::string Block::dump_one_line(size_t row, int column_end) const {
 }
 
 std::string Block::dump_structure() const {
-    // WriteBufferFromOwnString out;
-    std::stringstream out;
+    std::string out;
     for (auto it = data.begin(); it != data.end(); ++it) {
         if (it != data.begin()) {
-            out << ", ";
+            out += ", ";
         }
-        out << it->dump_structure();
+        out += it->dump_structure();
     }
-    return out.str();
+    return out;
 }
 
 Block Block::clone_empty() const {
@@ -700,7 +714,7 @@ Block Block::copy_block(const std::vector<int>& column_offset) const {
 }
 
 void Block::append_block_by_selector(MutableBlock* dst, const IColumn::Selector& selector) const {
-    DCHECK(data.size() == dst->mutable_columns().size());
+    DCHECK_EQ(data.size(), dst->mutable_columns().size());
     for (size_t i = 0; i < data.size(); i++) {
         data[i].column->append_data_by_selector(dst->mutable_columns()[i], selector);
     }
@@ -823,17 +837,6 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
                                      *compressed_bytes);
     }
     return Status::OK();
-}
-
-inline bool Block::is_column_data_null(const doris::TypeDescriptor& type_desc,
-                                       const StringRef& data_ref, const IColumn* column, int row) {
-    if (type_desc.type != TYPE_ARRAY) {
-        return data_ref.data == nullptr;
-    } else {
-        Field array;
-        column->get(row, array);
-        return array.is_null();
-    }
 }
 
 MutableBlock::MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs, int reserve_size,
@@ -1027,14 +1030,14 @@ size_t MutableBlock::get_position_by_name(const std::string& name) const {
 }
 
 std::string MutableBlock::dump_names() const {
-    std::stringstream out;
+    std::string out;
     for (auto it = _names.begin(); it != _names.end(); ++it) {
         if (it != _names.begin()) {
-            out << ", ";
+            out += ", ";
         }
-        out << *it;
+        out += *it;
     }
-    return out.str();
+    return out;
 }
 
 } // namespace doris::vectorized

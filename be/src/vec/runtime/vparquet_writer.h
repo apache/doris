@@ -42,8 +42,8 @@ namespace doris::vectorized {
 
 class ParquetOutputStream : public arrow::io::OutputStream {
 public:
-    ParquetOutputStream(FileWriter* file_writer);
-    ParquetOutputStream(FileWriter* file_writer, const int64_t& written_len);
+    ParquetOutputStream(doris::io::FileWriter* file_writer);
+    ParquetOutputStream(doris::io::FileWriter* file_writer, const int64_t& written_len);
     ~ParquetOutputStream() override;
 
     arrow::Status Write(const void* data, int64_t nbytes) override;
@@ -58,8 +58,8 @@ public:
     void set_written_len(int64_t written_len);
 
 private:
-    FileWriter* _file_writer; // not owned
-    int64_t _cur_pos = 0;     // current write position
+    doris::io::FileWriter* _file_writer; // not owned
+    int64_t _cur_pos = 0;                // current write position
     bool _is_closed = false;
     int64_t _written_len = 0;
 };
@@ -106,7 +106,7 @@ protected:
 // a wrapper of parquet output stream
 class VParquetWriterWrapper final : public VFileWriterWrapper {
 public:
-    VParquetWriterWrapper(doris::FileWriter* file_writer,
+    VParquetWriterWrapper(doris::io::FileWriter* file_writer,
                           const std::vector<VExprContext*>& output_vexpr_ctxs,
                           const std::vector<TParquetSchema>& parquet_schemas,
                           const TParquetCompressionType::type& compression_type,

@@ -558,7 +558,7 @@ public class CreateTableStmt extends DdlStmt {
                     boolean found = false;
                     for (Column column : columns) {
                         if (column.getName().equalsIgnoreCase(indexColName)) {
-                            indexDef.checkColumn(column, getKeysDesc().getKeysType());
+                            indexDef.checkColumn(column, getKeysDesc().getKeysType(), enableUniqueKeyMergeOnWrite);
                             found = true;
                             break;
                         }

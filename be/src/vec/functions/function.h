@@ -47,6 +47,14 @@ template <typename T>
 auto has_variadic_argument_types(T&& arg) -> decltype(T::get_variadic_argument_types()) {};
 void has_variadic_argument_types(...);
 
+struct NullPresence {
+    bool has_nullable = false;
+    bool has_null_constant = false;
+};
+
+NullPresence get_null_presence(const Block& block, const ColumnNumbers& args);
+[[maybe_unused]] NullPresence get_null_presence(const ColumnsWithTypeAndName& args);
+
 /// The simplest executable object.
 /// Motivation:
 ///  * Prepare something heavy once before main execution loop instead of doing it for each block.
@@ -90,7 +98,7 @@ protected:
 
     /** If the function have non-zero number of arguments,
       *  and if all arguments are constant, that we could automatically provide default implementation:
-      *  arguments are converted to ordinary columns with single value, then function is executed as usual,
+      *  arguments are converted to ordinary columns with single value which is not const, then function is executed as usual,
       *  and then the result is converted to constant column.
       */
     virtual bool use_default_implementation_for_constants() const { return false; }
@@ -102,6 +110,7 @@ protected:
     virtual bool use_default_implementation_for_low_cardinality_columns() const { return true; }
 
     /** Some arguments could remain constant during this implementation.
+      * Every argument required const must write here and no checks elsewhere.
       */
     virtual ColumnNumbers get_arguments_that_are_always_constant() const { return {}; }
 
@@ -116,6 +125,9 @@ private:
     Status execute_without_low_cardinality_columns(FunctionContext* context, Block& block,
                                                    const ColumnNumbers& arguments, size_t result,
                                                    size_t input_rows_count, bool dry_run);
+    Status _execute_skipped_constant_deal(FunctionContext* context, Block& block,
+                                          const ColumnNumbers& args, size_t result,
+                                          size_t input_rows_count, bool dry_run);
 };
 
 /// Function with known arguments and return type.

@@ -55,12 +55,13 @@ public class RankTest extends TPCHTestBase {
                     .optimize()
                     .getCascadesContext()
                     .getMemo();
-            PhysicalPlan plan1 = memo.unrank(memo.rank(1).first);
             PhysicalPlan plan2 = PlanChecker.from(connectContext)
                     .analyze(field.get(null).toString())
                     .rewrite()
                     .optimize()
                     .getBestPlanTree(PhysicalProperties.GATHER);
+            PhysicalPlan plan1 = memo.unrank(memo.rank(1).first);
+
             Assertions.assertTrue(PlanChecker.isPlanEqualWithoutID(plan1, plan2));
         }
     }

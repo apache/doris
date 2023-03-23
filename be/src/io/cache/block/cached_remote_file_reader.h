@@ -31,17 +31,11 @@ namespace io {
 
 class CachedRemoteFileReader final : public FileReader {
 public:
-    CachedRemoteFileReader(FileReaderSPtr remote_file_reader, const std::string& cache_path,
-                           IOContext* io_ctx);
+    CachedRemoteFileReader(FileReaderSPtr remote_file_reader, const std::string& cache_path);
 
     ~CachedRemoteFileReader() override;
 
     Status close() override;
-
-    Status read_at(size_t offset, Slice result, const IOContext& io_ctx,
-                   size_t* bytes_read) override;
-
-    Status read_at_impl(size_t offset, Slice result, const IOContext& io_ctx, size_t* bytes_read);
 
     const Path& path() const override { return _remote_file_reader->path(); }
 
@@ -51,6 +45,10 @@ public:
 
     FileSystemSPtr fs() const override { return _remote_file_reader->fs(); }
 
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const IOContext* io_ctx) override;
+
 private:
     std::pair<size_t, size_t> _align_size(size_t offset, size_t size) const;
 
@@ -58,8 +56,6 @@ private:
     IFileCache::Key _cache_key;
     CloudFileCachePtr _cache;
     CloudFileCachePtr _disposable_cache;
-
-    IOContext* _io_ctx;
 
     struct ReadStatistics {
         bool hit_cache = false;

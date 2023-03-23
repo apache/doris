@@ -84,8 +84,6 @@ Status SchemaScanner::init(SchemaScannerParam* param, ObjectPool* pool) {
         return Status::InternalError("invalid parameter");
     }
 
-    RETURN_IF_ERROR(create_tuple_desc(pool));
-
     _param = param;
     _is_init = true;
 
@@ -232,11 +230,8 @@ Status SchemaScanner::fill_dest_column_for_range(vectorized::Block* block, size_
         }
 
         case TYPE_DATE: {
-            vectorized::VecDateTimeValue value;
-            DateTimeValue* ts_slot = reinterpret_cast<DateTimeValue*>(data);
-            value.convert_dt_to_vec_dt(ts_slot);
             reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_data(
-                    reinterpret_cast<char*>(&value), 0);
+                    reinterpret_cast<char*>(data), 0);
             break;
         }
 
@@ -248,11 +243,8 @@ Status SchemaScanner::fill_dest_column_for_range(vectorized::Block* block, size_
         }
 
         case TYPE_DATETIME: {
-            vectorized::VecDateTimeValue value;
-            DateTimeValue* ts_slot = reinterpret_cast<DateTimeValue*>(data);
-            value.convert_dt_to_vec_dt(ts_slot);
             reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_data(
-                    reinterpret_cast<char*>(&value), 0);
+                    reinterpret_cast<char*>(data), 0);
             break;
         }
 
@@ -299,78 +291,6 @@ Status SchemaScanner::fill_dest_column_for_range(vectorized::Block* block, size_
         }
         }
     }
-    return Status::OK();
-}
-
-Status SchemaScanner::create_tuple_desc(ObjectPool* pool) {
-    int null_column = 0;
-    for (int i = 0; i < _columns.size(); ++i) {
-        if (_columns[i].is_null) {
-            null_column++;
-        }
-    }
-
-    int offset = (null_column + 7) / 8;
-    std::vector<SlotDescriptor*> slots;
-    int null_byte = 0;
-    int null_bit = 0;
-
-    for (int i = 0; i < _columns.size(); ++i) {
-        TSlotDescriptor t_slot_desc;
-        if (_columns[i].type == TYPE_DECIMALV2) {
-            t_slot_desc.__set_slotType(TypeDescriptor::create_decimalv2_type(27, 9).to_thrift());
-        } else {
-            TypeDescriptor descriptor(_columns[i].type);
-            if (_columns[i].precision >= 0 && _columns[i].scale >= 0) {
-                descriptor.precision = _columns[i].precision;
-                descriptor.scale = _columns[i].scale;
-            }
-            t_slot_desc.__set_slotType(descriptor.to_thrift());
-        }
-        t_slot_desc.__set_colName(_columns[i].name);
-        t_slot_desc.__set_columnPos(i);
-        t_slot_desc.__set_byteOffset(offset);
-
-        if (_columns[i].is_null) {
-            t_slot_desc.__set_nullIndicatorByte(null_byte);
-            t_slot_desc.__set_nullIndicatorBit(null_bit);
-            null_bit = (null_bit + 1) % 8;
-
-            if (0 == null_bit) {
-                null_byte++;
-            }
-        } else {
-            t_slot_desc.__set_nullIndicatorByte(0);
-            t_slot_desc.__set_nullIndicatorBit(-1);
-        }
-
-        t_slot_desc.id = i;
-        t_slot_desc.__set_slotIdx(i);
-        t_slot_desc.__set_isMaterialized(true);
-
-        SlotDescriptor* slot = pool->add(new (std::nothrow) SlotDescriptor(t_slot_desc));
-
-        if (nullptr == slot) {
-            return Status::InternalError("no memory for _tuple_desc.");
-        }
-
-        slots.push_back(slot);
-        offset += _columns[i].size;
-    }
-
-    TTupleDescriptor t_tuple_desc;
-    t_tuple_desc.__set_byteSize(offset);
-    t_tuple_desc.__set_numNullBytes((null_byte * 8 + null_bit + 7) / 8);
-    _tuple_desc = pool->add(new (std::nothrow) TupleDescriptor(t_tuple_desc));
-
-    if (nullptr == _tuple_desc) {
-        return Status::InternalError("no memory for _tuple_desc.");
-    }
-
-    for (int i = 0; i < slots.size(); ++i) {
-        _tuple_desc->add_slot(slots[i]);
-    }
-
     return Status::OK();
 }
 

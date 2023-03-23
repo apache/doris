@@ -44,7 +44,7 @@ public class PushdownFilterThroughProject implements RewriteRuleFactory {
             RuleType.PUSHDOWN_FILTER_THROUGH_PROJECT.build(
                     logicalFilter(logicalProject()).then(filter -> {
                         LogicalProject<Plan> project = filter.child();
-                        return new LogicalProject<>(
+                        return project.withProjectsAndChild(
                                 project.getProjects(),
                                 new LogicalFilter<>(
                                         ExpressionUtils.replace(filter.getConjuncts(), project.getAliasToProducer()),
@@ -60,7 +60,7 @@ public class PushdownFilterThroughProject implements RewriteRuleFactory {
                         LogicalLimit<LogicalProject<Plan>> limit = filter.child();
                         LogicalProject<Plan> project = limit.child();
 
-                        return new LogicalProject<>(
+                        return project.withProjectsAndChild(
                                 project.getProjects(),
                                 new LogicalFilter<>(
                                         ExpressionUtils.replace(filter.getConjuncts(), project.getAliasToProducer()),

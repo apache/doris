@@ -18,7 +18,9 @@
 #include "exec/tablet_info.h"
 
 #include "runtime/large_int_value.h"
+#include "runtime/raw_value.h"
 #include "util/string_parser.hpp"
+#include "vec/exprs/vexpr.h"
 
 namespace doris {
 
@@ -124,6 +126,10 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
                 ti->init_from_thrift(tindex_desc, column_unique_ids);
                 index->indexes.emplace_back(ti);
             }
+        }
+        if (t_index.__isset.where_clause) {
+            RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(&_obj_pool, t_index.where_clause,
+                                                                &index->where_clause));
         }
         _indexes.emplace_back(index);
     }

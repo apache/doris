@@ -42,9 +42,13 @@ struct type_limit<DecimalV2Value> {
 };
 
 template <>
-struct type_limit<DateTimeValue> {
-    static DateTimeValue min() { return DateTimeValue::datetime_min_value(); }
-    static DateTimeValue max() { return DateTimeValue::datetime_max_value(); }
+struct type_limit<vectorized::VecDateTimeValue> {
+    static vectorized::VecDateTimeValue min() {
+        return vectorized::VecDateTimeValue::datetime_min_value();
+    }
+    static vectorized::VecDateTimeValue max() {
+        return vectorized::VecDateTimeValue::datetime_max_value();
+    }
 };
 
 template <>

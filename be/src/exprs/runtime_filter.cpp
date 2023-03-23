@@ -880,8 +880,8 @@ public:
         case TYPE_DATE: {
             auto& min_val_ref = minmax_filter->min_val().stringval();
             auto& max_val_ref = minmax_filter->max_val().stringval();
-            DateTimeValue min_val;
-            DateTimeValue max_val;
+            vectorized::VecDateTimeValue min_val;
+            vectorized::VecDateTimeValue max_val;
             min_val.from_date_str(min_val_ref.c_str(), min_val_ref.length());
             max_val.from_date_str(max_val_ref.c_str(), max_val_ref.length());
             return _context.minmax_func->assign(&min_val, &max_val);
@@ -1629,9 +1629,9 @@ void IRuntimeFilter::to_protobuf(PMinMaxFilter* filter) {
     case TYPE_DATE:
     case TYPE_DATETIME: {
         char convert_buffer[30];
-        reinterpret_cast<const DateTimeValue*>(min_data)->to_string(convert_buffer);
+        reinterpret_cast<const vectorized::VecDateTimeValue*>(min_data)->to_string(convert_buffer);
         filter->mutable_min_val()->set_stringval(convert_buffer);
-        reinterpret_cast<const DateTimeValue*>(max_data)->to_string(convert_buffer);
+        reinterpret_cast<const vectorized::VecDateTimeValue*>(max_data)->to_string(convert_buffer);
         filter->mutable_max_val()->set_stringval(convert_buffer);
         return;
     }

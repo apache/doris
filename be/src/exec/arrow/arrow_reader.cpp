@@ -23,6 +23,7 @@
 #include "common/logging.h"
 #include "gen_cpp/PaloBrokerService_types.h"
 #include "gen_cpp/TPaloBrokerService.h"
+#include "io/io_common.h"
 #include "olap/iterators.h"
 #include "runtime/broker_mgr.h"
 #include "runtime/client_cache.h"
@@ -216,8 +217,7 @@ arrow::Result<int64_t> ArrowFile::ReadAt(int64_t position, int64_t nbytes, void*
     while (bytes_read < nbytes) {
         size_t reads = 0;
         Slice file_slice((uint8_t*)out, nbytes);
-        IOContext io_ctx;
-        Status result = _file_reader->read_at(_pos, file_slice, io_ctx, &reads);
+        Status result = _file_reader->read_at(_pos, file_slice, &reads);
         if (!result.ok()) {
             return arrow::Status::IOError("Readat failed.");
         }

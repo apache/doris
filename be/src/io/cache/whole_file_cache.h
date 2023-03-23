@@ -36,11 +36,6 @@ public:
 
     Status close() override { return _remote_file_reader->close(); }
 
-    Status read_at(size_t offset, Slice result, const IOContext& io_ctx,
-                   size_t* bytes_read) override;
-
-    Status read_at_impl(size_t offset, Slice result, const IOContext& io_ctx, size_t* bytes_read);
-
     const Path& path() const override { return _remote_file_reader->path(); }
 
     size_t size() const override { return _remote_file_reader->size(); }
@@ -62,6 +57,10 @@ public:
     bool is_gc_finish() const override;
 
     FileSystemSPtr fs() const override { return _remote_file_reader->fs(); }
+
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const IOContext* io_ctx) override;
 
 private:
     Status _generate_cache_reader(size_t offset, size_t req_size);

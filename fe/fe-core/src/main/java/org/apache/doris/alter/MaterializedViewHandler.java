@@ -208,6 +208,7 @@ public class MaterializedViewHandler extends AlterHandler {
 
             // Step2: create mv job
             RollupJobV2 rollupJobV2 = createMaterializedViewJob(mvIndexName, baseIndexName, mvColumns,
+                    addMVClause.getWhereClauseItemExpr(olapTable),
                     addMVClause.getProperties(), olapTable, db, baseIndexId,
                     addMVClause.getMVKeysType(), addMVClause.getOrigStmt());
 
@@ -282,7 +283,7 @@ public class MaterializedViewHandler extends AlterHandler {
                         addRollupClause, olapTable, baseIndexId, changeStorageFormat);
 
                 // step 3 create rollup job
-                RollupJobV2 alterJobV2 = createMaterializedViewJob(rollupIndexName, baseIndexName, rollupSchema,
+                RollupJobV2 alterJobV2 = createMaterializedViewJob(rollupIndexName, baseIndexName, rollupSchema, null,
                         addRollupClause.getProperties(), olapTable, db, baseIndexId, olapTable.getKeysType(), null);
 
                 rollupNameJobMap.put(addRollupClause.getRollupName(), alterJobV2);
@@ -333,7 +334,7 @@ public class MaterializedViewHandler extends AlterHandler {
      * @throws AnalysisException
      */
     private RollupJobV2 createMaterializedViewJob(String mvName, String baseIndexName,
-            List<Column> mvColumns, Map<String, String> properties,
+            List<Column> mvColumns, Column whereColumn, Map<String, String> properties,
             OlapTable olapTable, Database db, long baseIndexId, KeysType mvKeysType,
             OriginStatement origStmt) throws DdlException, AnalysisException {
         if (mvKeysType == null) {
@@ -358,7 +359,7 @@ public class MaterializedViewHandler extends AlterHandler {
         long mvIndexId = idGeneratorBuffer.getNextId();
         RollupJobV2 mvJob = new RollupJobV2(jobId, dbId, tableId, olapTable.getName(), timeoutMs,
                 baseIndexId, mvIndexId, baseIndexName, mvName,
-                mvColumns, baseSchemaHash, mvSchemaHash,
+                mvColumns, whereColumn, baseSchemaHash, mvSchemaHash,
                 mvKeysType, mvShortKeyColumnCount, origStmt);
         String newStorageFormatIndexName = NEW_STORAGE_FORMAT_INDEX_NAME_PREFIX + olapTable.getName();
         if (mvName.equals(newStorageFormatIndexName)) {
@@ -1252,12 +1253,12 @@ public class MaterializedViewHandler extends AlterHandler {
 
     public void processCreateMultiTablesMaterializedView(CreateMultiTableMaterializedViewStmt addMVClause)
             throws UserException {
-        Map<String, OlapTable> olapTables = addMVClause.getOlapTables();
+        Map<String, Table> olapTables = addMVClause.getTables();
         try {
-            olapTables.values().forEach(Table::writeLock);
+            olapTables.values().forEach(Table::readLock);
             Env.getCurrentEnv().createTable(addMVClause);
         } finally {
-            olapTables.values().forEach(Table::writeUnlock);
+            olapTables.values().forEach(Table::readUnlock);
         }
     }
 }

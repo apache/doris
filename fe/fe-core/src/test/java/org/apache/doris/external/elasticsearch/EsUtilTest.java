@@ -250,4 +250,13 @@ public class EsUtilTest extends EsTestCase {
         }
     }
 
+    @Test
+    public void testFieldAlias() throws IOException, URISyntaxException {
+        ObjectNode testFieldAlias = EsUtil.getRootSchema(
+                EsUtil.getMapping(loadJsonFromFile("data/es/test_field_alias.json")), null, new ArrayList<>());
+        List<Column> parseColumns = EsUtil.genColumnsFromEs("test_field_alias", null, testFieldAlias, true, new ArrayList<>());
+        Assertions.assertEquals("datetimev2(0)", parseColumns.get(2).getType().toSql());
+        Assertions.assertEquals("text", parseColumns.get(4).getType().toSql());
+    }
+
 }

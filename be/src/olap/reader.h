@@ -22,6 +22,7 @@
 #include "exprs/bitmapfilter_predicate.h"
 #include "exprs/function_filter.h"
 #include "exprs/hybrid_set.h"
+#include "io/io_common.h"
 #include "olap/delete_handler.h"
 #include "olap/row_cursor.h"
 #include "olap/rowset/rowset_reader.h"
@@ -201,7 +202,7 @@ protected:
 
     Status _init_orderby_keys_param(const ReaderParams& read_params);
 
-    void _init_conditions_param(const ReaderParams& read_params);
+    Status _init_conditions_param(const ReaderParams& read_params);
 
     void _init_conditions_param_except_leafnode_of_andnode(const ReaderParams& read_params);
 

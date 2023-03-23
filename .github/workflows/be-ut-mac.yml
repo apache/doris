@@ -67,7 +67,7 @@ jobs:
             'texinfo'
             'coreutils'
             'gnu-getopt'
-            'python'
+            'python@3'
             'cmake'
             'ninja'
             'ccache'
@@ -79,7 +79,7 @@ jobs:
             'openjdk@11'
             'maven'
             'node'
-            'llvm'
+            'llvm@15'
           )
           brew install "${cellars[@]}"
 

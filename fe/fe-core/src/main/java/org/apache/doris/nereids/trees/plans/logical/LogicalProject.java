@@ -175,6 +175,11 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
         return new LogicalProject<>(projects, excepts, canEliminate, children.get(0), isDistinct);
     }
 
+    public LogicalProject<Plan> withProjectsAndChild(List<NamedExpression> projects, Plan child) {
+        return new LogicalProject<>(projects, excepts, canEliminate,
+                Optional.empty(), Optional.empty(), child, isDistinct);
+    }
+
     @Override
     public LogicalProject<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalProject<>(projects, excepts, canEliminate,

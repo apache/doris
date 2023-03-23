@@ -54,8 +54,8 @@ Status HdfsFileReader::close() {
     return Status::OK();
 }
 
-Status HdfsFileReader::read_at(size_t offset, Slice result, const IOContext& /*io_ctx*/,
-                               size_t* bytes_read) {
+Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                                    const IOContext* /*io_ctx*/) {
     DCHECK(!closed());
     if (offset > _file_size) {
         return Status::IOError("offset exceeds file size(offset: {}, file size: {}, path: {})",

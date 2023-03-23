@@ -1795,15 +1795,15 @@ create_stmt ::=
         RESULT = new CreateClusterStmt(name, properties, password);
     :}*/
     /* Function */
-    | KW_CREATE opt_aggregate:isAggregate KW_FUNCTION opt_if_not_exists:ifNotExists function_name:functionName LPAREN func_args_def:args RPAREN
+    | KW_CREATE opt_var_type:type opt_aggregate:isAggregate KW_FUNCTION opt_if_not_exists:ifNotExists function_name:functionName LPAREN func_args_def:args RPAREN
             KW_RETURNS type_def:returnType opt_intermediate_type:intermediateType opt_properties:properties
     {:
-        RESULT = new CreateFunctionStmt(ifNotExists, isAggregate, functionName, args, returnType, intermediateType, properties);
+        RESULT = new CreateFunctionStmt(type, ifNotExists, isAggregate, functionName, args, returnType, intermediateType, properties);
     :}
-    | KW_CREATE KW_ALIAS KW_FUNCTION opt_if_not_exists:ifNotExists function_name:functionName LPAREN func_args_def:args RPAREN
+    | KW_CREATE opt_var_type:type KW_ALIAS KW_FUNCTION opt_if_not_exists:ifNotExists function_name:functionName LPAREN func_args_def:args RPAREN
             KW_WITH KW_PARAMETER LPAREN ident_list:parameters RPAREN KW_AS expr:func
     {:
-        RESULT = new CreateFunctionStmt(ifNotExists, functionName, args, parameters, func);
+        RESULT = new CreateFunctionStmt(type, ifNotExists, functionName, args, parameters, func);
     :}
     /* Table */
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name KW_LIKE table_name:existed_name KW_WITH KW_ROLLUP LPAREN ident_list:rollupNames RPAREN
@@ -2789,11 +2789,15 @@ show_create_load_stmt ::=
 analyze_stmt ::=
     KW_ANALYZE KW_TABLE table_name:tbl opt_col_list:cols opt_partition_names:partitionNames opt_properties:properties
     {:
-        RESULT = new AnalyzeStmt(tbl, cols, partitionNames, properties);
+        boolean is_whole_tbl = (cols == null);
+        boolean is_histogram = false;
+        RESULT = new AnalyzeStmt(tbl, cols, partitionNames, properties, is_whole_tbl, is_histogram);
     :}
-    | KW_ANALYZE KW_TABLE table_name:tbl KW_UPDATE KW_HISTOGRAM KW_ON ident_list:cols opt_properties:properties
+    | KW_ANALYZE KW_TABLE table_name:tbl KW_UPDATE KW_HISTOGRAM KW_ON ident_list:cols opt_partition_names:partitionNames opt_properties:properties
     {:
-        RESULT = new AnalyzeStmt(tbl, cols, properties);
+        boolean is_whole_tbl = (cols == null);
+        boolean is_histogram = true;
+        RESULT = new AnalyzeStmt(tbl, cols, partitionNames, properties, is_whole_tbl, is_histogram);
     :}
     ;
 
@@ -2904,9 +2908,9 @@ drop_stmt ::=
         RESULT = new DropClusterStmt(ifExists, cluster);
     :}
     /* Function */
-    | KW_DROP KW_FUNCTION opt_if_exists:ifExists function_name:functionName LPAREN func_args_def:args RPAREN
+    | KW_DROP opt_var_type:type KW_FUNCTION opt_if_exists:ifExists function_name:functionName LPAREN func_args_def:args RPAREN
     {:
-        RESULT = new DropFunctionStmt(ifExists, functionName, args);
+        RESULT = new DropFunctionStmt(type, ifExists, functionName, args);
     :}
     /* Table */
     | KW_DROP KW_TABLE opt_if_exists:ifExists table_name:name opt_force:force
@@ -4187,9 +4191,9 @@ cancel_param ::=
 
 // Delete stmt
 delete_stmt ::=
-    KW_DELETE KW_FROM table_name:table opt_partition_names:partitionNames opt_using_clause:fromClause where_clause:wherePredicate
+    KW_DELETE KW_FROM table_name:table opt_table_alias:alias opt_partition_names:partitionNames opt_using_clause:fromClause where_clause:wherePredicate
     {:
-        RESULT = new DeleteStmt(table, partitionNames, fromClause, wherePredicate);
+        RESULT = new DeleteStmt(new TableRef(table, alias), partitionNames, fromClause, wherePredicate);
     :}
     ;
 
@@ -4475,9 +4479,9 @@ insert_source ::=
 
 // update stmt
 update_stmt ::=
-    KW_UPDATE table_name:tbl set_clause:setClause opt_from_clause:fromClause where_clause:whereClause
+    KW_UPDATE table_name:tbl opt_table_alias:alias set_clause:setClause opt_from_clause:fromClause where_clause:whereClause
     {:
-        RESULT = new UpdateStmt(tbl, setClause, fromClause, whereClause);
+        RESULT = new UpdateStmt(new TableRef(tbl, alias), setClause, fromClause, whereClause);
     :}
     ;
 

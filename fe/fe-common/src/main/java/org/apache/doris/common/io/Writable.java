@@ -29,8 +29,8 @@ import java.io.IOException;
  * Class A implements Writable {
  *      @Override
  *      public void write(DataOutput out) throws IOException {
- *          in.write(x);
- *          in.write(y);
+ *          out.write(x);
+ *          out.write(y);
  *          ...
  *      }
  *

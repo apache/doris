@@ -20,6 +20,7 @@
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/columns_number.h"
+#include "vec/common/string_ref.h"
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -72,21 +73,15 @@ public:
 
             if (arguments.size() == 2) {
                 const IColumn& source_col1 = *block.get_by_position(arguments[1]).column;
-                if (const auto* delta_const_column =
-                            typeid_cast<const ColumnConst*>(&source_col1)) {
-                    TransformerToStringTwoArgument<Transform>::vector_constant(
-                            context, sources->get_data(),
-                            delta_const_column->get_field().get<String>(), col_res->get_chars(),
-                            col_res->get_offsets(), vec_null_map_to);
-                } else {
-                    return Status::InternalError(
-                            "Illegal column {} is not const {}",
-                            block.get_by_position(arguments[1]).column->get_name(), name);
-                }
-            } else {
+                StringRef formatter =
+                        source_col1.get_data_at(0); // for both ColumnString or ColumnConst.
                 TransformerToStringTwoArgument<Transform>::vector_constant(
-                        context, sources->get_data(), "%Y-%m-%d %H:%i:%s", col_res->get_chars(),
+                        context, sources->get_data(), formatter, col_res->get_chars(),
                         col_res->get_offsets(), vec_null_map_to);
+            } else { //default argument
+                TransformerToStringTwoArgument<Transform>::vector_constant(
+                        context, sources->get_data(), StringRef("%Y-%m-%d %H:%i:%s"),
+                        col_res->get_chars(), col_res->get_offsets(), vec_null_map_to);
             }
 
             if (nullable_column) {

@@ -52,7 +52,7 @@ void delete_storage_policy(int64_t id);
 std::vector<std::pair<int64_t, int64_t>> get_storage_policy_ids();
 
 struct StorageResource {
-    io::FileSystemSPtr fs;
+    io::RemoteFileSystemSPtr fs;
     int64_t version = -1;
 };
 

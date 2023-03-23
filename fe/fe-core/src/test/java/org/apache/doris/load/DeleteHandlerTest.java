@@ -231,17 +231,12 @@ public class DeleteHandlerTest {
                 minTimes = 0;
             }
         };
-        try {
-            deleteStmt.analyze(analyzer);
-        } catch (UserException e) {
-            Assert.fail();
-        }
         deleteHandler.process(deleteStmt);
         Assert.fail();
     }
 
     @Test
-    public void testQuorumTimeout() throws DdlException, QueryStateException {
+    public void testQuorumTimeout() throws DdlException {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "k1"),
                 new IntLiteral(3));
 
@@ -271,11 +266,6 @@ public class DeleteHandlerTest {
         };
 
         try {
-            deleteStmt.analyze(analyzer);
-        } catch (UserException e) {
-            Assert.fail();
-        }
-        try {
             deleteHandler.process(deleteStmt);
         } catch (QueryStateException e) {
             // CHECKSTYLE IGNORE THIS LINE
@@ -290,7 +280,7 @@ public class DeleteHandlerTest {
     }
 
     @Test
-    public void testNormalTimeout() throws DdlException, QueryStateException {
+    public void testNormalTimeout() throws DdlException {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "k1"),
                 new IntLiteral(3));
 
@@ -319,12 +309,6 @@ public class DeleteHandlerTest {
                 return transactionState;
             }
         };
-
-        try {
-            deleteStmt.analyze(analyzer);
-        } catch (UserException e) {
-            Assert.fail();
-        }
 
         try {
             deleteHandler.process(deleteStmt);
@@ -385,11 +369,6 @@ public class DeleteHandlerTest {
         };
 
         try {
-            deleteStmt.analyze(analyzer);
-        } catch (UserException e) {
-            Assert.fail();
-        }
-        try {
             deleteHandler.process(deleteStmt);
         } catch (DdlException e) {
             Map<Long, DeleteJob> idToDeleteJob = Deencapsulation.getField(deleteHandler, "idToDeleteJob");
@@ -446,11 +425,6 @@ public class DeleteHandlerTest {
         };
 
         try {
-            deleteStmt.analyze(analyzer);
-        } catch (UserException e) {
-            Assert.fail();
-        }
-        try {
             deleteHandler.process(deleteStmt);
         } catch (QueryStateException e) {
             // CHECKSTYLE IGNORE THIS LINE
@@ -497,11 +471,6 @@ public class DeleteHandlerTest {
             }
         };
 
-        try {
-            deleteStmt.analyze(analyzer);
-        } catch (UserException e) {
-            Assert.fail();
-        }
         try {
             deleteHandler.process(deleteStmt);
         } catch (QueryStateException e) {
