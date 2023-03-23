@@ -130,12 +130,6 @@ public class Alter {
 
     public void processCreateMultiTableMaterializedView(CreateMultiTableMaterializedViewStmt stmt)
             throws UserException {
-        // check db
-        Database db = stmt.getDatabase();
-        // check cluster capacity
-        Env.getCurrentSystemInfo().checkClusterCapacity(stmt.getClusterName());
-        // check db quota
-        db.checkQuota();
         ((MaterializedViewHandler) materializedViewHandler).processCreateMultiTablesMaterializedView(stmt);
     }
 
