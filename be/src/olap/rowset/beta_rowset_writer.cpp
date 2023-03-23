@@ -514,7 +514,7 @@ RowsetSharedPtr BetaRowsetWriter::build() {
     }
 
     RowsetSharedPtr rowset;
-    status = RowsetFactory::create_rowset(_context.tablet_schema, _context.rowset_dir, _rowset_meta,
+    status = RowsetFactory::create_rowset(_context.tablet_schema, _context.tablet_path, _rowset_meta,
                                           &rowset);
     if (!status.ok()) {
         LOG(WARNING) << "rowset init failed when build new rowset, res=" << status;

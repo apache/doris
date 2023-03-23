@@ -1737,6 +1737,7 @@ void Tablet::_init_context_common_fields(RowsetWriterContext& context) {
     } else {
         context.rowset_dir = tablet_path();
     }
+    context.tablet_path = tablet_path();
     context.data_dir = data_dir();
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
 }
