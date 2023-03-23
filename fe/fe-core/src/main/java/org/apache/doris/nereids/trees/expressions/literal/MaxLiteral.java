@@ -21,6 +21,7 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.DataType;
 
+/** MaxLiteral */
 public class MaxLiteral extends Literal {
     public MaxLiteral(DataType dataType) {
         super(dataType);
