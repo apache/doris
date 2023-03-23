@@ -110,7 +110,7 @@ public class PartitionSlotInput {
     //                                                |
     //                                                v
     //
-    //                                         GreaterThen                <- fold `expr or false` to const
+    //                                         GreaterThen                <- fold `expr or false` to expr
     //                                  (part_column1: (100,10000))       <- merge columnRanges
     //                                 /                         \
     //                          part_column1                    IntegerLiteral(100)
