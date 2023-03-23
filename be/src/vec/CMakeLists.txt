@@ -174,6 +174,7 @@ set(VEC_FILES
   functions/array/function_array_remove.cpp
   functions/array/function_array_union.cpp
   functions/array/function_array_except.cpp
+  functions/array/function_array_exists.cpp
   functions/array/function_array_intersect.cpp
   functions/array/function_array_slice.cpp
   functions/array/function_array_difference.cpp
