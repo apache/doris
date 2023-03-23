@@ -54,7 +54,9 @@ public class TopNScanOpt extends PlanPostProcessor {
         if (!(firstKey instanceof SlotReference)) {
             return topN;
         }
-        if (firstKey.getDataType().isStringLikeType() || firstKey.getDataType().isFloatType()) {
+        if (firstKey.getDataType().isStringLikeType()
+                || firstKey.getDataType().isFloatType()
+                || firstKey.getDataType().isDoubleType()) {
             return topN;
         }
         while (child != null && (child instanceof Project || child instanceof Filter)) {
