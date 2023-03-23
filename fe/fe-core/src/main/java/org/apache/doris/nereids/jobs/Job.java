@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.jobs;
 
-import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -34,7 +32,6 @@ import org.apache.doris.nereids.metrics.event.TransformEvent;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
@@ -45,7 +42,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Function;
 
 /**
  * Abstract class for all job using for analyze and optimize query plan in Nereids.
@@ -149,29 +145,12 @@ public abstract class Job implements TracerSupplier {
     }
 
     public static Set<String> getDisableRules(JobContext context) {
-        return getAndCacheSessionVariable(context, "disableNereidsRules",
-                ImmutableSet.of(), SessionVariable::getDisableNereidsRules);
+        return context.getCascadesContext().getAndCacheSessionVariable(
+                "disableNereidsRules", ImmutableSet.of(), SessionVariable::getDisableNereidsRules);
     }
 
     public static boolean isTraceEnable(JobContext context) {
-        return getAndCacheSessionVariable(context, "isTraceEnable",
-                false, SessionVariable::isEnableNereidsTrace);
-    }
-
-    private static <T> T getAndCacheSessionVariable(JobContext context, String cacheName,
-            T defaultValue, Function<SessionVariable, T> variableSupplier) {
-        CascadesContext cascadesContext = context.getCascadesContext();
-        ConnectContext connectContext = cascadesContext.getConnectContext();
-        if (connectContext == null) {
-            return defaultValue;
-        }
-
-        StatementContext statementContext = cascadesContext.getStatementContext();
-        if (statementContext == null) {
-            return defaultValue;
-        }
-        T cacheResult = statementContext.getOrRegisterCache(cacheName,
-                () -> variableSupplier.apply(connectContext.getSessionVariable()));
-        return cacheResult;
+        return context.getCascadesContext().getAndCacheSessionVariable(
+                "isTraceEnable", false, SessionVariable::isEnableNereidsTrace);
     }
 }

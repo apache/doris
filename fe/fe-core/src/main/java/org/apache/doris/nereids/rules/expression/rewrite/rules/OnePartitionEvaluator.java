@@ -17,11 +17,8 @@
 
 package org.apache.doris.nereids.rules.expression.rewrite.rules;
 
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-
-import com.google.common.collect.ImmutableMap;
 
 import java.util.List;
 import java.util.Map;
@@ -48,19 +45,4 @@ public interface OnePartitionEvaluator {
      * we will return a context which result expression is BooleanLiteral.FALSE
      */
     Expression evaluate(Expression expression, Map<Slot, PartitionSlotInput> currentInputs);
-
-    /** fillSlotRangesToInputs */
-    static Map<Slot, PartitionSlotInput> fillSlotRangesToInputs(
-            Map<Slot, PartitionSlotInput> inputs) {
-
-        Map<Slot, ColumnRange> allColumnRanges = inputs.entrySet()
-                .stream()
-                .map(entry -> Pair.of(entry.getKey(), entry.getValue().columnRanges.get(entry.getKey())))
-                .collect(ImmutableMap.toImmutableMap(Pair::key, Pair::value));
-
-        return inputs.keySet()
-                .stream()
-                .map(slot -> Pair.of(slot, new PartitionSlotInput(inputs.get(slot).result, allColumnRanges)))
-                .collect(ImmutableMap.toImmutableMap(Pair::key, Pair::value));
-    }
 }

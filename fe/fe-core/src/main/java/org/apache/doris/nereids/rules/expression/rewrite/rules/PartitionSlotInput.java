@@ -24,10 +24,35 @@ import com.google.common.collect.ImmutableMap;
 
 import java.util.Map;
 
-/** PartitionSlotInput */
+/**
+ * PartitionSlotInput, the input of the partition slot.
+ * We will replace the partition slot to PartitionSlotInput#result, so that we can evaluate the expression tree.
+ *
+ * for example, the partition predicate: part_column1 > 1, if the partition range is [('1'), ('4')),
+ * and part_column1 is int type.
+ *
+ *             GreaterThen                                                 GreaterThen
+ *      /                      \                  ->                 /                    \
+ * Slot(part_column1)       IntegerLiteral(1)                IntegerLiteral(n)       IntegerLiteral(1)
+ *     ^                                                           ^
+ *     |                                                           |
+ *     +------------------------------------------------------------
+ *                             |
+ *                        replace by
+ *      PartitionSlotInput(result = IntegerLiteral(1))
+ *      PartitionSlotInput(result = IntegerLiteral(2))
+ *      PartitionSlotInput(result = IntegerLiteral(3))
+ *
+ *
+ * if the partition slot can not enumerable(some RANGE/ all OTHER partition slot type), e.g. we will stay slot:
+ * PartitionSlotInput(result = Slot(part_column1))
+ */
 public class PartitionSlotInput {
     // the partition slot will be replaced to this result
     public final Expression result;
+
+    // all partition slot's range map, the example in the class comment, it will be
+    // {Slot(part_column1): [1, 4)}
     public final Map<Slot, ColumnRange> columnRanges;
 
     public PartitionSlotInput(Expression result, Map<Slot, ColumnRange> columnRanges) {

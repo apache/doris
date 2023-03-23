@@ -61,7 +61,7 @@ public class PartitionRangeExpander {
         // e.g. the first partition column is const '1' in partition [('1', '2', '5'), ('1', '3', '5')),
         // we can substitute the slot in the expression tree and evaluate.
         CONST,
-        // e.g. the second partition column is range ['2', '3') in partition [('1', '2', '5'), ('1', '3', '5'))
+        // e.g. the second partition column is range ['2', '3'] in partition [('1', '2', '5'), ('1', '3', '5'))
         // if the partition column is discrete type(int, date), we expand and iterate it and substitute the slot
         // in the expression tree and evaluate, else use range set to check whether the partition is valid range
         RANGE,
@@ -74,8 +74,9 @@ public class PartitionRangeExpander {
     }
 
     /** expandRangeLiterals */
-    public final List<List<Expression>> tryExpandRange(List<Slot> partitionSlots,
-            List<Literal> lowers, List<Literal> uppers, List<PartitionSlotType> partitionSlotTypes) {
+    public final List<List<Expression>> tryExpandRange(
+            List<Slot> partitionSlots, List<Literal> lowers, List<Literal> uppers,
+            List<PartitionSlotType> partitionSlotTypes, int expandThreshold) {
 
         long expandedCount = 1;
         List<List<Expression>> expandedLists = Lists.newArrayListWithCapacity(lowers.size());
@@ -96,7 +97,7 @@ public class PartitionRangeExpander {
                     Literal upper = uppers.get(i);
                     try {
                         boolean isLastColumn = i + 1 == partitionSlots.size();
-                        if (canExpandRange(slot, lower, upper, expandedCount)) {
+                        if (canExpandRange(slot, lower, upper, expandedCount, expandThreshold)) {
                             expandedList.addAll(ImmutableList.copyOf(
                                     enumerableIterator(slot, lower, upper, isLastColumn))
                             );
@@ -121,16 +122,20 @@ public class PartitionRangeExpander {
         return expandedLists;
     }
 
-    private final boolean canExpandRange(Slot slot, Literal lower, Literal upper, long expandedCount) {
+    private final boolean canExpandRange(Slot slot, Literal lower, Literal upper,
+            long expandedCount, int expandThreshold) {
         DataType type = slot.getDataType();
         if (!type.isIntegerLikeType() && !type.isDateType() && !type.isDateV2Type()) {
             return false;
         }
         try {
             long count = enumerableCount(slot.getDataType(), lower, upper);
+            if (count <= 0) {
+                return false;
+            }
             // too much expanded will consuming resources of frontend,
             // e.g. [1, 100000000), we should skip expand it
-            return (expandedCount * count) <= 10; // add 10 to session variables later
+            return (expandedCount * count) <= expandThreshold;
         } catch (Throwable t) {
             return false;
         }

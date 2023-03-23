@@ -121,8 +121,12 @@ public class OneRangePartitionEvaluator
                 return Pair.of(slot, maybeNull);
             }).collect(ImmutableMap.toImmutableMap(Pair::key, Pair::value));
 
+        int expandThreshold = cascadesContext.getAndCacheSessionVariable(
+                "partitionPruningExpandThreshold",
+                10, sessionVariable -> sessionVariable.partitionPruningExpandThreshold);
+
         List<List<Expression>> expandInputs = expander.tryExpandRange(
-                partitionSlots, lowers, uppers, partitionSlotTypes);
+                partitionSlots, lowers, uppers, partitionSlotTypes, expandThreshold);
         // after expand range, we will get 2 dimension list like list:
         // part_col1: [1], part_col2:[4, 5, 6], we should combine it to
         // [1, 4], [1, 5], [1, 6] as inputs
@@ -186,7 +190,7 @@ public class OneRangePartitionEvaluator
                 slotToInputs.add(Pair.of(partitionSlot, new PartitionSlotInput(expression, slotToRange)));
             }
 
-            Map<Slot, PartitionSlotInput> slotPartitionSlotInputMap = OnePartitionEvaluator.fillSlotRangesToInputs(
+            Map<Slot, PartitionSlotInput> slotPartitionSlotInputMap = fillSlotRangesToInputs(
                     slotToInputs.stream()
                             .collect(ImmutableMap.toImmutableMap(Pair::key, Pair::value)));
             onePartitionInputs.add(slotPartitionSlotInputMap);
@@ -605,6 +609,20 @@ public class OneRangePartitionEvaluator
 
     private Optional<PartitionSlotType> getPartitionSlotType(Slot slot) {
         return Optional.ofNullable(slotToType.get(slot));
+    }
+
+    private Map<Slot, PartitionSlotInput> fillSlotRangesToInputs(
+            Map<Slot, PartitionSlotInput> inputs) {
+
+        Map<Slot, ColumnRange> allColumnRanges = inputs.entrySet()
+                .stream()
+                .map(entry -> Pair.of(entry.getKey(), entry.getValue().columnRanges.get(entry.getKey())))
+                .collect(ImmutableMap.toImmutableMap(Pair::key, Pair::value));
+
+        return inputs.keySet()
+                .stream()
+                .map(slot -> Pair.of(slot, new PartitionSlotInput(inputs.get(slot).result, allColumnRanges)))
+                .collect(ImmutableMap.toImmutableMap(Pair::key, Pair::value));
     }
 
     /** EvaluateRangeInput */
