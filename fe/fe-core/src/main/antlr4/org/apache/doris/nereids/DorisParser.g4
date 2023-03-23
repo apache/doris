@@ -174,7 +174,7 @@ queryOrganization
     ;
 
 sortClause
-    : (ORDER BY sortItem (COMMA sortItem)*)
+    : ORDER BY sortItem (COMMA sortItem)*
     ;
 
 sortItem
