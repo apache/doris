@@ -38,11 +38,10 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 
-#define TRY_LOCK true
-
 namespace doris {
 void write_log_info(char* buf, size_t buf_len, const char* fmt, ...);
 static const std::string DELETE_SIGN = "__DORIS_DELETE_SIGN__";
+static const std::string WHERE_SIGN = "__DORIS_WHERE_SIGN__";
 static const std::string VERSION_COL = "__DORIS_VERSION_COL__";
 
 // 用来加速运算

@@ -31,7 +31,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -39,7 +38,7 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 import com.google.common.base.Preconditions;
 
 import java.io.StringReader;
-import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -98,9 +97,9 @@ public class MVAnalysisTask extends BaseAnalysisTask {
                     .get();
             selectItem.setAlias(column.getName());
             Map<String, String> params = new HashMap<>();
-            for (Partition part : olapTable.getAllPartitions()) {
-                String partName = part.getName();
-                PartitionNames partitionName = new PartitionNames(false, Arrays.asList(partName));
+            for (String partName : info.partitionNames) {
+                PartitionNames partitionName = new PartitionNames(false,
+                        Collections.singletonList(partName));
                 tableRef.setPartitionNames(partitionName);
                 String sql = selectOne.toSql();
                 params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
@@ -111,8 +110,9 @@ public class MVAnalysisTask extends BaseAnalysisTask {
                 params.put("idxId", String.valueOf(meta.getIndexId()));
                 String colName = column.getName();
                 params.put("colId", colName);
-                long partId = part.getId();
-                params.put("partId", String.valueOf(partId));
+                String partId = olapTable.getPartition(partName) == null ? "NULL" :
+                        String.valueOf(olapTable.getPartition(partName).getId());
+                params.put("partId", partId);
                 params.put("dataSizeFunction", getDataSizeFunction(column));
                 params.put("dbName", info.dbName);
                 params.put("colName", colName);

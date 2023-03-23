@@ -130,7 +130,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 if (projects.equals(newProjects)) {
                     return project;
                 }
-                return new LogicalProject<>(newProjects, project.child());
+                return project.withProjectsAndChild(newProjects, project.child());
             }).toRule(RuleType.REWRITE_PROJECT_EXPRESSION);
         }
     }

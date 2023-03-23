@@ -69,7 +69,7 @@ public class MTMVTaskManager {
     private final ReentrantLock reentrantLock = new ReentrantLock(true);
 
     // keep track of all the completed tasks
-    private final Deque<MTMVTask> historyQueue = Queues.newLinkedBlockingDeque();
+    private final Deque<MTMVTask> historyTasks = Queues.newLinkedBlockingDeque();
 
     private ScheduledExecutorService taskScheduler = Executors.newScheduledThreadPool(1);
 
@@ -276,11 +276,11 @@ public class MTMVTaskManager {
     }
 
     private void addHistory(MTMVTask task) {
-        historyQueue.addFirst(task);
+        historyTasks.addFirst(task);
     }
 
-    public Deque<MTMVTask> getAllHistory() {
-        return historyQueue;
+    public Deque<MTMVTask> getHistoryTasks() {
+        return historyTasks;
     }
 
     public List<MTMVTask> showAllTasks() {
@@ -295,7 +295,7 @@ public class MTMVTaskManager {
             }
             taskList.addAll(
                     getRunningTaskMap().values().stream().map(MTMVTaskExecutor::getTask).collect(Collectors.toList()));
-            taskList.addAll(getAllHistory());
+            taskList.addAll(getHistoryTasks());
         } else {
             for (Queue<MTMVTaskExecutor> pTaskQueue : getPendingTaskMap().values()) {
                 taskList.addAll(
@@ -305,7 +305,7 @@ public class MTMVTaskManager {
             taskList.addAll(getRunningTaskMap().values().stream().map(MTMVTaskExecutor::getTask)
                     .filter(u -> u.getDBName().equals(dbName)).collect(Collectors.toList()));
             taskList.addAll(
-                    getAllHistory().stream().filter(u -> u.getDBName().equals(dbName)).collect(Collectors.toList()));
+                    getHistoryTasks().stream().filter(u -> u.getDBName().equals(dbName)).collect(Collectors.toList()));
 
         }
         return taskList.stream().sorted().collect(Collectors.toList());
@@ -417,7 +417,7 @@ public class MTMVTaskManager {
             return;
         }
         try {
-            Deque<MTMVTask> taskHistory = getAllHistory();
+            List<MTMVTask> taskHistory = showAllTasks();
             for (MTMVTask task : taskHistory) {
                 if (task.getJobName().equals(jobName)) {
                     clearTasks.add(task.getTaskId());
@@ -438,7 +438,7 @@ public class MTMVTaskManager {
             return;
         }
         try {
-            Deque<MTMVTask> taskHistory = getAllHistory();
+            Deque<MTMVTask> taskHistory = getHistoryTasks();
             for (MTMVTask task : taskHistory) {
                 long expireTime = task.getExpireTime();
                 if (currentTime > expireTime) {
@@ -460,7 +460,17 @@ public class MTMVTaskManager {
         }
         try {
             Set<String> taskSet = new HashSet<>(taskIds);
-            getAllHistory().removeIf(mtmvTask -> taskSet.contains(mtmvTask.getTaskId()));
+            // Pending tasks will be clear directly. So we don't drop it again here.
+            // Check the running task since the task was killed but was not move to the history queue.
+            for (long key : runningTaskMap.keySet()) {
+                MTMVTaskExecutor executor = runningTaskMap.get(key);
+                // runningTaskMap may be removed in the runningIterator
+                if (executor != null && taskSet.contains(executor.getTask().getTaskId())) {
+                    runningTaskMap.remove(key);
+                }
+            }
+            // Try to remove history tasks.
+            getHistoryTasks().removeIf(mtmvTask -> taskSet.contains(mtmvTask.getTaskId()));
             if (!isReplay) {
                 Env.getCurrentEnv().getEditLog().logDropMTMVTasks(taskIds);
             }

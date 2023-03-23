@@ -55,6 +55,7 @@ struct TBrokerFileStatus {
     4: required bool isSplitable; //false mean indicates that the file is indivisible,
                                   //and the entire file must be imported as a complete map task.
                                   //the return value of the compressed file is false
+    5: optional i64 blockSize; //Block size in FS. e.g. HDFS and S3
 }
 
 struct TBrokerFD {

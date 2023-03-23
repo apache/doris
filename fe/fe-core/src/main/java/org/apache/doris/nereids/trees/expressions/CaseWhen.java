@@ -104,7 +104,7 @@ public class CaseWhen extends Expression {
 
     @Override
     public String toSql() throws UnboundException {
-        StringBuilder output = new StringBuilder("CASE ");
+        StringBuilder output = new StringBuilder("CASE");
         for (Expression child : children()) {
             if (child instanceof WhenClause) {
                 output.append(child.toSql());

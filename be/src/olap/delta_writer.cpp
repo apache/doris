@@ -326,12 +326,16 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
     if (_is_cancelled) {
         return _cancel_status;
     }
+
+    MonotonicStopWatch timer;
+    timer.start();
     // return error if previous flush failed
     auto st = _flush_token->wait();
     if (UNLIKELY(!st.ok())) {
         LOG(WARNING) << "previous flush failed tablet " << _tablet->tablet_id();
         return st;
     }
+    uint64_t wait_time_ns = timer.elapsed_time();
 
     _mem_table.reset();
 
@@ -364,8 +368,12 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
     _delta_written_success = true;
 
     const FlushStatistic& stat = _flush_token->get_stats();
-    VLOG_CRITICAL << "close delta writer for tablet: " << _tablet->tablet_id()
-                  << ", load id: " << print_id(_req.load_id) << ", stats: " << stat;
+    // print slow log if wait more than 1s
+    if (wait_time_ns > 1000UL * 1000 * 1000) {
+        LOG(INFO) << "close delta writer for tablet: " << _tablet->tablet_id()
+                  << ", load id: " << print_id(_req.load_id) << ", wait close for " << wait_time_ns
+                  << "(ns), stats: " << stat;
+    }
 
     if (write_single_replica) {
         for (auto node_info : slave_tablet_nodes.slave_nodes()) {
