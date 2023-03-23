@@ -529,7 +529,8 @@ public class HdfsStorage extends BlobStorage {
             for (FileStatus fileStatus : files) {
                 RemoteFile remoteFile = new RemoteFile(
                         fileNameOnly ? fileStatus.getPath().getName() : fileStatus.getPath().toString(),
-                        !fileStatus.isDirectory(), fileStatus.isDirectory() ? -1 : fileStatus.getLen());
+                        !fileStatus.isDirectory(), fileStatus.isDirectory() ? -1 : fileStatus.getLen(),
+                        fileStatus.getBlockSize());
                 result.add(remoteFile);
             }
         } catch (FileNotFoundException e) {

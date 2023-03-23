@@ -89,6 +89,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
+import org.apache.doris.statistics.ColumnLevelStatisticCache;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.StatisticRange;
@@ -431,12 +432,15 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             if (colName == null) {
                 throw new RuntimeException(String.format("Column %s not found", colName));
             }
-            ColumnStatistic colStats =
-                    Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(table.getId(), colName);
-            if (!colStats.isUnKnown) {
-                rowCount = colStats.count;
+            ColumnLevelStatisticCache cache =
+                    Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(table.getId(), -1, colName);
+            if (cache == null || cache.columnStatistic == null) {
+                columnStatisticMap.put(slotReference, ColumnStatistic.UNKNOWN);
+                continue;
             }
-            columnStatisticMap.put(slotReference, colStats);
+            ColumnStatisticBuilder columnStatisticBuilder =
+                    new ColumnStatisticBuilder(cache.columnStatistic).setHistogram(cache.getHistogram());
+            columnStatisticMap.put(slotReference, columnStatisticBuilder.build());
         }
         return new Statistics(rowCount, columnStatisticMap);
     }
@@ -482,10 +486,14 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         List<NamedExpression> outputExpressions = aggregate.getOutputExpressions();
         // TODO: 1. Estimate the output unit size by the type of corresponding AggregateFunction
         //       2. Handle alias, literal in the output expression list
+        double factor = childStats.getRowCount() / resultSetCount;
         for (NamedExpression outputExpression : outputExpressions) {
             ColumnStatistic columnStat = ExpressionEstimation.estimate(outputExpression, childStats);
             ColumnStatisticBuilder builder = new ColumnStatisticBuilder(columnStat);
+            builder.setMinValue(columnStat.minValue / factor);
+            builder.setMaxValue(columnStat.maxValue / factor);
             builder.setNdv(resultSetCount);
+            builder.setDataSize(resultSetCount * outputExpression.getDataType().width());
             slotToColumnStats.put(outputExpression.toSlot(), columnStat);
         }
         return new Statistics(resultSetCount, slotToColumnStats, childStats.getWidth(),

@@ -1027,12 +1027,12 @@ public class OlapScanNode extends ScanNode {
         return result;
     }
 
-    // Only called when Coordinator exec in point query
+    // Only called when Coordinator exec in high performance point query
     public List<TScanRangeLocations> lazyEvaluateRangeLocations() throws UserException {
         // Lazy evaluation
         selectedIndexId = olapTable.getBaseIndexId();
-        // TODO(lhy) this function is a heavy operation for point query
-        computeColumnFilter();
+        // Only key columns
+        computeColumnFilter(olapTable.getBaseSchemaKeyColumns());
         computePartitionInfo();
         scanBackendIds.clear();
         scanTabletIds.clear();
@@ -1069,6 +1069,9 @@ public class OlapScanNode extends ScanNode {
                 .append("(").append(indexName).append(")");
         if (detailLevel == TExplainLevel.BRIEF) {
             output.append("\n").append(prefix).append(String.format("cardinality=%,d", cardinality));
+            if (cardinalityAfterFilter != -1) {
+                output.append("\n").append(prefix).append(String.format("afterFilter=%,d", cardinalityAfterFilter));
+            }
             if (!runtimeFilters.isEmpty()) {
                 output.append("\n").append(prefix).append("Apply RFs: ");
                 output.append(getRuntimeFilterExplainString(false, true));
@@ -1140,6 +1143,18 @@ public class OlapScanNode extends ScanNode {
             return (int) (parallelInstance * numBackend);
         }
         return result.size();
+    }
+
+    @Override
+    public boolean shouldColoAgg() {
+        // In pipeline exec engine, the instance num is parallel instance. we should disable colo agg
+        // in parallelInstance >= tablet_num * 2 to use more thread to speed up the query
+        if (ConnectContext.get().getSessionVariable().enablePipelineEngine()) {
+            int parallelInstance = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+            return parallelInstance < result.size() * 2;
+        } else {
+            return true;
+        }
     }
 
     @Override

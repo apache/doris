@@ -175,6 +175,7 @@ SegmentIterator::~SegmentIterator() {
 Status SegmentIterator::init(const StorageReadOptions& opts) {
     _opts = opts;
 
+    _col_predicates.clear();
     for (auto& predicate : opts.column_predicates) {
         if (predicate->need_to_clone()) {
             ColumnPredicate* cloned;

@@ -35,7 +35,6 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.statistics.Bucket;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -159,7 +158,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 return context.statistics.withRowCount(newRowCount);
             }
         }
-        if (!(left instanceof Literal) && !(right instanceof Literal)) {
+        if (!left.isConstant() && !right.isConstant()) {
             return calculateWhenBothColumn(cp, context, statsForLeft, statsForRight);
         } else {
             // For literal, it's max min is same value.

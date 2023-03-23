@@ -155,7 +155,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         // shuffle
         if (spec instanceof DistributionSpecHash) {
             return CostV1.of(
-                    childStatistics.getRowCount(),
+                    0,
                     0,
                     childStatistics.getRowCount());
         }
@@ -177,7 +177,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             return CostV1.of(
                     0,
                     0,
-                    childStatistics.getRowCount());
+                    childStatistics.getRowCount() * beNumber);
 
         }
 
@@ -251,7 +251,6 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             PlanContext context) {
         // TODO: copy from physicalHashJoin, should update according to physical nested loop join properties.
         Preconditions.checkState(context.arity() == 2);
-
         Statistics leftStatistics = context.getChildStatistics(0);
         Statistics rightStatistics = context.getChildStatistics(1);
 
