@@ -237,6 +237,46 @@ class PruneOlapScanPartitionTest extends TestWithFeService implements MemoPatter
     }
 
     @Test
+    void testMaxValue() throws Exception {
+        createTable("CREATE TABLE IF NOT EXISTS `test_basic_agg` (\n"
+                + "  `k1` tinyint(4) NULL COMMENT \"\",\n"
+                + "  `k2` smallint(6) NULL COMMENT \"\",\n"
+                + "  `k3` int(11) NULL COMMENT \"\",\n"
+                + "  `k4` bigint(20) NULL COMMENT \"\",\n"
+                + "  `k5` decimal(9, 3) NULL COMMENT \"\",\n"
+                + "  `k6` char(5) NULL COMMENT \"\",\n"
+                + "  `k10` date NULL COMMENT \"\",\n"
+                + "  `k11` datetime NULL COMMENT \"\",\n"
+                + "  `k7` varchar(20) NULL COMMENT \"\",\n"
+                + "  `k8` double MAX NULL COMMENT \"\",\n"
+                + "  `k9` float SUM NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "AGGREGATE KEY(`k1`, `k2`, `k3`, `k4`, `k5`, `k6`, `k10`, `k11`, `k7`)\n"
+                + "COMMENT \"OLAP\"\n"
+                + "PARTITION BY RANGE(`k1`)\n"
+                + "(PARTITION p1 VALUES [(\"-128\"), (\"-64\")),\n"
+                + "PARTITION p2 VALUES [(\"-64\"), (\"0\")),\n"
+                + "PARTITION p3 VALUES [(\"0\"), (\"64\")),\n"
+                + "PARTITION p4 VALUES [(\"64\"), (MAXVALUE)))\n"
+                + "DISTRIBUTED BY HASH(`k1`) BUCKETS 5\n"
+                + "PROPERTIES (\n"
+                + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                + "\"in_memory\" = \"false\",\n"
+                + "\"storage_format\" = \"V2\"\n"
+                + ");");
+
+        // TODO: support like function to prune partition
+        test("test_basic_agg", "  1998  like '1%'", 4);
+        test("test_basic_agg", " '1998' like '1%'", 4);
+        test("test_basic_agg", "  2998  like '1%'", 4);
+        test("test_basic_agg", " '2998' like '1%'", 4);
+        test("test_basic_agg", " 199.8  like '1%'", 4);
+        test("test_basic_agg", "'199.8' like '1%'", 4);
+        test("test_basic_agg", " 299.8  like '1%'", 4);
+        test("test_basic_agg", "'299.8' like '1%'", 4);
+    }
+
+    @Test
     void legacyTests() {
         // 1. Single partition column
         // no filters

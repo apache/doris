@@ -1719,7 +1719,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     private String parseTVFPropertyItem(TvfPropertyItemContext item) {
         if (item.constant() != null) {
             Object constant = visit(item.constant());
-            if (constant instanceof Literal && ((Literal) constant).isStringLiteral()) {
+            if (constant instanceof Literal && ((Literal) constant).isStringLikeLiteral()) {
                 return ((Literal) constant).getStringValue();
             }
         }

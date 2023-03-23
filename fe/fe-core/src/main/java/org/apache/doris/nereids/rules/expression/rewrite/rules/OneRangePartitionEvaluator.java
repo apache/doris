@@ -17,9 +17,18 @@
 
 package org.apache.doris.nereids.rules.expression.rewrite.rules;
 
+import com.google.common.collect.BoundType;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Range;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionItem;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -46,14 +55,6 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.Utils;
-
-import com.google.common.collect.BoundType;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Range;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -94,8 +95,8 @@ public class OneRangePartitionEvaluator
                 Objects.requireNonNull(cascadesContext, "cascadesContext cannot be null"));
 
         Range<PartitionKey> range = partitionItem.getItems();
-        this.lowers = toNereidsLiteral(range.lowerEndpoint().getKeys());
-        this.uppers = toNereidsLiteral(range.upperEndpoint().getKeys());
+        this.lowers = toNereidsLiterals(range.lowerEndpoint());
+        this.uppers = toNereidsLiterals(range.upperEndpoint());
 
         PartitionRangeExpander expander = new PartitionRangeExpander();
         this.partitionSlotTypes = expander.computePartitionSlotTypes(lowers, uppers);
@@ -562,10 +563,14 @@ public class OneRangePartitionEvaluator
         return new EvaluateRangeResult(originResult, mergedRange, ImmutableList.of(left, right));
     }
 
-    private List<Literal> toNereidsLiteral(List<LiteralExpr> legacyLiterals) {
-        return legacyLiterals.stream()
-                .map(Literal::fromLegacyLiteral)
-                .collect(ImmutableList.toImmutableList());
+    private List<Literal> toNereidsLiterals(PartitionKey partitionKey) {
+        return IntStream.range(0, partitionKey.getKeys().size())
+                .mapToObj(index -> {
+                    LiteralExpr literalExpr = partitionKey.getKeys().get(index);
+                    PrimitiveType primitiveType = partitionKey.getTypes().get(index);
+                    Type type = Type.fromPrimitiveType(primitiveType);
+                    return Literal.fromLegacyLiteral(literalExpr, type);
+                }).collect(ImmutableList.toImmutableList());
     }
 
     @Override
@@ -574,7 +579,6 @@ public class OneRangePartitionEvaluator
         if (!(result.result instanceof Date)) {
             return result;
         }
-
         date = (Date) result.result;
         if (!(date.child() instanceof Slot) || !isPartitionSlot((Slot) date.child())) {
             return result;

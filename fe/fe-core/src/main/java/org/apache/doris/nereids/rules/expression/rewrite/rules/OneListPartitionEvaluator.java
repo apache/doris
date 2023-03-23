@@ -62,7 +62,7 @@ public class OneListPartitionEvaluator
             .map(keys -> {
                 List<Literal> literals = keys.getKeys()
                         .stream()
-                        .map(Literal::fromLegacyLiteral)
+                        .map(literal -> Literal.fromLegacyLiteral(literal, literal.getType()))
                         .collect(ImmutableList.toImmutableList());
 
                 return IntStream.range(0, partitionSlots.size())

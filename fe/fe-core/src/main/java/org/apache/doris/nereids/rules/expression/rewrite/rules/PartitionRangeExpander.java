@@ -137,6 +137,7 @@ public class PartitionRangeExpander {
             // e.g. [1, 100000000), we should skip expand it
             return (expandedCount * count) <= expandThreshold;
         } catch (Throwable t) {
+            // e.g. max_value can not expand
             return false;
         }
     }

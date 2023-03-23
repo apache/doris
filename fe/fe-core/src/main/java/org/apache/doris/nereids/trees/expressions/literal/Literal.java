@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -272,8 +273,11 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
     }
 
     /** fromLegacyLiteral */
-    public static Literal fromLegacyLiteral(LiteralExpr literalExpr) {
-        DataType dataType = DataType.fromCatalogType(literalExpr.getType());
+    public static Literal fromLegacyLiteral(LiteralExpr literalExpr, Type type) {
+        DataType dataType = DataType.fromCatalogType(type);
+        if (literalExpr instanceof org.apache.doris.analysis.MaxLiteral) {
+            return new MaxLiteral(dataType);
+        }
         String stringValue = literalExpr.getStringValue();
         if (dataType.isTinyIntType()) {
             return new TinyIntLiteral(Byte.valueOf(stringValue).byteValue());
@@ -337,7 +341,7 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
 
     public abstract LiteralExpr toLegacyLiteral();
 
-    public boolean isStringLiteral() {
+    public boolean isStringLikeLiteral() {
         return dataType.isStringLikeType();
     }
 }
