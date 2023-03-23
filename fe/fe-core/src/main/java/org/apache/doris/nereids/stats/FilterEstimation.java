@@ -20,6 +20,7 @@ package org.apache.doris.nereids.stats;
 import org.apache.doris.nereids.stats.FilterEstimation.EstimationContext;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -211,25 +212,14 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             if (statsForLeft.histogram != null) {
                 return estimateEqualToWithHistogram(cp.left(), statsForLeft, val, context);
             }
-            // cp.left : func(A), we assume func(A) has same statistics with A
-            // for example: cast(N_NAME as varchar(*)) = 'GERMANY',
-            // we assume cast(N_NAME as varchar(*)) and N_NAME have the same col stats
-            Set<Slot> leftSlots = cp.left().getInputSlots();
-            Preconditions.checkArgument(leftSlots.size() <= 1,
-                    "stats derive: equal condition only support at one column, but we meet "
-                            + leftSlots.size()
-            );
 
             Statistics equalStats = context.statistics.withSel(selectivity);
-            /*
-            leftSlots could be empty, for example:
-            select * from (select 'jj' as kk1, sum(k2) from ${tableName2} where k10 = '2015-04-02' group by kk1)tt
-            where kk1 in ('jj')
-            kk1 in ('jj') => kk1 = 'jj' => 'jj'='jj
-            TODO const fold could eliminate this equalTo.
-             */
-            if (!leftSlots.isEmpty()) {
-                Slot leftSlot = leftSlots.iterator().next();
+            Expression left = cp.left();
+            if (left instanceof Cast) {
+                left = ((Cast) left).child();
+            }
+            if (left instanceof SlotReference) {
+                Slot leftSlot = (SlotReference) left;
                 //update min/max of cp.left
                 ColumnStatistic columnStats = equalStats.findColumnStatistics(leftSlot);
                 ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(columnStats);
