@@ -23,13 +23,11 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.algebra.Filter;
-import org.apache.doris.nereids.trees.plans.algebra.Join;
-import org.apache.doris.nereids.trees.plans.algebra.Project;
-import org.apache.doris.nereids.trees.plans.algebra.Sort;
+import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.types.ArrayType;
@@ -41,6 +39,7 @@ import org.apache.doris.nereids.types.StructType;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -87,9 +86,11 @@ public class Validator extends PlanPostProcessor {
         plan.children().forEach(child -> child.accept(this, context));
         Optional<Slot> opt = checkAllSlotFromChildren(plan);
         if (opt.isPresent()) {
+            List<Slot> childrenOutput = plan.children().stream().flatMap(p -> p.getOutput().stream()).collect(
+                    Collectors.toList());
             throw new AnalysisException("A expression contains slot not from children\n"
                     + "Plan: " + plan + "\n"
-                    + "Plan Output: " + plan.getOutput() + "\n"
+                    + "Children Output:" + childrenOutput + "\n"
                     + "Slot: " + opt.get() + "\n");
         }
         return plan;
@@ -102,17 +103,20 @@ public class Validator extends PlanPostProcessor {
         if (plan.arity() == 0) {
             return Optional.empty();
         }
-        if (!(plan instanceof Project || plan instanceof Filter || plan instanceof Join || plan instanceof Sort)) {
+        // agg exist multi-phase
+        if (plan instanceof Aggregate) {
             return Optional.empty();
         }
         Set<Slot> childOutputSet = plan.children().stream().flatMap(child -> child.getOutputSet().stream())
                 .collect(Collectors.toSet());
-        for (Expression expr : plan.getExpressions()) {
-            Set<Slot> inputSlots = expr.getInputSlots();
-            for (Slot slot : inputSlots) {
-                if (!(childOutputSet.contains(slot) || slot instanceof MarkJoinSlotReference)) {
-                    return Optional.of(slot);
-                }
+        Set<Slot> inputSlots = plan.getInputSlots();
+        for (Slot slot : inputSlots) {
+            if (slot instanceof MarkJoinSlotReference || slot instanceof VirtualSlotReference || slot.getName()
+                    .startsWith("mv")) {
+                continue;
+            }
+            if (!(childOutputSet.contains(slot))) {
+                return Optional.of(slot);
             }
         }
         return Optional.empty();
