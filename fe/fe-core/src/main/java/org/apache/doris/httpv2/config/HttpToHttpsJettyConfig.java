@@ -29,12 +29,25 @@ public class HttpToHttpsJettyConfig extends AbstractConfiguration {
         Constraint constraint = new Constraint();
         constraint.setDataConstraint(Constraint.DC_CONFIDENTIAL);
 
-        ConstraintMapping mapping = new ConstraintMapping();
-        mapping.setPathSpec("/*");
-        mapping.setConstraint(constraint);
-
         ConstraintSecurityHandler handler = new ConstraintSecurityHandler();
-        handler.addConstraintMapping(mapping);
+
+        ConstraintMapping mappingGet = new ConstraintMapping();
+        mappingGet.setConstraint(constraint);
+        mappingGet.setPathSpec("/*");
+        mappingGet.setMethod("GET");
+        handler.addConstraintMapping(mappingGet);
+
+        ConstraintMapping mappingDel = new ConstraintMapping();
+        mappingDel.setConstraint(constraint);
+        mappingDel.setPathSpec("/*");
+        mappingDel.setMethod("DELETE");
+        handler.addConstraintMapping(mappingDel);
+
+        ConstraintMapping mappingRest = new ConstraintMapping();
+        mappingRest.setConstraint(constraint);
+        mappingRest.setPathSpec("/rest/*");
+        mappingRest.setMethod("POST");
+        handler.addConstraintMapping(mappingRest);
 
         context.setSecurityHandler(handler);
     }

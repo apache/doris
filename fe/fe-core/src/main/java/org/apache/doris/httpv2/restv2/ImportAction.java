@@ -31,10 +31,12 @@ import lombok.Getter;
 import lombok.Setter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.view.RedirectView;
 
 import java.io.IOException;
 import java.util.List;
@@ -76,6 +78,13 @@ public class ImportAction extends RestBaseController {
     @RequestMapping(path = "/api/import/file_review", method = RequestMethod.POST)
     public Object fileReview(@RequestBody FileReviewRequestVo body,
             HttpServletRequest request, HttpServletResponse response) {
+        if (Config.enable_https && request.getServerPort() == Config.http_port) {
+            RedirectView redirectView = new RedirectView("https://" + request.getServerName() + ":"
+                    + Config.https_port + "/rest/v2/api/import/file_review");
+            redirectView.setStatusCode(HttpStatus.TEMPORARY_REDIRECT);
+            return redirectView;
+        }
+
         if (Config.enable_all_http_auth) {
             executeCheckPassword(request, response);
         }

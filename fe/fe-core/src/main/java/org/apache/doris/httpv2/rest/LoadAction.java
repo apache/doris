@@ -36,6 +36,7 @@ import com.google.common.base.Strings;
 import io.netty.handler.codec.http.HttpHeaderNames;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -59,6 +60,14 @@ public class LoadAction extends RestBaseController {
     @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_load", method = RequestMethod.PUT)
     public Object load(HttpServletRequest request, HttpServletResponse response,
                        @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
+        if (Config.enable_https && request.getServerPort() == Config.http_port) {
+            String query = request.getQueryString();
+            RedirectView redirectView = new RedirectView("https://" + request.getServerName() + ":"
+                    + Config.https_port + "/api/" + db + "/" + table + "/_load?" + query);
+            redirectView.setStatusCode(HttpStatus.TEMPORARY_REDIRECT);
+            return redirectView;
+        }
+
         if (Config.disable_mini_load) {
             ResponseEntity entity = ResponseEntityBuilder.notFound("The mini load operation has been"
                     + " disabled by default, if you need to add disable_mini_load=false in fe.conf.");
@@ -73,6 +82,13 @@ public class LoadAction extends RestBaseController {
     public Object streamLoad(HttpServletRequest request,
                              HttpServletResponse response,
                              @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
+        if (Config.enable_https && request.getServerPort() == Config.http_port) {
+            RedirectView redirectView = new RedirectView("https://" + request.getServerName() + ":"
+                    + Config.https_port + "/api/" + db + "/" + table + "/_stream_load");
+            redirectView.setStatusCode(HttpStatus.TEMPORARY_REDIRECT);
+            return redirectView;
+        }
+
         executeCheckPassword(request, response);
         return executeWithoutPassword(request, response, db, table, true);
     }
@@ -81,6 +97,13 @@ public class LoadAction extends RestBaseController {
     public Object streamLoad2PC(HttpServletRequest request,
                                    HttpServletResponse response,
                                    @PathVariable(value = DB_KEY) String db) {
+        if (Config.enable_https && request.getServerPort() == Config.http_port) {
+            RedirectView redirectView = new RedirectView("https://" + request.getServerName() + ":"
+                    + Config.https_port + "/api/" + db + "/_stream_load_2pc");
+            redirectView.setStatusCode(HttpStatus.TEMPORARY_REDIRECT);
+            return redirectView;
+        }
+
         executeCheckPassword(request, response);
         return executeStreamLoad2PC(request, db);
     }
@@ -90,6 +113,13 @@ public class LoadAction extends RestBaseController {
                                       HttpServletResponse response,
                                       @PathVariable(value = DB_KEY) String db,
                                       @PathVariable(value = TABLE_KEY) String table) {
+        if (Config.enable_https && request.getServerPort() == Config.http_port) {
+            RedirectView redirectView = new RedirectView("https://" + request.getServerName() + ":"
+                    + Config.https_port + "/api/" + db + "/" + table + "/_stream_load_2pc");
+            redirectView.setStatusCode(HttpStatus.TEMPORARY_REDIRECT);
+            return redirectView;
+        }
+
         executeCheckPassword(request, response);
         return executeStreamLoad2PC(request, db);
     }

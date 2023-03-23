@@ -25,6 +25,7 @@ import org.apache.doris.analysis.TableRef;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DorisHttpException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
@@ -56,10 +57,12 @@ import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
 import org.json.simple.JSONObject;
 import org.json.simple.JSONValue;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.view.RedirectView;
 
 import java.util.ArrayList;
 import java.util.Base64;
@@ -84,6 +87,13 @@ public class TableQueryPlanAction extends RestBaseController {
             @PathVariable(value = DB_KEY) final String dbName,
             @PathVariable(value = TABLE_KEY) final String tblName,
             HttpServletRequest request, HttpServletResponse response) {
+        if (Config.enable_https && request.getServerPort() == Config.http_port) {
+            RedirectView redirectView = new RedirectView("https://" + request.getServerName() + ":"
+                    + Config.https_port + "/api/" + dbName + "/" + tblName + "/_query_plan");
+            redirectView.setStatusCode(HttpStatus.TEMPORARY_REDIRECT);
+            return redirectView;
+        }
+
         executeCheckPassword(request, response);
         // just allocate 2 slot for top holder map
         Map<String, Object> resultMap = new HashMap<>(4);

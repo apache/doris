@@ -18,6 +18,7 @@
 package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.analysis.LoadStmt;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.httpv2.entity.RestBaseResult;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -27,6 +28,7 @@ import org.apache.doris.service.ExecuteEnv;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
@@ -52,6 +54,14 @@ public class MultiAction extends RestBaseController {
     public Object multi_desc(
             @PathVariable(value = DB_KEY) final String dbName,
             HttpServletRequest request, HttpServletResponse response) {
+        if (Config.enable_https && request.getServerPort() == Config.http_port) {
+            String query = request.getQueryString();
+            RedirectView redirectView = new RedirectView("https://" + request.getServerName() + ":"
+                    + Config.https_port + "/api/" + dbName + "/_multi_desc?" + query);
+            redirectView.setStatusCode(HttpStatus.TEMPORARY_REDIRECT);
+            return redirectView;
+        }
+
         try {
             executeCheckPassword(request, response);
 
@@ -84,6 +94,14 @@ public class MultiAction extends RestBaseController {
             @PathVariable(value = DB_KEY) final String dbName,
             HttpServletRequest request, HttpServletResponse response)
             throws DdlException {
+        if (Config.enable_https && request.getServerPort() == Config.http_port) {
+            String query = request.getQueryString();
+            RedirectView redirectView = new RedirectView("https://" + request.getServerName() + ":"
+                    + Config.https_port + "/api/" + dbName + "/_multi_list?" + query);
+            redirectView.setStatusCode(HttpStatus.TEMPORARY_REDIRECT);
+            return redirectView;
+        }
+
         try {
             executeCheckPassword(request, response);
             execEnv = ExecuteEnv.getInstance();
@@ -110,6 +128,14 @@ public class MultiAction extends RestBaseController {
             @PathVariable(value = DB_KEY) final String dbName,
             HttpServletRequest request, HttpServletResponse response)
             throws DdlException {
+        if (Config.enable_https && request.getServerPort() == Config.http_port) {
+            String query = request.getQueryString();
+            RedirectView redirectView = new RedirectView("https://" + request.getServerName() + ":"
+                    + Config.https_port + "/api/" + dbName + "/_multi_start?" + query);
+            redirectView.setStatusCode(HttpStatus.TEMPORARY_REDIRECT);
+            return redirectView;
+        }
+
         try {
             executeCheckPassword(request, response);
             execEnv = ExecuteEnv.getInstance();
@@ -154,6 +180,14 @@ public class MultiAction extends RestBaseController {
     public Object multi_unload(
             @PathVariable(value = DB_KEY) final String dbName,
             HttpServletRequest request, HttpServletResponse response) {
+        if (Config.enable_https && request.getServerPort() == Config.http_port) {
+            String query = request.getQueryString();
+            RedirectView redirectView = new RedirectView("https://" + request.getServerName() + ":"
+                    + Config.https_port + "/api/" + dbName + "/_multi_unload?" + query);
+            redirectView.setStatusCode(HttpStatus.TEMPORARY_REDIRECT);
+            return redirectView;
+        }
+
         try {
             executeCheckPassword(request, response);
             execEnv = ExecuteEnv.getInstance();
@@ -188,6 +222,14 @@ public class MultiAction extends RestBaseController {
             @PathVariable(value = DB_KEY) final String dbName,
             HttpServletRequest request, HttpServletResponse response)
             throws DdlException {
+        if (Config.enable_https && request.getServerPort() == Config.http_port) {
+            String query = request.getQueryString();
+            RedirectView redirectView = new RedirectView("https://" + request.getServerName() + ":"
+                    + Config.https_port + "/api/" + dbName + "/_multi_commit?" + query);
+            redirectView.setStatusCode(HttpStatus.TEMPORARY_REDIRECT);
+            return redirectView;
+        }
+
         try {
             executeCheckPassword(request, response);
             execEnv = ExecuteEnv.getInstance();
@@ -222,6 +264,14 @@ public class MultiAction extends RestBaseController {
             @PathVariable(value = DB_KEY) final String dbName,
             HttpServletRequest request, HttpServletResponse response)
             throws DdlException {
+        if (Config.enable_https && request.getServerPort() == Config.http_port) {
+            String query = request.getQueryString();
+            RedirectView redirectView = new RedirectView("https://" + request.getServerName() + ":"
+                    + Config.https_port + "/api/" + dbName + "/_multi_abort?" + query);
+            redirectView.setStatusCode(HttpStatus.TEMPORARY_REDIRECT);
+            return redirectView;
+        }
+
         try {
             executeCheckPassword(request, response);
             execEnv = ExecuteEnv.getInstance();

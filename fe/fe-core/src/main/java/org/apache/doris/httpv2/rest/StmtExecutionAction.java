@@ -50,6 +50,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.view.RedirectView;
 
 import java.io.StringReader;
 import java.lang.reflect.Type;
@@ -84,6 +85,13 @@ public class StmtExecutionAction extends RestBaseController {
     @RequestMapping(path = "/api/query/{" + NS_KEY + "}/{" + DB_KEY + "}", method = {RequestMethod.POST})
     public Object executeSQL(@PathVariable(value = NS_KEY) String ns, @PathVariable(value = DB_KEY) String dbName,
             HttpServletRequest request, HttpServletResponse response, @RequestBody String body) {
+        if (Config.enable_https && request.getServerPort() == Config.http_port) {
+            RedirectView redirectView = new RedirectView("https://" + request.getServerName() + ":"
+                    + Config.https_port + "/api/query/" + ns + "/" + dbName);
+            redirectView.setStatusCode(org.springframework.http.HttpStatus.TEMPORARY_REDIRECT);
+            return redirectView;
+        }
+
         ActionAuthorizationInfo authInfo = checkWithCookie(request, response, false);
         String fullDbName = getFullDbName(dbName);
         if (Config.enable_all_http_auth) {
@@ -125,8 +133,15 @@ public class StmtExecutionAction extends RestBaseController {
      * @return plain text of create table stmts
      */
     @RequestMapping(path = "/api/query_schema/{" + NS_KEY + "}/{" + DB_KEY + "}", method = {RequestMethod.POST})
-    public String querySchema(@PathVariable(value = NS_KEY) String ns, @PathVariable(value = DB_KEY) String dbName,
+    public Object querySchema(@PathVariable(value = NS_KEY) String ns, @PathVariable(value = DB_KEY) String dbName,
             HttpServletRequest request, HttpServletResponse response, @RequestBody String sql) {
+        if (Config.enable_https && request.getServerPort() == Config.http_port) {
+            RedirectView redirectView = new RedirectView("https://" + request.getServerName() + ":"
+                    + Config.https_port + "/api/query_schema/" + ns + "/" + dbName);
+            redirectView.setStatusCode(org.springframework.http.HttpStatus.TEMPORARY_REDIRECT);
+            return redirectView;
+        }
+
         checkWithCookie(request, response, false);
 
         if (ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {

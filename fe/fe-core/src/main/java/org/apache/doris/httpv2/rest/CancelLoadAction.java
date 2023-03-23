@@ -19,6 +19,7 @@ package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
@@ -27,6 +28,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
@@ -45,8 +47,15 @@ public class CancelLoadAction extends RestBaseController {
     @RequestMapping(path = "/api/{" + DB_KEY + "}/_cancel", method = RequestMethod.POST)
     public Object execute(@PathVariable(value = DB_KEY) final String dbName,
                           HttpServletRequest request, HttpServletResponse response) {
-        executeCheckPassword(request, response);
+        if (Config.enable_https && request.getServerPort() == Config.http_port) {
+            String query = request.getQueryString();
+            RedirectView redirectView = new RedirectView("https://" + request.getServerName() + ":"
+                    + Config.https_port + "/api/" + dbName + "/_cancel?" + query);
+            redirectView.setStatusCode(HttpStatus.TEMPORARY_REDIRECT);
+            return redirectView;
+        }
 
+        executeCheckPassword(request, response);
         RedirectView redirectView = redirectToMaster(request, response);
         if (redirectView != null) {
             return redirectView;

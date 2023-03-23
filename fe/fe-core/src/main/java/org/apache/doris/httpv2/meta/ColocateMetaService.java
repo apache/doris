@@ -21,6 +21,7 @@ import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.RestBaseController;
@@ -32,6 +33,7 @@ import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
@@ -103,6 +105,14 @@ public class ColocateMetaService extends RestBaseController {
     @RequestMapping(path = "/api/colocate/group_stable", method = {RequestMethod.POST, RequestMethod.DELETE})
     public Object group_stable(HttpServletRequest request, HttpServletResponse response)
             throws DdlException {
+        if (Config.enable_https && request.getServerPort() == Config.http_port) {
+            String query = request.getQueryString();
+            RedirectView redirectView = new RedirectView("https://" + request.getServerName() + ":"
+                    + Config.https_port + "/api/colocate/group_stable?" + query);
+            redirectView.setStatusCode(HttpStatus.TEMPORARY_REDIRECT);
+            return redirectView;
+        }
+
         executeWithoutPassword(request, response);
         GroupId groupId = checkAndGetGroupId(request);
 
@@ -118,6 +128,14 @@ public class ColocateMetaService extends RestBaseController {
     @RequestMapping(path = "/api/colocate/bucketseq", method = RequestMethod.POST)
     public Object bucketseq(HttpServletRequest request, HttpServletResponse response, @RequestBody String meta)
             throws DdlException {
+        if (Config.enable_https && request.getServerPort() == Config.http_port) {
+            String query = request.getQueryString();
+            RedirectView redirectView = new RedirectView("https://" + request.getServerName() + ":"
+                    + Config.https_port + "/api/colocate/bucketseq?" + query);
+            redirectView.setStatusCode(HttpStatus.TEMPORARY_REDIRECT);
+            return redirectView;
+        }
+
         executeWithoutPassword(request, response);
         final String clusterName = ConnectContext.get().getClusterName();
         GroupId groupId = checkAndGetGroupId(request);
