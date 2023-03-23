@@ -641,7 +641,13 @@ public class OneRangePartitionEvaluator
         }
     }
 
-    /** EvaluateRangeResult */
+    /**
+     * EvaluateRangeResult.
+     *
+     * bind expression and ColumnRange, so we can not only compute expression tree, but also compute range.
+     * if column range is empty range, the predicate should return BooleanLiteral.FALSE, means this partition
+     * can be pruned.
+     */
     public static class EvaluateRangeResult {
         private final Expression result;
         private final Map<Slot, ColumnRange> columnRanges;
