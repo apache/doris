@@ -107,7 +107,7 @@ public class FunctionBuilder {
                     })
                     .collect(Collectors.joining(", ", "(", ")"));
             throw new IllegalStateException("Can not build function: '" + name
-                    + "', expression: " + name + argString + ", " + t.getCause().getMessage(), t);
+                    + "', expression: " + name + argString, t);
         }
     }
 

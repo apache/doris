@@ -19,6 +19,7 @@
 
 #include <queue>
 
+#include "io/io_common.h"
 #include "table_format_reader.h"
 #include "vec/columns/column_dictionary.h"
 #include "vec/exec/format/format_common.h"
@@ -27,8 +28,6 @@
 #include "vec/exprs/vexpr.h"
 
 namespace doris {
-
-struct IOContext;
 
 namespace vectorized {
 
@@ -42,7 +41,7 @@ public:
     IcebergTableReader(GenericReader* file_format_reader, RuntimeProfile* profile,
                        RuntimeState* state, const TFileScanRangeParams& params,
                        const TFileRangeDesc& range, KVCache<std::string>& kv_cache,
-                       IOContext* io_ctx);
+                       io::IOContext* io_ctx);
     ~IcebergTableReader() override = default;
 
     Status init_row_filters(const TFileRangeDesc& range) override;
@@ -121,7 +120,7 @@ private:
     // col names in table but not in parquet file
     std::vector<std::string> _not_in_file_col_names;
 
-    IOContext* _io_ctx;
+    io::IOContext* _io_ctx;
     bool _has_schema_change = false;
     bool _has_iceberg_schema = false;
 };

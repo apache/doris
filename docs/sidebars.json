@@ -275,6 +275,7 @@
                                 "sql-manual/sql-functions/array-functions/array_max",
                                 "sql-manual/sql-functions/array-functions/array_min",
                                 "sql-manual/sql-functions/array-functions/array_map",
+                                "sql-manual/sql-functions/array-functions/array_filter",
                                 "sql-manual/sql-functions/array-functions/array_avg",
                                 "sql-manual/sql-functions/array-functions/array_sum",
                                 "sql-manual/sql-functions/array-functions/array_size",
@@ -299,6 +300,8 @@
                                 "sql-manual/sql-functions/array-functions/array_pushfront",
                                 "sql-manual/sql-functions/array-functions/array_compact",
                                 "sql-manual/sql-functions/array-functions/array_concat",
+                                "sql-manual/sql-functions/array-functions/array_zip",
+                                "sql-manual/sql-functions/array-functions/array_exists",
                                 "sql-manual/sql-functions/array-functions/arrays_overlap",
                                 "sql-manual/sql-functions/array-functions/countequal",
                                 "sql-manual/sql-functions/array-functions/element_at"

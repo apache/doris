@@ -313,7 +313,8 @@ Status JdbcConnector::_check_type(SlotDescriptor* slot_desc, const std::string& 
         break;
     }
     case TYPE_ARRAY: {
-        if (type_str != "java.sql.Array" && type_str != "java.lang.String") {
+        if (type_str != "java.sql.Array" && type_str != "java.lang.String" &&
+            type_str != "java.lang.Object") {
             return Status::InternalError(error_msg);
         }
         if (!slot_desc->type().children[0].children.empty()) {

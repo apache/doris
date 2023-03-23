@@ -44,7 +44,6 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -166,9 +165,6 @@ public class ColumnPrivTest extends TestWithFeService {
         //      tbl21:  c11(bigint), c12(string), c13(float)
 
         UserIdentity user1 = UserIdentity.createAnalyzedUserIdentWithIp("default_cluster:user1", "%");
-        Set<String> roles = Sets.newHashSet();
-        roles.add("role1");
-        user1.setRoles(roles);
         ConnectContext user1Ctx = createCtx(user1, "127.0.0.1");
 
         // 1. query inner table
@@ -250,7 +246,7 @@ public class ColumnPrivTest extends TestWithFeService {
                     PrivPredicate wanted) throws AuthorizationException {
                 if (currentUser.getQualifiedUser().contains("user1")) {
                     if (ctl.equals("test1")) {
-                        if (db.equals("db1")) {
+                        if (db.equals("default_cluster:db1")) {
                             if (tbl.equals("tbl11")) {
                                 if (cols.contains("a11")) {
                                     throw new AuthorizationException("Access deny to column a11");

@@ -329,6 +329,19 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (firstAggregateInFragment == null) {
             context.setFirstAggregateInFragment(currentFragment, aggregate);
         }
+        // in pipeline engine, we use parallel scan by default, but it broke the rule of data distribution
+        // so, if we do final phase or merge without exchange.
+        // we need turn of parallel scan to ensure to get correct result.
+        PlanNode leftMostNode = currentFragment.getPlanRoot();
+        while (leftMostNode.getChildren().size() != 0 && !(leftMostNode instanceof ExchangeNode)) {
+            leftMostNode = leftMostNode.getChild(0);
+        }
+        // TODO: nereids forbid all parallel scan under aggregate temporary, because nereids could generate
+        //  so complex aggregate plan than legacy planner, and should add forbid parallel scan hint when
+        //  generate physical aggregate plan.
+        if (leftMostNode instanceof OlapScanNode) {
+            currentFragment.setHasColocatePlanNode(true);
+        }
         setPlanRoot(currentFragment, aggregationNode, aggregate);
         if (aggregate.getStats() != null) {
             aggregationNode.setCardinality((long) aggregate.getStats().getRowCount());
@@ -1468,6 +1481,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 updateLegacyPlanIdToPhysicalPlan(inputFragment.getPlanRoot(), filter);
             }
         }
+        //in ut, filter.stats may be null
+        if (filter.getStats() != null) {
+            inputFragment.getPlanRoot().setCardinalityAfterFilter((long) filter.getStats().getRowCount());
+        }
         return inputFragment;
     }
 
@@ -1838,8 +1855,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         hashJoinNode.setChild(0, leftFragment.getPlanRoot());
         hashJoinNode.setChild(1, rightFragment.getPlanRoot());
         setPlanRoot(leftFragment, hashJoinNode, join);
-        rightFragment.getTargetRuntimeFilterIds().stream().forEach(leftFragment::setTargetRuntimeFilterIds);
-        rightFragment.getBuilderRuntimeFilterIds().stream().forEach(leftFragment::setBuilderRuntimeFilterIds);
+        rightFragment.getTargetRuntimeFilterIds().forEach(leftFragment::setTargetRuntimeFilterIds);
+        rightFragment.getBuilderRuntimeFilterIds().forEach(leftFragment::setBuilderRuntimeFilterIds);
         context.removePlanFragment(rightFragment);
         leftFragment.setHasColocatePlanNode(true);
         return leftFragment;

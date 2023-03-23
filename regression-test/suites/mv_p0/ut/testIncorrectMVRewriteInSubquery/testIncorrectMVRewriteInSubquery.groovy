@@ -33,7 +33,7 @@ suite ("testIncorrectMVRewriteInSubquery") {
 
     createMV("create materialized view user_tags_mv as select user_id, bitmap_union(to_bitmap(tag_id)) from user_tags group by user_id;")
 
-    sql """insert into user_tags values("2020-01-01",1,"a",1);"""
+    sql """insert into user_tags values("2020-01-01",1,"a",2);"""
 
     explain {
         sql("select * from user_tags order by time_col;")

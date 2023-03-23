@@ -19,7 +19,7 @@
 
 namespace doris::vectorized {
 
-ColumnChunkReader::ColumnChunkReader(BufferedStreamReader* reader,
+ColumnChunkReader::ColumnChunkReader(io::BufferedStreamReader* reader,
                                      tparquet::ColumnChunk* column_chunk, FieldSchema* field_schema,
                                      cctz::time_zone* ctz)
         : _field_schema(field_schema),

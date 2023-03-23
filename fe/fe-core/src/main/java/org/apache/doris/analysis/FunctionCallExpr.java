@@ -31,6 +31,8 @@ import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -952,7 +954,7 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("aes_encrypt")
                 || fnName.getFunction().equalsIgnoreCase("sm4_decrypt")
                 || fnName.getFunction().equalsIgnoreCase("sm4_encrypt"))
-                && (children.size() == 2 || children.size() == 3)) {
+                && children.size() == 3) {
             String blockEncryptionMode = "";
             Set<String> aesModes = new HashSet<>(Arrays.asList(
                     "AES_128_ECB",
@@ -998,12 +1000,6 @@ public class FunctionCallExpr extends Expr {
                         throw new AnalysisException("session variable block_encryption_mode is invalid with aes");
 
                     }
-                    if (children.size() == 2 && !blockEncryptionMode.toUpperCase().equals("AES_128_ECB")
-                            && !blockEncryptionMode.toUpperCase().equals("AES_192_ECB")
-                            && !blockEncryptionMode.toUpperCase().equals("AES_256_ECB")) {
-                        throw new AnalysisException("Incorrect parameter count in the call to native function "
-                                + "'aes_encrypt' or 'aes_decrypt'");
-                    }
                 }
                 if (fnName.getFunction().equalsIgnoreCase("sm4_decrypt")
                         || fnName.getFunction().equalsIgnoreCase("sm4_encrypt")) {
@@ -1013,10 +1009,6 @@ public class FunctionCallExpr extends Expr {
                     if (!sm4Modes.contains(blockEncryptionMode.toUpperCase())) {
                         throw new AnalysisException("session variable block_encryption_mode is invalid with sm4");
 
-                    }
-                    if (children.size() == 2) {
-                        throw new AnalysisException("Incorrect parameter count in the call to native function "
-                                + "'sm4_encrypt' or 'sm4_decrypt'");
                     }
                 }
             }
@@ -1054,6 +1046,23 @@ public class FunctionCallExpr extends Expr {
             for (int i = 0; i < childTypes.length; i++) {
                 uncheckedCastChild(compatibleType, i);
             }
+        }
+
+        if (fnName.getFunction().equalsIgnoreCase("array_exists")) {
+            Type[] newArgTypes = new Type[1];
+            if (!(getChild(0) instanceof CastExpr)) {
+                Expr castExpr = getChild(0).castTo(ArrayType.create(Type.BOOLEAN, true));
+                this.setChild(0, castExpr);
+                newArgTypes[0] = castExpr.getType();
+            }
+
+            fn = getBuiltinFunction(fnName.getFunction(), newArgTypes,
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+            if (fn == null) {
+                LOG.warn("fn {} not exists", this.toSqlImpl());
+                throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
+            }
+            fn.setReturnType(getChild(0).getType());
         }
     }
 
@@ -1564,6 +1573,16 @@ public class FunctionCallExpr extends Expr {
             if (children.size() > 0) {
                 this.type = children.get(0).getType();
             }
+        } else if (fnName.getFunction().equalsIgnoreCase("array_zip")) {
+            // collect the child types to make a STRUCT type
+            Type[] childTypes = collectChildReturnTypes();
+            ArrayList<StructField> fields = new ArrayList<>();
+
+            for (int i = 0; i < childTypes.length; i++) {
+                fields.add(new StructField(((ArrayType) childTypes[i]).getItemType()));
+            }
+
+            this.type = new ArrayType(new StructType(fields));
         }
 
         if (this.type instanceof ArrayType) {

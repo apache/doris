@@ -753,12 +753,12 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
         {
             SCOPED_RAW_TIMER(&duration_ns);
             auto prepare_st = context->prepare(params);
-            g_fragmentmgr_prepare_latency << (duration_ns / 1000);
             if (!prepare_st.ok()) {
                 context->close_if_prepare_failed();
                 return prepare_st;
             }
         }
+        g_fragmentmgr_prepare_latency << (duration_ns / 1000);
 
         std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
         _runtimefilter_controller.add_entity(params, &handler, context->get_runtime_state());
@@ -909,12 +909,12 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         {
             SCOPED_RAW_TIMER(&duration_ns);
             auto prepare_st = context->prepare(params, i);
-            g_fragmentmgr_prepare_latency << (duration_ns / 1000);
             if (!prepare_st.ok()) {
                 context->close_if_prepare_failed();
                 return prepare_st;
             }
         }
+        g_fragmentmgr_prepare_latency << (duration_ns / 1000);
 
         std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
         _runtimefilter_controller.add_entity(params, local_params, &handler,

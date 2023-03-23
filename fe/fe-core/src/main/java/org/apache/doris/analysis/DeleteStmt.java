@@ -19,11 +19,11 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -33,34 +33,45 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.rewrite.BetweenToCompoundRule;
+import org.apache.doris.rewrite.ExprRewriteRule;
+import org.apache.doris.rewrite.ExprRewriter;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.LinkedList;
 import java.util.List;
 
 public class DeleteStmt extends DdlStmt {
-    private final TableName tableName;
+
+    private static final List<ExprRewriteRule> EXPR_NORMALIZE_RULES = ImmutableList.of(
+            BetweenToCompoundRule.INSTANCE
+    );
+
+    private TableRef targetTableRef;
+    private TableName tableName;
     private final PartitionNames partitionNames;
     private final FromClause fromClause;
-    private final Expr wherePredicate;
+    private Expr wherePredicate;
 
     private final List<Predicate> deleteConditions = new LinkedList<>();
 
     private InsertStmt insertStmt;
-    private Table targetTable;
+    private TableIf targetTable;
     private final List<SelectListItem> selectListItems = Lists.newArrayList();
     private final List<String> cols = Lists.newArrayList();
 
     public DeleteStmt(TableName tableName, PartitionNames partitionNames, Expr wherePredicate) {
-        this(tableName, partitionNames, null, wherePredicate);
+        this(new TableRef(tableName, null), partitionNames, null, wherePredicate);
     }
 
-    public DeleteStmt(TableName tableName, PartitionNames partitionNames, FromClause fromClause, Expr wherePredicate) {
-        this.tableName = tableName;
+    public DeleteStmt(TableRef targetTableRef, PartitionNames partitionNames,
+            FromClause fromClause, Expr wherePredicate) {
+        this.targetTableRef = targetTableRef;
+        this.tableName = targetTableRef.getName();
         this.partitionNames = partitionNames;
         this.fromClause = fromClause;
         this.wherePredicate = wherePredicate;
@@ -105,6 +116,8 @@ public class DeleteStmt extends DdlStmt {
 
         // analyze predicate
         if (fromClause == null) {
+            ExprRewriter exprRewriter = new ExprRewriter(EXPR_NORMALIZE_RULES);
+            wherePredicate = exprRewriter.rewrite(wherePredicate, analyzer);
             analyzePredicate(wherePredicate);
         } else {
             constructInsertStmt();
@@ -122,7 +135,7 @@ public class DeleteStmt extends DdlStmt {
             if (!column.isVisible() && column.getName().equalsIgnoreCase(Column.DELETE_SIGN)) {
                 expr = new BoolLiteral(true);
             } else if (column.isKey() || !column.isVisible() || (!column.isAllowNull() && !column.hasDefaultValue())) {
-                expr = new SlotRef(tableName, column.getName());
+                expr = new SlotRef(targetTableRef.getAliasAsName(), column.getName());
             } else {
                 continue;
             }
@@ -131,12 +144,11 @@ public class DeleteStmt extends DdlStmt {
         }
 
         FromClause fromUsedInInsert;
-        TableRef tableRef = new TableRef(tableName, null, partitionNames);
         if (fromClause == null) {
-            fromUsedInInsert = new FromClause(Lists.newArrayList(tableRef));
+            fromUsedInInsert = new FromClause(Lists.newArrayList(targetTableRef));
         } else {
             fromUsedInInsert = fromClause.clone();
-            fromUsedInInsert.getTableRefs().add(0, tableRef);
+            fromUsedInInsert.getTableRefs().add(0, targetTableRef);
         }
         SelectStmt selectStmt = new SelectStmt(
                 // select list
@@ -163,12 +175,14 @@ public class DeleteStmt extends DdlStmt {
                 null);
     }
 
-    private void analyzeTargetTable(Analyzer analyzer) throws AnalysisException {
+    private void analyzeTargetTable(Analyzer analyzer) throws UserException {
         // step1: analyze table name and origin table alias
         if (tableName == null) {
             throw new AnalysisException("Table is not set");
         }
-        tableName.analyze(analyzer);
+        targetTableRef = analyzer.resolveTableRef(targetTableRef);
+        targetTableRef.analyze(analyzer);
+        tableName = targetTableRef.getName();
         // disallow external catalog
         Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
         // check load privilege, select privilege will check when analyze insert stmt
@@ -180,23 +194,10 @@ public class DeleteStmt extends DdlStmt {
         }
 
         // step2: resolve table name with catalog, only unique olap table could be updated with using
-        String dbName = tableName.getDb();
-        String targetTableName = tableName.getTbl();
-        Preconditions.checkNotNull(dbName);
-        Preconditions.checkNotNull(targetTableName);
-        Database database = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
-        targetTable = database.getTableOrAnalysisException(tableName.getTbl());
+        targetTable = targetTableRef.getTable();
         if (fromClause != null && (targetTable.getType() != Table.TableType.OLAP
                 || ((OlapTable) targetTable).getKeysType() != KeysType.UNIQUE_KEYS)) {
             throw new AnalysisException("Only unique table could use delete with using.");
-        }
-
-        // step3: register table to ensure we could analyze column name on the left side of set exprs.
-        targetTable.readLock();
-        try {
-            analyzer.registerOlapTable(targetTable, tableName, null);
-        } finally {
-            targetTable.readUnlock();
         }
     }
 

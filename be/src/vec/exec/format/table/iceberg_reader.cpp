@@ -39,7 +39,7 @@ const std::string ICEBERG_FILE_PATH = "file_path";
 IcebergTableReader::IcebergTableReader(GenericReader* file_format_reader, RuntimeProfile* profile,
                                        RuntimeState* state, const TFileScanRangeParams& params,
                                        const TFileRangeDesc& range, KVCache<std::string>& kv_cache,
-                                       IOContext* io_ctx)
+                                       io::IOContext* io_ctx)
         : TableFormatReader(file_format_reader),
           _profile(profile),
           _state(state),

@@ -42,7 +42,6 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
-import org.apache.hadoop.hive.ql.io.orc.OrcSplit;
 import org.apache.hadoop.mapred.FileSplit;
 import org.apache.hadoop.mapred.InputFormat;
 import org.apache.hadoop.mapred.InputSplit;
@@ -151,13 +150,7 @@ public class HiveSplitter implements Splitter {
             org.apache.doris.planner.external.FileSplit split = new org.apache.doris.planner.external.FileSplit();
             split.setPath(fs.getPath());
             split.setStart(fs.getStart());
-            // file size of orc files is not correct get by FileSplit.getLength(),
-            // broker reader needs correct file size
-            if (fs instanceof OrcSplit) {
-                split.setLength(((OrcSplit) fs).getFileLength());
-            } else {
-                split.setLength(fs.getLength());
-            }
+            split.setLength(fs.getLength());
             return split;
         }).collect(Collectors.toList()));
     }
@@ -191,11 +184,11 @@ public class HiveSplitter implements Splitter {
             return splits.toArray(new InputSplit[splits.size()]);
         }
         long splitSize = Config.file_split_size;
-        boolean useBlockSize = (splitSize <= 0);
+        boolean useDefaultBlockSize = (splitSize <= 0);
         while (locatedFileStatusRemoteIterator.hasNext()) {
             LocatedFileStatus status = locatedFileStatusRemoteIterator.next();
-            if (useBlockSize) {
-                splitSize = status.getBlockSize();
+            if (useDefaultBlockSize) {
+                splitSize = status.getBlockSize() > 0 ? status.getBlockSize() : DEFAULT_SPLIT_SIZE;
             }
             BlockLocation[] blockLocations = status.getBlockLocations();
             long length = status.getLen();

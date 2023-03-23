@@ -83,7 +83,7 @@ public class LambdaFunctionExpr extends Expr {
             // so could insert nested column by order.
             ColumnRefExpr column = new ColumnRefExpr();
             column.setName(names.get(i));
-            column.setcolumnId(columnId);
+            column.setColumnId(columnId);
             column.setNullable(true);
             column.setType(((ArrayType) paramType).getItemType());
             columnId = columnId + 1;

@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -43,6 +44,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
@@ -135,8 +137,12 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
 
     public Set<Slot> getConditionSlot() {
         return Stream.concat(hashJoinConjuncts.stream(), otherJoinConjuncts.stream())
-                .flatMap(expr -> expr.getInputSlots().stream())
-                .collect(ImmutableSet.toImmutableSet());
+                .flatMap(expr -> expr.getInputSlots().stream()).collect(ImmutableSet.toImmutableSet());
+    }
+
+    public Set<ExprId> getConditionExprId() {
+        return Stream.concat(getHashJoinConjuncts().stream(), getOtherJoinConjuncts().stream())
+                .flatMap(expr -> expr.getInputSlotExprIds().stream()).collect(Collectors.toSet());
     }
 
     public Optional<Expression> getOnClauseCondition() {

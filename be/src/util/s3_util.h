@@ -65,11 +65,11 @@ struct S3Conf {
     }
 };
 
-class ClientFactory {
+class S3ClientFactory {
 public:
-    ~ClientFactory();
+    ~S3ClientFactory();
 
-    static ClientFactory& instance();
+    static S3ClientFactory& instance();
 
     std::shared_ptr<Aws::S3::S3Client> create(const std::map<std::string, std::string>& prop);
 
@@ -83,7 +83,7 @@ public:
                                                 const S3URI& s3_uri, S3Conf* s3_conf);
 
 private:
-    ClientFactory();
+    S3ClientFactory();
 
     Aws::SDKOptions _aws_options;
 };

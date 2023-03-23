@@ -22,10 +22,12 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.EmptyRelation;
@@ -87,6 +89,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
+import org.apache.doris.statistics.ColumnLevelStatisticCache;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.StatisticRange;
@@ -94,6 +97,7 @@ import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsBuilder;
 
 import com.google.common.collect.Maps;
+import org.apache.commons.collections.CollectionUtils;
 
 import java.util.AbstractMap.SimpleEntry;
 import java.util.HashMap;
@@ -394,9 +398,24 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     private Statistics computeFilter(Filter filter) {
-        FilterEstimation filterEstimation = new FilterEstimation();
         Statistics stats = groupExpression.childStatistics(0);
-        return filterEstimation.estimate(filter.getPredicate(), stats);
+        Plan plan = tryToFindChild(groupExpression);
+        if (plan != null) {
+            if (plan instanceof Aggregate) {
+                Aggregate agg = ((Aggregate<?>) plan);
+                List<NamedExpression> expressions = agg.getOutputExpressions();
+                Set<Slot> slots = expressions
+                        .stream()
+                        .filter(Alias.class::isInstance)
+                        .filter(s -> ((Alias) s).child().anyMatch(AggregateFunction.class::isInstance))
+                        .map(NamedExpression::toSlot).collect(Collectors.toSet());
+                Expression predicate = filter.getPredicate();
+                if (predicate.anyMatch(s -> slots.contains(s))) {
+                    return new FilterEstimation(slots).estimate(filter.getPredicate(), stats);
+                }
+            }
+        }
+        return new FilterEstimation().estimate(filter.getPredicate(), stats);
     }
 
     // TODO: 1. Subtract the pruned partition
@@ -413,12 +432,15 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             if (colName == null) {
                 throw new RuntimeException(String.format("Column %s not found", colName));
             }
-            ColumnStatistic colStats =
-                    Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(table.getId(), colName);
-            if (!colStats.isUnKnown) {
-                rowCount = colStats.count;
+            ColumnLevelStatisticCache cache =
+                    Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(table.getId(), -1, colName);
+            if (cache == null || cache.columnStatistic == null) {
+                columnStatisticMap.put(slotReference, ColumnStatistic.UNKNOWN);
+                continue;
             }
-            columnStatisticMap.put(slotReference, colStats);
+            ColumnStatisticBuilder columnStatisticBuilder =
+                    new ColumnStatisticBuilder(cache.columnStatistic).setHistogram(cache.getHistogram());
+            columnStatisticMap.put(slotReference, columnStatisticBuilder.build());
         }
         return new Statistics(rowCount, columnStatisticMap);
     }
@@ -441,13 +463,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         if (!groupByExpressions.isEmpty()) {
             Map<Expression, ColumnStatistic> childSlotToColumnStats = childStats.columnStatistics();
             double inputRowCount = childStats.getRowCount();
-            if (inputRowCount == 0) {
-                //on empty relation, Agg output 1 tuple
-                resultSetCount = 1;
-            } else {
+            if (inputRowCount != 0) {
                 List<ColumnStatistic> groupByKeyStats = groupByExpressions.stream()
-                        .flatMap(expr -> expr.getInputSlots().stream())
-                        .map(Slot::getExprId)
                         .filter(childSlotToColumnStats::containsKey)
                         .map(childSlotToColumnStats::get)
                         .filter(s -> !s.isUnKnown)
@@ -469,10 +486,14 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         List<NamedExpression> outputExpressions = aggregate.getOutputExpressions();
         // TODO: 1. Estimate the output unit size by the type of corresponding AggregateFunction
         //       2. Handle alias, literal in the output expression list
+        double factor = childStats.getRowCount() / resultSetCount;
         for (NamedExpression outputExpression : outputExpressions) {
             ColumnStatistic columnStat = ExpressionEstimation.estimate(outputExpression, childStats);
             ColumnStatisticBuilder builder = new ColumnStatisticBuilder(columnStat);
+            builder.setMinValue(columnStat.minValue / factor);
+            builder.setMaxValue(columnStat.maxValue / factor);
             builder.setNdv(resultSetCount);
+            builder.setDataSize(resultSetCount * outputExpression.getDataType().width());
             slotToColumnStats.put(outputExpression.toSlot(), columnStat);
         }
         return new Statistics(resultSetCount, slotToColumnStats, childStats.getWidth(),
@@ -692,4 +713,16 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 .setAvgSizeByte(newAverageRowSize);
         return columnStatisticBuilder.build();
     }
+
+    private Plan tryToFindChild(GroupExpression groupExpression) {
+        List<GroupExpression> groupExprs = groupExpression.child(0).getLogicalExpressions();
+        if (CollectionUtils.isEmpty(groupExprs)) {
+            groupExprs = groupExpression.child(0).getPhysicalExpressions();
+            if (CollectionUtils.isEmpty(groupExprs)) {
+                return null;
+            }
+        }
+        return groupExprs.get(0).getPlan();
+    }
+
 }
