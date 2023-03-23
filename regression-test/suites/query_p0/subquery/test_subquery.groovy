@@ -54,28 +54,4 @@ suite("test_subquery") {
         select * from (select k1, -1 as c from test_query_db.test union all select k1, -2 as c from test_query_db.baseall) t 
         where t.c > 0;
         """
-
-        qt_sql_same_alias_in_subquery """
-            SELECT
-                k3, k4
-            FROM
-                test_query_db.test
-            WHERE
-                EXISTS( SELECT
-                        d.*
-                    FROM
-                        (SELECT
-                            k1 AS _1234, SUM(k2)
-                        FROM
-                            test_query_db.`test` d
-                        GROUP BY _1234) d
-                            LEFT JOIN
-                        (SELECT
-                            k1 AS _1234,
-                                SUM(k2)
-                        FROM
-                            test_query_db.`test`
-                        GROUP BY _1234) temp ON d._1234 = temp._1234) 
-            ORDER BY k3, k4
-        """
 }

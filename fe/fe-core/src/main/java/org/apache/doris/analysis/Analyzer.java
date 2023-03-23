@@ -113,9 +113,7 @@ public class Analyzer {
     // UniqueAlias used to check whether the table ref or the alias is unique
     // table/view used db.table, inline use alias
     private final Set<String> uniqueTableAliasSet = Sets.newHashSet();
-
-    // alias name -> <from child, tupleDesc>
-    private final Multimap<String, Pair<Boolean, TupleDescriptor>> tupleByAlias = ArrayListMultimap.create();
+    private final Multimap<String, TupleDescriptor> tupleByAlias = ArrayListMultimap.create();
 
     // NOTE: Alias of column is case ignorance
     // map from lowercase table alias to descriptor.
@@ -157,6 +155,7 @@ public class Analyzer {
 
     // Flag indicating if this analyzer instance belongs to a subquery.
     private boolean isSubquery = false;
+    private boolean isFirstScopeInSubquery = false;
     // Flag indicating if this analyzer instance belongs to an inlineview.
     private boolean isInlineView = false;
 
@@ -181,6 +180,7 @@ public class Analyzer {
 
     public void setIsSubquery() {
         isSubquery = true;
+        isFirstScopeInSubquery = true;
         globalState.containsSubquery = true;
     }
 
@@ -626,12 +626,8 @@ public class Analyzer {
             if (globalState.conjuncts.get(id).substitute(sMap) instanceof BoolLiteral) {
                 continue;
             }
-            globalState.conjuncts.put(id, globalState.conjuncts.get(id).substitute(sMap));
+            globalState.conjuncts.put(id, (Predicate) globalState.conjuncts.get(id).substitute(sMap));
         }
-    }
-
-    public TupleDescriptor registerTableRef(TableRef ref) throws AnalysisException {
-        return registerTableRef(ref, false);
     }
 
     /**
@@ -644,7 +640,7 @@ public class Analyzer {
      * Throws if an existing explicit alias or implicit fully-qualified alias
      * has already been registered for another table ref.
      */
-    public TupleDescriptor registerTableRef(TableRef ref, boolean fromChild) throws AnalysisException {
+    public TupleDescriptor registerTableRef(TableRef ref) throws AnalysisException {
         String uniqueAlias = ref.getUniqueAlias();
         if (uniqueTableAliasSet.contains(uniqueAlias)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NONUNIQ_TABLE, uniqueAlias);
@@ -677,7 +673,7 @@ public class Analyzer {
         for (String alias : aliases) {
             // TODO(zc)
             // aliasMap_.put(alias, result);
-            tupleByAlias.put(alias, Pair.of(fromChild, result));
+            tupleByAlias.put(alias, result);
         }
 
         tableRefMap.put(result.getId(), ref);
@@ -721,7 +717,7 @@ public class Analyzer {
         globalState.descTbl.computeStatAndMemLayout();
         tableRefMap.put(result.getId(), ref);
         for (String alias : tableRef.getAliases()) {
-            tupleByAlias.put(alias, Pair.of(false, result));
+            tupleByAlias.put(alias, result);
         }
         return result;
     }
@@ -835,7 +831,7 @@ public class Analyzer {
      * @return null if not registered.
      */
     public Collection<TupleDescriptor> getDescriptor(TableName name) {
-        return tupleByAlias.get(name.toString()).stream().map(p -> p.second).collect(Collectors.toList());
+        return tupleByAlias.get(name.toString());
     }
 
     public TupleDescriptor getTupleDesc(TupleId id) {
@@ -899,12 +895,12 @@ public class Analyzer {
          * This column could not be resolved because doris can only resolved the parent column instead of grandpa.
          * The exception to this query like that: Unknown column 'k1' in 'a'
          */
-        if (d == null && hasAncestors() && isSubquery) {
+        if (d == null && hasAncestors() && isSubquery && isFirstScopeInSubquery) {
             // analyzer father for subquery
             if (newTblName == null) {
-                d = getParentAnalyzer().resolveColumnRef(colName, true);
+                d = getParentAnalyzer().resolveColumnRef(colName);
             } else {
-                d = getParentAnalyzer().resolveColumnRef(newTblName, colName, true);
+                d = getParentAnalyzer().resolveColumnRef(newTblName, colName);
             }
         }
         if (d == null) {
@@ -961,24 +957,15 @@ public class Analyzer {
         return result;
     }
 
-    TupleDescriptor resolveColumnRef(TableName tblName, String colName) throws AnalysisException {
-        return resolveColumnRef(tblName, colName, false);
-    }
-
     /**
      * Resolves column name in context of any of the registered table aliases.
      * Returns null if not found or multiple bindings to different tables exist,
      * otherwise returns the table alias.
      */
-    private TupleDescriptor resolveColumnRef(TableName tblName, String colName,
-            boolean requestByChild) throws AnalysisException {
+    private TupleDescriptor resolveColumnRef(TableName tblName, String colName) throws AnalysisException {
         TupleDescriptor result = null;
         // find table all name
-        for (Pair<Boolean, TupleDescriptor> p : tupleByAlias.get(tblName.toString())) {
-            if (p.first && requestByChild) {
-                continue;
-            }
-            TupleDescriptor desc = p.second;
+        for (TupleDescriptor desc : tupleByAlias.get(tblName.toString())) {
             //result = desc;
             if (!colName.equalsIgnoreCase(Column.DELETE_SIGN) && !isVisible(desc.getId())) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_ILLEGAL_COLUMN_REFERENCE_ERROR,
@@ -997,16 +984,8 @@ public class Analyzer {
     }
 
     private TupleDescriptor resolveColumnRef(String colName) throws AnalysisException {
-        return resolveColumnRef(colName, false);
-    }
-
-    private TupleDescriptor resolveColumnRef(String colName, boolean requestFromChild) throws AnalysisException {
         TupleDescriptor result = null;
-        for (Pair<Boolean, TupleDescriptor> p : tupleByAlias.values()) {
-            if (p.first && requestFromChild) {
-                continue;
-            }
-            TupleDescriptor desc = p.second;
+        for (TupleDescriptor desc : tupleByAlias.values()) {
             if (!isVisible(desc.getId())) {
                 continue;
             }
