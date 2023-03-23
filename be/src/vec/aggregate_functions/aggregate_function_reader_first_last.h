@@ -71,9 +71,7 @@ protected:
 template <typename ColVecType, bool arg_is_nullable>
 struct CopiedValue : public Value<ColVecType, arg_is_nullable> {
 public:
-    void insert_into(IColumn& to) const {
-        assert_cast<ColVecType&>(to).insert(_copied_value);
-    }
+    void insert_into(IColumn& to) const { assert_cast<ColVecType&>(to).insert(_copied_value); }
 
     bool is_null() const { return this->_ptr == nullptr; }
 

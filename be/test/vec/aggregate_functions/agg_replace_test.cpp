@@ -104,11 +104,11 @@ public:
             } else if constexpr (std::is_same_v<DataType, DataTypeBitMap>) {
                 BitmapValue bitmap;
                 bitmap.add(i);
-		input_col->insert_data(reinterpret_cast<const char*>(&bitmap),sizeof(bitmap));
+                input_col->insert_data(reinterpret_cast<const char*>(&bitmap), sizeof(bitmap));
             } else if constexpr (std::is_same_v<DataType, DataTypeHLL>) {
                 HyperLogLog hll;
                 hll.update(i);
-		input_col->insert_data(reinterpret_cast<const char*>(&hll),sizeof(hll));
+                input_col->insert_data(reinterpret_cast<const char*>(&hll), sizeof(hll));
             } else {
                 auto item = FieldType(static_cast<uint64_t>(i));
                 input_col->insert_data(reinterpret_cast<const char*>(&item), 0);
