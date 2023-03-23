@@ -34,7 +34,7 @@ import java.util.Map;
  *             GreaterThen                                                 GreaterThen
  *      /                      \                  ->                 /                    \
  * Slot(part_column1)       IntegerLiteral(1)                IntegerLiteral(n)       IntegerLiteral(1)
- *     ^                                                           ^
+ *     |                                                           ^
  *     |                                                           |
  *     +------------------------------------------------------------
  *                             |
