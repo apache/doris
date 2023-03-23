@@ -35,8 +35,8 @@ suite("test_distinct_agg") {
     '''
 
     sql '''
-        INSERT INTO `t` (`k1`, `k2`, `k3`, `k4`, `k5`, `k6`)
-        VALUES (1, '1234', 'A0', 'C0', '1', '2023-01-10 23:00:00');
+        INSERT INTO `t` (`k1`, `k2`, `k3`, `k4`, `k5`, `k6`) VALUES
+            (1, '1234', 'A0', 'C0', '1', '2023-01-10 23:00:00');
     '''
 
     test {
@@ -53,6 +53,6 @@ suite("test_distinct_agg") {
             ) AS temp where 1=1
             group by k5, k6;
         '''
-        result([[1L, '2013-01-10', 1L]])
+        result([['1', '2023-01-10', 1L]])
     }
 }
