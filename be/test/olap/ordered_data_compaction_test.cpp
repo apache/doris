@@ -171,6 +171,7 @@ protected:
         rowset_writer_context->rowset_state = VISIBLE;
         rowset_writer_context->tablet_schema = tablet_schema;
         rowset_writer_context->rowset_dir = rowset_dir;
+        rowset_writer_context->tablet_path = rowset_dir;
         rowset_writer_context->version = Version(inc_id, inc_id);
         rowset_writer_context->segments_overlap = overlap;
         rowset_writer_context->max_rows_per_segment = max_rows_per_segment;

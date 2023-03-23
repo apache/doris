@@ -181,6 +181,7 @@ protected:
         rowset_writer_context->partition_id = 10;
         rowset_writer_context->rowset_type = BETA_ROWSET;
         rowset_writer_context->rowset_dir = lTestDir;
+        rowset_writer_context->tablet_path = lTestDir;
         rowset_writer_context->rowset_state = VISIBLE;
         rowset_writer_context->tablet_schema = tablet_schema;
         rowset_writer_context->version.first = 10;
