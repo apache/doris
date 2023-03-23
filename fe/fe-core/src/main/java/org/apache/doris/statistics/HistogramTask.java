@@ -28,14 +28,15 @@ import org.apache.commons.text.StringSubstitutor;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Each task analyze one column.
  */
 public class HistogramTask extends BaseAnalysisTask {
 
-    /** To avoid too much data, use the following efficient sampling method */
-    private static final String ANALYZE_HISTOGRAM_SQL_TEMPLATE = "INSERT INTO "
+    private static final String ANALYZE_HISTOGRAM_SQL_TEMPLATE_TABLE = "INSERT INTO "
             + "${internalDB}.${histogramStatTbl} "
             + "SELECT "
             + "    CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS id, "
@@ -48,7 +49,10 @@ public class HistogramTask extends BaseAnalysisTask {
             + "    HISTOGRAM(`${colName}`, 1, ${maxBucketNum}) AS buckets, "
             + "    NOW() AS create_time "
             + "FROM "
-            + "    `${dbName}`.`${tblName}` TABLESAMPLE (${percentValue} PERCENT)";
+            + "    `${dbName}`.`${tblName}`";
+
+    private static final String ANALYZE_HISTOGRAM_SQL_TEMPLATE_PART = ANALYZE_HISTOGRAM_SQL_TEMPLATE_TABLE
+            + "    PARTITION (${partName})";
 
     @VisibleForTesting
     public HistogramTask() {
@@ -76,8 +80,26 @@ public class HistogramTask extends BaseAnalysisTask {
         params.put("maxBucketNum", String.valueOf(info.maxBucketNum));
         params.put("percentValue", String.valueOf((int) (info.sampleRate * 100)));
 
-        StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-        String histogramSql = stringSubstitutor.replace(ANALYZE_HISTOGRAM_SQL_TEMPLATE);
+        String histogramSql;
+        Set<String> partitionNames = info.partitionNames;
+
+        if (partitionNames.isEmpty()) {
+            StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
+            histogramSql = stringSubstitutor.replace(ANALYZE_HISTOGRAM_SQL_TEMPLATE_TABLE);
+        } else {
+            try {
+                tbl.readLock();
+                String partNames = info.partitionNames.stream()
+                        .filter(x -> tbl.getPartition(x) != null)
+                        .collect(Collectors.joining(","));
+                params.put("partName", partNames);
+                StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
+                histogramSql = stringSubstitutor.replace(ANALYZE_HISTOGRAM_SQL_TEMPLATE_PART);
+            } finally {
+                tbl.readUnlock();
+            }
+        }
+
         LOG.info("SQL to collect the histogram:\n {}", histogramSql);
 
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {

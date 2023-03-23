@@ -45,7 +45,9 @@ public:
                    VExprContext** vconjunct_ctx_ptr, const std::vector<TCondition>& filters,
                    const FilterPredicates& filter_predicates,
                    const std::vector<FunctionFilter>& function_filters,
-                   VExprContext** common_vexpr_ctxs_pushdown);
+                   VExprContext** common_vexpr_ctxs_pushdown,
+                   const std::vector<RowsetReaderSharedPtr>& rs_readers = {},
+                   const std::vector<std::pair<int, int>>& rs_reader_seg_offsets = {});
 
     const std::string& scan_disk() const { return _tablet->data_dir()->path(); }
 

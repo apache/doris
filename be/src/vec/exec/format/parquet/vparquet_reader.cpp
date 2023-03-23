@@ -34,7 +34,7 @@ namespace doris::vectorized {
 
 ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                              const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz,
-                             IOContext* io_ctx)
+                             io::IOContext* io_ctx, RuntimeState* state)
         : _profile(profile),
           _scan_params(params),
           _scan_range(range),
@@ -42,15 +42,20 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
           _range_start_offset(range.start_offset),
           _range_size(range.size),
           _ctz(ctz),
-          _io_ctx(io_ctx) {
+          _io_ctx(io_ctx),
+          _state(state) {
     _init_profile();
     _init_system_properties();
     _init_file_description();
 }
 
 ParquetReader::ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                             IOContext* io_ctx)
-        : _profile(nullptr), _scan_params(params), _scan_range(range), _io_ctx(io_ctx) {
+                             io::IOContext* io_ctx, RuntimeState* state)
+        : _profile(nullptr),
+          _scan_params(params),
+          _scan_range(range),
+          _io_ctx(io_ctx),
+          _state(state) {
     _init_system_properties();
     _init_file_description();
 }
@@ -149,9 +154,8 @@ void ParquetReader::close() {
 
 Status ParquetReader::_open_file() {
     if (_file_reader == nullptr) {
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties,
-                                                        _file_description, &_file_system,
-                                                        &_file_reader, _io_ctx));
+        RETURN_IF_ERROR(FileFactory::create_file_reader(
+                _profile, _system_properties, _file_description, &_file_system, &_file_reader));
     }
     if (_file_metadata == nullptr) {
         if (_file_reader->size() == 0) {
@@ -195,7 +199,17 @@ Status ParquetReader::init_reader(
         const std::vector<std::string>& all_column_names,
         const std::vector<std::string>& missing_column_names,
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
-        VExprContext* vconjunct_ctx, bool filter_groups) {
+        VExprContext* vconjunct_ctx, const TupleDescriptor* tuple_descriptor,
+        const RowDescriptor* row_descriptor,
+        const std::unordered_map<std::string, int>* colname_to_slot_id,
+        const std::vector<VExprContext*>* not_single_slot_filter_conjuncts,
+        const std::unordered_map<int, std::vector<VExprContext*>>* slot_id_to_filter_conjuncts,
+        bool filter_groups) {
+    _tuple_descriptor = tuple_descriptor;
+    _row_descriptor = row_descriptor;
+    _colname_to_slot_id = colname_to_slot_id;
+    _not_single_slot_filter_conjuncts = not_single_slot_filter_conjuncts;
+    _slot_id_to_filter_conjuncts = slot_id_to_filter_conjuncts;
     if (_file_metadata == nullptr) {
         return Status::InternalError("failed to init parquet reader, please open reader first");
     }
@@ -467,10 +481,12 @@ Status ParquetReader::_next_row_group_reader() {
             _get_position_delete_ctx(row_group, row_group_index);
     _current_group_reader.reset(new RowGroupReader(_file_reader, _read_columns,
                                                    row_group_index.row_group_id, row_group, _ctz,
-                                                   position_delete_ctx, _lazy_read_ctx));
+                                                   position_delete_ctx, _lazy_read_ctx, _state));
     _row_group_eof = false;
-    return _current_group_reader->init(_file_metadata->schema(), candidate_row_ranges,
-                                       _col_offsets);
+    return _current_group_reader->init(_file_metadata->schema(), candidate_row_ranges, _col_offsets,
+                                       _tuple_descriptor, _row_descriptor, _colname_to_slot_id,
+                                       _not_single_slot_filter_conjuncts,
+                                       _slot_id_to_filter_conjuncts);
 }
 
 Status ParquetReader::_init_row_groups(const bool& is_filter_groups) {
@@ -559,15 +575,14 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
     uint8_t col_index_buff[page_index._column_index_size];
     size_t bytes_read = 0;
     Slice result(col_index_buff, page_index._column_index_size);
-    IOContext io_ctx;
     RETURN_IF_ERROR(
-            _file_reader->read_at(page_index._column_index_start, result, io_ctx, &bytes_read));
+            _file_reader->read_at(page_index._column_index_start, result, &bytes_read, _io_ctx));
     auto& schema_desc = _file_metadata->schema();
     std::vector<RowRange> skipped_row_ranges;
     uint8_t off_index_buff[page_index._offset_index_size];
     Slice res(off_index_buff, page_index._offset_index_size);
     RETURN_IF_ERROR(
-            _file_reader->read_at(page_index._offset_index_start, res, io_ctx, &bytes_read));
+            _file_reader->read_at(page_index._offset_index_start, res, &bytes_read, _io_ctx));
     for (auto& read_col : _read_columns) {
         auto conjunct_iter = _colname_to_value_range->find(read_col._file_slot_name);
         if (_colname_to_value_range->end() == conjunct_iter) {

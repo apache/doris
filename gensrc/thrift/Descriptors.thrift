@@ -191,6 +191,7 @@ struct TOlapTableIndexSchema {
     3: required i32 schema_hash
     4: optional list<TColumn> columns_desc
     5: optional list<TOlapTableIndex> indexes_desc
+    6: optional Exprs.TExpr where_clause
 }
 
 struct TOlapTableSchemaParam {

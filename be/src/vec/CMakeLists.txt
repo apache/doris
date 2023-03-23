@@ -161,6 +161,7 @@ set(VEC_FILES
   exprs/table_function/vexplode_numbers.cpp
   exprs/table_function/vexplode_bitmap.cpp
   exprs/lambda_function/varray_map_function.cpp
+  exprs/lambda_function/varray_filter_function.cpp
   functions/array/function_array_index.cpp
   functions/array/function_array_element.cpp
   functions/array/function_array_register.cpp
@@ -186,7 +187,9 @@ set(VEC_FILES
   functions/array/function_array_with_constant.cpp
   functions/array/function_array_apply.cpp
   functions/array/function_array_concat.cpp
+  functions/array/function_array_zip.cpp
   functions/array/function_array_pushfront.cpp
+  functions/function_map.cpp
   exprs/table_function/vexplode_json_array.cpp
   functions/math.cpp
   functions/function_bitmap.cpp

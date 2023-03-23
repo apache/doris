@@ -38,11 +38,6 @@ public:
 
     Status close() override { return Status::OK(); }
 
-    Status read_at(size_t offset, Slice result, const IOContext& io_ctx,
-                   size_t* bytes_read) override {
-        return Status::NotSupported("dummy file cache only used for GC");
-    }
-
     const Path& path() const override { return _cache_dir; }
 
     size_t size() const override { return 0; }
@@ -70,6 +65,12 @@ public:
     bool is_gc_finish() const override { return _gc_lru_queue.empty(); }
 
     FileSystemSPtr fs() const override { return nullptr; }
+
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const IOContext* io_ctx) override {
+        return Status::NotSupported("dummy file cache only used for GC");
+    }
 
 private:
     void _add_file_cache(const Path& data_file);

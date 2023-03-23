@@ -23,9 +23,10 @@
 #include <string>
 
 #include "exec/schema_scanner.h"
-#include "io/buffered_reader.h"
+#include "io/fs/buffered_reader.h"
 #include "io/fs/local_file_system.h"
 #include "olap/iterators.h"
+#include "runtime/descriptors.h"
 #include "util/runtime_profile.h"
 #include "util/timezone_utils.h"
 #include "vec/common/string_ref.h"
@@ -50,7 +51,7 @@ TEST_F(ParquetThriftReaderTest, normal) {
     io::FileSystemSPtr local_fs = io::LocalFileSystem::create("");
     io::FileReaderSPtr reader;
     auto st = local_fs->open_file("./be/test/exec/test_data/parquet_scanner/localfile.parquet",
-                                  &reader, nullptr);
+                                  &reader);
     EXPECT_TRUE(st.ok());
 
     std::shared_ptr<FileMetaData> meta_data;
@@ -82,7 +83,7 @@ TEST_F(ParquetThriftReaderTest, complex_nested_file) {
     io::FileSystemSPtr local_fs = io::LocalFileSystem::create("");
     io::FileReaderSPtr reader;
     auto st = local_fs->open_file("./be/test/exec/test_data/parquet_scanner/hive-complex.parquet",
-                                  &reader, nullptr);
+                                  &reader);
     EXPECT_TRUE(st.ok());
 
     std::shared_ptr<FileMetaData> metadata;
@@ -157,7 +158,7 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
                                   ? chunk_meta.dictionary_page_offset
                                   : chunk_meta.data_page_offset;
     size_t chunk_size = chunk_meta.total_compressed_size;
-    BufferedFileStreamReader stream_reader(file_reader, start_offset, chunk_size, 1024);
+    io::BufferedFileStreamReader stream_reader(file_reader, start_offset, chunk_size, 1024);
 
     cctz::time_zone ctz;
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
@@ -191,7 +192,7 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
         // required column
         std::vector<u_short> null_map = {(u_short)rows};
         run_length_map.set_run_length_null_map(null_map, rows, nullptr);
-        return chunk_reader.decode_values(data_column, data_type, run_length_map);
+        return chunk_reader.decode_values(data_column, data_type, run_length_map, false);
     } else {
         // column with null values
         level_t level_type = definitions[0];
@@ -204,8 +205,8 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
                 } else {
                     std::vector<u_short> null_map = {(u_short)num_values};
                     run_length_map.set_run_length_null_map(null_map, rows, nullptr);
-                    RETURN_IF_ERROR(
-                            chunk_reader.decode_values(data_column, data_type, run_length_map));
+                    RETURN_IF_ERROR(chunk_reader.decode_values(data_column, data_type,
+                                                               run_length_map, false));
                 }
                 level_type = definitions[i];
                 num_values = 1;
@@ -219,10 +220,79 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
         } else {
             std::vector<u_short> null_map = {(u_short)num_values};
             run_length_map.set_run_length_null_map(null_map, rows, nullptr);
-            RETURN_IF_ERROR(chunk_reader.decode_values(data_column, data_type, run_length_map));
+            RETURN_IF_ERROR(
+                    chunk_reader.decode_values(data_column, data_type, run_length_map, false));
         }
         return Status::OK();
     }
+}
+
+// Only the unit test depend on this, but it is wrong, should not use TTupleDesc to create tuple desc, not
+// use columndesc
+static doris::TupleDescriptor* create_tuple_desc(
+        doris::ObjectPool* pool, std::vector<doris::SchemaScanner::ColumnDesc>& column_descs) {
+    using namespace doris;
+    int null_column = 0;
+    for (int i = 0; i < column_descs.size(); ++i) {
+        if (column_descs[i].is_null) {
+            null_column++;
+        }
+    }
+
+    int offset = (null_column + 7) / 8;
+    std::vector<SlotDescriptor*> slots;
+    int null_byte = 0;
+    int null_bit = 0;
+
+    for (int i = 0; i < column_descs.size(); ++i) {
+        TSlotDescriptor t_slot_desc;
+        if (column_descs[i].type == TYPE_DECIMALV2) {
+            t_slot_desc.__set_slotType(TypeDescriptor::create_decimalv2_type(27, 9).to_thrift());
+        } else {
+            TypeDescriptor descriptor(column_descs[i].type);
+            if (column_descs[i].precision >= 0 && column_descs[i].scale >= 0) {
+                descriptor.precision = column_descs[i].precision;
+                descriptor.scale = column_descs[i].scale;
+            }
+            t_slot_desc.__set_slotType(descriptor.to_thrift());
+        }
+        t_slot_desc.__set_colName(column_descs[i].name);
+        t_slot_desc.__set_columnPos(i);
+        t_slot_desc.__set_byteOffset(offset);
+
+        if (column_descs[i].is_null) {
+            t_slot_desc.__set_nullIndicatorByte(null_byte);
+            t_slot_desc.__set_nullIndicatorBit(null_bit);
+            null_bit = (null_bit + 1) % 8;
+
+            if (0 == null_bit) {
+                null_byte++;
+            }
+        } else {
+            t_slot_desc.__set_nullIndicatorByte(0);
+            t_slot_desc.__set_nullIndicatorBit(-1);
+        }
+
+        t_slot_desc.id = i;
+        t_slot_desc.__set_slotIdx(i);
+        t_slot_desc.__set_isMaterialized(true);
+
+        SlotDescriptor* slot = pool->add(new (std::nothrow) SlotDescriptor(t_slot_desc));
+        slots.push_back(slot);
+        offset += column_descs[i].size;
+    }
+
+    TTupleDescriptor t_tuple_desc;
+    t_tuple_desc.__set_byteSize(offset);
+    t_tuple_desc.__set_numNullBytes((null_byte * 8 + null_bit + 7) / 8);
+    doris::TupleDescriptor* tuple_desc =
+            pool->add(new (std::nothrow) doris::TupleDescriptor(t_tuple_desc));
+
+    for (int i = 0; i < slots.size(); ++i) {
+        tuple_desc->add_slot(slots[i]);
+    }
+
+    return tuple_desc;
 }
 
 static void create_block(std::unique_ptr<vectorized::Block>& block) {
@@ -239,18 +309,17 @@ static void create_block(std::unique_ptr<vectorized::Block>& block) {
             // binary is not supported, use string instead
             {"binary_col", TYPE_STRING, sizeof(StringRef), true},
             // 64-bit-length, see doris::get_slot_size in primitive_type.cpp
-            {"timestamp_col", TYPE_DATETIME, sizeof(DateTimeValue), true},
+            {"timestamp_col", TYPE_DATETIME, sizeof(int128_t), true},
             {"decimal_col", TYPE_DECIMALV2, sizeof(DecimalV2Value), true},
             {"char_col", TYPE_CHAR, sizeof(StringRef), true},
             {"varchar_col", TYPE_VARCHAR, sizeof(StringRef), true},
-            {"date_col", TYPE_DATE, sizeof(DateTimeValue), true},
+            {"date_col", TYPE_DATE, sizeof(int128_t), true},
             {"date_v2_col", TYPE_DATEV2, sizeof(uint32_t), true},
-            {"timestamp_v2_col", TYPE_DATETIMEV2, sizeof(DateTimeValue), true, 18, 0}};
+            {"timestamp_v2_col", TYPE_DATETIMEV2, sizeof(int128_t), true, 18, 0}};
     SchemaScanner schema_scanner(column_descs);
     ObjectPool object_pool;
-    SchemaScannerParam param;
-    schema_scanner.init(&param, &object_pool);
-    auto tuple_slots = const_cast<TupleDescriptor*>(schema_scanner.tuple_desc())->slots();
+    doris::TupleDescriptor* tuple_desc = create_tuple_desc(&object_pool, column_descs);
+    auto tuple_slots = tuple_desc->slots();
     block.reset(new vectorized::Block());
     for (const auto& slot_desc : tuple_slots) {
         auto data_type = slot_desc->get_data_type_ptr();
@@ -284,7 +353,7 @@ static void read_parquet_data_and_check(const std::string& parquet_file,
 
     io::FileSystemSPtr local_fs = io::LocalFileSystem::create("");
     io::FileReaderSPtr reader;
-    auto st = local_fs->open_file(parquet_file, &reader, nullptr);
+    auto st = local_fs->open_file(parquet_file, &reader);
     EXPECT_TRUE(st.ok());
 
     std::unique_ptr<vectorized::Block> block;
@@ -324,14 +393,13 @@ static void read_parquet_data_and_check(const std::string& parquet_file,
     }
 
     io::FileReaderSPtr result;
-    auto rst = local_fs->open_file(result_file, &result, nullptr);
+    auto rst = local_fs->open_file(result_file, &result);
     EXPECT_TRUE(rst.ok());
     uint8_t result_buf[result->size() + 1];
     result_buf[result->size()] = '\0';
     size_t bytes_read;
     Slice res(result_buf, result->size());
-    IOContext io_ctx;
-    result->read_at(0, res, io_ctx, &bytes_read);
+    result->read_at(0, res, &bytes_read);
     ASSERT_STREQ(block->dump_data(0, rows).c_str(), reinterpret_cast<char*>(result_buf));
 }
 
@@ -346,7 +414,7 @@ TEST_F(ParquetThriftReaderTest, dict_decoder) {
 }
 
 TEST_F(ParquetThriftReaderTest, group_reader) {
-    std::vector<SchemaScanner::ColumnDesc> column_descs = {
+    std::vector<doris::SchemaScanner::ColumnDesc> column_descs = {
             {"tinyint_col", TYPE_TINYINT, sizeof(int8_t), true},
             {"smallint_col", TYPE_SMALLINT, sizeof(int16_t), true},
             {"int_col", TYPE_INT, sizeof(int32_t), true},
@@ -356,16 +424,15 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
             {"double_col", TYPE_DOUBLE, sizeof(double_t), true},
             {"string_col", TYPE_STRING, sizeof(StringRef), true},
             {"binary_col", TYPE_STRING, sizeof(StringRef), true},
-            {"timestamp_col", TYPE_DATETIME, sizeof(DateTimeValue), true},
+            {"timestamp_col", TYPE_DATETIME, sizeof(int128_t), true},
             {"decimal_col", TYPE_DECIMALV2, sizeof(DecimalV2Value), true},
             {"char_col", TYPE_CHAR, sizeof(StringRef), true},
             {"varchar_col", TYPE_VARCHAR, sizeof(StringRef), true},
-            {"date_col", TYPE_DATE, sizeof(DateTimeValue), true}};
+            {"date_col", TYPE_DATE, sizeof(int128_t), true}};
     SchemaScanner schema_scanner(column_descs);
     ObjectPool object_pool;
-    SchemaScannerParam param;
-    schema_scanner.init(&param, &object_pool);
-    auto tuple_slots = const_cast<TupleDescriptor*>(schema_scanner.tuple_desc())->slots();
+    doris::TupleDescriptor* tuple_desc = create_tuple_desc(&object_pool, column_descs);
+    auto tuple_slots = tuple_desc->slots();
 
     TSlotDescriptor tslot_desc;
     {
@@ -407,7 +474,7 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
     io::FileSystemSPtr local_fs = io::LocalFileSystem::create("");
     io::FileReaderSPtr file_reader;
     auto st = local_fs->open_file("./be/test/exec/test_data/parquet_scanner/type-decoder.parquet",
-                                  &file_reader, nullptr);
+                                  &file_reader);
     EXPECT_TRUE(st.ok());
 
     // prepare metadata
@@ -421,12 +488,13 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
     std::shared_ptr<RowGroupReader> row_group_reader;
     RowGroupReader::PositionDeleteContext position_delete_ctx(row_group.num_rows, 0);
     row_group_reader.reset(new RowGroupReader(file_reader, read_columns, 0, row_group, &ctz,
-                                              position_delete_ctx, lazy_read_ctx));
+                                              position_delete_ctx, lazy_read_ctx, nullptr));
     std::vector<RowRange> row_ranges;
     row_ranges.emplace_back(0, row_group.num_rows);
 
     auto col_offsets = std::unordered_map<int, tparquet::OffsetIndex>();
-    auto stg = row_group_reader->init(meta_data->schema(), row_ranges, col_offsets);
+    auto stg = row_group_reader->init(meta_data->schema(), row_ranges, col_offsets, nullptr,
+                                      nullptr, nullptr, nullptr, nullptr);
     EXPECT_TRUE(stg.ok());
 
     vectorized::Block block;
@@ -444,14 +512,13 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
 
     io::FileReaderSPtr result;
     auto rst = local_fs->open_file("./be/test/exec/test_data/parquet_scanner/group-reader.txt",
-                                   &result, nullptr);
+                                   &result);
     EXPECT_TRUE(rst.ok());
     uint8_t result_buf[result->size() + 1];
     result_buf[result->size()] = '\0';
     size_t bytes_read;
     Slice res(result_buf, result->size());
-    IOContext io_ctx;
-    result->read_at(0, res, io_ctx, &bytes_read);
+    result->read_at(0, res, &bytes_read);
     ASSERT_STREQ(block.dump_data(0, 10).c_str(), reinterpret_cast<char*>(result_buf));
 }
 } // namespace vectorized

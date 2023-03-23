@@ -19,6 +19,7 @@
 
 #include <queue>
 
+#include "io/io_common.h"
 #include "table_format_reader.h"
 #include "vec/columns/column_dictionary.h"
 #include "vec/exec/format/format_common.h"
@@ -27,8 +28,6 @@
 #include "vec/exprs/vexpr.h"
 
 namespace doris {
-
-struct IOContext;
 
 namespace vectorized {
 
@@ -42,7 +41,7 @@ public:
     IcebergTableReader(GenericReader* file_format_reader, RuntimeProfile* profile,
                        RuntimeState* state, const TFileScanRangeParams& params,
                        const TFileRangeDesc& range, KVCache<std::string>& kv_cache,
-                       IOContext* io_ctx);
+                       io::IOContext* io_ctx);
     ~IcebergTableReader() override = default;
 
     Status init_row_filters(const TFileRangeDesc& range) override;
@@ -63,7 +62,11 @@ public:
             const std::vector<std::string>& file_col_names,
             const std::unordered_map<int, std::string>& col_id_name_map,
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
-            VExprContext* vconjunct_ctx);
+            VExprContext* vconjunct_ctx, const TupleDescriptor* tuple_descriptor,
+            const RowDescriptor* row_descriptor,
+            const std::unordered_map<std::string, int>* colname_to_slot_id,
+            const std::vector<VExprContext*>* not_single_slot_filter_conjuncts,
+            const std::unordered_map<int, std::vector<VExprContext*>>* slot_id_to_filter_conjuncts);
 
     enum { DATA, POSITION_DELETE, EQUALITY_DELETE };
 
@@ -117,7 +120,7 @@ private:
     // col names in table but not in parquet file
     std::vector<std::string> _not_in_file_col_names;
 
-    IOContext* _io_ctx;
+    io::IOContext* _io_ctx;
     bool _has_schema_change = false;
     bool _has_iceberg_schema = false;
 };

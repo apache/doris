@@ -72,6 +72,7 @@ set(HTTP_TEST_FILES
 set(IO_TEST_FILES
     io/cache/remote_file_cache_test.cpp
     io/cache/file_block_cache_test.cpp
+    io/fs/file_system_test.cpp
 )
 set(OLAP_TEST_FILES
     olap/engine_storage_migration_task_test.cpp
@@ -82,7 +83,7 @@ set(OLAP_TEST_FILES
     olap/lru_cache_test.cpp
     olap/bloom_filter_test.cpp
     olap/itoken_extractor_test.cpp
-    olap/file_helper_test.cpp
+    olap/file_header_test.cpp
     olap/file_utils_test.cpp
     olap/cumulative_compaction_policy_test.cpp
     #olap/row_cursor_test.cpp
@@ -129,13 +130,12 @@ set(OLAP_TEST_FILES
     olap/rowid_conversion_test.cpp
     olap/remote_rowset_gc_test.cpp
     #olap/segcompaction_test.cpp
-    #olap/ordered_data_compaction_test.cpp
+    olap/ordered_data_compaction_test.cpp
 )
 
 set(RUNTIME_TEST_FILES
     # runtime/result_buffer_mgr_test.cpp
     # runtime/parallel_executor_test.cpp
-    # runtime/datetime_value_test.cpp
     # runtime/dpp_sink_test.cpp
     # runtime/tmp_file_mgr_test.cpp
     # runtime/export_task_mgr_test.cpp
@@ -209,13 +209,10 @@ set(UTIL_TEST_FILES
     util/http_channel_test.cpp
     util/histogram_test.cpp
     util/s3_uri_test.cpp
-    util/s3_storage_backend_test.cpp
-    util/broker_storage_backend_test.cpp
     util/sort_heap_test.cpp
     util/counts_test.cpp
     util/date_func_test.cpp
     util/quantile_state_test.cpp
-    util/hdfs_storage_backend_test.cpp
     util/interval_tree_test.cpp
     util/key_util_test.cpp
 )
@@ -269,7 +266,7 @@ set(VEC_TEST_FILES
     vec/utils/arrow_column_to_doris_column_test.cpp
     vec/utils/histogram_helpers_test.cpp
     vec/olap/char_type_padding_test.cpp
-    #vec/olap/vertical_compaction_test.cpp
+    vec/olap/vertical_compaction_test.cpp
     vec/jsonb/serialize_test.cpp
 )
 add_executable(doris_be_test

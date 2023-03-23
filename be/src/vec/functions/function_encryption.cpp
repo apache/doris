@@ -154,8 +154,7 @@ void exectue_result(std::vector<const ColumnString::Offsets*>& offsets_list,
 template <typename Impl, EncryptionMode mode, bool is_encrypt>
 struct EncryptionAndDecryptTwoImpl {
     static DataTypes get_variadic_argument_types_impl() {
-        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>(),
-                std::make_shared<DataTypeString>()};
+        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()};
     }
 
     static Status vector_vector(std::vector<const ColumnString::Offsets*>& offsets_list,
@@ -168,17 +167,6 @@ struct EncryptionAndDecryptTwoImpl {
                 continue;
             }
             EncryptionMode encryption_mode = mode;
-            int mode_size = (*offsets_list[2])[i] - (*offsets_list[2])[i - 1];
-            const auto mode_raw =
-                    reinterpret_cast<const char*>(&(*chars_list[2])[(*offsets_list[2])[i - 1]]);
-            if (mode_size != 0) {
-                std::string mode_str(mode_raw, mode_size);
-                if (aes_mode_map.count(mode_str) == 0) {
-                    StringOP::push_null_string(i, result_data, result_offset, null_map);
-                    continue;
-                }
-                encryption_mode = aes_mode_map.at(mode_str);
-            }
             exectue_result<Impl, is_encrypt>(offsets_list, chars_list, i, encryption_mode, nullptr,
                                              0, result_data, result_offset, null_map);
         }

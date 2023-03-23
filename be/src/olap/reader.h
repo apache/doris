@@ -22,6 +22,7 @@
 #include "exprs/bitmapfilter_predicate.h"
 #include "exprs/function_filter.h"
 #include "exprs/hybrid_set.h"
+#include "io/io_common.h"
 #include "olap/delete_handler.h"
 #include "olap/row_cursor.h"
 #include "olap/rowset/rowset_reader.h"
@@ -101,6 +102,11 @@ public:
         DeleteBitmap* delete_bitmap {nullptr};
 
         std::vector<RowsetReaderSharedPtr> rs_readers;
+        // if rs_readers_segment_offsets is not empty, means we only scan
+        // [pair.first, pair.second) segment in rs_reader, only effective in dup key
+        // and pipeline
+        std::vector<std::pair<int, int>> rs_readers_segment_offsets;
+
         // return_columns is init from query schema
         std::vector<uint32_t> return_columns;
         // output_columns only contain columns in OrderByExprs and outputExprs
@@ -196,7 +202,7 @@ protected:
 
     Status _init_orderby_keys_param(const ReaderParams& read_params);
 
-    void _init_conditions_param(const ReaderParams& read_params);
+    Status _init_conditions_param(const ReaderParams& read_params);
 
     void _init_conditions_param_except_leafnode_of_andnode(const ReaderParams& read_params);
 

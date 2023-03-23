@@ -78,6 +78,7 @@ CREATE CATALOG hive PROPERTIES (
     'type'='hms',
     'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
     'hive.metastore.sasl.enabled' = 'true',
+    'hive.metastore.kerberos.principal' = 'your-hms-principal',
     'dfs.nameservices'='your-nameservice',
     'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
     'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
@@ -85,7 +86,7 @@ CREATE CATALOG hive PROPERTIES (
     'hadoop.security.authentication' = 'kerberos',
     'hadoop.kerberos.keytab' = '/your-keytab-filepath/your.keytab',   
     'hadoop.kerberos.principal' = 'your-principal@YOUR.COM',
-    'hive.metastore.kerberos.principal' = 'your-hms-principal'
+    'yarn.resourcemanager.principal' = 'your-rm-principal'
 );
 ```
 
@@ -133,25 +134,6 @@ CREATE CATALOG hive PROPERTIES (
     "use_path_style" = "true"
 );
 ```
-
-<version since="dev">
-
-when connecting to Hive Metastore which is authorized by Ranger, need some properties and update FE runtime environment.
-
-1. add below properties when creating Catalog：
-
-```sql
-"access_controller.properties.ranger.service.name" = "<the ranger servive name your hms using>",
-"access_controller.class" = "org.apache.doris.catalog.authorizer.RangerHiveAccessControllerFactory",
-```
-
-2. update all FEs' runtime environment：
-   a. copy all ranger-*.xml files to <doris_home>/conf which are located in HMS/conf directory
-   b. update value of `ranger.plugin.hive.policy.cache.dir` in ranger-<ranger_service_name>-security.xml to a writable directory
-   c. add a log4j.properties to <doris_home>/conf, thus you can get logs of ranger authorizer
-   d. restart FE
-
-</version>
 
 In Doris 1.2.1 and newer, you can create a Resource that contains all these parameters, and reuse the Resource when creating new Catalogs. Here is an example:
 
@@ -214,3 +196,96 @@ This is applicable for Hive/Iceberge/Hudi.
 | `map<KeyType, ValueType>` | `map<KeyType, ValueType>` | Not support nested map. KeyType and ValueType should be primitive types. |
 | `struct<col1: Type1, col2: Type2, ...>` | `struct<col1: Type1, col2: Type2, ...>` | Not support nested struct. Type1, Type2, ... should be primitive types. |
 | other         | unsupported   |                                                   |
+
+## Use Ranger for permission verification
+
+<version since="dev">
+
+Apache Ranger is a security framework for monitoring, enabling services, and managing comprehensive data security access on the Hadoop platform.
+
+Currently, Doris supports Ranger's library, table, and column permissions, but does not support encryption, row permissions, and so on.
+
+</version>
+
+
+### Environment configuration
+
+Connecting to Hive Metastore with Ranger permission verification enabled requires additional configuration&configuration environment:
+1. When creating a catalog, add:
+
+```sql
+"access_controller.properties.ranger.service.name" = "hive",
+"access_controller.class" = "org.apache.doris.catalog.authorizer.RangerHiveAccessControllerFactory",
+```
+2. Configure all FE environments:
+
+    1. Copy the configuration files ranger-live-audit.xml, ranger-live-security.xml, ranger-policymgr-ssl.xml under the HMS conf directory to<doris_ Home>/conf directory.
+
+    2. Modify the properties of ranger-live-security.xml. The reference configuration is as follows:
+
+    ```sql
+    <?xml version="1.0" encoding="UTF-8"?>
+    <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+    <configuration>
+        #The directory for caching permission data, needs to be writable
+        <property>
+            <name>ranger.plugin.hive.policy.cache.dir</name>
+            <value>/mnt/datadisk0/zhangdong/rangerdata</value>
+        </property>
+        #The time interval for periodically pulling permission data
+        <property>
+            <name>ranger.plugin.hive.policy.pollIntervalMs</name>
+            <value>30000</value>
+        </property>
+    
+        <property>
+            <name>ranger.plugin.hive.policy.rest.client.connection.timeoutMs</name>
+            <value>60000</value>
+        </property>
+    
+        <property>
+            <name>ranger.plugin.hive.policy.rest.client.read.timeoutMs</name>
+            <value>60000</value>
+        </property>
+    
+        <property>
+            <name>ranger.plugin.hive.policy.rest.ssl.config.file</name>
+            <value></value>
+        </property>
+    
+        <property>
+            <name>ranger.plugin.hive.policy.rest.url</name>
+            <value>http://172.21.0.32:6080</value>
+        </property>
+    
+        <property>
+            <name>ranger.plugin.hive.policy.source.impl</name>
+            <value>org.apache.ranger.admin.client.RangerAdminRESTClient</value>
+        </property>
+    
+        <property>
+            <name>ranger.plugin.hive.service.name</name>
+            <value>hive</value>
+        </property>
+    
+        <property>
+            <name>xasecure.hive.update.xapolicies.on.grant.revoke</name>
+            <value>true</value>
+        </property>
+    
+    </configuration>
+    ```
+    3. To obtain the log of Ranger authentication itself, you can click<doris_ Add the configuration file log4j.properties under the home>/conf directory.
+
+    4. Restart FE.
+
+### Best Practices
+
+1.Create user user1 on the ranger side and authorize the query permission of db1.table1.col1 
+
+2.Create the role role1 on the ranger side and authorize the query permission of db1.table1.col2
+
+3.Create user user1 with the same name in Doris, and user1 will directly have the query permission of db1.table1.col1
+
+4.Create the role role1 with the same name in Doris and assign role1 to user1. User1 will have query permissions for both db1.table1.col1 and col2
+

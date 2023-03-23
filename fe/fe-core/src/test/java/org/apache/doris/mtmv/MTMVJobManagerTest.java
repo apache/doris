@@ -58,15 +58,15 @@ public class MTMVJobManagerTest extends TestWithFeService {
     public void testSchedulerJob() throws DdlException, InterruptedException {
         MTMVJobManager jobManager = new MTMVJobManager();
         jobManager.start();
-        Assertions.assertTrue(jobManager.getTaskManager().getAllHistory().isEmpty());
+        Assertions.assertTrue(jobManager.getTaskManager().getHistoryTasks().isEmpty());
         MTMVJob job = MTMVUtilsTest.createSchedulerJob();
         jobManager.createJob(job, false);
         Assertions.assertEquals(1, jobManager.showJobs(MTMVUtilsTest.dbName).size());
-        while (jobManager.getTaskManager().getAllHistory().isEmpty()) {
+        while (jobManager.getTaskManager().getHistoryTasks().isEmpty()) {
             Thread.sleep(1000L);
             System.out.println("Loop    once");
         }
-        Assertions.assertTrue(jobManager.getTaskManager().getAllHistory().size() > 0);
+        Assertions.assertTrue(jobManager.getTaskManager().getHistoryTasks().size() > 0);
     }
 
     @Test
@@ -83,7 +83,7 @@ public class MTMVJobManagerTest extends TestWithFeService {
             System.out.println("Loop    once");
         }
 
-        Assertions.assertEquals(1, jobManager.getTaskManager().getAllHistory().size());
+        Assertions.assertEquals(1, jobManager.getTaskManager().getHistoryTasks().size());
         Assertions.assertEquals(1, jobManager.getTaskManager().showAllTasks().size());
         Assertions.assertEquals(1, jobManager.getTaskManager().showTasks(MTMVUtilsTest.dbName).size());
         Assertions.assertEquals(1,

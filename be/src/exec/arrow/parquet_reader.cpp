@@ -146,45 +146,6 @@ Status ParquetReaderWrap::read_record_batch(bool* eof) {
     return Status::OK();
 }
 
-Status ParquetReaderWrap::handle_timestamp(const std::shared_ptr<arrow::TimestampArray>& ts_array,
-                                           uint8_t* buf, int32_t* wbytes) {
-    const auto type = std::static_pointer_cast<arrow::TimestampType>(ts_array->type());
-    // Doris only supports seconds
-    int64_t timestamp = 0;
-    switch (type->unit()) {
-    case arrow::TimeUnit::type::NANO: {                                    // INT96
-        timestamp = ts_array->Value(_current_line_of_batch) / 1000000000L; // convert to Second
-        break;
-    }
-    case arrow::TimeUnit::type::SECOND: {
-        timestamp = ts_array->Value(_current_line_of_batch);
-        break;
-    }
-    case arrow::TimeUnit::type::MILLI: {
-        timestamp = ts_array->Value(_current_line_of_batch) / 1000; // convert to Second
-        break;
-    }
-    case arrow::TimeUnit::type::MICRO: {
-        timestamp = ts_array->Value(_current_line_of_batch) / 1000000; // convert to Second
-        break;
-    }
-    default:
-        return Status::InternalError("Invalid Time Type.");
-    }
-
-    DateTimeValue dtv;
-    if (!dtv.from_unixtime(timestamp, _timezone)) {
-        std::stringstream str_error;
-        str_error << "Parse timestamp (" + std::to_string(timestamp) + ") error";
-        LOG(WARNING) << str_error.str();
-        return Status::InternalError(str_error.str());
-    }
-    char* buf_end = (char*)buf;
-    buf_end = dtv.to_string((char*)buf_end);
-    *wbytes = buf_end - (char*)buf - 1;
-    return Status::OK();
-}
-
 Status ParquetReaderWrap::init_parquet_type() {
     // read batch
     RETURN_IF_ERROR(read_next_batch());

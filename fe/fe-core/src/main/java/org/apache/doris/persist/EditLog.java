@@ -628,6 +628,16 @@ public class EditLog {
                     Env.getCurrentEnv().replayDropFunction(function);
                     break;
                 }
+                case OperationType.OP_ADD_GLOBAL_FUNCTION: {
+                    final Function function = (Function) journal.getData();
+                    Env.getCurrentEnv().replayCreateGlobalFunction(function);
+                    break;
+                }
+                case OperationType.OP_DROP_GLOBAL_FUNCTION: {
+                    FunctionSearchDesc function = (FunctionSearchDesc) journal.getData();
+                    Env.getCurrentEnv().replayDropGlobalFunction(function);
+                    break;
+                }
                 case OperationType.OP_CREATE_ENCRYPTKEY: {
                     final EncryptKey encryptKey = (EncryptKey) journal.getData();
                     EncryptKeyHelper.replayCreateEncryptKey(encryptKey);
@@ -857,7 +867,7 @@ public class EditLog {
                 }
                 case OperationType.OP_CREATE_CATALOG: {
                     CatalogLog log = (CatalogLog) journal.getData();
-                    env.getCatalogMgr().replayCreateCatalog(log);
+                    env.getCatalogMgr().replayCreateCatalog(log, true);
                     break;
                 }
                 case OperationType.OP_DROP_CATALOG: {
@@ -1461,8 +1471,16 @@ public class EditLog {
         logEdit(OperationType.OP_ADD_FUNCTION, function);
     }
 
+    public void logAddGlobalFunction(Function function) {
+        logEdit(OperationType.OP_ADD_GLOBAL_FUNCTION, function);
+    }
+
     public void logDropFunction(FunctionSearchDesc function) {
         logEdit(OperationType.OP_DROP_FUNCTION, function);
+    }
+
+    public void logDropGlobalFunction(FunctionSearchDesc function) {
+        logEdit(OperationType.OP_DROP_GLOBAL_FUNCTION, function);
     }
 
     public void logAddEncryptKey(EncryptKey encryptKey) {

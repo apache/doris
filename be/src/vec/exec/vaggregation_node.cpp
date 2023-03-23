@@ -1030,8 +1030,10 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
                         SCOPED_TIMER(_streaming_agg_timer);
                         ret_flag = true;
 
-                        // will serialize value data to string column
-                        bool mem_reuse = out_block->mem_reuse();
+                        // will serialize value data to string column.
+                        // non-nullable column(id in `_make_nullable_keys`)
+                        // will be converted to nullable.
+                        bool mem_reuse = _make_nullable_keys.empty() && out_block->mem_reuse();
 
                         std::vector<DataTypePtr> data_types;
                         MutableColumns value_columns;
@@ -1136,7 +1138,8 @@ Status AggregationNode::_execute_with_serialized_key(Block* block) {
 
 Status AggregationNode::_get_with_serialized_key_result(RuntimeState* state, Block* block,
                                                         bool* eos) {
-    bool mem_reuse = block->mem_reuse();
+    // non-nullable column(id in `_make_nullable_keys`) will be converted to nullable.
+    bool mem_reuse = _make_nullable_keys.empty() && block->mem_reuse();
     auto column_withschema = VectorizedUtils::create_columns_with_type_and_name(_row_descriptor);
     int key_size = _probe_expr_ctxs.size();
 
@@ -1241,7 +1244,8 @@ Status AggregationNode::_serialize_with_serialized_key_result(RuntimeState* stat
     MutableColumns value_columns(agg_size);
     DataTypes value_data_types(agg_size);
 
-    bool mem_reuse = block->mem_reuse();
+    // non-nullable column(id in `_make_nullable_keys`) will be converted to nullable.
+    bool mem_reuse = _make_nullable_keys.empty() && block->mem_reuse();
 
     MutableColumns key_columns;
     for (int i = 0; i < key_size; ++i) {
