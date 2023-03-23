@@ -179,7 +179,7 @@ Status IcebergTableReader::_position_delete(
         SCOPED_TIMER(_iceberg_profile.delete_files_read_time);
         Status create_status = Status::OK();
         DeleteFile* delete_file_cache = _kv_cache.get<
-                DeleteFile>(delete_file.path, [&]() -> DeleteFile* {
+                DeleteFile>(_delet_file_cache_key(delete_file.path), [&]() -> DeleteFile* {
             TFileRangeDesc delete_range;
             delete_range.path = delete_file.path;
             delete_range.start_offset = 0;

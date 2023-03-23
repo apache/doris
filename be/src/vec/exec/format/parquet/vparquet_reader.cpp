@@ -34,7 +34,7 @@ namespace doris::vectorized {
 
 ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                              const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz,
-                             io::IOContext* io_ctx, RuntimeState* state)
+                             io::IOContext* io_ctx, RuntimeState* state, KVCache<std::string>* kv_cache)
         : _profile(profile),
           _scan_params(params),
           _scan_range(range),
@@ -43,7 +43,8 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
           _range_size(range.size),
           _ctz(ctz),
           _io_ctx(io_ctx),
-          _state(state) {
+          _state(state),
+          _kv_cache(kv_cache) {
     _init_profile();
     _init_system_properties();
     _init_file_description();
@@ -89,6 +90,12 @@ void ParquetReader::_init_profile() {
                 ADD_CHILD_TIMER(_profile, "ColumnReadTime", parquet_profile);
         _parquet_profile.parse_meta_time =
                 ADD_CHILD_TIMER(_profile, "ParseMetaTime", parquet_profile);
+        _parquet_profile.parse_footer_time =
+                ADD_CHILD_TIMER(_profile, "ParseFooterTime", parquet_profile);
+        _parquet_profile.open_file_time =
+                ADD_CHILD_TIMER(_profile, "FileOpenTime", parquet_profile);
+        _parquet_profile.open_file_num =
+                ADD_CHILD_COUNTER(_profile, "FileNum", TUnit::UNIT, parquet_profile);
         _parquet_profile.page_index_filter_time =
                 ADD_CHILD_TIMER(_profile, "PageIndexFilterTime", parquet_profile);
         _parquet_profile.row_group_filter_time =
@@ -128,6 +135,9 @@ void ParquetReader::close() {
             COUNTER_UPDATE(_parquet_profile.to_read_bytes, _statistics.read_bytes);
             COUNTER_UPDATE(_parquet_profile.column_read_time, _statistics.column_read_time);
             COUNTER_UPDATE(_parquet_profile.parse_meta_time, _statistics.parse_meta_time);
+            COUNTER_UPDATE(_parquet_profile.parse_footer_time, _statistics.parse_footer_time);
+            COUNTER_UPDATE(_parquet_profile.open_file_time, _statistics.open_file_time);
+            COUNTER_UPDATE(_parquet_profile.open_file_num, _statistics.open_file_num);
             COUNTER_UPDATE(_parquet_profile.page_index_filter_time,
                            _statistics.page_index_filter_time);
             COUNTER_UPDATE(_parquet_profile.row_group_filter_time,
@@ -150,18 +160,44 @@ void ParquetReader::close() {
         }
         _closed = true;
     }
+
+    if (_is_file_metadata_owned && _file_metadata != nullptr) {
+        delete _file_metadata;
+    }
 }
 
 Status ParquetReader::_open_file() {
     if (_file_reader == nullptr) {
+        SCOPED_RAW_TIMER(&_statistics.open_file_time);
+        ++_statistics.open_file_num;
         RETURN_IF_ERROR(FileFactory::create_file_reader(
                 _profile, _system_properties, _file_description, &_file_system, &_file_reader));
     }
     if (_file_metadata == nullptr) {
+        SCOPED_RAW_TIMER(&_statistics.parse_footer_time);
         if (_file_reader->size() == 0) {
             return Status::EndOfFile("open file failed, empty parquet file: " + _scan_range.path);
         }
-        RETURN_IF_ERROR(parse_thrift_footer(_file_reader, _file_metadata));
+        if (_kv_cache == nullptr) {
+            _is_file_metadata_owned = true;
+            RETURN_IF_ERROR(parse_thrift_footer(_file_reader, &_file_metadata));
+        } else {
+            _is_file_metadata_owned = false;
+            _file_metadata = _kv_cache->get<
+                    FileMetaData>(_meta_cache_key(_file_reader->path()), [&]() -> FileMetaData* {
+                FileMetaData* meta;
+                Status st = parse_thrift_footer(_file_reader, &meta);
+                if (!st) {
+                    LOG(INFO) << "failed to parse parquet footer for " << _file_description.path << ", err: " << st;
+                    return nullptr;
+                }
+                return meta;
+            });
+        }
+
+        if (_file_metadata == nullptr) {
+            return Status::InternalError("failed to get file meta data: {}", _file_description.path);
+        }
     }
     return Status::OK();
 }
@@ -173,9 +209,8 @@ std::vector<tparquet::KeyValue> ParquetReader::get_metadata_key_values() {
 }
 
 Status ParquetReader::open() {
-    SCOPED_RAW_TIMER(&_statistics.parse_meta_time);
     RETURN_IF_ERROR(_open_file());
-    _t_metadata = &_file_metadata->to_thrift();
+    _t_metadata = &(_file_metadata->to_thrift());
     return Status::OK();
 }
 
