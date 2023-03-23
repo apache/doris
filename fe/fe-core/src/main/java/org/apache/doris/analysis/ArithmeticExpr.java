@@ -544,7 +544,7 @@ public class ArithmeticExpr extends Expr {
                     // target type: DECIMALV3(max(widthOfIntPart1, widthOfIntPart2) + max(scale1, scale2) + 1,
                     // max(scale1, scale2))
                     scale = Math.max(t1Scale, t2Scale);
-                    precision = Math.max(widthOfIntPart1, widthOfIntPart2) + scale;
+                    precision = Math.max(widthOfIntPart1, widthOfIntPart2) + scale + 1;
                 } else {
                     scale = Math.max(t1Scale, t2Scale);
                     precision = widthOfIntPart2 + scale;
