@@ -52,38 +52,70 @@ public class PartitionSlotInput {
     // the partition slot will be replaced to this result
     public final Expression result;
 
-    // all partition slot's range map, the example in the class comment, it will be `{Slot(part_column1): [1, 4)}`.
+    // all partition slot's range map, the example in the class comment, it will be `{Slot(part_column1): [1, 10000)}`.
     // this range will use as the initialized partition slot range, every expression has a related columnRange map.
     // as the expression executes, the upper expression' columnRange map will be computed.
-    // for example, the predicate `part_column1 > 1 and part_column1 < 0`
+    // for example, the predicate `part_column1 > 100 or part_column1 < 0`.
     //
-    //                                               And
+    // the [1, 10000) is too much we default not expand to IntLiterals.
+    // this are the process steps:
+    //
+    //                                               Or
     //                     /                                                        \
     //                 GreaterThen                                                LessThen
-    //         /                    \                                      /                    \
-    //   part_column1               IntegerLiteral(1)                 part_column1          IntegerLiteral(0)
-    // (part_column1: [1,4))       (part_column1: [1,4))           (part_column1: [1,4))   (part_column1: [1,4))
+    //         /                         \                                  /                    \
+    //   part_column1                  IntegerLiteral(100)             part_column1          IntegerLiteral(0)
+    // (part_column1: [1,10000))    (part_column1: [1,10000))     (part_column1: [1,10000))  (part_column1: [1,10000))
     //
     //                                                |
     //                                                v
     //
-    //                                               And
+    //                                               Or
     //                     /                                                        \
     //                 GreaterThen                                                LessThen
-    //            (part_column1: [1])                                          (part_column1: [0])
+    //       (part_column1: [1,10000) and (100, +∞))                  (part_column1: [1,10000) and (-∞, 0))
     //         /                    \                                      /                    \
-    //   part_column1               IntegerLiteral(1)                 part_column1          IntegerLiteral(0)
+    //   part_column1               IntegerLiteral(100)                 part_column1          IntegerLiteral(0)
     //
     //                                                |
     //                                                v
     //
-    //                                               And (will be replace to BooleanLiteral.FALSE, because empty range)
-    //                                    (part_column1: empty range)
+    //                                               Or
     //                     /                                                        \
     //                 GreaterThen                                                LessThen
+    //          (part_column1: (100,10000))                               (part_column1: empty range)
     //         /                    \                                      /                    \
-    //   part_column1               IntegerLiteral(1)                 part_column1          IntegerLiteral(0)
+    //   part_column1               IntegerLiteral(100)               part_column1          IntegerLiteral(0)
     //
+    //                                                |
+    //                                                v
+    //
+    //                                               Or
+    //                     /                                                        \
+    //                 GreaterThen                                      BooleanLiteral.FALSE    <- empty set to false
+    //        (part_column1: (100,10000))
+    //         /                    \
+    //   part_column1               IntegerLiteral(100)
+    //
+    //                                                |
+    //                                                v
+    //
+    //                                               Or
+    //                               (part_column1: (100,10000) or empty range)
+    //                     /                                                        \
+    //                 GreaterThen                                              BooleanLiteral.FALSE
+    //         /                    \
+    //   part_column1               IntegerLiteral(100)
+    //
+    //                                                |
+    //                                                v
+    //
+    //                                         GreaterThen                <- fold `expr or false` to const
+    //                                  (part_column1: (100,10000))       <- merge columnRanges
+    //                                 /                         \
+    //                          part_column1                    IntegerLiteral(100)
+    //
+    // because we can't fold this predicate to BooleanLiteral.FALSE, so we should scan the partition.
     public final Map<Slot, ColumnRange> columnRanges;
 
     public PartitionSlotInput(Expression result, Map<Slot, ColumnRange> columnRanges) {
