@@ -172,7 +172,7 @@ public:
     uint64_t filtered_rows() const {
         return _stats.rows_del_filtered + _stats.rows_del_by_bitmap +
                _stats.rows_conditions_filtered + _stats.rows_vec_del_cond_filtered +
-               _stats.rows_vec_cond_filtered;
+               _stats.rows_vec_cond_filtered + _stats.rows_short_circuit_cond_filtered;
     }
 
     void set_batch_size(int batch_size) { _reader_context.batch_size = batch_size; }

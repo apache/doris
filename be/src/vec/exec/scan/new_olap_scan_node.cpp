@@ -79,7 +79,14 @@ Status NewOlapScanNode::_init_profile() {
     _block_init_seek_counter = ADD_COUNTER(_segment_profile, "BlockInitSeekCount", TUnit::UNIT);
     _block_conditions_filtered_timer = ADD_TIMER(_segment_profile, "BlockConditionsFilteredTime");
 
-    _rows_vec_cond_counter = ADD_COUNTER(_segment_profile, "RowsVectorPredFiltered", TUnit::UNIT);
+    _rows_vec_cond_filtered_counter =
+            ADD_COUNTER(_segment_profile, "RowsVectorPredFiltered", TUnit::UNIT);
+    _rows_short_circuit_cond_filtered_counter =
+            ADD_COUNTER(_segment_profile, "RowsShortCircuitPredFiltered", TUnit::UNIT);
+    _rows_vec_cond_input_counter =
+            ADD_COUNTER(_segment_profile, "RowsVectorPredInput", TUnit::UNIT);
+    _rows_short_circuit_cond_input_counter =
+            ADD_COUNTER(_segment_profile, "RowsShortCircuitPredInput", TUnit::UNIT);
     _vec_cond_timer = ADD_TIMER(_segment_profile, "VectorPredEvalTime");
     _short_cond_timer = ADD_TIMER(_segment_profile, "ShortPredEvalTime");
     _expr_filter_timer = ADD_TIMER(_segment_profile, "ExprFilterEvalTime");
