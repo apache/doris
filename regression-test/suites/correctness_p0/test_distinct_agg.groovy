@@ -30,12 +30,12 @@ suite("test_distinct_agg") {
         UNIQUE KEY(`k1`, `k2`)
         DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 3
         PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1",
-    );
+            "replication_allocation" = "tag.location.default: 1"
+        );
     '''
 
     sql '''
-        INSERT INTO `dws_task_campaign_wide` (`id`, `shard_key`, `user_id`, `customer_id`, `popu_cust_channel`, `trans_time`)
+        INSERT INTO `t` (`k1`, `k2`, `k3`, `k4`, `k5`, `k6`)
         VALUES (1, '1234', 'A0', 'C0', '1', '2023-01-10 23:00:00');
     '''
 
