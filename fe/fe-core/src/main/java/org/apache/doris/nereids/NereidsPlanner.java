@@ -261,7 +261,7 @@ public class NereidsPlanner extends Planner {
             return;
         }
         if (cacheContext.isEnablePartitionCache()) {
-            cacheContext.initPartitionCache();
+            cacheContext.initPartitionCache(plan);
             new NereidsCache(cascadesContext, CacheMode.Partition).execute();
         }
     }

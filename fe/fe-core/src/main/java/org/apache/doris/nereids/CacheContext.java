@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.algebra.Scan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -64,6 +65,8 @@ public class CacheContext {
     private Optional<Column> partColumn;
 
     private PartitionRange range;
+
+    private String allTableNames;
 
     private Cache.HitRange hitRange = Cache.HitRange.None;
 
@@ -138,11 +141,13 @@ public class CacheContext {
     public boolean checkOlapScans(Set<Scan> olapScans) {
         long now = System.currentTimeMillis();
         long interval = Config.cache_last_version_interval_second * 1000L;
+        allTableNames = "";
         for (Scan scan : olapScans) {
             if (!(scan instanceof OlapScan)) {
                 return false;
             }
             OlapTable olapTable = ((OlapScan) scan).getTable();
+            allTableNames = olapTable.getName() + "|";
             Optional<Long> partitionId = ((OlapScan) scan).getSelectedPartitionIds().stream().max(
                     Comparator.comparing(i -> olapTable.getPartition(i).getVisibleVersionTime())
             );
@@ -233,10 +238,12 @@ public class CacheContext {
     /**
      *  generate key and range for partition cache
      */
-    public void initPartitionCache() {
+    public void initPartitionCache(Plan plan) {
         Preconditions.checkArgument(isEnablePartitionCache(), "partition cache is not enabled");
         cacheKey = Utils.toSqlString("",
-                "table", lastOlapTable,
+                "allTables", allTableNames,
+                "output", plan.getOutput(),
+                "lastOlapTable", lastOlapTable,
                 "partitionColumn", partColumn.get().getName(),
                 "otherConjucts", otherConjuncts
         );
