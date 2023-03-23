@@ -19,13 +19,13 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
+import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
 /**
  * RightSemiJoin -> LeftSemiJoin
  */
-public class SemiJoinCommute extends OneExplorationRuleFactory {
+public class SemiJoinCommute extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalJoin()
