@@ -52,7 +52,7 @@ public class PartitionSlotInput {
     // the partition slot will be replaced to this result
     public final Expression result;
 
-    // all partition slot's range map, the example in the class comment, it will be `{Slot(part_column1): [1, 10000)}`.
+    // all partition slot's range map, the example in the class comment, it will be `{Slot(part_column1): [1, 4)}`.
     // this range will use as the initialized partition slot range, every expression has a related columnRange map.
     // as the expression executes, the upper expression' columnRange map will be computed.
     // for example, the predicate `part_column1 > 100 or part_column1 < 0`.
