@@ -115,7 +115,8 @@ public:
 
     AggregateFunctionProduct(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionProduct<T, TResult, Data>>(
-                      argument_types_) {
+                      argument_types_),
+              scale(get_decimal_scale(*argument_types_[0])) {
         if constexpr (IsDecimalNumber<T>) {
             multiplier =
                     ResultDataType::get_scale_multiplier(get_decimal_scale(*argument_types_[0]));
@@ -124,7 +125,7 @@ public:
 
     DataTypePtr get_return_type() const override {
         if constexpr (IsDecimalNumber<T>) {
-            return std::make_shared<ResultDataType>(ResultDataType::max_precision(), multiplier);
+            return std::make_shared<ResultDataType>(ResultDataType::max_precision(), scale);
         } else {
             return std::make_shared<ResultDataType>();
         }
@@ -164,6 +165,7 @@ public:
     }
 
 private:
+    UInt32 scale;
     TResult multiplier;
 };
 
