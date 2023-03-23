@@ -98,6 +98,8 @@ public:
     std::string exceed_mem_limit_msg() { return _exceed_mem_limit_msg; }
     void clear_exceed_mem_limit_msg() { _exceed_mem_limit_msg = ""; }
     void disable_wait_gc() { _wait_gc = false; }
+    bool wait_gc() { return _wait_gc; }
+    void cancel_fragment(const std::string& exceed_msg);
 
     std::string print_debug_string() {
         fmt::memory_buffer consumer_tracker_buf;
@@ -112,7 +114,6 @@ public:
     }
 
 private:
-    void cancel_fragment();
     void exceeded(int64_t size);
 
     void save_exceed_mem_limit_msg() {
