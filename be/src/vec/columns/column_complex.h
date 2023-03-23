@@ -360,6 +360,8 @@ size_t ColumnComplexType<T>::filter(const IColumn::Filter& filter) {
         ++data_pos;
     }
 
+    data.resize(res_data - data.data());
+
     return res_data - data.data();
 }
 

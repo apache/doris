@@ -75,6 +75,10 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
     SCOPED_TIMER(_convert_tuple_timer);
 
     const auto row_size = column_ptr->size();
+    if (rows_buffer.size() != row_size) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR>("row_size({}) != rows_buffer.size({})",
+                                                        row_size, rows_buffer.size());
+    }
 
     doris::vectorized::ColumnPtr column;
     if constexpr (is_nullable) {
@@ -837,7 +841,8 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
         }
 
         if (!status) {
-            LOG(WARNING) << "convert row to mysql result failed.";
+            LOG(WARNING) << "convert row to mysql result failed. block_struct="
+                         << block.dump_structure();
             break;
         }
     }

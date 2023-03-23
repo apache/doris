@@ -47,7 +47,11 @@ bool ColumnWithTypeAndName::operator==(const ColumnWithTypeAndName& other) const
 }
 
 void ColumnWithTypeAndName::dump_structure(std::ostream& out) const {
-    out << name;
+    if (name.empty()) {
+        out << "[Anonymous Column]";
+    } else {
+        out << name;
+    }
 
     if (type)
         out << " " << type->get_name();
