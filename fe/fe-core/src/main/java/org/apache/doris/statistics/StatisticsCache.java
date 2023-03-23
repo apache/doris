@@ -38,24 +38,28 @@ public class StatisticsCache {
             .buildAsync(new StatisticsCacheLoader());
 
     public ColumnStatistic getColumnStatistics(long tblId, String colName) {
-        return getColumnStatistics(tblId, -1, colName);
+        ColumnLevelStatisticCache columnLevelStatisticCache = getColumnStatistics(tblId, -1, colName);
+        if (columnLevelStatisticCache == null) {
+            return ColumnStatistic.UNKNOWN;
+        }
+        return columnLevelStatisticCache.columnStatistic;
     }
 
-    public ColumnStatistic getColumnStatistics(long tblId, long idxId, String colName) {
+    public ColumnLevelStatisticCache getColumnStatistics(long tblId, long idxId, String colName) {
         ConnectContext ctx = ConnectContext.get();
         if (ctx != null && ctx.getSessionVariable().internalSession) {
-            return ColumnStatistic.UNKNOWN;
+            return null;
         }
         StatisticsCacheKey k = new StatisticsCacheKey(tblId, idxId, colName);
         try {
             CompletableFuture<ColumnLevelStatisticCache> f = cache.get(k);
             if (f.isDone() && f.get() != null) {
-                return f.get().getColumnStatistic();
+                return f.get();
             }
         } catch (Exception e) {
             LOG.warn("Unexpected exception while returning ColumnStatistic", e);
         }
-        return ColumnStatistic.UNKNOWN;
+        return null;
     }
 
     public Histogram getHistogram(long tblId, String colName) {
