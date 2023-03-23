@@ -59,6 +59,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCache;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
@@ -164,7 +165,7 @@ public abstract class PlanVisitor<R, C> {
         return visit(filter, context);
     }
 
-    public R visitLogicalCache(LogicalCache<? extends Plan> cache, C context) {
+    public R visitLogicalCache(LogicalCache cache, C context) {
         return visit(cache, context);
     }
 
@@ -275,6 +276,10 @@ public abstract class PlanVisitor<R, C> {
 
     public R visitPhysicalEmptyRelation(PhysicalEmptyRelation emptyRelation, C context) {
         return visit(emptyRelation, context);
+    }
+
+    public R visitPhysicalCache(PhysicalCache cache, C context) {
+        return visit(cache, context);
     }
 
     public R visitPhysicalOneRowRelation(PhysicalOneRowRelation oneRowRelation, C context) {

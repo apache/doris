@@ -30,6 +30,7 @@ import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.jobs.batch.CascadesOptimizer;
 import org.apache.doris.nereids.jobs.batch.NereidsCache;
+import org.apache.doris.nereids.jobs.batch.NereidsCache.CacheMode;
 import org.apache.doris.nereids.jobs.batch.NereidsRewriter;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
@@ -44,11 +45,12 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
+import org.apache.doris.nereids.trees.plans.algebra.Scan;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -57,7 +59,6 @@ import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.cache.SqlCache;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
@@ -76,13 +77,12 @@ public class NereidsPlanner extends Planner {
     public static final Logger LOG = LogManager.getLogger(NereidsPlanner.class);
     private CascadesContext cascadesContext;
     private final StatementContext statementContext;
-    private List<ScanNode> scanNodeList = null;
+    private List<ScanNode> scanNodeList = Lists.newArrayList();
     private DescriptorTable descTable;
 
     private Plan parsedPlan;
     private Plan analyzedPlan;
     private Plan rewrittenPlan;
-    private Plan cachedPlan;
     private Plan optimizedPlan;
     // The cost of optimized plan
     private double cost = 0;
@@ -182,12 +182,6 @@ public class NereidsPlanner extends Planner {
             }
 
             cache();
-            if (explainLevel == ExplainLevel.CACHED_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
-                cachedPlan = cascadesContext.getRewritePlan();
-                if (explainLevel == ExplainLevel.CACHED_PLAN) {
-                    return cachedPlan;
-                }
-            }
 
             initMemo();
 
@@ -232,30 +226,43 @@ public class NereidsPlanner extends Planner {
         cascadesContext.newAnalyzer().analyze();
     }
 
+    /**
+     * Cache Modes: Sql Cache, Partition Cache.
+     * 1. Sql Cache takes precedence if both enable.
+     * 2. If Sql Cache miss, break to update cache.
+     */
     private void cache() {
+        // 0. check config and variable
         ConnectContext connectContext = cascadesContext.getConnectContext();
         CacheContext cacheContext = cascadesContext.getStatementContext().getCacheContext();
         boolean isEnableSqlCache = Config.cache_enable_sql_mode
                     && connectContext.getSessionVariable().isEnableSqlCache();
         boolean isEnablePartitionCache = Config.cache_enable_partition_mode
                     && connectContext.getSessionVariable().isEnablePartitionCache();
-        Plan plan = cascadesContext.getRewritePlan();
         if (!isEnableSqlCache && !isEnablePartitionCache) {
             return;
         }
-        if (!cacheContext.checkOlapScans(plan.collect(OlapScan.class::isInstance))) {
+
+        Plan plan = cascadesContext.getRewritePlan();
+        // 1. check olapScan
+        if (!cacheContext.checkOlapScans(plan.collect(Scan.class::isInstance))) {
             return;
         }
         if (isEnableSqlCache && cacheContext.isEnableSqlCache()) {
-            cacheContext.setCacheKey(plan.treeString());
-            SqlCache.getCacheDataForNereids(cacheContext);
+            new NereidsCache(cascadesContext, CacheMode.Sql).execute();
             return;
         }
+        // 2. check agg
         if (!cacheContext.checkAggs(plan.collect(LogicalAggregate.class::isInstance))) {
             return;
         }
-        if (cacheContext.isEnableRewritePredicate()) {
-            new NereidsCache(cascadesContext).execute();
+        // 3. check predicate
+        if (!cacheContext.checkPredicates(plan.collect(LogicalFilter.class::isInstance))) {
+            return;
+        }
+        if (cacheContext.isEnablePartitionCache()) {
+            cacheContext.initPartitionCache();
+            new NereidsCache(cascadesContext, CacheMode.Partition).execute();
         }
     }
 
@@ -371,8 +378,6 @@ public class NereidsPlanner extends Planner {
                 return analyzedPlan.treeString();
             case REWRITTEN_PLAN:
                 return rewrittenPlan.treeString();
-            case CACHED_PLAN:
-                return cachedPlan.treeString();
             case OPTIMIZED_PLAN:
                 return "cost = " + cost + "\n" + optimizedPlan.treeString();
             case ALL_PLAN:
@@ -382,8 +387,6 @@ public class NereidsPlanner extends Planner {
                         + analyzedPlan.treeString() + "\n\n"
                         + "========== REWRITTEN PLAN ==========\n"
                         + rewrittenPlan.treeString() + "\n\n"
-                        + "========== CACHED PLAN ==========\n"
-                        + cachedPlan.treeString() + "\n\n"
                         + "========== OPTIMIZED PLAN ==========\n"
                         + optimizedPlan.treeString();
             default:

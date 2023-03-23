@@ -50,7 +50,7 @@ explain
 planType
     : PARSED
     | ANALYZED
-    | REWRITTEN | CACHED | LOGICAL  // same type
+    | REWRITTEN | LOGICAL  // same type
     | OPTIMIZED | PHYSICAL   // same type
     | ALL // default type
     ;

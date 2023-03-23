@@ -23,45 +23,32 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * Logical Cache plan.
  */
-public class LogicalCache<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Filter {
-    private final Set<Expression> conjuncts;
+public class LogicalCache<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> {
 
-    private final String slotName;
+    private final String key;
 
-    public LogicalCache(Set<Expression> conjuncts, String slotName, CHILD_TYPE child) {
-        this(conjuncts, Optional.empty(), slotName, Optional.empty(), child);
+    public LogicalCache(String key, CHILD_TYPE child) {
+        this(key, Optional.empty(), Optional.empty(), child);
     }
 
-    public LogicalCache(Set<Expression> conjuncts, Optional<GroupExpression> groupExpression, String slotName,
+    public LogicalCache(String key,
+                        Optional<GroupExpression> groupExpression,
                         Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_FILTER, groupExpression, logicalProperties, child);
-        this.conjuncts = ImmutableSet.copyOf(Objects.requireNonNull(conjuncts, "conjuncts can not be null"));
-        this.slotName = Objects.requireNonNull(slotName, "slotName can not be null");
-    }
-
-    @Override
-    public Set<Expression> getConjuncts() {
-        return conjuncts;
-    }
-
-    public List<Expression> getExpressions() {
-        return ImmutableList.of(getPredicate());
+        this.key = Objects.requireNonNull(key, "key can not be null");
     }
 
     @Override
@@ -71,8 +58,8 @@ public class LogicalCache<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalCache",
-                "predicates", slotName
+        return Utils.toSqlString("LogicalCache[" + id.asInt() + "]",
+            "key", key
         );
     }
 
@@ -85,12 +72,7 @@ public class LogicalCache<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
             return false;
         }
         LogicalCache that = (LogicalCache) o;
-        return conjuncts.equals(that.conjuncts) && slotName.equals(that.slotName);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(conjuncts, slotName);
+        return key.equals(that.key);
     }
 
     @Override
@@ -99,22 +81,29 @@ public class LogicalCache<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
     }
 
     @Override
+    public List<? extends Expression> getExpressions() {
+        return ImmutableList.of();
+    }
+
+    @Override
     public LogicalUnary<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalCache<>(conjuncts, slotName, children.get(0));
+        return new LogicalCache<>(key, children.get(0));
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalCache<>(conjuncts, groupExpression, slotName,
-                Optional.of(getLogicalProperties()), child());
+        return new LogicalCache<>(key, groupExpression,
+            Optional.of(getLogicalProperties()), child());
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalCache<>(conjuncts, Optional.empty(),
-                slotName,
+        return new LogicalCache<>(key, Optional.empty(),
                 logicalProperties, child());
     }
 
+    public String getKey() {
+        return key;
+    }
 }

@@ -80,7 +80,8 @@ suite("partition_cache_nereids") {
 
     qt_partition_cache """ ${sql1} """
     explain {
-    	sql """ cached plan ${sql1} """
+	sql """ plan ${sql1} """
+	contains """Cache"""
         contains """>= 2023-05-01"""
         contains """<= 2023-05-26"""
     }
@@ -94,7 +95,7 @@ suite("partition_cache_nereids") {
     sql """ 
 	    CREATE VIEW ${viewName} as 
             select
-                * 
+                k1 as kk1, k2 as kk2
             from 
                 ${tableName} 
 	    where 
@@ -103,20 +104,21 @@ suite("partition_cache_nereids") {
 
     def sql2 = """
                  select
-                   k1,
-                   sum(k2) as total_pv 
+                   kk1,
+                   sum(kk2) as total_pv
                  from
                    ${viewName} 
                  where
-                   k1 between '2023-05-01' and '2023-05-31' 
+                   kk1 between '2023-05-01' and '2023-05-31'
                  group by
-                   k1
+                   kk1
                  order by
-                   k1;
+                   kk1;
               """
     qt_partition_cache """ ${sql2} """
     explain {
-    	sql """ cached plan ${sql2} """
+	sql """ plan ${sql2} """
+	contains """Cache"""
         contains """>= 2023-05-11"""
         contains """<= 2023-05-26"""
     }

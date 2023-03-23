@@ -92,9 +92,14 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
      * todo: should be pulled up to base class?
      */
     private final boolean partitionPruned;
+
     private final List<Long> manuallySpecifiedPartitions;
 
     private final List<Long> selectedPartitionIds;
+
+    private final boolean partitionCached;
+
+    private final List<Long> cachedPartitionIds;
 
     ///////////////////////////////////////////////////////////////////////////
     // Members for hints.
@@ -107,28 +112,26 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
 
     public LogicalOlapScan(ObjectId id, OlapTable table, List<String> qualifier) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
-                table.getPartitionIds(), false,
-                ImmutableList.of(),
+                table.getPartitionIds(), false, ImmutableList.of(), false, ImmutableList.of(),
                 -1, false, PreAggStatus.on(), ImmutableList.of(), ImmutableList.of(), Maps.newHashMap());
     }
 
     public LogicalOlapScan(ObjectId id, OlapTable table, List<String> qualifier, List<String> hints) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
-                table.getPartitionIds(), false,
-                ImmutableList.of(),
+                table.getPartitionIds(), false, ImmutableList.of(), false, ImmutableList.of(),
                 -1, false, PreAggStatus.on(), ImmutableList.of(), hints, Maps.newHashMap());
     }
 
     public LogicalOlapScan(ObjectId id, OlapTable table, List<String> qualifier, List<Long> specifiedPartitions,
             List<String> hints) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
-                specifiedPartitions, false, ImmutableList.of(),
+                specifiedPartitions, false, ImmutableList.of(), false, ImmutableList.of(),
                 -1, false, PreAggStatus.on(), specifiedPartitions, hints, Maps.newHashMap());
     }
 
     public LogicalOlapScan(ObjectId id, Table table, List<String> qualifier) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
-                ((OlapTable) table).getPartitionIds(), false, ImmutableList.of(),
+                ((OlapTable) table).getPartitionIds(), false, ImmutableList.of(), false, ImmutableList.of(),
                 -1, false, PreAggStatus.on(), ImmutableList.of(), ImmutableList.of(), Maps.newHashMap());
     }
 
@@ -138,6 +141,7 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
     public LogicalOlapScan(ObjectId id, Table table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             List<Long> selectedPartitionIds, boolean partitionPruned,
+            List<Long> cachedPartitionIds, boolean partitionCached,
             List<Long> selectedTabletIds, long selectedIndexId, boolean indexSelected,
             PreAggStatus preAggStatus, List<Long> partitions, List<String> hints, Map<String, Slot> mvNameToSlot) {
 
@@ -145,6 +149,8 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
                 groupExpression, logicalProperties);
         this.selectedTabletIds = ImmutableList.copyOf(selectedTabletIds);
         this.partitionPruned = partitionPruned;
+        this.cachedPartitionIds = ImmutableList.copyOf(cachedPartitionIds);
+        this.partitionCached = partitionCached;
         this.selectedIndexId = selectedIndexId <= 0 ? getTable().getBaseIndexId() : selectedIndexId;
         this.indexSelected = indexSelected;
         this.preAggStatus = preAggStatus;
@@ -193,6 +199,8 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
         return Objects.equals(id, ((LogicalOlapScan) o).id)
                 && Objects.equals(selectedPartitionIds, ((LogicalOlapScan) o).selectedPartitionIds)
                 && Objects.equals(partitionPruned, ((LogicalOlapScan) o).partitionPruned)
+                && Objects.equals(cachedPartitionIds, ((LogicalOlapScan) o).cachedPartitionIds)
+                && Objects.equals(partitionCached, ((LogicalOlapScan) o).partitionCached)
                 && Objects.equals(selectedIndexId, ((LogicalOlapScan) o).selectedIndexId)
                 && Objects.equals(indexSelected, ((LogicalOlapScan) o).indexSelected)
                 && Objects.equals(selectedTabletIds, ((LogicalOlapScan) o).selectedTabletIds)
@@ -212,38 +220,44 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
     @Override
     public LogicalOlapScan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalOlapScan(id, (Table) table, qualifier, groupExpression, Optional.of(getLogicalProperties()),
-                selectedPartitionIds, partitionPruned, selectedTabletIds,
+                selectedPartitionIds, partitionPruned, cachedPartitionIds, partitionCached, selectedTabletIds,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions, hints, mvNameToSlot);
     }
 
     @Override
     public LogicalOlapScan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new LogicalOlapScan(id, (Table) table, qualifier, Optional.empty(), logicalProperties,
-                selectedPartitionIds, partitionPruned, selectedTabletIds,
+                selectedPartitionIds, partitionPruned, cachedPartitionIds, partitionCached, selectedTabletIds,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions, hints, mvNameToSlot);
     }
 
     public LogicalOlapScan withSelectedPartitionIds(List<Long> selectedPartitionIds) {
         return new LogicalOlapScan(id, (Table) table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
-                selectedPartitionIds, true, selectedTabletIds,
+                selectedPartitionIds, true, cachedPartitionIds, partitionCached, selectedTabletIds,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions, hints, mvNameToSlot);
+    }
+
+    public LogicalOlapScan withCachePartition(List<Long> cachedPartitionIds) {
+        return new LogicalOlapScan(id, (Table) table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
+            selectedPartitionIds, partitionPruned, cachedPartitionIds, true, selectedTabletIds,
+            selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions, hints, mvNameToSlot);
     }
 
     public LogicalOlapScan withMaterializedIndexSelected(PreAggStatus preAgg, long indexId) {
         return new LogicalOlapScan(id, (Table) table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
-                selectedPartitionIds, partitionPruned, selectedTabletIds,
+                selectedPartitionIds, partitionPruned, cachedPartitionIds, partitionCached, selectedTabletIds,
                 indexId, true, preAgg, manuallySpecifiedPartitions, hints, mvNameToSlot);
     }
 
     public LogicalOlapScan withSelectedTabletIds(List<Long> selectedTabletIds) {
         return new LogicalOlapScan(id, (Table) table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
-                selectedPartitionIds, partitionPruned, selectedTabletIds,
+                selectedPartitionIds, partitionPruned, cachedPartitionIds, partitionCached, selectedTabletIds,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions, hints, mvNameToSlot);
     }
 
     public LogicalOlapScan withPreAggStatus(PreAggStatus preAggStatus) {
         return new LogicalOlapScan(id, (Table) table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
-                selectedPartitionIds, partitionPruned, selectedTabletIds,
+                selectedPartitionIds, partitionPruned, cachedPartitionIds, partitionCached, selectedTabletIds,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions, hints, mvNameToSlot);
     }
 
@@ -254,6 +268,10 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
 
     public boolean isPartitionPruned() {
         return partitionPruned;
+    }
+
+    public boolean isPartitionCached() {
+        return partitionCached;
     }
 
     public List<Long> getSelectedTabletIds() {

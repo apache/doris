@@ -37,7 +37,6 @@ public class ExplainCommand extends Command {
         PARSED_PLAN(true),
         ANALYZED_PLAN(true),
         REWRITTEN_PLAN(true),
-        CACHED_PLAN(true),
         OPTIMIZED_PLAN(true),
         ALL_PLAN(true)
         ;

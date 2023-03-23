@@ -110,6 +110,7 @@ public class CacheAnalyzer {
         checkCacheConfig();
     }
 
+    // for Nereids
     public CacheAnalyzer(ConnectContext context, StatementBase parsedStmt, NereidsPlanner planner) {
         this.context = context;
         this.queryId = context.queryId();

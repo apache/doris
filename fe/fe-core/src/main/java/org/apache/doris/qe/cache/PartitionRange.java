@@ -45,6 +45,7 @@ import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.planner.PartitionColumnFilter;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -507,6 +508,19 @@ public class PartitionRange {
         return hitRange;
     }
 
+    public List<PartitionSingle> getHitPartitionRange() {
+        List<PartitionSingle> cachedPartitions = partitionSingleList.stream().filter(
+                p -> p.isFromCache()).collect(Collectors.toList());
+        if (cachedPartitions.isEmpty()) {
+            return ImmutableList.of();
+        }
+        PartitionSingle begin = cachedPartitions.get(0);
+        PartitionSingle end = cachedPartitions.get(cachedPartitions.size() - 1);
+        LOG.info("the cached range for scan be is [{},{}]", begin.getCacheKey().realValue(),
+                end.getCacheKey().realValue());
+        return ImmutableList.of(begin, end);
+    }
+
     /**
      * Gets the partition range that needs to be updated
      * @return
@@ -602,12 +616,12 @@ public class PartitionRange {
             Literal newLiteral = (Literal) conjunct.child(1);
             if (conjunct instanceof GreaterThan) {
                 key.clone(begin.getCacheKey());
-                key.add(1);
+                key.add(-1);
             } else  if (conjunct instanceof GreaterThanEqual) {
                 key.clone(begin.getCacheKey());
             } else if (conjunct instanceof LessThan) {
                 key.clone(end.getCacheKey());
-                key.add(-1);
+                key.add(1);
             } else if (conjunct instanceof LessThanEqual) {
                 key.clone(end.getCacheKey());
             }

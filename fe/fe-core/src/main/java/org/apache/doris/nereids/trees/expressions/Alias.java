@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -63,7 +64,11 @@ public class Alias extends NamedExpression implements UnaryExpression {
 
     @Override
     public Slot toSlot() throws UnboundException {
-        return new SlotReference(exprId, name, child().getDataType(), child().nullable(), qualifier);
+        Column column = null;
+        if (child() instanceof SlotReference) {
+            column = ((SlotReference) child()).getColumn().orElse(null);
+        }
+        return new SlotReference(exprId, name, child().getDataType(), child().nullable(), qualifier, column);
     }
 
     @Override

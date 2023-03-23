@@ -30,6 +30,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.CacheContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.RowBatch;
 import org.apache.doris.thrift.TUniqueId;
@@ -39,6 +40,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 public class PartitionCache extends Cache {
@@ -77,10 +79,14 @@ public class PartitionCache extends Cache {
     public PartitionCache(TUniqueId queryId, CacheContext ctx) {
         super(queryId, ctx);
 
-        this.olapTable = ctx.getLastOlapTable();
-        this.partitionInfo = ctx.getRangePartitionInfo();
-        this.partColumn = ctx.getPartColumn();
-        this.range = ctx.getRange();
+        this.olapTable = Objects.requireNonNull(
+                ctx.getLastOlapTable(), "olapTable can not be null");
+        this.partitionInfo = Objects.requireNonNull(
+                ctx.getRangePartitionInfo(), "partitionInfo can not be null");
+        this.range = Objects.requireNonNull(
+                ctx.getRange(), "range can not be null");
+        this.partColumn = ctx.getPartColumn().orElseThrow(
+                () -> new AnalysisException("partition column can not be null"));
     }
 
     public void setCacheInfo(CacheAnalyzer.CacheTable latestTable, RangePartitionInfo partitionInfo, Column partColumn,
@@ -131,7 +137,8 @@ public class PartitionCache extends Cache {
         return cacheResult;
     }
 
-    public static boolean getCacheDataForNereids(CacheContext ctx, PartitionRange range) {
+    public static boolean getCacheDataForNereids(CacheContext ctx) {
+        PartitionRange range = ctx.getRange();
         if (!range.analyticsForNereids()) {
             return false;
         }

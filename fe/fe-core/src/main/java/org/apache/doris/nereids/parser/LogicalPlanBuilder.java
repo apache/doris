@@ -1733,14 +1733,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (planTypeContext.PHYSICAL() != null || planTypeContext.OPTIMIZED() != null) {
             return ExplainLevel.OPTIMIZED_PLAN;
         }
-        if (planTypeContext.LOGICAL() != null) {
-            return ExplainLevel.CACHED_PLAN != null ? ExplainLevel.CACHED_PLAN : ExplainLevel.REWRITTEN_PLAN;
-        }
-        if (planTypeContext.REWRITTEN() != null) {
+        if (planTypeContext.REWRITTEN() != null || planTypeContext.LOGICAL() != null) {
             return ExplainLevel.REWRITTEN_PLAN;
-        }
-        if (planTypeContext.CACHED() != null) {
-            return ExplainLevel.CACHED_PLAN;
         }
         if (planTypeContext.ANALYZED() != null) {
             return ExplainLevel.ANALYZED_PLAN;

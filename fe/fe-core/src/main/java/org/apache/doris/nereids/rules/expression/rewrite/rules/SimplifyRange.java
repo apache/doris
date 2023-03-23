@@ -97,8 +97,7 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
             Expression rewrite = ExpressionRuleExecutor.normalize(predicate);
             Expression right = rewrite.child(1);
             // only handle `NumericType`
-            if (right.isLiteral()
-                    && right.getDataType().isRangeType()) {
+            if (right.isLiteral() && right.getDataType().isRangeType()) {
                 return ValueDesc.range((ComparisonPredicate) rewrite);
             }
             return new UnknownValue(predicate);

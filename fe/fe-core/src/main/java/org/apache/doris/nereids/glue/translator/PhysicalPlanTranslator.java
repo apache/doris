@@ -80,6 +80,7 @@ import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCache;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
@@ -426,6 +427,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         context.addPlanFragment(planFragment);
         updateLegacyPlanIdToPhysicalPlan(planFragment.getPlanRoot(), emptyRelation);
         return planFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalCache(PhysicalCache cache, PlanTranslatorContext context) {
+        return cache.child(0).accept(this, context);
     }
 
     @Override
@@ -1525,7 +1531,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalDistribute(PhysicalDistribute<? extends Plan> distribute,
             PlanTranslatorContext context) {
         PlanFragment childFragment = distribute.child().accept(this, context);
-
         if (childFragment.getPlanRoot() instanceof AggregationNode
                 && distribute.child() instanceof PhysicalHashAggregate
                 && context.getFirstAggregateInFragment(childFragment) == distribute.child()) {
@@ -1575,6 +1580,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalSetOperation(
             PhysicalSetOperation setOperation, PlanTranslatorContext context) {
+        if (setOperation.getArity() == 2 && setOperation.child(1) instanceof PhysicalCache) {
+            return setOperation.child(0).accept(this, context);
+        }
         List<PlanFragment> childrenFragments = new ArrayList<>();
         Map<Plan, PlanFragment> childNodeToFragment = new HashMap<>();
         for (Plan plan : setOperation.children()) {

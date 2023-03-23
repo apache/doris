@@ -19,8 +19,10 @@ package org.apache.doris.nereids.jobs.batch;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.RewriteJob;
-import org.apache.doris.nereids.rules.rewrite.logical.FetchCache;
-import org.apache.doris.nereids.rules.rewrite.logical.SplitConjuncts;
+import org.apache.doris.nereids.rules.rewrite.logical.FetchPartitionCache;
+import org.apache.doris.nereids.rules.rewrite.logical.FetchSqlCache;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -28,21 +30,42 @@ import java.util.List;
  * Apply rules for cache.
  */
 public class NereidsCache extends BatchRewriteJob {
-    private static final List<RewriteJob> CACHE_JOBS = jobs(
-            topic("Split Conjuncts", bottomUp(
-                new SplitConjuncts()
-            )),
-            topic("Fetch Cache", bottomUp(
-                new FetchCache()
+    /**
+     * CacheMode
+     */
+    public enum CacheMode {
+        Sql,
+        Partition
+    }
+
+    public static final List<RewriteJob> SQL_CACHE_JOBS = jobs(
+            topic("SqlCache", bottomUp(
+                new FetchSqlCache()
             ))
     );
 
-    public NereidsCache(CascadesContext cascadesContext) {
+    public static final List<RewriteJob> PARTITION_CACHE_JOBS = jobs(
+            topic("PartitionCache", bottomUp(
+                new FetchPartitionCache()
+            ))
+    );
+
+    private CacheMode mode;
+
+    public NereidsCache(CascadesContext cascadesContext, CacheMode mode) {
         super(cascadesContext);
+        this.mode = mode;
     }
 
     @Override
     public List<RewriteJob> getJobs() {
-        return CACHE_JOBS;
+        switch (mode) {
+            case Sql:
+                return SQL_CACHE_JOBS;
+            case Partition:
+                return PARTITION_CACHE_JOBS;
+            default:
+                return ImmutableList.of();
+        }
     }
 }
