@@ -69,19 +69,7 @@ suite("test_alter_mtmv") {
     """
 
     // waiting the task to be finished.
-    def show_task_meta = sql_meta "SHOW MTMV TASK ON ${mvName}"
-    def index = show_task_meta.indexOf(['State', 'CHAR'])
-    def query = "SHOW MTMV TASK ON ${mvName}"
-    def show_task_result
-    def state = "PENDING"
-    do {
-        show_task_result = sql "${query}"
-        if (!show_task_result.isEmpty()) {
-            state = show_task_result.last().get(index)
-        }
-        println "The state of ${query} is ${state}"
-        Thread.sleep(1000);
-    } while (state.equals('PENDING') || state.equals('RUNNING'))
+    waitingMTMVTaskFinished(mvName)
 
     // test alter mtmv
     sql """

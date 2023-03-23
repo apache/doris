@@ -68,21 +68,8 @@ suite("test_create_mtmv") {
         SELECT ${tableName}.username, ${tableNamePv}.pv FROM ${tableName}, ${tableNamePv} WHERE ${tableName}.id=${tableNamePv}.id;
     """
 
-    def show_task_meta = sql_meta "SHOW MTMV TASK ON ${mvName}"
-    def index = show_task_meta.indexOf(['State', 'CHAR'])
-    def query = "SHOW MTMV TASK ON ${mvName}"
-    def show_task_result
-    def state = "PENDING"
-    do {
-        show_task_result = sql "${query}"
-        if (!show_task_result.isEmpty()) {
-            state = show_task_result.last().get(index)
-        }
-        println "The state of ${query} is ${state}"
-        Thread.sleep(1000);
-    } while (state.equals('PENDING') || state.equals('RUNNING'))
+    waitingMTMVTaskFinished(mvName)
 
-    assertEquals 'SUCCESS', state, show_task_result.last().toString()
     order_qt_select "SELECT * FROM ${mvName}"
 
     sql """
