@@ -62,13 +62,13 @@ void register_aggregate_function_orthogonal_bitmap(AggregateFunctionSimpleFactor
             "orthogonal_bitmap_intersect_count",
             create_aggregate_function_orthogonal<AggOrthBitMapIntersectCount>);
     factory.register_function_both("orthogonal_bitmap_union_count",
-                                   create_aggregate_function_orthogonal<AggOrthBitMapExprCal>);
-    factory.register_function_both("intersect_count",
-                                   create_aggregate_function_orthogonal<AggOrthBitMapExprCalCount>);
-    factory.register_function_both("orthogonal_bitmap_expr_calculate",
-                                   create_aggregate_function_orthogonal<AggIntersectCount>);
-    factory.register_function_both("orthogonal_bitmap_expr_calculate_count",
                                    create_aggregate_function_orthogonal<OrthBitmapUnionCountData>);
+    factory.register_function_both("intersect_count",
+                                   create_aggregate_function_orthogonal<AggIntersectCount>);
+    factory.register_function_both("orthogonal_bitmap_expr_calculate",
+                                   create_aggregate_function_orthogonal<AggOrthBitMapExprCal>);
+    factory.register_function_both("orthogonal_bitmap_expr_calculate_count",
+                                   create_aggregate_function_orthogonal<AggOrthBitMapExprCalCount>);
 }
 
 } // namespace doris::vectorized
