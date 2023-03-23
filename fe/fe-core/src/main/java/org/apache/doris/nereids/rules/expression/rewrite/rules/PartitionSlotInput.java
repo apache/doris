@@ -26,9 +26,10 @@ import java.util.Map;
 
 /**
  * PartitionSlotInput, the input of the partition slot.
- * We will replace the partition slot to PartitionSlotInput#result, so that we can evaluate the expression tree.
+ * We will replace the partition slot to PartitionSlotInput#result in the partition predicate,
+ * so that we can evaluate the expression tree.
  *
- * for example, the partition predicate: part_column1 > 1, if the partition range is [('1'), ('4')),
+ * for example, the partition predicate: `part_column1 > 1`, and exist a partition range is [('1'), ('4')),
  * and part_column1 is int type.
  *
  *             GreaterThen                                                 GreaterThen
@@ -44,15 +45,45 @@ import java.util.Map;
  *      PartitionSlotInput(result = IntegerLiteral(3))
  *
  *
- * if the partition slot can not enumerable(some RANGE/ all OTHER partition slot type), e.g. we will stay slot:
+ * if the partition slot is not enumerable(some RANGE / all OTHER partition slot type), we will stay slot:
  * PartitionSlotInput(result = Slot(part_column1))
  */
 public class PartitionSlotInput {
     // the partition slot will be replaced to this result
     public final Expression result;
 
-    // all partition slot's range map, the example in the class comment, it will be
-    // {Slot(part_column1): [1, 4)}
+    // all partition slot's range map, the example in the class comment, it will be `{Slot(part_column1): [1, 4)}`.
+    // this range will use as the initialized partition slot range, every expression has a related columnRange map.
+    // as the expression executes, the upper expression' columnRange map will be computed.
+    // for example, the predicate `part_column1 > 1 and part_column1 < 0`
+    //
+    //                                               And
+    //                     /                                                        \
+    //                 GreaterThen                                                LessThen
+    //         /                    \                                      /                    \
+    //   part_column1               IntegerLiteral(1)                 part_column1          IntegerLiteral(0)
+    // (part_column1: [1,4])       (part_column1: [1,4])           (part_column1: [1,4])   (part_column1: [1,4])
+    //
+    //                                                |
+    //                                                v
+    //
+    //                                               And
+    //                     /                                                        \
+    //                 GreaterThen                                                LessThen
+    //            (part_column1: [1])                                          (part_column1: [0])
+    //         /                    \                                      /                    \
+    //   part_column1               IntegerLiteral(1)                 part_column1          IntegerLiteral(0)
+    //
+    //                                                |
+    //                                                v
+    //
+    //                                               And (will be replace to BooleanLiteral.FALSE, because empty range)
+    //                                    (part_column1: empty range)
+    //                     /                                                        \
+    //                 GreaterThen                                                LessThen
+    //         /                    \                                      /                    \
+    //   part_column1               IntegerLiteral(1)                 part_column1          IntegerLiteral(0)
+    //
     public final Map<Slot, ColumnRange> columnRanges;
 
     public PartitionSlotInput(Expression result, Map<Slot, ColumnRange> columnRanges) {
