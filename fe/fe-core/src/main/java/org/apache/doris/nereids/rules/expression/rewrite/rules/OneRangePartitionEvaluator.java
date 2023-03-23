@@ -65,7 +65,11 @@ import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.stream.IntStream;
 
-/** OneRangePartitionEvaluator */
+/**
+ * OneRangePartitionEvaluator.
+ *
+ * you can see the process steps in the comment of PartitionSlotInput.columnRanges
+ */
 public class OneRangePartitionEvaluator
         extends ExpressionVisitor<EvaluateRangeResult, EvaluateRangeInput>
         implements OnePartitionEvaluator {
