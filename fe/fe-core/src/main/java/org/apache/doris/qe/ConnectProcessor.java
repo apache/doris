@@ -28,10 +28,12 @@ import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
@@ -259,6 +261,33 @@ public class ConnectProcessor {
         long endTime = System.currentTimeMillis();
         long elapseMs = endTime - ctx.getStartTime();
         SpanContext spanContext = Span.fromContext(Context.current()).getSpanContext();
+        // Add sourceTable and targetTable in audit.log when execute insert sql. Used for data lineage.
+        String sourceTable = "";
+        String targetTable = "";
+        if (parsedStmt instanceof InsertStmt) {
+            InsertStmt innerStmt = ((InsertStmt) parsedStmt);
+            Table table = innerStmt.getTargetTable();
+            if (table != null) {
+                String fullDbName = table.getQualifiedDbName();
+                // fullDbName = default_cluster:db_name
+                if (fullDbName != null && fullDbName.split(":").length == 2) {
+                    targetTable = fullDbName.split(":")[1] + "." + table.getName();
+                }
+            }
+
+            if (innerStmt.getQueryStmt() instanceof SelectStmt) {
+                SelectStmt selectStmt = ((SelectStmt) innerStmt.getQueryStmt());
+                if (selectStmt != null && selectStmt.getFromClause() != null) {
+                    StringBuilder builder = new StringBuilder();
+                    for (TableRef tableRef : selectStmt.getFromClause().getTableRefs()) {
+                        // fullName = default_cluster:db_name.table_name
+                        String fullName = tableRef.getName().toString();
+                        builder.append(fullName.contains(":") ? fullName.split(":")[1] : fullName).append(";");
+                    }
+                    sourceTable = builder.toString();
+                }
+            }
+        }
 
         ctx.getAuditEventBuilder().setEventType(EventType.AFTER_QUERY)
                 .setDb(ClusterNamespace.getNameFromFullName(ctx.getDatabase()))
@@ -275,7 +304,9 @@ public class ConnectProcessor {
                 .setStmtId(ctx.getStmtId())
                 .setQueryId(ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()))
                 .setTraceId(spanContext.isValid() ? spanContext.getTraceId() : "")
-                .setFuzzyVariables(ctx.getSessionVariable().printFuzzyVariables());
+                .setFuzzyVariables(ctx.getSessionVariable().printFuzzyVariables())
+                .setSourceTable(sourceTable)
+                .setTargetTable(targetTable);
 
         if (ctx.getState().isQuery()) {
             MetricRepo.COUNTER_QUERY_ALL.increase(1L);
