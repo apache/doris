@@ -99,7 +99,9 @@ public class BrokerUtil {
         }
         for (RemoteFile r : rfiles) {
             if (r.isFile()) {
-                fileStatuses.add(new TBrokerFileStatus(r.getName(), !r.isFile(), r.getSize(), r.isFile()));
+                TBrokerFileStatus status = new TBrokerFileStatus(r.getName(), !r.isFile(), r.getSize(), r.isFile());
+                status.setBlockSize(r.getBlockSize());
+                fileStatuses.add(status);
             }
         }
     }
