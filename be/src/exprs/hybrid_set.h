@@ -132,7 +132,7 @@ public:
 
     size_t size() const { return _size; }
 
-    class Iterator : public std::iterator<std::input_iterator_tag, T> {
+    class Iterator {
     public:
         explicit Iterator(std::array<T, N>& data, size_t index) : _data(data), _index(index) {}
         Iterator& operator++() {
@@ -149,6 +149,13 @@ public:
         T& operator*() const { return _data[_index]; }
 
         T* operator->() const { return &operator*(); }
+
+        // iterator traits
+        using iterator_category = std::forward_iterator_tag;
+        using difference_type = std::ptrdiff_t;
+        using value_type = T;
+        using pointer = T*;
+        using reference = T&;
 
     private:
         std::array<T, N>& _data;
@@ -492,9 +499,9 @@ public:
             } else if constexpr (!is_nullable && is_negative) {
                 result_data[i] = !_set.find(string_data);
             } else if constexpr (is_nullable && !is_negative) {
-                result_data[i] = !(_set.find(string_data) & !null_map_data[i]);
+                result_data[i] = _set.find(string_data) & (!null_map_data[i]);
             } else { // (is_nullable && is_negative)
-                result_data[i] = !(_set.find(string_data) & !null_map_data[i]);
+                result_data[i] = !(_set.find(string_data) & (!null_map_data[i]));
             }
         }
     }
@@ -618,9 +625,9 @@ public:
             } else if constexpr (!is_nullable && is_negative) {
                 result_data[i] = !_set.find(col.get_data_at(i));
             } else if constexpr (is_nullable && !is_negative) {
-                result_data[i] = !(_set.find(col.get_data_at(i)) & !null_map_data[i]);
+                result_data[i] = _set.find(col.get_data_at(i)) & (!null_map_data[i]);
             } else { // (is_nullable && is_negative)
-                result_data[i] = !(_set.find(col.get_data_at(i)) & !null_map_data[i]);
+                result_data[i] = !(_set.find(col.get_data_at(i)) & (!null_map_data[i]));
             }
         }
     }
