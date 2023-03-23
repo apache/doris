@@ -370,17 +370,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return ParserUtils.withOrigin(ctx, () -> {
             // TODO: need to add withQueryResultClauses and withCTE
             LogicalPlan query = plan(ctx.queryTerm());
-            return query;
-            // query = withCte(query, ctx.cte());
-            // return withQueryOrganization(query, ctx.queryOrganization());
+            query = withCte(query, ctx.cte());
+            return withQueryOrganization(query, ctx.queryOrganization());
         });
     }
 
     @Override
     public LogicalPlan visitSetOperation(SetOperationContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
-            LogicalPlan leftQuery = plan(ctx.left);
-            LogicalPlan rightQuery = plan(ctx.right);
+            LogicalPlan leftQuery = plan(ctx.left.queryTerm());
+            LogicalPlan rightQuery = plan(ctx.right.queryTerm());
             Qualifier qualifier;
             if (ctx.setQuantifier() == null || ctx.setQuantifier().DISTINCT() != null) {
                 qualifier = Qualifier.DISTINCT;

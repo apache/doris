@@ -57,14 +57,18 @@ planType
 
 //  -----------------Query-----------------
 query
-    // : {!doris_legacy_SQL_syntax}? cte? queryTerm queryOrganization
-    : {doris_legacy_SQL_syntax}? queryTerm
+    : {!doris_legacy_SQL_syntax}? cte? queryTerm queryOrganization
+    | {doris_legacy_SQL_syntax}? queryTerm
     ;
 
 queryTerm
     : queryPrimary                                                                       #queryTermDefault
-    | left=queryTerm operator=(UNION | EXCEPT | INTERSECT)
-      setQuantifier? right=queryTerm                                                     #setOperation
+    | left=setOpQueryTerm operator=(UNION | EXCEPT | INTERSECT)
+      setQuantifier? right=setOpQueryTerm                                                     #setOperation
+    ;
+
+setOpQueryTerm
+    : LEFT_PAREN queryTerm RIGHT_PAREN
     ;
 
 setQuantifier
