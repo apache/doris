@@ -63,6 +63,7 @@ Usage: $0 <options>
     $0 --spark-dpp                          build Spark DPP application alone
     $0 --broker                             build Broker
     $0 --be --fe                            build Backend, Frontend, Spark Dpp application and Java UDF library
+    $0 --be --coverage                      build Backend with coverage enabled
 
     USE_AVX2=0 $0 --be                      build Backend and not using AVX2 instruction.
     USE_AVX2=0 STRIP_DEBUG_INFO=ON $0       build all and not using AVX2 instruction, and strip the debug info for Backend
@@ -115,6 +116,7 @@ if ! OPTS="$(getopt \
     -l 'spark-dpp' \
     -l 'hive-udf' \
     -l 'clean' \
+    -l 'coverage' \
     -l 'help' \
     -o 'hj:' \
     -- "$@")"; then
@@ -136,6 +138,7 @@ CLEAN=0
 HELP=0
 PARAMETER_COUNT="$#"
 PARAMETER_FLAG=0
+DENABLE_CLANG_COVERAGE='OFF'
 if [[ "$#" == 1 ]]; then
     # default
     BUILD_FE=1
@@ -184,6 +187,10 @@ else
             ;;
         --clean)
             CLEAN=1
+            shift
+            ;;
+        --coverage)
+            DENABLE_CLANG_COVERAGE='ON'
             shift
             ;;
         -h)
@@ -358,6 +365,7 @@ echo "Get params:
     USE_BTHREAD_SCANNER -- ${USE_BTHREAD_SCANNER}
     STRICT_MEMORY_USE   -- ${STRICT_MEMORY_USE}
     ENABLE_STACKTRACE   -- ${ENABLE_STACKTRACE}
+    DENABLE_CLANG_COVERAGE -- ${DENABLE_CLANG_COVERAGE}
 "
 
 # Clean and build generated code
@@ -433,6 +441,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DUSE_AVX2="${USE_AVX2}" \
         -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
         -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
+        -DENABLE_CLANG_COVERAGE="${DENABLE_CLANG_COVERAGE}" \
         "${DORIS_HOME}/be"
 
     if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
