@@ -62,7 +62,7 @@ public class PartitionSlotInput {
     //                 GreaterThen                                                LessThen
     //         /                    \                                      /                    \
     //   part_column1               IntegerLiteral(1)                 part_column1          IntegerLiteral(0)
-    // (part_column1: [1,4])       (part_column1: [1,4])           (part_column1: [1,4])   (part_column1: [1,4])
+    // (part_column1: [1,4))       (part_column1: [1,4))           (part_column1: [1,4))   (part_column1: [1,4))
     //
     //                                                |
     //                                                v
