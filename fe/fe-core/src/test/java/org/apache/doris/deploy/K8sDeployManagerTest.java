@@ -53,25 +53,7 @@ public class K8sDeployManagerTest {
      * When the test case fails,the error message is as follows:
      *
      * java.lang.NoClassDefFoundError: org/yaml/snakeyaml/LoaderOptions
-     * 	at com.fasterxml.jackson.dataformat.yaml.YAMLParser.<init>(YAMLParser.java:191) ~[jackson-dataformat-yaml-2.14.2.jar:2.14.2]
-     * 	at com.fasterxml.jackson.dataformat.yaml.YAMLFactory._createParser(YAMLFactory.java:509) ~[jackson-dataformat-yaml-2.14.2.jar:2.14.2]
-     * 	at com.fasterxml.jackson.dataformat.yaml.YAMLFactory.createParser(YAMLFactory.java:413) ~[jackson-dataformat-yaml-2.14.2.jar:2.14.2]
-     * 	at com.fasterxml.jackson.dataformat.yaml.YAMLFactory.createParser(YAMLFactory.java:386) ~[jackson-dataformat-yaml-2.14.2.jar:2.14.2]
-     * 	at com.fasterxml.jackson.dataformat.yaml.YAMLFactory.createParser(YAMLFactory.java:15) ~[jackson-dataformat-yaml-2.14.2.jar:2.14.2]
-     * 	at com.fasterxml.jackson.databind.ObjectMapper.readValue(ObjectMapper.java:3677) ~[jackson-databind-2.14.2.jar:2.14.2]
-     * 	at com.fasterxml.jackson.databind.ObjectMapper.readValue(ObjectMapper.java:3645) ~[jackson-databind-2.14.2.jar:2.14.2]
-     * 	at io.fabric8.kubernetes.client.internal.KubeConfigUtils.parseConfigFromString(KubeConfigUtils.java:47) ~[kubernetes-client-5.12.2.jar:?]
-     * 	at io.fabric8.kubernetes.client.Config.loadFromKubeconfig(Config.java:589) ~[kubernetes-client-5.12.2.jar:?]
-     * 	at io.fabric8.kubernetes.client.Config.tryKubeConfig(Config.java:555) ~[kubernetes-client-5.12.2.jar:?]
-     * 	at io.fabric8.kubernetes.client.Config.autoConfigure(Config.java:277) ~[kubernetes-client-5.12.2.jar:?]
-     * 	at io.fabric8.kubernetes.client.Config.<init>(Config.java:243) ~[kubernetes-client-5.12.2.jar:?]
-     * 	at io.fabric8.kubernetes.client.Config.<init>(Config.java:237) ~[kubernetes-client-5.12.2.jar:?]
-     * 	at io.fabric8.kubernetes.client.ConfigBuilder.<init>(ConfigBuilder.java:11) ~[kubernetes-client-5.12.2.jar:?]
-     * 	at io.fabric8.kubernetes.client.ConfigBuilder.<init>(ConfigBuilder.java:8) ~[kubernetes-client-5.12.2.jar:?]
-     * 	at io.fabric8.kubernetes.client.BaseClient.<init>(BaseClient.java:40) ~[kubernetes-client-5.12.2.jar:?]
-     * 	at io.fabric8.kubernetes.client.BaseKubernetesClient.<init>(BaseKubernetesClient.java:151) ~[kubernetes-client-5.12.2.jar:?]
-     * 	at io.fabric8.kubernetes.client.DefaultKubernetesClient.<init>(DefaultKubernetesClient.java:34) ~[kubernetes-client-5.12.2.jar:?]
-     *
+     * detailed information: https://github.com/apache/doris/pull/18046
      */
     @Test
     public void testClient() {
