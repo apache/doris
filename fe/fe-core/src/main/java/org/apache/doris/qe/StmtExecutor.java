@@ -1842,14 +1842,12 @@ public class StmtExecutor implements ProfileWriter {
                 // Using PreparedStatment pre serializedField to avoid serialize each time
                 // we send a field
                 byte[] serializedField = prepareStmt.getSerializedField(colNames.get(i));
-                if (serializedField != null) {
-                    context.getMysqlChannel().sendOnePacket(ByteBuffer.wrap(serializedField));
-                    continue;
+                if (serializedField == null) {
+                    serializer.writeField(colNames.get(i), types.get(i));
+                    serializedField = serializer.toArray();
+                    prepareStmt.setSerializedField(colNames.get(i), serializedField);
                 }
-                serializer.writeField(colNames.get(i), types.get(i));
-                // LOG.debug("set serialize field {}, {}", colNames.get(i), serializedField.capacity());
-                prepareStmt.setSerializedField(colNames.get(i), serializer.toArray());
-                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+                context.getMysqlChannel().sendOnePacket(ByteBuffer.wrap(serializedField));
             } else {
                 serializer.writeField(colNames.get(i), types.get(i));
                 context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
