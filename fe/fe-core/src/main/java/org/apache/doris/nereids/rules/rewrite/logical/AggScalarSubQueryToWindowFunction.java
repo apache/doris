@@ -231,14 +231,7 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         // and
         // avg(l_quantity#id1) over(window) as `avg(l_quantity#id1) over(window)`#id4
 
-        // it's a simple case, but we may meet some complex cases shown below.
-        // l_quantity > 10 or l_quantity < (select 0.2 * avg(l_quantity) from lineitem)
-        // l_quantity in (10, (select 0.2 * avg(l_quantity) from lineitem), 15)
-        // l_quantity in (10, (select 0.2 * avg(l_quantity) from lineitem), 15
-        //      (select 2 * max(l_quantity) from lineitem))
-        // l_extendedprice * (select min(l_quantity) / 2 from lineitem) + l_quantity
-        //      < (select 0.2 * avg(l_quantity) from lineitem)
-        // l_extendedprice * 0.2 + l_quantity > 10 or l_quantity < (select 0.2 * avg(l_quantity) from lineitem)
+        // it's a simple case, but we may meet some complex cases in ut.
 
         Expression windowFilterConjunct = apply.getSubCorrespondingConjunct().get();
         if (windowFilterConjunct instanceof ComparisonPredicate) {

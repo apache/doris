@@ -94,16 +94,12 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
 
     private void check(String sql) {
         System.out.printf("Test:\n%s\n\n", sql);
-        try {
-            Plan plan = PlanChecker.from(createCascadesContext(sql))
-                    .analyze(sql)
-                    .applyTopDown(new AggScalarSubQueryToWindowFunction())
-                    .rewrite()
-                    .getPlan();
-            System.out.println(plan.treeString());
-            Assertions.assertTrue(plan.anyMatch(LogicalWindow.class::isInstance));
-        } catch (Exception ignored) {
-
-        }
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyTopDown(new AggScalarSubQueryToWindowFunction())
+                .rewrite()
+                .getPlan();
+        System.out.println(plan.treeString());
+        Assertions.assertTrue(plan.anyMatch(LogicalWindow.class::isInstance));
     }
 }
