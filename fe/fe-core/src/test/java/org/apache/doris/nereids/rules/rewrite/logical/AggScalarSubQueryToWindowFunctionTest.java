@@ -95,6 +95,63 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
         check(buildFromTemplate(new String[] {testCases[1], testCases[2]}, queries));
     }
 
+    @Test
+    public void testNotMatchTheRule() {
+        String[] testCases = {
+                "select sum(l_extendedprice) / 7.0 as avg_yearly\n"
+                        + "    from lineitem, part\n"
+                        + "    where p_partkey = l_partkey\n"
+                        + "        and p_brand = 'Brand#23'\n"
+                        + "        and p_container = 'MED BOX'\n"
+                        + "        and l_quantity < (\n"
+                        + "            select 0.2 * avg(l_quantity)\n"
+                        + "            from lineitem);",
+                "select sum(l_extendedprice) / 7.0 as avg_yearly\n"
+                        + "    from lineitem, part\n"
+                        + "    where p_partkey = l_partkey\n"
+                        + "        and p_brand = 'Brand#23'\n"
+                        + "        and p_container = 'MED BOX'\n"
+                        + "        and l_quantity < (\n"
+                        + "            select 0.2 * avg(l_quantity)\n"
+                        + "            from lineitem, part\n"
+                        + "            where l_partkey = p_partkey);",
+                "select sum(l_extendedprice) / 7.0 as avg_yearly\n"
+                        + "    from lineitem, part\n"
+                        + "    where p_partkey = l_partkey\n"
+                        + "        and p_brand = 'Brand#23'\n"
+                        + "        and p_container = 'MED BOX'\n"
+                        + "        and l_quantity < (\n"
+                        + "            select 0.2 * avg(l_quantity)\n"
+                        + "            from lineitem, partsupp\n"
+                        + "            where l_partkey = p_partkey);",
+                "select sum(l_extendedprice) / 7.0 as avg_yearly\n"
+                        + "    from lineitem, part\n"
+                        + "    where\n"
+                        + "        p_partkey = l_partkey\n"
+                        + "        and p_brand = 'Brand#23'\n"
+                        + "        and p_container = 'MED BOX'\n"
+                        + "        and l_quantity < (\n"
+                        + "            select 0.2 * avg(l_quantity)\n"
+                        + "            from lineitem\n"
+                        + "            where l_partkey = p_partkey\n"
+                        + "            and p_brand = 'Brand#23');",
+                "select sum(l_extendedprice) / 7.0 as avg_yearly\n"
+                        + "    from lineitem, part\n"
+                        + "    where\n"
+                        + "        p_partkey = l_partkey\n"
+                        + "        and p_brand = 'Brand#23'\n"
+                        + "        and p_container = 'MED BOX'\n"
+                        + "        and l_quantity < (\n"
+                        + "            select 0.2 * avg(l_quantity)\n"
+                        + "            from lineitem\n"
+                        + "            where l_partkey = p_partkey\n"
+                        + "            and l_partkey = 10);"
+        };
+        for (String s : testCases) {
+            checkNot(s);
+        }
+    }
+
     private void check(String sql) {
         System.out.printf("Test:\n%s\n\n", sql);
         Plan plan = PlanChecker.from(createCascadesContext(sql))
@@ -104,5 +161,16 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
                 .getPlan();
         System.out.println(plan.treeString());
         Assertions.assertTrue(plan.anyMatch(LogicalWindow.class::isInstance));
+    }
+
+    private void checkNot(String sql) {
+        System.out.printf("Test:\n%s\n\n", sql);
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyTopDown(new AggScalarSubQueryToWindowFunction())
+                .rewrite()
+                .getPlan();
+        System.out.println(plan.treeString());
+        Assertions.assertFalse(plan.anyMatch(LogicalWindow.class::isInstance));
     }
 }
