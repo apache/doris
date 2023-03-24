@@ -186,7 +186,7 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
     while (!done()) {
         // find line delimiter in current decompressed data
         uint8_t* cur_ptr = _output_buf + _output_buf_pos;
-        uint8_t* pos = 
+        uint8_t* pos =
                 update_field_pos_and_find_line_delimiter(cur_ptr, output_buf_read_remaining());
 
         if (pos == nullptr) {
