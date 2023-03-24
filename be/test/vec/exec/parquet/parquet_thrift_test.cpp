@@ -54,8 +54,8 @@ TEST_F(ParquetThriftReaderTest, normal) {
                                   &reader);
     EXPECT_TRUE(st.ok());
 
-    std::shared_ptr<FileMetaData> meta_data;
-    parse_thrift_footer(reader, &(meta_data.get()));
+    FileMetaData* meta_data;
+    parse_thrift_footer(reader, &meta_data);
     tparquet::FileMetaData t_metadata = meta_data->to_thrift();
 
     LOG(WARNING) << "=====================================";
@@ -69,6 +69,7 @@ TEST_F(ParquetThriftReaderTest, normal) {
         LOG(WARNING) << "schema column repetition_type: " << value.repetition_type;
         LOG(WARNING) << "schema column num children: " << value.num_children;
     }
+    delete meta_data;
 }
 
 TEST_F(ParquetThriftReaderTest, complex_nested_file) {
@@ -86,8 +87,8 @@ TEST_F(ParquetThriftReaderTest, complex_nested_file) {
                                   &reader);
     EXPECT_TRUE(st.ok());
 
-    std::shared_ptr<FileMetaData> metadata;
-    parse_thrift_footer(reader, &(metadata.get()));
+    FileMetaData* metadata;
+    parse_thrift_footer(reader, &metadata);
     tparquet::FileMetaData t_metadata = metadata->to_thrift();
     FieldDescriptor schemaDescriptor;
     schemaDescriptor.parse_from_thrift(t_metadata.schema);
@@ -132,6 +133,7 @@ TEST_F(ParquetThriftReaderTest, complex_nested_file) {
 
     ASSERT_EQ(schemaDescriptor.get_column_index("friend"), 3);
     ASSERT_EQ(schemaDescriptor.get_column_index("mark"), 4);
+    delete metadata;
 }
 
 static int fill_nullable_column(ColumnPtr& doris_column, level_t* definitions, size_t num_values) {
@@ -358,8 +360,8 @@ static void read_parquet_data_and_check(const std::string& parquet_file,
 
     std::unique_ptr<vectorized::Block> block;
     create_block(block);
-    std::shared_ptr<FileMetaData> metadata;
-    parse_thrift_footer(reader, &(metadata.get()));
+    FileMetaData* metadata;
+    parse_thrift_footer(reader, &metadata);
     tparquet::FileMetaData t_metadata = metadata->to_thrift();
     FieldDescriptor schema_descriptor;
     schema_descriptor.parse_from_thrift(t_metadata.schema);
@@ -401,6 +403,7 @@ static void read_parquet_data_and_check(const std::string& parquet_file,
     Slice res(result_buf, result->size());
     result->read_at(0, res, &bytes_read);
     ASSERT_STREQ(block->dump_data(0, rows).c_str(), reinterpret_cast<char*>(result_buf));
+    delete metadata;
 }
 
 TEST_F(ParquetThriftReaderTest, type_decoder) {
@@ -478,8 +481,8 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
     EXPECT_TRUE(st.ok());
 
     // prepare metadata
-    std::shared_ptr<FileMetaData> meta_data;
-    parse_thrift_footer(file_reader, &(meta_data.get()));
+    FileMetaData* meta_data;
+    parse_thrift_footer(file_reader, &meta_data);
     tparquet::FileMetaData t_metadata = meta_data->to_thrift();
 
     cctz::time_zone ctz;
@@ -520,6 +523,7 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
     Slice res(result_buf, result->size());
     result->read_at(0, res, &bytes_read);
     ASSERT_STREQ(block.dump_data(0, 10).c_str(), reinterpret_cast<char*>(result_buf));
+    delete meta_data;
 }
 } // namespace vectorized
 
