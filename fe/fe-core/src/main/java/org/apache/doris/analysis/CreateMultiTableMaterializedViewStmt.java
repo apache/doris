@@ -149,7 +149,7 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
                 name = alias.toLowerCase();
                 mtmvColumn = new Column(name, functionCallExpr.getType(), true);
             } else {
-                throw new AnalysisException("Function expr: " + functionName + " must have a alias name for MTMV." );
+                throw new AnalysisException("Function expr: " + functionName + " must have a alias name for MTMV.");
             }
         }
         return mtmvColumn;
