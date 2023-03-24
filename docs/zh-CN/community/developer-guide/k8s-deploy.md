@@ -25,7 +25,11 @@ specific language governing permissions and limitations
 under the License.
 -->
 
+<version since="dev">
+
 # K8s部署doris
+
+</version>
 
 ## 环境准备
 
@@ -34,25 +38,25 @@ under the License.
     - 构建镜像 [Doris Docker 快速搭建开发环境](./docker-dev) 
     - 下载镜像 https://hub.docker.com/r/apache/doris/tags
 - 创建或下载doris on k8s的yml文件
-    - https://github.com/apache/doris/docker/runtime/k8s-demo/fe_follower.yml
-    - https://github.com/apache/doris/docker/runtime/k8s-demo/backend.yml
-    - https://github.com/apache/doris/docker/runtime/k8s-demo/backend_cn.yml
+    - https://github.com/apache/doris/blob/master/docker/runtime/k8s/doris_follower.yml
+    - https://github.com/apache/doris/blob/master/docker/runtime/k8s/doris_be.yml
+    - https://github.com/apache/doris/blob/master/docker/runtime/k8s/doris_cn.yml
 
 ## 启动集群
-启动follower： kubectl create -f fe_follower.yml 
+启动follower： kubectl create -f doris_follower.yml 
 
-启动backend：  kubectl create -f backend.yml 
+启动backend：  kubectl create -f doris_be.yml 
 
-启动backend_cn： kubectl create -f backend_cn.yml 
+启动backend_cn： kubectl create -f doris_cn.yml 
 
 ## 扩缩容
 
 - fe_follower
   - 目前不支持扩缩容，建议按需初始化1个或者3个节点
 - backend
-  - 命令：kubectl scale statefulset dbe --replicas=4
+  - 命令：kubectl scale statefulset doris-be-cluster1 --replicas=4
 - backend_cn
-  - 命令：kubectl scale statefulset dcn --replicas=4
+  - 命令：kubectl scale statefulset doris-cn-cluster1 --replicas=4
 
 ## 验证
 
