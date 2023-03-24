@@ -159,6 +159,12 @@ MySQL [test]> desc mv_test all;
 
 具体的语法可查看[SHOW CREATE MATERIALIZED VIEW](../sql-manual/sql-reference/Show-Statements/SHOW-CREATE-MATERIALIZED-VIEW.md)
 
+### 取消创建物化试图
+
+```text
+ CANCEL ALTER MATERIALIZED VIEW FROM db_name.table_name
+```
+
 ## 最佳实践1
 
 使用物化视图一般分为以下几个步骤：
