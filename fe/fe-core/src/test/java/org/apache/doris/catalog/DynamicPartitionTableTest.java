@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -40,6 +41,7 @@ import org.junit.rules.ExpectedException;
 
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
 import java.util.GregorianCalendar;
@@ -1537,10 +1539,37 @@ public class DynamicPartitionTableTest {
                 + ");";
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
                 "errCode = 2, detailMessage = Invalid \" dynamic_partition.reserved_history_periods \""
-                    + " value [2020-01-01,2020-03-01]. "
-                    + "It must be like "
-                    + "\"[yyyy-MM-dd,yyyy-MM-dd],[...,...]\" while time_unit is DAY/WEEK/MONTH "
-                    + "or \"[yyyy-MM-dd HH:mm:ss,yyyy-MM-dd HH:mm:ss],[...,...]\" while time_unit is HOUR.",
+                        + " value [2020-01-01,2020-03-01]. "
+                        + "It must be like "
+                        + "\"[yyyy-MM-dd,yyyy-MM-dd],[...,...]\" while time_unit is DAY/WEEK/MONTH "
+                        + "or \"[yyyy-MM-dd HH:mm:ss,yyyy-MM-dd HH:mm:ss],[...,...]\" while time_unit is HOUR.",
                 () -> createTable(createOlapTblStmt4));
+    }
+
+    @Test
+    public void testNoPartition() throws AnalysisException {
+        String createOlapTblStmt = "CREATE TABLE test.`no_partition` (\n"
+                + "  `k1` datetime NULL COMMENT \"\",\n"
+                + "  `k2` int NULL COMMENT \"\",\n"
+                + "  `k3` smallint NULL COMMENT \"\",\n"
+                + "  `v1` varchar(2048) NULL COMMENT \"\",\n"
+                + "  `v2` datetime NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`k1`, `k2`, `k3`)\n"
+                + "COMMENT \"OLAP\"\n"
+                + "PARTITION BY RANGE (k1)()\n"
+                + "DISTRIBUTED BY HASH(`k1`) BUCKETS 32\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");";
+        ExceptionChecker.expectThrowsNoException(() -> createTable(createOlapTblStmt));
+        OlapTable table = (OlapTable) Env.getCurrentInternalCatalog()
+                .getDbOrAnalysisException("default_cluster:test")
+                .getTableOrAnalysisException("no_partition");
+        Collection<Partition> partitions = table.getPartitions();
+        Assert.assertTrue(partitions.isEmpty());
+        OlapTable copiedTable = table.selectiveCopy(Collections.emptyList(), IndexExtState.VISIBLE, true);
+        partitions = copiedTable.getPartitions();
+        Assert.assertTrue(partitions.isEmpty());
     }
 }

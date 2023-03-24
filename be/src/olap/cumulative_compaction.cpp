@@ -117,7 +117,7 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
     }
 
     size_t compaction_score = 0;
-    int transient_size = _tablet->cumulative_compaction_policy()->pick_input_rowsets(
+    _tablet->cumulative_compaction_policy()->pick_input_rowsets(
             _tablet.get(), candidate_rowsets,
             config::max_cumulative_compaction_num_singleton_deltas,
             config::min_cumulative_compaction_num_singleton_deltas, &_input_rowsets,
@@ -151,9 +151,6 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
             if (cumu_interval > interval_threshold && base_interval > interval_threshold) {
                 // before increasing cumulative point, we should make sure all rowsets are non-overlapping.
                 // if at least one rowset is overlapping, we should compact them first.
-                CHECK(candidate_rowsets.size() == transient_size)
-                        << "tablet: " << _tablet->full_name() << ", " << candidate_rowsets.size()
-                        << " vs. " << transient_size;
                 for (auto& rs : candidate_rowsets) {
                     if (rs->rowset_meta()->is_segments_overlapping()) {
                         _input_rowsets = candidate_rowsets;

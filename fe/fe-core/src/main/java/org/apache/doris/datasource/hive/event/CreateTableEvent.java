@@ -42,7 +42,8 @@ public class CreateTableEvent extends MetastoreTableEvent {
                 .checkNotNull(event.getMessage(), debugString("Event message is null"));
         try {
             CreateTableMessage createTableMessage =
-                    MetastoreEventsProcessor.getMessageDeserializer().getCreateTableMessage(event.getMessage());
+                    MetastoreEventsProcessor.getMessageDeserializer(event.getMessageFormat())
+                            .getCreateTableMessage(event.getMessage());
             hmsTbl = Preconditions.checkNotNull(createTableMessage.getTableObj());
         } catch (Exception e) {
             throw new MetastoreNotificationException(

@@ -562,7 +562,7 @@ Status EngineCloneTask::_finish_incremental_clone(Tablet* tablet,
     /// For incremental clone, nothing will be deleted.
     /// So versions_to_delete is empty.
     std::vector<Version> versions_to_delete;
-    return tablet->revise_tablet_meta(rowsets_to_clone, versions_to_delete);
+    return tablet->revise_tablet_meta(rowsets_to_clone, versions_to_delete, true);
 }
 
 /// This method will do:
@@ -582,8 +582,8 @@ Status EngineCloneTask::_finish_full_clone(Tablet* tablet, TabletMeta* cloned_ta
     //
     // after compare, the version mark with "x" will be deleted
     //
-    //      local tablet: [0-1]  [2-5]x [6-6]x [7-7]x
-    //      clone tablet: [0-1]x [2-4]  [5-6]  [7-8]
+    //      local tablet: [0-1]x [2-5]x [6-6]x [7-7]x
+    //      clone tablet: [0-1]  [2-4]  [5-6]  [7-8]
 
     // All versions deleted from local tablet will be saved in versions_to_delete
     // And these versions file will be deleted finally.
@@ -606,33 +606,12 @@ Status EngineCloneTask::_finish_full_clone(Tablet* tablet, TabletMeta* cloned_ta
                     "version cross src latest. cloned_max_version={}, local_version={}",
                     cloned_max_version.to_string(), local_version.to_string());
         } else if (local_version.second <= cloned_max_version.second) {
-            // if local version smaller than src, check if existed in src, will not clone it
-            bool existed_in_src = false;
-
-            // if delta labeled with local_version is same with the specified version in clone header,
-            // there is no necessity to clone it.
-            for (auto& rs_meta : cloned_tablet_meta->all_rs_metas()) {
-                if (rs_meta->version().first == local_version.first &&
-                    rs_meta->version().second == local_version.second) {
-                    existed_in_src = true;
-                    break;
-                }
-            }
-
-            if (existed_in_src) {
-                cloned_tablet_meta->delete_rs_meta_by_version(local_version,
-                                                              &rs_metas_found_in_src);
-                LOG(INFO) << "version exist in local tablet, no need to clone. delete it from "
-                             "clone tablet"
-                          << ". tablet=" << tablet->full_name() << ", version='" << local_version;
-            } else {
-                versions_to_delete.push_back(local_version);
-                LOG(INFO) << "version not exist in local tablet. it will be replaced by other "
-                             "version. "
-                          << "delete it from local tablet. "
-                          << "tablet=" << tablet->full_name() << ","
-                          << ", version=" << local_version;
-            }
+            versions_to_delete.push_back(local_version);
+            LOG(INFO) << "version not exist in local tablet. it will be replaced by other "
+                         "version. "
+                      << "delete it from local tablet. "
+                      << "tablet=" << tablet->full_name() << ","
+                      << ", version=" << local_version;
         }
     }
     std::vector<RowsetMetaSharedPtr> rowsets_to_clone;
@@ -642,32 +621,17 @@ Status EngineCloneTask::_finish_full_clone(Tablet* tablet, TabletMeta* cloned_ta
                   << tablet->full_name() << ", version=" << rs_meta->version();
     }
 
+    if (tablet->enable_unique_key_merge_on_write()) {
+        tablet->tablet_meta()->delete_bitmap() = cloned_tablet_meta->delete_bitmap();
+    }
+
     // clone_data to tablet
     // only replace rowset info, must not modify other info such as alter task info. for example
     // 1. local tablet finished alter task
     // 2. local tablet has error in push
     // 3. local tablet cloned rowset from other nodes
     // 4. if cleared alter task info, then push will not write to new tablet, the report info is error
-    Status clone_res = tablet->revise_tablet_meta(rowsets_to_clone, versions_to_delete);
-    // in previous step, copy all files from CLONE_DIR to tablet dir
-    // but some rowset is useless, so that remove them here
-    for (auto& rs_meta_ptr : rs_metas_found_in_src) {
-        RowsetSharedPtr rowset_to_remove;
-        auto s =
-                RowsetFactory::create_rowset(cloned_tablet_meta->tablet_schema(),
-                                             tablet->tablet_path(), rs_meta_ptr, &rowset_to_remove);
-        if (!s.ok()) {
-            LOG(WARNING) << "failed to init rowset to remove: "
-                         << rs_meta_ptr->rowset_id().to_string();
-            continue;
-        }
-        s = rowset_to_remove->remove();
-        if (!s.ok()) {
-            LOG(WARNING) << "failed to remove rowset " << rs_meta_ptr->rowset_id().to_string()
-                         << ": " << s;
-        }
-    }
-    return clone_res;
+    return tablet->revise_tablet_meta(rowsets_to_clone, versions_to_delete, false);
 }
 
 } // namespace doris

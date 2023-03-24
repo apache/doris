@@ -519,6 +519,8 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
 
             const rapidjson::Value& str_col = is_nested_str ? col[0] : col;
 
+            RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+
             const std::string& val = str_col.GetString();
             size_t val_size = str_col.GetStringLength();
             StringParser::ParseResult result;

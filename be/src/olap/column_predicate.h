@@ -171,6 +171,11 @@ public:
                ", opposite=" + (_opposite ? "true" : "false");
     }
 
+    /// Some predicates need to be cloned for each segment.
+    virtual bool need_to_clone() const { return false; }
+
+    virtual void clone(ColumnPredicate** to) const { LOG(FATAL) << "clone not supported"; }
+
 protected:
     // Just prevent access not align memory address coredump
     template <class T>

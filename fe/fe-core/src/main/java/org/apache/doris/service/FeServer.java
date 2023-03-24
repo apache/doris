@@ -43,6 +43,7 @@ public class FeServer {
 
     public void start() throws IOException {
         FrontendServiceImpl service = new FrontendServiceImpl(ExecuteEnv.getInstance());
+        Logger feServiceLogger = LogManager.getLogger(FrontendServiceImpl.class);
         FrontendService.Iface instance = (FrontendService.Iface) Proxy.newProxyInstance(
                 FrontendServiceImpl.class.getClassLoader(),
                 FrontendServiceImpl.class.getInterfaces(),
@@ -50,9 +51,19 @@ public class FeServer {
                     long begin = System.currentTimeMillis();
                     String name = method.getName();
                     MetricRepo.THRIFT_COUNTER_RPC_ALL.getOrAdd(name).increase(1L);
-                    Object r = method.invoke(service, args);
-                    long end = System.currentTimeMillis();
-                    MetricRepo.THRIFT_COUNTER_RPC_LATENCY.getOrAdd(name).increase(end - begin);
+                    feServiceLogger.debug("receive request for {}", name);
+                    Object r = null;
+                    try {
+                        r = method.invoke(service, args);
+                    } catch (Throwable t) {
+                        feServiceLogger.warn("errors while process request for {}", name, t);
+                        // If exception occurs, do not deal it, just keep as the previous
+                        throw t;
+                    } finally {
+                        feServiceLogger.debug("finish process request for {}", name);
+                        long end = System.currentTimeMillis();
+                        MetricRepo.THRIFT_COUNTER_RPC_LATENCY.getOrAdd(name).increase(end - begin);
+                    }
                     return r;
                 });
         // setup frontend server

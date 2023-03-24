@@ -81,7 +81,8 @@ public:
     void save_meta();
     // Used in clone task, to update local meta when finishing a clone job
     Status revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowsets_to_clone,
-                              const std::vector<Version>& versions_to_delete);
+                              const std::vector<Version>& versions_to_delete,
+                              bool is_incremental_clone);
     Status pick_quick_compaction_rowsets(std::vector<RowsetSharedPtr>* input_rowsets,
                                          int64_t* permits);
 

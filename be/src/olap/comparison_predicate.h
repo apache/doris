@@ -31,7 +31,15 @@ class ComparisonPredicateBase : public ColumnPredicate {
 public:
     using T = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
     ComparisonPredicateBase(uint32_t column_id, const T& value, bool opposite = false)
-            : ColumnPredicate(column_id, opposite), _value(value) {}
+            : ColumnPredicate(column_id, opposite),
+              _cached_code(_InvalidateCodeValue),
+              _value(value) {}
+
+    void clone(ColumnPredicate** to) const override {
+        *to = new ComparisonPredicateBase(_column_id, _value, _opposite);
+    }
+
+    bool need_to_clone() const override { return true; }
 
     PredicateType type() const override { return PT; }
 
@@ -334,13 +342,20 @@ public:
                     auto* dict_column_ptr =
                             vectorized::check_and_get_column<vectorized::ColumnDictI32>(
                                     nested_column);
-                    auto dict_code = _is_range() ? dict_column_ptr->find_code_by_bound(
-                                                           _value, _is_greater(), _is_eq())
-                                                 : dict_column_ptr->find_code(_value);
-                    auto* data_array = dict_column_ptr->get_data().data();
 
-                    _base_loop_vec<true, is_and>(size, flags, null_map.data(), data_array,
-                                                 dict_code);
+                    auto dict_code = _find_code_from_dictionary_column(*dict_column_ptr);
+                    do {
+                        if constexpr (PT == PredicateType::EQ) {
+                            if (dict_code == -2) {
+                                memset(flags, 0, size);
+                                break;
+                            }
+                        }
+                        auto* data_array = dict_column_ptr->get_data().data();
+
+                        _base_loop_vec<true, is_and>(size, flags, null_map.data(), data_array,
+                                                     dict_code);
+                    } while (false);
                 } else {
                     LOG(FATAL) << "column_dictionary must use StringValue predicate.";
                 }
@@ -357,12 +372,18 @@ public:
                 if constexpr (std::is_same_v<T, StringValue>) {
                     auto* dict_column_ptr =
                             vectorized::check_and_get_column<vectorized::ColumnDictI32>(column);
-                    auto dict_code = _is_range() ? dict_column_ptr->find_code_by_bound(
-                                                           _value, _is_greater(), _is_eq())
-                                                 : dict_column_ptr->find_code(_value);
-                    auto* data_array = dict_column_ptr->get_data().data();
+                    auto dict_code = _find_code_from_dictionary_column(*dict_column_ptr);
+                    do {
+                        if constexpr (PT == PredicateType::EQ) {
+                            if (dict_code == -2) {
+                                memset(flags, 0, size);
+                                break;
+                            }
+                        }
+                        auto* data_array = dict_column_ptr->get_data().data();
 
-                    _base_loop_vec<false, is_and>(size, flags, nullptr, data_array, dict_code);
+                        _base_loop_vec<false, is_and>(size, flags, nullptr, data_array, dict_code);
+                    } while (false);
                 } else {
                     LOG(FATAL) << "column_dictionary must use StringValue predicate.";
                 }
@@ -537,9 +558,7 @@ private:
                 auto* dict_column_ptr =
                         vectorized::check_and_get_column<vectorized::ColumnDictI32>(column);
                 auto* data_array = dict_column_ptr->get_data().data();
-                auto dict_code = _is_range() ? dict_column_ptr->find_code_by_bound(
-                                                       _value, _operator(1, 0), _operator(1, 1))
-                                             : dict_column_ptr->find_code(_value);
+                auto dict_code = _find_code_from_dictionary_column(*dict_column_ptr);
                 _base_loop_bit<is_nullable, is_and>(sel, size, flags, null_map, data_array,
                                                     dict_code);
             } else {
@@ -583,9 +602,13 @@ private:
                 auto* dict_column_ptr =
                         vectorized::check_and_get_column<vectorized::ColumnDictI32>(column);
                 auto* data_array = dict_column_ptr->get_data().data();
-                auto dict_code = _is_range() ? dict_column_ptr->find_code_by_bound(
-                                                       _value, _is_greater(), _is_eq())
-                                             : dict_column_ptr->find_code(_value);
+                auto dict_code = _find_code_from_dictionary_column(*dict_column_ptr);
+
+                if constexpr (PT == PredicateType::EQ) {
+                    if (dict_code == -2) {
+                        return _opposite ? size : 0;
+                    }
+                }
 
                 return _base_loop<is_nullable>(sel, size, null_map, data_array, dict_code);
             } else {
@@ -603,12 +626,23 @@ private:
         }
     }
 
+    __attribute__((flatten)) int32_t _find_code_from_dictionary_column(
+            const vectorized::ColumnDictI32& column) const {
+        if (UNLIKELY(_cached_code == _InvalidateCodeValue)) {
+            _cached_code = _is_range() ? column.find_code_by_bound(_value, _is_greater(), _is_eq())
+                                       : column.find_code(_value);
+        }
+        return _cached_code;
+    }
+
     std::string _debug_string() const override {
         std::string info =
                 "ComparisonPredicateBase(" + type_to_string(Type) + ", " + type_to_string(PT) + ")";
         return info;
     }
 
+    static constexpr int32_t _InvalidateCodeValue = std::numeric_limits<int32_t>::max();
+    mutable int32_t _cached_code;
     T _value;
 };
 

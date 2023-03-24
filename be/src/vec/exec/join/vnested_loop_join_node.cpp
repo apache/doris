@@ -97,7 +97,6 @@ Status VNestedLoopJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     }
     RETURN_IF_ERROR(
             vectorized::VExpr::create_expr_trees(_pool, filter_src_exprs, &_filter_src_expr_ctxs));
-    DCHECK(!filter_src_exprs.empty() == _is_output_left_side_only);
     return Status::OK();
 }
 
@@ -181,6 +180,13 @@ Status VNestedLoopJoinNode::_materialize_build_side(RuntimeState* state) {
     RuntimeFilterBuild processRuntimeFilterBuild {this};
     processRuntimeFilterBuild(state);
 
+    // optimize `in bitmap`, see https://github.com/apache/doris/issues/14338
+    if (_is_output_left_side_only &&
+        ((_join_op == TJoinOp::type::LEFT_SEMI_JOIN && _build_blocks.empty()) ||
+         (_join_op == TJoinOp::type::LEFT_ANTI_JOIN && !_build_blocks.empty()))) {
+        _left_side_eos = true;
+    }
+
     return Status::OK();
 }
 
@@ -207,7 +213,9 @@ Status VNestedLoopJoinNode::get_next(RuntimeState* state, Block* block, bool* eo
     RETURN_IF_CANCELLED(state);
 
     if (_is_output_left_side_only) {
-        RETURN_IF_ERROR(get_left_side(state, &_left_block));
+        if (!_left_side_eos) {
+            RETURN_IF_ERROR(get_left_side(state, &_left_block));
+        }
         RETURN_IF_ERROR(_build_output_block(&_left_block, block));
         *eos = _left_side_eos;
         reached_limit(block, eos);

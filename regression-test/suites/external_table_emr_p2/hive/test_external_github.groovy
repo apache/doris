@@ -506,6 +506,7 @@ suite("test_external_github", "p2") {
         sql """
             create catalog if not exists ${catalog_name} properties (
                 'type'='hms',
+                'hive.exec.orc.split.strategy' = 'BI',
                 'hive.metastore.uris' = 'thrift://${extHiveHmsHost}:${extHiveHmsPort}'
             );
         """

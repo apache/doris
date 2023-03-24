@@ -220,8 +220,8 @@ public class EsUtilTest extends EsTestCase {
     @Test
     public void testDateType() throws IOException, URISyntaxException {
         ObjectNode testDateFormat = EsUtil.getRootSchema(
-                EsUtil.getMapping(loadJsonFromFile("data/es/test_date_format.json")), null);
-        List<Column> parseColumns = EsUtil.genColumnsFromEs("test_date_format", null, testDateFormat, false);
+                EsUtil.getMapping(loadJsonFromFile("data/es/test_date_format.json")), null, new ArrayList<>());
+        List<Column> parseColumns = EsUtil.genColumnsFromEs("test_date_format", null, testDateFormat, false, new ArrayList<>());
         Assertions.assertEquals(8, parseColumns.size());
         for (Column column : parseColumns) {
             String name = column.getName();

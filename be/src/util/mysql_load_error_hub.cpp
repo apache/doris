@@ -18,6 +18,7 @@
 #include <mysql/mysql.h>
 
 #define __DorisMysql MYSQL
+#include "common/logging.h"
 #include "mysql_load_error_hub.h"
 #include "util/defer_op.h"
 

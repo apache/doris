@@ -52,7 +52,7 @@ public class AlterPartitionEvent extends MetastoreTableEvent {
                 .checkNotNull(event.getMessage(), debugString("Event message is null"));
         try {
             AlterPartitionMessage alterPartitionMessage =
-                    MetastoreEventsProcessor.getMessageDeserializer()
+                    MetastoreEventsProcessor.getMessageDeserializer(event.getMessageFormat())
                             .getAlterPartitionMessage(event.getMessage());
             hmsTbl = Preconditions.checkNotNull(alterPartitionMessage.getTableObj());
             partitionBefore = Preconditions.checkNotNull(alterPartitionMessage.getPtnObjBefore());

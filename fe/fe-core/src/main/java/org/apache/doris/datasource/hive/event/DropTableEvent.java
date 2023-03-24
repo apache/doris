@@ -42,7 +42,7 @@ public class DropTableEvent extends MetastoreTableEvent {
                 .checkNotNull(event.getMessage(), debugString("Event message is null"));
         try {
             JSONDropTableMessage dropTableMessage =
-                    (JSONDropTableMessage) MetastoreEventsProcessor.getMessageDeserializer()
+                    (JSONDropTableMessage) MetastoreEventsProcessor.getMessageDeserializer(event.getMessageFormat())
                             .getDropTableMessage(event.getMessage());
             tableName = dropTableMessage.getTable();
         } catch (Exception e) {

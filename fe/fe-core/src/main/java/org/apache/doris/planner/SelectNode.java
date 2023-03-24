@@ -32,6 +32,7 @@ import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -41,7 +42,7 @@ public class SelectNode extends PlanNode {
     private static final Logger LOG = LogManager.getLogger(SelectNode.class);
 
     protected SelectNode(PlanNodeId id, PlanNode child, List<Expr> conjuncts) {
-        super(id, child.getTupleIds(), "SELECT", StatisticalType.SELECT_NODE);
+        super(id, new ArrayList<>(child.getOutputTupleIds()), "SELECT", StatisticalType.SELECT_NODE);
         addChild(child);
         this.tblRefIds = child.tblRefIds;
         this.nullableTupleIds = child.nullableTupleIds;

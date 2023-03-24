@@ -48,7 +48,7 @@ public class DropPartitionEvent extends MetastoreTableEvent {
                 .checkNotNull(event.getMessage(), debugString("Event message is null"));
         try {
             DropPartitionMessage dropPartitionMessage =
-                    MetastoreEventsProcessor.getMessageDeserializer()
+                    MetastoreEventsProcessor.getMessageDeserializer(event.getMessageFormat())
                             .getDropPartitionMessage(event.getMessage());
             hmsTbl = Preconditions.checkNotNull(dropPartitionMessage.getTableObj());
             List<Map<String, String>> droppedPartitions = dropPartitionMessage.getPartitions();
