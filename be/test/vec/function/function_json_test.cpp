@@ -49,7 +49,7 @@ TEST(FunctionJsonTEST, GetJsonIntTest) {
     check_function<DataTypeInt32, true>(func_name, input_types, data_set);
 }
 
-TEST(FunctionJsonTEST, GetJsonIntTest) {
+TEST(FunctionJsonTEST, GetJsonBigIntTest) {
     std::string func_name = "get_json_bigint";
     InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
     DataSet data_set = {
