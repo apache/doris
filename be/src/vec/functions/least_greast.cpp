@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "vec/columns/column_const.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/core/accurate_comparison.h"
@@ -164,30 +165,57 @@ struct FunctionFieldImpl {
         for (int i = 0; i < column_size; ++i) {
             argument_columns[i] = block.get_by_position(arguments[i]).column;
         }
-        argument_columns[0] = argument_columns[0]->convert_to_full_column_if_const();
+
+        bool arg_const;
+        std::tie(argument_columns[0], arg_const) = unpack_if_const(argument_columns[0]);
+
         WhichDataType which(data_type);
         //TODO: maybe could use hashmap to save column data, not use for loop ervey time to test equals.
         if (which.is_string_or_fixed_string()) {
             const auto& column_string = reinterpret_cast<const ColumnString&>(*argument_columns[0]);
-            for (int row = 0; row < input_rows_count; ++row) {
-                const auto& str_data = column_string.get_data_at(row);
-                for (int col = 1; col < column_size; ++col) {
-                    const auto& temp_data =
-                            reinterpret_cast<const ColumnConst&>(*argument_columns[col])
-                                    .get_data_at(0);
-                    if (EqualsOp<StringRef, StringRef>::apply(temp_data, str_data)) {
-                        res_data[row] = col;
-                        break;
+            if (arg_const) {
+                const auto& str_data = column_string.get_data_at(0);
+                for (int row = 0; row < input_rows_count; ++row) {
+                    for (int col = 1; col < column_size; ++col) {
+                        const auto& temp_data =
+                                reinterpret_cast<const ColumnConst&>(*argument_columns[col])
+                                        .get_data_at(0);
+                        if (EqualsOp<StringRef, StringRef>::apply(temp_data, str_data)) {
+                            res_data[row] = col;
+                            break;
+                        }
+                    }
+                }
+            } else {
+                for (int row = 0; row < input_rows_count; ++row) {
+                    const auto& str_data = column_string.get_data_at(row);
+                    for (int col = 1; col < column_size; ++col) {
+                        const auto& temp_data =
+                                reinterpret_cast<const ColumnConst&>(*argument_columns[col])
+                                        .get_data_at(0);
+                        if (EqualsOp<StringRef, StringRef>::apply(temp_data, str_data)) {
+                            res_data[row] = col;
+                            break;
+                        }
                     }
                 }
             }
-        } else {
-#define DISPATCH(TYPE, COLUMN_TYPE)                                                               \
-    if (which.idx == TypeIndex::TYPE) {                                                           \
-        for (int col = 1; col < arguments.size(); ++col) {                                        \
-            insert_result_data<COLUMN_TYPE>(res_data, argument_columns[0], argument_columns[col], \
-                                            input_rows_count, col);                               \
-        }                                                                                         \
+
+        } else { //string or not
+#define DISPATCH(TYPE, COLUMN_TYPE)                                                            \
+    if (which.idx == TypeIndex::TYPE) {                                                        \
+        if (arg_const) {                                                                       \
+            for (int col = 1; col < arguments.size(); ++col) {                                 \
+                insert_result_data_const<COLUMN_TYPE>(res_data, argument_columns[0],           \
+                                                      argument_columns[col], input_rows_count, \
+                                                      col);                                    \
+            }                                                                                  \
+        } else {                                                                               \
+            for (int col = 1; col < arguments.size(); ++col) {                                 \
+                insert_result_data<COLUMN_TYPE>(res_data, argument_columns[0],                 \
+                                                argument_columns[col], input_rows_count, col); \
+            }                                                                                  \
+        }                                                                                      \
     }
             NUMERIC_TYPE_TO_COLUMN_TYPE(DISPATCH)
             DISPATCH(Decimal128, ColumnDecimal<Decimal128>)
@@ -237,7 +265,7 @@ private:
         if constexpr (std::is_same_v<ColumnType, ColumnDecimal128>) {
             for (size_t i = 0; i < input_rows_count; ++i) {
                 res_data[i] |= (!res_data[i] *
-                                (EqualsOp<DecimalV2Value, DecimalV2Value>::apply(first_raw_data[i],
+                                (EqualsOp<DecimalV2Value, DecimalV2Value>::apply(first_raw_data[0],
                                                                                  arg_data)) *
                                 col);
             }
@@ -245,7 +273,7 @@ private:
             for (size_t i = 0; i < input_rows_count; ++i) {
                 using type = std::decay_t<decltype(first_raw_data[0])>;
                 res_data[i] |= (!res_data[i] *
-                                (EqualsOp<type, type>::apply(first_raw_data[i], arg_data)) * col);
+                                (EqualsOp<type, type>::apply(first_raw_data[0], arg_data)) * col);
             }
         }
     }

@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <memory>
+
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_map.h"
@@ -90,10 +92,11 @@ public:
         auto& result_col_map_offsets = map_column->get_offsets();
         result_col_map_offsets.resize(input_rows_count);
 
+        std::unique_ptr<bool[]> col_const = std::make_unique<bool[]>(num_element);
         // convert to nullable column
         for (size_t i = 0; i < num_element; ++i) {
             auto& col = block.get_by_position(arguments[i]).column;
-            col = col->convert_to_full_column_if_const();
+            std::tie(col, col_const[i]) = unpack_if_const(col);
             bool is_nullable = i % 2 == 0 ? result_col_map_keys_data.is_nullable()
                                           : result_col_map_vals_data.is_nullable();
             if (is_nullable && !col->is_nullable()) {
@@ -102,13 +105,15 @@ public:
         }
 
         // insert value into array
+        // TODO: check to swap the order or loop.
         ColumnArray::Offset64 offset = 0;
         for (size_t row = 0; row < input_rows_count; ++row) {
             for (size_t i = 0; i < num_element; i += 2) {
                 result_col_map_keys_data.insert_from(*block.get_by_position(arguments[i]).column,
-                                                     row);
+                                                     col_const[i] ? 0 : row);
                 result_col_map_vals_data.insert_from(
-                        *block.get_by_position(arguments[i + 1]).column, row);
+                        *block.get_by_position(arguments[i + 1]).column,
+                        col_const[i + 1] ? 0 : row);
             }
             offset += num_element / 2;
             result_col_map_offsets[row] = offset;
@@ -142,8 +147,8 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        auto left_column =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const auto& [left_column, left_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
         const ColumnMap* map_column = nullptr;
         // const UInt8* map_null_map = nullptr;
         if (left_column->is_nullable()) {
@@ -161,8 +166,14 @@ public:
         auto dst_column = ColumnInt64::create(input_rows_count);
         auto& dst_data = dst_column->get_data();
 
-        for (size_t i = 0; i < map_column->size(); i++) {
-            dst_data[i] = map_column->size_at(i);
+        if (left_const) {
+            for (size_t i = 0; i < map_column->size(); i++) {
+                dst_data[i] = map_column->size_at(0);
+            }
+        } else {
+            for (size_t i = 0; i < map_column->size(); i++) {
+                dst_data[i] = map_column->size_at(i);
+            }
         }
 
         block.replace_by_position(result, std::move(dst_column));
