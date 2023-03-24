@@ -39,8 +39,10 @@ ARRAY<T> array_sortby(ARRAY<T> src,Array<T> key)
 ARRAY<T> array_sortby(lambda,array....)
 ```
 
-首先将key列升序排列，然后将src列按此顺序排序后的对应列做为结果返回，如果输入数组为NULL，则返回NULL。
-如果数组元素包含NULL, 则输出的排序数组会将NULL放在最前面。
+首先将key列升序排列，然后将src列按此顺序排序后的对应列做为结果返回;
+如果输入数组src为NULL，则返回NULL。
+如果输入数组key为NULL，则直接返回src数组。
+如果输入数组key元素包含NULL, 则输出的排序数组会将NULL放在最前面。
 
 ### notice
 

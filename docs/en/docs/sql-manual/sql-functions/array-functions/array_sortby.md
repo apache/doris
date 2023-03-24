@@ -38,8 +38,10 @@ array_sortby
 ARRAY<T> array_sortby(ARRAY<T> src,Array<T> key)
 ARRAY<T> array_sortby(lambda,array....)
 ```
-Arranging the key column in ascending order, returns the corresponding column of src column in this order. If the input array is NULL, NULL is returned.
-If the array element contains NULL, the output sorted array will place NULL first.
+First, arrange the key column in ascending order, and then return the corresponding column of the src column sorted in this order as the result;
+Returns NULL if the input array src is NULL.
+If the input array key is NULL, the order in which src is returned remains unchanged.
+If the input array key element contains NULL, the output sorted array will place NULL first.
 
 ### notice
 
