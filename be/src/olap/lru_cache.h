@@ -317,7 +317,7 @@ private:
 // pair first is timestatmp, put <timestatmp, LRUHandle*> into asc set,
 // when need to free space, can first evict the begin of the set,
 // because the begin element's timestamp is the oldest.
-using LRUHandleSortedSet = std::set<std::pair<int64_t, LRUHandle *>>;
+using LRUHandleSortedSet = std::set<std::pair<int64_t, LRUHandle*>>;
 
 // A single shard of sharded cache.
 class LRUCache {
