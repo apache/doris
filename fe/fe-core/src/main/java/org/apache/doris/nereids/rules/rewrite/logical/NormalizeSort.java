@@ -27,19 +27,24 @@ import com.google.common.collect.ImmutableList;
 import java.util.stream.Collectors;
 
 /**
- the sort node will create new slots for order by keys if the order by keys is not in the output
- so need create a project above sort node to prune the unnecessary order by keys
+ * the sort node will create new slots for order by keys if the order by keys is not in the output
+ * so need create a project above sort node to prune the unnecessary order by keys. This means the
+ * Tuple slots size is difference to PhysicalSort.output.size. If not prune and hide the order key,
+ * the upper plan node will see the temporary slots and treat as output, and then translate failed.
+ * This is trick, we should add sort output tuple to ensure the tuple slot size is equals, but it
+ * has large workload. I think we should refactor the PhysicalPlanTranslator in the future, and
+ * process PhysicalProject(output)/PhysicalDistribute more general.
  */
-public class PruneSortColumns extends OneRewriteRuleFactory {
+public class NormalizeSort extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalSort()
-                .when(sort -> !sort.isOrderKeysPruned() && !sort.getOutputSet()
+                .when(sort -> !sort.isNormalized() && !sort.getOutputSet()
                         .containsAll(sort.getOrderKeys().stream()
                                 .map(orderKey -> orderKey.getExpr()).collect(Collectors.toSet())))
                 .then(sort -> {
                     return new LogicalProject(sort.getOutput(), ImmutableList.of(), false,
-                            sort.withOrderKeysPruned(true));
-                }).toRule(RuleType.COLUMN_PRUNE_SORT);
+                            sort.withNormalize(true));
+                }).toRule(RuleType.NORMALIZE_SORT);
     }
 }

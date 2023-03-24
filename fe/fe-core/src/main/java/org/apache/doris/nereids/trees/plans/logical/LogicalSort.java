@@ -46,14 +46,14 @@ public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
 
     private final List<OrderKey> orderKeys;
 
-    private final boolean orderKeysPruned;
+    private final boolean normalized;
 
     public LogicalSort(List<OrderKey> orderKeys, CHILD_TYPE child) {
         this(orderKeys, Optional.empty(), Optional.empty(), child);
     }
 
-    public LogicalSort(List<OrderKey> orderKeys, CHILD_TYPE child, boolean orderKeysPruned) {
-        this(orderKeys, Optional.empty(), Optional.empty(), child, orderKeysPruned);
+    public LogicalSort(List<OrderKey> orderKeys, CHILD_TYPE child, boolean normalized) {
+        this(orderKeys, Optional.empty(), Optional.empty(), child, normalized);
     }
 
     /**
@@ -65,10 +65,10 @@ public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
     }
 
     public LogicalSort(List<OrderKey> orderKeys, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child, boolean orderKeysPruned) {
+            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child, boolean normalized) {
         super(PlanType.LOGICAL_SORT, groupExpression, logicalProperties, child);
         this.orderKeys = ImmutableList.copyOf(Objects.requireNonNull(orderKeys, "orderKeys can not be null"));
-        this.orderKeysPruned = orderKeysPruned;
+        this.normalized = normalized;
     }
 
     @Override
@@ -80,8 +80,8 @@ public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
         return orderKeys;
     }
 
-    public boolean isOrderKeysPruned() {
-        return orderKeysPruned;
+    public boolean isNormalized() {
+        return normalized;
     }
 
     @Override
@@ -122,13 +122,13 @@ public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
     @Override
     public LogicalSort<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalSort<>(orderKeys, children.get(0), orderKeysPruned);
+        return new LogicalSort<>(orderKeys, children.get(0), normalized);
     }
 
     @Override
     public LogicalSort<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalSort<>(orderKeys, groupExpression, Optional.of(getLogicalProperties()), child(),
-                orderKeysPruned);
+                normalized);
     }
 
     @Override
@@ -141,7 +141,7 @@ public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
                 Optional.of(getLogicalProperties()), child(), false);
     }
 
-    public LogicalSort<Plan> withOrderKeysPruned(boolean orderKeysPruned) {
+    public LogicalSort<Plan> withNormalize(boolean orderKeysPruned) {
         return new LogicalSort<>(orderKeys, groupExpression, Optional.of(getLogicalProperties()), child(),
                 orderKeysPruned);
     }

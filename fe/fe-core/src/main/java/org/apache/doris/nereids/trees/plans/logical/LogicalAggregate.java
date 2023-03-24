@@ -52,7 +52,7 @@ import java.util.Optional;
  */
 public class LogicalAggregate<CHILD_TYPE extends Plan>
         extends LogicalUnary<CHILD_TYPE>
-        implements Aggregate<CHILD_TYPE>, OutputSavePoint {
+        implements Aggregate<CHILD_TYPE> {
 
     private final boolean normalized;
     private final List<Expression> groupByExpressions;
@@ -223,6 +223,11 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
             List<NamedExpression> outputExpressionList) {
         return new LogicalAggregate<>(groupByExprList, outputExpressionList, normalized, ordinalIsResolved,
                 sourceRepeat, Optional.empty(), Optional.empty(), child());
+    }
+
+    @Override
+    public List<NamedExpression> getOutputs() {
+        return outputExpressions;
     }
 
     @Override
