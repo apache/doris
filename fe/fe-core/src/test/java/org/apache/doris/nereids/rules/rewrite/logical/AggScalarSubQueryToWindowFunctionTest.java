@@ -147,6 +147,7 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
                         + "            where l_partkey = p_partkey\n"
                         + "            and l_partkey = 10);"
         };
+        // notice: case 4 and 5 can apply the rule, but we support it later.
         for (String s : testCases) {
             checkNot(s);
         }
