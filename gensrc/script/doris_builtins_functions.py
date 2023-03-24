@@ -80,9 +80,7 @@ visible_functions = [
     [['map_values'], 'ARRAY<V>', ['MAP<K, V>'], '', ['K', 'V']],
 
     # struct functions
-    [['struct'], 'STRUCT<TYPES>', ['TYPES...'], 'ALWAYS_NOT_NULLABLE', ['...TYPES']],
-    [['named_struct'], 'STRUCT<TYPES>', ['TYPES...'], 'ALWAYS_NOT_NULLABLE', ['...TYPES']],
-    [['element_at', '%element_extract%'], 'VARCHAR', ['STRUCT<TYPES>', 'VARCHAR'], 'ALWAYS_NULLABLE', ['...TYPES']],
+    [['struct'], 'STRUCT<TYPES>', ['TYPES'], 'ALWAYS_NOT_NULLABLE', ['TYPES...']],
 
     # array functions
     [['array'], 'ARRAY', ['BOOLEAN', '...'], 'ALWAYS_NOT_NULLABLE'],
