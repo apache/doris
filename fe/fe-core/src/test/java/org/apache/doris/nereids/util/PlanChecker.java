@@ -30,6 +30,7 @@ import org.apache.doris.nereids.jobs.batch.CascadesOptimizer;
 import org.apache.doris.nereids.jobs.batch.NereidsRewriter;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
+import org.apache.doris.nereids.jobs.rewrite.CustomRewriteJob;
 import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -120,6 +121,12 @@ public class PlanChecker {
         this.cascadesContext.newAnalyzer().analyze();
         this.cascadesContext.toMemo();
         MemoValidator.validate(cascadesContext.getMemo());
+        return this;
+    }
+
+    public PlanChecker customRewrite(CustomRewriter customRewriter) {
+        new CustomRewriteJob(() -> customRewriter, RuleType.TEST_REWRITE).execute(cascadesContext.getCurrentJobContext());
+        cascadesContext.toMemo();
         return this;
     }
 

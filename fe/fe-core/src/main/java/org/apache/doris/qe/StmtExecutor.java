@@ -200,8 +200,10 @@ public class StmtExecutor implements ProfileWriter {
     private boolean isCached;
     private QueryPlannerProfile plannerProfile = new QueryPlannerProfile();
     private String stmtName;
-    private PrepareStmt prepareStmt;
+    private PrepareStmt prepareStmt = null;
     private String mysqlLoadId;
+    // Distinguish from prepare and execute command
+    private boolean isExecuteStmt = false;
 
     // The result schema if "dry_run_query" is true.
     // Only one column to indicate the real return row numbers.
@@ -521,7 +523,7 @@ public class StmtExecutor implements ProfileWriter {
                 parsedStmt.analyze(analyzer);
             }
 
-            if (prepareStmt instanceof PrepareStmt) {
+            if (prepareStmt instanceof PrepareStmt && !isExecuteStmt) {
                 handlePrepareStmt();
                 return;
             }
@@ -744,8 +746,10 @@ public class StmtExecutor implements ProfileWriter {
             parsedStmt = preparedStmtCtx.stmt.getInnerStmt();
             planner = preparedStmtCtx.planner;
             analyzer = preparedStmtCtx.analyzer;
+            prepareStmt = preparedStmtCtx.stmt;
             Preconditions.checkState(parsedStmt.isAnalyzed());
             LOG.debug("already prepared stmt: {}", preparedStmtCtx.stmtString);
+            isExecuteStmt = true;
             if (!preparedStmtCtx.stmt.needReAnalyze()) {
                 // Return directly to bypass analyze and plan
                 return;
@@ -1829,13 +1833,25 @@ public class StmtExecutor implements ProfileWriter {
         // sends how many columns
         serializer.reset();
         serializer.writeVInt(colNames.size());
-        LOG.debug("sendFields {}", colNames.size());
+        LOG.debug("sendFields {}", colNames);
         context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         // send field one by one
         for (int i = 0; i < colNames.size(); ++i) {
             serializer.reset();
-            serializer.writeField(colNames.get(i), types.get(i));
-            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+            if (prepareStmt != null && isExecuteStmt) {
+                // Using PreparedStatment pre serializedField to avoid serialize each time
+                // we send a field
+                byte[] serializedField = prepareStmt.getSerializedField(colNames.get(i));
+                if (serializedField == null) {
+                    serializer.writeField(colNames.get(i), types.get(i));
+                    serializedField = serializer.toArray();
+                    prepareStmt.setSerializedField(colNames.get(i), serializedField);
+                }
+                context.getMysqlChannel().sendOnePacket(ByteBuffer.wrap(serializedField));
+            } else {
+                serializer.writeField(colNames.get(i), types.get(i));
+                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+            }
         }
         // send EOF
         serializer.reset();

@@ -2789,11 +2789,15 @@ show_create_load_stmt ::=
 analyze_stmt ::=
     KW_ANALYZE KW_TABLE table_name:tbl opt_col_list:cols opt_partition_names:partitionNames opt_properties:properties
     {:
-        RESULT = new AnalyzeStmt(tbl, cols, partitionNames, properties);
+        boolean is_whole_tbl = (cols == null);
+        boolean is_histogram = false;
+        RESULT = new AnalyzeStmt(tbl, cols, partitionNames, properties, is_whole_tbl, is_histogram);
     :}
-    | KW_ANALYZE KW_TABLE table_name:tbl KW_UPDATE KW_HISTOGRAM KW_ON ident_list:cols opt_properties:properties
+    | KW_ANALYZE KW_TABLE table_name:tbl KW_UPDATE KW_HISTOGRAM KW_ON ident_list:cols opt_partition_names:partitionNames opt_properties:properties
     {:
-        RESULT = new AnalyzeStmt(tbl, cols, properties);
+        boolean is_whole_tbl = (cols == null);
+        boolean is_histogram = true;
+        RESULT = new AnalyzeStmt(tbl, cols, partitionNames, properties, is_whole_tbl, is_histogram);
     :}
     ;
 

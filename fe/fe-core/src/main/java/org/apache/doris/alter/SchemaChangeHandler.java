@@ -2206,7 +2206,8 @@ public class SchemaChangeHandler extends AlterHandler {
         for (String col : indexDef.getColumns()) {
             Column column = olapTable.getColumn(col);
             if (column != null) {
-                indexDef.checkColumn(column, olapTable.getKeysType());
+                indexDef.checkColumn(column, olapTable.getKeysType(),
+                        olapTable.getTableProperty().getEnableUniqueKeyMergeOnWrite());
             } else {
                 throw new DdlException("index column does not exist in table. invalid column: " + col);
             }

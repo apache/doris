@@ -131,6 +131,7 @@ private:
     void _clear_statistics_for_deleting_segments_unsafe(uint64_t begin, uint64_t end);
     Status _rename_compacted_segments(int64_t begin, int64_t end);
     Status _rename_compacted_segment_plain(uint64_t seg_id);
+    Status _rename_compacted_indices(int64_t begin, int64_t end, uint64_t seg_id);
 
 protected:
     RowsetWriterContext _context;

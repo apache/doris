@@ -114,13 +114,20 @@ public class CastExpr extends Expr {
      * Just use for nereids, put analyze() in finalizeImplForNereids
      */
     public CastExpr(Type targetType, Expr e, Void v) {
-        super();
         Preconditions.checkArgument(targetType.isValid());
         Preconditions.checkNotNull(e);
         type = targetType;
         targetTypeDef = null;
         isImplicit = true;
         children.add(e);
+        try {
+            analyze();
+        } catch (AnalysisException ex) {
+            LOG.warn("Implicit casts fail", ex);
+            Preconditions.checkState(false,
+                    "Implicit casts should never throw analysis exception.");
+        }
+        analysisDone();
     }
 
     /**
@@ -570,17 +577,6 @@ public class CastExpr extends Expr {
         return children.get(0).isNullable()
                 || (children.get(0).getType().isStringType() && !getType().isStringType())
                 || (!children.get(0).getType().isDateType() && getType().isDateType());
-    }
-
-    @Override
-    public void finalizeImplForNereids() throws AnalysisException {
-        try {
-            analyze();
-        } catch (AnalysisException ex) {
-            LOG.warn("Implicit casts fail", ex);
-            Preconditions.checkState(false,
-                    "Implicit casts should never throw analysis exception.");
-        }
     }
 
     @Override

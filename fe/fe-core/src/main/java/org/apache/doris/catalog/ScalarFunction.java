@@ -412,7 +412,7 @@ public class ScalarFunction extends Function {
     public TFunction toThrift(Type realReturnType, Type[] realArgTypes) {
         TFunction fn = super.toThrift(realReturnType, realArgTypes);
         fn.setScalarFn(new TScalarFunction());
-        if (getBinaryType() != TFunctionBinaryType.BUILTIN || !VectorizedUtil.optRpcForPipeline()) {
+        if (getBinaryType() != TFunctionBinaryType.BUILTIN || !VectorizedUtil.isPipeline()) {
             fn.getScalarFn().setSymbol(symbolName);
             if (prepareFnSymbol != null) {
                 fn.getScalarFn().setPrepareFnSymbol(prepareFnSymbol);

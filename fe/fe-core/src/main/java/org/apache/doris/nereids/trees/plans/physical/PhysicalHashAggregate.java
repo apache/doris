@@ -134,6 +134,11 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
         return outputExpressions;
     }
 
+    @Override
+    public List<NamedExpression> getOutputs() {
+        return outputExpressions;
+    }
+
     public Optional<List<Expression>> getPartitionExpressions() {
         return partitionExpressions;
     }

@@ -32,7 +32,7 @@ public class ColumnLevelStatisticCache {
     }
 
     public Histogram getHistogram() {
-        return null;
+        return histogram;
     }
 
     public void setHistogram(Histogram histogram) {

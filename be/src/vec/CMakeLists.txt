@@ -113,7 +113,6 @@ set(VEC_FILES
   exec/vset_operation_node.cpp
   exec/vunion_node.cpp
   exec/vselect_node.cpp
-  exec/vmysql_scan_node.cpp
   exec/vschema_scan_node.cpp
   exec/vempty_set_node.cpp
   exec/vanalytic_eval_node.cpp
@@ -174,6 +173,7 @@ set(VEC_FILES
   functions/array/function_array_remove.cpp
   functions/array/function_array_union.cpp
   functions/array/function_array_except.cpp
+  functions/array/function_array_exists.cpp
   functions/array/function_array_intersect.cpp
   functions/array/function_array_slice.cpp
   functions/array/function_array_difference.cpp
@@ -329,6 +329,7 @@ set(VEC_FILES
 if (WITH_MYSQL)
     set(VEC_FILES
             ${VEC_FILES}
+            exec/vmysql_scan_node.cpp
             exec/scan/mysql_scanner.cpp)
 endif ()
 

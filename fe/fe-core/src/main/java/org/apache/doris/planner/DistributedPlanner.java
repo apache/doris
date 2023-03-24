@@ -925,7 +925,8 @@ public class DistributedPlanner {
         if (isDistinct) {
             return createPhase2DistinctAggregationFragment(node, childFragment, fragments);
         } else {
-            if (canColocateAgg(node.getAggInfo(), childFragment.getDataPartition())) {
+            if (canColocateAgg(node.getAggInfo(), childFragment.getDataPartition())
+                    && childFragment.getPlanRoot().shouldColoAgg()) {
                 childFragment.addPlanRoot(node);
                 childFragment.setHasColocatePlanNode(true);
                 return childFragment;
