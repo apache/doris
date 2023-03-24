@@ -17,11 +17,14 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
@@ -35,14 +38,12 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
@@ -55,49 +56,38 @@ import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * change scalar sub query containing agg to window function. such as:
- * SELECT SUM(l_extendedprice) / 7.0 AS avg_yearly
- *  FROM lineitem, part
- *  WHERE p_partkey = l_partkey AND
- *  p_brand = 'Brand#23' AND
- *  p_container = 'MED BOX' AND
- *  l_quantity<(SELECT 0.2*avg(l_quantity)
- *  FROM lineitem
- *  WHERE l_partkey = p_partkey);
- * to:
- * SELECT SUM(l_extendedprice) / 7.0 as avg_yearly
- *  FROM (SELECT l_extendedprice, l_quantity,
- *    0.2 * avg(l_quantity)over(partition by p_partkey)
- *    AS avg_l_quantity
- *    FROM lineitem, part
- *    WHERE p_partkey = l_partkey and
- *    p_brand = 'Brand#23' and
- *    p_container = 'MED BOX') t
- * WHERE l_quantity < avg_l_quantity;
+ * change the plan:
+ * logicalFilter(logicalApply(any(), logicalAggregate()))
+ * to
+ * logicalProject((logicalFilter(logicalWindow(logicalFilter(any())))))
  */
 
 public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobContext> implements CustomRewriter {
-    private static final ImmutableSet<Class<? extends AggregateFunction>> SUPPORTED_FUNCTION = ImmutableSet.of(
+    private static final Set<Class<? extends AggregateFunction>> SUPPORTED_FUNCTION = ImmutableSet.of(
             Min.class, Max.class, Count.class, Sum.class, Avg.class
     );
-    private static final ImmutableSet<Class<? extends LogicalPlan>> LEFT_SUPPORTED_PLAN = ImmutableSet.of(
-            LogicalOlapScan.class, LogicalLimit.class, LogicalJoin.class, LogicalProject.class
+    private static final Set<Class<? extends LogicalPlan>> LEFT_SUPPORTED_PLAN = ImmutableSet.of(
+            LogicalRelation.class, LogicalJoin.class, LogicalProject.class, LogicalFilter.class, LogicalLimit.class
     );
-    private static final ImmutableSet<Class<? extends LogicalPlan>> RIGHT_SUPPORTED_PLAN = ImmutableSet.of(
-            LogicalOlapScan.class, LogicalJoin.class, LogicalProject.class, LogicalAggregate.class, LogicalFilter.class
+    private static final Set<Class<? extends LogicalPlan>> RIGHT_SUPPORTED_PLAN = ImmutableSet.of(
+            LogicalRelation.class, LogicalJoin.class, LogicalProject.class, LogicalFilter.class, LogicalAggregate.class
     );
     private List<LogicalPlan> outerPlans = null;
     private List<LogicalPlan> innerPlans = null;
@@ -110,102 +100,54 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
     }
 
     @Override
-    public Plan visitLogicalFilter(LogicalFilter filter, JobContext context) {
-        if (!checkPattern(filter)) {
+    public Plan visitLogicalFilter(LogicalFilter<? extends Plan> filter, JobContext context) {
+        LogicalApply<Plan, LogicalAggregate<Plan>> apply = checkPattern(filter);
+        if (apply == null) {
             return filter;
         }
-        LogicalFilter<LogicalProject<LogicalApply<Plan, LogicalAggregate<Plan>>>> node
-                = ((LogicalFilter<LogicalProject<LogicalApply<Plan, LogicalAggregate<Plan>>>>) filter);
-        if (!check(node)) {
+        if (!check(filter, apply)) {
             return filter;
         }
-        return trans(node);
+        return trans(filter, apply);
     }
 
-    private boolean checkPattern(LogicalFilter filter) {
+    private LogicalApply<Plan, LogicalAggregate<Plan>> checkPattern(LogicalFilter<? extends Plan> filter) {
         if (!(filter.child() instanceof LogicalProject)) {
-            return false;
+            return null;
         }
-        LogicalProject project = (LogicalProject) filter.child();
-        if (project.child() == null || !(project.child() instanceof LogicalApply)) {
-            return false;
+        LogicalPlan plan = ((LogicalPlan) filter.child());
+        if (plan instanceof LogicalProject) {
+            plan = ((LogicalPlan) ((LogicalProject) plan).child());
         }
-        // filter(apply()) may be also ok.
-        // but nereids will match the pattern filter(project(apply()))
-        LogicalApply apply = ((LogicalApply<?, ?>) project.child());
-        if (!apply.isScalar() || !apply.isCorrelated() || !apply.getSubCorrespondingConject().isPresent()) {
-            return false;
+        if (!(plan instanceof LogicalApply)) {
+            return null;
         }
-        return apply.left() != null && apply.right() instanceof LogicalAggregate
-                && ((LogicalAggregate<?>) apply.right()).child() != null;
+        LogicalApply apply = (LogicalApply) plan;
+        if (!apply.isScalar() || !apply.isCorrelated() || !apply.getSubCorrespondingConjunct().isPresent()) {
+            return null;
+        }
+        return apply.right() instanceof LogicalAggregate ? apply : null;
     }
 
-    private boolean check(LogicalFilter<LogicalProject<LogicalApply<Plan, LogicalAggregate<Plan>>>> node) {
-        LogicalApply<?, ?> apply = node.child().child();
+    private boolean check(LogicalFilter<? extends Plan> filter, LogicalApply<Plan, LogicalAggregate<Plan>> apply) {
         LogicalPlan outer = ((LogicalPlan) apply.child(0));
         LogicalPlan inner = ((LogicalPlan) apply.child(1));
-        outerPlans = new PlanCollector().collect(outer);
-        innerPlans = new PlanCollector().collect(inner);
-        LogicalFilter outerFilter = node;
+        outerPlans = PlanCollector.INSTANCE.collect(outer);
+        innerPlans = PlanCollector.INSTANCE.collect(inner);
         Optional<LogicalFilter> innerFilter = innerPlans.stream()
                 .filter(LogicalFilter.class::isInstance)
                 .map(LogicalFilter.class::cast).findFirst();
-        return innerFilter.filter(
-                logicalFilter -> checkPlanType() && checkAggType()
-                        && checkRelation(apply.getCorrelationSlot())
-                        && checkPredicate(Sets.newHashSet(outerFilter.getConjuncts()),
-                        Sets.newHashSet(logicalFilter.getConjuncts()))
-        ).isPresent();
-    }
-
-    private Plan trans(LogicalFilter<LogicalProject<LogicalApply<Plan, LogicalAggregate<Plan>>>> node) {
-        LogicalApply<Plan, LogicalAggregate<Plan>> apply = node.child().child();
-        LogicalAggregate<Plan> agg = apply.right();
-
-        // for example, in tpc-h Q17
-        // window filter conjuncts is cast(l_quantity#id1 as decimal(27, 9)) < `0.2 * avg(l_quantity)`#id2 and
-        // 0.2 * avg(l_quantity#id3) as `0.2 * l_quantity`#id2 of agg's output expression
-        // we change it to cast(l_quantity#id1 as decimal(27, 9)) < 0.2 * `avg(l_quantity#id1) over(window)`#id4
-        // and avg(l_quantity#id1) over(window) as `avg(l_quantity#id1) over(window)`#id4
-        // first we get the slots of the two sides of apply
-
-        Preconditions.checkArgument(apply.getSubCorrespondingConject().get() instanceof ComparisonPredicate);
-        ComparisonPredicate windowFilterConjunct = PlanUtils.maybeCommuteComparisonPredicate(
-                ((ComparisonPredicate) apply.getSubCorrespondingConject().get()), apply.left());
-
-        // build window function, replace the slot
-        List<Expression> windowAggSlots = windowFilterConjunct.left().collectToList(Slot.class::isInstance);
-        Preconditions.checkArgument(windowAggSlots.size() == 1);
-
-        // adjust agg function's nullable.
-        AggregateFunction function = functions.get(0);
-        if (function instanceof NullableAggregateFunction) {
-            function = ((NullableAggregateFunction) function).withAlwaysNullable(false);
-        }
-
-        WindowExpression windowFunction = createWindowFunction(apply.getCorrelationSlot(),
-                function.withChildren(windowAggSlots));
-        NamedExpression windowFunctionAlias = new Alias(windowFunction, "wf");
-
-        // build filter conjunct, get the alias of the agg output and extract its child.
-        // then replace the agg to window function, then build conjunct
-        NamedExpression aggOut = agg.getOutputExpressions().get(0);
-        Expression aggOutExpr = aggOut.child(0);
-        aggOutExpr = new FunctionReplacer().replace(aggOutExpr, windowFunctionAlias.toSlot());
-
-        windowFilterConjunct = ((ComparisonPredicate) windowFilterConjunct
-                .withChildren(windowFilterConjunct.child(0), aggOutExpr));
-
-        LogicalFilter newFilter = ((LogicalFilter) node.withChildren(apply.left()));
-        LogicalWindow newWindow = new LogicalWindow<>(ImmutableList.of(windowFunctionAlias), newFilter);
-        LogicalFilter windowFilter = new LogicalFilter<>(ImmutableSet.of(windowFilterConjunct), newWindow);
-        return windowFilter;
+        return innerFilter.isPresent()
+                && checkPlanType() && checkAggType()
+                && checkRelation(apply.getCorrelationSlot())
+                && checkPredicate(Sets.newHashSet(filter.getConjuncts()),
+                Sets.newHashSet(innerFilter.get().getConjuncts()));
     }
 
     // check children's nodes because query process will be changed
     private boolean checkPlanType() {
-        return outerPlans.stream().allMatch(p -> LEFT_SUPPORTED_PLAN.contains(p.getClass()))
-                && innerPlans.stream().allMatch(p -> RIGHT_SUPPORTED_PLAN.contains(p.getClass()));
+        return outerPlans.stream().allMatch(p -> LEFT_SUPPORTED_PLAN.stream().anyMatch(c -> c.isInstance(p)))
+                && innerPlans.stream().allMatch(p -> RIGHT_SUPPORTED_PLAN.stream().anyMatch(c -> c.isInstance(p)));
     }
 
     // check aggregation of inner scope
@@ -236,21 +178,17 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         Set<Long> outerIds = outerTables.stream().map(node -> node.getTable().getId()).collect(Collectors.toSet());
         Set<Long> innerIds = innerTables.stream().map(node -> node.getTable().getId()).collect(Collectors.toSet());
 
-        if (outerTables.size() != outerIds.size() || innerTables.size() != innerIds.size()
-                || outerIds.size() != innerIds.size() + 1) {
-            return false;
-        }
-
         outerIds.removeAll(innerIds);
-        if (outerIds.size() != 1) {
+        if (outerIds.isEmpty()) {
             return false;
         }
 
-        LogicalRelation correlatedRelation = outerTables.stream()
-                .filter(node -> node.getTable().getId() == outerIds.iterator().next()).findFirst().get();
+        Set<ExprId> correlatedRelationOutput = outerTables.stream()
+                .filter(node -> outerIds.contains(node.getTable().getId()))
+                .map(LogicalRelation::getOutputExprIdSet).flatMap(Collection::stream).collect(Collectors.toSet());
         return ExpressionUtils.collect(correlatedSlots, NamedExpression.class::isInstance).stream()
                 .map(NamedExpression.class::cast)
-                .allMatch(e -> correlatedRelation.getOutputExprIdSet().contains(e.getExprId()));
+                .allMatch(e -> correlatedRelationOutput.contains(e.getExprId()));
     }
 
     private boolean checkPredicate(Set<Expression> outerConjuncts, Set<Expression> innerConjuncts) {
@@ -261,7 +199,7 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
             Iterator<Expression> outerIter = outerConjuncts.iterator();
             while (outerIter.hasNext()) {
                 Expression outerExpr = outerIter.next();
-                if (new ExpressionIdenticalChecker().check(innerExpr, outerExpr)) {
+                if (ExpressionIdenticalChecker.INSTANCE.check(innerExpr, outerExpr)) {
                     innerIter.remove();
                     outerIter.remove();
                 }
@@ -271,6 +209,82 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         return innerConjuncts.size() == 0;
     }
 
+    private Plan trans(LogicalFilter<? extends Plan> filter, LogicalApply<Plan, LogicalAggregate<Plan>> apply) {
+        LogicalAggregate<Plan> agg = apply.right();
+
+        // transform algorithm
+        // first: find the slot in outer scope corresponding to the slot in aggregate function in inner scope.
+        // second: find the aggregation function in inner scope, and replace it to window function, and the aggregate
+        // slot is the slot in outer scope in the first step.
+        // third: the expression containing aggregation function in inner scope will be the child of an alias,
+        // so in the predicate between outer and inner, we change the alias to expression which is the alias's child,
+        // and change the aggregation function to the alias of window function.
+
+        // for example, in tpc-h Q17
+        // window filter conjuncts is
+        // cast(l_quantity#id1 as decimal(27, 9)) < `0.2 * avg(l_quantity)`#id2
+        // and
+        // 0.2 * avg(l_quantity#id3) as `0.2 * l_quantity`#id2
+        // is agg's output expression
+        // we change it to
+        // cast(l_quantity#id1 as decimal(27, 9)) < 0.2 * `avg(l_quantity#id1) over(window)`#id4
+        // and
+        // avg(l_quantity#id1) over(window) as `avg(l_quantity#id1) over(window)`#id4
+
+        // it's a simple case, but we may meet some complex cases shown below.
+        // l_quantity > 10 or l_quantity < (select 0.2 * avg(l_quantity) from lineitem)
+        // l_quantity in (10, (select 0.2 * avg(l_quantity) from lineitem), 15)
+        // l_quantity in (10, (select 0.2 * avg(l_quantity) from lineitem), 15
+        //      (select 2 * max(l_quantity) from lineitem))
+        // l_extendedprice * (select min(l_quantity) / 2 from lineitem) + l_quantity
+        //      < (select 0.2 * avg(l_quantity) from lineitem)
+        // l_extendedprice * 0.2 + l_quantity > 10 or l_quantity < (select 0.2 * avg(l_quantity) from lineitem)
+
+        Expression windowFilterConjunct = apply.getSubCorrespondingConjunct().get();
+        if (windowFilterConjunct instanceof ComparisonPredicate) {
+            windowFilterConjunct = PlanUtils.maybeCommuteComparisonPredicate(
+                    (ComparisonPredicate) windowFilterConjunct, apply.left());
+        }
+
+        // build window function, replace the slot
+        List<Expression> windowAggSlots = windowFilterConjunct.child(0).collectToList(Slot.class::isInstance);
+
+        // adjust agg function's nullable.
+        AggregateFunction function = functions.get(0);
+        if (function instanceof NullableAggregateFunction) {
+            function = ((NullableAggregateFunction) function).withAlwaysNullable(false);
+        }
+
+        WindowExpression windowFunction = createWindowFunction(apply.getCorrelationSlot(),
+                function.withChildren(windowAggSlots));
+        NamedExpression windowFunctionAlias = new Alias(windowFunction, windowFunction.toSql());
+
+        // build filter conjunct, get the alias of the agg output and extract its child.
+        // then replace the agg to window function, then build conjunct
+        // we ensure aggOut is Alias.
+        NamedExpression aggOut = agg.getOutputExpressions().get(0);
+        Expression aggOutExpr = aggOut.child(0);
+        // change the agg function to window function alias.
+        aggOutExpr = MapReplacer.INSTANCE.replace(aggOutExpr, ImmutableMap
+                .of(AggregateFunction.class, e -> windowFunctionAlias.toSlot()));
+
+        // we change the child contains the original agg output to agg output expr.
+        // for comparison predicate, it is always the child(1), since we ensure the window agg slot is in child(0)
+        // for in predicate, we should extract the options and find the corresponding child.
+        if (windowFilterConjunct instanceof ComparisonPredicate) {
+            windowFilterConjunct = windowFilterConjunct
+                    .withChildren(windowFilterConjunct.child(0), aggOutExpr);
+        } else if (windowFilterConjunct instanceof InPredicate) {
+            // we should find the index of the child aggOut in and change it to
+
+        }
+
+        LogicalFilter newFilter = ((LogicalFilter) filter.withChildren(apply.left()));
+        LogicalWindow newWindow = new LogicalWindow<>(ImmutableList.of(windowFunctionAlias), newFilter);
+        LogicalFilter windowFilter = new LogicalFilter<>(ImmutableSet.of(windowFilterConjunct), newWindow);
+        return windowFilter;
+    }
+
     private WindowExpression createWindowFunction(List<Expression> correlatedSlots, AggregateFunction function) {
         // partition by clause is set by all the correlated slots.
         Preconditions.checkArgument(correlatedSlots.stream().allMatch(Slot.class::isInstance));
@@ -278,6 +292,8 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
     }
 
     private static class PlanCollector extends DefaultPlanVisitor<Void, List<LogicalPlan>> {
+        public static final PlanCollector INSTANCE = new PlanCollector();
+
         public List<LogicalPlan> collect(LogicalPlan plan) {
             List<LogicalPlan> buffer = Lists.newArrayList();
             plan.accept(this, buffer);
@@ -288,18 +304,14 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         public Void visit(Plan plan, List<LogicalPlan> buffer) {
             Preconditions.checkArgument(plan instanceof LogicalPlan);
             buffer.add(((LogicalPlan) plan));
-            plan.children().forEach(child -> {
-                if (child instanceof GroupPlan) {
-                    ((GroupPlan) child).getGroup().getLogicalExpression().getPlan().accept(this, buffer);
-                } else {
-                    child.accept(this, buffer);
-                }
-            });
+            plan.children().forEach(child -> child.accept(this, buffer));
             return null;
         }
     }
 
     private static class ExpressionIdenticalChecker extends DefaultExpressionVisitor<Boolean, Expression> {
+        public static final ExpressionIdenticalChecker INSTANCE = new ExpressionIdenticalChecker();
+
         public boolean check(Expression expression, Expression expression1) {
             return expression.accept(this, expression1);
         }
@@ -358,14 +370,26 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         }
     }
 
-    private static class FunctionReplacer extends DefaultExpressionRewriter<Expression> {
-        public Expression replace(Expression e, Expression wf) {
-            return e.accept(this, wf);
+    private static class MapReplacer extends DefaultExpressionRewriter<Map<Class<? extends Expression>,
+                Function<Expression, Expression>>> {
+        public static final MapReplacer INSTANCE = new MapReplacer();
+
+        public Expression replace(Expression e, Map<Class<? extends Expression>,
+                Function<Expression, Expression>> context) {
+            return e.accept(this, context);
         }
 
         @Override
-        public Expression visitAggregateFunction(AggregateFunction f, Expression wf) {
-            return wf;
+        public Expression visit(Expression e, Map<Class<? extends Expression>,
+                Function<Expression, Expression>> context) {
+            Expression replaced = e;
+            for (Class c : context.keySet()) {
+                if (c.isInstance(e)) {
+                    replaced = context.get(c).apply(e);
+                    break;
+                }
+            }
+            return super.visit(replaced, context);
         }
     }
 }

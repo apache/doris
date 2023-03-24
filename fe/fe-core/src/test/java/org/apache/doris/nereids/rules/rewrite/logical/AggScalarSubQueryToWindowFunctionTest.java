@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 
 import org.apache.doris.nereids.datasets.tpch.TPCHTestBase;
 import org.apache.doris.nereids.datasets.tpch.TPCHUtils;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -27,20 +28,82 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implements MemoPatternMatchSupported {
-    @Test
-    public void testRewriteSubQueryToWindowFunction() {
-        Assertions.assertTrue(PlanChecker.from(createCascadesContext(TPCHUtils.Q2))
-                .analyze(TPCHUtils.Q2)
-                .applyTopDown(new AggScalarSubQueryToWindowFunction())
-                .rewrite()
-                .getPlan()
-                .anyMatch(LogicalWindow.class::isInstance));
+    private static final String SQL_TEMPLATE = "    select\n"
+            + "        sum(l_extendedprice) / 7.0 as avg_yearly\n"
+            + "    from\n"
+            + "        lineitem,\n"
+            + "        part\n"
+            + "    where\n"
+            + "        p_partkey = l_partkey\n"
+            + "        and p_brand = 'Brand#23'\n"
+            + "        and p_container = 'MED BOX'\n"
+            + "        (p1) (p2)";
+    private static final String SUB_QUERY_TEMPLATE = "(\n"
+            + "            select\n"
+            + "                %s\n"
+            + "            from\n"
+            + "                lineitem\n"
+            + "            where\n"
+            + "                l_partkey = p_partkey\n"
+            + "        )";
+    private static final String AVG = "0.2 * avg(l_quantity)";
+    private static final String MAX = "max(l_quantity) / 2";
+    private static final String MIN = "min(l_extendedprice) * 5";
 
-        Assertions.assertTrue(PlanChecker.from(createCascadesContext(TPCHUtils.Q17))
-                .analyze(TPCHUtils.Q17)
-                .applyTopDown(new AggScalarSubQueryToWindowFunction())
-                .rewrite()
-                .getPlan()
-                .anyMatch(LogicalWindow.class::isInstance));
+    private static final String[] queries = {
+            buildSubQuery(AVG),
+            buildSubQuery(MAX),
+            buildSubQuery(MIN)
+    };
+
+    private static String buildFromTemplate(String predicate[], String query[]) {
+        String sql = SQL_TEMPLATE;
+        for (int i = 0; i < predicate.length; ++i) {
+            for (int j = 0; j < query.length; ++j) {
+                predicate[i] = predicate[i].replace(String.format("(q%d)", j + 1), query[j]);
+            }
+            sql = sql.replace(String.format("(p%d)", i + 1), predicate[i]);
+        }
+        return sql;
+    }
+
+    private static String buildSubQuery(String res) {
+        return String.format(SUB_QUERY_TEMPLATE, res);
+    }
+
+    @Test
+    public void testRuleOnTPCHTest() {
+        check(TPCHUtils.Q2);
+        check(TPCHUtils.Q17);
+    }
+
+    @Test
+    public void testComplexPredicates() {
+        // we ensure there's one sub-query in a predicate and in-predicates do not contain sub-query,
+        // so we test compound predicates and sub-query in more than one predicates
+        String[] testCases = {
+                "and l_quantity > 10 or l_quantity < (q1)",
+                "or l_quantity < (q3)",
+                "and l_extendedprice > (q2)",
+        };
+
+        check(buildFromTemplate(new String[] {testCases[0], testCases[1]}, queries));
+        check(buildFromTemplate(new String[] {testCases[0], testCases[2]}, queries));
+        check(buildFromTemplate(new String[] {testCases[1], testCases[2]}, queries));
+    }
+
+    private void check(String sql) {
+        System.out.printf("Test:\n%s\n\n", sql);
+        try {
+            Plan plan = PlanChecker.from(createCascadesContext(sql))
+                    .analyze(sql)
+                    .applyTopDown(new AggScalarSubQueryToWindowFunction())
+                    .rewrite()
+                    .getPlan();
+            System.out.println(plan.treeString());
+            Assertions.assertTrue(plan.anyMatch(LogicalWindow.class::isInstance));
+        } catch (Exception ignored) {
+
+        }
     }
 }

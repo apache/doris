@@ -43,6 +43,9 @@ public class PlanUtils {
         return filter(predicates, plan).map(Plan.class::cast).orElse(plan);
     }
 
+    /**
+     * normalize comparison predicate on a binary plan to its two sides are corresponding to the child's output.
+     */
     public static ComparisonPredicate maybeCommuteComparisonPredicate(ComparisonPredicate expression, Plan left) {
         Set<Slot> slots = expression.left().collect(Slot.class::isInstance);
         Set<Slot> leftSlots = left.getOutputSet();
