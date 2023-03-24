@@ -136,6 +136,11 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
             }
             tblRef.analyze(analyzer);
             leftTblRef = tblRef;
+            Expr clause = tblRef.getOnClause();
+            if (clause != null && StmtRewriter.childrenContainInOrExists(clause)) {
+                throw new AnalysisException("Not support OnClause contain ExistsPredicates "
+                        + clause.toSql());
+            }
         }
         // Fix the problem of column nullable attribute error caused by inline view + outer join
         changeTblRefToNullable(analyzer);

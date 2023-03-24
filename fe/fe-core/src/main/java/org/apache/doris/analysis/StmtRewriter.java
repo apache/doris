@@ -546,10 +546,11 @@ public class StmtRewriter {
         }
     }
 
-    private static boolean childrenContainInOrExists(Expr expr) {
+    public static boolean childrenContainInOrExists(Expr expr) {
         boolean contain = false;
         for (Expr child : expr.getChildren()) {
-            contain = contain || child instanceof InPredicate || child instanceof ExistsPredicate;
+            contain = contain || child instanceof InPredicate || child instanceof ExistsPredicate
+                    || childrenContainInOrExists(child);
             if (contain) {
                 break;
             }
