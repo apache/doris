@@ -3641,9 +3641,9 @@ show_param ::=
             RESULT = new ShowCreateCatalogStmt(catalogName);
         :}
     /* Create Function */
-    | KW_CREATE KW_FUNCTION function_name:functionName LPAREN func_args_def:args RPAREN opt_db:dbName
+    | KW_CREATE opt_var_type:type KW_FUNCTION function_name:functionName LPAREN func_args_def:args RPAREN opt_db:dbName
     {:
-        RESULT = new ShowCreateFunctionStmt(dbName, functionName, args);
+        RESULT = new ShowCreateFunctionStmt(type, dbName, functionName, args);
     :}
     /* Cluster */
     | KW_CLUSTERS
@@ -3859,6 +3859,10 @@ show_param ::=
     | opt_full opt_builtin:isBuiltin KW_FUNCTIONS opt_db:dbName opt_wild_where
     {:
         RESULT = new ShowFunctionsStmt(dbName, isBuiltin, parser.isVerbose, parser.wild, parser.where);
+    :}
+    | KW_GLOBAL opt_full KW_FUNCTIONS opt_wild_where
+    {:
+        RESULT = new ShowFunctionsStmt(parser.isVerbose, parser.wild, parser.where);
     :}
     | KW_TYPECAST opt_db:dbName
     {:
