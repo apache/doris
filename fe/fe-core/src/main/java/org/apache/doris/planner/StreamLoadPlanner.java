@@ -47,6 +47,7 @@ import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.planner.external.ExternalFileScanNode;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
@@ -259,6 +260,7 @@ public class StreamLoadPlanner {
         queryOptions.setLoadMemLimit(taskInfo.getMemLimit());
         queryOptions.setEnableVectorizedEngine(Config.enable_vectorized_load);
         queryOptions.setBeExecVersion(Config.be_exec_version);
+        queryOptions.setIsReportSuccess(VariableMgr.newSessionVariable().enableProfile());
 
         params.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
