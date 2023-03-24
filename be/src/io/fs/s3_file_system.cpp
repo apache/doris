@@ -485,8 +485,19 @@ Status S3FileSystem::copy_dir(const Path& src, const Path& dst) {
 }
 
 Status S3FileSystem::get_key(const Path& path, std::string* key) const {
-    CHECK_S3_PATH(uri, path);
-    *key = uri.get_key();
+    StringPiece str(path.native());
+    // the path is not an s3 uri in the cooldown scenario
+    if (str.ends_with(".dat") || str.ends_with(".meta")) {
+        if (str.starts_with(_root_path.native())) {
+            *key = fmt::format("{}/{}", _s3_conf.prefix, str.data() + _root_path.native().size());
+            return Status::OK();
+        }
+        // We consider it as a relative path.
+        *key = fmt::format("{}/{}", _s3_conf.prefix, path.native());
+    } else {
+        CHECK_S3_PATH(uri, path);
+        *key = uri.get_key();
+    }
     return Status::OK();
 }
 
