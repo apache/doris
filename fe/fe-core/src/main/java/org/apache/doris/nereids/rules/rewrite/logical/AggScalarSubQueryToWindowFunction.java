@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
@@ -123,7 +122,7 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
             return null;
         }
         LogicalApply apply = (LogicalApply) plan;
-        if (!apply.isScalar() || !apply.isCorrelated() || !apply.getSubCorrespondingConjunct().isPresent()) {
+        if (!checkApplyNode(apply)) {
             return null;
         }
         return apply.right() instanceof LogicalAggregate ? apply : null;
@@ -148,6 +147,11 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
     private boolean checkPlanType() {
         return outerPlans.stream().allMatch(p -> LEFT_SUPPORTED_PLAN.stream().anyMatch(c -> c.isInstance(p)))
                 && innerPlans.stream().allMatch(p -> RIGHT_SUPPORTED_PLAN.stream().anyMatch(c -> c.isInstance(p)));
+    }
+
+    private boolean checkApplyNode(LogicalApply apply) {
+        return apply.isScalar() && apply.isCorrelated() && apply.getSubCorrespondingConjunct().isPresent()
+                && apply.getSubCorrespondingConjunct().get() instanceof ComparisonPredicate;
     }
 
     // check aggregation of inner scope
@@ -232,19 +236,18 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         // avg(l_quantity#id1) over(window) as `avg(l_quantity#id1) over(window)`#id4
 
         // it's a simple case, but we may meet some complex cases in ut.
+        // TODO: support compound predicate and multi apply node.
 
         Expression windowFilterConjunct = apply.getSubCorrespondingConjunct().get();
-        if (windowFilterConjunct instanceof ComparisonPredicate) {
-            windowFilterConjunct = PlanUtils.maybeCommuteComparisonPredicate(
-                    (ComparisonPredicate) windowFilterConjunct, apply.left());
-        }
+        windowFilterConjunct = PlanUtils.maybeCommuteComparisonPredicate(
+                (ComparisonPredicate) windowFilterConjunct, apply.left());
 
         // build window function, replace the slot
         List<Expression> windowAggSlots = windowFilterConjunct.child(0).collectToList(Slot.class::isInstance);
 
-        // adjust agg function's nullable.
         AggregateFunction function = functions.get(0);
         if (function instanceof NullableAggregateFunction) {
+            // adjust agg function's nullable.
             function = ((NullableAggregateFunction) function).withAlwaysNullable(false);
         }
 
@@ -264,13 +267,8 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         // we change the child contains the original agg output to agg output expr.
         // for comparison predicate, it is always the child(1), since we ensure the window agg slot is in child(0)
         // for in predicate, we should extract the options and find the corresponding child.
-        if (windowFilterConjunct instanceof ComparisonPredicate) {
-            windowFilterConjunct = windowFilterConjunct
-                    .withChildren(windowFilterConjunct.child(0), aggOutExpr);
-        } else if (windowFilterConjunct instanceof InPredicate) {
-            // we should find the index of the child aggOut in and change it to
-
-        }
+        windowFilterConjunct = windowFilterConjunct
+                .withChildren(windowFilterConjunct.child(0), aggOutExpr);
 
         LogicalFilter newFilter = ((LogicalFilter) filter.withChildren(apply.left()));
         LogicalWindow newWindow = new LogicalWindow<>(ImmutableList.of(windowFunctionAlias), newFilter);
