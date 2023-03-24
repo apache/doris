@@ -58,17 +58,17 @@ mysql> select array_with_constant(2, "hello"), array_repeat("hello", 2);
 +---------------------------------+--------------------------+
 1 row in set (0.04 sec)
 
-mysql> select array_with_constant(3, 12345), array_repeat(3, 12345);
+mysql> select array_with_constant(3, 12345), array_repeat(12345, 3);
 +-------------------------------+------------------------+
-| array_with_constant(3, 12345) | array_repeat(3, 12345) | 
+| array_with_constant(3, 12345) | array_repeat(12345, 3) | 
 +-------------------------------+------------------------+
 | [12345, 12345, 12345]         | [12345, 12345, 12345]  |
 +-------------------------------+------------------------+
 1 row in set (0.01 sec)
 
-mysql> select array_with_constant(3, null), array_repeat(3, null);
+mysql> select array_with_constant(3, null), array_repeat(null, 3);
 +------------------------------+-----------------------+
-| array_with_constant(3, NULL) | array_repeat(3, NULL) |
+| array_with_constant(3, NULL) | array_repeat(NULL, 3) |
 +------------------------------+-----------------------+
 | [NULL, NULL, NULL]           |  [NULL, NULL, NULL]   |
 +------------------------------+-----------------------+
