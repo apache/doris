@@ -55,7 +55,7 @@ TEST_F(ParquetThriftReaderTest, normal) {
     EXPECT_TRUE(st.ok());
 
     std::shared_ptr<FileMetaData> meta_data;
-    parse_thrift_footer(reader, meta_data);
+    parse_thrift_footer(reader, &(meta_data.get()));
     tparquet::FileMetaData t_metadata = meta_data->to_thrift();
 
     LOG(WARNING) << "=====================================";
@@ -87,7 +87,7 @@ TEST_F(ParquetThriftReaderTest, complex_nested_file) {
     EXPECT_TRUE(st.ok());
 
     std::shared_ptr<FileMetaData> metadata;
-    parse_thrift_footer(reader, metadata);
+    parse_thrift_footer(reader, &(metadata.get()));
     tparquet::FileMetaData t_metadata = metadata->to_thrift();
     FieldDescriptor schemaDescriptor;
     schemaDescriptor.parse_from_thrift(t_metadata.schema);
@@ -359,7 +359,7 @@ static void read_parquet_data_and_check(const std::string& parquet_file,
     std::unique_ptr<vectorized::Block> block;
     create_block(block);
     std::shared_ptr<FileMetaData> metadata;
-    parse_thrift_footer(reader, metadata);
+    parse_thrift_footer(reader, &(metadata.get()));
     tparquet::FileMetaData t_metadata = metadata->to_thrift();
     FieldDescriptor schema_descriptor;
     schema_descriptor.parse_from_thrift(t_metadata.schema);
@@ -479,7 +479,7 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
 
     // prepare metadata
     std::shared_ptr<FileMetaData> meta_data;
-    parse_thrift_footer(file_reader, meta_data);
+    parse_thrift_footer(file_reader, &(meta_data.get()));
     tparquet::FileMetaData t_metadata = meta_data->to_thrift();
 
     cctz::time_zone ctz;
