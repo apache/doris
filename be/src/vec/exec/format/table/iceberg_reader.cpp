@@ -38,7 +38,7 @@ const std::string ICEBERG_FILE_PATH = "file_path";
 
 IcebergTableReader::IcebergTableReader(GenericReader* file_format_reader, RuntimeProfile* profile,
                                        RuntimeState* state, const TFileScanRangeParams& params,
-                                       const TFileRangeDesc& range, KVCache<std::string>& kv_cache,
+                                       const TFileRangeDesc& range, ShardedKVCache* kv_cache,
                                        io::IOContext* io_ctx)
         : TableFormatReader(file_format_reader),
           _profile(profile),
@@ -178,7 +178,7 @@ Status IcebergTableReader::_position_delete(
 
         SCOPED_TIMER(_iceberg_profile.delete_files_read_time);
         Status create_status = Status::OK();
-        DeleteFile* delete_file_cache = _kv_cache.get<
+        DeleteFile* delete_file_cache = _kv_cache->get<
                 DeleteFile>(_delet_file_cache_key(delete_file.path), [&]() -> DeleteFile* {
             TFileRangeDesc delete_range;
             delete_range.path = delete_file.path;

@@ -34,7 +34,7 @@ class VFileScanner : public VScanner {
 public:
     VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
                  const TFileScanRange& scan_range, RuntimeProfile* profile,
-                 KVCache<string>& kv_cache);
+                 ShardedKVCache* kv_cache);
 
     Status open(RuntimeState* state) override;
 
@@ -100,8 +100,8 @@ protected:
     std::unique_ptr<RowDescriptor> _src_row_desc;
     // row desc for default exprs
     std::unique_ptr<RowDescriptor> _default_val_row_desc;
-
-    KVCache<std::string>& _kv_cache;
+    // owned by scan node
+    ShardedKVCache* _kv_cache;
 
     bool _scanner_eof = false;
     int _rows = 0;

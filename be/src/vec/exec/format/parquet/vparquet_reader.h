@@ -61,8 +61,7 @@ public:
 
     ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                   const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz,
-                  io::IOContext* io_ctx, RuntimeState* state,
-                  KVCache<std::string>* kv_cache = nullptr);
+                  io::IOContext* io_ctx, RuntimeState* state, ShardedKVCache* kv_cache = nullptr);
 
     ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
                   io::IOContext* io_ctx, RuntimeState* state);
@@ -229,6 +228,6 @@ private:
     // Cache to save some common part such as file footer.
     // Owned by scan node and shared by all parquet readers of this scan node.
     // Maybe null if not used
-    KVCache<std::string>* _kv_cache = nullptr;
+    ShardedKVCache* _kv_cache = nullptr;
 };
 } // namespace doris::vectorized

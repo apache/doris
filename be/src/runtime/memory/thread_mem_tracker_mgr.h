@@ -19,7 +19,6 @@
 
 #include <bthread/bthread.h>
 #include <fmt/format.h>
-#include <parallel_hashmap/phmap.h>
 
 #include "gutil/macros.h"
 #include "runtime/memory/mem_tracker.h"

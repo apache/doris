@@ -43,6 +43,7 @@ private:
     // of the this scan node. eg:
     // 1. iceberg delete file
     // 2. parquet file meta
-    KVCache<std::string> _kv_cache;
+    // KVCache<std::string> _kv_cache;
+    std::unique_ptr<ShardedKVCache> _kv_cache;
 };
 } // namespace doris::vectorized

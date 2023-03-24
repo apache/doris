@@ -34,8 +34,7 @@ namespace doris::vectorized {
 
 ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                              const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz,
-                             io::IOContext* io_ctx, RuntimeState* state,
-                             KVCache<std::string>* kv_cache)
+                             io::IOContext* io_ctx, RuntimeState* state, ShardedKVCache* kv_cache)
         : _profile(profile),
           _scan_params(params),
           _scan_range(range),
