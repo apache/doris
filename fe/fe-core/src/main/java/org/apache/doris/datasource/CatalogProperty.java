@@ -93,12 +93,12 @@ public class CatalogProperty implements Writable {
     }
 
     public void modifyCatalogProps(Map<String, String> props) {
-        properties.putAll(PropertyConverter.metaConvert(props));
+        properties.putAll(PropertyConverter.convertToMetaProperties(props));
     }
 
     public Map<String, String> getHadoopProperties() {
         Map<String, String> hadoopProperties = getProperties();
-        hadoopProperties.putAll(PropertyConverter.storageConvert(getProperties()));
+        hadoopProperties.putAll(PropertyConverter.convertToHadoopFSProperties(getProperties()));
         return hadoopProperties;
     }
 

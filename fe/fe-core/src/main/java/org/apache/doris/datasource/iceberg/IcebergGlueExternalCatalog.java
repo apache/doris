@@ -18,9 +18,13 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.datasource.CatalogProperty;
+import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.property.constants.S3Properties;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.s3a.Constants;
 import org.apache.iceberg.CatalogProperties;
+import org.apache.iceberg.aws.AwsProperties;
 import org.apache.iceberg.aws.glue.GlueCatalog;
 import org.apache.iceberg.catalog.Namespace;
 
@@ -35,6 +39,7 @@ public class IcebergGlueExternalCatalog extends IcebergExternalCatalog {
 
     public IcebergGlueExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
         super(catalogId, name);
+        props = PropertyConverter.convertToMetaProperties(props);
         catalogProperty = new CatalogProperty(resource, props);
     }
 
@@ -48,6 +53,8 @@ public class IcebergGlueExternalCatalog extends IcebergExternalCatalog {
         Map<String, String> catalogProperties = catalogProperty.getHadoopProperties();
         String warehouse = catalogProperty.getOrDefault(CatalogProperties.WAREHOUSE_LOCATION, CHECKED_WAREHOUSE);
         catalogProperties.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
+        catalogProperties.put(AwsProperties.S3FILEIO_ENDPOINT,
+                catalogProperties.getOrDefault(Constants.ENDPOINT, conf.get(S3Properties.Env.ENDPOINT)));
         glueCatalog.initialize(icebergCatalogType, catalogProperties);
         catalog = glueCatalog;
     }

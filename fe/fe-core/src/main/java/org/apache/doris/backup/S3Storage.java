@@ -128,7 +128,7 @@ public class S3Storage extends BlobStorage {
             S3Properties.requiredS3Properties(caseInsensitiveProperties);
             Configuration conf = new Configuration();
             System.setProperty("com.amazonaws.services.s3.enableV4", "true");
-            PropertyConverter.storageConvert(caseInsensitiveProperties).forEach(conf::set);
+            PropertyConverter.convertToHadoopFSProperties(caseInsensitiveProperties).forEach(conf::set);
             try {
                 dfsFileSystem = FileSystem.get(new URI(remotePath), conf);
             } catch (Exception e) {

@@ -149,7 +149,8 @@ public class HiveTable extends Table {
                 Map.Entry<String, String> entry = iter.next();
                 String key = entry.getKey();
                 if (key.startsWith(HdfsResource.HADOOP_FS_PREFIX)
-                        || key.startsWith(S3Properties.Environment.PROPERTIES_PREFIX)) {
+                        || key.startsWith(S3Properties.S3_PREFIX)
+                        || key.startsWith(S3Properties.Env.PROPERTIES_PREFIX)) {
                     hiveProperties.put(key, entry.getValue());
                     iter.remove();
                 }

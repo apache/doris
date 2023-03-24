@@ -44,7 +44,7 @@ public class StorageBackend extends StorageDesc implements ParseNode {
         this.location = location;
         this.storageType = storageType;
         this.properties = properties;
-        tryConvertToS3();
+        tryConvertBosToS3();
         this.location = convertPathToS3(location);
     }
 

@@ -62,7 +62,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     public HMSExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
         super(catalogId, name);
         this.type = "hms";
-        props = PropertyConverter.metaConvert(props);
+        props = PropertyConverter.convertToMetaProperties(props);
         catalogProperty = new CatalogProperty(resource, props);
     }
 
@@ -141,7 +141,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
         for (Map.Entry<String, String> kv : catalogProperty.getHadoopProperties().entrySet()) {
             hiveConf.set(kv.getKey(), kv.getValue());
         }
-
         String authentication = catalogProperty.getOrDefault(
                 HdfsResource.HADOOP_SECURITY_AUTHENTICATION, "");
         if (AuthType.KERBEROS.getDesc().equals(authentication)) {

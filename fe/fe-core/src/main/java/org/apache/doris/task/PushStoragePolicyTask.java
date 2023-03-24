@@ -97,13 +97,13 @@ public class PushStoragePolicyTask extends AgentTask {
             s3Info.setBucket(s3Resource.getProperty(S3Properties.BUCKET));
             String maxConnections = s3Resource.getProperty(S3Properties.MAX_CONNECTIONS);
             s3Info.setMaxConn(Integer.parseInt(maxConnections == null
-                    ? S3Properties.Environment.DEFAULT_MAX_CONNECTIONS : maxConnections));
+                    ? S3Properties.Env.DEFAULT_MAX_CONNECTIONS : maxConnections));
             String requestTimeoutMs = s3Resource.getProperty(S3Properties.REQUEST_TIMEOUT_MS);
             s3Info.setMaxConn(Integer.parseInt(requestTimeoutMs == null
-                    ? S3Properties.Environment.DEFAULT_REQUEST_TIMEOUT_MS : requestTimeoutMs));
+                    ? S3Properties.Env.DEFAULT_REQUEST_TIMEOUT_MS : requestTimeoutMs));
             String connTimeoutMs = s3Resource.getProperty(S3Properties.CONNECTION_TIMEOUT_MS);
             s3Info.setMaxConn(Integer.parseInt(connTimeoutMs == null
-                    ? S3Properties.Environment.DEFAULT_CONNECTION_TIMEOUT_MS : connTimeoutMs));
+                    ? S3Properties.Env.DEFAULT_CONNECTION_TIMEOUT_MS : connTimeoutMs));
             r.readUnlock();
             item.setS3StorageParam(s3Info);
             tStorageResources.add(item);

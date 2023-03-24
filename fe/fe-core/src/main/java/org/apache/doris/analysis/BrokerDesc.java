@@ -72,7 +72,7 @@ public class BrokerDesc extends StorageDesc implements Writable {
         } else {
             this.storageType = StorageBackend.StorageType.BROKER;
         }
-        tryConvertToS3();
+        tryConvertBosToS3();
     }
 
     public BrokerDesc(String name, StorageBackend.StorageType storageType, Map<String, String> properties) {
@@ -82,7 +82,7 @@ public class BrokerDesc extends StorageDesc implements Writable {
             this.properties = Maps.newHashMap();
         }
         this.storageType = storageType;
-        tryConvertToS3();
+        tryConvertBosToS3();
     }
 
     public static BrokerDesc createForStreamLoad() {

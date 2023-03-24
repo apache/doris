@@ -30,6 +30,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -296,7 +297,7 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
 
     @Override
     public Map<String, String> getProperties() {
-        return catalogProperty.getProperties();
+        return PropertyConverter.convertToMetaProperties(catalogProperty.getProperties());
     }
 
     @Override

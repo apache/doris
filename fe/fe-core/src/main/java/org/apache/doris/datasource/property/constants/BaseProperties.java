@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.property.constants;
 
 import org.apache.doris.datasource.credentials.CloudCredential;
-import org.apache.doris.datasource.credentials.CloudCredentialWithEndpoint;
 
 import java.util.Map;
 
@@ -28,14 +27,15 @@ public class BaseProperties {
                                                      String secretKeyName,
                                                      String sessionTokenName) {
         CloudCredential credential = new CloudCredential();
-        credential.setAccessKey(props.getOrDefault(props.get(accessKeyName), ""));
-        credential.setSecretKey(props.getOrDefault(props.get(secretKeyName), ""));
-        credential.setSessionToken(props.getOrDefault(props.get(sessionTokenName), ""));
+        credential.setAccessKey(props.getOrDefault(accessKeyName, ""));
+        credential.setSecretKey(props.getOrDefault(secretKeyName, ""));
+        credential.setSessionToken(props.getOrDefault(sessionTokenName, ""));
         return credential;
     }
 
-    public static CloudCredentialWithEndpoint getCompatibleCredential(Map<String, String> props) {
+    public static CloudCredential getCompatibleCredential(Map<String, String> props) {
         // Compatible with older versions.
-        return S3Properties.getEnvironmentCredentialWithEndpoint(props);
+        return getCloudCredential(props, S3Properties.Env.ACCESS_KEY, S3Properties.Env.SECRET_KEY,
+                S3Properties.Env.TOKEN);
     }
 }

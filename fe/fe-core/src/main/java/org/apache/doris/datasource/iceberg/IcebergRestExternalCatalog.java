@@ -33,6 +33,7 @@ public class IcebergRestExternalCatalog extends IcebergExternalCatalog {
 
     public  IcebergRestExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
         super(catalogId, name);
+        props = PropertyConverter.convertToMetaProperties(props);
         catalogProperty = new CatalogProperty(resource, props);
     }
 
@@ -50,7 +51,7 @@ public class IcebergRestExternalCatalog extends IcebergExternalCatalog {
     }
 
     private Configuration replaceS3Properties(Configuration conf) {
-        Map<String, String> catalogProperties = catalogProperty.getProperties();
+        Map<String, String> catalogProperties = catalogProperty.getHadoopProperties();
         String credentials = catalogProperties
                 .getOrDefault(Constants.AWS_CREDENTIALS_PROVIDER, DataLakeAWSCredentialsProvider.class.getName());
         conf.set(Constants.AWS_CREDENTIALS_PROVIDER, credentials);

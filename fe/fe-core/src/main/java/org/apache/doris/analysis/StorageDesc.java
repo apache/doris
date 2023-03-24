@@ -42,7 +42,7 @@ public abstract class StorageDesc {
     protected String name;
     protected boolean convertedToS3 = false;
 
-    protected void tryConvertToS3() {
+    protected void tryConvertBosToS3() {
         if (!Config.enable_access_file_without_broker || storageType != StorageBackend.StorageType.BROKER) {
             return;
         }
@@ -64,10 +64,10 @@ public abstract class StorageDesc {
                 String region = hostSplit[0];
                 String s3Endpoint = new URIBuilder(uri).setHost("s3." + host).build().toString();
                 properties.clear();
-                properties.put(S3Properties.Environment.ENDPOINT, s3Endpoint);
-                properties.put(S3Properties.Environment.REGION, region);
-                properties.put(S3Properties.Environment.ACCESS_KEY, ciProperties.get(BOS_ACCESS_KEY).toString());
-                properties.put(S3Properties.Environment.SECRET_KEY, ciProperties.get(BOS_SECRET_ACCESS_KEY).toString());
+                properties.put(S3Properties.Env.ENDPOINT, s3Endpoint);
+                properties.put(S3Properties.Env.REGION, region);
+                properties.put(S3Properties.Env.ACCESS_KEY, ciProperties.get(BOS_ACCESS_KEY).toString());
+                properties.put(S3Properties.Env.SECRET_KEY, ciProperties.get(BOS_SECRET_ACCESS_KEY).toString());
                 storageType = StorageBackend.StorageType.S3;
                 convertedToS3 = true;
                 LOG.info("skip BROKER and access S3 directly.");

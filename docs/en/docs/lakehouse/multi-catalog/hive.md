@@ -104,6 +104,7 @@ CREATE CATALOG hive PROPERTIES (
     'dfs.encryption.key.provider.uri' = 'kms://http@kms_host:kms_port/kms'
 );
 ```
+### Hive On JuiceFs
 
 Or to connect to Hive data stored on JuiceFS:
 
@@ -118,22 +119,84 @@ CREATE CATALOG hive PROPERTIES (
 );
 ```
 
-Or to connect to Glue and data stored on S3:
+### Hive On S3
+
+Data stored on S3:
 
 ```sql
 CREATE CATALOG hive PROPERTIES (
     "type"="hms",
     "hive.metastore.type" = "glue",
-    "aws.region" = "us-east-1",
-    "aws.glue.access-key" = "ak",
-    "aws.glue.secret-key" = "sk",
-    "AWS_ENDPOINT" = "s3.us-east-1.amazonaws.com",
-    "AWS_REGION" = "us-east-1",
-    "AWS_ACCESS_KEY" = "ak",
-    "AWS_SECRET_KEY" = "sk",
+    "s3.endpoint" = "s3.us-east-1.amazonaws.com",
+    "s3.access-key" = "ak",
+    "s3.secret-key" = "sk"
     "use_path_style" = "true"
 );
 ```
+
+Optional properties：
+
+* s3.connection.maximum default: Maximum connections, default 50
+* s3.connection.request.timeout: Request timeout, default 3000ms
+* s3.connection.timeout: Connection timeout, default 1000ms
+
+### Hive On OSS
+
+Data stored on OSS:
+
+```sql
+CREATE CATALOG hive PROPERTIES (
+    "type"="hms",
+    "hive.metastore.uris" = "thrift://172.21.0.44:7004",
+    "oss.endpoint" = "oss.oss-cn-beijing.aliyuncs.com",
+    "oss.access-key" = "ak",
+    "oss.secret-key" = "sk"
+);
+```
+
+### Hive On OBS
+
+Data stored on OBS:
+
+```sql
+CREATE CATALOG hive PROPERTIES (
+    "type"="hms",
+    "hive.metastore.uris" = "thrift://172.21.0.44:7004",
+    "obs.endpoint" = "obs.cn-north-4.myhuaweicloud.com",
+    "obs.access-key" = "ak",
+    "obs.secret-key" = "sk"
+);
+```
+
+### Hive On COS
+
+Data stored on COS:
+
+```sql
+CREATE CATALOG hive PROPERTIES (
+    "type"="hms",
+    "hive.metastore.uris" = "thrift://172.21.0.44:7004",
+    "cos.endpoint" = "cos.ap-beijing.myqcloud.com",
+    "cos.access-key" = "ak",
+    "cos.secret-key" = "sk"
+);
+```
+
+### Hive With Glue
+
+Connect to Glue:
+
+```sql
+CREATE CATALOG hive PROPERTIES (
+    "type"="hms",
+    "hive.metastore.type" = "glue",
+    "glue.endpoint" = "https://glue.us-east-1.amazonaws.com",
+    "glue.access-key" = "ak",
+    "glue.secret-key" = "sk"
+);
+```
+
+### Hive Resource
 
 In Doris 1.2.1 and newer, you can create a Resource that contains all these parameters, and reuse the Resource when creating new Catalogs. Here is an example:
 
@@ -162,7 +225,7 @@ You can also put the `hive-site.xml` file in the `conf`  directories of FE and B
 * Information in Resource will overwrite that in  `hive-site.xml`. 
 * Information in `CREATE CATALOG PROPERTIES` will overwrite that in Resource.
 
-### Hive Versions
+## Hive Versions
 
 Doris can access Hive Metastore in all Hive versions. By default, Doris uses the interface compatible with Hive 2.3 to access Hive Metastore. You can specify a certain Hive version when creating Catalogs, for example:
 

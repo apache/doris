@@ -19,6 +19,10 @@ package org.apache.doris.datasource.property.constants;
 
 import org.apache.doris.datasource.credentials.CloudCredential;
 
+import com.amazonaws.glue.catalog.util.AWSGlueConfig;
+
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 
 public class GlueProperties extends BaseProperties {
@@ -27,6 +31,10 @@ public class GlueProperties extends BaseProperties {
     public static final String ACCESS_KEY = "glue.access_key";
     public static final String SECRET_KEY = "glue.secret_key";
     public static final String SESSION_TOKEN = "glue.session_token";
+
+    public static final List<String> META_KEYS = Arrays.asList(AWSGlueConfig.AWS_GLUE_ENDPOINT,
+            AWSGlueConfig.AWS_REGION, AWSGlueConfig.AWS_GLUE_ACCESS_KEY, AWSGlueConfig.AWS_GLUE_SECRET_KEY,
+            AWSGlueConfig.AWS_GLUE_SESSION_TOKEN);
 
     public static CloudCredential getCredential(Map<String, String> props) {
         return getCloudCredential(props, ACCESS_KEY, SECRET_KEY, SESSION_TOKEN);

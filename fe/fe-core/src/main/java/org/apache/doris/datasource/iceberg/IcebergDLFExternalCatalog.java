@@ -31,7 +31,7 @@ public class IcebergDLFExternalCatalog extends IcebergExternalCatalog {
     public IcebergDLFExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
         super(catalogId, name);
         props.put(HMSProperties.HIVE_METASTORE_TYPE, "dlf");
-        props = PropertyConverter.metaConvert(props);
+        props = PropertyConverter.convertToMetaProperties(props);
         catalogProperty = new CatalogProperty(resource, props);
     }
 

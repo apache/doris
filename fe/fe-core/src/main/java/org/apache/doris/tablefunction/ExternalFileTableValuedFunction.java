@@ -20,7 +20,6 @@ package org.apache.doris.tablefunction;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
@@ -154,7 +153,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         if (fileType == TFileType.FILE_HDFS) {
             return locationProperties.get(HdfsTableValuedFunction.HADOOP_FS_NAME);
         } else if (fileType == TFileType.FILE_S3) {
-            return locationProperties.get(S3Properties.Environment.ENDPOINT);
+            return locationProperties.get(S3Properties.ENDPOINT);
         }
         return "";
     }
@@ -325,7 +324,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         // get one BE address
         TNetworkAddress address = null;
         columns = Lists.newArrayList();
-        for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
+        for (Backend be : org.apache.doris.catalog.Env.getCurrentSystemInfo().getIdToBackend().values()) {
             if (be.isAlive()) {
                 address = new TNetworkAddress(be.getIp(), be.getBrpcPort());
                 break;

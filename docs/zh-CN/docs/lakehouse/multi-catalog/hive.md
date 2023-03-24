@@ -101,7 +101,9 @@ CREATE CATALOG hive PROPERTIES (
 );
 ```
 
-hive数据存储在JuiceFS，示例如下：
+### Hive On JuiceFS
+
+数据存储在JuiceFS，示例如下：
 
 ```sql
 CREATE CATALOG hive PROPERTIES (
@@ -114,22 +116,84 @@ CREATE CATALOG hive PROPERTIES (
 );
 ```
 
-hive元数据存储在Glue，数据存储在S3，示例如下：
+### Hive On S3
+
+数据存储在S3，示例如下：
 
 ```sql
 CREATE CATALOG hive PROPERTIES (
     "type"="hms",
     "hive.metastore.type" = "glue",
-    "aws.region" = "us-east-1",
-    "aws.glue.access-key" = "ak",
-    "aws.glue.secret-key" = "sk",
-    "AWS_ENDPOINT" = "s3.us-east-1.amazonaws.com",
-    "AWS_REGION" = "us-east-1",
-    "AWS_ACCESS_KEY" = "ak",
-    "AWS_SECRET_KEY" = "sk",
+    "s3.endpoint" = "s3.us-east-1.amazonaws.com",
+    "s3.access-key" = "ak",
+    "s3.secret-key" = "sk"
     "use_path_style" = "true"
 );
 ```
+
+可选属性：
+
+* s3.connection.maximum： s3最大连接数，默认50
+* s3.connection.request.timeout：s3请求超时时间，默认3000ms
+* s3.connection.timeout： s3连接超时时间，默认1000ms
+
+### Hive On OSS
+
+数据存储在OSS，示例如下：
+
+```sql
+CREATE CATALOG hive PROPERTIES (
+    "type"="hms",
+    "hive.metastore.uris" = "thrift://172.21.0.44:7004",
+    "oss.endpoint" = "oss.oss-cn-beijing.aliyuncs.com",
+    "oss.access-key" = "ak",
+    "oss.secret-key" = "sk"
+);
+```
+
+### Hive On OBS
+
+数据存储在OBS，示例如下：
+
+```sql
+CREATE CATALOG hive PROPERTIES (
+    "type"="hms",
+    "hive.metastore.uris" = "thrift://172.21.0.44:7004",
+    "obs.endpoint" = "obs.cn-north-4.myhuaweicloud.com",
+    "obs.access-key" = "ak",
+    "obs.secret-key" = "sk"
+);
+```
+
+### Hive On COS
+
+数据存储在COS，示例如下：
+
+```sql
+CREATE CATALOG hive PROPERTIES (
+    "type"="hms",
+    "hive.metastore.uris" = "thrift://172.21.0.44:7004",
+    "cos.endpoint" = "cos.ap-beijing.myqcloud.com",
+    "cos.access-key" = "ak",
+    "cos.secret-key" = "sk"
+);
+```
+
+### Hive With Glue
+
+元数据存储在Glue，示例如下：
+
+```sql
+CREATE CATALOG hive PROPERTIES (
+    "type"="hms",
+    "hive.metastore.type" = "glue",
+    "glue.endpoint" = "https://glue.us-east-1.amazonaws.com",
+    "glue.access-key" = "ak",
+    "glue.secret-key" = "sk"
+);
+```
+
+### Hive Resource
 
 在 1.2.1 版本之后，我们也可以将这些信息通过创建一个 Resource 统一存储，然后在创建 Catalog 时使用这个 Resource。示例如下：
 	

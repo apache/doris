@@ -54,7 +54,7 @@ public class HMSResource extends Resource {
         for (Map.Entry<String, String> kv : properties.entrySet()) {
             replaceIfEffectiveValue(this.properties, kv.getKey(), kv.getValue());
         }
-        this.properties = PropertyConverter.metaConvert(this.properties);
+        this.properties = PropertyConverter.convertToMetaProperties(this.properties);
         super.modifyProperties(this.properties);
     }
 
@@ -66,7 +66,7 @@ public class HMSResource extends Resource {
             }
         }
         this.properties.putAll(properties);
-        this.properties = PropertyConverter.metaConvert(this.properties);
+        this.properties = PropertyConverter.convertToMetaProperties(this.properties);
     }
 
     @Override

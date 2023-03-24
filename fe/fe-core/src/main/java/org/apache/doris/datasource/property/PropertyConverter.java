@@ -19,6 +19,7 @@ package org.apache.doris.datasource.property;
 
 import org.apache.doris.datasource.credentials.CloudCredential;
 import org.apache.doris.datasource.credentials.CloudCredentialWithEndpoint;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.constants.CosProperties;
 import org.apache.doris.datasource.property.constants.DLFProperties;
 import org.apache.doris.datasource.property.constants.GlueProperties;
@@ -39,6 +40,7 @@ import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashMap;
 import java.util.Map;
 
 public class PropertyConverter {
@@ -46,26 +48,29 @@ public class PropertyConverter {
     private static final Logger LOG = LogManager.getLogger(PropertyConverter.class);
     public static final String USE_PATH_STYLE = "use_path_style";
 
-
-    public static Map<String, String> metaConvert(Map<String, String> props) {
+    public static Map<String, String> convertToMetaProperties(Map<String, String> props) {
+        Map<String, String> metaProperties = new HashMap<>();
+        CloudCredential credential = GlueProperties.getCredential(props);
+        if (!credential.isWhole()) {
+            credential = GlueProperties.getCompatibleCredential(props);
+        }
         if (props.containsKey(GlueProperties.ENDPOINT)
                 || props.containsKey(AWSGlueConfig.AWS_GLUE_ENDPOINT)) {
-            return convertToGlueProperties(props, GlueProperties.getCredential(props));
+            metaProperties = convertToGlueProperties(props, credential);
         } else if (props.containsKey(DLFProperties.ENDPOINT)
                 || props.containsKey(DataLakeConfig.CATALOG_ENDPOINT)) {
-            return convertToDLFProperties(props, DLFProperties.getCredential(props));
+            metaProperties = convertToDLFProperties(props, credential);
         }
-        return props;
+        metaProperties.putAll(props);
+        metaProperties.putAll(S3ClientBEProperties.getBeFSProperties(props));
+        return metaProperties;
     }
 
     /**
      * Convert properties defined at doris to FE S3 client properties and BE S3 client properties
      */
-    public static Map<String, String> storageConvert(Map<String, String> props) {
-        if (props.containsKey(S3Properties.Environment.ENDPOINT)) {
-            // compatible with the s3,obs,oss,cos when they use aws client.
-            return convertToS3EnvProperties(props, S3Properties.getCompatibleCredential(props));
-        } else if (props.containsKey(S3Properties.ENDPOINT)) {
+    public static Map<String, String> convertToHadoopFSProperties(Map<String, String> props) {
+        if (props.containsKey(S3Properties.ENDPOINT)) {
             return convertToS3Properties(props, S3Properties.getCredential(props));
         } else if (props.containsKey(ObsProperties.ENDPOINT)) {
             return convertToOBSProperties(props, ObsProperties.getCredential(props));
@@ -73,6 +78,10 @@ public class PropertyConverter {
             return convertToOSSProperties(props, OssProperties.getCredential(props));
         } else if (props.containsKey(CosProperties.ENDPOINT)) {
             return convertToCOSProperties(props, CosProperties.getCredential(props));
+        } else if (props.containsKey(S3Properties.Env.ENDPOINT)) {
+            // checkout env in the end
+            // compatible with the s3,obs,oss,cos when they use aws client.
+            return convertToS3EnvProperties(props, S3Properties.getEnvironmentCredentialWithEndpoint(props));
         }
         return props;
     }
@@ -82,13 +91,13 @@ public class PropertyConverter {
                                                               CloudCredential credential) {
         Map<String, String> obsProperties = Maps.newHashMap();
         obsProperties.put(OBSConstants.ENDPOINT, props.get(ObsProperties.ENDPOINT));
-        obsProperties.put("fs.obs.impl.disable.cache", "true");
+        obsProperties.put(ObsProperties.FS.IMPL_DISABLE_CACHE, "true");
         if (credential.isWhole()) {
             obsProperties.put(OBSConstants.ACCESS_KEY, credential.getAccessKey());
             obsProperties.put(OBSConstants.SECRET_KEY, credential.getSecretKey());
         }
         if (credential.isTemporary()) {
-            obsProperties.put("fs.obs.session.token", credential.getSessionToken());
+            obsProperties.put(ObsProperties.FS.SESSION_TOKEN, credential.getSessionToken());
         }
         for (Map.Entry<String, String> entry : props.entrySet()) {
             if (entry.getKey().startsWith(ObsProperties.OBS_FS_PREFIX)) {
@@ -100,32 +109,30 @@ public class PropertyConverter {
 
     private static Map<String, String> convertToS3EnvProperties(Map<String, String> properties,
                                                                 CloudCredentialWithEndpoint credential) {
-        Map<String, String> s3Properties = Maps.newHashMap();
-        s3Properties.put(Constants.ENDPOINT, credential.getEndpoint());
-        s3Properties.put(Constants.AWS_REGION, credential.getRegion());
-
-
-        if (properties.containsKey(S3Properties.Environment.MAX_CONNECTIONS)) {
-            s3Properties.put(Constants.MAXIMUM_CONNECTIONS, properties.get(S3Properties.Environment.MAX_CONNECTIONS));
+        // Old properties to new properties
+        properties.put(S3Properties.ENDPOINT, credential.getEndpoint());
+        properties.put(S3Properties.REGION, credential.getRegion());
+        properties.put(S3Properties.ACCESS_KEY, credential.getAccessKey());
+        properties.put(S3Properties.SECRET_KEY, credential.getSecretKey());
+        properties.put(S3Properties.SESSION_TOKEN, credential.getSessionToken());
+        if (properties.containsKey(S3Properties.Env.MAX_CONNECTIONS)) {
+            properties.put(S3Properties.MAX_CONNECTIONS, properties.get(S3Properties.Env.MAX_CONNECTIONS));
         }
-        if (properties.containsKey(S3Properties.Environment.REQUEST_TIMEOUT_MS)) {
-            s3Properties.put(Constants.REQUEST_TIMEOUT, properties.get(S3Properties.Environment.REQUEST_TIMEOUT_MS));
+        if (properties.containsKey(S3Properties.Env.REQUEST_TIMEOUT_MS)) {
+            properties.put(S3Properties.REQUEST_TIMEOUT_MS, properties.get(S3Properties.Env.REQUEST_TIMEOUT_MS));
         }
-        if (properties.containsKey(S3Properties.Environment.CONNECTION_TIMEOUT_MS)) {
-            s3Properties.put(Constants.SOCKET_TIMEOUT, properties.get(S3Properties.Environment.CONNECTION_TIMEOUT_MS));
+        if (properties.containsKey(S3Properties.Env.CONNECTION_TIMEOUT_MS)) {
+            properties.put(S3Properties.REQUEST_TIMEOUT_MS, properties.get(S3Properties.Env.CONNECTION_TIMEOUT_MS));
         }
-        setS3FsAccess(properties, s3Properties, credential);
-        return s3Properties;
+        return convertToS3Properties(properties, credential);
     }
 
     private static Map<String, String> convertToS3Properties(Map<String, String> properties,
                                                              CloudCredential credential) {
         Map<String, String> s3Properties = Maps.newHashMap();
-        s3Properties.put(Constants.ENDPOINT, properties.get(S3Properties.ENDPOINT));
-
-        if (properties.containsKey(S3Properties.REGION)) {
-            s3Properties.put(Constants.AWS_REGION, properties.get(S3Properties.REGION));
-        }
+        String endpoint = properties.get(S3Properties.ENDPOINT);
+        s3Properties.put(Constants.ENDPOINT, endpoint);
+        s3Properties.put(Constants.AWS_REGION, S3Properties.getRegionOfEndpoint(endpoint));
         if (properties.containsKey(S3Properties.MAX_CONNECTIONS)) {
             s3Properties.put(Constants.MAXIMUM_CONNECTIONS, properties.get(S3Properties.MAX_CONNECTIONS));
         }
@@ -135,7 +142,7 @@ public class PropertyConverter {
         if (properties.containsKey(S3Properties.CONNECTION_TIMEOUT_MS)) {
             s3Properties.put(Constants.SOCKET_TIMEOUT, properties.get(S3Properties.CONNECTION_TIMEOUT_MS));
         }
-        setS3FsAccess(properties, s3Properties, credential);
+        setS3FsAccess(s3Properties, properties, credential);
         return s3Properties;
     }
 
@@ -168,24 +175,12 @@ public class PropertyConverter {
 
     private static Map<String, String> convertToOSSProperties(Map<String, String> props, CloudCredential credential) {
         // Now we use s3 client to access
-        for (Map.Entry<String, String> entry : props.entrySet()) {
-            if (entry.getKey().startsWith(OssProperties.OSS_PREFIX)) {
-                String s3Key = entry.getKey().replace(OssProperties.OSS_PREFIX, S3Properties.S3_PREFIX);
-                props.put(s3Key, entry.getValue());
-            }
-        }
-        return convertToS3Properties(props, credential);
+        return convertToS3Properties(S3Properties.prefixToS3(props), credential);
     }
 
     private static Map<String, String> convertToCOSProperties(Map<String, String> props, CloudCredential credential) {
         // Now we use s3 client to access
-        for (Map.Entry<String, String> entry : props.entrySet()) {
-            if (entry.getKey().startsWith(CosProperties.COS_PREFIX)) {
-                String s3Key = entry.getKey().replace(CosProperties.COS_PREFIX, S3Properties.S3_PREFIX);
-                props.put(s3Key, entry.getValue());
-            }
-        }
-        return convertToS3Properties(props, credential);
+        return convertToS3Properties(S3Properties.prefixToS3(props), credential);
     }
 
     private static Map<String, String> convertToDLFProperties(Map<String, String> props, CloudCredential credential) {
@@ -194,7 +189,6 @@ public class PropertyConverter {
         getPropertiesFromDLFProps(props, credential);
         return props;
     }
-
 
     public static void getPropertiesFromDLFConf(Map<String, String> props) {
         if (LOG.isDebugEnabled()) {
@@ -223,7 +217,7 @@ public class PropertyConverter {
             // And add "-internal" to access oss within vpc
             props.put(S3Properties.REGION, "oss-" + region);
             String publicAccess = hiveConf.get("dlf.catalog.accessPublic", "false");
-            props.put(S3Properties.ENDPOINT, getDLFEndpont(region, Boolean.parseBoolean(publicAccess)));
+            props.put(S3Properties.ENDPOINT, getDLFEndpoint(region, Boolean.parseBoolean(publicAccess)));
         }
         // 2. ak and sk
         String ak = hiveConf.get(DataLakeConfig.CATALOG_ACCESS_KEY_ID);
@@ -272,14 +266,14 @@ public class PropertyConverter {
         String publicAccess = props.getOrDefault(DLFProperties.Site.ACCESS_PUBLIC, "false");
         String region = props.get(DataLakeConfig.CATALOG_REGION_ID);
         String endpoint = props.getOrDefault(DataLakeConfig.CATALOG_ENDPOINT,
-                getDLFEndpont(region, Boolean.parseBoolean(publicAccess)));
+                getDLFEndpoint(region, Boolean.parseBoolean(publicAccess)));
         if (!Strings.isNullOrEmpty(region)) {
             props.put(S3Properties.REGION, "oss-" + region);
             props.put(S3Properties.ENDPOINT, endpoint);
         }
     }
 
-    private static String getDLFEndpont(String region, boolean publicAccess) {
+    private static String getDLFEndpoint(String region, boolean publicAccess) {
         String prefix = "http://oss-";
         String suffix = ".aliyuncs.com";
         if (!publicAccess) {
@@ -291,22 +285,49 @@ public class PropertyConverter {
     private static Map<String, String> convertToGlueProperties(Map<String, String> props, CloudCredential credential) {
         // convert doris glue property to glue properties, s3 client property and BE property
         String metastoreType = props.get(HMSProperties.HIVE_METASTORE_TYPE);
-        if (!HMSProperties.GLUE_TYPE.equalsIgnoreCase(metastoreType)) {
+        String icebergType = props.get(IcebergExternalCatalog.ICEBERG_CATALOG_TYPE);
+        boolean isGlueIceberg = IcebergExternalCatalog.ICEBERG_GLUE.equals(icebergType);
+        if (!HMSProperties.GLUE_TYPE.equalsIgnoreCase(metastoreType) && !isGlueIceberg) {
             return props;
         }
-        // convert to glue client properties. not convert if origin key found.
-        if (!props.containsKey(AWSGlueConfig.AWS_GLUE_ENDPOINT)) {
-            props.put(AWSGlueConfig.AWS_GLUE_ENDPOINT, props.get(GlueProperties.ENDPOINT));
-            props.put(AWSGlueConfig.AWS_REGION, props.get(GlueProperties.REGION));
-            props.put(AWSGlueConfig.AWS_GLUE_ACCESS_KEY, credential.getAccessKey());
-            props.put(AWSGlueConfig.AWS_GLUE_SECRET_KEY, credential.getSecretKey());
+        // set glue client metadata
+        if (props.containsKey(GlueProperties.ENDPOINT)) {
+            String endpoint = props.get(GlueProperties.ENDPOINT);
+            props.put(AWSGlueConfig.AWS_GLUE_ENDPOINT, endpoint);
+            String region = S3Properties.getRegionOfEndpoint(endpoint);
+            props.put(GlueProperties.REGION, region);
+            props.put(AWSGlueConfig.AWS_REGION, region);
+            if (credential.isWhole()) {
+                props.put(AWSGlueConfig.AWS_GLUE_ACCESS_KEY, credential.getAccessKey());
+                props.put(AWSGlueConfig.AWS_GLUE_SECRET_KEY, credential.getSecretKey());
+            }
+            if (credential.isTemporary()) {
+                props.put(AWSGlueConfig.AWS_GLUE_SESSION_TOKEN, credential.getSessionToken());
+            }
+        } else {
+            // compatible with old version, deprecated in the future version
+            // put GlueProperties to map if origin key found.
+            if (props.containsKey(AWSGlueConfig.AWS_GLUE_ENDPOINT)) {
+                String endpoint = props.get(AWSGlueConfig.AWS_GLUE_ENDPOINT);
+                props.put(GlueProperties.ENDPOINT, endpoint);
+                if (props.containsKey(AWSGlueConfig.AWS_GLUE_ACCESS_KEY)) {
+                    props.put(GlueProperties.ACCESS_KEY, props.get(AWSGlueConfig.AWS_GLUE_ACCESS_KEY));
+                }
+                if (props.containsKey(AWSGlueConfig.AWS_GLUE_SECRET_KEY)) {
+                    props.put(GlueProperties.SECRET_KEY, props.get(AWSGlueConfig.AWS_GLUE_SECRET_KEY));
+                }
+                if (props.containsKey(AWSGlueConfig.AWS_GLUE_SESSION_TOKEN)) {
+                    props.put(GlueProperties.SESSION_TOKEN, props.get(AWSGlueConfig.AWS_GLUE_SESSION_TOKEN));
+                }
+            }
         }
+        // set s3 client credential
         // https://docs.aws.amazon.com/general/latest/gr/s3.html
         // Convert:
         // (
-        //  "aws.region" = "us-east-1",
-        //  "aws.glue.access-key" = "xx",
-        //  "aws.glue.secret-key" = "yy"
+        //  "glue.region" = "us-east-1",
+        //  "glue.access-key" = "xx",
+        //  "glue.secret-key" = "yy"
         // )
         // To:
         // (
@@ -315,16 +336,22 @@ public class PropertyConverter {
         //  "s3.access_key" = "xx",
         //  "s3.secret_key" = "yy"
         // )
-        String region = props.get(AWSGlueConfig.AWS_REGION);
+        String endpoint = props.get(GlueProperties.ENDPOINT);
+        String region = props.getOrDefault(GlueProperties.REGION, S3Properties.getRegionOfEndpoint(endpoint));
         if (!Strings.isNullOrEmpty(region)) {
             props.put(S3Properties.REGION, region);
-            props.put(S3Properties.ENDPOINT, "s3." + region + ".amazonaws.com");
+            String s3Endpoint = "s3." + region + ".amazonaws.com";
+            if (isGlueIceberg) {
+                s3Endpoint = "https://" + s3Endpoint;
+            }
+            props.put(S3Properties.ENDPOINT, s3Endpoint);
         }
-        String ak = props.get(AWSGlueConfig.AWS_GLUE_ACCESS_KEY);
-        String sk = props.get(AWSGlueConfig.AWS_GLUE_SECRET_KEY);
-        if (!Strings.isNullOrEmpty(ak) && !Strings.isNullOrEmpty(sk)) {
-            props.put(S3Properties.ACCESS_KEY, ak);
-            props.put(S3Properties.SECRET_KEY, sk);
+        if (credential.isWhole()) {
+            props.put(S3Properties.ACCESS_KEY, credential.getAccessKey());
+            props.put(S3Properties.SECRET_KEY, credential.getSecretKey());
+        }
+        if (credential.isTemporary()) {
+            props.put(S3Properties.SESSION_TOKEN, credential.getSessionToken());
         }
         return props;
     }

@@ -108,16 +108,15 @@ public class S3Resource extends Resource {
     }
 
     private boolean pingS3(Map<String, String> properties) {
-        String bucket = "s3://" + properties.getOrDefault(S3Properties.Environment.BUCKET, "") + "/";
+        String bucket = "s3://" + properties.getOrDefault(S3Properties.Env.BUCKET, "") + "/";
         Map<String, String> propertiesPing = new HashMap<>();
         CloudCredentialWithEndpoint credential = S3Properties.getEnvironmentCredentialWithEndpoint(properties);
-        propertiesPing.put("AWS_ACCESS_KEY", credential.getAccessKey());
-        propertiesPing.put("AWS_SECRET_KEY", credential.getSecretKey());
-        propertiesPing.put("AWS_ENDPOINT", "http://" + credential.getEndpoint());
-        propertiesPing.put("AWS_REGION", credential.getRegion());
+        propertiesPing.put(S3Properties.Env.ACCESS_KEY, credential.getAccessKey());
+        propertiesPing.put(S3Properties.Env.SECRET_KEY, credential.getSecretKey());
+        propertiesPing.put(S3Properties.Env.ENDPOINT, "http://" + credential.getEndpoint());
+        propertiesPing.put(S3Properties.Env.REGION, credential.getRegion());
         propertiesPing.put(PropertyConverter.USE_PATH_STYLE, "false");
-        S3Storage storage = new S3Storage(propertiesPing);
-
+        S3Storage storage = new S3Storage(PropertyConverter.convertToHadoopFSProperties(propertiesPing));
         String testFile = bucket + properties.getOrDefault(S3Properties.ROOT_PATH, "")
                 + "/test-object-valid.txt";
         String content = "doris will be better";
@@ -140,11 +139,11 @@ public class S3Resource extends Resource {
     }
 
     private void checkRequiredS3EnvProperties() throws DdlException {
-        checkRequiredProperty(S3Properties.Environment.ENDPOINT);
-        checkRequiredProperty(S3Properties.Environment.REGION);
-        checkRequiredProperty(S3Properties.Environment.ACCESS_KEY);
-        checkRequiredProperty(S3Properties.Environment.SECRET_KEY);
-        checkRequiredProperty(S3Properties.Environment.BUCKET);
+        checkRequiredProperty(S3Properties.Env.ENDPOINT);
+        checkRequiredProperty(S3Properties.Env.REGION);
+        checkRequiredProperty(S3Properties.Env.ACCESS_KEY);
+        checkRequiredProperty(S3Properties.Env.SECRET_KEY);
+        checkRequiredProperty(S3Properties.Env.BUCKET);
     }
 
     private void checkRequiredS3Properties() throws DdlException {
@@ -166,18 +165,18 @@ public class S3Resource extends Resource {
     private void checkOptionalS3Property() {
         if (properties.containsKey(S3Properties.ENDPOINT)) {
             checkOptionalProperty(S3Properties.MAX_CONNECTIONS,
-                    S3Properties.Environment.DEFAULT_MAX_CONNECTIONS);
+                    S3Properties.Env.DEFAULT_MAX_CONNECTIONS);
             checkOptionalProperty(S3Properties.REQUEST_TIMEOUT_MS,
-                    S3Properties.Environment.DEFAULT_REQUEST_TIMEOUT_MS);
+                    S3Properties.Env.DEFAULT_REQUEST_TIMEOUT_MS);
             checkOptionalProperty(S3Properties.CONNECTION_TIMEOUT_MS,
-                    S3Properties.Environment.DEFAULT_CONNECTION_TIMEOUT_MS);
+                    S3Properties.Env.DEFAULT_CONNECTION_TIMEOUT_MS);
         } else {
-            checkOptionalProperty(S3Properties.Environment.MAX_CONNECTIONS,
-                    S3Properties.Environment.DEFAULT_MAX_CONNECTIONS);
-            checkOptionalProperty(S3Properties.Environment.REQUEST_TIMEOUT_MS,
-                    S3Properties.Environment.DEFAULT_REQUEST_TIMEOUT_MS);
-            checkOptionalProperty(S3Properties.Environment.CONNECTION_TIMEOUT_MS,
-                    S3Properties.Environment.DEFAULT_CONNECTION_TIMEOUT_MS);
+            checkOptionalProperty(S3Properties.Env.MAX_CONNECTIONS,
+                    S3Properties.Env.DEFAULT_MAX_CONNECTIONS);
+            checkOptionalProperty(S3Properties.Env.REQUEST_TIMEOUT_MS,
+                    S3Properties.Env.DEFAULT_REQUEST_TIMEOUT_MS);
+            checkOptionalProperty(S3Properties.Env.CONNECTION_TIMEOUT_MS,
+                    S3Properties.Env.DEFAULT_CONNECTION_TIMEOUT_MS);
         }
     }
 
@@ -205,27 +204,27 @@ public class S3Resource extends Resource {
         LOG.debug("s3 info need check validity : {}", needCheck);
         if (needCheck) {
             Map<String, String> s3Properties = new HashMap<>();
-            s3Properties.put(S3Properties.Environment.BUCKET, properties.containsKey(S3Properties.BUCKET)
+            s3Properties.put(S3Properties.Env.BUCKET, properties.containsKey(S3Properties.BUCKET)
                     ? properties.get(S3Properties.BUCKET)
                     : this.properties.getOrDefault(S3Properties.BUCKET, ""));
 
-            s3Properties.put(S3Properties.Environment.ACCESS_KEY, properties.containsKey(S3Properties.ACCESS_KEY)
+            s3Properties.put(S3Properties.Env.ACCESS_KEY, properties.containsKey(S3Properties.ACCESS_KEY)
                     ? properties.get(S3Properties.ACCESS_KEY)
                     : this.properties.getOrDefault(S3Properties.ACCESS_KEY, ""));
 
-            s3Properties.put(S3Properties.Environment.SECRET_KEY, properties.containsKey(S3Properties.SECRET_KEY)
+            s3Properties.put(S3Properties.Env.SECRET_KEY, properties.containsKey(S3Properties.SECRET_KEY)
                     ? properties.get(S3Properties.SECRET_KEY)
                     : this.properties.getOrDefault(S3Properties.SECRET_KEY, ""));
 
-            s3Properties.put(S3Properties.Environment.ENDPOINT, properties.containsKey(S3Properties.ENDPOINT)
+            s3Properties.put(S3Properties.Env.ENDPOINT, properties.containsKey(S3Properties.ENDPOINT)
                     ? properties.get(S3Properties.ENDPOINT)
                     : this.properties.getOrDefault(S3Properties.ENDPOINT, ""));
 
-            s3Properties.put(S3Properties.Environment.REGION, properties.containsKey(S3Properties.REGION)
+            s3Properties.put(S3Properties.Env.REGION, properties.containsKey(S3Properties.REGION)
                     ? properties.get(S3Properties.REGION)
                     : this.properties.getOrDefault(S3Properties.REGION, ""));
 
-            s3Properties.put(S3Properties.Environment.ROOT_PATH, properties.containsKey(S3Properties.ROOT_PATH)
+            s3Properties.put(S3Properties.Env.ROOT_PATH, properties.containsKey(S3Properties.ROOT_PATH)
                     ? properties.get(S3Properties.ROOT_PATH)
                     : this.properties.getOrDefault(S3Properties.ROOT_PATH, ""));
             boolean available = pingS3(s3Properties);
@@ -258,7 +257,7 @@ public class S3Resource extends Resource {
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             // it's dangerous to show password in show odbc resource,
             // so we use empty string to replace the real password
-            if (entry.getKey().equals(S3Properties.Environment.SECRET_KEY)) {
+            if (entry.getKey().equals(S3Properties.Env.SECRET_KEY)) {
                 result.addRow(Lists.newArrayList(name, lowerCaseType, entry.getKey(), "******"));
             } else {
                 result.addRow(Lists.newArrayList(name, lowerCaseType, entry.getKey(), entry.getValue()));

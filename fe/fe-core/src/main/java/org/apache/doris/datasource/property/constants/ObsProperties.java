@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 
 public class ObsProperties extends BaseProperties {
+    public static final String OBS_PREFIX = "obs.";
     public static final String OBS_FS_PREFIX = "fs.obs";
 
     public static final String ENDPOINT = "obs.endpoint";
@@ -33,7 +34,11 @@ public class ObsProperties extends BaseProperties {
     public static final String SECRET_KEY = "obs.secret_key";
     public static final String SESSION_TOKEN = "obs.session_token";
     public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT, ACCESS_KEY, SECRET_KEY);
-    public static final List<String> OPTIONAL_FIELDS = Arrays.asList(REGION, SESSION_TOKEN);
+
+    public static class FS {
+        public static final String SESSION_TOKEN = "fs.obs.session.token";
+        public static final String IMPL_DISABLE_CACHE = "fs.obs.impl.disable.cache";
+    }
 
     public static CloudCredential getCredential(Map<String, String> props) {
         return getCloudCredential(props, ACCESS_KEY, SECRET_KEY, SESSION_TOKEN);

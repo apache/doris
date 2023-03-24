@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.hive;
 
-import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.HMSClientException;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;

@@ -30,6 +30,19 @@ public class CloudCredentialWithEndpoint extends CloudCredential {
         setSessionToken(credential.getSessionToken());
     }
 
+    public CloudCredentialWithEndpoint(String endpoint, String region, String accessKey, String secretKey) {
+        this(endpoint, region, accessKey, secretKey, null);
+    }
+
+    public CloudCredentialWithEndpoint(String endpoint, String region, String accessKey,
+                                       String secretKey, String token) {
+        this.endpoint = endpoint;
+        this.region = region;
+        setAccessKey(accessKey);
+        setSecretKey(secretKey);
+        setSessionToken(token);
+    }
+
     public String getEndpoint() {
         return endpoint;
     }

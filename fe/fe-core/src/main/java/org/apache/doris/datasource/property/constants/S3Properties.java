@@ -17,17 +17,20 @@
 
 package org.apache.doris.datasource.property.constants;
 
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.credentials.CloudCredential;
 import org.apache.doris.datasource.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.datasource.credentials.DataLakeAWSCredentialsProvider;
 
 import com.amazonaws.auth.EnvironmentVariableCredentialsProvider;
+import com.google.common.collect.Maps;
 import org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider;
 import org.apache.hadoop.fs.s3a.TemporaryAWSCredentialsProvider;
 import org.apache.hadoop.fs.s3a.auth.IAMInstanceCredentialsProvider;
 
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -51,6 +54,7 @@ public class S3Properties extends BaseProperties {
     public static final String BUCKET = "s3.bucket";
     public static final String VALIDITY_CHECK = "s3_validity_check";
     public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT, ACCESS_KEY, SECRET_KEY);
+    public static final List<String> TVF_REQUIRED_FIELDS = Arrays.asList(ACCESS_KEY, SECRET_KEY);
 
     public static final List<String> AWS_CREDENTIALS_PROVIDERS = Arrays.asList(
             DataLakeAWSCredentialsProvider.class.getName(),
@@ -59,7 +63,21 @@ public class S3Properties extends BaseProperties {
             EnvironmentVariableCredentialsProvider.class.getName(),
             IAMInstanceCredentialsProvider.class.getName());
 
-    public static class Environment {
+    public static Map<String, String> credentialToMap(CloudCredentialWithEndpoint credential) {
+        Map<String, String> resMap = new HashMap<>();
+        resMap.put(S3Properties.ENDPOINT, credential.getEndpoint());
+        resMap.put(S3Properties.REGION, credential.getRegion());
+        if (credential.isWhole()) {
+            resMap.put(S3Properties.ACCESS_KEY, credential.getAccessKey());
+            resMap.put(S3Properties.SECRET_KEY, credential.getSecretKey());
+        }
+        if (credential.isTemporary()) {
+            resMap.put(S3Properties.SESSION_TOKEN, credential.getSessionToken());
+        }
+        return resMap;
+    }
+
+    public static class Env {
         public static final String PROPERTIES_PREFIX = "AWS";
         // required
         public static final String ENDPOINT = "AWS_ENDPOINT";
@@ -78,6 +96,7 @@ public class S3Properties extends BaseProperties {
         public static final String DEFAULT_REQUEST_TIMEOUT_MS = "3000";
         public static final String DEFAULT_CONNECTION_TIMEOUT_MS = "1000";
         public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT, REGION, ACCESS_KEY, SECRET_KEY);
+        public static final List<String> FS_KEYS = Arrays.asList(ENDPOINT, REGION, ACCESS_KEY, SECRET_KEY, TOKEN);
     }
 
     public static CloudCredential getCredential(Map<String, String> props) {
@@ -85,34 +104,65 @@ public class S3Properties extends BaseProperties {
     }
 
     public static CloudCredentialWithEndpoint getEnvironmentCredentialWithEndpoint(Map<String, String> props) {
-        CloudCredential credential = getCloudCredential(props, Environment.ACCESS_KEY, Environment.SECRET_KEY,
-                Environment.TOKEN);
-        if (!props.containsKey(S3Properties.Environment.ENDPOINT)) {
-            throw new IllegalArgumentException("Missing 'endpoint' property. ");
+        CloudCredential credential = getCloudCredential(props, Env.ACCESS_KEY, Env.SECRET_KEY,
+                Env.TOKEN);
+        if (!props.containsKey(Env.ENDPOINT)) {
+            throw new IllegalArgumentException("Missing 'AWS_ENDPOINT' property. ");
         }
-        String endpoint = props.get(S3Properties.Environment.ENDPOINT);
-        String[] endpointSplit = endpoint.split("\\.");
-        if (endpointSplit.length < 2) {
-            throw new IllegalArgumentException("Need endpoint with region: " + endpoint);
-        }
-        String region = props.getOrDefault(S3Properties.REGION, endpointSplit[1]);
+        String endpoint = props.get(Env.ENDPOINT);
+        String region = props.getOrDefault(S3Properties.REGION, S3Properties.getRegionOfEndpoint(endpoint));
         return new CloudCredentialWithEndpoint(endpoint, region, credential);
     }
 
+    public static String getRegionOfEndpoint(String endpoint) {
+        String[] endpointSplit = endpoint.split("\\.");
+        if (endpointSplit.length < 2) {
+            return null;
+        }
+        return endpointSplit[1];
+    }
+
+    public static Map<String, String> requiredS3TVFProperties(Map<String, String> properties)
+            throws AnalysisException {
+        for (String field : S3Properties.TVF_REQUIRED_FIELDS) {
+            if (!properties.containsKey(field)) {
+                throw new AnalysisException("Missing required property: " + field);
+            }
+        }
+        return properties;
+    }
+
     public static void requiredS3Properties(Map<String, String> properties) throws UserException {
-        if (properties.containsKey(S3Properties.Environment.ENDPOINT)) {
+        if (properties.containsKey(Env.ENDPOINT)) {
             // compatible with older versions
-            for (String field : S3Properties.Environment.REQUIRED_FIELDS) {
+            for (String field : Env.REQUIRED_FIELDS) {
                 if (!properties.containsKey(field)) {
-                    throw new UserException(field + " not found.");
+                    throw new UserException("Missing required property: " + field);
                 }
             }
         } else {
             for (String field : S3Properties.REQUIRED_FIELDS) {
                 if (!properties.containsKey(field)) {
-                    throw new UserException(field + " not found.");
+                    throw new UserException("Missing required property: " + field);
                 }
             }
         }
+    }
+
+    public static Map<String, String> prefixToS3(Map<String, String> properties) {
+        Map<String, String> s3Properties = Maps.newHashMap();
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            if (entry.getKey().startsWith(OssProperties.OSS_PREFIX)) {
+                String s3Key = entry.getKey().replace(OssProperties.OSS_PREFIX, S3Properties.S3_PREFIX);
+                s3Properties.put(s3Key, entry.getValue());
+            } else if (entry.getKey().startsWith(CosProperties.COS_PREFIX)) {
+                String s3Key = entry.getKey().replace(CosProperties.COS_PREFIX, S3Properties.S3_PREFIX);
+                s3Properties.put(s3Key, entry.getValue());
+            } else if (entry.getKey().startsWith(ObsProperties.OBS_PREFIX)) {
+                String s3Key = entry.getKey().replace(ObsProperties.OBS_PREFIX, S3Properties.S3_PREFIX);
+                s3Properties.put(s3Key, entry.getValue());
+            }
+        }
+        return s3Properties;
     }
 }
