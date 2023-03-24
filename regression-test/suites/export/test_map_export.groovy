@@ -51,7 +51,7 @@ suite("test_map_export", "export") {
     }
 
     // define the table
-    def testTable = "tbl_test_map"
+    def testTable = "tbl_test_map_export"
 
     sql "DROP TABLE IF EXISTS ${testTable}"
     sql "ADMIN SET FRONTEND CONFIG ('enable_map_type' = 'true')"
