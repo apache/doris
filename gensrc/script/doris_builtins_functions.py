@@ -38,8 +38,8 @@
 #     'K' and 'V' is type template and will be specialized at runtime in FE to match specific args.
 #
 # 'template_types' support variadic template is now support variadic template.
-# eg. [['struct'], 'STRUCT<TYPES>', ['TYPES...'], 'ALWAYS_NOT_NULLABLE', ['...TYPES']],
-#     Inspired by C++ std::vector::emplace_back() function. '...TYPES' is variadic template and will
+# eg. [['struct'], 'STRUCT<TYPES>', ['TYPES'], 'ALWAYS_NOT_NULLABLE', ['TYPES...']],
+#     Inspired by C++ std::vector::emplace_back() function. 'TYPES...' is variadic template and will
 #     be expanded to normal templates at runtime in FE to match variadic args. Please ensure that the
 #     variadic template is placed at the last position of all templates.
 visible_functions = [
