@@ -2145,7 +2145,8 @@ public class Coordinator {
             if (params.isSetLoadedRows()) {
                 Env.getCurrentEnv().getLoadManager().updateJobProgress(
                         jobId, params.getBackendId(), params.getQueryId(), params.getFragmentInstanceId(),
-                        params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
+                        params.getLoadedRows(), params.getLoadedBytes(), params.getBytesRead(),
+                        params.isSetBytesRead(), params.isDone());
             }
         } else {
             if (params.backend_num >= backendExecStates.size()) {
@@ -2203,7 +2204,8 @@ public class Coordinator {
             if (params.isSetLoadedRows()) {
                 Env.getCurrentEnv().getLoadManager().updateJobProgress(
                         jobId, params.getBackendId(), params.getQueryId(), params.getFragmentInstanceId(),
-                        params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
+                        params.getLoadedRows(), params.getLoadedBytes(), params.getBytesRead(),
+                        params.isSetBytesRead(), params.isDone());
             }
         }
     }

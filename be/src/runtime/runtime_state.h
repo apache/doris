@@ -84,6 +84,8 @@ public:
     const DescriptorTbl& desc_tbl() const { return *_desc_tbl; }
     void set_desc_tbl(const DescriptorTbl* desc_tbl) { _desc_tbl = desc_tbl; }
     int batch_size() const { return _query_options.batch_size; }
+    bool get_support_read_bytes() const { return _is_support_read_bytes ; }
+    void set_support_read_bytes(bool is_support_read_bytes) { _is_support_read_bytes = is_support_read_bytes; } 
     bool abort_on_error() const { return _query_options.abort_on_error; }
     bool abort_on_default_limit_exceeded() const {
         return _query_options.abort_on_default_limit_exceeded;
@@ -216,6 +218,8 @@ public:
 
     int64_t num_bytes_load_total() { return _num_bytes_load_total.load(); }
 
+    int64_t read_bytes() { return _read_bytes.load(); }
+
     int64_t num_rows_load_total() { return _num_rows_load_total.load(); }
 
     int64_t num_rows_load_filtered() { return _num_rows_load_filtered.load(); }
@@ -232,6 +236,10 @@ public:
 
     void update_num_bytes_load_total(int64_t bytes_load) {
         _num_bytes_load_total.fetch_add(bytes_load);
+    }
+
+    void update_num_bytes_read(int64_t bytes_read){
+        _read_bytes.fetch_add(bytes_read);
     }
 
     void update_num_rows_load_filtered(int64_t num_rows) {
@@ -452,6 +460,7 @@ private:
     std::atomic<int64_t> _num_print_error_rows;
 
     std::atomic<int64_t> _num_bytes_load_total; // total bytes read from source
+    std::atomic<int64_t> _read_bytes; // total bytes should read from source
 
     std::vector<std::string> _export_output_files;
     std::string _import_label;
@@ -472,7 +481,9 @@ private:
 
     // true if max_filter_ratio is 0
     bool _load_zero_tolerance = false;
-
+    // true if the reader support read_bytes fields
+    bool _is_support_read_bytes = false;
+    
     OpentelemetryTracer _tracer = telemetry::get_noop_tracer();
 
     // prohibit copies

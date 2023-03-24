@@ -229,7 +229,9 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     while (rows < batch_size && !_line_reader_eof) {
         const uint8_t* ptr = nullptr;
         size_t size = 0;
-        RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
+        size_t read_bytes = 0;
+        RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx, &read_bytes));
+        _state->update_num_bytes_read(read_bytes);
         if (_skip_lines > 0) {
             _skip_lines--;
             continue;
@@ -280,6 +282,10 @@ Status CsvReader::get_parsed_schema(std::vector<std::string>* col_names,
         RETURN_IF_ERROR(_parse_col_types(col_names->size(), col_types));
     }
     return Status::OK();
+}
+
+bool CsvReader::is_support_read_bytes(){
+    return _line_reader->is_support_read_bytes();
 }
 
 Status CsvReader::_create_decompressor() {

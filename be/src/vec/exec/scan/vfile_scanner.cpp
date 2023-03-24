@@ -580,6 +580,7 @@ Status VFileScanner::_get_next_reader() {
             _cur_reader.reset(new CsvReader(_state, _profile, &_counter, _params, range,
                                             _file_slot_descs, _io_ctx.get()));
             init_status = ((CsvReader*)(_cur_reader.get()))->init_reader(_is_load);
+            _state->set_support_read_bytes(((CsvReader*)(_cur_reader.get()))->is_support_read_bytes());
             break;
         }
         case TFileFormatType::FORMAT_JSON: {

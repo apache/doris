@@ -429,6 +429,9 @@ struct TReportExecStatusParams {
   18: optional list<Types.TErrorTabletInfo> errorTabletInfos
 
   19: optional i32 fragment_id
+
+  // read bytes from BE
+  20: optional i64 bytes_read
 }
 
 struct TFeResult {

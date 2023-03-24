@@ -147,6 +147,9 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         // load task id -> fragment id -> load bytes
         private Table<TUniqueId, TUniqueId, Long> loadBytes = HashBasedTable.create();
 
+        // load task id -> fragment id -> read bytes
+        private Table<TUniqueId, TUniqueId, Long> readBytes = HashBasedTable.create();
+
         // load task id -> unfinished backend id list
         private Map<TUniqueId, List<Long>> unfinishedBackendIds = Maps.newHashMap();
         // load task id -> all backend id list
@@ -166,6 +169,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             for (TUniqueId fragId : fragmentIds) {
                 loadBytes.put(loadId, fragId, 0L);
             }
+            readBytes.rowMap().remove(loadId);
+            for (TUniqueId fragId : fragmentIds) {
+                readBytes.put(loadId, fragId, 0L);
+            }
             allBackendIds.put(loadId, relatedBackendIds);
             // need to get a copy of relatedBackendIds, so that when we modify the "relatedBackendIds" in
             // allBackendIds, the list in unfinishedBackendIds will not be changed.
@@ -175,8 +182,17 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         public synchronized void removeLoad(TUniqueId loadId) {
             counterTbl.rowMap().remove(loadId);
             loadBytes.rowMap().remove(loadId);
+            readBytes.rowMap().remove(loadId);
             unfinishedBackendIds.remove(loadId);
             allBackendIds.remove(loadId);
+        }
+
+        // update read progress, readBytes is actual data size
+        public synchronized void updateReadProgress(long backendId, TUniqueId loadId,
+                TUniqueId fragmentId, long bytes) {
+            if (readBytes.contains(loadId, fragmentId)) {
+                readBytes.put(loadId, fragmentId, bytes);
+            }
         }
 
         public synchronized void updateLoadProgress(long backendId, TUniqueId loadId, TUniqueId fragmentId,
@@ -204,6 +220,15 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         public synchronized long getLoadBytes() {
             long total = 0;
             for (long bytes : loadBytes.values()) {
+                total += bytes;
+            }
+            return total;
+        }
+
+        // get total read bytes from remote source
+        public synchronized long getReadBytes() {
+            long total = 0;
+            for (long bytes : readBytes.values()) {
                 total += bytes;
             }
             return total;
@@ -317,8 +342,11 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     }
 
     public void updateProgress(Long beId, TUniqueId loadId, TUniqueId fragmentId, long scannedRows,
-                               long scannedBytes, boolean isDone) {
+                               long scannedBytes, long readBytes, boolean isSupportReadBytes, boolean isDone) {
         loadStatistic.updateLoadProgress(beId, loadId, fragmentId, scannedRows, scannedBytes, isDone);
+        if (isSupportReadBytes) {
+            loadStatistic.updateReadProgress(beId, loadId, fragmentId, readBytes);
+        }
     }
 
     public void setLoadFileInfo(int fileNum, long fileSize) {
