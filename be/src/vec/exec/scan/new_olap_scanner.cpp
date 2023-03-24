@@ -499,7 +499,12 @@ void NewOlapScanner::_update_counters_before_close() {
     COUNTER_UPDATE(olap_parent->_lazy_read_seek_timer, stats.block_lazy_read_seek_ns);
     COUNTER_UPDATE(olap_parent->_lazy_read_seek_counter, stats.block_lazy_read_seek_num);
     COUNTER_UPDATE(olap_parent->_output_col_timer, stats.output_col_ns);
-    COUNTER_UPDATE(olap_parent->_rows_vec_cond_counter, stats.rows_vec_cond_filtered);
+    COUNTER_UPDATE(olap_parent->_rows_vec_cond_filtered_counter, stats.rows_vec_cond_filtered);
+    COUNTER_UPDATE(olap_parent->_rows_short_circuit_cond_filtered_counter,
+                   stats.rows_short_circuit_cond_filtered);
+    COUNTER_UPDATE(olap_parent->_rows_vec_cond_input_counter, stats.vec_cond_input_rows);
+    COUNTER_UPDATE(olap_parent->_rows_short_circuit_cond_input_counter,
+                   stats.short_circuit_cond_input_rows);
 
     COUNTER_UPDATE(olap_parent->_stats_filtered_counter, stats.rows_stats_filtered);
     COUNTER_UPDATE(olap_parent->_bf_filtered_counter, stats.rows_bf_filtered);
