@@ -119,7 +119,7 @@ suite("literal_view_test") {
 
     test {
         sql "select * from (select null as top) t where top is not null"
-        result ([[]])
+        result ([])
     }
 
     test {
@@ -129,6 +129,6 @@ suite("literal_view_test") {
 
     test {
         sql "select * from (select null as top) t where top = 5"
-        result ([[]])
+        result ([])
     }
 }
