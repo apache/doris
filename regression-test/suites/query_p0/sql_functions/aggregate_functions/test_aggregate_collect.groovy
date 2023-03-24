@@ -154,7 +154,7 @@ suite("test_aggregate_collect") {
             ${tableName}
     """
 
-    qt_select """
+    order_qt_select """
         SELECT
             size(collect_set(c_bool,1)),
             size(collect_set(c_tinyint,1)),
