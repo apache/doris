@@ -26,15 +26,15 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.FakePlan;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -57,8 +58,10 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 class MemoTest implements MemoPatternMatchSupported {
+    private final LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
 
     private final ConnectContext connectContext = MemoTestUtils.createConnectContext();
 
@@ -186,11 +189,9 @@ class MemoTest implements MemoPatternMatchSupported {
 
     @Test
     public void initByTwoLevelChainPlan() {
-        OlapTable table = PlanConstructor.newOlapTable(0, "a", 1);
-        LogicalOlapScan scan = new LogicalOlapScan(RelationUtil.newRelationId(), table);
-
-        LogicalProject<LogicalOlapScan> topProject = new LogicalProject<>(
-                ImmutableList.of(scan.computeOutput().get(0)), scan);
+        Plan topProject = new LogicalPlanBuilder(scan)
+                .project(ImmutableList.of(0))
+                .build();
 
         PlanChecker.from(connectContext, topProject)
                 .checkGroupNum(2)
@@ -250,13 +251,11 @@ class MemoTest implements MemoPatternMatchSupported {
 
     @Test
     public void initByThreeLevelChainPlan() {
-        OlapTable table = PlanConstructor.newOlapTable(0, "a", 1);
-        LogicalOlapScan scan = new LogicalOlapScan(RelationUtil.newRelationId(), table);
-
-        LogicalProject<LogicalOlapScan> project = new LogicalProject<>(
-                ImmutableList.of(scan.computeOutput().get(0)), scan);
-        LogicalFilter<LogicalProject<LogicalOlapScan>> filter = new LogicalFilter<>(ImmutableSet.of(
-                new EqualTo(scan.computeOutput().get(0), new IntegerLiteral(1))), project);
+        Set<Expression> exprs = ImmutableSet.of(new EqualTo(scan.getOutput().get(0), Literal.of(1)));
+        Plan filter = new LogicalPlanBuilder(scan)
+                .project(ImmutableList.of(0))
+                .filter(exprs)
+                .build();
 
         PlanChecker.from(connectContext, filter)
                 .checkGroupNum(3)
@@ -264,8 +263,8 @@ class MemoTest implements MemoPatternMatchSupported {
                         logicalFilter(
                                 logicalProject(
                                         any().when(child -> Objects.equals(child, scan))
-                                ).when(root -> Objects.equals(root, project))
-                        ).when(root -> Objects.equals(root, filter))
+                                ).when(p -> p.getProjects().size() == 1 && p.getProjects().get(0).equals(scan.getOutput().get(0)))
+                        ).when(f -> Objects.equals(f, filter))
                 );
     }
 
