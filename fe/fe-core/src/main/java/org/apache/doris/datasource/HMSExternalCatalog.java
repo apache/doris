@@ -112,8 +112,12 @@ public class HMSExternalCatalog extends ExternalCatalog {
         initCatalogLog.setCatalogId(id);
         initCatalogLog.setType(InitCatalogLog.Type.HMS);
         List<String> allDatabases = client.getAllDatabases();
+        Map<String, Boolean> specifiedDatabaseMap = getSpecifiedDatabaseMap();
         // Update the db name to id map.
         for (String dbName : allDatabases) {
+            if (!specifiedDatabaseMap.isEmpty() && specifiedDatabaseMap.get(dbName) == null) {
+                continue;
+            }
             long dbId;
             if (dbNameToId != null && dbNameToId.containsKey(dbName)) {
                 dbId = dbNameToId.get(dbName);
