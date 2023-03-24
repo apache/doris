@@ -75,6 +75,7 @@ Status VFileScanner::prepare(
     _pre_filter_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerPreFilterTimer");
     _convert_to_output_block_timer =
             ADD_TIMER(_parent->_scanner_profile, "FileScannerConvertOuputBlockTime");
+    _empty_file_counter = ADD_COUNTER(_parent->_scanner_profile, "EmptyFileNum", TUnit::UNIT);
 
     _file_cache_statistics.reset(new io::FileCacheStatistics());
     _io_ctx.reset(new io::IOContext());
@@ -595,9 +596,12 @@ Status VFileScanner::_get_next_reader() {
         }
 
         if (init_status.is<END_OF_FILE>()) {
+            COUNTER_UPDATE(_empty_file_counter, 1);
             continue;
         } else if (!init_status.ok()) {
             if (init_status.is<ErrorCode::NOT_FOUND>()) {
+                COUNTER_UPDATE(_empty_file_counter, 1);
+                LOG(INFO) << "failed to find file: " << range.path;
                 return init_status;
             }
             return Status::InternalError("failed to init reader for file {}, err: {}", range.path,
