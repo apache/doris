@@ -179,7 +179,7 @@ public class DeleteHandler implements Writable {
                         Set<String> partitionColumnNameSet = olapTable.getPartitionColumnNames();
                         Map<String, ColumnRange> columnNameToRange = Maps.newHashMap();
                         for (String colName : partitionColumnNameSet) {
-                            ColumnRange columnRange = createColumnRange(colName, conditions);
+                            ColumnRange columnRange = createColumnRange(olapTable, colName, conditions);
                             // Not all partition columns are involved in predicate conditions
                             if (columnRange != null) {
                                 columnNameToRange.put(colName, columnRange);
@@ -411,11 +411,15 @@ public class DeleteHandler implements Writable {
     }
 
     // Return null if there is no filter for the partition column
-    private ColumnRange createColumnRange(String colName, List<Predicate> conditions) {
+    private ColumnRange createColumnRange(OlapTable table, String colName, List<Predicate> conditions)
+            throws AnalysisException {
         ColumnRange result = ColumnRange.create();
+        Type type =
+                table.getBaseSchema().stream().filter(c -> c.getName().equals(colName)).findFirst().get().getType();
+
         boolean hasRange = false;
         for (Predicate predicate : conditions) {
-            List<Range<ColumnBound>> bounds = createColumnRange(colName, predicate);
+            List<Range<ColumnBound>> bounds = createColumnRange(colName, predicate, type);
             if (bounds != null) {
                 hasRange = true;
                 result.intersect(bounds);
@@ -430,7 +434,8 @@ public class DeleteHandler implements Writable {
 
     // Return null if the condition is not related to the partition column,
     // or the operator is not supported.
-    private List<Range<ColumnBound>> createColumnRange(String colName, Predicate condition) {
+    private List<Range<ColumnBound>> createColumnRange(String colName, Predicate condition, Type type)
+            throws AnalysisException {
         List<Range<ColumnBound>> result = Lists.newLinkedList();
         if (condition instanceof BinaryPredicate) {
             BinaryPredicate binaryPredicate = (BinaryPredicate) condition;
@@ -441,7 +446,8 @@ public class DeleteHandler implements Writable {
             if (!colName.equalsIgnoreCase(columnName)) {
                 return null;
             }
-            ColumnBound bound = ColumnBound.of((LiteralExpr) binaryPredicate.getChild(1));
+            ColumnBound bound = ColumnBound.of(
+                    LiteralExpr.create(((LiteralExpr) binaryPredicate.getChild(1)).getStringValue(), type));
             switch (binaryPredicate.getOp()) {
                 case EQ:
                     result.add(Range.closed(bound, bound));
@@ -478,7 +484,8 @@ public class DeleteHandler implements Writable {
                 return null;
             }
             for (int i = 1; i <= inPredicate.getInElementNum(); i++) {
-                ColumnBound bound = ColumnBound.of((LiteralExpr) inPredicate.getChild(i));
+                ColumnBound bound = ColumnBound.of(LiteralExpr
+                        .create(((LiteralExpr) inPredicate.getChild(i)).getStringValue(), type));
                 result.add(Range.closed(bound, bound));
             }
         } else {
