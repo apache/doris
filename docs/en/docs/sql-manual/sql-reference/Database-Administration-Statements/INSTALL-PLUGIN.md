@@ -66,6 +66,9 @@ source supports three types:
     INSTALL PLUGIN FROM "http://mywebsite.com/plugin.zip";
     ````
 
+    Note than an md5 file with the same name as the `.zip` file needs to be placed, such as `http://mywebsite.com/plugin.zip.md5` . 
+    The content is the MD5 value of the .zip file.
+
 4. Download and install a plugin, and set the md5sum value of the zip file at the same time:
 
     ```sql
