@@ -441,7 +441,8 @@ public class CreateTableStmt extends DdlStmt {
                 if (keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
                     throw new AnalysisException("Array column can't be used in unique table");
                 }
-                if (columnDef.getAggregateType() != null && columnDef.getAggregateType() != AggregateType.NONE) {
+                if (columnDef.getAggregateType() != null && columnDef.getAggregateType() != AggregateType.NONE
+                        && columnDef.getAggregateType() != AggregateType.REPLACE) {
                     throw new AnalysisException("Array column can't support aggregation "
                             + columnDef.getAggregateType());
                 }
