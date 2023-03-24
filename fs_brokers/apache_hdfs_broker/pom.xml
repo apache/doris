@@ -69,7 +69,7 @@ under the License.
         <maven.compiler.target>1.8</maven.compiler.target>
         <log4j2.version>2.18.0</log4j2.version>
         <project.scm.id>github</project.scm.id>
-        <doris.shade.version>1.0.0</doris.shade.version>
+        <doris.shade.version>1.0.1-SNAPSHOT</doris.shade.version>
 
         <netty.version>4.1.89.Final</netty.version>
         <owasp-dependency-check-maven.version>8.1.1</owasp-dependency-check-maven.version>
@@ -101,7 +101,7 @@ under the License.
             </dependency>
             <dependency>
                 <groupId>org.apache.doris</groupId>
-                <artifactId>hdfs-shade</artifactId>
+                <artifactId>hadoop-shade-2</artifactId>
                 <version>${doris.shade.version}</version>
             </dependency>
 
@@ -210,7 +210,7 @@ under the License.
         </dependency>
         <dependency>
             <groupId>org.apache.doris</groupId>
-            <artifactId>hdfs-shade</artifactId>
+            <artifactId>hadoop-shade-2</artifactId>
         </dependency>
         <!-- https://mvnrepository.com/artifact/commons-io/commons-io -->
         <dependency>
@@ -268,7 +268,7 @@ under the License.
         </dependency>
         <dependency>
             <groupId>org.apache.doris</groupId>
-            <artifactId>thrift-shade</artifactId>
+            <artifactId>thrift-shade-0.13</artifactId>
             <version>${doris.shade.version}</version>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.apache.logging.log4j/log4j-api -->

@@ -100,6 +100,14 @@ under the License.
         <pluginManagement>
             <plugins>
                 <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <configuration>
+                        <source>1.8</source>
+                        <target>1.8</target>
+                    </configuration>
+                </plugin>
+                <plugin>
                     <groupId>org.codehaus.mojo</groupId>
                     <artifactId>flatten-maven-plugin</artifactId>
                     <version>1.2.5</version>
@@ -267,7 +275,7 @@ under the License.
         <spring.version>2.7.9</spring.version>
         <zookeeper.version>3.4.14</zookeeper.version>
         <ojdbc8.version>12.2.0.1</ojdbc8.version>
-        <doris.shade.version>1.0.0</doris.shade.version>
+        <doris.shade.version>1.0.1-SNAPSHOT</doris.shade.version>
     </properties>
     <profiles>
         <!-- for custom internal repository -->
@@ -524,7 +532,7 @@ under the License.
                 </dependency>-->
             <dependency>
                 <groupId>org.apache.doris</groupId>
-                <artifactId>thrift-shade</artifactId>
+                <artifactId>thrift-shade-0.13</artifactId>
                 <version>${doris.shade.version}</version>
             </dependency>
             <dependency>
@@ -872,13 +880,13 @@ under the License.
             </dependency>
             <dependency>
                 <groupId>org.apache.doris</groupId>
-                <artifactId>spring-shade</artifactId>
+                <artifactId>spring-shade-5</artifactId>
                 <version>${doris.shade.version}</version>
             </dependency>
 
             <dependency>
                 <groupId>org.apache.doris</groupId>
-                <artifactId>hive-shade</artifactId>
+                <artifactId>hive-shade-3</artifactId>
                 <version>${doris.shade.version}</version>
             </dependency>
 
@@ -988,7 +996,7 @@ under the License.
             <!-- https://mvnrepository.com/artifact/org.apache.hudi/hudi-hadoop-mr -->
             <dependency>
                 <groupId>org.apache.doris</groupId>
-                <artifactId>hudi-mr-shade</artifactId>
+                <artifactId>hudi-mr-shade-0.13</artifactId>
                 <version>${doris.shade.version}</version>
             </dependency>
 
@@ -1146,10 +1154,10 @@ under the License.
     </dependencies>
     <reporting>
         <plugins>
-            <!--<plugin>
+            <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-checkstyle-plugin</artifactId>
-            </plugin>-->
+            </plugin>
         </plugins>
     </reporting>
 </project>

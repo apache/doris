@@ -59,7 +59,7 @@ under the License.
         <!-- https://mvnrepository.com/artifact/org.apache.thrift/libthrift -->
         <dependency>
             <groupId>org.apache.doris</groupId>
-            <artifactId>thrift-shade</artifactId>
+            <artifactId>thrift-shade-0.13</artifactId>
         </dependency>
         <dependency>
             <groupId>org.apache.httpcomponents</groupId>
