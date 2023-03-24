@@ -321,11 +321,14 @@ public class JdbcClient {
     public void getSpecifiedDatabaseMap(String specifiedDatabaseList) {
         specifiedDatabaseList = specifiedDatabaseList.trim();
         if (specifiedDatabaseList.isEmpty()) {
-            return specifiedDatabaseMap;
+            return;
         }
         String[] databaseList = specifiedDatabaseList.split(",");
         for (int i = 0; i < databaseList.length; i++) {
-            this.specifiedDatabaseMap.put(databaseList[i].trim(), true);
+            String dbname = databaseList[i].trim();
+            if (!dbname.isEmpty()) {
+                this.specifiedDatabaseMap.put(dbname, true);
+            }
         }
     }
 
