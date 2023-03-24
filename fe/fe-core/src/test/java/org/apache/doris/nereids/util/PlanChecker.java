@@ -267,7 +267,7 @@ public class PlanChecker {
         for (Plan child : plan.children()) {
             newChildren.add(flatGroupPlan(child));
         }
-        return (PhysicalPlan) plan.withChildren(newChildren);
+        return plan.withChildren(newChildren);
 
     }
 
@@ -307,6 +307,11 @@ public class PlanChecker {
     // Exploration Rule.
     public PlanChecker applyExploration(Rule rule) {
         return applyExploration(cascadesContext.getMemo().getRoot(), rule);
+    }
+
+    public PlanChecker applyExploration(List<Rule> rules) {
+        rules.forEach(rule -> applyExploration(cascadesContext.getMemo().getRoot(), rule));
+        return this;
     }
 
     private PlanChecker applyExploration(Group group, Rule rule) {
