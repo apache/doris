@@ -1671,7 +1671,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .map(e -> ExpressionTranslator.translate(e, context))
                 .collect(Collectors.toCollection(ArrayList::new));
         TupleDescriptor tupleDescriptor = generateTupleDesc(generate.getGeneratorOutput(), null, context);
-        List<SlotId> outputSlotIds = Stream.concat(currentFragment.getPlanRoot().getTupleIds().stream(),
+        List<TupleId> childOutputTupleIds = currentFragment.getPlanRoot().getOutputTupleIds();
+        if (childOutputTupleIds == null || childOutputTupleIds.isEmpty()) {
+            childOutputTupleIds = currentFragment.getPlanRoot().getTupleIds();
+        }
+        List<SlotId> outputSlotIds = Stream.concat(childOutputTupleIds.stream(),
                         Stream.of(tupleDescriptor.getId()))
                 .map(id -> context.getTupleDesc(id).getSlots())
                 .flatMap(List::stream)

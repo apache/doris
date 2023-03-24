@@ -233,7 +233,8 @@ public class RuntimeFilterTest extends SSBTestBase {
     }
 
     private Optional<List<RuntimeFilter>> getRuntimeFilters(String sql) {
-        PlanChecker checker = PlanChecker.from(connectContext).analyze(sql)
+        PlanChecker checker = PlanChecker.from(connectContext)
+                .analyze(sql)
                 .rewrite()
                 .implement();
         PhysicalPlan plan = checker.getPhysicalPlan();
