@@ -113,6 +113,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
     @SerializedName(value = "rollupSchema")
     private List<Column> rollupSchema = Lists.newArrayList();
+    @SerializedName(value = "whereColumn")
+    private Column whereColumn;
     @SerializedName(value = "baseSchemaHash")
     private int baseSchemaHash;
     @SerializedName(value = "rollupSchemaHash")
@@ -144,6 +146,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
     public RollupJobV2(long jobId, long dbId, long tableId, String tableName, long timeoutMs, long baseIndexId,
             long rollupIndexId, String baseIndexName, String rollupIndexName, List<Column> rollupSchema,
+            Column whereColumn,
             int baseSchemaHash, int rollupSchemaHash, KeysType rollupKeysType, short rollupShortKeyColumnCount,
             OriginStatement origStmt) {
         super(jobId, JobType.ROLLUP, dbId, tableId, tableName, timeoutMs);
@@ -154,6 +157,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         this.rollupIndexName = rollupIndexName;
 
         this.rollupSchema = rollupSchema;
+        this.whereColumn = whereColumn;
 
         this.baseSchemaHash = baseSchemaHash;
         this.rollupSchemaHash = rollupSchemaHash;
@@ -323,7 +327,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             partition.createRollupIndex(rollupIndex);
         }
 
-        tbl.setIndexMeta(rollupIndexId, rollupIndexName, rollupSchema, 0 /* init schema version */,
+        tbl.setIndexMeta(rollupIndexId, rollupIndexName, rollupSchema, whereColumn, 0 /* init schema version */,
                 rollupSchemaHash, rollupShortKeyColumnCount, TStorageType.COLUMN,
                 rollupKeysType, origStmt);
         tbl.rebuildFullSchema();
@@ -426,11 +430,16 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                     }
 
                     List<Replica> rollupReplicas = rollupTablet.getReplicas();
+                    Expr whereClause = null;
+                    if (whereColumn != null) {
+                        whereClause = whereColumn.getDefineExpr();
+                    }
                     for (Replica rollupReplica : rollupReplicas) {
                         AlterReplicaTask rollupTask = new AlterReplicaTask(rollupReplica.getBackendId(), dbId, tableId,
                                 partitionId, rollupIndexId, baseIndexId, rollupTabletId, baseTabletId,
                                 rollupReplica.getId(), rollupSchemaHash, baseSchemaHash, visibleVersion, jobId,
-                                JobType.ROLLUP, defineExprs, descTable, tbl.getSchemaByIndexId(baseIndexId, true));
+                                JobType.ROLLUP, defineExprs, descTable, tbl.getSchemaByIndexId(baseIndexId, true),
+                                whereClause);
                         rollupBatchTask.addTask(rollupTask);
                     }
                 }

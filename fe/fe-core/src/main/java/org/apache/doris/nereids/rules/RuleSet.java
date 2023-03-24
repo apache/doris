@@ -20,6 +20,8 @@ package org.apache.doris.nereids.rules;
 import org.apache.doris.nereids.rules.exploration.join.InnerJoinLAsscom;
 import org.apache.doris.nereids.rules.exploration.join.InnerJoinLAsscomProject;
 import org.apache.doris.nereids.rules.exploration.join.JoinCommute;
+import org.apache.doris.nereids.rules.exploration.join.LogicalJoinSemiJoinTranspose;
+import org.apache.doris.nereids.rules.exploration.join.LogicalJoinSemiJoinTransposeProject;
 import org.apache.doris.nereids.rules.exploration.join.OuterJoinLAsscom;
 import org.apache.doris.nereids.rules.exploration.join.OuterJoinLAsscomProject;
 import org.apache.doris.nereids.rules.exploration.join.PushdownProjectThroughInnerJoin;
@@ -88,6 +90,8 @@ public class RuleSet {
             .add(SemiJoinLogicalJoinTransposeProject.LEFT_DEEP)
             .add(SemiJoinSemiJoinTranspose.INSTANCE)
             .add(SemiJoinSemiJoinTransposeProject.INSTANCE)
+            .add(LogicalJoinSemiJoinTranspose.INSTANCE)
+            .add(LogicalJoinSemiJoinTransposeProject.INSTANCE)
             .add(PushdownProjectThroughInnerJoin.INSTANCE)
             .add(PushdownProjectThroughSemiJoin.INSTANCE)
             .build();

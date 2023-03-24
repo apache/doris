@@ -17,12 +17,15 @@
 
 package org.apache.doris.datasource.property.constants;
 
-
 import org.apache.doris.datasource.credentials.CloudCredential;
 
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 
 public class OssProperties extends BaseProperties {
+
+    public static final String OSS_PREFIX = "oss.";
     public static final String OSS_FS_PREFIX = "fs.oss";
 
     public static final String ENDPOINT = "oss.endpoint";
@@ -30,6 +33,7 @@ public class OssProperties extends BaseProperties {
     public static final String ACCESS_KEY = "oss.access_key";
     public static final String SECRET_KEY = "oss.secret_key";
     public static final String SESSION_TOKEN = "oss.session_token";
+    public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT, ACCESS_KEY, SECRET_KEY);
 
     public static CloudCredential getCredential(Map<String, String> props) {
         return getCloudCredential(props, ACCESS_KEY, SECRET_KEY, SESSION_TOKEN);

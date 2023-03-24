@@ -33,16 +33,15 @@ import java.util.Map;
 
 public class S3Properties extends BaseProperties {
 
-    public static final String S3_PREFIX = "s3";
+    public static final String S3_PREFIX = "s3.";
     public static final String S3_FS_PREFIX = "fs.s3";
 
+    public static final String CREDENTIALS_PROVIDER = "s3.credentials.provider";
     public static final String ENDPOINT = "s3.endpoint";
     public static final String REGION = "s3.region";
     public static final String ACCESS_KEY = "s3.access_key";
     public static final String SECRET_KEY = "s3.secret_key";
     public static final String SESSION_TOKEN = "s3.session_token";
-    public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT, ACCESS_KEY, SECRET_KEY);
-
     public static final String MAX_CONNECTIONS = "s3.connection.maximum";
     public static final String REQUEST_TIMEOUT_MS = "s3.connection.request.timeout";
     public static final String CONNECTION_TIMEOUT_MS = "s3.connection.timeout";
@@ -51,6 +50,7 @@ public class S3Properties extends BaseProperties {
     public static final String ROOT_PATH = "s3.root.path";
     public static final String BUCKET = "s3.bucket";
     public static final String VALIDITY_CHECK = "s3_validity_check";
+    public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT, ACCESS_KEY, SECRET_KEY);
 
     public static final List<String> AWS_CREDENTIALS_PROVIDERS = Arrays.asList(
             DataLakeAWSCredentialsProvider.class.getName(),
@@ -67,8 +67,6 @@ public class S3Properties extends BaseProperties {
         public static final String ACCESS_KEY = "AWS_ACCESS_KEY";
         public static final String SECRET_KEY = "AWS_SECRET_KEY";
         public static final String TOKEN = "AWS_TOKEN";
-        public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT, REGION, ACCESS_KEY, SECRET_KEY);
-
         // required by storage policy
         public static final String ROOT_PATH = "AWS_ROOT_PATH";
         public static final String BUCKET = "AWS_BUCKET";
@@ -79,6 +77,7 @@ public class S3Properties extends BaseProperties {
         public static final String DEFAULT_MAX_CONNECTIONS = "50";
         public static final String DEFAULT_REQUEST_TIMEOUT_MS = "3000";
         public static final String DEFAULT_CONNECTION_TIMEOUT_MS = "1000";
+        public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT, REGION, ACCESS_KEY, SECRET_KEY);
     }
 
     public static CloudCredential getCredential(Map<String, String> props) {

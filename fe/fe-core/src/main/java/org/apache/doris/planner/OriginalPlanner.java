@@ -165,12 +165,8 @@ public class OriginalPlanner extends Planner {
             singleNodePlan.convertToVectorized();
         }
 
-        if (analyzer.getContext() != null
-                && analyzer.getContext().getSessionVariable().isEnableProjection()
-                && statement instanceof QueryStmt) {
-            ProjectPlanner projectPlanner = new ProjectPlanner(analyzer);
-            projectPlanner.projectSingleNodePlan(queryStmt.getResultExprs(), singleNodePlan);
-        }
+        ProjectPlanner projectPlanner = new ProjectPlanner(analyzer);
+        projectPlanner.projectSingleNodePlan(queryStmt.getResultExprs(), singleNodePlan);
 
         if (statement instanceof InsertStmt) {
             InsertStmt insertStmt = (InsertStmt) statement;

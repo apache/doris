@@ -28,7 +28,6 @@ public class GlueProperties extends BaseProperties {
     public static final String SECRET_KEY = "glue.secret_key";
     public static final String SESSION_TOKEN = "glue.session_token";
 
-
     public static CloudCredential getCredential(Map<String, String> props) {
         return getCloudCredential(props, ACCESS_KEY, SECRET_KEY, SESSION_TOKEN);
     }

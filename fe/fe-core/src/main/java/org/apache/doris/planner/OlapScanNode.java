@@ -333,6 +333,10 @@ public class OlapScanNode extends ScanNode {
         return selectedIndexId;
     }
 
+    public void ignoreConjuncts() {
+        vconjunct = null;
+    }
+
     /**
      * This method is mainly used to update scan range info in OlapScanNode by the
      * new materialized selector.
@@ -465,9 +469,21 @@ public class OlapScanNode extends ScanNode {
             Column baseColumn = slotDescriptor.getColumn();
             Column mvColumn = meta.getColumnByName(baseColumn.getName());
             if (mvColumn == null) {
-                throw new UserException("updateSlotUniqueId: Do not found mvColumn " + baseColumn.getName());
+                boolean isBound = false;
+                for (Expr conjunct : conjuncts) {
+                    if (conjunct.isBound(slotDescriptor.getId())) {
+                        isBound = true;
+                        break;
+                    }
+                }
+                if (isBound) {
+                    slotDescriptor.setIsMaterialized(false);
+                } else {
+                    throw new UserException("updateSlotUniqueId: Do not found mvColumn " + baseColumn.getName());
+                }
+            } else {
+                slotDescriptor.setColumn(mvColumn);
             }
-            slotDescriptor.setColumn(mvColumn);
         }
         LOG.debug("updateSlotUniqueId() slots: {}", desc.getSlots());
     }
@@ -936,7 +952,7 @@ public class OlapScanNode extends ScanNode {
             final List<Tablet> tablets = Lists.newArrayList();
             final Collection<Long> tabletIds = distributionPrune(selectedTable, partition.getDistributionInfo());
             LOG.debug("distribution prune tablets: {}", tabletIds);
-            if (sampleTabletIds.size() != 0) {
+            if (tabletIds != null && sampleTabletIds.size() != 0) {
                 tabletIds.retainAll(sampleTabletIds);
                 LOG.debug("after sample tablets: {}", tabletIds);
             }
@@ -1011,12 +1027,12 @@ public class OlapScanNode extends ScanNode {
         return result;
     }
 
-    // Only called when Coordinator exec in point query
+    // Only called when Coordinator exec in high performance point query
     public List<TScanRangeLocations> lazyEvaluateRangeLocations() throws UserException {
         // Lazy evaluation
         selectedIndexId = olapTable.getBaseIndexId();
-        // TODO(lhy) this function is a heavy operation for point query
-        computeColumnFilter();
+        // Only key columns
+        computeColumnFilter(olapTable.getBaseSchemaKeyColumns());
         computePartitionInfo();
         scanBackendIds.clear();
         scanTabletIds.clear();
@@ -1053,6 +1069,9 @@ public class OlapScanNode extends ScanNode {
                 .append("(").append(indexName).append(")");
         if (detailLevel == TExplainLevel.BRIEF) {
             output.append("\n").append(prefix).append(String.format("cardinality=%,d", cardinality));
+            if (cardinalityAfterFilter != -1) {
+                output.append("\n").append(prefix).append(String.format("afterFilter=%,d", cardinalityAfterFilter));
+            }
             if (!runtimeFilters.isEmpty()) {
                 output.append("\n").append(prefix).append("Apply RFs: ");
                 output.append(getRuntimeFilterExplainString(false, true));
@@ -1124,6 +1143,18 @@ public class OlapScanNode extends ScanNode {
             return (int) (parallelInstance * numBackend);
         }
         return result.size();
+    }
+
+    @Override
+    public boolean shouldColoAgg() {
+        // In pipeline exec engine, the instance num is parallel instance. we should disable colo agg
+        // in parallelInstance >= tablet_num * 2 to use more thread to speed up the query
+        if (ConnectContext.get().getSessionVariable().enablePipelineEngine()) {
+            int parallelInstance = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+            return parallelInstance < result.size() * 2;
+        } else {
+            return true;
+        }
     }
 
     @Override

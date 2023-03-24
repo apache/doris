@@ -527,11 +527,6 @@ public class SlotRef extends Expr {
     }
 
     @Override
-    public void finalizeImplForNereids() throws AnalysisException {
-
-    }
-
-    @Override
     public String toString() {
         StringBuilder builder = new StringBuilder();
         if (tblName != null) {

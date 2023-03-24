@@ -20,17 +20,15 @@ package org.apache.doris.nereids.rules.exploration.join;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
+import org.apache.doris.nereids.rules.exploration.join.SemiJoinLogicalJoinTransposeProject.ContainsType;
 import org.apache.doris.nereids.trees.expressions.ExprId;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 
-import java.util.List;
 import java.util.Set;
 
 /**
@@ -56,9 +54,8 @@ public class SemiJoinLogicalJoinTranspose extends OneExplorationRuleFactory {
         return logicalJoin(logicalJoin(), group())
                 .when(topJoin -> (topJoin.getJoinType().isLeftSemiOrAntiJoin()
                         && (topJoin.left().getJoinType().isInnerJoin()
-                                || topJoin.left().getJoinType().isLeftOuterJoin()
-                                || topJoin.left().getJoinType().isRightOuterJoin())))
-                .when(this::conditionChecker)
+                        || topJoin.left().getJoinType().isLeftOuterJoin()
+                        || topJoin.left().getJoinType().isRightOuterJoin())))
                 .whenNot(topJoin -> topJoin.hasJoinHint() || topJoin.left().hasJoinHint())
                 .whenNot(LogicalJoin::isMarkJoin)
                 .then(topSemiJoin -> {
@@ -67,16 +64,13 @@ public class SemiJoinLogicalJoinTranspose extends OneExplorationRuleFactory {
                     GroupPlan b = bottomJoin.right();
                     GroupPlan c = topSemiJoin.right();
 
-                    List<Expression> hashJoinConjuncts = topSemiJoin.getHashJoinConjuncts();
-                    Set<ExprId> aOutputExprIdSet = a.getOutputExprIdSet();
-
-                    boolean lasscom = false;
-                    for (Expression hashJoinConjunct : hashJoinConjuncts) {
-                        Set<ExprId> usedSlotExprIds = hashJoinConjunct.getInputSlotExprIds();
-                        lasscom = Utils.isIntersecting(usedSlotExprIds, aOutputExprIdSet) || lasscom;
+                    Set<ExprId> conjunctsIds = topSemiJoin.getConditionExprId();
+                    ContainsType containsType = SemiJoinLogicalJoinTransposeProject.containsChildren(conjunctsIds,
+                            a.getOutputExprIdSet(), b.getOutputExprIdSet());
+                    if (containsType == ContainsType.ALL) {
+                        return null;
                     }
-
-                    if (lasscom) {
+                    if (containsType == ContainsType.LEFT) {
                         /*
                          *    topSemiJoin                newTopJoin
                          *      /     \                 /         \
@@ -90,6 +84,9 @@ public class SemiJoinLogicalJoinTranspose extends OneExplorationRuleFactory {
                         Plan newBottomSemiJoin = topSemiJoin.withChildren(a, c);
                         return bottomJoin.withChildren(newBottomSemiJoin, b);
                     } else {
+                        if (leftDeep) {
+                            return null;
+                        }
                         /*
                          *    topSemiJoin            newTopJoin
                          *      /     \             /         \
@@ -104,26 +101,5 @@ public class SemiJoinLogicalJoinTranspose extends OneExplorationRuleFactory {
                         return bottomJoin.withChildren(a, newBottomSemiJoin);
                     }
                 }).toRule(RuleType.LOGICAL_SEMI_JOIN_LOGICAL_JOIN_TRANSPOSE);
-    }
-
-    // bottomJoin just return A OR B, else return false.
-    private boolean conditionChecker(LogicalJoin<LogicalJoin<GroupPlan, GroupPlan>, GroupPlan> topSemiJoin) {
-        List<Expression> hashJoinConjuncts = topSemiJoin.getHashJoinConjuncts();
-
-        Set<ExprId> aOutputExprIdSet = topSemiJoin.left().left().getOutputExprIdSet();
-        Set<ExprId> bOutputExprIdSet = topSemiJoin.left().right().getOutputExprIdSet();
-
-        boolean hashContainsA = false;
-        boolean hashContainsB = false;
-        for (Expression hashJoinConjunct : hashJoinConjuncts) {
-            Set<ExprId> usedSlotExprIds = hashJoinConjunct.getInputSlotExprIds();
-            hashContainsA = Utils.isIntersecting(usedSlotExprIds, aOutputExprIdSet) || hashContainsA;
-            hashContainsB = Utils.isIntersecting(usedSlotExprIds, bOutputExprIdSet) || hashContainsB;
-        }
-        if (leftDeep && hashContainsB) {
-            return false;
-        }
-        Preconditions.checkState(hashContainsA || hashContainsB, "join output must contain child");
-        return !(hashContainsA && hashContainsB);
     }
 }

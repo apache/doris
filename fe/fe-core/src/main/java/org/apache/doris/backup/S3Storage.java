@@ -128,7 +128,7 @@ public class S3Storage extends BlobStorage {
             S3Properties.requiredS3Properties(caseInsensitiveProperties);
             Configuration conf = new Configuration();
             System.setProperty("com.amazonaws.services.s3.enableV4", "true");
-            PropertyConverter.convert(caseInsensitiveProperties).forEach(conf::set);
+            PropertyConverter.storageConvert(caseInsensitiveProperties).forEach(conf::set);
             try {
                 dfsFileSystem = FileSystem.get(new URI(remotePath), conf);
             } catch (Exception e) {
@@ -358,7 +358,8 @@ public class S3Storage extends BlobStorage {
             for (FileStatus fileStatus : files) {
                 RemoteFile remoteFile = new RemoteFile(
                         fileNameOnly ? fileStatus.getPath().getName() : fileStatus.getPath().toString(),
-                        !fileStatus.isDirectory(), fileStatus.isDirectory() ? -1 : fileStatus.getLen());
+                        !fileStatus.isDirectory(), fileStatus.isDirectory() ? -1 : fileStatus.getLen(),
+                        fileStatus.getBlockSize());
                 result.add(remoteFile);
             }
         } catch (FileNotFoundException e) {

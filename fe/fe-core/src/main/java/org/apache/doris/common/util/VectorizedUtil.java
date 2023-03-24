@@ -41,13 +41,4 @@ public class VectorizedUtil {
         }
         return connectContext.getSessionVariable().enablePipelineEngine();
     }
-
-    public static boolean optRpcForPipeline() {
-        ConnectContext connectContext = ConnectContext.get();
-        if (connectContext == null) {
-            return false;
-        }
-        return connectContext.getSessionVariable().enablePipelineEngine()
-                && connectContext.getSessionVariable().enableRpcOptForPipeline();
-    }
 }

@@ -40,8 +40,9 @@ Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor&
     }
     const SlotDescriptor* slot_desc = state->desc_tbl().get_slot_descriptor(_slot_id);
     if (slot_desc == nullptr) {
-        return Status::Error<ErrorCode::INTERNAL_ERROR>("couldn't resolve slot descriptor {}",
-                                                        _slot_id);
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                "couldn't resolve slot descriptor {}, desc: {}", _slot_id,
+                state->desc_tbl().debug_string());
     }
     _column_name = &slot_desc->col_name();
     if (!slot_desc->need_materialize()) {

@@ -22,6 +22,8 @@ import org.apache.doris.datasource.iceberg.dlf.DLFCatalog;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 
+import com.aliyun.datalake.metastore.common.DataLakeConfig;
+
 import java.util.Map;
 
 public class IcebergDLFExternalCatalog extends IcebergExternalCatalog {
@@ -29,7 +31,7 @@ public class IcebergDLFExternalCatalog extends IcebergExternalCatalog {
     public IcebergDLFExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
         super(catalogId, name);
         props.put(HMSProperties.HIVE_METASTORE_TYPE, "dlf");
-        props = PropertyConverter.convert(props);
+        props = PropertyConverter.metaConvert(props);
         catalogProperty = new CatalogProperty(resource, props);
     }
 
@@ -40,7 +42,7 @@ public class IcebergDLFExternalCatalog extends IcebergExternalCatalog {
         dlfCatalog.setConf(getConfiguration());
         // initialize catalog
         Map<String, String> catalogProperties = catalogProperty.getHadoopProperties();
-        String dlfUid = catalogProperties.get("dlf.catalog.uid");
+        String dlfUid = catalogProperties.get(DataLakeConfig.CATALOG_USER_ID);
         dlfCatalog.initialize(dlfUid, catalogProperties);
         catalog = dlfCatalog;
     }

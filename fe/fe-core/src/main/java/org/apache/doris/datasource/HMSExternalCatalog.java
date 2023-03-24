@@ -62,7 +62,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     public HMSExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
         super(catalogId, name);
         this.type = "hms";
-        props = PropertyConverter.convert(props);
+        props = PropertyConverter.metaConvert(props);
         catalogProperty = new CatalogProperty(resource, props);
     }
 

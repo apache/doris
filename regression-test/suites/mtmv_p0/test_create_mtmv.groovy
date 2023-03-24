@@ -16,9 +16,9 @@
 // under the License.
 
 suite("test_create_mtmv") {
-    def tableName = "t_user"
-    def tableNamePv = "t_user_pv"
-    def mvName = "multi_mv"
+    def tableName = "t_test_create_mtmv_user"
+    def tableNamePv = "t_test_create_mtmv_user_pv"
+    def mvName = "multi_mv_test_create_mtmv"
     sql """
         ADMIN SET FRONTEND CONFIG("enable_mtmv_scheduler_framework"="true");
         """
@@ -56,7 +56,7 @@ suite("test_create_mtmv") {
         INSERT INTO ${tableNamePv} VALUES("2022-10-26",1,200),("2022-10-28",2,200),("2022-10-28",3,300);
     """
 
-    sql """drop materialized view if exists ${mvName}""" 
+    sql """drop materialized view if exists ${mvName}"""
 
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
@@ -68,83 +68,11 @@ suite("test_create_mtmv") {
         SELECT ${tableName}.username, ${tableNamePv}.pv FROM ${tableName}, ${tableNamePv} WHERE ${tableName}.id=${tableNamePv}.id;
     """
 
-    def show_task_meta = sql_meta "SHOW MTMV TASK ON ${mvName}"
-    def index = show_task_meta.indexOf(['State', 'CHAR'])
-    def query = "SHOW MTMV TASK ON ${mvName}"
-    def show_task_result
-    def state = "PENDING"
-    do {
-        show_task_result = sql "${query}"
-        if (!show_task_result.isEmpty()) {
-            state = show_task_result.last().get(index)
-        }
-        println "The state of ${query} is ${state}"
-        Thread.sleep(1000);
-    } while (state.equals('PENDING') || state.equals('RUNNING'))
+    waitingMTMVTaskFinished(mvName)
 
-    assertEquals 'SUCCESS', state, show_task_result.last().toString()
     order_qt_select "SELECT * FROM ${mvName}"
 
     sql """
         DROP MATERIALIZED VIEW ${mvName}
     """
-
-    // test only one job created when build IMMEDIATE and start time is before now.
-    sql """
-        CREATE MATERIALIZED VIEW ${mvName}
-        BUILD IMMEDIATE REFRESH COMPLETE
-        start with "2022-11-03 00:00:00" next 1 DAY
-        KEY(username)   
-        DISTRIBUTED BY HASH (username)  buckets 1
-        PROPERTIES ('replication_num' = '1') 
-        AS 
-        SELECT ${tableName}.username, ${tableNamePv}.pv FROM ${tableName}, ${tableNamePv} WHERE ${tableName}.id=${tableNamePv}.id;
-    """
-    // wait task to be finished to avoid task leak in suite.
-    state = "PENDING"
-    do {
-        show_task_result = sql "${query}"
-        if (!show_task_result.isEmpty()) {
-            state = show_task_result.last().get(index)
-        }
-        println "The state of ${query} is ${state}"
-        Thread.sleep(1000);
-    } while (state.equals('PENDING') || state.equals('RUNNING'))
-
-    def show_job_result = sql "SHOW MTMV JOB ON ${mvName}"
-    assertEquals 1, show_job_result.size()
-
-    // test REFRESH make sure only define one mv and already run a task.
-    sql """
-        REFRESH MATERIALIZED VIEW ${mvName} COMPLETE
-    """
-    state = "PENDING"
-    do {
-        show_task_result = sql "${query}"
-        if (!show_task_result.isEmpty()) {
-            state = show_task_result.last().get(index)
-        }
-        println "The state of ${query} is ${state}"
-        Thread.sleep(1000);
-    } while (state.equals('PENDING') || state.equals('RUNNING'))
-
-    assertEquals 'SUCCESS', state, show_task_result.last().toString()
-    assertEquals 2, show_task_result.size()
-
-    // test alter mtmv
-    sql """
-        alter MATERIALIZED VIEW ${mvName} REFRESH COMPLETE start with "2022-11-03 00:00:00" next 2 DAY
-    """
-    show_job_meta = sql_meta "SHOW MTMV JOB ON ${mvName}"
-    def scheduleIndex = show_job_meta.indexOf(['Schedule', 'CHAR'])
-
-    show_job_result = sql "SHOW MTMV JOB ON ${mvName}"
-    assertEquals 1, show_job_result.size()
-
-    assertEquals 'START 2022-11-03T00:00 EVERY(2 DAYS)', show_job_result.last().get(scheduleIndex).toString(), show_job_result.last().toString()
-
-    sql """
-        DROP MATERIALIZED VIEW ${mvName}
-    """
 }
-

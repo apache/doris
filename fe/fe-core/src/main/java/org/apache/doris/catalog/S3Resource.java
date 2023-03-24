@@ -88,8 +88,11 @@ public class S3Resource extends Resource {
         Preconditions.checkState(properties != null);
         this.properties = properties;
         // check properties
-        checkRequiredS3Properties();
-
+        if (properties.containsKey(S3Properties.ENDPOINT)) {
+            checkRequiredS3Properties();
+        } else {
+            checkRequiredS3EnvProperties();
+        }
         // default need check resource conf valid, so need fix ut and regression case
         boolean needCheck = !properties.containsKey(S3Properties.VALIDITY_CHECK)
                 || Boolean.parseBoolean(properties.get(S3Properties.VALIDITY_CHECK));
@@ -100,14 +103,8 @@ public class S3Resource extends Resource {
                 throw new DdlException("S3 can't use, please check your properties");
             }
         }
-
         // optional
-        checkOptionalProperty(S3Properties.Environment.MAX_CONNECTIONS,
-                S3Properties.Environment.DEFAULT_MAX_CONNECTIONS);
-        checkOptionalProperty(S3Properties.Environment.REQUEST_TIMEOUT_MS,
-                S3Properties.Environment.DEFAULT_REQUEST_TIMEOUT_MS);
-        checkOptionalProperty(S3Properties.Environment.CONNECTION_TIMEOUT_MS,
-                S3Properties.Environment.DEFAULT_CONNECTION_TIMEOUT_MS);
+        checkOptionalS3Property();
     }
 
     private boolean pingS3(Map<String, String> properties) {
@@ -142,12 +139,20 @@ public class S3Resource extends Resource {
         return true;
     }
 
+    private void checkRequiredS3EnvProperties() throws DdlException {
+        checkRequiredProperty(S3Properties.Environment.ENDPOINT);
+        checkRequiredProperty(S3Properties.Environment.REGION);
+        checkRequiredProperty(S3Properties.Environment.ACCESS_KEY);
+        checkRequiredProperty(S3Properties.Environment.SECRET_KEY);
+        checkRequiredProperty(S3Properties.Environment.BUCKET);
+    }
+
     private void checkRequiredS3Properties() throws DdlException {
         checkRequiredProperty(S3Properties.ENDPOINT);
         checkRequiredProperty(S3Properties.REGION);
         checkRequiredProperty(S3Properties.ACCESS_KEY);
         checkRequiredProperty(S3Properties.SECRET_KEY);
-        checkRequiredProperty(S3Properties.Environment.BUCKET);
+        checkRequiredProperty(S3Properties.BUCKET);
     }
 
     private void checkRequiredProperty(String propertyKey) throws DdlException {
@@ -155,6 +160,24 @@ public class S3Resource extends Resource {
 
         if (Strings.isNullOrEmpty(value)) {
             throw new DdlException("Missing [" + propertyKey + "] in properties.");
+        }
+    }
+
+    private void checkOptionalS3Property() {
+        if (properties.containsKey(S3Properties.ENDPOINT)) {
+            checkOptionalProperty(S3Properties.MAX_CONNECTIONS,
+                    S3Properties.Environment.DEFAULT_MAX_CONNECTIONS);
+            checkOptionalProperty(S3Properties.REQUEST_TIMEOUT_MS,
+                    S3Properties.Environment.DEFAULT_REQUEST_TIMEOUT_MS);
+            checkOptionalProperty(S3Properties.CONNECTION_TIMEOUT_MS,
+                    S3Properties.Environment.DEFAULT_CONNECTION_TIMEOUT_MS);
+        } else {
+            checkOptionalProperty(S3Properties.Environment.MAX_CONNECTIONS,
+                    S3Properties.Environment.DEFAULT_MAX_CONNECTIONS);
+            checkOptionalProperty(S3Properties.Environment.REQUEST_TIMEOUT_MS,
+                    S3Properties.Environment.DEFAULT_REQUEST_TIMEOUT_MS);
+            checkOptionalProperty(S3Properties.Environment.CONNECTION_TIMEOUT_MS,
+                    S3Properties.Environment.DEFAULT_CONNECTION_TIMEOUT_MS);
         }
     }
 

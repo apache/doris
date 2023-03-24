@@ -844,7 +844,7 @@ public final class AggregateInfo extends AggregateInfoBase {
         // why output and intermediate may have different materialized slots?
         // because some slot is materialized by materializeSrcExpr method directly
         // in that case, only output slots is materialized
-        // assume output tuple has correct marterialized infomation
+        // assume output tuple has correct materialized information
         // we update intermediate tuple and materializedSlots based on output tuple
         materializedSlots.clear();
         ArrayList<SlotDescriptor> outputSlots = outputTupleDesc.getSlots();

@@ -1362,6 +1362,14 @@ public class SingleNodePlanner {
                     tupleSelectFailed = true;
                 } else {
                     try {
+                        // mv index have where clause, so where expr on scan node is unused.
+                        Expr whereExpr = olapScanNode.getOlapTable()
+                                .getIndexMetaByIndexId(bestIndexInfo.getBestIndexId())
+                                .getWhereClause();
+                        if (whereExpr != null) {
+                            olapScanNode.ignoreConjuncts();
+                        }
+
                         // if the new selected index id is different from the old one, scan node will be
                         // updated.
                         olapScanNode.updateScanRangeInfoByNewMVSelector(bestIndexInfo.getBestIndexId(),

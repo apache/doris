@@ -31,8 +31,6 @@ import org.apache.doris.nereids.util.Utils;
 import com.google.common.base.Preconditions;
 
 import java.util.Set;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * <ul>
@@ -68,9 +66,7 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
                     GroupPlan b = bottomJoin.right();
                     GroupPlan c = topSemiJoin.right();
 
-                    Set<ExprId> conjunctsIds = Stream.concat(topSemiJoin.getHashJoinConjuncts().stream(),
-                                    topSemiJoin.getOtherJoinConjuncts().stream())
-                            .flatMap(expr -> expr.getInputSlotExprIds().stream()).collect(Collectors.toSet());
+                    Set<ExprId> conjunctsIds = topSemiJoin.getConditionExprId();
                     ContainsType containsType = containsChildren(conjunctsIds, a.getOutputExprIdSet(),
                             b.getOutputExprIdSet());
                     if (containsType == ContainsType.ALL) {
@@ -120,7 +116,10 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
         LEFT, RIGHT, ALL
     }
 
-    private ContainsType containsChildren(Set<ExprId> conjunctsExprIdSet, Set<ExprId> left, Set<ExprId> right) {
+    /**
+     * Check conjuncts contain children.
+     */
+    public static ContainsType containsChildren(Set<ExprId> conjunctsExprIdSet, Set<ExprId> left, Set<ExprId> right) {
         boolean containsLeft = Utils.isIntersecting(conjunctsExprIdSet, left);
         boolean containsRight = Utils.isIntersecting(conjunctsExprIdSet, right);
         Preconditions.checkState(containsLeft || containsRight, "join output must contain child");

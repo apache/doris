@@ -21,6 +21,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
@@ -166,6 +167,18 @@ public class BinaryPredicate extends Predicate implements Writable {
         children.add(e1);
         Preconditions.checkNotNull(e2);
         children.add(e2);
+    }
+
+    public BinaryPredicate(Operator op, Expr e1, Expr e2, Type retType, NullableMode nullableMode) {
+        super();
+        this.op = op;
+        this.opcode = op.opcode;
+        Preconditions.checkNotNull(e1);
+        children.add(e1);
+        Preconditions.checkNotNull(e2);
+        children.add(e2);
+        fn = new Function(new FunctionName(op.name), Lists.newArrayList(e1.getType(), e2.getType()), retType,
+                false, true, nullableMode);
     }
 
     protected BinaryPredicate(BinaryPredicate other) {
@@ -778,11 +791,5 @@ public class BinaryPredicate extends Predicate implements Writable {
             return false;
         }
         return hasNullableChild();
-    }
-
-    @Override
-    public void finalizeImplForNereids() throws AnalysisException {
-        super.finalizeImplForNereids();
-        fn = getBuiltinFunction(op.name, collectChildReturnTypes(), Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
     }
 }
