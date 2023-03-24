@@ -519,9 +519,8 @@ public:
         check_set_nullable(argument_columns[0], result_null_map);
 
         for (int i = 1; i < argument_size; ++i) {
-            // no need to unpack as we'll use its string_ref value.
-            argument_columns[i] = block.get_by_position(arguments[i]).column;
-            col_const[i] = is_column_const(*argument_columns[i]);
+            std::tie(argument_columns[i], col_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
             check_set_nullable(argument_columns[i], result_null_map);
         }
 
@@ -544,8 +543,6 @@ public:
                                    result_offset, result_null_map->get_data());
             }
         }
-        Impl::execute_impl(context, argument_columns, input_rows_count, result_data, result_offset,
-                           result_null_map->get_data());
 
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(result_data_column), std::move(result_null_map));

@@ -178,7 +178,7 @@ Status PreparedFunctionImpl::default_implementation_for_constant_arguments(
         // If we unpack it, there will be unnecessary cost of virtual judge.
         if (args_expect_const.end() !=
             std::find(args_expect_const.begin(), args_expect_const.end(), arg_num)) {
-            temporary_block.insert({column.column->clone_resized(1), column.type, column.name});
+            temporary_block.insert({column.column, column.type, column.name});
         } else {
             temporary_block.insert(
                     {assert_cast<const ColumnConst*>(column.column.get())->get_data_column_ptr(),

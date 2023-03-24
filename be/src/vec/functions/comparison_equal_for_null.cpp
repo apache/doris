@@ -23,7 +23,7 @@
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
-//TODO: add manual info to docs.
+// Operator <=>
 class FunctionEqForNull : public IFunction {
 public:
     static constexpr auto name = "eq_for_null";
@@ -39,6 +39,7 @@ public:
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
+    bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
@@ -48,7 +49,7 @@ public:
         const auto& [left_col, left_const] = unpack_if_const(col_left.column);
         const auto& [right_col, right_const] = unpack_if_const(col_right.column);
         const auto left_column = check_and_get_column<ColumnNullable>(left_col);
-        const auto right_column = check_and_get_column<ColumnNullable>(left_col);
+        const auto right_column = check_and_get_column<ColumnNullable>(right_col);
 
         bool left_nullable = left_column != nullptr;
         bool right_nullable = right_column != nullptr;
@@ -93,7 +94,7 @@ public:
             }
 
             block.get_by_position(result).column = temporary_block.get_by_position(2).column;
-        } else {
+        } else { //left_nullable != right_nullable
             auto return_type = make_nullable(std::make_shared<DataTypeUInt8>());
 
             const ColumnsWithTypeAndName eq_columns {
@@ -127,11 +128,7 @@ private:
     static ALWAYS_INLINE void _exec_nullable_equal(unsigned char* result, const unsigned char* left,
                                                    const unsigned char* right, size_t rows,
                                                    bool left_const, bool right_const) {
-        if (left_const && right_const) {
-            for (int i = 0; i < rows; ++i) {
-                result[i] |= left[0] & (left[0] == right[0]);
-            }
-        } else if (left_const) {
+        if (left_const) {
             for (int i = 0; i < rows; ++i) {
                 result[i] |= left[0] & (left[0] == right[i]);
             }
