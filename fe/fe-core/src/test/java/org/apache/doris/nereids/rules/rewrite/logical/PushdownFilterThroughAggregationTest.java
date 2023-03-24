@@ -18,11 +18,14 @@
 package org.apache.doris.nereids.rules.rewrite.logical;
 
 import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -39,6 +42,8 @@ import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 public class PushdownFilterThroughAggregationTest implements MemoPatternMatchSupported {
+    private final LogicalOlapScan scan = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student,
+            ImmutableList.of(""));
 
     /*-
      * origin plan:
@@ -61,8 +66,6 @@ public class PushdownFilterThroughAggregationTest implements MemoPatternMatchSup
      */
     @Test
     public void pushDownPredicateOneFilterTest() {
-        LogicalPlan scan = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student,
-                ImmutableList.of(""));
         Slot gender = scan.getOutput().get(1);
 
         Expression filterPredicate = new GreaterThan(gender, Literal.of(1));
@@ -89,7 +92,7 @@ public class PushdownFilterThroughAggregationTest implements MemoPatternMatchSup
      * origin plan:
      *                project
      *                  |
-     *                filter gender=1 and name="abc" and (gender+10)<100
+     *                filter gender=1 and nameMax="abc" and (gender+10)<100
      *                  |
      *               aggregation group by gender
      *                  |
@@ -98,7 +101,7 @@ public class PushdownFilterThroughAggregationTest implements MemoPatternMatchSup
      *  transformed plan:
      *                project
      *                  |
-     *                filter name="abc"
+     *                filter nameMax="abc"
      *                  |
      *               aggregation group by gender
      *                  |
@@ -108,20 +111,19 @@ public class PushdownFilterThroughAggregationTest implements MemoPatternMatchSup
      */
     @Test
     public void pushDownPredicateTwoFilterTest() {
-        LogicalPlan scan = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student,
-                ImmutableList.of(""));
         Slot gender = scan.getOutput().get(1);
-        Slot name = scan.getOutput().get(2);
+        NamedExpression nameMax = new Alias(new Max(scan.getOutput().get(2)), "nameMax");
 
         Expression filterPredicate = ExpressionUtils.and(
                 new GreaterThan(gender, Literal.of(1)),
                 new LessThanEqual(
                         new Add(gender, Literal.of(10)),
                         Literal.of(100)),
-                new EqualTo(name, Literal.of("abc")));
+                new EqualTo(nameMax.toSlot(), Literal.of("abc")));
 
         LogicalPlan plan = new LogicalPlanBuilder(scan)
-                .aggAllUsingIndex(ImmutableList.of(3, 1), ImmutableList.of(1, 3))
+                .aggGroupUsingIndex(ImmutableList.of(3, 1), ImmutableList.of(
+                        scan.getOutput().get(1), scan.getOutput().get(3), nameMax))
                 .filter(filterPredicate)
                 .project(ImmutableList.of(0))
                 .build();
