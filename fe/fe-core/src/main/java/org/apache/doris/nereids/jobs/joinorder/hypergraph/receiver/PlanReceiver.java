@@ -56,7 +56,6 @@ import java.util.BitSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -69,6 +68,7 @@ public class PlanReceiver implements AbstractReceiver {
     HashMap<Long, Group> planTable = new HashMap<>();
     HashMap<Long, BitSet> usdEdges = new HashMap<>();
     HashMap<Long, List<NamedExpression>> projectsOnSubgraph = new HashMap<>();
+    HashMap<Long, List<NamedExpression>> complexProjectMap = new HashMap<>();
     int limit;
     int emitCount = 0;
 
@@ -293,10 +293,13 @@ public class PlanReceiver implements AbstractReceiver {
 
     @Override
     public void reset() {
+        Preconditions.checkArgument(complexProjectMap.isEmpty(),
+                "complexProjectMap should be empty when call reset()");
         planTable.clear();
         projectsOnSubgraph.clear();
         usdEdges.clear();
         emitCount = 0;
+        complexProjectMap.putAll(hyperGraph.getComplexProject());
     }
 
     @Override
@@ -360,13 +363,12 @@ public class PlanReceiver implements AbstractReceiver {
         if (!projectsOnSubgraph.containsKey(fullKey)) {
             List<NamedExpression> projects = new ArrayList<>();
             // Calculate complex expression
-            Map<Long, List<NamedExpression>> complexExpressionMap = hyperGraph.getComplexProject();
-            List<Long> bitmaps = complexExpressionMap.keySet().stream()
+            List<Long> bitmaps = complexProjectMap.keySet().stream()
                     .filter(bitmap -> LongBitmap.isSubset(bitmap, fullKey)).collect(Collectors.toList());
 
             for (long bitmap : bitmaps) {
-                projects.addAll(complexExpressionMap.get(bitmap));
-                complexExpressionMap.remove(bitmap);
+                projects.addAll(complexProjectMap.get(bitmap));
+                complexProjectMap.remove(bitmap);
             }
 
             // calculate required columns
