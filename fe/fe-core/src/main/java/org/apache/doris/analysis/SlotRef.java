@@ -231,13 +231,12 @@ public class SlotRef extends Expr {
 
     @Override
     public String toSqlImpl() {
-        if (showOriginalName && label != null) {
-            return label;
-        }
-
         StringBuilder sb = new StringBuilder();
 
         if (tblName != null) {
+            if (showOriginalName && ConnectContext.get().getState().isQuery()) {
+                return label;
+            }
             return tblName.toSql() + "." + label;
         } else if (label != null) {
             if (ConnectContext.get() != null
