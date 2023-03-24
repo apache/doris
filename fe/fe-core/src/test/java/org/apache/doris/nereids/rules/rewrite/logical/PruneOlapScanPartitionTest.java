@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -130,6 +131,7 @@ class PruneOlapScanPartitionTest extends TestWithFeService implements MemoPatter
                 notNullSingleColumnPartitionTable,
                 multipleColumnsPartitionTable,
                 notNullMultipleColumnsPartitionTable);
+        FeConstants.runningUnitTest = true;
     }
 
     @Test
