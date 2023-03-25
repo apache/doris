@@ -189,7 +189,7 @@ CREATE CATALOG hana_catalog PROPERTIES (
 `driver_class` | 是 |  | JDBC Driver Class 名称 |
 `only_specified_database` | 否 | "false" | 指定是否只同步指定的 database  |
 `lower_case_table_names` | 否 | "false" | 是否以小写的形式同步jdbc外部数据源的表名 |
-`specified_database_list` | 否 | "" | 当only_specified_database=true时，指定同步多个database，以','分隔 |
+`specified_database_list` | 否 | "" | 当only_specified_database=true时，指定同步多个database，以','分隔。db名称是大小写敏感的。 |
 
 > `driver_url` 可以通过以下三种方式指定：
 > 

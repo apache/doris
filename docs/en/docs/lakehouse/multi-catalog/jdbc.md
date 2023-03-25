@@ -188,7 +188,7 @@ CREATE CATALOG hana_catalog PROPERTIES (
 | `driver_class ` | Yes             |               | JDBC Driver Class                                  |
 | `only_specified_database` | No             |     "false"          | Whether only the database specified to be synchronized.                                  |
 | `lower_case_table_names` | No             |     "false"          | Whether to synchronize jdbc external data source table names in lower case. |
-| `specified_database_list` | No             |     ""          | When only_specified_database=true，only synchronize the specified databases. split with ','|
+| `specified_database_list` | No             |     ""          | When only_specified_database=true，only synchronize the specified databases. split with ','. db name is case sensitive.|
 
 > `driver_url` can be specified in three ways:
 >
