@@ -735,6 +735,9 @@ public class ExternalFileScanNode extends ExternalScanNode {
                             .append(" length: ").append(file.getFileSize())
                             .append("\n");
                 }
+                if (files.size() > 3) {
+                    output.append(prefix).append("    ...other ").append(files.size() - 3).append(" files\n");
+                }
             }
         }
 
