@@ -801,7 +801,8 @@ public:
             }
 
             const auto& json_str = col_from_string->get_data_at(i);
-            if (json_str.size < 2 || json_str.data[0] != '"' || json_str.data[json_str.size - 1] != '"') {
+            if (json_str.size < 2 || json_str.data[0] != '"' ||
+                json_str.data[json_str.size - 1] != '"') {
                 // non-quoted string
                 col_to->insert_data(json_str.data, json_str.size);
             } else {
