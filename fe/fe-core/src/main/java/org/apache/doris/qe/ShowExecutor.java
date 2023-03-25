@@ -485,11 +485,6 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
-    // Handle show create function
-    private void handleShowCreateFunction() throws AnalysisException {
-        ShowCreateFunctionStmt showCreateFunctionStmt = (ShowCreateFunctionStmt) stmt;
-        Util.prohibitExternalCatalog(ctx.getDefaultCatalog(), stmt.getClass().getSimpleName());
-        DatabaseIf db = ctx.getCurrentCatalog().getDbOrAnalysisException(showCreateFunctionStmt.getDbName());
     /***
      * get resultRowSet by showFunctionsStmt
      * @param showStmt
