@@ -1713,6 +1713,10 @@ public abstract class Type {
 
     // Whether `type1` matches the exact type of `type2`.
     public static boolean matchExactType(Type type1, Type type2) {
+        return matchExactType(type1, type2, false);
+    }
+
+    public static boolean matchExactType(Type type1, Type type2, boolean ignorePrecision) {
         if (type1.matchesType(type2)) {
             if (PrimitiveType.typeWithPrecision.contains(type2.getPrimitiveType())) {
                 // For types which has precision and scale, we also need to check quality between precisions and scales
@@ -1720,6 +1724,10 @@ public abstract class Type {
                         == ((ScalarType) type1).decimalPrecision()) && (((ScalarType) type2).decimalScale()
                         == ((ScalarType) type1).decimalScale())) {
                     return true;
+                } else if (((ScalarType) type2).decimalScale() == ((ScalarType) type1).decimalScale()
+                        && ignorePrecision) {
+                    return isSameDecimalTypeWithDifferentPrecision(((ScalarType) type2).decimalPrecision(),
+                            ((ScalarType) type1).decimalPrecision());
                 }
             } else if (type2.isArrayType()) {
                 // For types array, we also need to check contains null for case like
@@ -1730,6 +1738,21 @@ public abstract class Type {
             } else {
                 return true;
             }
+        }
+        return false;
+    }
+
+    public static boolean isSameDecimalTypeWithDifferentPrecision(int precision1, int precision2) {
+        if (precision1 <= ScalarType.MAX_DECIMAL32_PRECISION && precision2 <= ScalarType.MAX_DECIMAL32_PRECISION) {
+            return true;
+        } else if (precision1 > ScalarType.MAX_DECIMAL32_PRECISION && precision2 > ScalarType.MAX_DECIMAL32_PRECISION
+                && precision1 <= ScalarType.MAX_DECIMAL64_PRECISION
+                && precision2 <= ScalarType.MAX_DECIMAL64_PRECISION) {
+            return true;
+        } else if (precision1 > ScalarType.MAX_DECIMAL64_PRECISION && precision2 > ScalarType.MAX_DECIMAL64_PRECISION
+                && precision1 <= ScalarType.MAX_DECIMAL128_PRECISION
+                && precision2 <= ScalarType.MAX_DECIMAL128_PRECISION) {
+            return true;
         }
         return false;
     }

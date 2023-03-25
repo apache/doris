@@ -281,7 +281,7 @@ public class CastExpr extends Expr {
         Type childType = getChild(0).getType();
 
         // this cast may result in loss of precision, but the user requested it
-        noOp = Type.matchExactType(childType, type);
+        noOp = Type.matchExactType(childType, type, true);
 
         if (noOp) {
             // For decimalv2, we do not perform an actual cast between different precision/scale. Instead, we just
