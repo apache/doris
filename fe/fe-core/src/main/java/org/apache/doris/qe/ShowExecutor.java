@@ -1789,7 +1789,6 @@ public class ShowExecutor {
         for (List<String> row : backendInfos) {
             row.remove(BackendsProcDir.HOSTNAME_INDEX);
         }
-        
         backendInfos.sort(new Comparator<List<String>>() {
             @Override
             public int compare(List<String> o1, List<String> o2) {
