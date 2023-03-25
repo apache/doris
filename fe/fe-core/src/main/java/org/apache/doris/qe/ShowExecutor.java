@@ -482,6 +482,7 @@ public class ShowExecutor {
             row.add(Integer.toString(type.getSlotSize()));
             rows.add(row);
         }
+        showStmt.sortMetaData(rows);
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 

@@ -25,6 +25,9 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
 
 public class ShowDataTypesStmt extends ShowStmt {
 
@@ -54,6 +57,15 @@ public class ShowDataTypesStmt extends ShowStmt {
     @Override
     public String toString() {
         return toSql();
+    }
+
+    public void sortMetaData(List<List<String>> rows) {
+        Collections.sort(rows, new Comparator<List<String>>() {
+            @Override
+            public int compare(List<String> row1, List<String> row2) {
+                return row1.get(0).compareTo(row2.get(0));
+            }
+        });
     }
 
     @Override
