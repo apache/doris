@@ -60,7 +60,6 @@ public class Validator extends PlanPostProcessor {
             throw new AnalysisException("Nereids must merge a project-project plan");
         }
 
-        child.accept(this, context);
         return visit(project, context);
     }
 
@@ -76,7 +75,6 @@ public class Validator extends PlanPostProcessor {
                     "Nereids generate a filter-project plan, but backend not support:\n" + filter.treeString());
         }
 
-        child.accept(this, context);
         return visit(filter, context);
     }
 
