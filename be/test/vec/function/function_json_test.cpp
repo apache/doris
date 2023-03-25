@@ -49,6 +49,19 @@ TEST(FunctionJsonTEST, GetJsonIntTest) {
     check_function<DataTypeInt32, true>(func_name, input_types, data_set);
 }
 
+TEST(FunctionJsonTEST, GetJsonBigIntTest) {
+    std::string func_name = "get_json_bigint";
+    InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
+    DataSet data_set = {
+            {{VARCHAR("{\"k1\":1, \"k2\":2}"), VARCHAR("$.k1")}, Int64(1)},
+            {{VARCHAR("{\"k1\":1678708107000, \"k2\":2}"), VARCHAR("$.k1")}, Int64(1678708107000)},
+            {{VARCHAR("{\"k1\":\"v1\", \"my.key\":[1, 2, 3]}"), VARCHAR("$.\"my.key\"[1]")},
+             Int64(2)},
+            {{VARCHAR("{\"k1.key\":{\"k2\":[1, 2]}}"), VARCHAR("$.\"k1.key\".k2[0]")}, Int64(1)}};
+
+    check_function<DataTypeInt64, true>(func_name, input_types, data_set);
+}
+
 TEST(FunctionJsonTEST, GetJsonStringTest) {
     std::string func_name = "get_json_string";
     InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};

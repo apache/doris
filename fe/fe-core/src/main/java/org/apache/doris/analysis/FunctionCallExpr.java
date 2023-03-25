@@ -415,13 +415,17 @@ public class FunctionCallExpr extends Expr {
         } else if (type.isBoolean()) {
             return 1;
         } else if (type.isFixedPointType()) {
-            return 2;
+            if (type.isInteger32Type()) {
+                return 2;
+            } else {
+                return 5;
+            }
         } else if (type.isFloatingPointType() || type.isDecimalV2() || type.isDecimalV3()) {
             return 3;
         } else if (type.isTime()) {
             return 4;
         } else {
-            return 5;
+            return 6;
         }
     }
 
