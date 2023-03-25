@@ -138,6 +138,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Fpow;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromDays;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonBigInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonDouble;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonString;
@@ -851,6 +852,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitGetJsonInt(GetJsonInt getJsonInt, C context) {
         return visitScalarFunction(getJsonInt, context);
+    }
+
+    default R visitGetJsonBigInt(GetJsonBigInt getJsonBigInt, C context) {
+        return visitScalarFunction(getJsonBigInt, context);
     }
 
     default R visitGetJsonString(GetJsonString getJsonString, C context) {

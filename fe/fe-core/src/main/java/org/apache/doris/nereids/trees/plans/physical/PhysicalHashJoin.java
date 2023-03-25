@@ -108,9 +108,15 @@ public class PhysicalHashJoin<
         List<Object> args = Lists.newArrayList("type", joinType,
                 "hashJoinCondition", hashJoinConjuncts,
                 "otherJoinCondition", otherJoinConjuncts,
-                "isMarkJoin", markJoinSlotReference.isPresent(),
-                "MarkJoinSlotReference", markJoinSlotReference.isPresent() ? markJoinSlotReference.get() : "empty",
                 "stats", statistics);
+        if (markJoinSlotReference.isPresent()) {
+            args.add("isMarkJoin");
+            args.add("true");
+        }
+        if (markJoinSlotReference.isPresent()) {
+            args.add("MarkJoinSlotReference");
+            args.add(markJoinSlotReference.get());
+        }
         if (hint != JoinHint.NONE) {
             args.add("hint");
             args.add(hint);

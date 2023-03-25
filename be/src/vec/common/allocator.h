@@ -25,8 +25,6 @@
 #include <fmt/format.h>
 #include <string.h>
 
-#include <exception>
-
 #include "common/config.h"
 #include "common/status.h"
 #include "runtime/memory/chunk.h"
@@ -55,8 +53,8 @@
 /// Thread sanitizer does not intercept mremap. The usage of mremap will lead to false positives.
 #define DISABLE_MREMAP 1
 #endif
+#include "common/exception.h"
 #include "vec/common/allocator_fwd.h"
-#include "vec/common/exception.h"
 #include "vec/common/mremap.h"
 
 /// Required for older Darwin builds, that lack definition of MAP_ANONYMOUS
@@ -139,11 +137,10 @@ public:
 
         if (size >= MMAP_THRESHOLD) {
             if (alignment > MMAP_MIN_ALIGNMENT)
-                throw doris::vectorized::Exception(
-                        fmt::format(
-                                "Too large alignment {}: more than page size when allocating {}.",
-                                alignment, size),
-                        doris::TStatusCode::VEC_BAD_ARGUMENTS);
+                throw doris::Exception(
+                        doris::ErrorCode::INVALID_ARGUMENT,
+                        "Too large alignment {}: more than page size when allocating {}.",
+                        alignment, size);
 
             if (!TRY_CONSUME_THREAD_MEM_TRACKER(size)) {
                 RETURN_BAD_ALLOC_IF_PRE_CATCH(

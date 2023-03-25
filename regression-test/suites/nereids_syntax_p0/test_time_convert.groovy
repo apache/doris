@@ -15,21 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exception.h"
-
-#ifdef USE_LIBCPP
-#include <cxxabi.h>
-
-#include <typeinfo>
-#endif
-
-const char* get_current_exception_type_name(const std::exception_ptr& exception_ptr) {
-#ifdef USE_LIBCPP
-    int status;
-    return exception_ptr ? abi::__cxa_demangle(abi::__cxa_current_exception_type()->name(), nullptr,
-                                               nullptr, &status)
-                         : "null";
-#else
-    return exception_ptr ? exception_ptr.__cxa_exception_type()->name() : "null";
-#endif
+suite("test_time_convert_nereids") {
+    sql "set enable_nereids_planner=true"
+    sql "set enable_fold_constant_by_be=true"
+    test {
+        sql "select from_unixtime(1249488000, 'yyyyMMdd')"
+        result([['20090806']])
+    }
 }

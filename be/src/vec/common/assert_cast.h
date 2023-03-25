@@ -28,7 +28,6 @@
 #include "common/logging.h"
 #include "fmt/format.h"
 #include "vec/common/demangle.h"
-#include "vec/common/exception.h"
 
 /** Perform static_cast in release build.
   * Checks type by comparing typeid and throw an exception in debug build.

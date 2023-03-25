@@ -24,11 +24,11 @@ import java.time.LocalDate;
 public class MyDayDate {
     private static final Logger LOG = Logger.getLogger(MyDayDate.class);
     public static class State {
-        public LocalDate counter = LocalDate.of(2022,01,01);
+        public LocalDate counter;
+        public boolean inited = false;
     }
 
     public State create() {
-        LOG.info("call create func");
         return new State();
     }
 
@@ -36,39 +36,40 @@ public class MyDayDate {
     }
 
     public void add(State state, LocalDate val1) {
-        if (val1 == null) {
-            LOG.info("add val is null");
-            return;
+        if (val1 == null) return;
+        if (!state.inited) {
+            state.inited = true;
+            state.counter = LocalDate.of(val1.getYear(),val1.getMonthValue(),val1.getDayOfMonth());
+        } else {
+            state.counter = state.counter.plusDays(val1.getDayOfMonth());
         }
-        LOG.info("val1: " + val1.toString());
-        LOG.info("add before state is: " + state.counter.toString());
-        state.counter = state.counter.plusDays(val1.getDayOfMonth());
-        LOG.info("add after state is: " + state.counter.toString());
     }
 
     public void serialize(State state, DataOutputStream out) throws IOException {
-        LOG.info("serialize state is: " + state.counter.toString());
         out.writeInt(state.counter.getYear());
         out.writeInt(state.counter.getMonthValue());
         out.writeInt(state.counter.getDayOfMonth());
+        out.writeBoolean(state.inited);
     }
 
     public void deserialize(State state, DataInputStream in) throws IOException {
-        LOG.info("deserialize before state is: " + state.counter.toString());
         state.counter = LocalDate.of(in.readInt(),in.readInt(),in.readInt());
-        LOG.info("deserialize after state is: " + state.counter.toString());
+        state.inited = in.readBoolean();
     }
 
     public void merge(State state, State rhs) {
-        LOG.info("merge rhs state is: " + rhs.counter.toString());
-        LOG.info("merge before state is: " + state.counter.toString());
-        state.counter = state.counter.plusDays(rhs.counter.getDayOfMonth());
-        LOG.info("merge after state is: " + state.counter.toString());
+        if (!rhs.inited) {
+            return;
+        }
+        if (!state.inited) {
+            state.inited = true;
+            state.counter = LocalDate.of(rhs.counter.getYear(),rhs.counter.getMonthValue(),rhs.counter.getDayOfMonth());
+        } else {
+            state.counter = state.counter.plusDays(rhs.counter.getDayOfMonth());
+        }
     }
 
     public LocalDate getValue(State state) {
-        LOG.info("getValue state is: " + state.counter.toString());
-        LOG.info("------------------------------end----------------------");
         return state.counter;
     }
 }

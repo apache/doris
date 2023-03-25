@@ -29,7 +29,6 @@ set(PIPELINE_FILES
         task_scheduler.cpp
         exec/operator.cpp
         exec/scan_operator.cpp
-        exec/mysql_scan_operator.cpp
         exec/schema_scan_operator.cpp
         exec/datagen_operator.cpp
         exec/empty_set_operator.cpp
@@ -60,6 +59,12 @@ set(PIPELINE_FILES
         exec/data_queue.cpp
         exec/select_operator.cpp
         exec/empty_source_operator.cpp)
+
+if (WITH_MYSQL)
+    set(PIPELINE_FILES
+            ${PIPELINE_FILES}
+            exec/mysql_scan_operator.cpp)
+endif ()
 
 add_library(Pipeline STATIC
         ${PIPELINE_FILES}

@@ -17,32 +17,32 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Test;
 
 /**
  * Tests for {@link MergeFilters}.
  */
 class MergeFiltersTest implements MemoPatternMatchSupported {
+    private final LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+
     @Test
     void testMergeFilters() {
         Expression expression1 = new IntegerLiteral(1);
         Expression expression2 = new IntegerLiteral(2);
         Expression expression3 = new IntegerLiteral(3);
 
-        LogicalPlan logicalFilter = new LogicalPlanBuilder(
-                new UnboundRelation(RelationUtil.newRelationId(), Lists.newArrayList("db", "table")))
+        LogicalPlan logicalFilter = new LogicalPlanBuilder(scan)
                 .filter(ImmutableSet.of(expression1))
                 .filter(ImmutableSet.of(expression2))
                 .filter(ImmutableSet.of(expression3))
@@ -50,9 +50,7 @@ class MergeFiltersTest implements MemoPatternMatchSupported {
 
         PlanChecker.from(new ConnectContext(), logicalFilter).applyBottomUp(new MergeFilters())
                 .matches(
-                        logicalFilter(
-                                unboundRelation()
-                        ).when(filter -> filter.getConjuncts()
+                        logicalFilter().when(filter -> filter.getConjuncts()
                                 .equals(ImmutableSet.of(expression1, expression2, expression3))));
     }
 }
