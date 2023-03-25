@@ -17,7 +17,6 @@
 #pragma once
 #include <parallel_hashmap/phmap.h>
 
-#include "udf/udf.h"
 #include "util/bitmap_value.h"
 #include "vec/common/string_ref.h"
 
@@ -57,11 +56,9 @@ public:
 template <>
 char* Helper::write_to<vectorized::VecDateTimeValue>(const vectorized::VecDateTimeValue& v,
                                                      char* dest) {
-    DateTimeVal value;
-    v.to_datetime_val(&value);
-    *(int64_t*)dest = value.packed_time;
+    *(int64_t*)dest = v.to_int64_datetime_packed();
     dest += DATETIME_PACKED_TIME_BYTE_SIZE;
-    *(int*)dest = value.type;
+    *(int*)dest = v.type();
     dest += DATETIME_TYPE_BYTE_SIZE;
     return dest;
 }
@@ -118,13 +115,12 @@ int32_t Helper::serialize_size<std::string>(const std::string& v) {
 template <>
 void Helper::read_from<vectorized::VecDateTimeValue>(const char** src,
                                                      vectorized::VecDateTimeValue* result) {
-    DateTimeVal value;
-    value.is_null = false;
-    value.packed_time = *(int64_t*)(*src);
+    result->from_packed_time(*(int64_t*)(*src));
     *src += DATETIME_PACKED_TIME_BYTE_SIZE;
-    value.type = *(int*)(*src);
+    if (*(int*)(*src) == TIME_DATE) {
+        result->cast_to_date();
+    }
     *src += DATETIME_TYPE_BYTE_SIZE;
-    *result = vectorized::VecDateTimeValue::from_datetime_val(value);
 }
 
 template <>
