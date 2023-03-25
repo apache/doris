@@ -102,7 +102,7 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
             fn.setReturnType(ArrayType.create(lambda.getChild(0).getType(), true));
         } else if (fnName.getFunction().equalsIgnoreCase("array_exists")) {
             if (fnParams.exprs() == null || fnParams.exprs().size() < 1) {
-                throw new AnalysisException("The " + fnName.getFunction() + " function must have at least two params");
+                throw new AnalysisException("The " + fnName.getFunction() + " function must have at least one param");
             }
             // array_exists(x->x>3, [1,2,3,6,34,3,11])
             // ---> array_exists(array_map(x->x>3, [1,2,3,6,34,3,11]))
@@ -136,7 +136,7 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
             fn.setReturnType(getChild(0).getType());
         } else if (fnName.getFunction().equalsIgnoreCase("array_filter")) {
             if (fnParams.exprs() == null || fnParams.exprs().size() != 2) {
-                throw new AnalysisException("The " + fnName.getFunction() + " function must have at least two params");
+                throw new AnalysisException("The " + fnName.getFunction() + " function must have two params");
             }
             // array_filter(x->x>3, [1,2,3,6,34,3,11])
             // ---> array_filter([1,2,3,6,34,3,11], array_map(x->x>3, [1,2,3,6,34,3,11]))
