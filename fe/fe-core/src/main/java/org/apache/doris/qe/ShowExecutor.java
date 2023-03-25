@@ -241,7 +241,6 @@ public class ShowExecutor {
     }
 
     public ShowResultSet execute() throws AnalysisException {
-        System.out.println("\n进入ShowExecutor的 execute()函数 \n");
         if (stmt instanceof ShowRollupStmt) {
             handleShowRollup();
         } else if (stmt instanceof ShowAuthorStmt) {
