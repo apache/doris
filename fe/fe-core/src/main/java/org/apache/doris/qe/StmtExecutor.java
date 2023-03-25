@@ -1502,8 +1502,8 @@ public class StmtExecutor implements ProfileWriter {
             InterruptedException, ExecutionException, TimeoutException {
         TransactionEntry txnEntry = context.getTxnEntry();
         TTxnParams txnConf = txnEntry.getTxnConf();
-        SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
-        long timeoutSecond = ConnectContext.get().getExecTimeout();
+        SessionVariable sessionVariable = context.getSessionVariable();
+        long timeoutSecond = context.getExecTimeout();
 
         TransactionState.LoadJobSourceType sourceType = TransactionState.LoadJobSourceType.INSERT_STREAMING;
         Database dbObj = Env.getCurrentInternalCatalog()
@@ -1572,9 +1572,6 @@ public class StmtExecutor implements ProfileWriter {
         }
 
         analyzeVariablesInStmt(insertStmt.getQueryStmt());
-        // reset the executionTimeout since query hint maybe change the insert_timeout again
-        context.resetExecTimeoutByInsert();
-
         long createTime = System.currentTimeMillis();
         Throwable throwable = null;
         long txnId = -1;

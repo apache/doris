@@ -155,21 +155,18 @@ public class ConnectContext {
     // This context is used for SSL connection between server and mysql client.
     private final MysqlSslContext mysqlSslContext = new MysqlSslContext(SSL_PROTOCOL);
 
-    private long userQueryTimeout;
-
-    /**
-     * the global execution timeout in seconds, currently set according to query_timeout and insert_timeout.
-     * <p>
-     * when a connection is established, exec_timeout is set by query_timeout, when the statement is an insert stmt,
-     * then it is set to max(executionTimeoutS, insert_timeout) using {@link #setExecTimeout(int timeout)} at
-     * {@link StmtExecutor}.
-     */
-    private int executionTimeoutS;
-
     private StatsErrorEstimator statsErrorEstimator;
 
-    public void setUserQueryTimeout(long queryTimeout) {
-        this.userQueryTimeout = queryTimeout;
+    public void setUserQueryTimeout(int queryTimeout) {
+        if (queryTimeout > 0) {
+            sessionVariable.setQueryTimeoutS(queryTimeout);
+        }
+    }
+
+    public void setUserInsertTimeout(int insertTimeout) {
+        if (insertTimeout > 0) {
+            sessionVariable.setInsertTimeoutS(insertTimeout);
+        }
     }
 
     private StatementContext statementContext;
@@ -239,8 +236,6 @@ public class ConnectContext {
         if (Config.use_fuzzy_session_variable) {
             sessionVariable.initFuzzyModeVariables();
         }
-        // initialize executionTimeoutS to default to queryTimeout
-        executionTimeoutS = sessionVariable.getQueryTimeoutS();
     }
 
     public boolean isTxnModel() {
@@ -596,20 +591,13 @@ public class ConnectContext {
                 killConnection = true;
             }
         } else {
-            long timeout;
             String timeoutTag = "query";
-            if (userQueryTimeout > 0) {
-                // user set query_timeout property
-                timeout = userQueryTimeout * 1000L;
-            } else {
-                //to ms
-                timeout = executionTimeoutS * 1000L;
-            }
-            //deal with insert stmt particularly
+            // insert stmt particularly
             if (executor != null && executor.isInsertStmt()) {
                 timeoutTag = "insert";
             }
-
+            //to ms
+            long timeout = getExecTimeout() * 1000L;
             if (delta > timeout) {
                 LOG.warn("kill {} timeout, remote: {}, query timeout: {}",
                         timeoutTag, getMysqlChannel().getRemoteHostPortString(), timeout);
@@ -652,17 +640,20 @@ public class ConnectContext {
         return currentConnectedFEIp;
     }
 
-    public void setExecTimeout(int timeout) {
-        executionTimeoutS = timeout;
-    }
-
-    public long resetExecTimeoutByInsert() {
-        executionTimeoutS = Math.max(executionTimeoutS, sessionVariable.getInsertTimeoutS());
-        return executionTimeoutS;
-    }
-
+    /**
+     * We calculate and get the exact execution timeout here, rather than setting
+     * execution timeout in many other places.
+     *
+     * @return exact execution timeout
+     */
     public int getExecTimeout() {
-        return executionTimeoutS;
+        if (executor != null && executor.isInsertStmt()) {
+            // particular for insert stmt, we can expand other type of timeout in the same way
+            return Math.max(sessionVariable.getInsertTimeoutS(), sessionVariable.getQueryTimeoutS());
+        } else {
+            // normal query stmt
+            return sessionVariable.getQueryTimeoutS();
+        }
     }
 
     public class ThreadInfo {
