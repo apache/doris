@@ -50,6 +50,7 @@ import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
@@ -491,9 +492,10 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     // User can modify column type and column position
-    private void processModifyColumn(ModifyColumnClause alterClause, OlapTable olapTable,
+    private boolean processModifyColumn(ModifyColumnClause alterClause, OlapTable olapTable,
             Map<Long, LinkedList<Column>> indexSchemaMap) throws DdlException {
         Column modColumn = alterClause.getColumn();
+        boolean lightSchemaChange = false;
         if (KeysType.AGG_KEYS == olapTable.getKeysType()) {
             if (modColumn.isKey() && null != modColumn.getAggregationType()) {
                 throw new DdlException("Can not assign aggregation method on key column: " + modColumn.getName());
@@ -555,6 +557,12 @@ public class SchemaChangeHandler extends AlterHandler {
                 found = true;
                 if (!col.equals(modColumn)) {
                     typeChanged = true;
+                    // TODO:the case where columnPos is not empty has not been considered
+                    if (columnPos == null && col.getDataType() == PrimitiveType.VARCHAR
+                            && modColumn.getDataType() == PrimitiveType.VARCHAR) {
+                        col.checkSchemaChangeAllowed(modColumn);
+                        lightSchemaChange = olapTable.getEnableLightSchemaChange();
+                    }
                 }
             }
             if (hasColPos) {
@@ -673,7 +681,7 @@ public class SchemaChangeHandler extends AlterHandler {
             }
         } // end for handling other indices
 
-        if (typeChanged) {
+        if (typeChanged && !lightSchemaChange) {
             /*
              * In new alter table process (AlterJobV2), any modified columns are treated as new columns.
              * But the modified columns' name does not changed. So in order to distinguish this, we will add
@@ -688,6 +696,7 @@ public class SchemaChangeHandler extends AlterHandler {
              */
             modColumn.setName(SHADOW_NAME_PREFIX + modColumn.getName());
         }
+        return lightSchemaChange;
     }
 
     private void processReorderColumn(ReorderColumnsClause alterClause, Table externalTable, List<Column> newSchema)
@@ -1779,29 +1788,32 @@ public class SchemaChangeHandler extends AlterHandler {
 
                 if (alterClause instanceof AddColumnClause) {
                     // add column
-                    boolean clauseCanLigthSchemaChange = processAddColumn((AddColumnClause) alterClause, olapTable,
+                    boolean clauseCanLightSchemaChange = processAddColumn((AddColumnClause) alterClause, olapTable,
                             indexSchemaMap, colUniqueIdSupplierMap);
-                    if (clauseCanLigthSchemaChange == false) {
+                    if (clauseCanLightSchemaChange == false) {
                         lightSchemaChange = false;
                     }
                 } else if (alterClause instanceof AddColumnsClause) {
                     // add columns
-                    boolean clauseCanLigthSchemaChange = processAddColumns((AddColumnsClause) alterClause, olapTable,
+                    boolean clauseCanLightSchemaChange = processAddColumns((AddColumnsClause) alterClause, olapTable,
                             indexSchemaMap, false, colUniqueIdSupplierMap);
-                    if (clauseCanLigthSchemaChange == false) {
+                    if (clauseCanLightSchemaChange == false) {
                         lightSchemaChange = false;
                     }
                 } else if (alterClause instanceof DropColumnClause) {
                     // drop column and drop indexes on this column
-                    boolean clauseCanLigthSchemaChange = processDropColumn((DropColumnClause) alterClause, olapTable,
+                    boolean clauseCanLightSchemaChange = processDropColumn((DropColumnClause) alterClause, olapTable,
                             indexSchemaMap, newIndexes);
-                    if (clauseCanLigthSchemaChange == false) {
+                    if (clauseCanLightSchemaChange == false) {
                         lightSchemaChange = false;
                     }
                 } else if (alterClause instanceof ModifyColumnClause) {
                     // modify column
-                    processModifyColumn((ModifyColumnClause) alterClause, olapTable, indexSchemaMap);
-                    lightSchemaChange = false;
+                    boolean clauseCanLightSchemaChange = processModifyColumn((ModifyColumnClause) alterClause,
+                            olapTable, indexSchemaMap);
+                    if (clauseCanLightSchemaChange == false) {
+                        lightSchemaChange = false;
+                    }
                 } else if (alterClause instanceof ReorderColumnsClause) {
                     // reorder column
                     processReorderColumn((ReorderColumnsClause) alterClause, olapTable, indexSchemaMap);
@@ -1815,7 +1827,6 @@ public class SchemaChangeHandler extends AlterHandler {
                         return;
                     }
                     lightSchemaChange = false;
-
                     CreateIndexClause createIndexClause = (CreateIndexClause) alterClause;
                     if (createIndexClause.getIndexDef().isInvertedIndex()) {
                         alterInvertedIndexes.add(createIndexClause.getIndex());
@@ -1827,7 +1838,6 @@ public class SchemaChangeHandler extends AlterHandler {
                         return;
                     }
                     lightSchemaChange = false;
-
                     DropIndexClause dropIndexClause = (DropIndexClause) alterClause;
                     List<Index> existedIndexes = olapTable.getIndexes();
                     Index found = null;
@@ -1855,7 +1865,7 @@ public class SchemaChangeHandler extends AlterHandler {
             if (lightSchemaChange) {
                 long jobId = Env.getCurrentEnv().getNextId();
                 //for schema change add/drop value column optimize, direct modify table meta.
-                modifyTableAddOrDropColumns(db, olapTable, indexSchemaMap, newIndexes, jobId, false);
+                modifyTableLightSchemaChange(db, olapTable, indexSchemaMap, newIndexes, jobId, false);
                 return;
             } else if (lightSchemaChangeWithInvertedIndex) {
                 long jobId = Env.getCurrentEnv().getNextId();
@@ -2298,7 +2308,7 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     // the invoker should keep table's write lock
-    public void modifyTableAddOrDropColumns(Database db, OlapTable olapTable,
+    public void modifyTableLightSchemaChange(Database db, OlapTable olapTable,
             Map<Long, LinkedList<Column>> indexSchemaMap,
             List<Index> indexes, long jobId, boolean isReplay) throws DdlException {
 
@@ -2364,11 +2374,11 @@ public class SchemaChangeHandler extends AlterHandler {
         schemaChangeJob.setFinishedTimeMs(System.currentTimeMillis());
         this.addAlterJobV2(schemaChangeJob);
 
-        LOG.info("finished modify table's add or drop columns. table: {}, is replay: {}", olapTable.getName(),
+        LOG.info("finished modify table's add or drop or modify columns. table: {}, is replay: {}", olapTable.getName(),
                 isReplay);
     }
 
-    public void replayModifyTableAddOrDropColumns(TableAddOrDropColumnsInfo info) throws MetaNotFoundException {
+    public void replayModifyTableLightSchemaChange(TableAddOrDropColumnsInfo info) throws MetaNotFoundException {
         LOG.debug("info:{}", info);
         long dbId = info.getDbId();
         long tableId = info.getTableId();
@@ -2380,10 +2390,10 @@ public class SchemaChangeHandler extends AlterHandler {
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
         olapTable.writeLock();
         try {
-            modifyTableAddOrDropColumns(db, olapTable, indexSchemaMap, indexes, jobId, true);
+            modifyTableLightSchemaChange(db, olapTable, indexSchemaMap, indexes, jobId, true);
         } catch (DdlException e) {
             // should not happen
-            LOG.warn("failed to replay modify table add or drop columns", e);
+            LOG.warn("failed to replay modify table add or drop or modify columns", e);
         } finally {
             olapTable.writeUnlock();
         }
@@ -2610,4 +2620,5 @@ public class SchemaChangeHandler extends AlterHandler {
             olapTable.writeUnlock();
         }
     }
+
 }
