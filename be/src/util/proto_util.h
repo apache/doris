@@ -22,7 +22,6 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "exception.h"
 #include "network_util.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
@@ -160,10 +159,8 @@ Status request_embed_attachment(Params* brpc_request, const std::string& data, C
     try {
         attachment.append(data);
     } catch (...) {
-        std::exception_ptr p = std::current_exception();
         LOG(WARNING) << "Try to alloc " << data_size
-                     << " bytes for append data to attachment failed. "
-                     << get_current_exception_type_name(p);
+                     << " bytes for append data to attachment failed. ";
         return Status::MemoryAllocFailed("request embed attachment failed to memcpy {} bytes",
                                          data_size);
     }
@@ -201,10 +198,8 @@ Status attachment_extract_request(const Params* brpc_request, brpc::Controller* 
     try {
         io_buf.copy_to(data, data_size, sizeof(data_size) + sizeof(req_str_size) + req_str_size);
     } catch (...) {
-        std::exception_ptr p = std::current_exception();
         LOG(WARNING) << "Try to alloc " << data_size
-                     << " bytes for extract data from attachment failed. "
-                     << get_current_exception_type_name(p);
+                     << " bytes for extract data from attachment failed. ";
         return Status::MemoryAllocFailed("attachment extract request failed to memcpy {} bytes",
                                          data_size);
     }
