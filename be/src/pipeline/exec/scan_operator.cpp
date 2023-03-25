@@ -32,12 +32,13 @@ bool ScanOperator::can_read() {
             return false;
         }
     } else {
-        if (_node->_eos || _node->_scanner_ctx->done() || _node->_scanner_ctx->no_schedule()) {
+        if (_node->_eos || _node->_scanner_ctx->done()) {
             // _eos: need eos
             // _scanner_ctx->done(): need finish
             // _scanner_ctx->no_schedule(): should schedule _scanner_ctx
             return true;
         } else {
+            _node->_scanner_ctx->try_reschedule_scanner_ctx();
             return _node->ready_to_read(); // there are some blocks to process
         }
     }

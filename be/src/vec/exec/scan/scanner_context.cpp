@@ -164,7 +164,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
     // (if the scheduler continues to schedule, it will cause a lot of busy running).
     // At this point, consumers are required to trigger new scheduling to ensure that
     // data can be continuously fetched.
-    if (_has_enough_space_in_blocks_queue() && _num_running_scanners == 0) {
+    if (has_enough_space_in_blocks_queue() && _num_running_scanners == 0) {
         _num_scheduling_ctx++;
         _scanner_scheduler->submit(this);
     }
@@ -295,10 +295,12 @@ void ScannerContext::push_back_scanner_and_reschedule(VScanner* scanner) {
     }
 
     std::lock_guard l(_transfer_lock);
-    _num_scheduling_ctx++;
-    auto submit_st = _scanner_scheduler->submit(this);
-    if (!submit_st.ok()) {
-        _num_scheduling_ctx--;
+    if (_should_resche_after_scanner_finished) {
+        _num_scheduling_ctx++;
+        auto submit_st = _scanner_scheduler->submit(this);
+        if (!submit_st.ok()) {
+            _num_scheduling_ctx--;
+        }
     }
 
     // Notice that after calling "_scanners.push_front(scanner)", there may be other ctx in scheduler
@@ -321,7 +323,7 @@ void ScannerContext::get_next_batch_of_scanners(std::list<VScanner*>* current_ru
     int thread_slot_num = 0;
     {
         std::unique_lock l(_transfer_lock);
-        if (_has_enough_space_in_blocks_queue()) {
+        if (has_enough_space_in_blocks_queue()) {
             // If there are enough space in blocks queue,
             // the scanner number depends on the _free_blocks numbers
             std::lock_guard f(_free_blocks_lock);
