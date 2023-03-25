@@ -31,7 +31,9 @@ public:
                       const std::list<vectorized::VScanner*>& scanners, int64_t limit,
                       int64_t max_bytes_in_blocks_queue)
             : vectorized::ScannerContext(state, parent, input_tuple_desc, output_tuple_desc,
-                                         scanners, limit, max_bytes_in_blocks_queue) {}
+                                         scanners, limit, max_bytes_in_blocks_queue) {
+        _should_resche_after_scanner_finished = false;
+    }
 
     Status get_block_from_queue(RuntimeState* state, vectorized::BlockUPtr* block, bool* eos,
                                 int id, bool wait = false) override {
@@ -50,6 +52,7 @@ public:
             std::unique_lock<std::mutex> l(*_queue_mutexs[id]);
             if (!_blocks_queues[id].empty()) {
                 *block = std::move(_blocks_queues[id].front());
+                _current_used_bytes -= (*block)->allocated_bytes();
                 _blocks_queues[id].pop_front();
                 return Status::OK();
             } else {
@@ -65,16 +68,19 @@ public:
     void append_blocks_to_queue(std::vector<vectorized::BlockUPtr>& blocks) override {
         const int queue_size = _queue_mutexs.size();
         const int block_size = blocks.size();
+        int64_t local_bytes = 0;
         for (int i = 0; i < queue_size && i < block_size; ++i) {
             int queue = _next_queue_to_feed;
             {
                 std::lock_guard<std::mutex> l(*_queue_mutexs[queue]);
                 for (int j = i; j < block_size; j += queue_size) {
+                    local_bytes += blocks[j]->allocated_bytes();
                     _blocks_queues[queue].emplace_back(std::move(blocks[j]));
                 }
             }
             _next_queue_to_feed = queue + 1 < queue_size ? queue + 1 : 0;
         }
+        _current_used_bytes += local_bytes;
     }
 
     bool empty_in_queue(int id) override {
@@ -89,10 +95,15 @@ public:
         }
     }
 
+    bool has_enough_space_in_blocks_queue() const override {
+        return _current_used_bytes < _max_bytes_in_queue / 2;
+    }
+
 private:
     int _next_queue_to_feed = 0;
     std::vector<std::unique_ptr<std::mutex>> _queue_mutexs;
     std::vector<std::list<vectorized::BlockUPtr>> _blocks_queues;
+    std::atomic_int64_t _current_used_bytes = 0;
 };
 } // namespace pipeline
 } // namespace doris
