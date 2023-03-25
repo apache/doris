@@ -47,6 +47,7 @@ import org.apache.doris.analysis.ShowCreateRoutineLoadStmt;
 import org.apache.doris.analysis.ShowCreateTableStmt;
 import org.apache.doris.analysis.ShowDataSkewStmt;
 import org.apache.doris.analysis.ShowDataStmt;
+import org.apache.doris.analysis.ShowDataTypesStmt;
 import org.apache.doris.analysis.ShowDbIdStmt;
 import org.apache.doris.analysis.ShowDbStmt;
 import org.apache.doris.analysis.ShowDeleteStmt;
@@ -238,6 +239,7 @@ public class ShowExecutor {
     }
 
     public ShowResultSet execute() throws AnalysisException {
+        System.out.println("\n进入ShowExecutor的 execute()函数 \n");
         if (stmt instanceof ShowRollupStmt) {
             handleShowRollup();
         } else if (stmt instanceof ShowAuthorStmt) {
@@ -267,7 +269,10 @@ public class ShowExecutor {
         } else if (stmt instanceof ShowEnginesStmt) {
             handleShowEngines();
         } else if (stmt instanceof ShowFunctionsStmt) {
+            System.out.println("\nstmt匹配到ShowFunctionsStmt\n");
             handleShowFunctions();
+        } else if (stmt instanceof ShowDataTypesStmt) {
+            handleShowDataTypes();
         } else if (stmt instanceof ShowCreateFunctionStmt) {
             handleShowCreateFunction();
         } else if (stmt instanceof ShowEncryptKeysStmt) {
@@ -500,6 +505,19 @@ public class ShowExecutor {
                 ShowResultSetMetaData.builder()
                         .addColumn(new Column("Function Name", ScalarType.createVarchar(256))).build();
         resultSet = new ShowResultSet(showMetaData, resultRowSet);
+    }
+
+    private void handleShowDataTypes() throws AnalysisException {
+        ShowDataTypesStmt showStmt = (ShowDataTypesStmt) stmt;
+        ArrayList<PrimitiveType> supportedTypes = showStmt.getTypes();
+        List<List<String>> rows = Lists.newArrayList();
+        for (PrimitiveType type : supportedTypes) {
+            List<String> row = new ArrayList<>();
+            row.add(type.toString());
+            row.add(Integer.toString(type.getSlotSize()));
+            rows.add(row);
+        }
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
     // Handle show create function

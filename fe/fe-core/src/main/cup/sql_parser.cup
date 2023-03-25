@@ -3664,6 +3664,11 @@ show_param ::=
     {:
         RESULT = new ShowDbIdStmt(dbId);
     :}
+    /* show all data types */
+    | KW_DATA KW_TYPES
+    {:
+        RESULT = new ShowDataTypesStmt();
+    :}
     | KW_SCHEMAS opt_wild_where
     {:
         RESULT = new ShowDbStmt(parser.wild, parser.where);
