@@ -63,6 +63,15 @@ v1
 "\\n\\b\\r\\t"
 
 -- !sql --
+""
+
+-- !sql --
+
+
+-- !sql --
+doris
+
+-- !sql --
 doris
 
 -- !sql --

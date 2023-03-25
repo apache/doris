@@ -43,7 +43,10 @@ suite("test_json_function") {
     qt_sql "SELECT json_quote('[1, 2, 3]');"
     qt_sql "SELECT json_quote(null);"
     qt_sql "SELECT json_quote(\"\\n\\b\\r\\t\");"
+    qt_sql "SELECT json_quote('')"
 
+    qt_sql "SELECT json_unquote('')"
+    qt_sql "SELECT json_unquote('doris')"
     qt_sql "SELECT json_unquote('\"doris\"');"
     qt_sql "SELECT json_unquote('open-quoted\"');"
     qt_sql "SELECT json_unquote('\"open-quoted');"
