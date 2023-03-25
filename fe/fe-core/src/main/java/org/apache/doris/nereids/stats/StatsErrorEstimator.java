@@ -23,6 +23,7 @@ import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.PlanNode;
+import org.apache.doris.statistics.Statistics;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TRuntimeProfileNode;
 import org.apache.doris.thrift.TUniqueId;
@@ -50,8 +51,15 @@ public class StatsErrorEstimator {
         legacyPlanIdStats = new HashMap<>();
     }
 
+    /**
+     * Invoked by PhysicalPlanTranslator, put the translated plan node and corresponding physical plan to estimator.
+     */
     public void updateLegacyPlanIdToPhysicalPlan(PlanNode planNode, AbstractPlan physicalPlan) {
-        legacyPlanIdStats.put(planNode.getId().asInt(), Pair.of(physicalPlan.getStats().getRowCount(),
+        Statistics statistics = physicalPlan.getStats();
+        if (statistics == null) {
+            return;
+        }
+        legacyPlanIdStats.put(planNode.getId().asInt(), Pair.of(statistics.getRowCount(),
                 (double) 0));
     }
 

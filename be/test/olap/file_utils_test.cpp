@@ -27,7 +27,7 @@
 #include "env/env.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "olap/file_helper.h"
+#include "olap/file_header.h"
 
 using ::testing::_;
 using ::testing::Return;
@@ -60,32 +60,28 @@ public:
 std::string FileUtilsTest::_s_test_data_path = "./file_utils_testxxxx123";
 
 TEST_F(FileUtilsTest, TestCopyFile) {
-    FileHandler src_file_handler;
     std::string src_file_name = _s_test_data_path + "/abcd12345.txt";
     // create a file using open
-    EXPECT_FALSE(std::filesystem::exists(src_file_name));
-    Status op_status = src_file_handler.open_with_mode(src_file_name, O_CREAT | O_EXCL | O_WRONLY,
-                                                       S_IRUSR | S_IWUSR);
-    EXPECT_EQ(Status::OK(), op_status);
-    EXPECT_TRUE(std::filesystem::exists(src_file_name));
+    std::shared_ptr<io::LocalFileSystem> fs = io::global_local_filesystem();
+    io::FileWriterPtr file_writer;
+    EXPECT_TRUE(fs->create_file(src_file_name, &file_writer).ok());
 
     char large_bytes2[(1 << 12)];
     memset(&large_bytes2, 0, sizeof(large_bytes2));
     int i = 0;
     while (i < 1 << 10) {
-        src_file_handler.write(&large_bytes2, sizeof(large_bytes2));
+        EXPECT_TRUE(file_writer->append({large_bytes2, sizeof(large_bytes2)}).ok());
         ++i;
     }
-    src_file_handler.write(&large_bytes2, 13);
-    src_file_handler.close();
+    EXPECT_TRUE(file_writer->append({large_bytes2, 13}).ok());
+    EXPECT_TRUE(file_writer->close().ok());
 
     std::string dst_file_name = _s_test_data_path + "/abcd123456.txt";
     FileUtils::copy_file(src_file_name, dst_file_name);
-    FileHandler dst_file_handler;
-    dst_file_handler.open(dst_file_name, O_RDONLY);
-    int64_t dst_length = dst_file_handler.length();
-    int64_t src_length = 4194317;
-    EXPECT_EQ(src_length, dst_length);
+
+    io::FileReaderSPtr file_reader;
+    EXPECT_TRUE(fs->open_file(dst_file_name, &file_reader).ok());
+    EXPECT_EQ(4194317, file_reader->size());
 }
 
 TEST_F(FileUtilsTest, TestRemove) {

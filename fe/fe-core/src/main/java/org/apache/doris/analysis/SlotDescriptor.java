@@ -81,7 +81,7 @@ public class SlotDescriptor {
         this.isMultiRef = false;
     }
 
-    SlotDescriptor(SlotId id, TupleDescriptor parent, SlotDescriptor src) {
+    public SlotDescriptor(SlotId id, TupleDescriptor parent, SlotDescriptor src) {
         this.id = id;
         this.parent = parent;
         this.byteOffset = src.byteOffset;

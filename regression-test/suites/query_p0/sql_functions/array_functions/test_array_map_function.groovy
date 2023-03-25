@@ -63,6 +63,11 @@ suite("test_array_map_function") {
         qt_select_17 "select array_map(x -> x is null, [null, 1, 2]);"
         qt_select_18 "select array_map(x -> abs(x), [null, 1, 2]);"
 
+
+        qt_select_20 "select array_filter(x->abs(x), [1,null]);"
+        qt_select_21 "select array_filter(x->abs(x), [1,2]);"
+        qt_select_22 "select *,array_filter(x->x%2=0,c_array1) from array_test2 order by id;"
+        qt_select_23 "select *,array_filter(x->x%2=0,c_array2) from array_test2 order by id;"
         
         sql "DROP TABLE IF EXISTS ${tableName}"
 }

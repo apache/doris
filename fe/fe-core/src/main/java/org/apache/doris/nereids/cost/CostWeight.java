@@ -47,7 +47,7 @@ public class CostWeight {
      * Except stats information, there are some special criteria in doris.
      * For example, in hash join cluster, BE could build hash tables
      * in parallel for left deep tree. And hence, we need to punish right deep tree.
-     * penalyWeight is the factor of punishment.
+     * penaltyWeight is the factor of punishment.
      * The punishment is denoted by stats.penalty.
      */
     final double penaltyWeight;

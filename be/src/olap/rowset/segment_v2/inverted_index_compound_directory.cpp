@@ -19,6 +19,7 @@
 
 #include "CLucene/SharedHeader.h"
 #include "CLucene/StdHeader.h"
+#include "io/fs/file_writer.h"
 #include "olap/iterators.h"
 #include "util/md5.h"
 
@@ -237,7 +238,7 @@ bool DorisCompoundDirectory::FSIndexInput::open(const io::FileSystemSPtr& fs, co
     }
     SharedHandle* h = _CLNEW SharedHandle(path);
 
-    if (!fs->open_file(path, &h->_reader, nullptr).ok()) {
+    if (!fs->open_file(path, &h->_reader).ok()) {
         error.set(CL_ERR_IO, "open file error");
     }
 
@@ -335,8 +336,7 @@ void DorisCompoundDirectory::FSIndexInput::readInternal(uint8_t* b, const int32_
 
     Slice result {b, (size_t)len};
     size_t bytes_read = 0;
-    IOContext io_ctx;
-    if (!_handle->_reader->read_at(_pos, result, io_ctx, &bytes_read).ok()) {
+    if (!_handle->_reader->read_at(_pos, result, &bytes_read).ok()) {
         _CLTHROWA(CL_ERR_IO, "read past EOF");
     }
     bufferLength = len;
@@ -512,10 +512,11 @@ bool DorisCompoundDirectory::list(std::vector<std::string>* names) const {
     CND_PRECONDITION(!directory.empty(), "directory is not open");
     char fl[CL_MAX_DIR];
     priv_getFN(fl, "");
-    std::vector<std::filesystem::path> paths;
-    RETURN_IF_ERROR(fs->list(fl, &paths));
-    for (auto path : paths) {
-        names->push_back(path.string());
+    std::vector<io::FileInfo> files;
+    bool exists;
+    RETURN_IF_ERROR(fs->list(fl, true, &files, &exists));
+    for (auto& file : files) {
+        names->push_back(file.file_name);
     }
     return true;
 }

@@ -425,43 +425,4 @@ Status UserFunctionCache::get_jarpath(int64_t fid, const std::string& url,
     return Status::OK();
 }
 
-Status UserFunctionCache::check_jar(int64_t fid, const std::string& url,
-                                    const std::string& checksum) {
-    UserFunctionCacheEntry* entry = nullptr;
-    Status st = Status::OK();
-    std::string file_name = _get_file_name_from_url(url);
-    {
-        std::lock_guard<std::mutex> l(_cache_lock);
-        auto it = _entry_map.find(fid);
-        if (it != _entry_map.end()) {
-            entry = it->second;
-        } else {
-            entry = new UserFunctionCacheEntry(
-                    fid, checksum, _make_lib_file(fid, checksum, LibType::JAR, file_name),
-                    LibType::JAR);
-            entry->ref();
-            _entry_map.emplace(fid, entry);
-        }
-        entry->ref();
-    }
-    if (entry->is_loaded.load()) {
-        return st;
-    }
-
-    std::unique_lock<std::mutex> l(entry->load_lock);
-    if (!entry->is_downloaded) {
-        st = _download_lib(url, entry);
-    }
-    if (!st.ok()) {
-        // if we load a cache entry failed, I think we should delete this entry cache
-        // even if this cache was valid before.
-        _destroy_cache_entry(entry);
-        return Status::InternalError(
-                "Java UDAF has error, maybe you should check the path about java impl jar, because "
-                "{}",
-                st.to_string());
-    }
-    return Status::OK();
-}
-
 } // namespace doris

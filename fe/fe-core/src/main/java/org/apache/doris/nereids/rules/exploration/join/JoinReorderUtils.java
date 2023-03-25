@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.nereids.trees.expressions.ExprId;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -26,13 +25,10 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
-import com.google.common.collect.ImmutableList;
-
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * Common
@@ -42,20 +38,17 @@ class JoinReorderUtils {
         return project.getProjects().stream().allMatch(expr -> expr instanceof Slot);
     }
 
-    static Map<Boolean, List<NamedExpression>> splitProjection(List<NamedExpression> projects, Plan splitChild) {
-        Set<ExprId> splitExprIds = splitChild.getOutputExprIdSet();
-
+    /**
+     * Split project according to whether namedExpr contains by splitChildExprIds.
+     * Notice: projects must all be Slot.
+     */
+    static Map<Boolean, List<NamedExpression>> splitProject(List<NamedExpression> projects,
+            Set<ExprId> splitChildExprIds) {
         return projects.stream()
-                .collect(Collectors.partitioningBy(projectExpr -> {
-                    Set<ExprId> usedExprIds = projectExpr.getInputSlotExprIds();
-                    return splitExprIds.containsAll(usedExprIds);
+                .collect(Collectors.partitioningBy(expr -> {
+                    Slot slot = (Slot) expr;
+                    return splitChildExprIds.contains(slot.getExprId());
                 }));
-    }
-
-    public static Set<ExprId> combineProjectAndChildExprId(Plan b, List<NamedExpression> bProject) {
-        return Stream.concat(
-                b.getOutput().stream().map(NamedExpression::getExprId),
-                bProject.stream().map(NamedExpression::getExprId)).collect(Collectors.toSet());
     }
 
     /**
@@ -74,23 +67,6 @@ class JoinReorderUtils {
             return plan;
         }
         return new LogicalProject<>(projectExprs, plan);
-    }
-
-    /**
-     * replace JoinConjuncts by using slots map.
-     */
-    public static List<Expression> replaceJoinConjuncts(List<Expression> joinConjuncts,
-            Map<ExprId, Slot> replaceMaps) {
-        return joinConjuncts.stream()
-                .map(expr ->
-                        expr.rewriteUp(e -> {
-                            if (e instanceof Slot && replaceMaps.containsKey(((Slot) e).getExprId())) {
-                                return replaceMaps.get(((Slot) e).getExprId());
-                            } else {
-                                return e;
-                            }
-                        })
-                ).collect(ImmutableList.toImmutableList());
     }
 
     /**

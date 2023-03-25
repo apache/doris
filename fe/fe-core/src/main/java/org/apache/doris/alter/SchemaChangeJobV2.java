@@ -546,7 +546,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                             AlterReplicaTask rollupTask = new AlterReplicaTask(shadowReplica.getBackendId(), dbId,
                                     tableId, partitionId, shadowIdxId, originIdxId, shadowTabletId, originTabletId,
                                     shadowReplica.getId(), shadowSchemaHash, originSchemaHash, visibleVersion, jobId,
-                                    JobType.SCHEMA_CHANGE, defineExprs, descTable, originSchemaColumns);
+                                    JobType.SCHEMA_CHANGE, defineExprs, descTable, originSchemaColumns, null);
                             schemaChangeBatchTask.addTask(rollupTask);
                         }
                     }
@@ -697,7 +697,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     private void onFinished(OlapTable tbl) {
         if (invertedIndexChange) {
             tbl.setStorageFormat(storageFormat);
-            tbl.setState(OlapTableState.NORMAL);
             return;
         }
         // replace the origin index with shadow index, set index state as NORMAL
@@ -779,8 +778,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         if (storageFormat == TStorageFormat.V2) {
             tbl.setStorageFormat(storageFormat);
         }
-
-        tbl.setState(OlapTableState.NORMAL);
     }
 
     /*
@@ -834,8 +831,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                         // update index to oriIndexes, because inverted index updated before WAIT_TXN state.
                         tbl.setIndexes(oriIndexes);
                     }
-                    tbl.setState(OlapTableState.NORMAL);
-                    LOG.info("set table's state to NORMAL when cancel job: {}", tbl.getId(), jobId);
                 } finally {
                     tbl.writeUnlock();
                 }

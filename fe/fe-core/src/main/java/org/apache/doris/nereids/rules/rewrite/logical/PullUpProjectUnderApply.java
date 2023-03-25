@@ -64,7 +64,7 @@ public class PullUpProjectUnderApply extends OneRewriteRuleFactory {
                     if (apply.getSubqueryExpr() instanceof ScalarSubquery) {
                         newProjects.add(project.getProjects().get(0));
                     }
-                    return new LogicalProject(newProjects, newCorrelate);
+                    return project.withProjectsAndChild(newProjects, newCorrelate);
                 }).toRule(RuleType.PULL_UP_PROJECT_UNDER_APPLY);
     }
 }

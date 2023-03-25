@@ -23,7 +23,7 @@ import java.nio.file.Paths
 
 suite("test_map_load_and_compaction", "p0") {
     // define a sql table
-    def testTable = "tbl_test_map"
+    def testTable = "tbl_test_map_compaction"
     def dataFile = "map_2_rows.json";
     def dataFile1 = "map_4093_rows.json"
 

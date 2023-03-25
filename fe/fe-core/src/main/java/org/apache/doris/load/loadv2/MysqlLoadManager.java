@@ -300,6 +300,12 @@ public class MysqlLoadManager {
                 String timezone = props.get(LoadStmt.TIMEZONE);
                 httpPut.addHeader(LoadStmt.TIMEZONE, timezone);
             }
+
+            // trim quotes
+            if (props.containsKey(LoadStmt.KEY_TRIM_DOUBLE_QUOTES)) {
+                String trimQuotes = props.get(LoadStmt.KEY_TRIM_DOUBLE_QUOTES);
+                httpPut.addHeader(LoadStmt.KEY_TRIM_DOUBLE_QUOTES, trimQuotes);
+            }
         }
 
         // skip_lines

@@ -124,12 +124,10 @@ private:
                                           .get_raw_data()
                                           .data;
         }
-        for (size_t i = 0; i < src_column.size(); ++i) {
-            T lhs_val = *reinterpret_cast<const T*>(src_column_data_ptr);
-            if (apply<T, op>(lhs_val, rhs_val)) {
-                column_filter_data[i] = 1;
-            }
-            src_column_data_ptr += sizeof(T);
+        const T* src_column_data_t_ptr = reinterpret_cast<const T*>(src_column_data_ptr);
+        const size_t src_column_size = src_column.size();
+        for (size_t i = 0; i < src_column_size; ++i) {
+            column_filter_data[i] = apply<T, op>(src_column_data_t_ptr[i], rhs_val);
         }
         const IColumn::Filter& filter = column_filter_data;
         ColumnPtr filtered = src_column.filter(filter, src_column.size());

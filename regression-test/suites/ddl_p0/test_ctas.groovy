@@ -16,6 +16,12 @@
 // under the License.
 
 suite("test_ctas") {
+    def dbname = "test_ctas";
+    sql """drop database if exists ${dbname}"""
+    sql """create database ${dbname}"""
+    sql """use ${dbname}"""
+    sql """clean label from ${dbname}"""
+
     try {
         sql """
     CREATE TABLE IF NOT EXISTS `test_ctas` (
@@ -77,9 +83,9 @@ suite("test_ctas") {
     )
     """
 
-      sql """ insert into test_ctas_json_object(c1, v1, v2) values ('r1', 1.1, 1.2),('r2', 2.1, 2.2) """
+        sql """ insert into test_ctas_json_object(c1, v1, v2) values ('r1', 1.1, 1.2),('r2', 2.1, 2.2) """
 
-      sql """
+        sql """
     CREATE TABLE IF NOT EXISTS `test_ctas_json_object1`
     PROPERTIES (
       "replication_allocation" = "tag.location.default: 1",
@@ -88,12 +94,17 @@ suite("test_ctas") {
     ) as select c1, json_object('title', 'Amount', 'value', v1) from test_ctas_json_object;
     """
 
-      qt_select """select * from test_ctas_json_object1 order by c1;"""
+        qt_select """select * from test_ctas_json_object1 order by c1;"""
 
         sql """create table a properties("replication_num"="1") as select null as c;"""
         test {
             sql "select * from a"
             result([[null]])
+        }
+
+        test {
+            sql """show load from ${dbname}"""
+            rowNum 6
         }
 
     } finally {

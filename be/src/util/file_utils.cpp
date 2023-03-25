@@ -33,7 +33,6 @@
 #include "gutil/strings/split.h"
 #include "gutil/strings/strip.h"
 #include "gutil/strings/substitute.h"
-#include "olap/file_helper.h"
 #include "runtime/thread_context.h"
 #include "util/defer_op.h"
 

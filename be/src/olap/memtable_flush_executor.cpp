@@ -80,7 +80,8 @@ Status FlushToken::wait() {
 }
 
 void FlushToken::_flush_memtable(MemTable* memtable, int64_t submit_task_time) {
-    _stats.flush_wait_time_ns += (MonotonicNanos() - submit_task_time);
+    uint64_t flush_wait_time_ns = MonotonicNanos() - submit_task_time;
+    _stats.flush_wait_time_ns += flush_wait_time_ns;
     // If previous flush has failed, return directly
     if (_flush_status.load() != OK) {
         return;
@@ -99,8 +100,9 @@ void FlushToken::_flush_memtable(MemTable* memtable, int64_t submit_task_time) {
         return;
     }
 
-    VLOG_CRITICAL << "flush memtable cost: " << timer.elapsed_time()
-                  << ", running count: " << _stats.flush_running_count
+    VLOG_CRITICAL << "flush memtable wait time:" << flush_wait_time_ns
+                  << "(ns), flush memtable cost: " << timer.elapsed_time()
+                  << "(ns), running count: " << _stats.flush_running_count
                   << ", finish count: " << _stats.flush_finish_count
                   << ", mem size: " << memory_usage << ", disk size: " << memtable->flush_size();
     _stats.flush_time_ns += timer.elapsed_time();

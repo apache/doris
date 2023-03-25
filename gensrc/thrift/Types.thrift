@@ -657,6 +657,14 @@ enum TSortType {
     ZORDER, 
 }
 
+enum TMetadataType {
+  ICEBERG
+}
+
+enum TIcebergQueryType {
+  SNAPSHOTS
+}
+
 // represent a user identity
 struct TUserIdentity {
     1: optional string username

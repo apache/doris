@@ -171,8 +171,8 @@ Status ScalarColumnReader::init(io::FileReaderSPtr file, FieldSchema* field, siz
                                   ? chunk_meta.dictionary_page_offset
                                   : chunk_meta.data_page_offset;
     size_t chunk_len = chunk_meta.total_compressed_size;
-    _stream_reader = std::make_unique<BufferedFileStreamReader>(file, chunk_start, chunk_len,
-                                                                std::min(chunk_len, max_buf_size));
+    _stream_reader = std::make_unique<io::BufferedFileStreamReader>(
+            file, chunk_start, chunk_len, std::min(chunk_len, max_buf_size));
     _chunk_reader =
             std::make_unique<ColumnChunkReader>(_stream_reader.get(), &_chunk_meta, field, _ctz);
     RETURN_IF_ERROR(_chunk_reader->init());

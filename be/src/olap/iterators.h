@@ -20,6 +20,7 @@
 #include <memory>
 
 #include "common/status.h"
+#include "io/io_common.h"
 #include "olap/block_column_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/olap_common.h"
@@ -34,25 +35,6 @@ class RowCursor;
 class Schema;
 class ColumnPredicate;
 
-struct IOContext {
-    IOContext() = default;
-
-    IOContext(const TUniqueId* query_id_, FileCacheStatistics* stats_, bool is_presistent_,
-              bool use_disposable_cache_, bool read_segment_index_, bool enable_file_cache)
-            : query_id(query_id_),
-              is_persistent(is_presistent_),
-              use_disposable_cache(use_disposable_cache_),
-              read_segment_index(read_segment_index_),
-              file_cache_stats(stats_),
-              enable_file_cache(enable_file_cache) {}
-    ReaderType reader_type;
-    const TUniqueId* query_id = nullptr;
-    bool is_persistent = false;
-    bool use_disposable_cache = false;
-    bool read_segment_index = false;
-    FileCacheStatistics* file_cache_stats = nullptr;
-    bool enable_file_cache = true;
-};
 namespace vectorized {
 struct IteratorRowRef;
 };
@@ -117,7 +99,7 @@ public:
     bool read_orderby_key_reverse = false;
     // columns for orderby keys
     std::vector<uint32_t>* read_orderby_key_columns = nullptr;
-    IOContext io_ctx;
+    io::IOContext io_ctx;
     vectorized::VExpr* remaining_vconjunct_root = nullptr;
     vectorized::VExprContext* common_vexpr_ctxs_pushdown = nullptr;
     const std::set<int32_t>* output_columns = nullptr;

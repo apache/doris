@@ -22,7 +22,7 @@ import org.apache.doris.analysis.MVRefreshInfo.BuildMode;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -43,7 +43,7 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
     private final MVRefreshInfo refreshInfo;
     private final QueryStmt queryStmt;
     private Database database;
-    private final Map<String, OlapTable> olapTables = Maps.newHashMap();
+    private final Map<String, Table> tables = Maps.newHashMap();
 
     public CreateMultiTableMaterializedViewStmt(String mvName, MVRefreshInfo.BuildMode buildMode,
             MVRefreshInfo refreshInfo, KeysDesc keyDesc, PartitionDesc partitionDesc, DistributionDesc distributionDesc,
@@ -76,15 +76,24 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
 
     private void analyzeSelectClause(SelectStmt selectStmt) throws AnalysisException, DdlException {
         for (TableRef tableRef : selectStmt.getTableRefs()) {
-            String dbName = tableRef.getName().getDb();
-            if (database == null) {
-                database = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
-            } else if (!dbName.equals(database.getFullName())) {
-                throw new AnalysisException("The databases of multiple tables must be the same.");
+            Table table = null;
+            if (tableRef instanceof BaseTableRef) {
+                String dbName = tableRef.getName().getDb();
+                if (database == null) {
+                    database = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
+                } else if (!dbName.equals(database.getFullName())) {
+                    throw new AnalysisException("The databases of multiple tables must be the same.");
+                }
+                table = database.getTableOrAnalysisException(tableRef.getName().getTbl());
+            } else if (tableRef instanceof InlineViewRef) {
+                InlineViewRef inlineViewRef = (InlineViewRef) tableRef;
+                table = (Table) inlineViewRef.getDesc().getTable();
             }
-            OlapTable table = (OlapTable) database.getTableOrAnalysisException(tableRef.getName().getTbl());
-            olapTables.put(table.getName(), table);
-            olapTables.put(tableRef.getAlias(), table);
+            if (table == null) {
+                throw new AnalysisException("Failed to get the table by " + tableRef);
+            }
+            tables.put(table.getName(), table);
+            tables.put(tableRef.getAlias(), table);
         }
         columnDefs = generateColumnDefinitions(selectStmt.getSelectList());
     }
@@ -107,8 +116,8 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
     private List<Column> generateSchema(List<MVColumnItem> mvColumnItems) throws DdlException {
         List<Column> columns = Lists.newArrayList();
         for (MVColumnItem mvColumnItem : mvColumnItems) {
-            OlapTable olapTable = olapTables.get(mvColumnItem.getBaseTableName());
-            columns.add(mvColumnItem.toMVColumn(olapTable));
+            Table table = tables.get(mvColumnItem.getBaseTableName());
+            columns.add(mvColumnItem.toMVColumn(table));
         }
         return columns;
     }
@@ -139,7 +148,7 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
                     slotRef.getColumn().isAggregationTypeImplicit(),
                     null,
                     slotRef.getColumnName(),
-                    slotRef.getTableName().getTbl()
+                    slotRef.getDesc().getParent().getTable().getName()
             );
         }
         return mvColumnItem;
@@ -175,8 +184,8 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
         return database;
     }
 
-    public Map<String, OlapTable> getOlapTables() {
-        return olapTables;
+    public Map<String, Table> getTables() {
+        return tables;
     }
 
     public MVRefreshInfo getRefreshInfo() {

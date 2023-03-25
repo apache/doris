@@ -790,9 +790,8 @@ std::string LRUFileCache::read_file_cache_version() const {
     fs->file_size(version_path, &file_size);
     char version[file_size];
 
-    IOContext io_ctx;
-    fs->open_file(version_path, &version_reader, &io_ctx);
-    version_reader->read_at(0, Slice(version, file_size), io_ctx, &file_size);
+    fs->open_file(version_path, &version_reader);
+    version_reader->read_at(0, Slice(version, file_size), &file_size);
     version_reader->close();
     return std::string(version, file_size);
 }

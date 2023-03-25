@@ -72,6 +72,8 @@ public:
 
     FileCachePolicy cache_type;
     const CachePathPolicy& path_policy;
+
+    static FileReaderOptions DEFAULT;
 };
 
 } // namespace io

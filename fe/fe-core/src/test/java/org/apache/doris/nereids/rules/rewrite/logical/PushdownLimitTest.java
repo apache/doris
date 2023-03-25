@@ -105,8 +105,8 @@ class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSup
                 logicalLimit(
                         logicalProject(
                                 logicalJoin(
-                                        logicalLimit(logicalOlapScan().when(s -> s.equals(scanScore))),
-                                        logicalOlapScan().when(s -> s.equals(scanStudent))
+                                        logicalLimit(logicalOlapScan().when(s -> s.getTable().getName().equals("score"))),
+                                        logicalOlapScan().when(s -> s.getTable().getName().equals("student"))
                                 ).when(j -> j.getJoinType() == JoinType.LEFT_OUTER_JOIN)
                         )
                 )
@@ -114,8 +114,8 @@ class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSup
         test(JoinType.LEFT_OUTER_JOIN, false,
                 logicalLimit(
                         logicalJoin(
-                                logicalLimit(logicalOlapScan().when(s -> s.equals(scanScore))),
-                                logicalOlapScan().when(s -> s.equals(scanStudent))
+                                logicalLimit(logicalOlapScan().when(s -> s.getTable().getName().equals("score"))),
+                                logicalOlapScan().when(s -> s.getTable().getName().equals("student"))
                         ).when(j -> j.getJoinType() == JoinType.LEFT_OUTER_JOIN)
                 )
         );
@@ -127,19 +127,19 @@ class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSup
         test(JoinType.RIGHT_OUTER_JOIN, true,
                 logicalLimit(
                         logicalProject(
-                                logicalJoin(
-                                        logicalOlapScan().when(s -> s.equals(scanScore)),
-                                        logicalLimit(logicalOlapScan().when(s -> s.equals(scanStudent)))
-                                ).when(j -> j.getJoinType() == JoinType.RIGHT_OUTER_JOIN)
+                                rightOuterLogicalJoin(
+                                        logicalOlapScan().when(s -> s.getTable().getName().equals("score")),
+                                        logicalLimit(logicalOlapScan().when(s -> s.getTable().getName().equals("student")))
+                                )
                         )
                 )
         );
         test(JoinType.RIGHT_OUTER_JOIN, false,
                 logicalLimit(
-                        logicalJoin(
-                                logicalOlapScan().when(s -> s.equals(scanScore)),
-                                logicalLimit(logicalOlapScan().when(s -> s.equals(scanStudent)))
-                        ).when(j -> j.getJoinType() == JoinType.RIGHT_OUTER_JOIN)
+                        rightOuterLogicalJoin(
+                                logicalOlapScan().when(s -> s.getTable().getName().equals("score")),
+                                logicalLimit(logicalOlapScan().when(s -> s.getTable().getName().equals("student")))
+                        )
                 )
         );
     }
@@ -149,19 +149,19 @@ class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSup
         test(JoinType.CROSS_JOIN, true,
                 logicalLimit(
                         logicalProject(
-                                logicalJoin(
-                                        logicalLimit(logicalOlapScan().when(s -> s.equals(scanScore))),
-                                        logicalLimit(logicalOlapScan().when(s -> s.equals(scanStudent)))
-                                ).when(j -> j.getJoinType() == JoinType.CROSS_JOIN)
+                                crossLogicalJoin(
+                                        logicalLimit(logicalOlapScan()),
+                                        logicalLimit(logicalOlapScan())
+                                )
                         )
                 )
         );
         test(JoinType.CROSS_JOIN, false,
                 logicalLimit(
-                        logicalJoin(
-                                logicalLimit(logicalOlapScan().when(s -> s.equals(scanScore))),
-                                logicalLimit(logicalOlapScan().when(s -> s.equals(scanStudent)))
-                        ).when(j -> j.getJoinType() == JoinType.CROSS_JOIN)
+                        crossLogicalJoin(
+                                logicalLimit(logicalOlapScan().when(s -> s.getTable().getName().equals("score"))),
+                                logicalLimit(logicalOlapScan().when(s -> s.getTable().getName().equals("student")))
+                        )
                 )
         );
     }
@@ -172,8 +172,8 @@ class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSup
                 logicalLimit(
                         logicalProject(
                                 logicalJoin(
-                                        logicalLimit(logicalOlapScan().when(s -> s.equals(scanScore))),
-                                        logicalLimit(logicalOlapScan().when(s -> s.equals(scanStudent)))
+                                        logicalLimit(logicalOlapScan().when(s -> s.getTable().getName().equals("score"))),
+                                        logicalLimit(logicalOlapScan().when(s -> s.getTable().getName().equals("student")))
                                 )
                         )
                 )
@@ -181,8 +181,8 @@ class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSup
         test(JoinType.INNER_JOIN, false,
                 logicalLimit(
                         logicalJoin(
-                                logicalLimit(logicalOlapScan().when(s -> s.equals(scanScore))),
-                                logicalLimit(logicalOlapScan().when(s -> s.equals(scanStudent)))
+                                logicalLimit(logicalOlapScan().when(s -> s.getTable().getName().equals("score"))),
+                                logicalLimit(logicalOlapScan().when(s -> s.getTable().getName().equals("student")))
                         )
                 )
         );

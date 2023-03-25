@@ -49,22 +49,11 @@ SubFileCache::SubFileCache(const Path& cache_dir, int64_t alive_time_sec,
 
 SubFileCache::~SubFileCache() {}
 
-Status SubFileCache::read_at(size_t offset, Slice result, const IOContext& io_ctx,
-                             size_t* bytes_read) {
-    if (bthread_self() == 0) {
-        return read_at_impl(offset, result, io_ctx, bytes_read);
-    }
-    Status s;
-    auto task = [&] { s = read_at_impl(offset, result, io_ctx, bytes_read); };
-    AsyncIO::run_task(task, io::FileSystemType::S3);
-    return s;
-}
-
-Status SubFileCache::read_at_impl(size_t offset, Slice result, const IOContext& io_ctx,
-                                  size_t* bytes_read) {
+Status SubFileCache::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                                  const IOContext* io_ctx) {
     RETURN_IF_ERROR(_init());
-    if (io_ctx.reader_type != READER_QUERY) {
-        return _remote_file_reader->read_at(offset, result, io_ctx, bytes_read);
+    if (io_ctx->reader_type != READER_QUERY) {
+        return _remote_file_reader->read_at(offset, result, bytes_read, io_ctx);
     }
     std::vector<size_t> need_cache_offsets;
     RETURN_IF_ERROR(_get_need_cache_offsets(offset, result.size, &need_cache_offsets));
@@ -125,7 +114,7 @@ Status SubFileCache::read_at_impl(size_t offset, Slice result, const IOContext& 
             Slice read_slice(result.mutable_data() + offset_begin - offset, req_size);
             size_t sub_bytes_read = -1;
             RETURN_NOT_OK_STATUS_WITH_WARN(
-                    _cache_file_readers[*iter]->read_at(offset_begin - *iter, read_slice, io_ctx,
+                    _cache_file_readers[*iter]->read_at(offset_begin - *iter, read_slice,
                                                         &sub_bytes_read),
                     fmt::format("Read local cache file failed: {}",
                                 _cache_file_readers[*iter]->path().native()));
@@ -204,7 +193,7 @@ Status SubFileCache::_generate_cache_reader(size_t offset, size_t req_size) {
         }
     }
     io::FileReaderSPtr cache_reader;
-    RETURN_IF_ERROR(io::global_local_filesystem()->open_file(cache_file, &cache_reader, nullptr));
+    RETURN_IF_ERROR(io::global_local_filesystem()->open_file(cache_file, &cache_reader));
     _cache_file_readers.emplace(offset, cache_reader);
     _last_match_times.emplace(offset, time(nullptr));
     LOG(INFO) << "Create cache file from remote file successfully: "

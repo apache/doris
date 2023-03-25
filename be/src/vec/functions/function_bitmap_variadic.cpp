@@ -132,6 +132,12 @@ BITMAP_FUNCTION_COUNT_VARIADIC(BitmapOrCount, bitmap_or_count, |=);
 BITMAP_FUNCTION_COUNT_VARIADIC(BitmapAndCount, bitmap_and_count, &=);
 BITMAP_FUNCTION_COUNT_VARIADIC(BitmapXorCount, bitmap_xor_count, ^=);
 
+Status execute_bitmap_op_count_null_to_zero(
+        FunctionContext* context, Block& block, const ColumnNumbers& arguments, size_t result,
+        size_t input_rows_count,
+        const std::function<Status(FunctionContext*, Block&, const ColumnNumbers&, size_t, size_t)>&
+                exec_impl_func);
+
 template <typename Impl>
 class FunctionBitMapVariadic : public IFunction {
 public:
@@ -147,7 +153,7 @@ public:
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         using ResultDataType = typename Impl::ResultDataType;
-        if (std::is_same_v<Impl, BitmapOr> || std::is_same_v<Impl, BitmapOrCount>) {
+        if (std::is_same_v<Impl, BitmapOr> || is_count()) {
             bool return_nullable = false;
             // result is nullable only when any columns is nullable for bitmap_or and bitmap_or_count
             for (size_t i = 0; i < arguments.size(); ++i) {
@@ -165,8 +171,10 @@ public:
 
     bool use_default_implementation_for_constants() const override { return true; }
     bool use_default_implementation_for_nulls() const override {
-        // result is null only when all columns is null for bitmap_or and bitmap_or_count
-        if (std::is_same_v<Impl, BitmapOr> || std::is_same_v<Impl, BitmapOrCount>) {
+        // result is null only when all columns is null for bitmap_or.
+        // for count functions, result is always not null, and if the bitmap op result is null,
+        // the count is 0
+        if (std::is_same_v<Impl, BitmapOr> || is_count()) {
             return false;
         } else {
             return true;
@@ -175,6 +183,23 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
+        if (std::is_same_v<Impl, BitmapAndCount> || std::is_same_v<Impl, BitmapXorCount>) {
+            return execute_bitmap_op_count_null_to_zero(
+                    context, block, arguments, result, input_rows_count,
+                    std::bind((Status(FunctionBitMapVariadic<Impl>::*)(FunctionContext*, Block&,
+                                                                       const ColumnNumbers&, size_t,
+                                                                       size_t)) &
+                                      FunctionBitMapVariadic::execute_impl_internal,
+                              this, std::placeholders::_1, std::placeholders::_2,
+                              std::placeholders::_3, std::placeholders::_4, std::placeholders::_5));
+        } else {
+            return execute_impl_internal(context, block, arguments, result, input_rows_count);
+        }
+    }
+
+    Status execute_impl_internal(FunctionContext* context, Block& block,
+                                 const ColumnNumbers& arguments, size_t result,
+                                 size_t input_rows_count) {
         size_t argument_size = arguments.size();
         ColumnPtr argument_columns[argument_size];
 
@@ -211,6 +236,12 @@ public:
             block.replace_by_position(result, std::move(col_res));
         }
         return Status::OK();
+    }
+
+private:
+    bool is_count() const {
+        return (std::is_same_v<Impl, BitmapOrCount> || std::is_same_v<Impl, BitmapAndCount> ||
+                std::is_same_v<Impl, BitmapXorCount>);
     }
 };
 

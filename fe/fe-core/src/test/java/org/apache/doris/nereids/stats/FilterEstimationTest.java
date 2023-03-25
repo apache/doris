@@ -115,9 +115,7 @@ class FilterEstimationTest {
         Statistics stat = new Statistics(1000, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics expected = filterEstimation.estimate(in, stat);
-        Assertions.assertEquals(
-                FilterEstimation.DEFAULT_INEQUALITY_COEFFICIENT * stat.getRowCount(),
-                expected.getRowCount());
+        Assertions.assertTrue(Precision.equals(333.33, expected.getRowCount(), 0.01));
     }
 
     @Test
@@ -134,9 +132,7 @@ class FilterEstimationTest {
         Statistics stat = new Statistics(1000, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics expected = filterEstimation.estimate(notIn, stat);
-        Assertions.assertEquals(
-                FilterEstimation.DEFAULT_INEQUALITY_COEFFICIENT * stat.getRowCount(),
-                expected.getRowCount());
+        Assertions.assertTrue(Precision.equals(333.33, expected.getRowCount(), 0.01));
     }
 
     /**
@@ -197,8 +193,7 @@ class FilterEstimationTest {
         Statistics stat = new Statistics(1000, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics expected = filterEstimation.estimate(or, stat);
-        Assertions.assertTrue(
-                Precision.equals(50, expected.getRowCount(), 0.01));
+        Assertions.assertEquals(51, expected.getRowCount(), 0.1);
     }
 
     // a > 500 and b < 100 or a > c
@@ -450,9 +445,9 @@ class FilterEstimationTest {
         Assertions.assertEquals(1000 * 7.0 / 10.0, estimated.getRowCount());
     }
 
-    //c>100
+    // c>100
     // a is primary-key, a.ndv is reduced
-    // b is normal, b.ndv is not changed
+    // b is normal, b.ndv is smaller: newNdv = ndv * (1 - Math.pow(1 - selectivity, rowCount / ndv));
     // c.selectivity is still 1, but its range becomes half
     @Test
     public void test12() {
@@ -466,8 +461,8 @@ class FilterEstimationTest {
                 .setNdv(1000)
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
-                .setMinValue(10000)
-                .setMaxValue(1000)
+                .setMinValue(1000)
+                .setMaxValue(10000)
                 .setSelectivity(1.0);
         ColumnStatisticBuilder builderB = new ColumnStatisticBuilder()
                 .setNdv(100)
@@ -492,7 +487,7 @@ class FilterEstimationTest {
         ColumnStatistic statsA = estimated.findColumnStatistics(a);
         Assertions.assertEquals(500, statsA.ndv);
         ColumnStatistic statsB = estimated.findColumnStatistics(b);
-        Assertions.assertEquals(50, statsB.ndv);
+        Assertions.assertEquals(100, statsB.ndv, 0.1);
         ColumnStatistic statsC = estimated.findColumnStatistics(c);
         Assertions.assertEquals(50, statsC.ndv);
         Assertions.assertEquals(100, statsC.minValue);
@@ -502,9 +497,10 @@ class FilterEstimationTest {
     /**
      * test filter estimation, like 20>c>10, c in (0,40)
      * filter range has intersection with (c.min, c.max)
-     *     a primary key, a.ndv reduced by 1/4, a.selectivity=0.25
-     *     b normal field, b.ndv not changed, b.selectivity=1.0
-     *     c.ndv = 10/40 * c.ndv, c.selectivity=1
+     *      rows = 100
+     *     a primary key, a.ndv reduced by 1/4
+     *     b normal field, b.ndv=20 =>
+     *     c.ndv = 10/40 * c.ndv
      */
     @Test
     public void testFilterInsideMinMax() {
@@ -547,13 +543,13 @@ class FilterEstimationTest {
         Statistics estimated = filterEstimation.estimate(and, stat);
         Assertions.assertEquals(25, estimated.getRowCount());
         ColumnStatistic statsA = estimated.findColumnStatistics(a);
-        Assertions.assertEquals(25, statsA.ndv);
+        Assertions.assertEquals(25, statsA.ndv, 0.1);
         //Assertions.assertEquals(0.25, statsA.selectivity);
         Assertions.assertEquals(0, statsA.minValue);
         Assertions.assertEquals(100, statsA.maxValue);
 
         ColumnStatistic statsB = estimated.findColumnStatistics(b);
-        Assertions.assertEquals(5, statsB.ndv);
+        Assertions.assertEquals(15.6, statsB.ndv, 0.1);
         Assertions.assertEquals(0, statsB.minValue);
         Assertions.assertEquals(500, statsB.maxValue);
         Assertions.assertEquals(1.0, statsB.selectivity);
@@ -686,10 +682,10 @@ class FilterEstimationTest {
         ColumnStatistic statsA = estimated.findColumnStatistics(a);
         ColumnStatistic statsB = estimated.findColumnStatistics(b);
         ColumnStatistic statsC = estimated.findColumnStatistics(c);
-        Assertions.assertEquals(5, statsA.ndv);
+        Assertions.assertEquals(5, statsA.ndv, 0.1);
         Assertions.assertEquals(0, statsA.minValue);
         Assertions.assertEquals(100, statsA.maxValue);
-        Assertions.assertEquals(1, statsB.ndv);
+        Assertions.assertEquals(4.5, statsB.ndv, 0.1);
         Assertions.assertEquals(0, statsB.minValue);
         Assertions.assertEquals(500, statsB.maxValue);
         Assertions.assertEquals(2, statsC.ndv);
@@ -763,10 +759,10 @@ class FilterEstimationTest {
         System.out.println(statsA);
         System.out.println(statsB);
         System.out.println(statsC);
-        Assertions.assertEquals(5, statsA.ndv);
+        Assertions.assertEquals(5, statsA.ndv, 0.1);
         Assertions.assertEquals(0, statsA.minValue);
         Assertions.assertEquals(100, statsA.maxValue);
-        Assertions.assertEquals(1, statsB.ndv);
+        Assertions.assertEquals(4.5, statsB.ndv, 0.1);
         Assertions.assertEquals(0, statsB.minValue);
         Assertions.assertEquals(500, statsB.maxValue);
         Assertions.assertEquals(2, statsC.ndv);
@@ -832,13 +828,10 @@ class FilterEstimationTest {
         ColumnStatistic statsA = estimated.findColumnStatistics(a);
         ColumnStatistic statsB = estimated.findColumnStatistics(b);
         ColumnStatistic statsC = estimated.findColumnStatistics(c);
-        System.out.println(statsA);
-        System.out.println(statsB);
-        System.out.println(statsC);
         Assertions.assertEquals(75, statsA.ndv);
         Assertions.assertEquals(0, statsA.minValue);
         Assertions.assertEquals(100, statsA.maxValue);
-        Assertions.assertEquals(15, statsB.ndv);
+        Assertions.assertEquals(19.9, statsB.ndv, 0.1);
         Assertions.assertEquals(0, statsB.minValue);
         Assertions.assertEquals(500, statsB.maxValue);
         Assertions.assertEquals(30, statsC.ndv);

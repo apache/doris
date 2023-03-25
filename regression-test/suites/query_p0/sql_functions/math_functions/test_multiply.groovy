@@ -27,6 +27,7 @@ suite("test_multiply") {
 
     sql """ insert into `${tableName}` values(1,null,2.2); """
     sql """ insert into `${tableName}` values(1,0,0); """
-    qt_select """ select COALESCE(col2, 0) * COALESCE(col3, 0) from `${tableName}`; """
-    qt_select """ select col2 * col3 from `${tableName}`; """
+    qt_select """ select COALESCE(col2, 0) * COALESCE(col3, 0) as col from
+    `${tableName}` order by col; """
+    qt_select """ select col2 * col3 as col from `${tableName}` order by col; """
 }

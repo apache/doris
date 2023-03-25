@@ -30,7 +30,6 @@
 #include "http/http_response.h"
 #include "http/http_status.h"
 #include "http/utils.h"
-#include "olap/file_helper.h"
 #include "util/cpu_info.h"
 #include "util/debug_util.h"
 #include "util/disk_info.h"

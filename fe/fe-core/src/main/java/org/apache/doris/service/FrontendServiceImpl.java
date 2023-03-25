@@ -17,7 +17,6 @@
 
 package org.apache.doris.service;
 
-import org.apache.doris.alter.DecommissionType;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.AddColumnsClause;
 import org.apache.doris.analysis.ColumnDef;
@@ -29,7 +28,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Replica;
@@ -39,7 +37,6 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.external.ExternalDatabase;
-import org.apache.doris.cluster.Cluster;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
@@ -55,11 +52,10 @@ import org.apache.doris.common.ThriftServerContext;
 import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
-import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.annotation.LogException;
 import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.master.MasterImpl;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
@@ -70,15 +66,14 @@ import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.VariableMgr;
-import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.tablefunction.MetadataGenerator;
 import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.FrontendServiceVersion;
 import org.apache.doris.thrift.TAddColumnsRequest;
 import org.apache.doris.thrift.TAddColumnsResult;
-import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TCheckAuthRequest;
 import org.apache.doris.thrift.TCheckAuthResult;
 import org.apache.doris.thrift.TColumn;
@@ -103,7 +98,6 @@ import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
 import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TGetTablesResult;
-import org.apache.doris.thrift.TIcebergMetadataType;
 import org.apache.doris.thrift.TInitExternalCtlMetaRequest;
 import org.apache.doris.thrift.TInitExternalCtlMetaResult;
 import org.apache.doris.thrift.TListPrivilegesResult;
@@ -119,7 +113,6 @@ import org.apache.doris.thrift.TLoadTxnRollbackResult;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TMasterResult;
-import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMySqlLoadAcquireTokenResult;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPrivilegeCtrl;
@@ -129,7 +122,6 @@ import org.apache.doris.thrift.TPrivilegeType;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TReportExecStatusResult;
 import org.apache.doris.thrift.TReportRequest;
-import org.apache.doris.thrift.TRow;
 import org.apache.doris.thrift.TShowVariableRequest;
 import org.apache.doris.thrift.TShowVariableResult;
 import org.apache.doris.thrift.TSnapshotLoaderReportRequest;
@@ -149,22 +141,14 @@ import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import org.apache.doris.transaction.TxnCommitAttachment;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Stopwatch;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.gson.Gson;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hdfs.HdfsConfiguration;
-import org.apache.iceberg.Snapshot;
-import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
-import org.jetbrains.annotations.NotNull;
 
 import java.time.Instant;
-import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
@@ -495,6 +479,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
+    @LogException
     @Override
     public TGetTablesResult getTableNames(TGetTablesParams params) throws TException {
         LOG.debug("get table name request: {}", params);
@@ -1114,7 +1099,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             Env.getCurrentGlobalTransactionMgr()
                     .commitTransaction2PC(database, tableList, request.getTxnId(), 5000);
         } else if (txnOperation.equalsIgnoreCase("abort")) {
-            Env.getCurrentGlobalTransactionMgr().abortTransaction2PC(database.getId(), request.getTxnId());
+            Env.getCurrentGlobalTransactionMgr().abortTransaction2PC(database.getId(), request.getTxnId(), tableList);
         } else {
             throw new UserException("transaction operation should be \'commit\' or \'abort\'");
         }
@@ -1236,9 +1221,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new MetaNotFoundException("db " + request.getDb() + " does not exist");
         }
         long dbId = db.getId();
+        DatabaseTransactionMgr dbTransactionMgr = Env.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(dbId);
+        TransactionState transactionState = dbTransactionMgr.getTransactionState(request.getTxnId());
+        if (transactionState == null) {
+            throw new UserException("transaction [" + request.getTxnId() + "] not found");
+        }
+        List<Table> tableList = db.getTablesOnIdOrderIfExist(transactionState.getTableIdList());
         Env.getCurrentGlobalTransactionMgr().abortTransaction(dbId, request.getTxnId(),
                 request.isSetReason() ? request.getReason() : "system cancel",
-                TxnCommitAttachment.fromThrift(request.getTxnCommitAttachment()));
+                TxnCommitAttachment.fromThrift(request.getTxnCommitAttachment()), tableList);
     }
 
     @Override
@@ -1350,197 +1341,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TFetchSchemaTableDataResult fetchSchemaTableData(TFetchSchemaTableDataRequest request) throws TException {
         switch (request.getSchemaTableName()) {
             case BACKENDS:
-                return getBackendsSchemaTable(request);
-            case ICEBERG_TABLE_META:
-                return getIcebergMetadataTable(request);
+                return MetadataGenerator.getBackendsSchemaTable(request);
+            case METADATA_TABLE:
+                return MetadataGenerator.getMetadataTable(request);
             default:
                 break;
         }
-        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
-        result.setStatus(new TStatus(TStatusCode.INTERNAL_ERROR));
-        return result;
-    }
-
-    private TFetchSchemaTableDataResult getIcebergMetadataTable(TFetchSchemaTableDataRequest request) {
-        if (!request.isSetMetadaTableParams()) {
-            return errorResult("Metadata table params is not set. ");
-        }
-        TMetadataTableRequestParams params = request.getMetadaTableParams();
-        if (!params.isSetIcebergMetadataParams()) {
-            return errorResult("Iceberg metadata params is not set. ");
-        }
-
-        HMSExternalCatalog catalog = (HMSExternalCatalog) Env.getCurrentEnv().getCatalogMgr()
-                .getCatalog(params.getCatalog());
-        org.apache.iceberg.Table table;
-        try {
-            table = getIcebergTable(catalog, params.getDatabase(), params.getTable());
-        } catch (MetaNotFoundException e) {
-            return errorResult(e.getMessage());
-        }
-        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
-        List<TRow> dataBatch = Lists.newArrayList();
-        TIcebergMetadataType metadataType = params.getIcebergMetadataParams().getMetadataType();
-        switch (metadataType) {
-            case SNAPSHOTS:
-                for (Snapshot snapshot : table.snapshots()) {
-                    TRow trow = new TRow();
-                    LocalDateTime committedAt = LocalDateTime.ofInstant(Instant.ofEpochMilli(
-                            snapshot.timestampMillis()), TimeUtils.getTimeZone().toZoneId());
-                    long encodedDatetime = convertToDateTimeV2(committedAt.getYear(), committedAt.getMonthValue(),
-                            committedAt.getDayOfMonth(), committedAt.getHour(),
-                            committedAt.getMinute(), committedAt.getSecond());
-
-                    trow.addToColumnValue(new TCell().setLongVal(encodedDatetime));
-                    trow.addToColumnValue(new TCell().setLongVal(snapshot.snapshotId()));
-                    if (snapshot.parentId() == null) {
-                        trow.addToColumnValue(new TCell().setLongVal(-1L));
-                    } else {
-                        trow.addToColumnValue(new TCell().setLongVal(snapshot.parentId()));
-                    }
-                    trow.addToColumnValue(new TCell().setStringVal(snapshot.operation()));
-                    trow.addToColumnValue(new TCell().setStringVal(snapshot.manifestListLocation()));
-                    dataBatch.add(trow);
-                }
-                break;
-            default:
-                return errorResult("Unsupported metadata inspect type: " + metadataType);
-        }
-        result.setDataBatch(dataBatch);
-        result.setStatus(new TStatus(TStatusCode.OK));
-        return result;
-    }
-
-    public static long convertToDateTimeV2(int year, int month, int day, int hour, int minute, int second) {
-        return (long) second << 20 | (long) minute << 26 | (long) hour << 32
-            | (long) day << 37 | (long) month << 42 | (long) year << 46;
-    }
-
-    @NotNull
-    private TFetchSchemaTableDataResult errorResult(String msg) {
-        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
-        result.setStatus(new TStatus(TStatusCode.INTERNAL_ERROR));
-        result.status.addToErrorMsgs(msg);
-        return result;
-    }
-
-    private org.apache.iceberg.Table getIcebergTable(HMSExternalCatalog catalog, String db, String tbl)
-                throws MetaNotFoundException {
-        org.apache.iceberg.hive.HiveCatalog hiveCatalog = new org.apache.iceberg.hive.HiveCatalog();
-        Configuration conf = new HdfsConfiguration();
-        Map<String, String> properties = catalog.getCatalogProperty().getHadoopProperties();
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            conf.set(entry.getKey(), entry.getValue());
-        }
-        hiveCatalog.setConf(conf);
-        Map<String, String> catalogProperties = new HashMap<>();
-        catalogProperties.put(HMSResource.HIVE_METASTORE_URIS, catalog.getHiveMetastoreUris());
-        catalogProperties.put("uri", catalog.getHiveMetastoreUris());
-        hiveCatalog.initialize("hive", catalogProperties);
-        return hiveCatalog.loadTable(TableIdentifier.of(db, tbl));
-    }
-
-    private TFetchSchemaTableDataResult getBackendsSchemaTable(TFetchSchemaTableDataRequest request) {
-        final SystemInfoService clusterInfoService = Env.getCurrentSystemInfo();
-        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
-        List<Long> backendIds = null;
-        if (!Strings.isNullOrEmpty(request.cluster_name)) {
-            final Cluster cluster = Env.getCurrentEnv().getCluster(request.cluster_name);
-            // root not in any cluster
-            if (null == cluster) {
-                return result;
-            }
-            backendIds = cluster.getBackendIdList();
-        } else {
-            backendIds = clusterInfoService.getBackendIds(false);
-            if (backendIds == null) {
-                return result;
-            }
-        }
-
-        long start = System.currentTimeMillis();
-        Stopwatch watch = Stopwatch.createUnstarted();
-
-        List<TRow> dataBatch = Lists.newArrayList();
-        for (long backendId : backendIds) {
-            Backend backend = clusterInfoService.getBackend(backendId);
-            if (backend == null) {
-                continue;
-            }
-
-            watch.start();
-            Integer tabletNum = Env.getCurrentInvertedIndex().getTabletNumByBackendId(backendId);
-            watch.stop();
-
-            TRow trow = new TRow();
-            trow.addToColumnValue(new TCell().setLongVal(backendId));
-            trow.addToColumnValue(new TCell().setStringVal(backend.getOwnerClusterName()));
-            trow.addToColumnValue(new TCell().setStringVal(backend.getIp()));
-            if (Strings.isNullOrEmpty(request.cluster_name)) {
-                trow.addToColumnValue(new TCell().setIntVal(backend.getHeartbeatPort()));
-                trow.addToColumnValue(new TCell().setIntVal(backend.getBePort()));
-                trow.addToColumnValue(new TCell().setIntVal(backend.getHttpPort()));
-                trow.addToColumnValue(new TCell().setIntVal(backend.getBrpcPort()));
-            }
-            trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(backend.getLastStartTime())));
-            trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(backend.getLastUpdateMs())));
-            trow.addToColumnValue(new TCell().setStringVal(String.valueOf(backend.isAlive())));
-            if (backend.isDecommissioned() && backend.getDecommissionType() == DecommissionType.ClusterDecommission) {
-                trow.addToColumnValue(new TCell().setStringVal("false"));
-                trow.addToColumnValue(new TCell().setStringVal("true"));
-            } else if (backend.isDecommissioned()
-                    && backend.getDecommissionType() == DecommissionType.SystemDecommission) {
-                trow.addToColumnValue(new TCell().setStringVal("true"));
-                trow.addToColumnValue(new TCell().setStringVal("false"));
-            } else {
-                trow.addToColumnValue(new TCell().setStringVal("false"));
-                trow.addToColumnValue(new TCell().setStringVal("false"));
-            }
-            trow.addToColumnValue(new TCell().setLongVal(tabletNum));
-
-            // capacity
-            // data used
-            trow.addToColumnValue(new TCell().setLongVal(backend.getDataUsedCapacityB()));
-
-            // available
-            long availB = backend.getAvailableCapacityB();
-            trow.addToColumnValue(new TCell().setLongVal(availB));
-
-            // total
-            long totalB = backend.getTotalCapacityB();
-            trow.addToColumnValue(new TCell().setLongVal(totalB));
-
-            // used percent
-            double used = 0.0;
-            if (totalB <= 0) {
-                used = 0.0;
-            } else {
-                used = (double) (totalB - availB) * 100 / totalB;
-            }
-            trow.addToColumnValue(new TCell().setDoubleVal(used));
-            trow.addToColumnValue(new TCell().setDoubleVal(backend.getMaxDiskUsedPct() * 100));
-
-            // remote used capacity
-            trow.addToColumnValue(new TCell().setLongVal(backend.getRemoteUsedCapacityB()));
-
-            // tags
-            trow.addToColumnValue(new TCell().setStringVal(backend.getTagMapString()));
-            // err msg
-            trow.addToColumnValue(new TCell().setStringVal(backend.getHeartbeatErrMsg()));
-            // version
-            trow.addToColumnValue(new TCell().setStringVal(backend.getVersion()));
-            // status
-            trow.addToColumnValue(new TCell().setStringVal(new Gson().toJson(backend.getBackendStatus())));
-            dataBatch.add(trow);
-        }
-
-        // backends proc node get result too slow, add log to observer.
-        LOG.debug("backends proc get tablet num cost: {}, total cost: {}",
-                watch.elapsed(TimeUnit.MILLISECONDS), (System.currentTimeMillis() - start));
-
-        result.setDataBatch(dataBatch);
-        result.setStatus(new TStatus(TStatusCode.OK));
-        return result;
+        return MetadataGenerator.errorResult("Fetch schema table name is not set");
     }
 
     private TNetworkAddress getClientAddr() {

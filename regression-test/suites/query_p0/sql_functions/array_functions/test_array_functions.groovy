@@ -150,6 +150,17 @@ suite("test_array_functions") {
     qt_select "SELECT k1, array_concat(k10, k11, array(cast('2023-03-05 10:30:00.999' as datetimev2(3)))) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_concat(k12, k13) FROM ${tableName} ORDER BY k1"
 
+    qt_select "SELECT k1, array_zip(k2, k2, k2) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_zip(k3, k3) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_zip(k4, k4) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_zip(k5, k5) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_zip(k6, k6) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_zip(k7, k7) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_zip(k8, k8) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_zip(k9, k9) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_zip(k10, k10) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_zip(k11, k11, k11, k11) FROM ${tableName} ORDER BY k1"
+
     def tableName2 = "tbl_test_array_range"
     sql """DROP TABLE IF EXISTS ${tableName2}"""
     sql """

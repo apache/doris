@@ -33,6 +33,7 @@
 
 #include "env/env.h"
 #include "gen_cpp/Types_types.h"
+#include "io/io_common.h"
 #include "olap/olap_define.h"
 #include "util/hash_util.hpp"
 #include "util/uid_util.h"
@@ -169,16 +170,6 @@ enum PushType {
     PUSH_NORMAL_V2 = 4,       // for spark load
 };
 
-enum ReaderType {
-    READER_QUERY = 0,
-    READER_ALTER_TABLE = 1,
-    READER_BASE_COMPACTION = 2,
-    READER_CUMULATIVE_COMPACTION = 3,
-    READER_CHECKSUM = 4,
-    READER_COLD_DATA_COMPACTION = 5,
-    READER_SEGMENT_COMPACTION = 6,
-};
-
 constexpr bool field_is_slice_type(const FieldType& field_type) {
     return field_type == OLAP_FIELD_TYPE_VARCHAR || field_type == OLAP_FIELD_TYPE_CHAR ||
            field_type == OLAP_FIELD_TYPE_STRING;
@@ -264,17 +255,6 @@ using KeyRange = std::pair<WrapperField*, WrapperField*>;
 
 static const int GENERAL_DEBUG_COUNT = 0;
 
-struct FileCacheStatistics {
-    int64_t num_io_total = 0;
-    int64_t num_io_hit_cache = 0;
-    int64_t num_io_bytes_read_total = 0;
-    int64_t num_io_bytes_read_from_file_cache = 0;
-    int64_t num_io_bytes_read_from_write_cache = 0;
-    int64_t num_io_written_in_file_cache = 0;
-    int64_t num_io_bytes_written_in_file_cache = 0;
-    int64_t num_io_bytes_skip_cache = 0;
-};
-
 // ReaderStatistics used to collect statistics when scan data from storage
 struct OlapReaderStatistics {
     int64_t io_ns = 0;
@@ -318,6 +298,9 @@ struct OlapReaderStatistics {
     int64_t raw_rows_read = 0;
 
     int64_t rows_vec_cond_filtered = 0;
+    int64_t rows_short_circuit_cond_filtered = 0;
+    int64_t vec_cond_input_rows = 0;
+    int64_t short_circuit_cond_input_rows = 0;
     int64_t rows_vec_del_cond_filtered = 0;
     int64_t vec_cond_ns = 0;
     int64_t short_cond_ns = 0;
@@ -373,7 +356,7 @@ struct OlapReaderStatistics {
     //               SCOPED_RAW_TIMER(&_stats->general_debug_ns[1]);
     int64_t general_debug_ns[GENERAL_DEBUG_COUNT] = {};
 
-    FileCacheStatistics file_cache_stats;
+    io::FileCacheStatistics file_cache_stats;
     int64_t load_segments_timer = 0;
 };
 

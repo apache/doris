@@ -33,16 +33,18 @@ public class DownloadTask extends AgentTask {
     private FsBroker brokerAddr;
     private Map<String, String> brokerProperties;
     private StorageBackend.StorageType storageType;
+    private String location;
 
     public DownloadTask(TResourceInfo resourceInfo, long backendId, long signature, long jobId, long dbId,
             Map<String, String> srcToDestPath, FsBroker brokerAddr, Map<String, String> brokerProperties,
-            StorageBackend.StorageType storageType) {
+            StorageBackend.StorageType storageType, String location) {
         super(resourceInfo, backendId, TTaskType.DOWNLOAD, dbId, -1, -1, -1, -1, signature);
         this.jobId = jobId;
         this.srcToDestPath = srcToDestPath;
         this.brokerAddr = brokerAddr;
         this.brokerProperties = brokerProperties;
         this.storageType = storageType;
+        this.location = location;
     }
 
     public long getJobId() {
@@ -66,6 +68,7 @@ public class DownloadTask extends AgentTask {
         TDownloadReq req = new TDownloadReq(jobId, srcToDestPath, address);
         req.setBrokerProp(brokerProperties);
         req.setStorageBackend(storageType.toThrift());
+        req.setLocation(location);
         return req;
     }
 }

@@ -152,6 +152,8 @@ public:
         return assert_cast<const ColumnOffsets&>(*offsets).get_data();
     }
 
+    bool has_equal_offsets(const ColumnArray& other) const;
+
     const ColumnPtr& get_data_ptr() const { return data; }
     ColumnPtr& get_data_ptr() { return data; }
 

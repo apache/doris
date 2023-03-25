@@ -103,21 +103,14 @@ public class RuntimeFilterTranslator {
             context.setTargetNullCount();
             return;
         }
-        Expr targetExpr = null;
+        Expr targetExpr;
         if (filter.getType() == TRuntimeFilterType.BITMAP) {
             if (filter.getTargetExpression().equals(filter.getTargetExpr())) {
                 targetExpr = target;
             } else {
                 RuntimeFilterExpressionTranslator translator = new RuntimeFilterExpressionTranslator(
                         context.getExprIdToOlapScanNodeSlotRef());
-                try {
-                    targetExpr = filter.getTargetExpression().accept(translator, ctx);
-                    targetExpr.finalizeForNereids();
-                } catch (org.apache.doris.common.AnalysisException e) {
-                    throw new AnalysisException(
-                            "Translate Nereids expression to stale expression failed. " + e.getMessage(), e);
-                }
-
+                targetExpr = filter.getTargetExpression().accept(translator, ctx);
             }
         } else {
             targetExpr = target;

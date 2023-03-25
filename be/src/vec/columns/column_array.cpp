@@ -320,6 +320,14 @@ ColumnPtr ColumnArray::convert_to_full_column_if_const() const {
     return ColumnArray::create(data->convert_to_full_column_if_const(), offsets);
 }
 
+bool ColumnArray::has_equal_offsets(const ColumnArray& other) const {
+    const Offsets64& offsets1 = get_offsets();
+    const Offsets64& offsets2 = other.get_offsets();
+    return offsets1.size() == offsets2.size() &&
+           (offsets1.empty() ||
+            0 == memcmp(offsets1.data(), offsets2.data(), sizeof(offsets1[0]) * offsets1.size()));
+}
+
 void ColumnArray::insert_range_from(const IColumn& src, size_t start, size_t length) {
     if (length == 0) return;
 

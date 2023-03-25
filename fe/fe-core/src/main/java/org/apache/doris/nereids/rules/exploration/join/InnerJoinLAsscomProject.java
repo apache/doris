@@ -65,10 +65,11 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
                     GroupPlan a = bottomJoin.left();
                     GroupPlan b = bottomJoin.right();
                     GroupPlan c = topJoin.right();
+                    Set<ExprId> bExprIdSet = b.getOutputExprIdSet();
                     Set<ExprId> cExprIdSet = c.getOutputExprIdSet();
 
                     /* ********** Split projects ********** */
-                    Map<Boolean, List<NamedExpression>> map = JoinReorderUtils.splitProjection(projects, b);
+                    Map<Boolean, List<NamedExpression>> map = JoinReorderUtils.splitProject(projects, bExprIdSet);
                     List<NamedExpression> aProjects = map.get(false);
                     List<NamedExpression> bProjects = map.get(true);
                     if (aProjects.isEmpty()) {
@@ -76,14 +77,13 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
                     }
 
                     /* ********** split HashConjuncts ********** */
-                    Set<ExprId> bExprIdSet = JoinReorderUtils.combineProjectAndChildExprId(b, bProjects);
-                    Map<Boolean, List<Expression>> splitHashConjuncts = splitConjunctsWithAlias(
+                    Map<Boolean, List<Expression>> splitHashConjuncts = splitConjuncts(
                             topJoin.getHashJoinConjuncts(), bottomJoin.getHashJoinConjuncts(), bExprIdSet);
                     List<Expression> newTopHashConjuncts = splitHashConjuncts.get(true);
                     List<Expression> newBottomHashConjuncts = splitHashConjuncts.get(false);
 
                     /* ********** split OtherConjuncts ********** */
-                    Map<Boolean, List<Expression>> splitOtherConjuncts = splitConjunctsWithAlias(
+                    Map<Boolean, List<Expression>> splitOtherConjuncts = splitConjuncts(
                             topJoin.getOtherJoinConjuncts(), bottomJoin.getOtherJoinConjuncts(), bExprIdSet);
                     List<Expression> newTopOtherConjuncts = splitOtherConjuncts.get(true);
                     List<Expression> newBottomOtherConjuncts = splitOtherConjuncts.get(false);
@@ -93,16 +93,15 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
                     }
 
                     // Add all slots used by OnCondition when projects not empty.
-                    Set<ExprId> aExprIdSet = JoinReorderUtils.combineProjectAndChildExprId(a, aProjects);
                     Map<Boolean, Set<Slot>> abOnUsedSlots = Stream.concat(
                                     newTopHashConjuncts.stream(),
                                     newTopOtherConjuncts.stream())
                             .flatMap(onExpr -> onExpr.getInputSlots().stream())
                             .filter(slot -> !cExprIdSet.contains(slot.getExprId()))
                             .collect(Collectors.partitioningBy(
-                                    slot -> aExprIdSet.contains(slot.getExprId()), Collectors.toSet()));
-                    JoinReorderUtils.addSlotsUsedByOn(abOnUsedSlots.get(true), aProjects);
-                    JoinReorderUtils.addSlotsUsedByOn(abOnUsedSlots.get(false), bProjects);
+                                    slot -> bExprIdSet.contains(slot.getExprId()), Collectors.toSet()));
+                    JoinReorderUtils.addSlotsUsedByOn(abOnUsedSlots.get(false), aProjects);
+                    JoinReorderUtils.addSlotsUsedByOn(abOnUsedSlots.get(true), bProjects);
 
                     aProjects.addAll(c.getOutput());
 
@@ -130,14 +129,14 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
      * True: contains B.
      * False: just contains A C.
      */
-    private Map<Boolean, List<Expression>> splitConjunctsWithAlias(List<Expression> topConjuncts,
+    private Map<Boolean, List<Expression>> splitConjuncts(List<Expression> topConjuncts,
             List<Expression> bottomConjuncts, Set<ExprId> bExprIdSet) {
         // top: (A B)(error) (A C) (B C) (A B C)
         // Split topJoin Condition to two part according to include B.
         Map<Boolean, List<Expression>> splitOn = topConjuncts.stream()
                 .collect(Collectors.partitioningBy(topHashOn -> {
                     Set<ExprId> usedExprIds = topHashOn.getInputSlotExprIds();
-                    return Utils.isIntersecting(bExprIdSet, usedExprIds);
+                    return Utils.isIntersecting(usedExprIds, bExprIdSet);
                 }));
         // * don't include B, just include (A C)
         // we add it into newBottomJoin HashConjuncts.

@@ -20,8 +20,6 @@
 
 #pragma once
 
-#include <vec/common/exception.h>
-
 #include "vec/core/field.h"
 #include "vec/data_types/data_type.h"
 

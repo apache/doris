@@ -29,13 +29,13 @@ public class MarkJoinTest extends TestWithFeService {
         useDatabase("test");
 
         createTable("CREATE TABLE `test_sq_dj1` (\n"
-                + " `c1` bigint(20) NULL,\n"
+                + " `c1` varchar(20) NULL,\n"
                 + " `c2` bigint(20) NULL,\n"
-                + " `c3` bigint(20) not NULL,\n"
-                + " `k4` bigint(20) not NULL,\n"
-                + " `k5` bigint(20) NULL\n"
+                + " `c3` int(20) not NULL,\n"
+                + " `k4` bitmap BITMAP_UNION NULL,\n"
+                + " `k5` bitmap BITMAP_UNION NULL\n"
                 + ") ENGINE=OLAP\n"
-                + "DUPLICATE KEY(`c1`)\n"
+                + "AGGREGATE KEY(`c1`, `c2`, `c3`)\n"
                 + "COMMENT 'OLAP'\n"
                 + "DISTRIBUTED BY HASH(`c2`) BUCKETS 1\n"
                 + "PROPERTIES (\n"
@@ -49,10 +49,10 @@ public class MarkJoinTest extends TestWithFeService {
                 + " `c1` bigint(20) NULL,\n"
                 + " `c2` bigint(20) NULL,\n"
                 + " `c3` bigint(20) not NULL,\n"
-                + " `k4` bigint(20) not NULL,\n"
-                + " `k5` bigint(20) NULL\n"
+                + " `k4` bitmap BITMAP_UNION NULL,\n"
+                + " `k5` bitmap BITMAP_UNION NULL\n"
                 + ") ENGINE=OLAP\n"
-                + "DUPLICATE KEY(`c1`)\n"
+                + "AGGREGATE KEY(`c1`, `c2`, `c3`)\n"
                 + "COMMENT 'OLAP'\n"
                 + "DISTRIBUTED BY HASH(`c2`) BUCKETS 1\n"
                 + "PROPERTIES (\n"
@@ -178,17 +178,17 @@ public class MarkJoinTest extends TestWithFeService {
                 .checkPlannerResult("SELECT CASE\n"
                     + "            WHEN (\n"
                     + "                SELECT COUNT(*) / 2\n"
-                    + "                FROM test_sq_dj1\n"
+                    + "                FROM test_sq_dj2\n"
                     + "            ) > c1 THEN (\n"
                     + "                SELECT AVG(c1)\n"
-                    + "                FROM test_sq_dj1\n"
+                    + "                FROM test_sq_dj2\n"
                     + "            )\n"
                     + "            ELSE (\n"
                     + "                SELECT SUM(c2)\n"
-                    + "                FROM test_sq_dj1\n"
+                    + "                FROM test_sq_dj2\n"
                     + "            )\n"
                     + "            END AS kk4\n"
-                    + "        FROM test_sq_dj1 ;");
+                    + "        FROM test_sq_dj2 ;");
     }
 
     @Test
@@ -197,17 +197,17 @@ public class MarkJoinTest extends TestWithFeService {
                 .checkPlannerResult("SELECT CASE\n"
                     + "            WHEN  exists (\n"
                     + "                SELECT COUNT(*) / 2\n"
-                    + "                FROM test_sq_dj1\n"
+                    + "                FROM test_sq_dj2\n"
                     + "            ) THEN (\n"
                     + "                SELECT AVG(c1)\n"
-                    + "                FROM test_sq_dj1\n"
+                    + "                FROM test_sq_dj2\n"
                     + "            )\n"
                     + "            ELSE (\n"
                     + "                SELECT SUM(c2)\n"
-                    + "                FROM test_sq_dj1\n"
+                    + "                FROM test_sq_dj2\n"
                     + "            )\n"
                     + "            END AS kk4\n"
-                    + "        FROM test_sq_dj1 ;");
+                    + "        FROM test_sq_dj2 ;");
     }
 
     @Test
@@ -245,5 +245,41 @@ public class MarkJoinTest extends TestWithFeService {
                 .checkPlannerResult("SELECT * FROM test_sq_dj1 WHERE c1 IN (SELECT c1 FROM test_sq_dj2 WHERE test_sq_dj1.c1 = test_sq_dj2.c1)"
                     + " OR c1 < (SELECT sum(c1) FROM test_sq_dj2 WHERE test_sq_dj1.c1 = test_sq_dj2.c1)"
                     + " AND exists (SELECT c1 FROM test_sq_dj2 WHERE test_sq_dj1.c1 = test_sq_dj2.c1)");
+    }
+
+    @Test
+    public void test20() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("SELECT * FROM test_sq_dj1 WHERE c1 < (cast('1.2' as decimal(2,1)) * (SELECT sum(c1) FROM test_sq_dj2 WHERE test_sq_dj1.c1 = test_sq_dj2.c1))");
+    }
+
+    @Test
+    public void test21() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("SELECT * FROM test_sq_dj1 WHERE c1 < (cast('1.2' as decimal(2,1)) * (SELECT sum(c1) FROM test_sq_dj2 WHERE test_sq_dj1.c1 = test_sq_dj2.c1)) or c1 > 10");
+    }
+
+    @Test
+    public void test22() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("SELECT * FROM test_sq_dj1 WHERE c1 != (cast('1.2' as decimal(2,1)) * (SELECT sum(c1) FROM test_sq_dj2 WHERE test_sq_dj1.c1 = test_sq_dj2.c1)) or c1 > 10");
+    }
+
+    @Test
+    public void test23() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("SELECT * FROM test_sq_dj1 WHERE c2 in (select k4 from test_sq_dj2)");
+    }
+
+    @Test
+    public void test24() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("SELECT * FROM test_sq_dj1 WHERE c3 in (select k4 from test_sq_dj2)");
+    }
+
+    @Test
+    public void test25() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select * from test_sq_dj1 where c1 in (select c1 from test_sq_dj1 where c2 in (select c2 from test_sq_dj2) and c2 > (select sum(c1) from test_sq_dj2))");
     }
 }

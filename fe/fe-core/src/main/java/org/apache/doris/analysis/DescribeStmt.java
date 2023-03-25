@@ -66,6 +66,7 @@ public class DescribeStmt extends ShowStmt {
                     .addColumn(new Column("Default", ScalarType.createVarchar(30)))
                     .addColumn(new Column("Extra", ScalarType.createVarchar(30)))
                     .addColumn(new Column("Visible", ScalarType.createVarchar(10)))
+                    .addColumn(new Column("WhereClause", ScalarType.createVarchar(30)))
                     .build();
 
     private static final ShowResultSetMetaData DESC_MYSQL_TABLE_ALL_META_DATA =
@@ -200,14 +201,18 @@ public class DescribeStmt extends ShowStmt {
                                     column.isAllowNull() ? "Yes" : "No",
                                     ((Boolean) column.isKey()).toString(),
                                     column.getDefaultValue() == null
-                                            ? FeConstants.null_string : column.getDefaultValue(),
+                                            ? FeConstants.null_string
+                                            : column.getDefaultValue(),
                                     extraStr,
-                                    ((Boolean) column.isVisible()).toString()
-                            );
+                                    ((Boolean) column.isVisible()).toString(),
+                                    "");
 
                             if (j == 0) {
                                 row.set(0, indexName);
                                 row.set(1, indexMeta.getKeysType().name());
+                                Expr where = indexMeta.getWhereClause();
+                                row.set(DESC_OLAP_TABLE_ALL_META_DATA.getColumns().size() - 1,
+                                        where == null ? "" : where.toSqlWithoutTbl());
                             }
 
                             totalRows.add(row);

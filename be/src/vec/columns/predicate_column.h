@@ -19,6 +19,7 @@
 
 #include "olap/decimal12.h"
 #include "olap/uint24.h"
+#include "runtime/mem_pool.h"
 #include "runtime/primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_decimal.h"
@@ -275,9 +276,11 @@ public:
             return;
         }
         if constexpr (std::is_same_v<T, StringRef>) {
+            if (_pool == nullptr) {
+                _pool.reset(new MemPool());
+            }
             const auto total_mem_size = offsets[num] - offsets[0];
-            strings.resize(strings.size() + total_mem_size);
-            char* destination = reinterpret_cast<char*>(strings.data()) + strings.size();
+            char* destination = (char*)_pool->allocate(total_mem_size);
             memcpy(destination, data_ + offsets[0], total_mem_size);
             size_t org_elem_num = data.size();
             data.resize(org_elem_num + num);
@@ -297,13 +300,16 @@ public:
             return;
         }
         if constexpr (std::is_same_v<T, StringRef>) {
+            if (_pool == nullptr) {
+                _pool.reset(new MemPool());
+            }
+
             size_t total_mem_size = 0;
             for (size_t i = 0; i < num; i++) {
                 total_mem_size += len_array[i];
             }
 
-            strings.resize(strings.size() + total_mem_size);
-            char* destination = reinterpret_cast<char*>(strings.data()) + strings.size();
+            char* destination = (char*)_pool->allocate(total_mem_size);
             char* org_dst = destination;
             size_t org_elem_num = data.size();
             data.resize(org_elem_num + num);
@@ -334,7 +340,9 @@ public:
 
     void clear() override {
         data.clear();
-        strings.clear();
+        if (_pool != nullptr) {
+            _pool->clear();
+        }
     }
 
     size_t byte_size() const override { return data.size() * sizeof(T); }
@@ -539,7 +547,7 @@ public:
 private:
     Container data;
     // manages the memory for slice's data(For string type)
-    ColumnString::Chars strings;
+    std::unique_ptr<MemPool> _pool;
 };
 
 } // namespace doris::vectorized

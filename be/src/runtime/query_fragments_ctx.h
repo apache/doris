@@ -45,7 +45,7 @@ class QueryFragmentsCtx {
 public:
     QueryFragmentsCtx(int total_fragment_num, ExecEnv* exec_env)
             : fragment_num(total_fragment_num), timeout_second(-1), _exec_env(exec_env) {
-        _start_time = DateTimeValue::local_time();
+        _start_time = vectorized::VecDateTimeValue::local_time();
         _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
         _shared_scanner_controller.reset(new vectorized::SharedScannerController());
     }
@@ -71,7 +71,7 @@ public:
 
     ExecEnv* exec_env() { return _exec_env; }
 
-    bool is_timeout(const DateTimeValue& now) const {
+    bool is_timeout(const vectorized::VecDateTimeValue& now) const {
         if (timeout_second <= 0) {
             return false;
         }
@@ -156,7 +156,7 @@ public:
 
 private:
     ExecEnv* _exec_env;
-    DateTimeValue _start_time;
+    vectorized::VecDateTimeValue _start_time;
 
     // A token used to submit olap scanner to the "_limited_scan_thread_pool",
     // This thread pool token is created from "_limited_scan_thread_pool" from exec env.

@@ -68,9 +68,10 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                     GroupPlan a = bottomJoin.left();
                     GroupPlan b = bottomJoin.right();
                     GroupPlan c = topJoin.right();
+                    Set<ExprId> aOutputExprIds = a.getOutputExprIdSet();
 
                     /* ********** Split projects ********** */
-                    Map<Boolean, List<NamedExpression>> map = JoinReorderUtils.splitProjection(projects, a);
+                    Map<Boolean, List<NamedExpression>> map = JoinReorderUtils.splitProject(projects, aOutputExprIds);
                     List<NamedExpression> aProjects = map.get(true);
                     if (aProjects.isEmpty()) {
                         return null;
@@ -86,13 +87,12 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                     }
 
                     // Add all slots used by OnCondition when projects not empty.
-                    Set<ExprId> aExprIdSet = JoinReorderUtils.combineProjectAndChildExprId(a, aProjects);
                     Map<Boolean, Set<Slot>> abOnUsedSlots = Stream.concat(
                                     bottomJoin.getHashJoinConjuncts().stream(),
                                     bottomJoin.getHashJoinConjuncts().stream())
                             .flatMap(onExpr -> onExpr.getInputSlots().stream())
                             .collect(Collectors.partitioningBy(
-                                    slot -> aExprIdSet.contains(slot.getExprId()), Collectors.toSet()));
+                                    slot -> aOutputExprIds.contains(slot.getExprId()), Collectors.toSet()));
                     JoinReorderUtils.addSlotsUsedByOn(abOnUsedSlots.get(true), aProjects);
                     JoinReorderUtils.addSlotsUsedByOn(abOnUsedSlots.get(false), bProjects);
 

@@ -77,7 +77,7 @@ private:
 
 const static std::string USE_PATH_STYLE = "use_path_style";
 
-ClientFactory::ClientFactory() {
+S3ClientFactory::S3ClientFactory() {
     _aws_options = Aws::SDKOptions {};
     Aws::Utils::Logging::LogLevel logLevel =
             static_cast<Aws::Utils::Logging::LogLevel>(config::aws_log_level);
@@ -88,16 +88,16 @@ ClientFactory::ClientFactory() {
     Aws::InitAPI(_aws_options);
 }
 
-ClientFactory::~ClientFactory() {
+S3ClientFactory::~S3ClientFactory() {
     Aws::ShutdownAPI(_aws_options);
 }
 
-ClientFactory& ClientFactory::instance() {
-    static ClientFactory ret;
+S3ClientFactory& S3ClientFactory::instance() {
+    static S3ClientFactory ret;
     return ret;
 }
 
-bool ClientFactory::is_s3_conf_valid(const std::map<std::string, std::string>& prop) {
+bool S3ClientFactory::is_s3_conf_valid(const std::map<std::string, std::string>& prop) {
     StringCaseMap<std::string> properties(prop.begin(), prop.end());
     if (properties.find(S3_AK) == properties.end() || properties.find(S3_SK) == properties.end() ||
         properties.find(S3_ENDPOINT) == properties.end() ||
@@ -109,7 +109,7 @@ bool ClientFactory::is_s3_conf_valid(const std::map<std::string, std::string>& p
     return true;
 }
 
-std::shared_ptr<Aws::S3::S3Client> ClientFactory::create(
+std::shared_ptr<Aws::S3::S3Client> S3ClientFactory::create(
         const std::map<std::string, std::string>& prop) {
     if (!is_s3_conf_valid(prop)) {
         return nullptr;
@@ -148,11 +148,11 @@ std::shared_ptr<Aws::S3::S3Client> ClientFactory::create(
             Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, use_virtual_addressing);
 }
 
-bool ClientFactory::is_s3_conf_valid(const S3Conf& s3_conf) {
+bool S3ClientFactory::is_s3_conf_valid(const S3Conf& s3_conf) {
     return !s3_conf.ak.empty() && !s3_conf.sk.empty() && !s3_conf.endpoint.empty();
 }
 
-std::shared_ptr<Aws::S3::S3Client> ClientFactory::create(const S3Conf& s3_conf) {
+std::shared_ptr<Aws::S3::S3Client> S3ClientFactory::create(const S3Conf& s3_conf) {
     if (!is_s3_conf_valid(s3_conf)) {
         return nullptr;
     }
@@ -177,8 +177,8 @@ std::shared_ptr<Aws::S3::S3Client> ClientFactory::create(const S3Conf& s3_conf) 
             s3_conf.use_virtual_addressing);
 }
 
-Status ClientFactory::convert_properties_to_s3_conf(const std::map<std::string, std::string>& prop,
-                                                    const S3URI& s3_uri, S3Conf* s3_conf) {
+Status S3ClientFactory::convert_properties_to_s3_conf(
+        const std::map<std::string, std::string>& prop, const S3URI& s3_uri, S3Conf* s3_conf) {
     if (!is_s3_conf_valid(prop)) {
         return Status::InvalidArgument("S3 properties are incorrect, please check properties.");
     }

@@ -31,7 +31,6 @@ AES_ENCRYPT
 ### description
 
 Encryption of data using the OpenSSL. This function is consistent with the `AES_ENCRYPT` function in MySQL. Using AES_128_ECB algorithm by default, and the padding mode is PKCS7.
-Reference: https://dev.mysql.com/doc/refman/8.0/en/encryption-functions.html#function_aes-decrypt
 
 #### Syntax
 
@@ -43,7 +42,7 @@ AES_ENCRYPT(str,key_str[,init_vector])
 
 - `str`: Content to be encrypted
 - `key_str`: Secret key
-- `init_vector`: Initialization Vector. The default value for the block_encryption_mode system variable is aes ecb mode, which does not require an initialization vector. The alternative permitted block encryption modes CBC, CFB1, CFB8, CFB128, and OFB all require an initialization vector.
+- `init_vector`: Initialization Vector
 
 #### Return Type
 

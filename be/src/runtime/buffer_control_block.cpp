@@ -20,7 +20,6 @@
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "runtime/exec_env.h"
-#include "runtime/raw_value.h"
 #include "runtime/thread_context.h"
 #include "service/brpc.h"
 #include "util/thrift_util.h"
