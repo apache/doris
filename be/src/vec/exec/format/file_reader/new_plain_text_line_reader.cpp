@@ -174,7 +174,8 @@ void NewPlainTextLineReader::extend_output_buf() {
     } while (false);
 }
 
-Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool* eof, const io::IOContext* io_ctx, size_t* read_bytes) {
+Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool* eof,
+                                         const io::IOContext* io_ctx, size_t* read_bytes) {
     if (_eof || update_eof()) {
         *size = 0;
         *eof = true;
@@ -232,7 +233,7 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
                     RETURN_IF_ERROR(
                             _file_reader->read_at(_current_offset, file_slice, &read_len, io_ctx));
                     _current_offset += read_len;
-                    if (read_bytes != nullptr){
+                    if (read_bytes != nullptr) {
                         *read_bytes += read_len;
                     }
                     if (read_len == 0) {

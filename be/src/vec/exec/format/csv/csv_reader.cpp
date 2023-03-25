@@ -230,7 +230,8 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
         const uint8_t* ptr = nullptr;
         size_t size = 0;
         size_t read_bytes = 0;
-        RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx, &read_bytes));
+        RETURN_IF_ERROR(
+                _line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx, &read_bytes));
         _state->update_num_bytes_read(read_bytes);
         if (_skip_lines > 0) {
             _skip_lines--;
@@ -284,7 +285,7 @@ Status CsvReader::get_parsed_schema(std::vector<std::string>* col_names,
     return Status::OK();
 }
 
-bool CsvReader::is_support_read_bytes(){
+bool CsvReader::is_support_read_bytes() {
     return _line_reader->is_support_read_bytes();
 }
 

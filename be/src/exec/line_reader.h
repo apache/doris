@@ -27,7 +27,8 @@ class IOContext;
 class LineReader {
 public:
     virtual ~LineReader() = default;
-    virtual Status read_line(const uint8_t** ptr, size_t* size, bool* eof, const io::IOContext* io_ctx, size_t* read_bytes = nullptr) = 0;
+    virtual Status read_line(const uint8_t** ptr, size_t* size, bool* eof,
+                             const io::IOContext* io_ctx, size_t* read_bytes = nullptr) = 0;
     virtual bool is_support_read_bytes() = 0; // true if the derived class support read bytes fields
 
     virtual void close() = 0;
