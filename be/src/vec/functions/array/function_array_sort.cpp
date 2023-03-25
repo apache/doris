@@ -21,8 +21,16 @@
 
 namespace doris::vectorized {
 
+struct NameArraySort {
+    static constexpr auto name = "array_sort";
+};
+struct NameArrayReverseSort {
+    static constexpr auto name = "array_reverse_sort";
+};
+
 void register_function_array_sort(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionArraySort>();
+    factory.register_function<FunctionArraySort<NameArraySort, true>>();
+    factory.register_function<FunctionArraySort<NameArrayReverseSort, false>>();
 }
 
 } // namespace doris::vectorized
