@@ -311,70 +311,70 @@ true
 -- !sql --
 [222.222]
 
--- !sql --
+-- !sql_array_sort1 --
 [1, 2, 3]
 
--- !sql --
+-- !sql_array_sort2 --
 [1, 2, 3]
 
--- !sql --
+-- !sql_array_sort3 --
 [NULL, 1, 2, 3]
 
--- !sql --
+-- !sql_array_sort4 --
 [NULL, 1, 2, 3]
 
--- !sql --
+-- !sql_array_sort5 --
 ['a', 'b', 'c']
 
--- !sql --
+-- !sql_array_sort6 --
 ['a', 'b', 'c']
 
--- !sql --
+-- !sql_array_sort7 --
 [0, 1, 1]
 
--- !sql --
+-- !sql_array_sort8 --
 []
 
--- !sql --
+-- !sql_array_sort9 --
 [2023-02-04 23:07:34.999, 2023-02-06 22:07:34.999]
 
--- !sql --
+-- !sql_array_sort10 --
 [2023-02-05, 2023-02-06]
 
--- !sql --
+-- !sql_array_sort11 --
 [111.111, 222.222]
 
--- !sql --
+-- !sql_array_reverse_sort1 --
 [3, 2, 1]
 
--- !sql --
+-- !sql_array_reverse_sort2 --
 [3, 2, 1]
 
--- !sql --
+-- !sql_array_reverse_sort3 --
 [3, 2, 1, NULL]
 
--- !sql --
+-- !sql_array_reverse_sort4 --
 [3, 2, 1, NULL]
 
--- !sql --
+-- !sql_array_reverse_sort5 --
 ['c', 'b', 'a']
 
--- !sql --
+-- !sql_array_reverse_sort6 --
 ['c', 'b', 'a']
 
--- !sql --
+-- !sql_array_reverse_sort7 --
 [1, 1, 0]
 
--- !sql --
+-- !sql_array_reverse_sort8 --
 []
 
--- !sql --
+-- !sql_array_reverse_sort9 --
 [2023-02-06 22:07:34.999, 2023-02-04 23:07:34.999]
 
--- !sql --
+-- !sql_array_reverse_sort10 --
 [2023-02-06, 2023-02-05]
 
--- !sql --
+-- !sql_array_reverse_sort11 --
 [222.222, 111.111]
 
 -- !sql --

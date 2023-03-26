@@ -31,7 +31,6 @@ class FunctionArraySort : public IFunction {
 public:
     static constexpr auto name = Name::name;
     static FunctionPtr create() { return std::make_shared<FunctionArraySort<Name, Positive>>(); }
-    using NullMapType = PaddedPODArray<UInt8>;
 
     /// Get function name.
     String get_name() const override { return name; }
@@ -57,272 +56,50 @@ public:
                     fmt::format("unsupported types for function {}({})", get_name(),
                                 block.get_by_position(arguments[0]).type->get_name()));
         }
-        const auto& src_offsets = src_column_array->get_offsets();
-        const auto* src_nested_column = &src_column_array->get_data();
-        DCHECK(src_nested_column != nullptr);
 
-        DataTypePtr src_column_type = block.get_by_position(arguments[0]).type;
-        auto nested_type = assert_cast<const DataTypeArray&>(*src_column_type).get_nested_type();
-        auto dest_column_ptr = ColumnArray::create(nested_type->create_column(),
-                                                   ColumnArray::ColumnOffsets::create());
-        IColumn* dest_nested_column = &dest_column_ptr->get_data();
-        auto& dest_offsets = dest_column_ptr->get_offsets();
-        DCHECK(dest_nested_column != nullptr);
-        dest_nested_column->reserve(src_nested_column->size());
-        dest_offsets.reserve(input_rows_count);
-
-        const NullMapType* src_null_map = nullptr;
-        if (src_nested_column->is_nullable()) {
-            const ColumnNullable* src_nested_nullable_col =
-                    check_and_get_column<ColumnNullable>(*src_nested_column);
-            src_nested_column = src_nested_nullable_col->get_nested_column_ptr();
-            src_null_map = &src_nested_nullable_col->get_null_map_column().get_data();
-        }
-
-        NullMapType* dest_null_map = nullptr;
-        if (dest_nested_column->is_nullable()) {
-            ColumnNullable* dest_nested_nullable_col =
-                    reinterpret_cast<ColumnNullable*>(dest_nested_column);
-            dest_nested_column = dest_nested_nullable_col->get_nested_column_ptr();
-            dest_null_map = &dest_nested_nullable_col->get_null_map_column().get_data();
-        }
-
-        auto res_val = _execute_by_type(*src_nested_column, src_offsets, *dest_nested_column,
-                                        dest_offsets, src_null_map, dest_null_map, nested_type);
-        if (!res_val) {
-            return Status::RuntimeError(
-                    fmt::format("execute failed or unsupported types for function {}({})",
-                                get_name(), block.get_by_position(arguments[0]).type->get_name()));
-        }
+        auto dest_column_ptr = _execute(*src_column_array);
 
         block.replace_by_position(result, std::move(dest_column_ptr));
         return Status::OK();
     }
 
 private:
-    // sort the non-null element according to the permutation
-    template <typename SrcDataType>
-    void _sort_by_permutation(ColumnArray::Offset64& prev_offset,
-                              const ColumnArray::Offset64& curr_offset,
-                              const SrcDataType* src_data_concrete, const IColumn& src_column,
-                              const NullMapType* src_null_map, IColumn::Permutation& permutation) {
-        for (size_t j = prev_offset; j + 1 < curr_offset; ++j) {
-            if (src_null_map && (*src_null_map)[j]) {
-                continue;
-            }
-            for (size_t k = j + 1; k < curr_offset; ++k) {
-                if (src_null_map && (*src_null_map)[k]) {
-                    continue;
-                }
-                int result = src_data_concrete->compare_at(permutation[j], permutation[k],
-                                                           src_column, 1);
+    ColumnPtr _execute(const ColumnArray& src_column_array) {
+        const auto& src_offsets = src_column_array.get_offsets();
+        const auto& src_nested_column = src_column_array.get_data();
 
-                if (Positive && result > 0) {
-                    std::swap(permutation[j], permutation[k]);
-                } else if (!Positive && result < 0) {
-                    std::swap(permutation[j], permutation[k]);
-                }
-            }
-        }
-        return;
-    }
-
-    template <typename ColumnType>
-    bool _execute_number(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
-                         IColumn& dest_column, ColumnArray::Offsets64& dest_offsets,
-                         const NullMapType* src_null_map, NullMapType* dest_null_map) {
-        using NestType = typename ColumnType::value_type;
-        const ColumnType* src_data_concrete = reinterpret_cast<const ColumnType*>(&src_column);
-        if (!src_data_concrete) {
-            return false;
-        }
-        const PaddedPODArray<NestType>& src_datas = src_data_concrete->get_data();
-
-        ColumnType& dest_data_concrete = reinterpret_cast<ColumnType&>(dest_column);
-        PaddedPODArray<NestType>& dest_datas = dest_data_concrete.get_data();
-
-        ColumnArray::Offset64 prev_src_offset = 0;
-        IColumn::Permutation permutation(src_column.size());
-        for (size_t i = 0; i < src_column.size(); ++i) {
+        size_t size = src_offsets.size();
+        size_t nested_size = src_nested_column.size();
+        IColumn::Permutation permutation(nested_size);
+        for (size_t i = 0; i < nested_size; ++i) {
             permutation[i] = i;
         }
 
-        for (auto curr_src_offset : src_offsets) {
-            // filter and insert null element first
-            size_t null_element_count = 0;
-            for (size_t j = prev_src_offset; j < curr_src_offset; ++j) {
-                if (src_null_map && (*src_null_map)[j]) {
-                    ++null_element_count;
-                }
-            }
+        for (size_t i = 0; i < size; ++i) {
+            auto current_offset = src_offsets[i - 1];
+            auto next_offset = src_offsets[i];
 
-            // positive sort, insert null elements first
-            if (Positive && null_element_count > 0) {
-                DCHECK(dest_null_map != nullptr);
-                (*dest_null_map).add_num_element_without_reserve(true, null_element_count);
-                dest_datas.add_num_element_without_reserve(NestType(), null_element_count);
-            }
-
-            _sort_by_permutation<ColumnType>(prev_src_offset, curr_src_offset, src_data_concrete,
-                                             src_column, src_null_map, permutation);
-
-            // insert non-null element after sort by permutation
-            for (size_t j = prev_src_offset; j < curr_src_offset; ++j) {
-                if (src_null_map && (*src_null_map)[j]) {
-                    continue;
-                }
-
-                dest_datas.push_back(src_datas[permutation[j]]);
-                if (dest_null_map) {
-                    (*dest_null_map).push_back(false);
-                }
-            }
-
-            // not positive sort, insert null elements last
-            if (!Positive && null_element_count > 0) {
-                DCHECK(dest_null_map != nullptr);
-                (*dest_null_map).add_num_element_without_reserve(true, null_element_count);
-                dest_datas.add_num_element_without_reserve(NestType(), null_element_count);
-            }
-
-            dest_offsets.push_back(curr_src_offset);
-            prev_src_offset = curr_src_offset;
+            std::sort(&permutation[current_offset], &permutation[next_offset],
+                      Less(src_nested_column));
         }
 
-        return true;
+        return ColumnArray::create(src_column_array.get_data().permute(permutation, 0),
+                                   src_column_array.get_offsets_ptr());
     }
 
-    bool _execute_string(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
-                         IColumn& dest_column, ColumnArray::Offsets64& dest_offsets,
-                         const NullMapType* src_null_map, NullMapType* dest_null_map) {
-        const ColumnString* src_data_concrete = reinterpret_cast<const ColumnString*>(&src_column);
-        if (!src_data_concrete) {
-            return false;
-        }
+    struct Less {
+        const IColumn& column;
 
-        ColumnString& dest_column_string = reinterpret_cast<ColumnString&>(dest_column);
-        ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
-        ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
-        column_string_chars.reserve(src_column.size());
+        explicit Less(const IColumn& column_) : column(column_) {}
 
-        ColumnArray::Offset64 prev_src_offset = 0;
-        IColumn::Permutation permutation(src_column.size());
-        for (size_t i = 0; i < src_column.size(); ++i) {
-            permutation[i] = i;
-        }
-
-        for (auto curr_src_offset : src_offsets) {
-            // Positive sort, filter and insert null element first
+        bool operator()(size_t lhs, size_t rhs) const {
             if (Positive) {
-                for (size_t j = prev_src_offset; j < curr_src_offset; ++j) {
-                    if (src_null_map && (*src_null_map)[j]) {
-                        DCHECK(dest_null_map != nullptr);
-                        column_string_offsets.push_back(column_string_offsets.back());
-                        (*dest_null_map).push_back(true);
-                    }
-                }
+                return column.compare_at(lhs, rhs, column, -1) < 0;
+            } else {
+                return column.compare_at(lhs, rhs, column, -1) > 0;
             }
-
-            _sort_by_permutation<ColumnString>(prev_src_offset, curr_src_offset, src_data_concrete,
-                                               src_column, src_null_map, permutation);
-
-            // insert non-null element after sort by permutation
-            for (size_t j = prev_src_offset; j < curr_src_offset; ++j) {
-                if (src_null_map && (*src_null_map)[j]) {
-                    continue;
-                }
-
-                StringRef src_str_ref = src_data_concrete->get_data_at(permutation[j]);
-                // copy the src data to column_string_chars
-                const size_t old_size = column_string_chars.size();
-                const size_t new_size = old_size + src_str_ref.size;
-                column_string_chars.resize(new_size);
-                if (src_str_ref.size > 0) {
-                    memcpy(column_string_chars.data() + old_size, src_str_ref.data,
-                           src_str_ref.size);
-                }
-                column_string_offsets.push_back(new_size);
-
-                if (dest_null_map) {
-                    (*dest_null_map).push_back(false);
-                }
-            }
-            // not Positive sort, filter and insert null element last
-            if (!Positive) {
-                for (size_t j = prev_src_offset; j < curr_src_offset; ++j) {
-                    if (src_null_map && (*src_null_map)[j]) {
-                        DCHECK(dest_null_map != nullptr);
-                        column_string_offsets.push_back(column_string_offsets.back());
-                        (*dest_null_map).push_back(true);
-                    }
-                }
-            }
-            dest_offsets.push_back(curr_src_offset);
-            prev_src_offset = curr_src_offset;
         }
-        return true;
-    }
-
-    bool _execute_by_type(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
-                          IColumn& dest_column, ColumnArray::Offsets64& dest_offsets,
-                          const NullMapType* src_null_map, NullMapType* dest_null_map,
-                          DataTypePtr& nested_type) {
-        bool res = false;
-        WhichDataType which(remove_nullable(nested_type));
-        if (which.is_uint8()) {
-            res = _execute_number<ColumnUInt8>(src_column, src_offsets, dest_column, dest_offsets,
-                                               src_null_map, dest_null_map);
-        } else if (which.is_int8()) {
-            res = _execute_number<ColumnInt8>(src_column, src_offsets, dest_column, dest_offsets,
-                                              src_null_map, dest_null_map);
-        } else if (which.is_int16()) {
-            res = _execute_number<ColumnInt16>(src_column, src_offsets, dest_column, dest_offsets,
-                                               src_null_map, dest_null_map);
-        } else if (which.is_int32()) {
-            res = _execute_number<ColumnInt32>(src_column, src_offsets, dest_column, dest_offsets,
-                                               src_null_map, dest_null_map);
-        } else if (which.is_int64()) {
-            res = _execute_number<ColumnInt64>(src_column, src_offsets, dest_column, dest_offsets,
-                                               src_null_map, dest_null_map);
-        } else if (which.is_int128()) {
-            res = _execute_number<ColumnInt128>(src_column, src_offsets, dest_column, dest_offsets,
-                                                src_null_map, dest_null_map);
-        } else if (which.is_float32()) {
-            res = _execute_number<ColumnFloat32>(src_column, src_offsets, dest_column, dest_offsets,
-                                                 src_null_map, dest_null_map);
-        } else if (which.is_float64()) {
-            res = _execute_number<ColumnFloat64>(src_column, src_offsets, dest_column, dest_offsets,
-                                                 src_null_map, dest_null_map);
-        } else if (which.is_date()) {
-            res = _execute_number<ColumnDate>(src_column, src_offsets, dest_column, dest_offsets,
-                                              src_null_map, dest_null_map);
-        } else if (which.is_date_time()) {
-            res = _execute_number<ColumnDateTime>(src_column, src_offsets, dest_column,
-                                                  dest_offsets, src_null_map, dest_null_map);
-        } else if (which.is_date_v2()) {
-            res = _execute_number<ColumnDateV2>(src_column, src_offsets, dest_column, dest_offsets,
-                                                src_null_map, dest_null_map);
-        } else if (which.is_date_time_v2()) {
-            res = _execute_number<ColumnDateTimeV2>(src_column, src_offsets, dest_column,
-                                                    dest_offsets, src_null_map, dest_null_map);
-        } else if (which.is_decimal32()) {
-            res = _execute_number<ColumnDecimal32>(src_column, src_offsets, dest_column,
-                                                   dest_offsets, src_null_map, dest_null_map);
-        } else if (which.is_decimal64()) {
-            res = _execute_number<ColumnDecimal64>(src_column, src_offsets, dest_column,
-                                                   dest_offsets, src_null_map, dest_null_map);
-        } else if (which.is_decimal128i()) {
-            res = _execute_number<ColumnDecimal128I>(src_column, src_offsets, dest_column,
-                                                     dest_offsets, src_null_map, dest_null_map);
-        } else if (which.is_decimal128()) {
-            res = _execute_number<ColumnDecimal128>(src_column, src_offsets, dest_column,
-                                                    dest_offsets, src_null_map, dest_null_map);
-        } else if (which.is_string()) {
-            res = _execute_string(src_column, src_offsets, dest_column, dest_offsets, src_null_map,
-                                  dest_null_map);
-        }
-        return res;
-    }
+    };
 };
 
 } // namespace doris::vectorized
