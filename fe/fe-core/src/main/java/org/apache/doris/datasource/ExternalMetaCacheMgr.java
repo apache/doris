@@ -48,7 +48,7 @@ public class ExternalMetaCacheMgr {
 
     public ExternalMetaCacheMgr() {
         executor = ThreadPoolManager.newDaemonCacheThreadPool(Config.max_external_cache_loader_thread_pool_size,
-                "ExternalMetaCacheMgr", false);
+                "ExternalMetaCacheMgr", true);
     }
 
     public HiveMetaStoreCache getMetaStoreCache(HMSExternalCatalog catalog) {
