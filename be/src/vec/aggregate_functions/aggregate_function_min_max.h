@@ -620,16 +620,8 @@ public:
     }
 };
 
-AggregateFunctionPtr create_aggregate_function_max(const std::string& name,
-                                                   const DataTypes& argument_types,
-                                                   const bool result_is_nullable);
-
-AggregateFunctionPtr create_aggregate_function_min(const std::string& name,
-                                                   const DataTypes& argument_types,
-                                                   const bool result_is_nullable);
-
-AggregateFunctionPtr create_aggregate_function_any(const std::string& name,
-                                                   const DataTypes& argument_types,
-                                                   const bool result_is_nullable);
-
+template <template <typename> class Data>
+AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
+                                                            const DataTypes& argument_types,
+                                                            const bool result_is_nullable);
 } // namespace doris::vectorized
