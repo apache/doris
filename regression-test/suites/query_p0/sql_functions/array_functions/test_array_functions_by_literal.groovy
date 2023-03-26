@@ -262,7 +262,6 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_compact(array(cast (111.111 as decimalv3(6,3)),cast (222.222 as decimalv3(6,3)),cast (222.222 as decimalv3(6,3)),cast (333.333 as decimalv3(6,3))))"
     qt_sql "select array_compact(array(cast (111.111 as decimalv3(6,3)),cast (222.222 as decimalv3(6,3))))"
 
-
     // array_apply
     qt_sql """select array_apply([1000000, 1000001, 1000002], '=', 1000002)"""
     qt_sql """select array_apply([1.111, 2.222, 3.333], '>=', 2)"""
