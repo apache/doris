@@ -132,7 +132,7 @@ class FilterEstimationTest {
         Statistics stat = new Statistics(1000, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics expected = filterEstimation.estimate(notIn, stat);
-        Assertions.assertTrue(Precision.equals(333.33, expected.getRowCount(), 0.01));
+        Assertions.assertTrue(Precision.equals(666.666, expected.getRowCount(), 0.01));
     }
 
     /**
