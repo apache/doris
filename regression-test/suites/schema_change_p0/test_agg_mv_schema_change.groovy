@@ -27,6 +27,20 @@ suite ("test_agg_mv_schema_change") {
          def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tbName}' ORDER BY CreateTime DESC LIMIT 1 """
          return jobStateResult[0][8]
     }
+    def waitForJob =  (tbName, timeout) -> {
+        while (timeout--){
+            String result = getMVJobState(tbName)
+            if (result == "FINISHED") {
+                sleep(3000)
+                break
+            } else {
+                sleep(100)
+                if (timeout < 1){
+                    assertEquals(1,2)
+                }
+            }
+        }
+    }
     def tableName = "schema_change_agg_mv_regression_test"
 
     try {
@@ -92,25 +106,19 @@ suite ("test_agg_mv_schema_change") {
             """
         qt_sc """ select * from ${tableName} order by user_id"""
 
-        // alter and test light schema change
-        sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
-
         //add materialized view
         def mvName = "mv1"
         sql "create materialized view ${mvName} as select user_id, date, city, age, sum(cost) from ${tableName} group by user_id, date, city, age, sex;"
-        max_try_time = 3000
-        while (max_try_time--){
-            String result = getMVJobState(tableName)
-            if (result == "FINISHED") {
-                sleep(3000)
-                break
-            } else {
-                sleep(100)
-                if (max_try_time < 1){
-                    assertEquals(1,2)
-                }
-            }
-        }
+
+        waitForJob(tableName, 3000)
+
+        // alter and test light schema change
+        sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
+
+        def mvName2 = "mv2"
+        sql "create materialized view ${mvName2} as select user_id, date, city, age, max(cost) from ${tableName} group by user_id, date, city, age, sex;"
+
+        waitForJob(tableName, 3000)
 
         sql """ INSERT INTO ${tableName} VALUES
                 (2, '2017-10-01', 'Beijing', 10, 1, 1, 31, 21, hll_hash(2), to_bitmap(2))
@@ -126,19 +134,7 @@ suite ("test_agg_mv_schema_change") {
             ALTER TABLE ${tableName} DROP COLUMN cost
             """
 
-        max_try_time = 3000
-        while (max_try_time--){
-            String result = getJobState(tableName)
-            if (result == "FINISHED") {
-                sleep(3000)
-                break
-            } else {
-                sleep(100)
-                if (max_try_time < 1){
-                    assertEquals(1,2)
-                }
-            }
-        }
+        waitForJob(tableName, 3000)
 
         sql """ INSERT INTO ${tableName} (`user_id`, `date`, `city`, `age`, `sex`, `max_dwell_time`,`min_dwell_time`, `hll_col`, `bitmap_col`)
                 VALUES

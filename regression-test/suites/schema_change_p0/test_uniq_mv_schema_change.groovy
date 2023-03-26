@@ -23,6 +23,20 @@ suite ("test_uniq_mv_schema_change") {
          def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tbName}' ORDER BY CreateTime DESC LIMIT 1 """
          return jobStateResult[0][8]
     }
+    def waitForJob =  (tbName, timeout) -> {
+        while (timeout--){
+            String result = getMVJobState(tbName)
+            if (result == "FINISHED") {
+                sleep(3000)
+                break
+            } else {
+                sleep(100)
+                if (timeout < 1){
+                    assertEquals(1,2)
+                }
+            }
+        }
+    }
 
     try {
         String[][] backends = sql """ show backends; """
@@ -91,25 +105,20 @@ suite ("test_uniq_mv_schema_change") {
                    select count(*) from ${tableName}
                 """
 
-    // alter and test light schema change
-    sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
+
 
     //add materialized view
     def mvName = "mv1"
     sql "create materialized view ${mvName} as select user_id, date, city, age from ${tableName} group by user_id, date, city, age;"
-    int max_try_time = 3000
-    while (max_try_time--){
-        String result = getMVJobState(tableName)
-        if (result == "FINISHED") {
-            sleep(3000)
-            break
-        } else {
-            sleep(100)
-            if (max_try_time < 1){
-                assertEquals(1,2)
-            }
-        }
-    }
+    waitForJob(tableName, 3000)
+
+    // alter and test light schema change
+    sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
+
+    //add materialized view
+    def mvName2 = "mv2"
+    sql "create materialized view ${mvName} as select user_id, date, city, age, cost from ${tableName} group by user_id, date, city, age, cost;"
+    waitForJob(tableName, 3000)
 
     sql """ INSERT INTO ${tableName} VALUES
              (2, '2017-10-01', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2020-01-02', 1, 31, 21)
