@@ -3,7 +3,6 @@
 "title": "K8s部署doris",
 "language": "zh-CN"
 }
-
 ---
 
 <!-- 
