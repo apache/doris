@@ -153,7 +153,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
         // after analyze
         PlanChecker.from(connectContext)
                 .analyze(sql2)
-                .matches(
+                .matchesNotCheck(
                         logicalApply(
                                 any(),
                                 logicalAggregate(
@@ -181,7 +181,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
         PlanChecker.from(connectContext)
                 .analyze(sql2)
                 .applyBottomUp(new UnCorrelatedApplyAggregateFilter())
-                .matches(
+                .matchesNotCheck(
                         logicalApply(
                                 any(),
                                 logicalAggregate().when(FieldChecker.check("outputExpressions", ImmutableList.of(
@@ -216,7 +216,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
                 .analyze(sql2)
                 .applyBottomUp(new UnCorrelatedApplyAggregateFilter())
                 .applyBottomUp(new ScalarApplyToJoin())
-                .matches(
+                .matchesNotCheck(
                         logicalJoin(
                                 any(),
                                 logicalAggregate()
@@ -240,7 +240,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
         //"select * from t6 where t6.k1 in (select t7.k3 from t7 where t7.v2 = t6.k2)"
         PlanChecker.from(connectContext)
                 .analyze(sql4)
-                .matches(
+                .matchesNotCheck(
                         logicalApply(
                                 any(),
                                 logicalProject().when(FieldChecker.check("projects", ImmutableList.of(
@@ -303,7 +303,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
         //"select * from t6 where exists (select t7.k3 from t7 where t6.k2 = t7.v2)"
         PlanChecker.from(connectContext)
                 .analyze(sql6)
-                .matches(
+                .matchesNotCheck(
                         logicalApply(
                                 any(),
                                 logicalProject().when(FieldChecker.check("projects", ImmutableList.of(
@@ -321,7 +321,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
         PlanChecker.from(connectContext)
                 .analyze(sql6)
                 .applyBottomUp(new PullUpProjectUnderApply())
-                .matches(
+                .matchesNotCheck(
                         logicalProject(
                                 logicalApply().when(FieldChecker.check("correlationFilter", Optional.empty()))
                                         .when(FieldChecker.check("correlationSlot", ImmutableList.of(
@@ -418,7 +418,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
                 .applyBottomUp(new LogicalSubQueryAliasToLogicalProject())
                 .applyTopDown(new MergeProjects())
                 .applyBottomUp(new PullUpCorrelatedFilterUnderApplyAggregateProject())
-                .matches(
+                .matchesNotCheck(
                         logicalApply(
                                 any(),
                                 logicalAggregate(
@@ -451,7 +451,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
                 .applyTopDown(new MergeProjects())
                 .applyBottomUp(new PullUpCorrelatedFilterUnderApplyAggregateProject())
                 .applyBottomUp(new UnCorrelatedApplyAggregateFilter())
-                .matches(
+                .matchesNotCheck(
                         logicalApply(
                                 any(),
                                 logicalAggregate(
@@ -478,14 +478,13 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
                 .applyBottomUp(new PullUpCorrelatedFilterUnderApplyAggregateProject())
                 .applyBottomUp(new UnCorrelatedApplyAggregateFilter())
                 .applyBottomUp(new ScalarApplyToJoin())
-                .matches(
-                            logicalJoin(
+                .matchesNotCheck(
+                            leftSemiLogicalJoin(
                                     any(),
                                     logicalAggregate(
                                             logicalProject()
                                     )
                             )
-                            .when(j -> j.getJoinType().equals(JoinType.LEFT_SEMI_JOIN))
                             .when(j -> j.getOtherJoinConjuncts().equals(ImmutableList.of(
                                     new LessThan(new SlotReference(new ExprId(0), "k1", BigIntType.INSTANCE, true,
                                             ImmutableList.of("default_cluster:test", "t6")),

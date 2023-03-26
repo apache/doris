@@ -17,10 +17,16 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.SetType;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
@@ -128,7 +134,7 @@ public class FunctionUtil {
         String functionName = function.getName().getFunction();
         List<Function> existFuncs = name2Function.get(functionName);
         if (existFuncs == null) {
-            throw new AnalysisException("Unknown function, function=" + function.toString());
+            throw new AnalysisException("Unknown function, function=" + function);
         }
 
         for (Function existFunc : existFuncs) {
@@ -136,7 +142,7 @@ public class FunctionUtil {
                 return existFunc;
             }
         }
-        throw new AnalysisException("Unknown function, function=" + function.toString());
+        throw new AnalysisException("Unknown function, function=" + function);
     }
 
     public static List<Function> getFunctions(ConcurrentMap<String, ImmutableList<Function>> name2Function) {
@@ -181,5 +187,34 @@ public class FunctionUtil {
             }
             name2Function.put(name, builder.build());
         }
+    }
+
+    /***
+     * is global function
+     * @return
+     */
+    public static boolean isGlobalFunction(SetType type) {
+        return SetType.GLOBAL == type;
+    }
+
+    /***
+     * reAcquire dbName and check "No database selected"
+     * @param analyzer
+     * @param dbName
+     * @param clusterName
+     * @return
+     * @throws AnalysisException
+     */
+    public static String reAcquireDbName(Analyzer analyzer, String dbName, String clusterName)
+            throws AnalysisException {
+        if (Strings.isNullOrEmpty(dbName)) {
+            dbName = analyzer.getDefaultDb();
+            if (Strings.isNullOrEmpty(dbName)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
+            }
+        } else {
+            dbName = ClusterNamespace.getFullName(clusterName, dbName);
+        }
+        return dbName;
     }
 }

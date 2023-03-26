@@ -596,7 +596,7 @@ public class StmtExecutor implements ProfileWriter {
                 handleTransactionStmt();
             } else if (parsedStmt instanceof CreateTableAsSelectStmt) {
                 handleCtasStmt();
-            } else if (parsedStmt instanceof InsertStmt) { // Must ahead of DdlStmt because InserStmt is its subclass
+            } else if (parsedStmt instanceof InsertStmt) { // Must ahead of DdlStmt because InsertStmt is its subclass
                 try {
                     handleInsertStmt();
                     if (!((InsertStmt) parsedStmt).getQueryStmt().isExplain()) {
@@ -1502,8 +1502,8 @@ public class StmtExecutor implements ProfileWriter {
             InterruptedException, ExecutionException, TimeoutException {
         TransactionEntry txnEntry = context.getTxnEntry();
         TTxnParams txnConf = txnEntry.getTxnConf();
-        SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
-        long timeoutSecond = ConnectContext.get().getExecTimeout();
+        SessionVariable sessionVariable = context.getSessionVariable();
+        long timeoutSecond = context.getExecTimeout();
 
         TransactionState.LoadJobSourceType sourceType = TransactionState.LoadJobSourceType.INSERT_STREAMING;
         Database dbObj = Env.getCurrentInternalCatalog()
@@ -1551,7 +1551,7 @@ public class StmtExecutor implements ProfileWriter {
         executor.beginTransaction(request);
     }
 
-    // Process a select statement.
+    // Process an insert statement.
     private void handleInsertStmt() throws Exception {
         // Every time set no send flag and clean all data in buffer
         if (context.getMysqlChannel() != null) {
@@ -1572,9 +1572,6 @@ public class StmtExecutor implements ProfileWriter {
         }
 
         analyzeVariablesInStmt(insertStmt.getQueryStmt());
-        // reset the executionTimeout since query hint maybe change the insert_timeout again
-        context.resetExecTimeoutByInsert();
-
         long createTime = System.currentTimeMillis();
         Throwable throwable = null;
         long txnId = -1;

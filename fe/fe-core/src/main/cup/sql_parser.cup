@@ -2799,6 +2799,10 @@ analyze_stmt ::=
         boolean is_histogram = true;
         RESULT = new AnalyzeStmt(tbl, cols, partitionNames, properties, is_whole_tbl, is_histogram);
     :}
+    | KW_ANALYZE KW_TABLE table_name:tbl KW_UPDATE KW_HISTOGRAM
+    {:
+        RESULT = new AnalyzeStmt(tbl, null, null, new HashMap<>(), true, true);
+    :}
     ;
 
 // Grant statement
@@ -3641,9 +3645,9 @@ show_param ::=
             RESULT = new ShowCreateCatalogStmt(catalogName);
         :}
     /* Create Function */
-    | KW_CREATE KW_FUNCTION function_name:functionName LPAREN func_args_def:args RPAREN opt_db:dbName
+    | KW_CREATE opt_var_type:type KW_FUNCTION function_name:functionName LPAREN func_args_def:args RPAREN opt_db:dbName
     {:
-        RESULT = new ShowCreateFunctionStmt(dbName, functionName, args);
+        RESULT = new ShowCreateFunctionStmt(type, dbName, functionName, args);
     :}
     /* Cluster */
     | KW_CLUSTERS
@@ -3667,6 +3671,11 @@ show_param ::=
     | KW_DATABASE INTEGER_LITERAL:dbId
     {:
         RESULT = new ShowDbIdStmt(dbId);
+    :}
+    /* show all data types */
+    | KW_DATA KW_TYPES
+    {:
+        RESULT = new ShowDataTypesStmt();
     :}
     | KW_SCHEMAS opt_wild_where
     {:
@@ -3859,6 +3868,10 @@ show_param ::=
     | opt_full opt_builtin:isBuiltin KW_FUNCTIONS opt_db:dbName opt_wild_where
     {:
         RESULT = new ShowFunctionsStmt(dbName, isBuiltin, parser.isVerbose, parser.wild, parser.where);
+    :}
+    | KW_GLOBAL opt_full KW_FUNCTIONS opt_wild_where
+    {:
+        RESULT = new ShowFunctionsStmt(parser.isVerbose, parser.wild, parser.where);
     :}
     | KW_TYPECAST opt_db:dbName
     {:

@@ -23,7 +23,7 @@ import java.nio.file.Paths
 
 suite("test_map_load_and_function", "p0") {
     // define a sql table
-    def testTable = "tbl_test_map"
+    def testTable = "tbl_test_map_function"
     def dataFile = "test_map.csv"
 
     sql "DROP TABLE IF EXISTS ${testTable}"
@@ -160,7 +160,7 @@ suite("test_map_load_and_function", "p0") {
     qt_select_map_values2 "SELECT id, m, map_values(m) FROM ${testTable} ORDER BY id"
 
 
-    testTable = "tbl_test_map2"
+    testTable = "tbl_test_map_function2"
     sql "DROP TABLE IF EXISTS ${testTable}"
     sql """
         CREATE TABLE IF NOT EXISTS ${testTable} (

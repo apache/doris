@@ -58,6 +58,7 @@ public class GlobalFunctionMgr extends MetaObject {
     }
 
     public synchronized void addFunction(Function function, boolean ifNotExists) throws UserException {
+        function.setGlobal(true);
         function.checkWritable();
         if (FunctionUtil.addFunctionImpl(function, ifNotExists, false, name2Function)) {
             Env.getCurrentEnv().getEditLog().logAddGlobalFunction(function);
@@ -67,6 +68,7 @@ public class GlobalFunctionMgr extends MetaObject {
 
     public synchronized void replayAddFunction(Function function) {
         try {
+            function.setGlobal(true);
             FunctionUtil.addFunctionImpl(function, false, true, name2Function);
         } catch (UserException e) {
             throw new RuntimeException(e);

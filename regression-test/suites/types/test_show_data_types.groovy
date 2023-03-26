@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+suite("test_show_data_types", "types") {
 
-#include <exception>
+    qt_sql """show data types"""
 
-const char* get_current_exception_type_name(const std::exception_ptr& exception_ptr);
+}

@@ -415,13 +415,17 @@ public class FunctionCallExpr extends Expr {
         } else if (type.isBoolean()) {
             return 1;
         } else if (type.isFixedPointType()) {
-            return 2;
+            if (type.isInteger32Type()) {
+                return 2;
+            } else {
+                return 5;
+            }
         } else if (type.isFloatingPointType() || type.isDecimalV2() || type.isDecimalV3()) {
             return 3;
         } else if (type.isTime()) {
             return 4;
         } else {
-            return 5;
+            return 6;
         }
     }
 
@@ -1012,7 +1016,7 @@ public class FunctionCallExpr extends Expr {
                     }
                 }
             }
-            if (!blockEncryptionMode.equals(children.get(children.size() - 1))) {
+            if (!blockEncryptionMode.equals(children.get(children.size() - 1).toString())) {
                 children.add(new StringLiteral(blockEncryptionMode));
             }
         }
@@ -1445,6 +1449,7 @@ public class FunctionCallExpr extends Expr {
                     continue;
                 } else if ((fnName.getFunction().equalsIgnoreCase("array_distinct") || fnName.getFunction()
                         .equalsIgnoreCase("array_remove") || fnName.getFunction().equalsIgnoreCase("array_sort")
+                        || fnName.getFunction().equalsIgnoreCase("array_reverse_sort")
                         || fnName.getFunction().equalsIgnoreCase("array_overlap")
                         || fnName.getFunction().equalsIgnoreCase("array_union")
                         || fnName.getFunction().equalsIgnoreCase("array_intersect")
@@ -1558,6 +1563,7 @@ public class FunctionCallExpr extends Expr {
             }
         } else if (fnName.getFunction().equalsIgnoreCase("array_distinct") || fnName.getFunction()
                 .equalsIgnoreCase("array_remove") || fnName.getFunction().equalsIgnoreCase("array_sort")
+                || fnName.getFunction().equalsIgnoreCase("array_reverse_sort")
                 || fnName.getFunction().equalsIgnoreCase("array_overlap")
                 || fnName.getFunction().equalsIgnoreCase("array_union")
                 || fnName.getFunction().equalsIgnoreCase("array_intersect")

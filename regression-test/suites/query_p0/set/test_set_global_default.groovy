@@ -15,21 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exception.h"
-
-#ifdef USE_LIBCPP
-#include <cxxabi.h>
-
-#include <typeinfo>
-#endif
-
-const char* get_current_exception_type_name(const std::exception_ptr& exception_ptr) {
-#ifdef USE_LIBCPP
-    int status;
-    return exception_ptr ? abi::__cxa_demangle(abi::__cxa_current_exception_type()->name(), nullptr,
-                                               nullptr, &status)
-                         : "null";
-#else
-    return exception_ptr ? exception_ptr.__cxa_exception_type()->name() : "null";
-#endif
+suite("test_set_global_default") {
+    def default_timeout = sql """show variables where variable_name = 'insert_timeout';"""
+    sql """set global insert_timeout=3000;"""
+    sql """set global insert_timeout=DEFAULT;"""
+    def curr_timeout = sql """show variables where variable_name = 'insert_timeout';"""
+    assertEquals(default_timeout, curr_timeout)
 }

@@ -117,8 +117,7 @@ struct AggregateFunction {
     using Function = typename Derived::template TypeTraits<T>::Function;
 
     static auto create(const DataTypePtr& data_type_ptr) -> AggregateFunctionPtr {
-        return AggregateFunctionPtr(creator_with_type::create<Function>(
-                true, DataTypes {make_nullable(data_type_ptr)}));
+        return creator_with_type::create<Function>(DataTypes {make_nullable(data_type_ptr)}, true);
     }
 };
 
@@ -225,8 +224,8 @@ struct NameArrayMin {
 template <>
 struct AggregateFunction<AggregateFunctionImpl<AggregateOperation::MIN>> {
     static auto create(const DataTypePtr& data_type_ptr) -> AggregateFunctionPtr {
-        return AggregateFunctionPtr(create_aggregate_function_min(
-                NameArrayMin::name, {make_nullable(data_type_ptr)}, true));
+        return create_aggregate_function_single_value<AggregateFunctionMinData>(
+                NameArrayMin::name, {make_nullable(data_type_ptr)}, true);
     }
 };
 
@@ -237,8 +236,8 @@ struct NameArrayMax {
 template <>
 struct AggregateFunction<AggregateFunctionImpl<AggregateOperation::MAX>> {
     static auto create(const DataTypePtr& data_type_ptr) -> AggregateFunctionPtr {
-        return AggregateFunctionPtr(create_aggregate_function_max(
-                NameArrayMax::name, {make_nullable(data_type_ptr)}, true));
+        return create_aggregate_function_single_value<AggregateFunctionMaxData>(
+                NameArrayMax::name, {make_nullable(data_type_ptr)}, true);
     }
 };
 

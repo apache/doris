@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContains;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TRuntimeFilterType;
@@ -54,11 +55,7 @@ public class JoinCommute extends OneExplorationRuleFactory {
                 .whenNot(join -> joinOrderMatchBitmapRuntimeFilterOrder(join))
                 .whenNot(LogicalJoin::isMarkJoin)
                 .then(join -> {
-                    LogicalJoin<GroupPlan, GroupPlan> newJoin = new LogicalJoin<>(
-                            join.getJoinType().swap(),
-                            join.getHashJoinConjuncts(),
-                            join.getOtherJoinConjuncts(),
-                            join.getHint(),
+                    LogicalJoin<Plan, Plan> newJoin = join.withTypeChildren(join.getJoinType().swap(),
                             join.right(), join.left());
                     newJoin.getJoinReorderContext().copyFrom(join.getJoinReorderContext());
                     newJoin.getJoinReorderContext().setHasCommute(true);

@@ -20,6 +20,7 @@ package org.apache.doris.nereids.stats;
 import org.apache.doris.nereids.stats.FilterEstimation.EstimationContext;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -170,9 +171,9 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     }
 
     private Statistics updateLessThanLiteral(Expression leftExpr, ColumnStatistic statsForLeft,
-            double val, EstimationContext context) {
+            double val, EstimationContext context, boolean contains) {
         if (statsForLeft.histogram != null) {
-            return estimateLessThanLiteralWithHistogram(leftExpr, statsForLeft, val, context);
+            return estimateLessThanLiteralWithHistogram(leftExpr, statsForLeft, val, context, contains);
         }
         return estimateBinaryComparisonFilter(leftExpr,
                 statsForLeft,
@@ -180,9 +181,9 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     }
 
     private Statistics updateGreaterThanLiteral(Expression leftExpr, ColumnStatistic statsForLeft,
-            double val, EstimationContext context) {
+            double val, EstimationContext context, boolean contains) {
         if (statsForLeft.histogram != null) {
-            return estimateGreaterThanLiteralWithHistogram(leftExpr, statsForLeft, val, context);
+            return estimateGreaterThanLiteralWithHistogram(leftExpr, statsForLeft, val, context, contains);
         }
         StatisticRange rightRange = new StatisticRange(val, Double.POSITIVE_INFINITY,
                 statsForLeft.ndv);
@@ -210,25 +211,14 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             if (statsForLeft.histogram != null) {
                 return estimateEqualToWithHistogram(cp.left(), statsForLeft, val, context);
             }
-            // cp.left : func(A), we assume func(A) has same statistics with A
-            // for example: cast(N_NAME as varchar(*)) = 'GERMANY',
-            // we assume cast(N_NAME as varchar(*)) and N_NAME have the same col stats
-            Set<Slot> leftSlots = cp.left().getInputSlots();
-            Preconditions.checkArgument(leftSlots.size() <= 1,
-                    "stats derive: equal condition only support at one column, but we meet "
-                            + leftSlots.size()
-            );
 
             Statistics equalStats = context.statistics.withSel(selectivity);
-            /*
-            leftSlots could be empty, for example:
-            select * from (select 'jj' as kk1, sum(k2) from ${tableName2} where k10 = '2015-04-02' group by kk1)tt
-            where kk1 in ('jj')
-            kk1 in ('jj') => kk1 = 'jj' => 'jj'='jj
-            TODO const fold could eliminate this equalTo.
-             */
-            if (!leftSlots.isEmpty()) {
-                Slot leftSlot = leftSlots.iterator().next();
+            Expression left = cp.left();
+            if (left instanceof Cast) {
+                left = ((Cast) left).child();
+            }
+            if (left instanceof SlotReference) {
+                Slot leftSlot = (SlotReference) left;
                 //update min/max of cp.left
                 ColumnStatistic columnStats = equalStats.findColumnStatistics(leftSlot);
                 ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(columnStats);
@@ -240,15 +230,18 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         } else {
             if (cp instanceof LessThan || cp instanceof LessThanEqual) {
                 if (context.isNot) {
-                    return updateGreaterThanLiteral(cp.left(), statsForLeft, val, context);
+                    return updateGreaterThanLiteral(cp.left(), statsForLeft, val, context,
+                            !(cp instanceof LessThanEqual));
                 } else {
-                    return updateLessThanLiteral(cp.left(), statsForLeft, val, context);
+                    return updateLessThanLiteral(cp.left(), statsForLeft, val, context, cp instanceof LessThanEqual);
                 }
             } else if (cp instanceof GreaterThan || cp instanceof GreaterThanEqual) {
                 if (context.isNot) {
-                    return updateLessThanLiteral(cp.left(), statsForLeft, val, context);
+                    return updateLessThanLiteral(cp.left(), statsForLeft, val, context,
+                            !(cp instanceof GreaterThanEqual));
                 } else {
-                    return updateGreaterThanLiteral(cp.left(), statsForLeft, val, context);
+                    return updateGreaterThanLiteral(cp.left(), statsForLeft, val, context,
+                            cp instanceof GreaterThanEqual);
                 }
             } else {
                 throw new RuntimeException(String.format("Unexpected expression : %s", cp.toSql()));
@@ -446,14 +439,23 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     }
 
     private Statistics estimateLessThanLiteralWithHistogram(Expression leftExpr, ColumnStatistic leftStats,
-            double numVal, EstimationContext context) {
+            double numVal, EstimationContext context, boolean contains) {
         Histogram leftHist = leftStats.histogram;
 
         for (int i = 0; i < leftHist.buckets.size(); i++) {
             Bucket bucket = leftHist.buckets.get(i);
             if (bucket.upper >= numVal && bucket.lower <= numVal) {
-                double overlapPercentInBucket = StatsMathUtil.minNonNaN(1, (numVal - bucket.lower)
-                        / (bucket.upper - bucket.lower));
+                double overlapPercentInBucket;
+                if (numVal == bucket.upper && numVal == bucket.lower) {
+                    if (contains) {
+                        overlapPercentInBucket = 1;
+                    } else {
+                        overlapPercentInBucket = 0;
+                    }
+                } else {
+                    overlapPercentInBucket = StatsMathUtil.minNonNaN(1, (numVal - bucket.lower)
+                            / (bucket.upper - bucket.lower));
+                }
                 double overlapCountInBucket = overlapPercentInBucket * bucket.count;
                 double sel = StatsMathUtil.minNonNaN(1, (bucket.preSum + overlapCountInBucket)
                         / StatsMathUtil.nonZeroDivisor(context.statistics.getRowCount()));
@@ -471,16 +473,26 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     }
 
     private Statistics estimateGreaterThanLiteralWithHistogram(Expression leftExpr, ColumnStatistic leftStats,
-            double numVal, EstimationContext context) {
+            double numVal, EstimationContext context, boolean contains) {
         Histogram leftHist = leftStats.histogram;
 
         for (int i = 0; i < leftHist.buckets.size(); i++) {
             Bucket bucket = leftHist.buckets.get(i);
             if (bucket.upper >= numVal && bucket.lower <= numVal) {
-                double overlapPercentInBucket = StatsMathUtil.minNonNaN(1, ((bucket.upper - numVal)
-                        / (bucket.upper - bucket.lower)));
-                double overlapCountInBucket = (1 - overlapPercentInBucket) * bucket.count;
-                double sel = StatsMathUtil.minNonNaN(1, (leftHist.size() - bucket.preSum - overlapCountInBucket)
+                double overlapPercentInBucket;
+                if (numVal == bucket.upper && numVal == bucket.lower) {
+                    if (contains) {
+                        overlapPercentInBucket = 1;
+                    } else {
+                        overlapPercentInBucket = 0;
+                    }
+                } else {
+                    overlapPercentInBucket = StatsMathUtil.minNonNaN(1, ((bucket.upper - numVal)
+                            / (bucket.upper - bucket.lower)));
+                }
+                double overlapCountInBucket = overlapPercentInBucket * bucket.count;
+                double sel = StatsMathUtil.minNonNaN(1,
+                        (leftHist.size() - bucket.preSum - (bucket.count - overlapCountInBucket))
                         / context.statistics.getRowCount());
                 List<Bucket> updatedBucketList = new ArrayList<>();
                 updatedBucketList.add(new Bucket(numVal, bucket.upper, overlapPercentInBucket * bucket.count,

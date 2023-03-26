@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -29,20 +30,16 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * push down expression which is not slot reference
@@ -67,52 +64,66 @@ public class PushdownExpressionsInHashCondition extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalJoin()
                 .when(join -> join.getHashJoinConjuncts().stream().anyMatch(equalTo ->
-                        equalTo.children().stream().anyMatch(e -> !ExpressionUtils.checkTypeSkipCast(e, Slot.class))))
+                        equalTo.children().stream().anyMatch(e -> !(e instanceof Slot))))
                 .then(join -> {
-                    List<List<Expression>> exprsOfHashConjuncts =
-                            Lists.newArrayList(Lists.newArrayList(), Lists.newArrayList());
-                    Map<Expression, NamedExpression> exprMap = Maps.newHashMap();
+                    Set<NamedExpression> leftProjectExprs = Sets.newHashSet();
+                    Set<NamedExpression> rightProjectExprs = Sets.newHashSet();
+                    Map<Expression, NamedExpression> exprReplaceMap = Maps.newHashMap();
                     join.getHashJoinConjuncts().forEach(conjunct -> {
                         Preconditions.checkArgument(conjunct instanceof EqualTo);
                         // sometimes: t1 join t2 on t2.a + 1 = t1.a + 2, so check the situation, but actually it
                         // doesn't swap the two sides.
                         conjunct = JoinUtils.swapEqualToForChildrenOrder(
                                 (EqualTo) conjunct, join.left().getOutputSet());
-                        exprsOfHashConjuncts.get(0).add(conjunct.child(0));
-                        exprsOfHashConjuncts.get(1).add(conjunct.child(1));
-                        conjunct.children().forEach(expr -> {
-                            if ((expr instanceof SlotReference)) {
-                                exprMap.put(expr, (SlotReference) expr);
-                            } else {
-                                exprMap.put(expr, new Alias(expr, "expr_" + expr.toSql()));
-                            }
-                        });
+                        generateReplaceMapAndProjectExprs(conjunct.child(0), exprReplaceMap, leftProjectExprs);
+                        generateReplaceMapAndProjectExprs(conjunct.child(1), exprReplaceMap, rightProjectExprs);
                     });
-                    Iterator<List<Expression>> iter = exprsOfHashConjuncts.iterator();
+
+                    // add other conjuncts used slots to project exprs
+                    Set<ExprId> leftExprIdSet = join.left().getOutputExprIdSet();
+                    join.getOtherJoinConjuncts().stream().flatMap(conjunct ->
+                            conjunct.getInputSlots().stream()
+                    ).forEach(slot -> {
+                        if (leftExprIdSet.contains(slot.getExprId())) {
+                            // belong to left child
+                            leftProjectExprs.add(slot);
+                        } else {
+                            // belong to right child
+                            rightProjectExprs.add(slot);
+                        }
+                    });
+
+                    List<Expression> newHashConjuncts = join.getHashJoinConjuncts().stream()
+                            .map(equalTo -> equalTo.withChildren(equalTo.children()
+                                    .stream().map(expr -> exprReplaceMap.get(expr).toSlot())
+                                    .collect(ImmutableList.toImmutableList())))
+                            .collect(ImmutableList.toImmutableList());
                     return join.withHashJoinConjunctsAndChildren(
-                            join.getHashJoinConjuncts().stream()
-                                    .map(equalTo -> equalTo.withChildren(equalTo.children()
-                                            .stream().map(expr -> exprMap.get(expr).toSlot())
-                                            .collect(ImmutableList.toImmutableList())))
-                                    .collect(ImmutableList.toImmutableList()),
-                            join.children().stream().map(
-                                        plan -> {
-                                            Set<NamedExpression> projectSet = Sets.newHashSet();
-                                            projectSet.addAll(iter.next().stream().map(exprMap::get)
-                                                    .collect(Collectors.toList()));
-                                            projectSet.addAll(getOutput(plan, join));
-                                            List<NamedExpression> projectList = projectSet.stream()
-                                                    .collect(ImmutableList.toImmutableList());
-                                            return new LogicalProject<>(projectList, plan);
-                                        }
-                                    )
-                                    .collect(ImmutableList.toImmutableList()));
+                            newHashConjuncts,
+                            createChildProjectPlan(join.left(), join, leftProjectExprs),
+                            createChildProjectPlan(join.right(), join, rightProjectExprs));
                 }).toRule(RuleType.PUSHDOWN_EXPRESSIONS_IN_HASH_CONDITIONS);
     }
 
-    private List<Slot> getOutput(Plan plan, LogicalJoin join) {
-        Set<Slot> intersectionSlots = Sets.newHashSet(plan.getOutputSet());
+    private LogicalProject createChildProjectPlan(Plan plan, LogicalJoin join,
+            Set<NamedExpression> conditionUsedExprs) {
+        Set<NamedExpression> intersectionSlots = Sets.newHashSet(plan.getOutputSet());
         intersectionSlots.retainAll(join.getOutputSet());
-        return Lists.newArrayList(intersectionSlots);
+        intersectionSlots.addAll(conditionUsedExprs);
+        return new LogicalProject(intersectionSlots.stream()
+                .collect(ImmutableList.toImmutableList()), plan);
+    }
+
+    private void generateReplaceMapAndProjectExprs(Expression expr, Map<Expression, NamedExpression> replaceMap,
+            Set<NamedExpression> projects) {
+        if (expr instanceof SlotReference) {
+            projects.add((SlotReference) expr);
+            replaceMap.put(expr, (SlotReference) expr);
+        } else {
+            Alias alias = new Alias(expr, "expr_" + expr.toSql());
+            if (replaceMap.putIfAbsent(expr, alias.toSlot()) == null) {
+                projects.add(alias);
+            }
+        }
     }
 }

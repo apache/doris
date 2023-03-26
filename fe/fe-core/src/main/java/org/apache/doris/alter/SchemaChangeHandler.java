@@ -1965,12 +1965,13 @@ public class SchemaChangeHandler extends AlterHandler {
         Preconditions.checkState(schemaPairs.size() == indexIds.size());
         // update index-meta once and for all
         for (int i = 0; i < indexIds.size(); i++) {
-            final MaterializedIndexMeta indexMeta = olapTable.getIndexMetaByIndexId(indexIds.get(0));
-            final Pair<Integer, List<Column>> schemaPair = schemaPairs.get(0);
+            final MaterializedIndexMeta indexMeta = olapTable.getIndexMetaByIndexId(indexIds.get(i));
+            final Pair<Integer, List<Column>> schemaPair = schemaPairs.get(i);
             indexMeta.setMaxColUniqueId(schemaPair.first);
             indexMeta.setSchema(schemaPair.second);
         }
 
+        // write table property
         olapTable.setEnableLightSchemaChange(true);
         //write edit log
         ModifyTablePropertyOperationLog info =

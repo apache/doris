@@ -148,6 +148,19 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_sort(array(cast ('2023-02-06' as datev2),cast ('2023-02-05' as datev2)))"
     qt_sql "select array_sort(array(cast (111.111 as decimalv3(6,3)),cast (222.222 as decimalv3(6,3))))"
 
+    // array_reverse_sort function
+    qt_sql "select array_reverse_sort([1,2,3])"
+    qt_sql "select array_reverse_sort([3,2,1])"
+    qt_sql "select array_reverse_sort([1,2,3,null])"
+    qt_sql "select array_reverse_sort([null,1,2,3])"
+    qt_sql "select array_reverse_sort(['a','b','c'])"
+    qt_sql "select array_reverse_sort(['c','b','a'])"
+    qt_sql "select array_reverse_sort([true, false, true])"
+    qt_sql "select array_reverse_sort([])"
+    qt_sql "select array_reverse_sort(array(cast ('2023-02-06 22:07:34.999' as datetimev2(3)),cast ('2023-02-04 23:07:34.999' as datetimev2(3))))"
+    qt_sql "select array_reverse_sort(array(cast ('2023-02-06' as datev2),cast ('2023-02-05' as datev2)))"
+    qt_sql "select array_reverse_sort(array(cast (111.111 as decimalv3(6,3)),cast (222.222 as decimalv3(6,3))))"
+
     // array_overlap function
     qt_sql "select arrays_overlap([1,2,3], [4,5,6])"
     qt_sql "select arrays_overlap([1,2,3], [3,4,5])"

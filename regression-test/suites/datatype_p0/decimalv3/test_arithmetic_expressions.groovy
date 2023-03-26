@@ -49,4 +49,20 @@ suite("test_arithmetic_expressions") {
     qt_select "select k1 * k2 * k3 * k1 * k2 * k3 from ${table1} order by k1"
     qt_select "select k1 * k2 / k3 * k1 * k2 * k3 from ${table1} order by k1"
     sql "drop table if exists ${table1}"
+
+    sql """
+        CREATE TABLE IF NOT EXISTS ${table1} (             `a` DECIMALV3(9, 3) NOT NULL, `b` DECIMALV3(9, 3) NOT NULL, `c` DECIMALV3(9, 3) NOT NULL, `d` DECIMALV3(9, 3) NOT NULL, `e` DECIMALV3(9, 3) NOT NULL, `f` DECIMALV3(9, 3) NOT
+        NULL, `g` DECIMALV3(9, 3) NOT NULL , `h` DECIMALV3(9, 3) NOT NULL, `i` DECIMALV3(9, 3) NOT NULL, `j` DECIMALV3(9, 3) NOT NULL, `k` DECIMALV3(9, 3) NOT NULL)            DISTRIBUTED BY HASH(a) PROPERTIES("replication_num" = "1");
+    """
+
+    sql """
+    insert into ${table1} values(999999.999,999999.999,999999.999,999999.999,999999.999,999999.999,999999.999,999999.999,999999.999,999999.999,999999.999);
+    """
+    qt_select_all "select * from ${table1} order by a"
+
+    qt_select "select a + b + c from ${table1};"
+    qt_select "select (a + b + c) * d from ${table1};"
+    qt_select "select (a + b + c) / d from ${table1};"
+    qt_select "select a + b + c + d + e + f + g + h + i + j + k from ${table1};"
+    sql "drop table if exists ${table1}"
 }
