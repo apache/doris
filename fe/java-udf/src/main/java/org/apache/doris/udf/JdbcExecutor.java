@@ -19,6 +19,7 @@ package org.apache.doris.udf;
 
 import org.apache.doris.thrift.TJdbcExecutorCtorParams;
 import org.apache.doris.thrift.TJdbcOperation;
+import org.apache.doris.thrift.TOdbcTableType;
 
 import com.alibaba.druid.pool.DruidDataSource;
 import com.google.common.base.Preconditions;
@@ -77,7 +78,7 @@ public class JdbcExecutor {
             throw new InternalException(e.getMessage());
         }
         init(request.driver_path, request.statement, request.batch_size, request.jdbc_driver_class,
-                request.jdbc_url, request.jdbc_user, request.jdbc_password, request.op);
+                request.jdbc_url, request.jdbc_user, request.jdbc_password, request.op, request.table_type);
     }
 
     public void close() throws Exception {
@@ -237,7 +238,7 @@ public class JdbcExecutor {
     }
 
     private void init(String driverUrl, String sql, int batchSize, String driverClass, String jdbcUrl, String jdbcUser,
-            String jdbcPassword, TJdbcOperation op) throws UdfRuntimeException {
+            String jdbcPassword, TJdbcOperation op, TOdbcTableType tableType) throws UdfRuntimeException {
         try {
             ClassLoader parent = getClass().getClassLoader();
             ClassLoader classLoader = UdfUtils.getClassLoader(driverUrl, parent);
@@ -260,7 +261,11 @@ public class JdbcExecutor {
                 conn.setAutoCommit(false);
                 Preconditions.checkArgument(sql != null);
                 stmt = conn.prepareStatement(sql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
-                stmt.setFetchSize(batchSize);
+                if (tableType == TOdbcTableType.MYSQL) {
+                    stmt.setFetchSize(Integer.MIN_VALUE);
+                } else {
+                    stmt.setFetchSize(batchSize);
+                }
                 batchSizeNum = batchSize;
             } else {
                 stmt = conn.createStatement();
