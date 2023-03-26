@@ -47,6 +47,7 @@ import org.apache.doris.analysis.ShowCreateRoutineLoadStmt;
 import org.apache.doris.analysis.ShowCreateTableStmt;
 import org.apache.doris.analysis.ShowDataSkewStmt;
 import org.apache.doris.analysis.ShowDataStmt;
+import org.apache.doris.analysis.ShowDataTypesStmt;
 import org.apache.doris.analysis.ShowDbIdStmt;
 import org.apache.doris.analysis.ShowDbStmt;
 import org.apache.doris.analysis.ShowDeleteStmt;
@@ -270,6 +271,8 @@ public class ShowExecutor {
             handleShowEngines();
         } else if (stmt instanceof ShowFunctionsStmt) {
             handleShowFunctions();
+        } else if (stmt instanceof ShowDataTypesStmt) {
+            handleShowDataTypes();
         } else if (stmt instanceof ShowCreateFunctionStmt) {
             handleShowCreateFunction();
         } else if (stmt instanceof ShowEncryptKeysStmt) {
@@ -467,6 +470,20 @@ public class ShowExecutor {
                 ShowResultSetMetaData.builder()
                         .addColumn(new Column("Function Name", ScalarType.createVarchar(256))).build();
         resultSet = new ShowResultSet(showMetaData, resultRowSet);
+    }
+
+    private void handleShowDataTypes() throws AnalysisException {
+        ShowDataTypesStmt showStmt = (ShowDataTypesStmt) stmt;
+        ArrayList<PrimitiveType> supportedTypes = showStmt.getTypes();
+        List<List<String>> rows = Lists.newArrayList();
+        for (PrimitiveType type : supportedTypes) {
+            List<String> row = new ArrayList<>();
+            row.add(type.toString());
+            row.add(Integer.toString(type.getSlotSize()));
+            rows.add(row);
+        }
+        showStmt.sortMetaData(rows);
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
     /***
