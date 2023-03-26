@@ -21,6 +21,7 @@
 #pragma once
 
 #include <exception>
+#include <optional>
 
 #include "gen_cpp/data.pb.h"
 #include "util/stack_util.h"
