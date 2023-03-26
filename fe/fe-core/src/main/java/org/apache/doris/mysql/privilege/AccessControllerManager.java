@@ -189,6 +189,17 @@ public class AccessControllerManager {
         }
     }
 
+    public void checkColumnsPriv(UserIdentity currentUser, String
+            ctl, Set<String> cols, TableName tableName,
+            PrivPredicate wanted) throws UserException {
+        boolean hasGlobal = sysAccessController.checkGlobalPriv(currentUser, wanted);
+        CatalogAccessController accessController = getAccessControllerOrDefault(ctl);
+        accessController.checkColsPriv(hasGlobal, currentUser, ctl, ClusterNamespace
+                        .getFullName(SystemInfoService.DEFAULT_CLUSTER, tableName.getDb()),
+                tableName.getTbl(), cols, wanted);
+
+    }
+
     public boolean checkColumnsPriv(UserIdentity currentUser, String qualifiedDb, String tbl, Set<String> cols,
             PrivPredicate wanted) {
         boolean hasGlobal = sysAccessController.checkGlobalPriv(currentUser, wanted);

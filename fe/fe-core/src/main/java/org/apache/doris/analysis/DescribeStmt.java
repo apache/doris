@@ -45,7 +45,10 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.commons.lang.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -55,6 +58,7 @@ import java.util.Map;
 import java.util.Set;
 
 public class DescribeStmt extends ShowStmt {
+    private static final Logger LOG = LogManager.getLogger(DescribeStmt.class);
     private static final ShowResultSetMetaData DESC_OLAP_TABLE_ALL_META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("IndexName", ScalarType.createVarchar(20)))
@@ -277,7 +281,19 @@ public class DescribeStmt extends ShowStmt {
                 return totalRows;
             }
             Preconditions.checkNotNull(node);
-            return node.fetchResult().getRows();
+            List<List<String>> rows = node.fetchResult().getRows();
+            List<List<String>> res = new ArrayList<>();
+            for (List<String> row : rows) {
+                try {
+                    Env.getCurrentEnv().getAccessManager()
+                            .checkColumnsPriv(ConnectContext.get().getCurrentUserIdentity(), dbTableName.getCtl(),
+                                    Sets.newHashSet(row.get(0)), dbTableName, PrivPredicate.SHOW);
+                    res.add(row);
+                } catch (UserException e) {
+                    LOG.debug(e.getMessage());
+                }
+            }
+            return res;
         }
     }
 
