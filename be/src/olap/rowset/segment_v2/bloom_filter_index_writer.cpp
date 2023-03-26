@@ -142,7 +142,7 @@ public:
 
     uint64_t size() override {
         uint64_t total_size = _bf_buffer_size;
-        total_size += _arena.allocated_size();
+        total_size += _arena.used_size();
         return total_size;
     }
 

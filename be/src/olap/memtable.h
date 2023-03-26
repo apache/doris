@@ -49,7 +49,7 @@ public:
 
     int64_t tablet_id() const { return _tablet->tablet_id(); }
     size_t memory_usage() const {
-        return _insert_mem_tracker->consumption() + _arena->allocated_size() +
+        return _insert_mem_tracker->consumption() + _arena->used_size() +
                _flush_mem_tracker->consumption();
     }
     // insert tuple from (row_pos) to (row_pos+num_rows)
