@@ -14,13 +14,15 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+#include <unistd.h>
 
-#pragma once
+#include <random>
 
 #include "vec/columns/column_array.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/function.h"
+#include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
 
@@ -28,7 +30,6 @@ class FunctionArrayShuffle : public IFunction {
 public:
     static constexpr auto name = "array_shuffle";
     static FunctionPtr create() { return std::make_shared<FunctionArrayShuffle>(); }
-    using NullMapType = PaddedPODArray<UInt8>;
 
     /// Get function name.
     String get_name() const override { return name; }
@@ -49,16 +50,17 @@ public:
         ColumnPtr src_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const auto& src_column_array = assert_cast<const ColumnArray&>(*src_column);
-        
+
         uint32_t seed = time(0);
         if (arguments.size() == 2) {
-            ColumnPtr seed_column =block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
-            seed = seed_column->getUInt(0);
+            ColumnPtr seed_column =
+                    block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+            seed = seed_column->get_uint(0);
         }
         
         std::mt19937 g(seed);
-        auto dest_column_ptr = _execute(*src_column, g);
-        if (!res_val) {
+        auto dest_column_ptr = _execute(src_column_array, g);
+        if (!dest_column_ptr) {
             return Status::RuntimeError(
                     fmt::format("execute failed or unsupported types for function {}({})",
                                 get_name(), block.get_by_position(arguments[0]).type->get_name()));
@@ -69,31 +71,31 @@ public:
     }
 
 private:
-    ColumnPtr _execute(const ColumnArray& src_column_array, const std::mt19937& g) {
-
-        const auto& src_offsets = src_column_array->get_offsets();
-        const auto* src_nested_column = &src_column_array->get_data();
-
-        IColumn* dest_nested_column = &dest_column_ptr->get_data();
-        auto& dest_offsets = dest_column_ptr->get_offsets();
-        DCHECK(dest_nested_column != nullptr);
+    ColumnPtr _execute(const ColumnArray& src_column_array, std::mt19937& g) {
+        const auto& src_offsets = src_column_array.get_offsets();
+        const auto src_nested_column = src_column_array.get_data_ptr();
 
         ColumnArray::Offset64 src_offsets_size = src_offsets.size();
-        IColumn::Permutation permutation(nested_size);
-        std::iota(std::begin(permutation), std::end(permutation), 0);
+        IColumn::Permutation permutation(src_nested_column->size());
+
+        for (size_t i = 0; i < src_nested_column->size(); ++i) {
+            permutation[i] = i;
+        }
 
         for (size_t i = 0; i < src_offsets_size; ++i) {
-            auto last_offset = src_offsets[i-1];
+            auto last_offset = src_offsets[i - 1];
             auto src_offset = src_offsets[i];
 
             std::shuffle(&permutation[last_offset], &permutation[src_offset], g);
         }
-        return ColumnArray::create(src_nested_column.permute(permutation, 0), src_offsets);
+        return ColumnArray::create(std::move(src_nested_column->permute(permutation, 0)),
+                                   std::move(src_column_array.get_offsets_ptr()));
     }
 };
 
 void register_function_array_shuffle(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayShuffle>();
+    factory.register_alias("array_shuffle", "shuffle");
 }
 
 } // namespace doris::vectorized
