@@ -51,7 +51,7 @@ public:
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const auto& src_column_array = assert_cast<const ColumnArray&>(*src_column);
 
-        uint32_t seed = time(0);
+        uint32_t seed = time(nullptr);
         if (arguments.size() == 2) {
             ColumnPtr seed_column =
                     block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
@@ -88,8 +88,8 @@ private:
 
             std::shuffle(&permutation[last_offset], &permutation[src_offset], g);
         }
-        return ColumnArray::create(std::move(src_nested_column->permute(permutation, 0)),
-                                   std::move(src_column_array.get_offsets_ptr()));
+        return ColumnArray::create(src_nested_column->permute(permutation, 0),
+                                   src_column_array.get_offsets_ptr());
     }
 };
 
