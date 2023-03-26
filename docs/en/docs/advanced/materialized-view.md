@@ -161,6 +161,13 @@ Users can view the created materialized views by using commands
 
 You can view the specific syntax[SHOW CREATE MATERIALIZED VIEW](../sql-manual/sql-reference/Show-Statements/SHOW-CREATE-MATERIALIZED-VIEW.md)
 
+### Cancel Create materialized view
+
+```text
+CANCEL ALTER MATERIALIZED VIEW FROM db_name.table_name
+```
+
+
 ## Best Practice 1
 
 The use of materialized views is generally divided into the following steps:
