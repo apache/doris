@@ -37,7 +37,7 @@ class PassNullPredicate : public ColumnPredicate {
 public:
 
     PassNullPredicate(ColumnPredicate* nested) : 
-        ColumnPredicate(nested->column_id(), false), _nested {nested} {}
+        ColumnPredicate(nested->column_id(), nested->opposite()), _nested {nested} {}
 
     PredicateType type() const override { return _nested->type();}
 
