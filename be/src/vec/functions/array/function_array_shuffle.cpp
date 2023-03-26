@@ -57,7 +57,7 @@ public:
                     block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
             seed = seed_column->get_uint(0);
         }
-        
+
         std::mt19937 g(seed);
         auto dest_column_ptr = _execute(src_column_array, g);
         if (!dest_column_ptr) {
