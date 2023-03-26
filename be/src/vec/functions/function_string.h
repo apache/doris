@@ -20,10 +20,12 @@
 #include <iconv.h>
 #include <stddef.h>
 
+#include <algorithm>
 #include <memory>
 
 #include "util/string_util.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
 #ifndef USE_LIBCPP
 #include <memory_resource>
 #define PMR std::pmr
@@ -122,21 +124,24 @@ struct SubstringUtil {
     static void substring_execute(Block& block, const ColumnNumbers& arguments, size_t result,
                                   size_t input_rows_count) {
         DCHECK_EQ(arguments.size(), 3);
+        auto res = ColumnString::create();
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
 
-        const auto& col0 = block.get_by_position(arguments[0]).column;
-        bool col_const[3] = {is_column_const(*col0)};
-        ColumnPtr argument_columns[3] = {
-                col_const[0] ? static_cast<const ColumnConst&>(*col0).convert_to_full_column()
-                             : col0};
-        check_set_nullable(argument_columns[0], null_map);
-        for (int i = 1; i < 3; ++i) {
-            std::tie(argument_columns[i], col_const[i]) =
-                    unpack_if_const(block.get_by_position(arguments[i]).column);
+        bool col_const[3];
+        ColumnPtr argument_columns[3];
+        for (int i = 0; i < 3; ++i) {
+            col_const[i] = is_column_const(*block.get_by_position(arguments[i]).column);
+        }
+        argument_columns[0] = col_const[0] ? static_cast<const ColumnConst&>(
+                                                     *block.get_by_position(arguments[0]).column)
+                                                     .convert_to_full_column()
+                                           : block.get_by_position(arguments[0]).column;
+
+        default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block, arguments);
+
+        for (int i = 0; i < 3; i++) {
             check_set_nullable(argument_columns[i], null_map);
         }
-
-        auto res = ColumnString::create();
 
         auto specific_str_column = assert_cast<const ColumnString*>(argument_columns[0].get());
         auto specific_start_column =
@@ -347,23 +352,27 @@ struct Substr2Impl {
     static Status execute_impl(FunctionContext* context, Block& block,
                                const ColumnNumbers& arguments, size_t result,
                                size_t input_rows_count) {
-        auto params = ColumnInt32::create(input_rows_count);
-        auto& strlen_data = params->get_data();
+        auto col_len = ColumnInt32::create(input_rows_count);
+        auto& strlen_data = col_len->get_data();
 
-        //TODO: optimize it.
-        auto str_col =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        ColumnPtr str_col;
+        bool str_const;
+        std::tie(str_col, str_const) = unpack_if_const(block.get_by_position(arguments[0]).column);
         if (auto* nullable = check_and_get_column<const ColumnNullable>(*str_col)) {
             str_col = nullable->get_nested_column_ptr();
         }
         auto& str_offset = assert_cast<const ColumnString*>(str_col.get())->get_offsets();
 
-        for (int i = 0; i < input_rows_count; ++i) {
-            strlen_data[i] = str_offset[i] - str_offset[i - 1];
+        if (str_const) {
+            std::fill(strlen_data.begin(), strlen_data.end(), str_offset[0] - str_offset[-1]);
+        } else {
+            for (int i = 0; i < input_rows_count; ++i) {
+                strlen_data[i] = str_offset[i] - str_offset[i - 1];
+            }
         }
 
-        block.insert({std::move(params), std::make_shared<DataTypeInt32>(), "strlen"});
-
+        // we complete the column2(strlen) with the default value - each row's strlen.
+        block.insert({std::move(col_len), std::make_shared<DataTypeInt32>(), "strlen"});
         ColumnNumbers temp_arguments = {arguments[0], arguments[1], block.columns() - 1};
 
         SubstringUtil::substring_execute(block, temp_arguments, result, input_rows_count);

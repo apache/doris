@@ -988,16 +988,19 @@ public:
         auto res_null_map = ColumnUInt8::create(input_rows_count, 0);
         auto res_data_column = ColumnBitmap::create(input_rows_count);
 
-        const auto& col0 = block.get_by_position(arguments[0]).column;
-        bool col_const[3] = {is_column_const(*col0)};
-        ColumnPtr argument_columns[3] = {
-                col_const[0] ? static_cast<const ColumnConst&>(*col0).convert_to_full_column()
-                             : col0};
-        check_set_nullable(argument_columns[0], res_null_map);
+        bool col_const[3];
+        ColumnPtr argument_columns[3];
+        for (int i = 0; i < 3; ++i) {
+            col_const[i] = is_column_const(*block.get_by_position(arguments[i]).column);
+        }
+        argument_columns[0] = col_const[0] ? static_cast<const ColumnConst&>(
+                                                     *block.get_by_position(arguments[0]).column)
+                                                     .convert_to_full_column()
+                                           : block.get_by_position(arguments[0]).column;
 
-        for (int i = 1; i < 3; ++i) {
-            std::tie(argument_columns[i], col_const[i]) =
-                    unpack_if_const(block.get_by_position(arguments[i]).column);
+        default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block, arguments);
+
+        for (int i = 0; i < 3; i++) {
             check_set_nullable(argument_columns[i], res_null_map);
         }
 

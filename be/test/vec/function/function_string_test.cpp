@@ -1093,6 +1093,7 @@ TEST(function_string_test, function_str_to_date_test) {
             TypeIndex::String,
             TypeIndex::String,
     };
+    //TODO: set column1 to const.
     DataSet data_set = {
             {{Null(), std::string("%Y-%m-%d %H:%i:%s")}, {Null()}},
             {{std::string("2014-12-21 12:34:56"), std::string("%Y-%m-%d %H:%i:%s")},

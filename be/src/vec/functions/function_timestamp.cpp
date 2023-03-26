@@ -1183,7 +1183,8 @@ public:
     }
 
     bool use_default_implementation_for_constants() const override { return true; }
-    ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
+    //TODO: add function below when we fixed be-ut.
+    //ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
