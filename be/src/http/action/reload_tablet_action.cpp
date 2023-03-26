@@ -20,7 +20,6 @@
 #include <sstream>
 #include <string>
 
-#include "agent/cgroups_mgr.h"
 #include "boost/lexical_cast.hpp"
 #include "common/logging.h"
 #include "http/http_channel.h"
@@ -42,10 +41,6 @@ ReloadTabletAction::ReloadTabletAction(ExecEnv* exec_env) : _exec_env(exec_env) 
 
 void ReloadTabletAction::handle(HttpRequest* req) {
     LOG(INFO) << "accept one request " << req->debug_string();
-
-    // add tid to cgroup in order to limit read bandwidth
-    CgroupsMgr::apply_system_cgroup();
-
     // Get path
     const std::string& path = req->param(PATH);
     if (path.empty()) {

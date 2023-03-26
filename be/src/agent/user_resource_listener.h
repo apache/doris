@@ -19,7 +19,6 @@
 
 #include <string>
 
-#include "agent/cgroups_mgr.h"
 #include "agent/topic_listener.h"
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"
@@ -42,7 +41,6 @@ public:
 private:
     const TMasterInfo& _master_info;
     ExecEnv* _exec_env;
-    CgroupsMgr& _cgroups_mgr;
     // Call cgroups mgr to update user's cgroups resource share
     // Also refresh local user resource's cache
     void update_users_resource(int64_t new_version);

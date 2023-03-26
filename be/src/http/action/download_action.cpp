@@ -23,7 +23,6 @@
 #include <sstream>
 #include <string>
 
-#include "agent/cgroups_mgr.h"
 #include "env/env.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
@@ -103,9 +102,6 @@ void DownloadAction::handle_error_log(HttpRequest* req, const std::string& file_
 
 void DownloadAction::handle(HttpRequest* req) {
     VLOG_CRITICAL << "accept one download request " << req->debug_string();
-
-    // add tid to cgroup in order to limit read bandwidth
-    CgroupsMgr::apply_system_cgroup();
 
     // Get 'file' parameter, then assembly file absolute path
     const std::string& file_path = req->param(FILE_PARAMETER);

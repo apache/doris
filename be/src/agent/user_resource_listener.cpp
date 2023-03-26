@@ -39,9 +39,7 @@ using apache::thrift::transport::TTransportException;
 // TRESOURCE_IOPS  not mapped
 
 UserResourceListener::UserResourceListener(ExecEnv* exec_env, const TMasterInfo& master_info)
-        : _master_info(master_info),
-          _exec_env(exec_env),
-          _cgroups_mgr(*(exec_env->cgroups_mgr())) {}
+        : _master_info(master_info), _exec_env(exec_env) {}
 
 UserResourceListener::~UserResourceListener() {}
 
@@ -58,9 +56,6 @@ void UserResourceListener::handle_update(const TAgentServiceVersion::type& proto
 }
 
 void UserResourceListener::update_users_resource(int64_t new_version) {
-    if (new_version <= _cgroups_mgr.get_cgroups_version()) {
-        return;
-    }
     // Call fe to get latest user resource
     Status master_status;
     // using 500ms as default timeout value
@@ -98,6 +93,5 @@ void UserResourceListener::update_users_resource(int64_t new_version) {
                      << e.what();
         return;
     }
-    _cgroups_mgr.update_local_cgroups(new_fetched_resource);
 }
 } // namespace doris
