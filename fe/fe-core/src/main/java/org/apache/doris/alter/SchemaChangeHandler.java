@@ -1967,6 +1967,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 final int columnId = Preconditions.checkNotNull(colNameToId.get(columnName),
                         "failed to fetch column id of column:{" + columnName + "} from BE");
                 final Column newColumn = new Column(column);
+                LOG.info("lookhere1 index:{} columnName:{} id:{}", index.getId(), columnName, columnId);
                 newColumn.setUniqueId(columnId);
                 newSchema.add(newColumn);
                 maxColId = Math.max(columnId, maxColId);
@@ -1978,11 +1979,13 @@ public class SchemaChangeHandler extends AlterHandler {
         // update index-meta once and for all
         for (int i = 0; i < indexIds.size(); i++) {
             final MaterializedIndexMeta indexMeta = olapTable.getIndexMetaByIndexId(indexIds.get(i));
+            LOG.info("lookhere2 originalIndexMeta:{},indexId:{}", indexMeta.getSchema(), indexMeta.getIndexId());
             final Pair<Integer, List<Column>> schemaPair = schemaPairs.get(i);
+            LOG.info("lookhere3 indexMeta:{}", schemaPair.second);
             indexMeta.setMaxColUniqueId(schemaPair.first);
             indexMeta.setSchema(schemaPair.second);
         }
-
+        olapTable.rebuildFullSchema();
         // write table property
         olapTable.setEnableLightSchemaChange(true);
         //write edit log
