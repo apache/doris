@@ -16,7 +16,7 @@
 // under the License.
 
 #include "runtime/runtime_predicate.h"
-
+#include "olap/passnull_predicate.h"
 #include "olap/predicate_creator.h"
 
 namespace doris {
@@ -139,18 +139,26 @@ Status RuntimePredicate::update(const Field& value, const String& col_name, bool
         return Status::OK();
     }
 
-    TCondition condition;
-    condition.__set_column_name(col_name);
-    condition.__set_column_unique_id(_tablet_schema->column(col_name).unique_id());
-    condition.__set_condition_op(is_reverse ? ">=" : "<=");
-
-    // get value string from _orderby_extrem and push back to condition_values
-    condition.condition_values.push_back(_get_value_fn(_orderby_extrem));
-
-    VLOG_DEBUG << "update runtime predicate condition " << condition;
-
     // update _predictate
-    _predictate.reset(parse_to_predicate(_tablet_schema, condition, _predicate_arena.get(), false));
+    int32_t col_unique_id = _tablet_schema->column(col_name).unique_id();
+    const TabletColumn& column = _tablet_schema->column_by_uid(col_unique_id);
+    uint32_t index = _tablet_schema->field_index(col_unique_id);
+    auto val = _get_value_fn(_orderby_extrem);
+    if (is_reverse) {
+        // For DESC sort, create runtime predicate col_name >= min_top_value
+        // since values that < min_top_value are less than any value in current topn values
+        _predictate.reset(create_comparison_predicate<PredicateType::GE>(
+                            column, index, val, false, _predicate_arena.get()));
+    } else {
+        // For ASC  sort, create runtime predicate col_name <= max_top_value
+        // since values that > min_top_value are large than any value in current topn values
+        //
+        // For ASC sort, wrap a PassNullPredicate to return true for NULL
+        // since ORDER BY ASC should get NULL first but the runtime preicate
+        // NULL <= predicate_value returns NULL and it will be treated as false
+        _predictate.reset(new PassNullPredicate(create_comparison_predicate<PredicateType::LE>(
+                            column, index, val, false, _predicate_arena.get())));
+    }
 
     return Status::OK();
 }

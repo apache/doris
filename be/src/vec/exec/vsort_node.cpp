@@ -53,10 +53,10 @@ Status VSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
         // init runtime predicate
         if (_use_topn_opt) {
             auto query_ctx = state->get_query_fragments_ctx();
-            auto first_sort_expr_node = tnode.sort_node.sort_info.sort_tuple_slot_exprs[0].nodes[0];
+            auto first_sort_expr_node = tnode.sort_node.sort_info.ordering_exprs[0].nodes[0];
             if (first_sort_expr_node.node_type == TExprNodeType::SLOT_REF) {
                 auto first_sort_slot = first_sort_expr_node.slot_ref;
-                for (auto tuple_desc : row_desc.tuple_descriptors()) {
+                for (auto tuple_desc : this->row_desc().tuple_descriptors()) {
                     if (tuple_desc->id() != first_sort_slot.tuple_id) {
                         continue;
                     }
