@@ -28,6 +28,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -42,6 +43,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
+import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -287,7 +289,8 @@ public class DescribeStmt extends ShowStmt {
                 try {
                     Env.getCurrentEnv().getAccessManager()
                             .checkColumnsPriv(ConnectContext.get().getCurrentUserIdentity(), dbTableName.getCtl(),
-                                    Sets.newHashSet(row.get(0)), dbTableName, PrivPredicate.SHOW);
+                                    ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, getDb()),
+                                    getTableName(), Sets.newHashSet(row.get(0)), PrivPredicate.SHOW);
                     res.add(row);
                 } catch (UserException e) {
                     LOG.debug(e.getMessage());
