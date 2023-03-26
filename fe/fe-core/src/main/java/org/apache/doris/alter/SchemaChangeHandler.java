@@ -1936,33 +1936,47 @@ public class SchemaChangeHandler extends AlterHandler {
         final List<TFetchColIdsEntry> resultList = response.getResultList();
 
         // write meta
+        // update index-meta once and for all
+        // schema pair: <maxColId, columns>
+        final List<Pair<Integer, List<Column>>> schemaPairs = new ArrayList<>();
+        final List<Long> indexIds = new ArrayList<>();
         resultList.forEach(entry -> {
             final long tabletId = entry.getTabletId();
             final Map<String, Integer> colNameToId = entry.getColNameToId();
             final MaterializedIndex index = tabletIdToIdx.get(tabletId);
-            final MaterializedIndexMeta indexMeta = olapTable.getIndexMetaByIndexId(index.getId());
             final List<Column> columns = olapTable.getSchemaByIndexId(index.getId(), true);
             // we need a pre-check for all column metadata read from BE
             Preconditions.checkState(columns.size() == colNameToId.size(),
                     "size mismatch for columns meta from BE");
             int maxColId = Column.COLUMN_UNIQUE_ID_INIT_VALUE;
+            final List<Column> newSchema = new ArrayList<>();
             for (Column column : columns) {
                 final String columnName = column.getName();
                 final int columnId = Preconditions.checkNotNull(colNameToId.get(columnName),
                         "failed to fetch column id of column:{" + columnName + "} from BE");
-                column.setUniqueId(columnId);
+                final Column newColumn = new Column(column);
+                newColumn.setUniqueId(columnId);
+                newSchema.add(newColumn);
                 maxColId = Math.max(columnId, maxColId);
             }
-            indexMeta.setSchema(columns);
-            indexMeta.setMaxColUniqueId(maxColId);
+            schemaPairs.add(Pair.of(maxColId, newSchema));
+            indexIds.add(index.getId());
         });
+        Preconditions.checkState(schemaPairs.size() == indexIds.size());
+        // update index-meta once and for all
+        for (int i = 0; i < indexIds.size(); i++) {
+            final MaterializedIndexMeta indexMeta = olapTable.getIndexMetaByIndexId(indexIds.get(0));
+            final Pair<Integer, List<Column>> schemaPair = schemaPairs.get(0);
+            indexMeta.setMaxColUniqueId(schemaPair.first);
+            indexMeta.setSchema(schemaPair.second);
+        }
+
+        olapTable.setEnableLightSchemaChange(true);
+        //write edit log
         ModifyTablePropertyOperationLog info =
                 new ModifyTablePropertyOperationLog(
                         db.getId(), olapTable.getId(), olapTable.getTableProperty().getProperties()
                 );
-        // write table property
-        olapTable.setEnableLightSchemaChange(true);
-        //write edit log
         Env.getCurrentEnv().getEditLog().logAlterLightSchemaChange(info);
     }
 
