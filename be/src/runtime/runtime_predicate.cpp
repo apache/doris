@@ -24,12 +24,14 @@ namespace doris {
 
 namespace vectorized {
 
-Status RuntimePredicate::init(const PrimitiveType type) {
+Status RuntimePredicate::init(const PrimitiveType type, const bool nulls_first) {
     std::unique_lock<std::shared_mutex> wlock(_rwlock);
 
     if (_inited) {
         return Status::OK();
     }
+
+    _nulls_first = nulls_first;
 
     _predicate_arena.reset(new Arena());
 
@@ -112,6 +114,11 @@ Status RuntimePredicate::init(const PrimitiveType type) {
 }
 
 Status RuntimePredicate::update(const Field& value, const String& col_name, bool is_reverse) {
+    // skip null value
+    if (value.is_null()) {
+        return Status::OK();
+    }
+
     std::unique_lock<std::shared_mutex> wlock(_rwlock);
 
     // TODO why null
@@ -145,20 +152,24 @@ Status RuntimePredicate::update(const Field& value, const String& col_name, bool
     const TabletColumn& column = _tablet_schema->column_by_uid(col_unique_id);
     uint32_t index = _tablet_schema->field_index(col_unique_id);
     auto val = _get_value_fn(_orderby_extrem);
+    ColumnPredicate* pred = nullptr;
     if (is_reverse) {
         // For DESC sort, create runtime predicate col_name >= min_top_value
         // since values that < min_top_value are less than any value in current topn values
-        _predictate.reset(create_comparison_predicate<PredicateType::GE>(
-                column, index, val, false, _predicate_arena.get()));
+        pred = create_comparison_predicate<PredicateType::GE>(
+                column, index, val, false, _predicate_arena.get());
     } else {
         // For ASC  sort, create runtime predicate col_name <= max_top_value
         // since values that > min_top_value are large than any value in current topn values
-        //
-        // For ASC sort, wrap a PassNullPredicate to return true for NULL
-        // since ORDER BY ASC should get NULL first but the runtime preicate
-        // NULL <= predicate_value returns NULL and it will be treated as false
-        _predictate.reset(new PassNullPredicate(create_comparison_predicate<PredicateType::LE>(
-                column, index, val, false, _predicate_arena.get())));
+        pred = create_comparison_predicate<PredicateType::LE>(
+                column, index, val, false, _predicate_arena.get());
+    }
+
+    // For NULLS FIRST, wrap a PassNullPredicate to return true for NULL
+    // since ORDER BY ASC/DESC should get NULL first but pred returns NULL
+    // and NULL in where predicate will be treated as FALSE
+    if (_nulls_first) {
+        _predictate.reset(new PassNullPredicate(pred));
     }
 
     return Status::OK();
