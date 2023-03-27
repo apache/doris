@@ -84,8 +84,8 @@ public:
             key_null_map_data = &(key_column_nullmap.get_data());
         }
 
-        IColumn::Permutation src_permutation;
-        src_permutation.reserve(src_nested_data_column.size());
+        IColumn::Selector src_selector;
+        src_selector.reserve(src_nested_data_column.size());
         IColumn::Permutation key_permutation(key_nested_nullable_column.size());
         for (size_t i = 0; i < key_nested_nullable_column.size(); ++i) {
             key_permutation[i] = i;
@@ -99,7 +99,7 @@ public:
                 if (key_null_map_data != nullptr && (*key_null_map_data)[row]) {
                     // deal with this case if one of row like: ([1,2,3], NULL) --->([1,2,3])
                     for (unsigned long pos = src_offsets[row - 1]; pos < src_offsets[row]; ++pos) {
-                        src_permutation.push_back(pos);
+                        src_selector.push_back(pos);
                     }
                     null_step = null_step + cur_src_element_num;
                     continue;
@@ -132,10 +132,10 @@ public:
             }
 
             for (unsigned long pos = start; pos < end; ++pos) {
-                src_permutation.push_back(key_permutation[pos] + null_step);
+                src_selector.push_back(key_permutation[pos] + null_step);
             }
         }
-        src_nested_nullable_column.append_data_by_selector(result_data_column, src_permutation);
+        src_nested_nullable_column.append_data_by_selector(result_data_column, src_selector);
         if (result_nullmap != nullptr) {
             block.replace_by_position(
                     result,
