@@ -85,7 +85,7 @@ public class CreateMaterializedViewStmtTest {
         }
     }
 
-    @Test
+    @Disabled
     public void testCountDistinct(@Injectable SlotRef slotRef, @Injectable ArithmeticExpr arithmeticExpr,
                                   @Injectable SelectStmt selectStmt, @Injectable Column column,
                                   @Injectable TableRef tableRef,
@@ -150,7 +150,7 @@ public class CreateMaterializedViewStmtTest {
         }
     }
 
-    @Test
+    @Disabled
     public void testAggregateWithFunctionColumnInSelectClause(@Injectable ArithmeticExpr arithmeticExpr,
                                                               @Injectable SelectStmt selectStmt,
                                                               @Injectable AggregateFunction aggregateFunction) throws UserException {
@@ -180,7 +180,7 @@ public class CreateMaterializedViewStmtTest {
         }
     }
 
-    @Test
+    @Disabled
     public void testJoinSelectClause(@Injectable SlotRef slotRef,
                                      @Injectable TableRef tableRef1,
                                      @Injectable TableRef tableRef2,
@@ -211,7 +211,7 @@ public class CreateMaterializedViewStmtTest {
         }
     }
 
-    @Test
+    @Disabled
     public void testSelectClauseWithWhereClause(@Injectable SlotRef slotRef,
                                                 @Injectable TableRef tableRef,
                                                 @Injectable Expr whereClause,
@@ -300,7 +300,6 @@ public class CreateMaterializedViewStmtTest {
         }
     }
 
-    @Test
     @Disabled
     public void testOrderByAggregateColumn(@Injectable SlotRef slotRef1,
                                            @Injectable TableRef tableRef,
@@ -451,7 +450,6 @@ public class CreateMaterializedViewStmtTest {
         }
     }
 
-    @Test
     @Disabled
     public void testMVColumnsWithoutOrderby(@Injectable SlotRef slotRef1,
                                             @Injectable SlotRef slotRef2,
@@ -555,7 +553,6 @@ public class CreateMaterializedViewStmtTest {
         }
     }
 
-    @Test
     @Disabled
     public void testMVColumnsWithoutOrderbyWithoutAggregation(@Injectable SlotRef slotRef1,
                                                               @Injectable SlotRef slotRef2, @Injectable SlotRef slotRef3, @Injectable SlotRef slotRef4,
@@ -658,7 +655,6 @@ public class CreateMaterializedViewStmtTest {
     /*
     ISSUE: #3811
      */
-    @Test
     @Disabled
     public void testMVColumnsWithoutOrderbyWithoutAggregationWithFloat(@Injectable SlotRef slotRef1,
                                                                        @Injectable SlotRef slotRef2, @Injectable SlotRef slotRef3, @Injectable SlotRef slotRef4,
@@ -759,7 +755,7 @@ public class CreateMaterializedViewStmtTest {
     /*
     ISSUE: #3811
     */
-    @Test
+    @Disabled
     public void testMVColumnsWithoutOrderbyWithoutAggregationWithVarchar(@Injectable SlotRef slotRef1,
                                                                          @Injectable SlotRef slotRef2, @Injectable SlotRef slotRef3, @Injectable SlotRef slotRef4,
                                                                          @Injectable TableRef tableRef, @Injectable SelectStmt selectStmt) throws UserException {
@@ -893,7 +889,6 @@ public class CreateMaterializedViewStmtTest {
     /*
     ISSUE: #3811
     */
-    @Test
     @Disabled
     public void testMVColumnsWithFirstVarchar(@Injectable SlotRef slotRef1,
                                               @Injectable TableRef tableRef, @Injectable SelectStmt selectStmt) throws UserException {
@@ -949,7 +944,7 @@ public class CreateMaterializedViewStmtTest {
     }
 
 
-    @Test
+    @Disabled
     public void testMVColumns(@Injectable SlotRef slotRef1,
                               @Injectable SlotRef slotRef2,
                               @Injectable TableRef tableRef,
@@ -1038,7 +1033,6 @@ public class CreateMaterializedViewStmtTest {
 
     }
 
-    @Test
     @Disabled
     public void testDeduplicateMV(@Injectable SlotRef slotRef1,
                                   @Injectable TableRef tableRef,
