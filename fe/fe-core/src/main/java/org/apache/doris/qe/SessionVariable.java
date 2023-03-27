@@ -618,7 +618,7 @@ public class SessionVariable implements Serializable, Writable {
     private String disableNereidsRules = "";
 
     @VariableMgr.VarAttr(name = ENABLE_NEW_COST_MODEL)
-    private boolean enableNewCostModel = true;
+    private boolean enableNewCostModel = false;
 
     @VariableMgr.VarAttr(name = NEREIDS_STAR_SCHEMA_SUPPORT)
     private boolean nereidsStarSchemaSupport = true;
