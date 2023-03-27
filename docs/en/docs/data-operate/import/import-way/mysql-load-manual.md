@@ -61,7 +61,7 @@ MySql Load currently only supports data formats: CSV (text).
 mysql --local-infile  -h 127.0.0.1 -P 9030 -u root -D testdb
 ```
 
-Notice that if you want to use mysql load you must connection doris server with `--local-infile` in client command.
+Notice that if you wants to use mysql load, you must connect doris server with `--local-infile` in client command.
 If you're use jdbc to connect doris, you must add property named `allowLoadLocalInfile=true` in jdbc url.
 
 
@@ -113,7 +113,7 @@ PROPERTIES ("strict_mode" = "true")
 2. FE will have multi-nodes, and importing server level files can only import FE nodes connected by the client side, and cannot import files local to other FE nodes.
 3. Server side load was disabled by default. Enable it by setting `mysql_load_server_secure_path` with a secure path. All the load file should be under this path.
 
-### Right result
+### Return result
 Since MySQL load is a synchronous import method, the imported results are returned to the user through SQL syntax.
 If the import fails, a specific error message will be displayed. If the import is successful, the number of imported rows will be displayed.
 
@@ -123,17 +123,17 @@ Records: 1 Deleted: 0 Skipped: 0 Warnings: 0
 ```
 
 ### Error result
-If mysql load go wrong, it will show the error in the client as below:
+If mysql load process goes wrong, it will show the error in the client as below:
 ```text
 ERROR 1105 (HY000): errCode = 2, detailMessage = [INTERNAL_ERROR]too many filtered rows with load id b612907c-ccf4-4ac2-82fe-107ece655f0f
 ```
 
-If you meet this error, you can extract the `loadId` and use it in the `show load warnings` command to get more detail message.
+If you meets this error, you can extract the `loadId` and use it in the `show load warnings` command to get more detail message.
 ```sql
 show load warnings where label='b612907c-ccf4-4ac2-82fe-107ece655f0f';
 ```
 
-The loadId was the label value in this case.
+The loadId was the label in this case.
 
 
 ### Configuration
