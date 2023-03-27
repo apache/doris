@@ -504,7 +504,8 @@ public class StmtRewriter {
                     + "expression: "
                     + exprWithSubquery.toSql());
         }
-        if (exprWithSubquery instanceof BinaryPredicate && (childrenContainInOrExists(exprWithSubquery))) {
+        if (exprWithSubquery instanceof BinaryPredicate
+                && (childrenContainIn(exprWithSubquery) || childrenContainExists(exprWithSubquery))) {
             throw new AnalysisException("Not support binaryOperator children at least one is in or exists subquery"
                     + exprWithSubquery.toSql());
         }
@@ -546,11 +547,23 @@ public class StmtRewriter {
         }
     }
 
-    public static boolean childrenContainInOrExists(Expr expr) {
+    public static boolean childrenContainExists(Expr expr) {
         boolean contain = false;
         for (Expr child : expr.getChildren()) {
-            contain = contain || child instanceof InPredicate || child instanceof ExistsPredicate
-                    || childrenContainInOrExists(child);
+            contain = contain || child instanceof ExistsPredicate
+                    || childrenContainExists(child);
+            if (contain) {
+                break;
+            }
+        }
+        return contain;
+    }
+
+    public static boolean childrenContainIn(Expr expr) {
+        boolean contain = false;
+        for (Expr child : expr.getChildren()) {
+            contain = contain || child instanceof InPredicate
+                    || childrenContainIn(child);
             if (contain) {
                 break;
             }
