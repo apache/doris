@@ -2811,7 +2811,7 @@ analyze_stmt ::=
     :}
     | KW_ANALYZE KW_TABLE table_name:tbl KW_UPDATE KW_HISTOGRAM
     {:
-        RESULT = new AnalyzeStmt(tbl, null, null, new HashMap<>(), true, true);
+        RESULT = new AnalyzeStmt(tbl, null, null, new HashMap<>(), true, true, false);
     :}
     ;
 
