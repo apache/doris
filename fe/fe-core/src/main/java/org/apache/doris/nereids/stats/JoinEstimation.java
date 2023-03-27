@@ -27,7 +27,6 @@ import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsBuilder;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -37,8 +36,9 @@ import java.util.stream.Collectors;
  */
 public class JoinEstimation {
 
-    private static Statistics estimateInnerJoin(Statistics crossJoinStats, List<Expression> joinConditions) {
-        List<Pair<Expression, Double>> sortedJoinConditions = joinConditions.stream()
+    private static Statistics estimateInnerJoin(Statistics crossJoinStats, Join join) {
+
+        List<Pair<Expression, Double>> sortedJoinConditions = join.getHashJoinConjuncts().stream()
                 .map(expression -> Pair.of(expression, estimateJoinConditionSel(crossJoinStats, expression)))
                 .sorted((a, b) -> {
                     double sub = a.second - b.second;
@@ -55,7 +55,14 @@ public class JoinEstimation {
         for (int i = 0; i < sortedJoinConditions.size(); i++) {
             sel *= Math.pow(sortedJoinConditions.get(i).second, 1 / Math.pow(2, i));
         }
-        return crossJoinStats.updateRowCountOnly(crossJoinStats.getRowCount() * sel);
+        Statistics innerJoinStats = crossJoinStats.updateRowCountOnly(crossJoinStats.getRowCount() * sel);
+
+        if (!join.getOtherJoinConjuncts().isEmpty()) {
+            FilterEstimation filterEstimation = new FilterEstimation();
+            innerJoinStats = filterEstimation.estimate(
+                    ExpressionUtils.and(join.getOtherJoinConjuncts()), innerJoinStats);
+        }
+        return innerJoinStats;
     }
 
     private static double estimateJoinConditionSel(Statistics crossJoinStats, Expression joinCond) {
@@ -146,18 +153,7 @@ public class JoinEstimation {
                 .putColumnStatistics(leftStats.columnStatistics())
                 .putColumnStatistics(rightStats.columnStatistics())
                 .build();
-        Statistics innerJoinStats = null;
-        if (crossJoinStats.getRowCount() != 0) {
-            List<Expression> joinConditions = new ArrayList<>(join.getHashJoinConjuncts());
-            innerJoinStats = estimateInnerJoin(crossJoinStats, joinConditions);
-        } else {
-            innerJoinStats = crossJoinStats;
-        }
-        if (!join.getOtherJoinConjuncts().isEmpty()) {
-            FilterEstimation filterEstimation = new FilterEstimation();
-            innerJoinStats = filterEstimation.estimate(
-                    ExpressionUtils.and(join.getOtherJoinConjuncts()), innerJoinStats);
-        }
+        Statistics innerJoinStats = estimateInnerJoin(crossJoinStats, join);
         innerJoinStats.setWidth(leftStats.getWidth() + rightStats.getWidth());
         innerJoinStats.setPenalty(0);
         double rowCount;
