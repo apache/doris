@@ -18,9 +18,10 @@
 #include "io/fs/err_utils.h"
 
 #include <fmt/format.h>
-#include <hdfs/hdfs.h>
 
 #include <sstream>
+
+#include "io/fs/hdfs.h"
 
 namespace doris {
 namespace io {
@@ -37,8 +38,15 @@ std::string errcode_to_str(const std::error_code& ec) {
 std::string hdfs_error() {
     std::stringstream ss;
     char buf[1024];
-    ss << "(" << errno << "), " << strerror_r(errno, buf, 1024);
+    ss << "(" << errno << "), " << strerror_r(errno, buf, 1024) << ")";
+#ifdef USE_HADOOP_HDFS
+    char* root_cause = hdfsGetLastExceptionRootCause();
+    if (root_cause != nullptr) {
+        ss << ", reason: " << root_cause;
+    }
+#else
     ss << ", reason: " << hdfsGetLastError();
+#endif
     return ss.str();
 }
 

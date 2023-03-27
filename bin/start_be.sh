@@ -70,16 +70,34 @@ if [[ "$(uname -s)" != 'Darwin' ]]; then
     fi
 fi
 
-# add libs to CLASSPATH
+# add java libs
 for f in "${DORIS_HOME}/lib"/*.jar; do
-    if [[ -z "${DORIS_JNI_CLASSPATH_PARAMETER}" ]]; then
-        export DORIS_JNI_CLASSPATH_PARAMETER="${f}"
+    if [[ -z "${DORIS_CLASSPATH}" ]]; then
+        export DORIS_CLASSPATH="${f}"
     else
-        export DORIS_JNI_CLASSPATH_PARAMETER="${f}:${DORIS_JNI_CLASSPATH_PARAMETER}"
+        export DORIS_CLASSPATH="${f}:${DORIS_CLASSPATH}"
     fi
 done
-# DORIS_JNI_CLASSPATH_PARAMETER is used to configure additional jar path to jvm. e.g. -Djava.class.path=$DORIS_HOME/lib/java-udf.jar
-export DORIS_JNI_CLASSPATH_PARAMETER="-Djava.class.path=${DORIS_JNI_CLASSPATH_PARAMETER}"
+
+if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
+    # add hadoop libs
+    for f in "${DORIS_HOME}/lib/hadoop_hdfs/common"/*.jar; do
+        DORIS_CLASSPATH="${f}:${DORIS_CLASSPATH}"
+    done
+    for f in "${DORIS_HOME}/lib/hadoop_hdfs/common/lib"/*.jar; do
+        DORIS_CLASSPATH="${f}:${DORIS_CLASSPATH}"
+    done
+    for f in "${DORIS_HOME}/lib/hadoop_hdfs/hdfs"/*.jar; do
+        DORIS_CLASSPATH="${f}:${DORIS_CLASSPATH}"
+    done
+    for f in "${DORIS_HOME}/lib/hadoop_hdfs/hdfs/lib"/*.jar; do
+        DORIS_CLASSPATH="${f}:${DORIS_CLASSPATH}"
+    done
+fi
+
+# the CLASSPATH and LIBHDFS_OPTS is used for hadoop libhdfs
+# and conf/ dir so that hadoop libhdfs can read .xml config file in conf/
+export CLASSPATH="${DORIS_HOME}/conf/:$DORIS_CLASSPATH"
 
 jdk_version() {
     local java_cmd="${1}"
@@ -230,10 +248,27 @@ set_tcmalloc_heap_limit() {
 
 # set_tcmalloc_heap_limit || exit 1
 
-## set hdfs conf
+## set hdfs3 conf
 if [[ -f "${DORIS_HOME}/conf/hdfs-site.xml" ]]; then
     export LIBHDFS3_CONF="${DORIS_HOME}/conf/hdfs-site.xml"
 fi
+
+# set jvm library for hadoop libhdfs
+if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
+    MACHINE_ARCH=$(uname -m)
+    if [[ "${MACHINE_ARCH}" == "x86_64" ]]; then
+        # TODO: for now, only support hadoop libs on x86_64
+        jvm_arch=amd64
+        export LD_LIBRARY_PATH=$JAVA_HOME/jre/lib/$jvm_arch/server:$JAVA_HOME/jre/lib/$jvm_arch:$LD_LIBRARY_PATH
+        export LD_LIBRARY_PATH=$DORIS_HOME/lib/hadoop_hdfs/native:$LD_LIBRARY_PATH
+        export LIBHDFS_OPTS="${JAVA_OPTS}"
+    fi
+fi
+
+# FIXME: for debug
+echo "CLASSPATH: ${CLASSPATH}\n"
+echo "LD_LIBRARY_PATH: ${LD_LIBRARY_PATH}\n"
+echo "LIBHDFS_OPTS: ${LIBHDFS_OPTS}\n"
 
 # see https://github.com/apache/doris/blob/master/docs/zh-CN/community/developer-guide/debug-tool.md#jemalloc-heap-profile
 export JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:30000,dirty_decay_ms:30000,oversize_threshold:0,lg_tcache_max:16,prof_prefix:jeprof.out"
