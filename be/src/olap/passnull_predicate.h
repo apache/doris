@@ -35,30 +35,29 @@ namespace doris {
 */
 class PassNullPredicate : public ColumnPredicate {
 public:
+    PassNullPredicate(ColumnPredicate* nested)
+            : ColumnPredicate(nested->column_id(), nested->opposite()), _nested {nested} {}
 
-    PassNullPredicate(ColumnPredicate* nested) :
-        ColumnPredicate(nested->column_id(), nested->opposite()), _nested {nested} {}
-
-    PredicateType type() const override { return _nested->type();}
+    PredicateType type() const override { return _nested->type(); }
 
     Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
-                            roaring::Roaring* roaring) const override {
+                    roaring::Roaring* roaring) const override {
         return _nested->evaluate(iterator, num_rows, roaring);
     }
 
-    Status evaluate(const Schema& schema, InvertedIndexIterator* iterator,
-                            uint32_t num_rows, roaring::Roaring* bitmap) const override {
+    Status evaluate(const Schema& schema, InvertedIndexIterator* iterator, uint32_t num_rows,
+                    roaring::Roaring* bitmap) const override {
         return _nested->evaluate(schema, iterator, num_rows, bitmap);
     }
 
     uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel,
-                              uint16_t size) const override {
+                      uint16_t size) const override {
         LOG(FATAL) << "evaluate without flags not supported";
         // return _nested->evaluate(column, sel, size);
     }
 
     void evaluate_and(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
-                              bool* flags) const override {
+                      bool* flags) const override {
         if (column.has_null()) {
             // copy original flags
             bool* original_flags = new bool[size];
@@ -78,7 +77,7 @@ public:
     }
 
     void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
-                             bool* flags) const override {
+                     bool* flags) const override {
         if (column.has_null()) {
             // call evaluate_or and set true for NULL rows
             _nested->evaluate_or(column, sel, size, flags);
@@ -105,15 +104,12 @@ public:
         return _nested->evaluate_del(statistic);
     }
 
-    bool evaluate_and(const BloomFilter* bf) const override {
-        return _nested->evaluate_and(bf);
-    }
+    bool evaluate_and(const BloomFilter* bf) const override { return _nested->evaluate_and(bf); }
 
-    bool can_do_bloom_filter() const override {
-        return _nested->can_do_bloom_filter();
-    }
+    bool can_do_bloom_filter() const override { return _nested->can_do_bloom_filter(); }
 
-    void evaluate_vec(const vectorized::IColumn& column, uint16_t size, bool* flags) const override {
+    void evaluate_vec(const vectorized::IColumn& column, uint16_t size,
+                      bool* flags) const override {
         _nested->evaluate_vec(column, size, flags);
         if (column.has_null()) {
             for (uint16_t i = 0; i < size; ++i) {
@@ -126,7 +122,7 @@ public:
     }
 
     void evaluate_and_vec(const vectorized::IColumn& column, uint16_t size,
-                                  bool* flags) const override {
+                          bool* flags) const override {
         if (column.has_null()) {
             // copy original flags
             bool* original_flags = new bool[size];
@@ -144,18 +140,14 @@ public:
         }
     }
 
-    std::string get_search_str() const override {
-        return _nested->get_search_str();
-    }
+    std::string get_search_str() const override { return _nested->get_search_str(); }
 
     std::string debug_string() const override {
         return "passnull predicate for " + _nested->debug_string();
     }
 
     /// Some predicates need to be cloned for each segment.
-    bool need_to_clone() const override {
-        return _nested->need_to_clone();
-    }
+    bool need_to_clone() const override { return _nested->need_to_clone(); }
 
     void clone(ColumnPredicate** to) const override {
         if (need_to_clone()) {

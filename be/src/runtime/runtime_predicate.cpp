@@ -16,6 +16,7 @@
 // under the License.
 
 #include "runtime/runtime_predicate.h"
+
 #include "olap/passnull_predicate.h"
 #include "olap/predicate_creator.h"
 
@@ -148,7 +149,7 @@ Status RuntimePredicate::update(const Field& value, const String& col_name, bool
         // For DESC sort, create runtime predicate col_name >= min_top_value
         // since values that < min_top_value are less than any value in current topn values
         _predictate.reset(create_comparison_predicate<PredicateType::GE>(
-                            column, index, val, false, _predicate_arena.get()));
+                column, index, val, false, _predicate_arena.get()));
     } else {
         // For ASC  sort, create runtime predicate col_name <= max_top_value
         // since values that > min_top_value are large than any value in current topn values
@@ -157,7 +158,7 @@ Status RuntimePredicate::update(const Field& value, const String& col_name, bool
         // since ORDER BY ASC should get NULL first but the runtime preicate
         // NULL <= predicate_value returns NULL and it will be treated as false
         _predictate.reset(new PassNullPredicate(create_comparison_predicate<PredicateType::LE>(
-                            column, index, val, false, _predicate_arena.get())));
+                column, index, val, false, _predicate_arena.get())));
     }
 
     return Status::OK();
