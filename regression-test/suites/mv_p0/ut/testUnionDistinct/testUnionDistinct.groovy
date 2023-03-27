@@ -51,6 +51,6 @@ suite ("testUnionDistinct") {
         contains "(emps_mv)"
         notContains "(emps)"
     }
-    qt_select_mv "select empid, deptno from emps where empid >1 union select empid, deptno from emps where empid <0 order by empid;"
+    qt_select_mv "select * from (select empid, deptno from emps where empid >1 union select empid, deptno from emps where empid <0) t order by 1;"
 
 }
