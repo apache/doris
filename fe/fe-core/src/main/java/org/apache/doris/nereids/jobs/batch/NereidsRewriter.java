@@ -63,6 +63,8 @@ import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanTablet;
 import org.apache.doris.nereids.rules.rewrite.logical.PushFilterInsideJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownLimit;
 import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
+import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinAggTranspose;
+import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinAggTransposeProject;
 import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinLogicalJoinTranspose;
 import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinLogicalJoinTransposeProject;
 import org.apache.doris.nereids.rules.rewrite.logical.SplitLimit;
@@ -161,7 +163,9 @@ public class NereidsRewriter extends BatchRewriteJob {
                 topDown(
                     // new SemiJoinCommute(),
                     new SemiJoinLogicalJoinTranspose(),
-                    new SemiJoinLogicalJoinTransposeProject()
+                    new SemiJoinLogicalJoinTransposeProject(),
+                    new SemiJoinAggTranspose(),
+                    new SemiJoinAggTransposeProject()
                 ),
 
                 topDown(
