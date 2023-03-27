@@ -33,9 +33,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
 
 public class StatisticsCacheLoader implements AsyncCacheLoader<StatisticsCacheKey, ColumnLevelStatisticCache> {
 
@@ -51,18 +50,17 @@ public class StatisticsCacheLoader implements AsyncCacheLoader<StatisticsCacheKe
 
     // TODO: Maybe we should trigger a analyze job when the required ColumnStatistic doesn't exists.
 
-    private final ConcurrentMap<StatisticsCacheKey, CompletableFuture<ColumnLevelStatisticCache>>
-            inProgressing = new ConcurrentHashMap<>();
+    private final Map<StatisticsCacheKey, CompletableFutureWithCreateTime>
+            inProgressing = new HashMap<>();
 
     @Override
     public @NonNull CompletableFuture<ColumnLevelStatisticCache> asyncLoad(@NonNull StatisticsCacheKey key,
             @NonNull Executor executor) {
-
-        CompletableFuture<ColumnLevelStatisticCache> future = inProgressing.get(key);
-        if (future != null) {
-            return future;
+        CompletableFutureWithCreateTime cfWrapper = inProgressing.get(key);
+        if (cfWrapper != null) {
+            return cfWrapper.cf;
         }
-        future = CompletableFuture.supplyAsync(() -> {
+        CompletableFuture<ColumnLevelStatisticCache> future = CompletableFuture.supplyAsync(() -> {
             long startTime = System.currentTimeMillis();
             try {
                 LOG.info("Query BE for column stats:{}-{} start time:{}", key.tableId, key.colName,
@@ -107,10 +105,50 @@ public class StatisticsCacheLoader implements AsyncCacheLoader<StatisticsCacheKe
                 long endTime = System.currentTimeMillis();
                 LOG.info("Query BE for column stats:{}-{} end time:{} cost time:{}", key.tableId, key.colName,
                         endTime, endTime - startTime);
-                inProgressing.remove(key);
+                removeFromIProgressing(key);
             }
-        });
-        inProgressing.put(key, future);
+        }, executor);
+        putIntoIProgressing(key, new CompletableFutureWithCreateTime(System.currentTimeMillis(), future));
         return future;
+    }
+
+    private void putIntoIProgressing(StatisticsCacheKey k, CompletableFutureWithCreateTime v) {
+        synchronized (inProgressing) {
+            inProgressing.put(k, v);
+        }
+    }
+
+    private void removeFromIProgressing(StatisticsCacheKey k) {
+        synchronized (inProgressing) {
+            inProgressing.remove(k);
+        }
+    }
+
+    public void removeExpiredInProgressing() {
+        // Quite simple logic that would complete very fast.
+        // Lock on object to avoid ConcurrentModificationException.
+        synchronized (inProgressing) {
+            inProgressing.entrySet().removeIf(e -> e.getValue().isExpired());
+        }
+    }
+
+    /**
+     * To make sure any item in the inProgressing would finally be removed to avoid potential mem leak.
+     */
+    private static class CompletableFutureWithCreateTime extends CompletableFuture<ColumnLevelStatisticCache> {
+
+        private static final long EXPIRED_TIME_MILLI = TimeUnit.MINUTES.toMillis(30);
+
+        public final long startTime;
+        public final CompletableFuture<ColumnLevelStatisticCache> cf;
+
+        public CompletableFutureWithCreateTime(long startTime, CompletableFuture<ColumnLevelStatisticCache> cf) {
+            this.startTime = startTime;
+            this.cf = cf;
+        }
+
+        public boolean isExpired() {
+            return System.currentTimeMillis() - startTime > EXPIRED_TIME_MILLI;
+        }
     }
 }
