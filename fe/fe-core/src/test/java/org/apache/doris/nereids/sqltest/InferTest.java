@@ -82,10 +82,8 @@ public class InferTest extends SqlTestBase {
                 .analyze(sql)
                 .rewrite()
                 .matches(
-                        leftSemiLogicalJoin(
-                                logicalProject(
-                                        innerLogicalJoin()
-                                ),
+                        innerLogicalJoin(
+                                leftSemiLogicalJoin(),
                                 logicalProject()
                         )
                 );

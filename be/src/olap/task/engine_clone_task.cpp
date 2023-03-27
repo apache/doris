@@ -311,7 +311,10 @@ Status EngineCloneTask::_make_snapshot(const std::string& ip, int port, TTableId
     request.__set_version(_clone_req.committed_version);
     // TODO: missing version composed of singleton delta.
     // if not, this place should be rewrote.
-    request.__isset.missing_version = (!missed_versions.empty());
+    // we make every TSnapshotRequest sent from be with __isset.missing_version = true
+    // then if one be received one req with __isset.missing_version = false it means
+    // this req is sent from FE(FE would never set this field)
+    request.__isset.missing_version = true;
     for (auto& version : missed_versions) {
         request.missing_version.push_back(version.first);
     }

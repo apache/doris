@@ -63,6 +63,10 @@ import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanTablet;
 import org.apache.doris.nereids.rules.rewrite.logical.PushFilterInsideJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownLimit;
 import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
+import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinAggTranspose;
+import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinAggTransposeProject;
+import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinLogicalJoinTranspose;
+import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinLogicalJoinTransposeProject;
 import org.apache.doris.nereids.rules.rewrite.logical.SplitLimit;
 
 import com.google.common.collect.ImmutableList;
@@ -155,6 +159,15 @@ public class NereidsRewriter extends BatchRewriteJob {
                 // efficient because it can find the new plans and apply transform wherever it is
                 bottomUp(RuleSet.PUSH_DOWN_FILTERS),
 
+                // pushdown SEMI Join
+                topDown(
+                    // new SemiJoinCommute(),
+                    new SemiJoinLogicalJoinTranspose(),
+                    new SemiJoinLogicalJoinTransposeProject(),
+                    new SemiJoinAggTranspose(),
+                    new SemiJoinAggTransposeProject()
+                ),
+
                 topDown(
                     new MergeFilters(),
                     new ReorderJoin(),
@@ -169,16 +182,16 @@ public class NereidsRewriter extends BatchRewriteJob {
             ),
 
             topic("Column pruning and infer predicate",
-                custom(RuleType.COLUMN_PRUNING, () -> new ColumnPruning()),
+                custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
 
-                custom(RuleType.INFER_PREDICATES, () -> new InferPredicates()),
+                custom(RuleType.INFER_PREDICATES, InferPredicates::new),
 
                 // column pruning create new project, so we should use PUSH_DOWN_FILTERS
                 // to change filter-project to project-filter
                 bottomUp(RuleSet.PUSH_DOWN_FILTERS),
 
                 // after eliminate outer join in the PUSH_DOWN_FILTERS, we can infer more predicate and push down
-                custom(RuleType.INFER_PREDICATES, () -> new InferPredicates()),
+                custom(RuleType.INFER_PREDICATES, InferPredicates::new),
 
                 bottomUp(RuleSet.PUSH_DOWN_FILTERS),
 
@@ -190,7 +203,7 @@ public class NereidsRewriter extends BatchRewriteJob {
             ),
 
             // this rule should invoke after ColumnPruning
-            custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, () -> new EliminateUnnecessaryProject()),
+            custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
 
             // we need to execute this rule at the end of rewrite
             // to avoid two consecutive same project appear when we do optimization.

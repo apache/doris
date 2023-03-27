@@ -438,7 +438,11 @@ public class CastExpr extends Expr {
 
     private Expr castTo(LiteralExpr value) throws AnalysisException {
         if (value instanceof NullLiteral) {
-            return NullLiteral.create(targetTypeDef.getType());
+            if (targetTypeDef != null) {
+                return NullLiteral.create(targetTypeDef.getType());
+            } else {
+                return NullLiteral.create(type);
+            }
         } else if (type.isIntegerType()) {
             return new IntLiteral(value.getLongValue(), type);
         } else if (type.isLargeIntType()) {

@@ -23,9 +23,6 @@
 #include "vec/aggregate_functions/aggregate_function_combinator.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/helpers.h"
-#include "vec/common/typeid_cast.h"
-#include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
 
@@ -53,26 +50,25 @@ public:
             AggregateFunctionPtr res(
                     creator_with_numeric_type::create<AggregateFunctionDistinct,
                                                       AggregateFunctionDistinctSingleNumericData>(
-                            result_is_nullable, arguments, nested_function));
+                            arguments, result_is_nullable, nested_function));
             if (res) {
                 return res;
             }
 
             if (arguments[0]->is_value_unambiguously_represented_in_contiguous_memory_region()) {
-                res.reset(creator_without_type::create<AggregateFunctionDistinct<
-                                  AggregateFunctionDistinctSingleGenericData<true>>>(
-                        result_is_nullable, arguments, nested_function));
+                res = creator_without_type::create<AggregateFunctionDistinct<
+                        AggregateFunctionDistinctSingleGenericData<true>>>(
+                        arguments, result_is_nullable, nested_function);
             } else {
-                res.reset(creator_without_type::create<AggregateFunctionDistinct<
-                                  AggregateFunctionDistinctSingleGenericData<false>>>(
-                        result_is_nullable, arguments, nested_function));
+                res = creator_without_type::create<AggregateFunctionDistinct<
+                        AggregateFunctionDistinctSingleGenericData<false>>>(
+                        arguments, result_is_nullable, nested_function);
             }
             return res;
         }
-        return AggregateFunctionPtr(
-                creator_without_type::create<
-                        AggregateFunctionDistinct<AggregateFunctionDistinctMultipleGenericData>>(
-                        result_is_nullable, arguments, nested_function));
+        return creator_without_type::create<
+                AggregateFunctionDistinct<AggregateFunctionDistinctMultipleGenericData>>(
+                arguments, result_is_nullable, nested_function);
     }
 };
 

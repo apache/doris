@@ -15,14 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.exploration.join;
+package org.apache.doris.nereids.rules.rewrite.logical;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
-import org.apache.doris.nereids.rules.exploration.join.SemiJoinLogicalJoinTransposeProject.ContainsType;
+import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
+import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinLogicalJoinTransposeProject.ContainsType;
 import org.apache.doris.nereids.trees.expressions.ExprId;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -37,21 +36,10 @@ import java.util.Set;
  * <li>SemiJoin(LogicalJoin(X, Y), Z) -> LogicalJoin(X, SemiJoin(Y, Z))
  * </ul>
  */
-public class SemiJoinLogicalJoinTranspose extends OneExplorationRuleFactory {
-
-    public static final SemiJoinLogicalJoinTranspose LEFT_DEEP = new SemiJoinLogicalJoinTranspose(true);
-
-    public static final SemiJoinLogicalJoinTranspose ALL = new SemiJoinLogicalJoinTranspose(false);
-
-    private final boolean leftDeep;
-
-    public SemiJoinLogicalJoinTranspose(boolean leftDeep) {
-        this.leftDeep = leftDeep;
-    }
-
+public class SemiJoinLogicalJoinTranspose extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalJoin(logicalJoin(), group())
+        return logicalJoin(logicalJoin(), any())
                 .when(topJoin -> (topJoin.getJoinType().isLeftSemiOrAntiJoin()
                         && (topJoin.left().getJoinType().isInnerJoin()
                         || topJoin.left().getJoinType().isLeftOuterJoin()
@@ -59,10 +47,10 @@ public class SemiJoinLogicalJoinTranspose extends OneExplorationRuleFactory {
                 .whenNot(topJoin -> topJoin.hasJoinHint() || topJoin.left().hasJoinHint())
                 .whenNot(LogicalJoin::isMarkJoin)
                 .then(topSemiJoin -> {
-                    LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topSemiJoin.left();
-                    GroupPlan a = bottomJoin.left();
-                    GroupPlan b = bottomJoin.right();
-                    GroupPlan c = topSemiJoin.right();
+                    LogicalJoin<Plan, Plan> bottomJoin = topSemiJoin.left();
+                    Plan a = bottomJoin.left();
+                    Plan b = bottomJoin.right();
+                    Plan c = topSemiJoin.right();
 
                     Set<ExprId> conjunctsIds = topSemiJoin.getConditionExprId();
                     ContainsType containsType = SemiJoinLogicalJoinTransposeProject.containsChildren(conjunctsIds,
@@ -84,9 +72,6 @@ public class SemiJoinLogicalJoinTranspose extends OneExplorationRuleFactory {
                         Plan newBottomSemiJoin = topSemiJoin.withChildren(a, c);
                         return bottomJoin.withChildren(newBottomSemiJoin, b);
                     } else {
-                        if (leftDeep) {
-                            return null;
-                        }
                         /*
                          *    topSemiJoin            newTopJoin
                          *      /     \             /         \

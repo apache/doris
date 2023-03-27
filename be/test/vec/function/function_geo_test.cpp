@@ -136,6 +136,27 @@ TEST(VGeoFunctionsTest, function_geo_st_distance_sphere) {
     }
 }
 
+TEST(VGeoFunctionsTest, function_geo_st_angle_sphere) {
+    std::string func_name = "st_angle_sphere";
+    {
+        InputTypeSet input_types = {TypeIndex::Float64, TypeIndex::Float64, TypeIndex::Float64,
+                                    TypeIndex::Float64};
+
+        DataSet data_set = {
+                {{(double)116.35620117, (double)39.939093, (double)116.4274406433,
+                  (double)39.9020987219},
+                 (double)0.0659823452409903},
+                {{(double)116.35620117, (double)39.939093, (double)116.4274406433, Null()}, Null()},
+                {{(double)116.35620117, (double)39.939093, Null(), (double)39.9020987219}, Null()},
+                {{(double)116.35620117, Null(), (double)116.4274406433, (double)39.9020987219},
+                 Null()},
+                {{Null(), (double)39.939093, (double)116.4274406433, (double)39.9020987219},
+                 Null()}};
+
+        check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    }
+}
+
 TEST(VGeoFunctionsTest, function_geo_st_contains) {
     std::string func_name = "st_contains";
     {
