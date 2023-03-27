@@ -33,20 +33,6 @@ suite("nereids_tpcds_query_empty_table") {
     def num = 0
 
     def current_failed_tests = [
-            // errCode = 2, detailMessage = (127.0.0.1)[CANCELLED]Expected EQ 1 to be returned by expression  (SCALARSUBQUERY) SubqueryExpr ( QueryPlan=LogicalAggregate[611] ( groupByExpr=[d_month_seq#130], outputExpr=[d_month_seq#130], hasRepeat=false ), CorrelatedSlots=[], typeCoercionExpr=null )
-            "q06.sql",
-            // errCode = 2, detailMessage = Unexpected exception: null
-            "q10.sql",
-            // errCode = 2, detailMessage = (127.0.0.1)[CANCELLED]Expected EQ 1 to be returned by expression  (SCALARSUBQUERY) SubqueryExpr ( QueryPlan=LogicalProject[1642] ( distinct=false, projects=[d_week_seq#536], excepts=[], canEliminate=true ), CorrelatedSlots=[], typeCoercionExpr=null )
-            "q14_2.sql",
-            // errCode = 2, detailMessage = Unexpected exception: null
-            "q35.sql",
-            // errCode = 2, detailMessage = (127.0.0.1)[CANCELLED]Expected EQ 1 to be returned by expression  (SCALARSUBQUERY) SubqueryExpr ( QueryPlan=LogicalAggregate[469] ( groupByExpr=[ss_store_sk#82], outputExpr=[avg(ss_net_profit#97) AS `rank_col`#98], hasRepeat=false ), CorrelatedSlots=[], typeCoercionExpr=null )
-            "q44.sql",
-            // errCode = 2, detailMessage = (127.0.0.1)[CANCELLED]Expected EQ 1 to be returned by expression  (SCALARSUBQUERY) SubqueryExpr ( QueryPlan=LogicalAggregate[619] ( groupByExpr=[(d_month_seq#241 + 1) AS `(d_month_seq + 1)`#266], outputExpr=[(d_month_seq#241 + 1) AS `(d_month_seq + 1)`#266], hasRepeat=false ), CorrelatedSlots=[], typeCoercionExpr=null )
-            "q54.sql",
-            // errCode = 2, detailMessage = (127.0.0.1)[CANCELLED]Expected EQ 1 to be returned by expression  (SCALARSUBQUERY) SubqueryExpr ( QueryPlan=LogicalProject[473] ( distinct=false, projects=[d_week_seq#105], excepts=[], canEliminate=true ), CorrelatedSlots=[], typeCoercionExpr=null )
-            "q58.sql",
             // Memo.mergeGroup() dead loop
             "q64.sql",
             // errCode = 2, detailMessage = Unexpected exception: null
