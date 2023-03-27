@@ -67,6 +67,13 @@ public class TableValuedFunctionRef extends TableRef {
 
     @Override
     protected String tableNameToSql() {
+        String aliasSql = null;
+        String alias = getExplicitAlias();
+        if (alias != null) {
+            aliasSql = ToSqlUtils.getIdentSql(alias);
+        }
+
+        // set tableName
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append(funcName);
         stringBuilder.append('(');
@@ -75,6 +82,9 @@ public class TableValuedFunctionRef extends TableRef {
                         .collect(Collectors.joining(","));
         stringBuilder.append(paramsString);
         stringBuilder.append(')');
+
+        // set alias
+        stringBuilder.append((aliasSql != null) ? " " + aliasSql : "");
         return stringBuilder.toString();
     }
 
