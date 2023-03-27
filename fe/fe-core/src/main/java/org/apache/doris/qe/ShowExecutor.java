@@ -1803,9 +1803,6 @@ public class ShowExecutor {
         final ShowBackendsStmt showStmt = (ShowBackendsStmt) stmt;
         List<List<String>> backendInfos = BackendsProcDir.getClusterBackendInfos(showStmt.getClusterName());
 
-        for (List<String> row : backendInfos) {
-            row.remove(BackendsProcDir.HOSTNAME_INDEX);
-        }
         backendInfos.sort(new Comparator<List<String>>() {
             @Override
             public int compare(List<String> o1, List<String> o2) {
@@ -1820,10 +1817,6 @@ public class ShowExecutor {
         final ShowFrontendsStmt showStmt = (ShowFrontendsStmt) stmt;
         List<List<String>> infos = Lists.newArrayList();
         FrontendsProcNode.getFrontendsInfo(Env.getCurrentEnv(), infos);
-
-        for (List<String> row : infos) {
-            row.remove(FrontendsProcNode.HOSTNAME_INDEX);
-        }
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
     }
