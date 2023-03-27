@@ -266,6 +266,11 @@ public class MetadataGenerator {
             trow.addToColumnValue(new TCell().setLongVal(backendId));
             trow.addToColumnValue(new TCell().setStringVal(backend.getOwnerClusterName()));
             trow.addToColumnValue(new TCell().setStringVal(backend.getIp()));
+            if (backend.getHostName() != null) {
+                trow.addToColumnValue(new TCell().setStringVal(backend.getHostName()));
+            } else {
+                trow.addToColumnValue(new TCell().setStringVal(backend.getIp()));
+            }
             trow.addToColumnValue(new TCell().setStringVal(backend.getHostName()));
             if (Strings.isNullOrEmpty(backendsParam.cluster_name)) {
                 trow.addToColumnValue(new TCell().setIntVal(backend.getHeartbeatPort()));
