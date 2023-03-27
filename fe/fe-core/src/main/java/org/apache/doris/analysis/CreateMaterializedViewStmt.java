@@ -462,6 +462,20 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         if (mvAggregateType == null) {
             mvAggregateType = AggregateType.valueOf(functionName.toUpperCase());
         }
+
+        if (!isReplay && defineExpr.hasAggregateSlot()) {
+            List<SlotRef> slots = new ArrayList<>();
+            defineExpr.collect(SlotRef.class, slots);
+            if (slots.size() != 1) {
+                throw new AnalysisException("Aggregate function require single slot argument, invalid argument is: "
+                        + defineExpr.toSql());
+            }
+            AggregateType input = slots.get(0).getColumn().getAggregationType();
+            if (!input.equals(mvAggregateType)) {
+                throw new AnalysisException("Aggregate function require same with slot aggregate type, input: "
+                        + input.name() + ", required: " + mvAggregateType.name());
+            }
+        }
         return new MVColumnItem(type, mvAggregateType, defineExpr, mvColumnBuilder(defineExpr.toSql()));
     }
 
