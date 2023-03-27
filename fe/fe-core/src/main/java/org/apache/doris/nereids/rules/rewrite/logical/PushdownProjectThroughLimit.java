@@ -48,7 +48,7 @@ public class PushdownProjectThroughLimit extends OneRewriteRuleFactory {
 
     @Override
     public Rule build() {
-        return logicalProject(logicalLimit(any())).thenApply(ctx -> {
+        return logicalProject(logicalLimit()).thenApply(ctx -> {
             LogicalProject<LogicalLimit<Plan>> logicalProject = ctx.root;
             LogicalLimit<Plan> logicalLimit = logicalProject.child();
             return new LogicalLimit<>(logicalLimit.getLimit(), logicalLimit.getOffset(),

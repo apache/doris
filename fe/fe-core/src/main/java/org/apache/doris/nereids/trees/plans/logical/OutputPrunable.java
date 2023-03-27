@@ -15,8 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.nereids.trees.plans.logical;
 
-#include <exception>
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.plans.Plan;
 
-const char* get_current_exception_type_name(const std::exception_ptr& exception_ptr);
+import java.util.List;
+
+/** OutputPrunable */
+public interface OutputPrunable extends OutputSavePoint {
+    List<NamedExpression> getOutputs();
+
+    Plan pruneOutputs(List<NamedExpression> prunedOutputs);
+}

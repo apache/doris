@@ -21,4 +21,62 @@ suite("bucket-shuffle-join") {
     order_qt_test_bucket """
     select * from test_bucket_shuffle_join where rectime="2021-12-01 00:00:00" and id in (select k1 from test_join where k1 in (1,2))
     """
+
+    sql """ DROP TABLE IF EXISTS shuffle_join_t1 """
+    sql """ DROP TABLE IF EXISTS shuffle_join_t2 """
+
+    sql """
+        create table shuffle_join_t1 ( a varchar(10) not null )
+        ENGINE=OLAP
+        DISTRIBUTED BY HASH(a) BUCKETS 5
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2"
+        );
+    """
+
+    sql """
+        create table shuffle_join_t2 ( a varchar(5) not null, b string not null, c char(3) not null )
+        ENGINE=OLAP
+        DISTRIBUTED BY HASH(a) BUCKETS 5
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2"
+        );
+    """
+
+    sql """insert into shuffle_join_t1 values("1");"""
+    sql """insert into shuffle_join_t1 values("1");"""
+    sql """insert into shuffle_join_t1 values("1");"""
+    sql """insert into shuffle_join_t1 values("1");"""
+    sql """insert into shuffle_join_t2 values("1","1","1");"""
+    sql """insert into shuffle_join_t2 values("1","1","1");"""
+    sql """insert into shuffle_join_t2 values("1","1","1");"""
+    sql """insert into shuffle_join_t2 values("1","1","1");"""
+
+    sql """analyze table shuffle_join_t1;"""
+    sql """analyze table shuffle_join_t2;"""
+
+    Thread.sleep(2000)
+
+    explain {
+        sql("select * from shuffle_join_t1 t1 left join shuffle_join_t2 t2 on t1.a = t2.a;")
+        contains "BUCKET_SHUFFLE"
+    }
+
+    explain {
+        sql("select * from shuffle_join_t1 t1 left join shuffle_join_t2 t2 on t1.a = t2.b;")
+        contains "BUCKET_SHUFFLE"
+    }
+
+    explain {
+        sql("select * from shuffle_join_t1 t1 left join shuffle_join_t2 t2 on t1.a = t2.c;")
+        contains "BUCKET_SHUFFLE"
+        contains "BUCKET_SHFFULE_HASH_PARTITIONED: expr_cast(c as VARCHAR(*))"
+    }
+
+    sql """ DROP TABLE IF EXISTS shuffle_join_t1 """
+    sql """ DROP TABLE IF EXISTS shuffle_join_t2 """
 }

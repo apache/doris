@@ -76,6 +76,8 @@ public:
     static bool ComputeDistance(double x_lng, double x_lat, double y_lng, double y_lat,
                                 double* distance);
 
+    static bool ComputeAngle(double x_lng, double x_lat, double y_lng, double y_lat, double* angle);
+
     std::string to_string() const override;
     std::string as_wkt() const override;
 

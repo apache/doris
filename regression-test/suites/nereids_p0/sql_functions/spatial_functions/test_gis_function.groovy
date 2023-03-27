@@ -28,6 +28,8 @@ suite("test_gis_function") {
     qt_sql "SELECT ST_Contains(ST_Polygon(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"), ST_Point(50, 50));"
 
     qt_sql "SELECT ST_DISTANCE_SPHERE(116.35620117, 39.939093, 116.4274406433, 39.9020987219);"
+    qt_sql "SELECT ST_ANGLE_SPHERE(116.35620117, 39.939093, 116.4274406433, 39.9020987219);"
+    qt_sql "SELECT ST_ANGLE_SPHERE(0, 0, 45, 0);"
 
     qt_sql "SELECT ST_AsText(ST_GeometryFromText(\"LINESTRING (1 1, 2 2)\"));"
     qt_sql "SELECT ST_AsText(ST_GeomFromText(\"LINESTRING (1 1, 2 2)\"));"

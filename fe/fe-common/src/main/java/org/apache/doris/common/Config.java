@@ -2063,5 +2063,11 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static String bdbje_file_logging_level = "ALL";
+
+    /**
+     * When holding lock time exceeds the threshold, need to report it.
+     */
+    @ConfField
+    public static long lock_reporting_threshold_ms = 500L;
 }
 

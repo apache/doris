@@ -78,6 +78,7 @@ CREATE CATALOG hive PROPERTIES (
     'type'='hms',
     'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
     'hive.metastore.sasl.enabled' = 'true',
+    'hive.metastore.kerberos.principal' = 'your-hms-principal',
     'dfs.nameservices'='your-nameservice',
     'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
     'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
@@ -85,7 +86,7 @@ CREATE CATALOG hive PROPERTIES (
     'hadoop.security.authentication' = 'kerberos',
     'hadoop.kerberos.keytab' = '/your-keytab-filepath/your.keytab',   
     'hadoop.kerberos.principal' = 'your-principal@YOUR.COM',
-    'hive.metastore.kerberos.principal' = 'your-hms-principal'
+    'yarn.resourcemanager.principal' = 'your-rm-principal'
 );
 ```
 

@@ -15,21 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exception.h"
+package org.apache.doris.nereids.rules.rewrite.logical;
 
-#ifdef USE_LIBCPP
-#include <cxxabi.h>
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
-#include <typeinfo>
-#endif
-
-const char* get_current_exception_type_name(const std::exception_ptr& exception_ptr) {
-#ifdef USE_LIBCPP
-    int status;
-    return exception_ptr ? abi::__cxa_demangle(abi::__cxa_current_exception_type()->name(), nullptr,
-                                               nullptr, &status)
-                         : "null";
-#else
-    return exception_ptr ? exception_ptr.__cxa_exception_type()->name() : "null";
-#endif
+/**
+ * RightSemiJoin -> LeftSemiJoin
+ */
+public class SemiJoinCommute extends OneRewriteRuleFactory {
+    @Override
+    public Rule build() {
+        return logicalJoin()
+                .when(join -> join.getJoinType().isRightSemiOrAntiJoin())
+                .whenNot(LogicalJoin::hasJoinHint)
+                .whenNot(LogicalJoin::isMarkJoin)
+                .then(join -> join.withTypeChildren(join.getJoinType().swap(), join.right(), join.left()))
+                .toRule(RuleType.LOGICAL_SEMI_JOIN_COMMUTE);
+    }
 }

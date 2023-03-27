@@ -24,6 +24,9 @@ suite("test_json_function") {
     qt_sql "SELECT get_json_int('{\"k1\":1, \"k2\":\"2\"}', \"\$.k1\");"
     qt_sql "SELECT get_json_int('{\"k1\":\"v1\", \"my.key\":[1, 2, 3]}', '\$.\"my.key\"[1]');"
     qt_sql "SELECT get_json_int('{\"k1.key\":{\"k2\":[1, 2]}}', '\$.\"k1.key\".k2[0]');"
+    qt_sql "SELECT get_json_bigint('{\"k1\":1678708107000, \"k2\":\"2\"}', \"\$.k1\");"
+    qt_sql "SELECT get_json_bigint('{\"k1\":\"v1\", \"my.key\":[11678708107001, 1678708107002, 31678708107003]}', '\$.\"my.key\"[1]');"
+    qt_sql "SELECT get_json_bigint('{\"k1.key\":{\"k2\":[1678708107001, 1678708107002]}}', '\$.\"k1.key\".k2[0]');"
 
     qt_sql "SELECT get_json_string('{\"k1\":\"v1\", \"k2\":\"v2\"}', \"\$.k1\");"
     qt_sql "SELECT get_json_string('{\"k1\":\"v1\", \"my.key\":[\"e1\", \"e2\", \"e3\"]}', '\$.\"my.key\"[1]');"
@@ -32,15 +35,17 @@ suite("test_json_function") {
     qt_sql "SELECT json_array();"
     qt_sql "SELECT json_array(null);"
     qt_sql "SELECT json_array(1, \"abc\", NULL, TRUE, '10:00:00');"
+    qt_sql "SELECT json_array(1, \"abc\", NULL, TRUE, '10:00:00', 1678708107000);"
     qt_sql "SELECT json_array(\"a\", null, \"c\");"
 
     qt_sql "SELECT json_object();"
     qt_sql "SELECT json_object('time','10:00:00');"
     qt_sql "SELECT json_object('id', 87, 'name', 'carrot');"
+    qt_sql "SELECT json_object('id', 1678708107000, 'name', 'carrot');"
     qt_sql "SELECT json_array(\"a\", null, \"c\");"
 
     qt_sql "SELECT json_quote('null'), json_quote('\"null\"');"
-    qt_sql "SELECT json_quote('[1, 2, 3]');"
+    qt_sql "SELECT json_quote('[1, 2, 3, 1678708107000]');"
     qt_sql "SELECT json_quote(null);"
     qt_sql "SELECT json_quote(\"\\n\\b\\r\\t\");"
 

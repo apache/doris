@@ -69,38 +69,17 @@ suite("test_refresh_mtmv") {
     """
 
    // waiting the task to be finished.
-    def show_task_meta = sql_meta "SHOW MTMV TASK ON ${mvName}"
-    def index = show_task_meta.indexOf(['State', 'CHAR'])
-    def query = "SHOW MTMV TASK ON ${mvName}"
-    def show_task_result
-    def state = "PENDING"
-    do {
-        show_task_result = sql "${query}"
-        if (!show_task_result.isEmpty()) {
-            state = show_task_result.last().get(index)
-        }
-        println "The state of ${query} is ${state}"
-        Thread.sleep(1000);
-    } while (state.equals('PENDING') || state.equals('RUNNING'))
+    waitingMTMVTaskFinished(mvName)
 
-    assertEquals 'SUCCESS', state, show_task_result.last().toString()
     order_qt_select "SELECT * FROM ${mvName}"
 
     // test REFRESH make sure only define one mv and already run a task.
     sql """
         REFRESH MATERIALIZED VIEW ${mvName} COMPLETE
     """
-    state = "PENDING"
-    do {
-        show_task_result = sql "${query}"
-        if (!show_task_result.isEmpty()) {
-            state = show_task_result.last().get(index)
-        }
-        println "The state of ${query} is ${state}"
-        Thread.sleep(1000);
-    } while (state.equals('PENDING') || state.equals('RUNNING'))
+    waitingMTMVTaskFinished(mvName)
 
-    assertEquals 'SUCCESS', state, show_task_result.last().toString()
+    def show_task_result = sql "SHOW MTMV TASK ON ${mvName}"
     assertEquals 2, show_task_result.size(), show_task_result.toString()
 
     sql """

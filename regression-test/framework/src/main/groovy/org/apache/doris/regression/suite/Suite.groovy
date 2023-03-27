@@ -45,12 +45,11 @@ import java.util.concurrent.Future
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.stream.Collectors
 import java.util.stream.LongStream
-import java.math.BigDecimal;
 import static org.apache.doris.regression.util.DataUtils.sortByToString
 
-import java.io.File
 import java.sql.PreparedStatement
 import java.sql.ResultSetMetaData
+import org.junit.Assert
 
 @Slf4j
 class Suite implements GroovyInterceptable {
@@ -394,6 +393,29 @@ class Suite implements GroovyInterceptable {
     boolean deleteFile(String filePath) {
         def file = new File(filePath)
         file.delete()
+    }
+
+    void waitingMTMVTaskFinished(String mvName) {
+        String showTasks = "SHOW MTMV TASK ON " + mvName
+        List<List<String>> showTaskMetaResult = sql_meta(showTasks)
+        int index = showTaskMetaResult.indexOf(['State', 'CHAR'])
+        String status = "PENDING"
+        List<List<Object>> result
+        long startTime = System.currentTimeMillis()
+        long timeoutTimestamp = startTime + 30 * 60 * 1000 // 30 min
+        do {
+            result = sql(showTasks)
+            if (!result.isEmpty()) {
+                status = result.last().get(index)
+            }
+            println "The state of ${showTasks} is ${status}"
+            Thread.sleep(1000);
+        } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING'))
+        if (status != "SUCCESS") {
+            println "status is not success"
+            println result.toString()
+        }
+        Assert.assertEquals("SUCCESS", status)
     }
 
     List<String> downloadExportFromHdfs(String label) {

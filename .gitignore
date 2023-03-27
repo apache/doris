@@ -59,6 +59,7 @@ regression-test/framework/dependency-reduced-pom.xml
 regression-test/realdata/*
 regression-test/cacheData/*
 regression-test/conf/regression-conf-custom.groovy
+regression-test/framework/bin/*
 
 samples/doris-demo/remote-udf-python-demo/*_pb2.py
 samples/doris-demo/remote-udf-python-demo/*_pb2_grpc.py

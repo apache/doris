@@ -299,6 +299,10 @@ public class GlobalTransactionMgr implements Writable {
     public void abortTransaction(long dbId, long transactionId, String reason) throws UserException {
         Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
         TransactionState transactionState = getDatabaseTransactionMgr(dbId).getTransactionState(transactionId);
+        if (transactionState == null) {
+            LOG.info("try to cancel one txn which has no txn state. txn id: {}.", transactionId);
+            return;
+        }
         List<Table> tableList = db.getTablesOnIdOrderIfExist(transactionState.getTableIdList());
         abortTransaction(dbId, transactionId, reason, null, tableList);
     }

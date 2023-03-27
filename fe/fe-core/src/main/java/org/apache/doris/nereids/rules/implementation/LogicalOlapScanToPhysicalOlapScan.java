@@ -89,8 +89,8 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                 }
             }
             // TODO: need to consider colocate and dynamic partition and partition number
-            return new DistributionSpecHash(hashColumns, ShuffleType.NATURAL,
-                    olapScan.getTable().getId(), Sets.newHashSet(olapScan.getTable().getPartitionIds()));
+            return new DistributionSpecHash(hashColumns, ShuffleType.NATURAL, olapScan.getTable().getId(),
+                    olapScan.getSelectedIndexId(), Sets.newHashSet(olapScan.getSelectedPartitionIds()));
         } else {
             // RandomDistributionInfo
             return DistributionSpecAny.INSTANCE;

@@ -49,16 +49,22 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConnectionId;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.User;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Version;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.GlobalVariable;
 
@@ -369,6 +375,26 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
         }
         List<Literal> arguments = (List) array.getArguments();
         return new ArrayLiteral(arguments);
+    }
+
+    @Override
+    public Expression visitDate(Date date, ExpressionRewriteContext context) {
+        if (!allArgsIsAllLiteral(date)) {
+            return date;
+        }
+        Literal child = (Literal) date.child();
+        if (child instanceof NullLiteral) {
+            return new NullLiteral(date.getDataType());
+        }
+        DataType dataType = child.getDataType();
+        if (dataType.isDateTimeType()) {
+            DateTimeLiteral dateTimeLiteral = (DateTimeLiteral) child;
+            return new DateLiteral(dateTimeLiteral.getYear(), dateTimeLiteral.getMonth(), dateTimeLiteral.getDay());
+        } else if (dataType.isDateTimeV2Type()) {
+            DateTimeV2Literal dateTimeLiteral = (DateTimeV2Literal) child;
+            return new DateV2Literal(dateTimeLiteral.getYear(), dateTimeLiteral.getMonth(), dateTimeLiteral.getDay());
+        }
+        return date;
     }
 
     @Override

@@ -19,6 +19,7 @@ package org.apache.doris.nereids.jobs.batch;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.RewriteJob;
+import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
@@ -56,12 +57,17 @@ import org.apache.doris.nereids.rules.rewrite.logical.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeSetOperations;
 import org.apache.doris.nereids.rules.rewrite.logical.NormalizeAggregate;
+import org.apache.doris.nereids.rules.rewrite.logical.NormalizeSort;
 import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanTablet;
 import org.apache.doris.nereids.rules.rewrite.logical.PushFilterInsideJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownLimit;
 import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
+import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinLogicalJoinTranspose;
+import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinLogicalJoinTransposeProject;
 import org.apache.doris.nereids.rules.rewrite.logical.SplitLimit;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -89,7 +95,7 @@ public class NereidsRewriter extends BatchRewriteJob {
 
                 // ExtractSingleTableExpressionFromDisjunction conflict to InPredicateToEqualToRule
                 // in the ExpressionNormalization, so must invoke in another job, or else run into
-                // deep loop
+                // dead loop
                 topDown(
                     new ExtractSingleTableExpressionFromDisjunction()
                 )
@@ -117,10 +123,11 @@ public class NereidsRewriter extends BatchRewriteJob {
 
             // The rule modification needs to be done after the subquery is unnested,
             // because for scalarSubQuery, the connection condition is stored in apply in the analyzer phase,
-            // but when normalizeAggregate is performed, the members in apply cannot be obtained,
+            // but when normalizeAggregate/normalizeSort is performed, the members in apply cannot be obtained,
             // resulting in inconsistent output results and results in apply
             topDown(
-                new NormalizeAggregate()
+                new NormalizeAggregate(),
+                new NormalizeSort()
             ),
 
             topDown(
@@ -138,71 +145,93 @@ public class NereidsRewriter extends BatchRewriteJob {
             ),
 
             topic("Rewrite join",
-                    // infer not null filter, then push down filter, and then reorder join(cross join to inner join)
-                    topDown(
-                        new InferFilterNotNull(),
-                        new InferJoinNotNull()
-                    ),
-                    // ReorderJoin depends PUSH_DOWN_FILTERS
-                    // the PUSH_DOWN_FILTERS depends on lots of rules, e.g. merge project, eliminate outer,
-                    // sometimes transform the bottom plan make some rules usable which can apply to the top plan,
-                    // but top-down traverse can not cover this case in one iteration, so bottom-up is more
-                    // efficient because it can find the new plans and apply transform wherever it is
-                    bottomUp(RuleSet.PUSH_DOWN_FILTERS),
+                // infer not null filter, then push down filter, and then reorder join(cross join to inner join)
+                topDown(
+                    new InferFilterNotNull(),
+                    new InferJoinNotNull()
+                ),
+                // ReorderJoin depends PUSH_DOWN_FILTERS
+                // the PUSH_DOWN_FILTERS depends on lots of rules, e.g. merge project, eliminate outer,
+                // sometimes transform the bottom plan make some rules usable which can apply to the top plan,
+                // but top-down traverse can not cover this case in one iteration, so bottom-up is more
+                // efficient because it can find the new plans and apply transform wherever it is
+                bottomUp(RuleSet.PUSH_DOWN_FILTERS),
 
-                    topDown(
-                        new MergeFilters(),
-                        new ReorderJoin(),
-                        new PushFilterInsideJoin(),
-                        new FindHashConditionForJoin(),
-                        new ConvertInnerOrCrossJoin(),
-                        new EliminateNullAwareLeftAntiJoin()
-                    ),
-                    topDown(
-                        new EliminateDedupJoinCondition()
-                    )
+                // pushdown SEMI Join
+                topDown(
+                    // new SemiJoinCommute(),
+                    new SemiJoinLogicalJoinTranspose(),
+                    new SemiJoinLogicalJoinTransposeProject()
+                ),
+
+                topDown(
+                    new MergeFilters(),
+                    new ReorderJoin(),
+                    new PushFilterInsideJoin(),
+                    new FindHashConditionForJoin(),
+                    new ConvertInnerOrCrossJoin(),
+                    new EliminateNullAwareLeftAntiJoin()
+                ),
+                topDown(
+                    new EliminateDedupJoinCondition()
+                )
             ),
 
             topic("Column pruning and infer predicate",
-                    topDown(new ColumnPruning()),
+                custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
 
-                    custom(RuleType.INFER_PREDICATES, () -> new InferPredicates()),
+                custom(RuleType.INFER_PREDICATES, InferPredicates::new),
 
-                    // column pruning create new project, so we should use PUSH_DOWN_FILTERS
-                    // to change filter-project to project-filter
-                    bottomUp(RuleSet.PUSH_DOWN_FILTERS),
+                // column pruning create new project, so we should use PUSH_DOWN_FILTERS
+                // to change filter-project to project-filter
+                bottomUp(RuleSet.PUSH_DOWN_FILTERS),
 
-                    // after eliminate outer join in the PUSH_DOWN_FILTERS, we can infer more predicate and push down
-                    custom(RuleType.INFER_PREDICATES, () -> new InferPredicates()),
+                // after eliminate outer join in the PUSH_DOWN_FILTERS, we can infer more predicate and push down
+                custom(RuleType.INFER_PREDICATES, InferPredicates::new),
 
-                    bottomUp(RuleSet.PUSH_DOWN_FILTERS),
+                bottomUp(RuleSet.PUSH_DOWN_FILTERS),
 
-                    // after eliminate outer join, we can move some filters to join.otherJoinConjuncts,
-                    // this can help to translate plan to backend
-                    topDown(
-                        new PushFilterInsideJoin()
-                    )
+                // after eliminate outer join, we can move some filters to join.otherJoinConjuncts,
+                // this can help to translate plan to backend
+                topDown(
+                    new PushFilterInsideJoin()
+                )
             ),
 
             // this rule should invoke after ColumnPruning
-            custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, () -> new EliminateUnnecessaryProject()),
+            custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
 
             // we need to execute this rule at the end of rewrite
             // to avoid two consecutive same project appear when we do optimization.
-            topic("Others optimization", topDown(
+            topic("Others optimization",
+                bottomUp(ImmutableList.<RuleFactory>builder().addAll(ImmutableList.of(
                     new EliminateNotNull(),
                     new EliminateLimit(),
                     new EliminateFilter(),
-                    new PruneOlapScanPartition(),
-                    new SelectMaterializedIndexWithAggregate(),
-                    new SelectMaterializedIndexWithoutAggregate(),
-                    new PruneOlapScanTablet(),
                     new EliminateAggregate(),
                     new MergeSetOperations(),
                     new PushdownLimit(),
-                    new SplitLimit(),
                     new BuildAggForUnion()
-            )),
+                    // after eliminate filter, the project maybe can push down again,
+                    // so we add push down rules
+                )).addAll(RuleSet.PUSH_DOWN_FILTERS).build())
+            ),
+
+            // TODO: I think these rules should be implementation rules, and generate alternative physical plans.
+            topic("Table/MV/Physical optimization",
+                topDown(
+                    // TODO: the logical plan should not contains any phase information,
+                    //       we should refactor like AggregateStrategies, e.g. LimitStrategies,
+                    //       generate one PhysicalLimit if current distribution is gather or two
+                    //       PhysicalLimits with gather exchange
+                    new SplitLimit(),
+
+                    new SelectMaterializedIndexWithAggregate(),
+                    new SelectMaterializedIndexWithoutAggregate(),
+                    new PruneOlapScanTablet(),
+                    new PruneOlapScanPartition()
+                )
+            ),
 
             // this rule batch must keep at the end of rewrite to do some plan check
             topic("Final rewrite and check", bottomUp(

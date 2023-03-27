@@ -15,10 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.exploration.join;
+package org.apache.doris.nereids.rules.rewrite.logical;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -29,7 +28,6 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 class SemiJoinLogicalJoinTransposeProjectTest implements MemoPatternMatchSupported {
@@ -38,7 +36,7 @@ class SemiJoinLogicalJoinTransposeProjectTest implements MemoPatternMatchSupport
     private static final LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
 
     @Test
-    void testSemiJoinLogicalTransposeProjectLAsscom() {
+    void pushLeft() {
         /*-
          *     topSemiJoin                    project
          *      /     \                         |
@@ -55,8 +53,8 @@ class SemiJoinLogicalJoinTransposeProjectTest implements MemoPatternMatchSupport
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
-                .applyExploration(SemiJoinLogicalJoinTransposeProject.LEFT_DEEP.build())
-                .matchesExploration(
+                .applyTopDown(new SemiJoinLogicalJoinTransposeProject())
+                .matchesFromRoot(
                         logicalProject(
                                 innerLogicalJoin(
                                         leftSemiLogicalJoin(
@@ -70,23 +68,7 @@ class SemiJoinLogicalJoinTransposeProjectTest implements MemoPatternMatchSupport
     }
 
     @Test
-    void testSemiJoinLogicalTransposeProjectLAsscomFail() {
-        LogicalPlan topJoin = new LogicalPlanBuilder(scan1)
-                .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0)) // t1.id = t2.id
-                .project(ImmutableList.of(0, 2)) // t1.id, t2.id
-                .join(scan3, JoinType.LEFT_SEMI_JOIN, Pair.of(1, 0)) // t2.id = t3.id
-                .build();
-
-        PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
-                .applyExploration(SemiJoinLogicalJoinTransposeProject.LEFT_DEEP.build())
-                .checkMemo(memo -> {
-                    Group root = memo.getRoot();
-                    Assertions.assertEquals(1, root.getLogicalExpressions().size());
-                });
-    }
-
-    @Test
-    void testSemiJoinLogicalTransposeProjectAll() {
+    void pushRight() {
         /*-
          *     topSemiJoin                  project
          *       /     \                       |
@@ -103,8 +85,8 @@ class SemiJoinLogicalJoinTransposeProjectTest implements MemoPatternMatchSupport
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
-                .applyExploration(SemiJoinLogicalJoinTransposeProject.ALL.build())
-                .matchesExploration(
+                .applyTopDown(new SemiJoinLogicalJoinTransposeProject())
+                .matchesFromRoot(
                         logicalProject(
                                 logicalJoin(
                                         logicalOlapScan().when(scan -> scan.getTable().getName().equals("t1")),

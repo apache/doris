@@ -37,7 +37,7 @@ public class StatsDeriveResultTest {
         Assertions.assertEquals(0, resColStats.ndv);
         Assertions.assertEquals(1, resColStats.avgSizeByte);
         Assertions.assertEquals(0, resColStats.numNulls);
-        Assertions.assertEquals(0, resColStats.dataSize);
+        Assertions.assertEquals(1, resColStats.dataSize);
         Assertions.assertEquals(1, resColStats.minValue);
         Assertions.assertEquals(100, resColStats.maxValue);
         Assertions.assertEquals(0, resColStats.selectivity);

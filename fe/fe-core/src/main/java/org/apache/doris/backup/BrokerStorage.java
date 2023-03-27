@@ -538,7 +538,7 @@ public class BrokerStorage extends BlobStorage {
 
             List<TBrokerFileStatus> fileStatus = rep.getFiles();
             for (TBrokerFileStatus tFile : fileStatus) {
-                RemoteFile file = new RemoteFile(tFile.path, !tFile.isDir, tFile.size);
+                RemoteFile file = new RemoteFile(tFile.path, !tFile.isDir, tFile.size, 0);
                 result.add(file);
             }
             LOG.info("finished to list remote path {}. get files: {}", remotePath, result);

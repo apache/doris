@@ -19,6 +19,7 @@ package org.apache.doris.udf;
 
 import org.apache.doris.thrift.TJdbcExecutorCtorParams;
 import org.apache.doris.thrift.TJdbcOperation;
+import org.apache.doris.thrift.TOdbcTableType;
 
 import com.alibaba.druid.pool.DruidDataSource;
 import com.google.common.base.Preconditions;
@@ -32,6 +33,8 @@ import java.lang.reflect.Array;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.math.RoundingMode;
+import java.net.Inet4Address;
+import java.net.Inet6Address;
 import java.net.MalformedURLException;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
@@ -45,7 +48,11 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.function.Function;
 
 public class JdbcExecutor {
     private static final Logger LOG = Logger.getLogger(JdbcExecutor.class);
@@ -71,7 +78,7 @@ public class JdbcExecutor {
             throw new InternalException(e.getMessage());
         }
         init(request.driver_path, request.statement, request.batch_size, request.jdbc_driver_class,
-                request.jdbc_url, request.jdbc_user, request.jdbc_password, request.op);
+                request.jdbc_url, request.jdbc_user, request.jdbc_password, request.op, request.table_type);
     }
 
     public void close() throws Exception {
@@ -197,13 +204,41 @@ public class JdbcExecutor {
         Object[] columnData = (Object[]) obj;
         if (columnData[idx] instanceof String) {
             return (String) columnData[idx];
-        } else {
+        } else if (columnData[idx] instanceof java.sql.Array) {
             return (java.sql.Array) columnData[idx];
+        } else {
+            //For the ClickHouse array type, we need the concatenated string after toString
+            return convertClickHouseArray(columnData[idx]);
         }
     }
 
+    private static final Map<Class<?>, Function<Object, String>> CK_ARRAY_CONVERTERS = new HashMap<>();
+
+    static {
+        CK_ARRAY_CONVERTERS.put(String[].class, res -> Arrays.toString((String[]) res));
+        CK_ARRAY_CONVERTERS.put(byte[].class, res -> Arrays.toString((byte[]) res));
+        CK_ARRAY_CONVERTERS.put(Byte[].class, res -> Arrays.toString((Byte[]) res));
+        CK_ARRAY_CONVERTERS.put(LocalDate[].class, res -> Arrays.toString((LocalDate[]) res));
+        CK_ARRAY_CONVERTERS.put(LocalDateTime[].class, res -> Arrays.toString((LocalDateTime[]) res));
+        CK_ARRAY_CONVERTERS.put(float[].class, res -> Arrays.toString((float[]) res));
+        CK_ARRAY_CONVERTERS.put(double[].class, res -> Arrays.toString((double[]) res));
+        CK_ARRAY_CONVERTERS.put(short[].class, res -> Arrays.toString((short[]) res));
+        CK_ARRAY_CONVERTERS.put(int[].class, res -> Arrays.toString((int[]) res));
+        CK_ARRAY_CONVERTERS.put(long[].class, res -> Arrays.toString((long[]) res));
+        CK_ARRAY_CONVERTERS.put(BigInteger[].class, res -> Arrays.toString((BigInteger[]) res));
+        CK_ARRAY_CONVERTERS.put(BigDecimal[].class, res -> Arrays.toString((BigDecimal[]) res));
+        CK_ARRAY_CONVERTERS.put(Inet4Address[].class, res -> Arrays.toString((Inet4Address[]) res));
+        CK_ARRAY_CONVERTERS.put(Inet6Address[].class, res -> Arrays.toString((Inet6Address[]) res));
+        CK_ARRAY_CONVERTERS.put(UUID[].class, res -> Arrays.toString((UUID[]) res));
+    }
+
+    public static Object convertClickHouseArray(Object obj) {
+        Function<Object, String> converter = CK_ARRAY_CONVERTERS.get(obj.getClass());
+        return converter != null ? converter.apply(obj) : obj;
+    }
+
     private void init(String driverUrl, String sql, int batchSize, String driverClass, String jdbcUrl, String jdbcUser,
-            String jdbcPassword, TJdbcOperation op) throws UdfRuntimeException {
+            String jdbcPassword, TJdbcOperation op, TOdbcTableType tableType) throws UdfRuntimeException {
         try {
             ClassLoader parent = getClass().getClassLoader();
             ClassLoader classLoader = UdfUtils.getClassLoader(driverUrl, parent);
@@ -226,7 +261,11 @@ public class JdbcExecutor {
                 conn.setAutoCommit(false);
                 Preconditions.checkArgument(sql != null);
                 stmt = conn.prepareStatement(sql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
-                stmt.setFetchSize(batchSize);
+                if (tableType == TOdbcTableType.MYSQL) {
+                    stmt.setFetchSize(Integer.MIN_VALUE);
+                } else {
+                    stmt.setFetchSize(batchSize);
+                }
                 batchSizeNum = batchSize;
             } else {
                 stmt = conn.createStatement();
