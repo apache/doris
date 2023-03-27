@@ -224,16 +224,16 @@ void default_preprocess_parameter_columns(ColumnPtr* columns, const bool* col_co
                                           const std::initializer_list<size_t>& parameters,
                                           Block& block, const ColumnNumbers& arg_indexes) noexcept {
     if (std::all_of(parameters.begin(), parameters.end(),
-                    [&](const size_t& const_index) -> bool { return col_const[const_index]; })) {
+                    [&](size_t const_index) -> bool { return col_const[const_index]; })) {
         // only need to avoid expanding when all parameters are const
-        for (const auto& index : parameters) {
+        for (auto index : parameters) {
             columns[index] = static_cast<const ColumnConst&>(
                                      *block.get_by_position(arg_indexes[index]).column)
                                      .get_data_column_ptr();
         }
     } else {
         // no need to avoid expanding for this rare situation
-        for (const auto& index : parameters) {
+        for (auto index : parameters) {
             if (col_const[index]) {
                 columns[index] = static_cast<const ColumnConst&>(
                                          *block.get_by_position(arg_indexes[index]).column)

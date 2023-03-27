@@ -178,10 +178,6 @@ public:
                 _execute_internal_lconst<ColumnDecimal128I>(dst, left_data, right_data) ||
                 _execute_internal_lconst<ColumnDecimal128>(dst, left_data, right_data)) {
                 res_column = assemble_column_array(dst);
-                if (res_column) {
-                    res_ptr = std::move(res_column);
-                    return Status::OK();
-                }
             }
         } else if (right_const) {
             if (_execute_internal_rconst<ColumnString>(dst, left_data, right_data) ||
@@ -202,10 +198,6 @@ public:
                 _execute_internal_rconst<ColumnDecimal128I>(dst, left_data, right_data) ||
                 _execute_internal_rconst<ColumnDecimal128>(dst, left_data, right_data)) {
                 res_column = assemble_column_array(dst);
-                if (res_column) {
-                    res_ptr = std::move(res_column);
-                    return Status::OK();
-                }
             }
         } else {
             if (_execute_internal<ColumnString>(dst, left_data, right_data) ||
@@ -226,11 +218,11 @@ public:
                 _execute_internal<ColumnDecimal128I>(dst, left_data, right_data) ||
                 _execute_internal<ColumnDecimal128>(dst, left_data, right_data)) {
                 res_column = assemble_column_array(dst);
-                if (res_column) {
-                    res_ptr = std::move(res_column);
-                    return Status::OK();
-                }
             }
+        }
+        if (res_column) {
+            res_ptr = std::move(res_column);
+            return Status::OK();
         }
         return Status::RuntimeError("Unexpected columns: {}, {}", left_data.nested_col->get_name(),
                                     right_data.nested_col->get_name());
@@ -278,10 +270,10 @@ private:
         constexpr auto execute_left_column_first = Impl::Action::execute_left_column_first;
         size_t current = 0;
         Impl impl;
+        size_t left_off = (*left_data.offsets_ptr)[-1];
+        size_t left_len = (*left_data.offsets_ptr)[0] - left_off;
         for (size_t row = 0; row < left_data.offsets_ptr->size(); ++row) {
             size_t count = 0;
-            size_t left_off = (*left_data.offsets_ptr)[-1];
-            size_t left_len = (*left_data.offsets_ptr)[0] - left_off;
             size_t right_off = (*right_data.offsets_ptr)[row - 1];
             size_t right_len = (*right_data.offsets_ptr)[row] - right_off;
             if constexpr (execute_left_column_first) {
@@ -308,12 +300,12 @@ private:
         constexpr auto execute_left_column_first = Impl::Action::execute_left_column_first;
         size_t current = 0;
         Impl impl;
+        size_t right_off = (*right_data.offsets_ptr)[-1];
+        size_t right_len = (*right_data.offsets_ptr)[0] - right_off;
         for (size_t row = 0; row < left_data.offsets_ptr->size(); ++row) {
             size_t count = 0;
             size_t left_off = (*left_data.offsets_ptr)[row - 1];
             size_t left_len = (*left_data.offsets_ptr)[row] - left_off;
-            size_t right_off = (*right_data.offsets_ptr)[-1];
-            size_t right_len = (*right_data.offsets_ptr)[0] - right_off;
             if constexpr (execute_left_column_first) {
                 impl.template apply<true>(left_data, left_off, left_len, dst, &count);
                 impl.template apply<false>(right_data, right_off, right_len, dst, &count);

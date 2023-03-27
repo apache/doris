@@ -317,15 +317,8 @@ private:
                 VecDateTimeValue ts_value = VecDateTimeValue();
                 ts_value.set_time(l, 1, 1, 0, 0, 0);
 
-                DateTimeVal ts_val;
-                ts_value.to_datetime_val(&ts_val);
-                if (ts_val.is_null) {
-                    null_map[i] = 1;
-                    continue;
-                }
-
                 TimeInterval interval(DAY, r - 1, false);
-                res_val = VecDateTimeValue::from_datetime_val(ts_val);
+                res_val = ts_value;
                 if (!res_val.template date_add_interval<DAY>(interval)) {
                     null_map[i] = 1;
                     continue;
