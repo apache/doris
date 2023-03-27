@@ -183,4 +183,5 @@ suite("test_map_load_and_function", "p0") {
     qt_select_m3 "SELECT id, m3['k1'], m3['k2'], m3['nokey'] FROM ${testTable} ORDER BY id"
     qt_select_m4 "SELECT id, m4[100], m4[200], m4[300] FROM ${testTable} ORDER BY id"
     qt_select_m5 "SELECT id, m5[10000], m5[20000], m5[30000] FROM ${testTable} ORDER BY id"
+    qt_select_count "SELECT COUNT(m1), COUNT(m2), COUNT(m3), COUNT(m4), COUNT(m5)  FROM ${testTable}"
 }

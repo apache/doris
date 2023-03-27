@@ -158,12 +158,14 @@ public class StructType extends Type {
         }
 
         StructType other = (StructType) t;
-        if (fields.size() != other.getFields().size()) {
-            // Temp to make NullPredict from fe send to be
-            return other.getFields().size() == 1 && Objects.equals(other.getFields().get(0).name,
-                Type.GENERIC_STRUCT.getFields().get(0).name);
+        // Temp to make NullPredict from fe send to be
+        if (other.getFields().size() == 1 && Objects.equals(other.getFields().get(0).name,
+                Type.GENERIC_STRUCT.getFields().get(0).name)) {
+            return true;
         }
-
+        if (fields.size() != other.getFields().size()) {
+            return false;
+        }
         for (int i = 0; i < fields.size(); i++) {
             if (!fields.get(i).matchesField(((StructType) t).getFields().get(i))) {
                 return false;
