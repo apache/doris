@@ -104,5 +104,5 @@
     create_view(sql_subquery1)
     order_qt_subquery1 """ select * from ${testViewName} """
      
-
  }
+ 
