@@ -123,6 +123,11 @@ public class NereidsRewriter extends BatchRewriteJob {
                 )
             ),
 
+            // please note: this rule must run before NormalizeAggregate
+            topDown(
+                new AdjustAggregateNullableForEmptySet()
+            ),
+
             // The rule modification needs to be done after the subquery is unnested,
             // because for scalarSubQuery, the connection condition is stored in apply in the analyzer phase,
             // but when normalizeAggregate/normalizeSort is performed, the members in apply cannot be obtained,
@@ -130,10 +135,6 @@ public class NereidsRewriter extends BatchRewriteJob {
             topDown(
                 new NormalizeAggregate(),
                 new NormalizeSort()
-            ),
-
-            topDown(
-                new AdjustAggregateNullableForEmptySet()
             ),
 
             topic("Window analysis",
