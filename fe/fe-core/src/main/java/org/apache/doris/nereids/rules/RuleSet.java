@@ -26,8 +26,6 @@ import org.apache.doris.nereids.rules.exploration.join.OuterJoinLAsscom;
 import org.apache.doris.nereids.rules.exploration.join.OuterJoinLAsscomProject;
 import org.apache.doris.nereids.rules.exploration.join.PushdownProjectThroughInnerJoin;
 import org.apache.doris.nereids.rules.exploration.join.PushdownProjectThroughSemiJoin;
-import org.apache.doris.nereids.rules.exploration.join.SemiJoinLogicalJoinTranspose;
-import org.apache.doris.nereids.rules.exploration.join.SemiJoinLogicalJoinTransposeProject;
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTranspose;
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTransposeProject;
 import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
@@ -86,8 +84,6 @@ public class RuleSet {
     public static final List<Rule> OTHER_REORDER_RULES = planRuleFactories()
             .add(OuterJoinLAsscom.INSTANCE)
             .add(OuterJoinLAsscomProject.INSTANCE)
-            .add(SemiJoinLogicalJoinTranspose.LEFT_DEEP)
-            .add(SemiJoinLogicalJoinTransposeProject.LEFT_DEEP)
             .add(SemiJoinSemiJoinTranspose.INSTANCE)
             .add(SemiJoinSemiJoinTransposeProject.INSTANCE)
             .add(LogicalJoinSemiJoinTranspose.INSTANCE)
