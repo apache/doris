@@ -1874,4 +1874,12 @@ public class FunctionCallExpr extends Expr {
     private void setChildren() {
         orderByElements.forEach(o -> addChild(o.getExpr()));
     }
+
+    @Override
+    public boolean haveFunction(String functionName) {
+        if (fnName.toString().equalsIgnoreCase(functionName)) {
+            return true;
+        }
+        return super.haveFunction(functionName);
+    }
 }
