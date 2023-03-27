@@ -41,7 +41,6 @@ import org.apache.doris.nereids.types.DecimalV2Type;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
