@@ -327,10 +327,18 @@ TEST_F(ThreadPoolTest, TestZeroQueueSize) {
 #ifndef THREAD_SANITIZER
 TEST_F(ThreadPoolTest, TestDeadlocks) {
     ::testing::FLAGS_gtest_death_test_style = "threadsafe";
-#ifdef __APPLE__
-    const char* death_msg = "ThreadPool";
+#ifdef NDEBUG
+    const char* death_msg = "doris::ThreadPool::check_not_pool_thread_unlocked()";
+#elif defined(__APPLE__)
+    const char* death_msg =
+            "_ZNSt3__1L8__invokeIRNS_6__bindIMN5doris10ThreadPoolEFvvEJPS3_EEEJEEEDTclscT_fp_"
+            "spscT0_fp0_EEOS9_DpOSA_|_ZNSt3__18__invokeB6v15007IRNS_6__"
+            "bindIMN5doris10ThreadPoolEFvvEJPS3_EEEJEEEDTclclsr3stdE7declvalIT_"
+            "EEspclsr3stdE7declvalIT0_EEEEOS9_DpOSA_";
 #else
-    const char* death_msg = "ThreadPool";
+    const char* death_msg =
+            "_ZNSt5_BindIFMN5doris10ThreadPoolEFvvEPS1_EE6__callIvJEJLm0EEEET_OSt5tupleIJDpT0_"
+            "EESt12_Index_tupleIJXspT1_EEE";
 #endif
     EXPECT_DEATH(
             {
