@@ -89,7 +89,7 @@ public class UnCorrelatedApplyAggregateFilter extends OneRewriteRuleFactory {
                     apply.getSubqueryExpr(),
                     ExpressionUtils.optionalAnd(correlatedPredicate),
                     apply.getMarkJoinSlotReference(),
-                    apply.getSubCorrespondingConject(),
+                    apply.getSubCorrespondingConjunct(),
                     apply.left(), newAgg);
         }).toRule(RuleType.UN_CORRELATED_APPLY_AGGREGATE_FILTER);
     }
