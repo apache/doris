@@ -327,7 +327,9 @@ TEST_F(ThreadPoolTest, TestZeroQueueSize) {
 #ifndef THREAD_SANITIZER
 TEST_F(ThreadPoolTest, TestDeadlocks) {
     ::testing::FLAGS_gtest_death_test_style = "threadsafe";
-#ifdef __APPLE__
+#ifdef NDEBUG
+    const char* death_msg = "doris::ThreadPool::check_not_pool_thread_unlocked()";
+#elif defined(__APPLE__)
     const char* death_msg =
             "_ZNSt3__1L8__invokeIRNS_6__bindIMN5doris10ThreadPoolEFvvEJPS3_EEEJEEEDTclscT_fp_"
             "spscT0_fp0_EEOS9_DpOSA_|_ZNSt3__18__invokeB6v15007IRNS_6__"

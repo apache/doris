@@ -618,7 +618,7 @@ std::shared_ptr<arrow::Array> create_array_array(std::vector<ColumnArray::Offset
                                                  size_t& counter) {
     using offset_type = typename arrow::ListType::offset_type;
     size_t num_rows = vec_offsets.size() - 1;
-    DCHECK(null_map.size() == num_rows);
+    EXPECT_EQ(null_map.size(), num_rows);
     size_t offsets_bytes = (vec_offsets.size()) * sizeof(offset_type);
     auto offsets_buf_tmp = arrow::AllocateBuffer(offsets_bytes);
     std::shared_ptr<arrow::Buffer> offsets_buf = std::move(offsets_buf_tmp.ValueOrDie());

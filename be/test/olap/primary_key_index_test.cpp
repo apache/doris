@@ -134,18 +134,18 @@ TEST_F(PrimaryKeyIndexTest, builder) {
         MemPool pool;
         while (remaining > 0) {
             std::unique_ptr<segment_v2::IndexedColumnIterator> iter;
-            DCHECK(index_reader.new_iterator(&iter).ok());
+            EXPECT_TRUE(index_reader.new_iterator(&iter).ok());
 
             size_t num_to_read = std::min(batch_size, remaining);
             auto index_type = vectorized::DataTypeFactory::instance().create_data_type(
                     index_reader.type_info()->type(), 1, 0);
             auto index_column = index_type->create_column();
             Slice last_key_slice(last_key);
-            DCHECK(iter->seek_at_or_after(&last_key_slice, &exact_match).ok());
+            EXPECT_TRUE(iter->seek_at_or_after(&last_key_slice, &exact_match).ok());
 
             size_t num_read = num_to_read;
-            DCHECK(iter->next_batch(&num_read, index_column).ok());
-            DCHECK(num_to_read == num_read);
+            EXPECT_TRUE(iter->next_batch(&num_read, index_column).ok());
+            EXPECT_EQ(num_to_read, num_read);
             last_key = index_column->get_data_at(num_read - 1).to_string();
             // exclude last_key, last_key will be read in next batch.
             if (num_read == batch_size && num_read != remaining) {
