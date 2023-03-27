@@ -795,9 +795,7 @@ Status Tablet::capture_consistent_versions(const Version& spec_version,
             }
         }
     }
-
-    return Status::InternalError("ygl test failed");
-    // return status;
+    return status;
 }
 
 Status Tablet::check_version_integrity(const Version& version, bool quiet) {
