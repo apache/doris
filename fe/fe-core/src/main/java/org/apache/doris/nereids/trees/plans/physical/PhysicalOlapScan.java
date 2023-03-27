@@ -54,13 +54,8 @@ public class PhysicalOlapScan extends PhysicalRelation implements OlapScan {
     public PhysicalOlapScan(ObjectId id, OlapTable olapTable, List<String> qualifier, long selectedIndexId,
             List<Long> selectedTabletIds, List<Long> selectedPartitionIds, DistributionSpec distributionSpec,
             PreAggStatus preAggStatus, Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties) {
-        super(id, PlanType.PHYSICAL_OLAP_SCAN, qualifier, groupExpression, logicalProperties);
-        this.olapTable = olapTable;
-        this.selectedIndexId = selectedIndexId;
-        this.selectedTabletIds = ImmutableList.copyOf(selectedTabletIds);
-        this.selectedPartitionIds = ImmutableList.copyOf(selectedPartitionIds);
-        this.distributionSpec = distributionSpec;
-        this.preAggStatus = preAggStatus;
+        this(id, olapTable, qualifier, selectedIndexId, selectedTabletIds, selectedPartitionIds, distributionSpec,
+                preAggStatus, groupExpression, logicalProperties, null, null);
     }
 
     /**
