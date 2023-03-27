@@ -65,7 +65,9 @@ public class ColocateTableIndex implements Writable {
         public Long dbId;
         @SerializedName(value = "grpId")
         public Long grpId;
-        // only avoilable when dbId = 0
+        // only available when dbId = 0
+        // because for global colocate table, the dbId is 0, so we do not know which db the table belongs to,
+        // so we use tblId2DbId to record the dbId of each table
         @SerializedName(value = "tblId2DbId")
         private Map<Long, Long> tblId2DbId = Maps.newHashMap();
 
