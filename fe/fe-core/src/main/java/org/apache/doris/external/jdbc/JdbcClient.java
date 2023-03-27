@@ -68,11 +68,13 @@ public class JdbcClient {
     private Map<String, String> lowerTableToRealTable = Maps.newHashMap();
 
     public JdbcClient(String user, String password, String jdbcUrl, String driverUrl, String driverClass,
-            String onlySpecifiedDatabase, String isLowerCaseTableNames, String specifiedDatabaseList) {
+            String onlySpecifiedDatabase, String isLowerCaseTableNames, Map specifiedDatabaseMap) {
         this.jdbcUser = user;
         this.isOnlySpecifiedDatabase = Boolean.valueOf(onlySpecifiedDatabase).booleanValue();
         this.isLowerCaseTableNames = Boolean.valueOf(isLowerCaseTableNames).booleanValue();
-        this.getSpecifiedDatabaseMap(specifiedDatabaseList);
+        if (specifiedDatabaseMap != null) {
+            this.specifiedDatabaseMap = specifiedDatabaseMap;
+        }
         try {
             this.dbType = JdbcResource.parseDbType(jdbcUrl);
         } catch (DdlException e) {
@@ -315,20 +317,6 @@ public class JdbcClient {
             throw new JdbcClientException("failed to judge if table exist for table %s in db %s", e, tableName, dbName);
         } finally {
             close(rs, conn);
-        }
-    }
-
-    public void getSpecifiedDatabaseMap(String specifiedDatabaseList) {
-        specifiedDatabaseList = specifiedDatabaseList.trim();
-        if (specifiedDatabaseList.isEmpty()) {
-            return;
-        }
-        String[] databaseList = specifiedDatabaseList.split(",");
-        for (int i = 0; i < databaseList.length; i++) {
-            String dbname = databaseList[i].trim();
-            if (!dbname.isEmpty()) {
-                this.specifiedDatabaseMap.put(dbname, true);
-            }
         }
     }
 
