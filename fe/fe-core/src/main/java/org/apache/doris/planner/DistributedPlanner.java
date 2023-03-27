@@ -592,7 +592,7 @@ public class DistributedPlanner {
                 }
             }
 
-            //3 the join columns should contains all distribute columns to enable colocate join
+            //3 the join columns should contain all distribute columns to enable colocate join
             if (leftJoinColumns.containsAll(leftDistributeColumns)
                     && rightJoinColumns.containsAll(rightDistributeColumns)) {
                 return true;

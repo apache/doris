@@ -90,6 +90,11 @@ public class ColocateGroupSchema implements Writable {
             // distribution col type
             for (int i = 0; i < distributionColTypes.size(); i++) {
                 Type targetColType = distributionColTypes.get(i);
+                // varchar and string has same distribution hash value if it's data is same
+                if (targetColType.isVarcharOrStringType() && info.getDistributionColumns().get(i).getType()
+                        .isVarcharOrStringType()) {
+                    continue;
+                }
                 if (!targetColType.equals(info.getDistributionColumns().get(i).getType())) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_HAS_SAME_DISTRIBUTION_COLUMN_TYPE,
                             info.getDistributionColumns().get(i).getName(), targetColType);
@@ -98,7 +103,7 @@ public class ColocateGroupSchema implements Writable {
         }
     }
 
-    public void checkReplicaAllocation(PartitionInfo partitionInfo) throws DdlException {
+    private void checkReplicaAllocation(PartitionInfo partitionInfo) throws DdlException {
         for (ReplicaAllocation replicaAlloc : partitionInfo.idToReplicaAllocation.values()) {
             if (!replicaAlloc.equals(this.replicaAlloc)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_HAS_SAME_REPLICATION_ALLOCATION,
