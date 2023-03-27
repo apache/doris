@@ -24,7 +24,6 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/test")
 set(AGENT_TEST_FILES
     agent/utils_test.cpp
     # agent/agent_server_test.cpp
-    # agent/cgroups_mgr_test.cpp
     # agent/heartbeat_server_test.cpp
 )
 set(COMMON_TEST_FILES

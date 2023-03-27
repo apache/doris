@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "agent/cgroups_mgr.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "gen_cpp/BackendService.h"
@@ -119,8 +118,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
 
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
     _scanner_scheduler = new doris::vectorized::ScannerScheduler();
-
-    _cgroups_mgr = new CgroupsMgr(this, config::doris_cgroups);
     _fragment_mgr = new FragmentMgr(this);
     _result_cache = new ResultCache(config::query_cache_max_size_mb,
                                     config::query_cache_elasticity_size_mb);
@@ -142,7 +139,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _frontend_client_cache->init_metrics("frontend");
     _broker_client_cache->init_metrics("broker");
     _result_mgr->init();
-    _cgroups_mgr->init_cgroups();
     Status status = _load_path_mgr->init();
     if (!status.ok()) {
         LOG(ERROR) << "load path mgr init failed." << status;
@@ -347,7 +343,6 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_master_info);
     SAFE_DELETE(_pipeline_task_scheduler);
     SAFE_DELETE(_fragment_mgr);
-    SAFE_DELETE(_cgroups_mgr);
     SAFE_DELETE(_broker_client_cache);
     SAFE_DELETE(_frontend_client_cache);
     SAFE_DELETE(_backend_client_cache);

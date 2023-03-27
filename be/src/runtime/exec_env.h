@@ -40,7 +40,6 @@ class BrokerMgr;
 template <class T>
 class BrpcClientCache;
 
-class CgroupsMgr;
 class DataStreamMgr;
 class EvHttpServer;
 class ExternalScanContextMgr;
@@ -143,7 +142,6 @@ public:
         }
         return _download_cache_buf_map[token].get();
     }
-    CgroupsMgr* cgroups_mgr() { return _cgroups_mgr; }
     FragmentMgr* fragment_mgr() { return _fragment_mgr; }
     ResultCache* result_cache() { return _result_cache; }
     TMasterInfo* master_info() { return _master_info; }
@@ -224,7 +222,6 @@ private:
     std::unique_ptr<ThreadPool> _join_node_thread_pool;
     // ThreadPoolToken -> buffer
     std::unordered_map<ThreadPoolToken*, std::unique_ptr<char[]>> _download_cache_buf_map;
-    CgroupsMgr* _cgroups_mgr = nullptr;
     FragmentMgr* _fragment_mgr = nullptr;
     pipeline::TaskScheduler* _pipeline_task_scheduler = nullptr;
     ResultCache* _result_cache = nullptr;
