@@ -18,9 +18,12 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
+import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsBuilder;
 
@@ -60,11 +63,84 @@ public class JoinEstimation {
         return statistics.getRowCount() / crossJoinStats.getRowCount();
     }
 
+    private static double adjustSemiOrAntiByOtherJoinConditions(Join join) {
+        final double non_equal_ratio = 0.5;
+        int otherConditionCount = join.getOtherJoinConjuncts().size();
+        double sel = 1.0;
+        for (int i = 0; i < otherConditionCount; i++) {
+            sel *= Math.pow(non_equal_ratio, 1 / Math.pow(2, i));
+        }
+        return sel;
+    }
+
+    private static double estimateSemiOrAntiRowCountByEqual(Statistics leftStats,
+            Statistics rightStats, Join join, EqualTo equalTo) {
+        Expression eqLeft = equalTo.left();
+        Expression eqRight = equalTo.right();
+        ColumnStatistic probColStats = leftStats.findColumnStatistics(eqLeft);
+        ColumnStatistic buildColStats;
+        if (probColStats == null) {
+            probColStats = leftStats.findColumnStatistics(eqRight);
+            buildColStats = rightStats.findColumnStatistics(eqLeft);
+        } else {
+            buildColStats = rightStats.findColumnStatistics(eqRight);
+        }
+        if (probColStats == null || buildColStats == null) {
+            return Double.POSITIVE_INFINITY;
+        }
+
+        double rowCount;
+        if (join.getJoinType().isLeftSemiOrAntiJoin()) {
+            rowCount = leftStats.getRowCount() * buildColStats.ndv / buildColStats.originalNdv;
+        } else {
+            //right semi or anti
+            rowCount = rightStats.getRowCount() * probColStats.ndv / probColStats.originalNdv;
+        }
+        return rowCount;
+    }
+
+    private static Statistics estimateSemiOrAnti(Statistics leftStats, Statistics rightStats, Join join) {
+        // primaryConjunct is the most effective conjunct.
+        double rowCount = Double.POSITIVE_INFINITY;
+        for (Expression conjunct : join.getHashJoinConjuncts()) {
+            double eqRowCount = estimateSemiOrAntiRowCountByEqual(leftStats, rightStats, join, (EqualTo) conjunct);
+            if (rowCount > eqRowCount) {
+                rowCount = eqRowCount;
+            }
+        }
+        if (rowCount == Double.POSITIVE_INFINITY) {
+            //fall back to original alg.
+            return null;
+        }
+        rowCount = rowCount * adjustSemiOrAntiByOtherJoinConditions(join);
+
+        StatisticsBuilder builder;
+        if (join.getJoinType().isLeftSemiOrAntiJoin()) {
+            leftStats.fix(rowCount, leftStats.getRowCount());
+            builder = new StatisticsBuilder(leftStats);
+            builder.setRowCount(rowCount);
+        } else {
+            //right semi or anti
+            rightStats.fix(rowCount, rightStats.getRowCount());
+            builder = new StatisticsBuilder(rightStats);
+            builder.setRowCount(rowCount);
+        }
+        return builder.build();
+
+    }
+
     /**
      * estimate join
      */
     public static Statistics estimate(Statistics leftStats, Statistics rightStats, Join join) {
         JoinType joinType = join.getJoinType();
+        if (joinType.isSemiOrAntiJoin()) {
+            Statistics estStats = estimateSemiOrAnti(leftStats, rightStats, join);
+            //if estStats is null, fall back to original alg.
+            if (estStats != null) {
+                return estStats;
+            }
+        }
         Statistics crossJoinStats = new StatisticsBuilder()
                 .setRowCount(leftStats.getRowCount() * rightStats.getRowCount())
                 .putColumnStatistics(leftStats.columnStatistics())
@@ -73,16 +149,15 @@ public class JoinEstimation {
         Statistics innerJoinStats = null;
         if (crossJoinStats.getRowCount() != 0) {
             List<Expression> joinConditions = new ArrayList<>(join.getHashJoinConjuncts());
-            joinConditions.addAll(join.getOtherJoinConjuncts());
             innerJoinStats = estimateInnerJoin(crossJoinStats, joinConditions);
         } else {
             innerJoinStats = crossJoinStats;
         }
-        // if (!join.getOtherJoinConjuncts().isEmpty()) {
-        //     FilterEstimation filterEstimation = new FilterEstimation();
-        //     innerJoinStats = filterEstimation.estimate(
-        //             ExpressionUtils.and(join.getOtherJoinConjuncts()), innerJoinStats);
-        // }
+        if (!join.getOtherJoinConjuncts().isEmpty()) {
+            FilterEstimation filterEstimation = new FilterEstimation();
+            innerJoinStats = filterEstimation.estimate(
+                    ExpressionUtils.and(join.getOtherJoinConjuncts()), innerJoinStats);
+        }
         innerJoinStats.setWidth(leftStats.getWidth() + rightStats.getWidth());
         innerJoinStats.setPenalty(0);
         double rowCount;
