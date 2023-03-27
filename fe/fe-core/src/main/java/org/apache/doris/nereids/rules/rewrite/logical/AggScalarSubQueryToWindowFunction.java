@@ -181,8 +181,9 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         Set<Long> outerIds = outerTables.stream().map(node -> node.getTable().getId()).collect(Collectors.toSet());
         Set<Long> innerIds = innerTables.stream().map(node -> node.getTable().getId()).collect(Collectors.toSet());
 
+        Set<Long> outerCopy = Sets.newHashSet(outerIds);
         outerIds.removeAll(innerIds);
-        innerIds.removeAll(outerIds);
+        innerIds.removeAll(outerCopy);
         if (outerIds.isEmpty() || !innerIds.isEmpty()) {
             return false;
         }
