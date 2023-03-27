@@ -35,7 +35,8 @@
                     "label": "Construct Docker",
                     "items": [
                         "install/construct-docker/construct-docker-image",
-                        "install/construct-docker/run-docker-cluster"
+                        "install/construct-docker/run-docker-cluster",
+                        "install/construct-docker/k8s-deploy"
                     ]
                 }
             ]
@@ -282,6 +283,7 @@
                                 "sql-manual/sql-functions/array-functions/array_remove",
                                 "sql-manual/sql-functions/array-functions/array_slice",
                                 "sql-manual/sql-functions/array-functions/array_sort",
+                                "sql-manual/sql-functions/array-functions/array_reverse_sort",
                                 "sql-manual/sql-functions/array-functions/array_position",
                                 "sql-manual/sql-functions/array-functions/array_contains",
                                 "sql-manual/sql-functions/array-functions/array_except",
@@ -301,6 +303,7 @@
                                 "sql-manual/sql-functions/array-functions/array_compact",
                                 "sql-manual/sql-functions/array-functions/array_concat",
                                 "sql-manual/sql-functions/array-functions/array_zip",
+                                "sql-manual/sql-functions/array-functions/array_exists",
                                 "sql-manual/sql-functions/array-functions/arrays_overlap",
                                 "sql-manual/sql-functions/array-functions/countequal",
                                 "sql-manual/sql-functions/array-functions/element_at"
@@ -384,6 +387,7 @@
                                 "sql-manual/sql-functions/spatial-functions/st_y",
                                 "sql-manual/sql-functions/spatial-functions/st_circle",
                                 "sql-manual/sql-functions/spatial-functions/st_distance_sphere",
+                                "sql-manual/sql-functions/spatial-functions/st_angle_sphere",
                                 "sql-manual/sql-functions/spatial-functions/st_point",
                                 "sql-manual/sql-functions/spatial-functions/st_polygon",
                                 "sql-manual/sql-functions/spatial-functions/st_astext",
@@ -588,7 +592,8 @@
                                 "sql-manual/sql-functions/json-functions/json_array",
                                 "sql-manual/sql-functions/json-functions/json_object",
                                 "sql-manual/sql-functions/json-functions/json_quote",
-                                "sql-manual/sql-functions/json-functions/json_valid"
+                                "sql-manual/sql-functions/json-functions/json_valid",
+                                "sql-manual/sql-functions/json-functions/json_extract"
                             ]
                         },
                         {
@@ -1023,7 +1028,8 @@
                     "items": [
                         "admin-manual/cluster-management/upgrade",
                         "admin-manual/cluster-management/elastic-expansion",
-                        "admin-manual/cluster-management/load-balancing"
+                        "admin-manual/cluster-management/load-balancing",
+                        "admin-manual/cluster-management/fqdn"
                     ]
                 },
                 {

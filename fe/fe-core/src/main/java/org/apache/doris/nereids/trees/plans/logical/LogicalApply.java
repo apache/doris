@@ -55,7 +55,7 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
     // The slot replaced by the subquery in MarkJoin
     private final Optional<MarkJoinSlotReference> markJoinSlotReference;
 
-    private final Optional<Expression> subCorrespondingConject;
+    private final Optional<Expression> subCorrespondingConjunct;
 
     /**
      * Constructor.
@@ -65,22 +65,22 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
             List<Expression> correlationSlot,
             SubqueryExpr subqueryExpr, Optional<Expression> correlationFilter,
             Optional<MarkJoinSlotReference> markJoinSlotReference,
-            Optional<Expression> subCorrespondingConject,
+            Optional<Expression> subCorrespondingConjunct,
             LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
         super(PlanType.LOGICAL_APPLY, groupExpression, logicalProperties, leftChild, rightChild);
         this.correlationSlot = correlationSlot == null ? ImmutableList.of() : ImmutableList.copyOf(correlationSlot);
         this.subqueryExpr = Objects.requireNonNull(subqueryExpr, "subquery can not be null");
         this.correlationFilter = correlationFilter;
         this.markJoinSlotReference = markJoinSlotReference;
-        this.subCorrespondingConject = subCorrespondingConject;
+        this.subCorrespondingConjunct = subCorrespondingConjunct;
     }
 
     public LogicalApply(List<Expression> correlationSlot, SubqueryExpr subqueryExpr,
             Optional<Expression> correlationFilter, Optional<MarkJoinSlotReference> markJoinSlotReference,
-            Optional<Expression> subCorrespondingConject,
+            Optional<Expression> subCorrespondingConjunct,
             LEFT_CHILD_TYPE input, RIGHT_CHILD_TYPE subquery) {
         this(Optional.empty(), Optional.empty(), correlationSlot, subqueryExpr,
-                correlationFilter, markJoinSlotReference, subCorrespondingConject, input, subquery);
+                correlationFilter, markJoinSlotReference, subCorrespondingConjunct, input, subquery);
     }
 
     public List<Expression> getCorrelationSlot() {
@@ -123,8 +123,8 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
         return markJoinSlotReference;
     }
 
-    public Optional<Expression> getSubCorrespondingConject() {
-        return subCorrespondingConject;
+    public Optional<Expression> getSubCorrespondingConjunct() {
+        return subCorrespondingConjunct;
     }
 
     @Override
@@ -142,7 +142,7 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
                 "isMarkJoin", markJoinSlotReference.isPresent(),
                 "MarkJoinSlotReference", markJoinSlotReference.isPresent() ? markJoinSlotReference.get() : "empty",
                 "scalarSubCorrespondingSlot",
-                subCorrespondingConject.isPresent() ? subCorrespondingConject.get() : "empty");
+                subCorrespondingConjunct.isPresent() ? subCorrespondingConjunct.get() : "empty");
     }
 
     @Override
@@ -158,13 +158,13 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
                 && Objects.equals(subqueryExpr, that.getSubqueryExpr())
                 && Objects.equals(correlationFilter, that.getCorrelationFilter())
                 && Objects.equals(markJoinSlotReference, that.getMarkJoinSlotReference())
-                && Objects.equals(subCorrespondingConject, that.getSubCorrespondingConject());
+                && Objects.equals(subCorrespondingConjunct, that.getSubCorrespondingConjunct());
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(
-                correlationSlot, subqueryExpr, correlationFilter, markJoinSlotReference, subCorrespondingConject);
+                correlationSlot, subqueryExpr, correlationFilter, markJoinSlotReference, subCorrespondingConjunct);
     }
 
     @Override
@@ -189,7 +189,7 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
     public LogicalBinary<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new LogicalApply<>(correlationSlot, subqueryExpr, correlationFilter,
-                markJoinSlotReference, subCorrespondingConject,
+                markJoinSlotReference, subCorrespondingConjunct,
                 children.get(0), children.get(1));
     }
 
@@ -197,13 +197,13 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalApply<>(groupExpression, Optional.of(getLogicalProperties()),
                 correlationSlot, subqueryExpr, correlationFilter,
-                markJoinSlotReference, subCorrespondingConject, left(), right());
+                markJoinSlotReference, subCorrespondingConjunct, left(), right());
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new LogicalApply<>(Optional.empty(), logicalProperties,
                 correlationSlot, subqueryExpr, correlationFilter,
-                markJoinSlotReference, subCorrespondingConject, left(), right());
+                markJoinSlotReference, subCorrespondingConjunct, left(), right());
     }
 }

@@ -143,6 +143,8 @@ suite("nereids_scalar_fn_S") {
 	qt_sql_st_contains_Varchar_Varchar_notnull "select st_contains(kvchrs1, kvchrs1) from fn_test_not_nullable order by kvchrs1, kvchrs1"
 	qt_sql_st_distance_sphere_Double_Double_Double_Double "select st_distance_sphere(kdbl, kdbl, kdbl, kdbl) from fn_test order by kdbl, kdbl, kdbl, kdbl"
 	qt_sql_st_distance_sphere_Double_Double_Double_Double_notnull "select st_distance_sphere(kdbl, kdbl, kdbl, kdbl) from fn_test_not_nullable order by kdbl, kdbl, kdbl, kdbl"
+	qt_sql_st_angle_sphere_Double_Double_Double_Double "select st_angle_sphere(kdbl, kdbl, kdbl, kdbl) from fn_test order by kdbl, kdbl, kdbl, kdbl"
+    qt_sql_st_angle_sphere_Double_Double_Double_Double_notnull "select st_angle_sphere(kdbl, kdbl, kdbl, kdbl) from fn_test_not_nullable order by kdbl, kdbl, kdbl, kdbl"
 	qt_sql_st_geometryfromtext_Varchar "select st_geometryfromtext(kvchrs1) from fn_test order by kvchrs1"
 	qt_sql_st_geometryfromtext_Varchar_notnull "select st_geometryfromtext(kvchrs1) from fn_test_not_nullable order by kvchrs1"
 	qt_sql_st_geometryfromtext_String "select st_geometryfromtext(kstr) from fn_test order by kstr"

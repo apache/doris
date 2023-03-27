@@ -20,9 +20,7 @@
 
 #include "vec/aggregate_functions/aggregate_function_avg.h"
 
-#include "common/logging.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-#include "vec/aggregate_functions/factory_helpers.h"
 #include "vec/aggregate_functions/helpers.h"
 
 namespace doris::vectorized {
@@ -36,22 +34,7 @@ struct Avg {
 template <typename T>
 using AggregateFuncAvg = typename Avg<T>::Function;
 
-AggregateFunctionPtr create_aggregate_function_avg(const std::string& name,
-                                                   const DataTypes& argument_types,
-                                                   const bool result_is_nullable) {
-    assert_unary(name, argument_types);
-
-    AggregateFunctionPtr res(
-            creator_with_type::create<AggregateFuncAvg>(result_is_nullable, argument_types));
-
-    if (!res) {
-        LOG(WARNING) << fmt::format("Illegal type {} of argument for aggregate function {}",
-                                    argument_types[0]->get_name(), name);
-    }
-    return res;
-}
-
 void register_aggregate_function_avg(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function_both("avg", create_aggregate_function_avg);
+    factory.register_function_both("avg", creator_with_type::creator<AggregateFuncAvg>);
 }
 } // namespace doris::vectorized

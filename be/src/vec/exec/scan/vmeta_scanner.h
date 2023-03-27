@@ -34,12 +34,15 @@ public:
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
+
+private:
     Status _fill_block_with_remote_data(const std::vector<MutableColumnPtr>& columns);
     Status _fetch_metadata(const TMetaScanRange& meta_scan_range);
     Status _build_iceberg_metadata_request(const TMetaScanRange& meta_scan_range,
                                            TFetchSchemaTableDataRequest* request);
+    Status _build_backends_metadata_request(const TMetaScanRange& meta_scan_range,
+                                            TFetchSchemaTableDataRequest* request);
 
-private:
     bool _meta_eos;
     TupleId _tuple_id;
     const TupleDescriptor* _tuple_desc;

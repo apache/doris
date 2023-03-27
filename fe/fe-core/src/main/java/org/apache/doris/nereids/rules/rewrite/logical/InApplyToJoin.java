@@ -102,8 +102,8 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                 predicate = new EqualTo(left, right);
             }
 
-            if (apply.getSubCorrespondingConject().isPresent()) {
-                predicate = ExpressionUtils.and(predicate, apply.getSubCorrespondingConject().get());
+            if (apply.getSubCorrespondingConjunct().isPresent()) {
+                predicate = ExpressionUtils.and(predicate, apply.getSubCorrespondingConjunct().get());
             }
             List<Expression> conjuncts = ExpressionUtils.extractConjunction(predicate);
             if (((InSubquery) apply.getSubqueryExpr()).isNot()) {

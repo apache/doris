@@ -415,13 +415,17 @@ public class FunctionCallExpr extends Expr {
         } else if (type.isBoolean()) {
             return 1;
         } else if (type.isFixedPointType()) {
-            return 2;
+            if (type.isInteger32Type()) {
+                return 2;
+            } else {
+                return 5;
+            }
         } else if (type.isFloatingPointType() || type.isDecimalV2() || type.isDecimalV3()) {
             return 3;
         } else if (type.isTime()) {
             return 4;
         } else {
-            return 5;
+            return 6;
         }
     }
 
@@ -1012,7 +1016,7 @@ public class FunctionCallExpr extends Expr {
                     }
                 }
             }
-            if (!blockEncryptionMode.equals(children.get(children.size() - 1))) {
+            if (!blockEncryptionMode.equals(children.get(children.size() - 1).toString())) {
                 children.add(new StringLiteral(blockEncryptionMode));
             }
         }
@@ -1046,6 +1050,23 @@ public class FunctionCallExpr extends Expr {
             for (int i = 0; i < childTypes.length; i++) {
                 uncheckedCastChild(compatibleType, i);
             }
+        }
+
+        if (fnName.getFunction().equalsIgnoreCase("array_exists")) {
+            Type[] newArgTypes = new Type[1];
+            if (!(getChild(0) instanceof CastExpr)) {
+                Expr castExpr = getChild(0).castTo(ArrayType.create(Type.BOOLEAN, true));
+                this.setChild(0, castExpr);
+                newArgTypes[0] = castExpr.getType();
+            }
+
+            fn = getBuiltinFunction(fnName.getFunction(), newArgTypes,
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+            if (fn == null) {
+                LOG.warn("fn {} not exists", this.toSqlImpl());
+                throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
+            }
+            fn.setReturnType(getChild(0).getType());
         }
     }
 
@@ -1428,6 +1449,7 @@ public class FunctionCallExpr extends Expr {
                     continue;
                 } else if ((fnName.getFunction().equalsIgnoreCase("array_distinct") || fnName.getFunction()
                         .equalsIgnoreCase("array_remove") || fnName.getFunction().equalsIgnoreCase("array_sort")
+                        || fnName.getFunction().equalsIgnoreCase("array_reverse_sort")
                         || fnName.getFunction().equalsIgnoreCase("array_overlap")
                         || fnName.getFunction().equalsIgnoreCase("array_union")
                         || fnName.getFunction().equalsIgnoreCase("array_intersect")
@@ -1541,6 +1563,7 @@ public class FunctionCallExpr extends Expr {
             }
         } else if (fnName.getFunction().equalsIgnoreCase("array_distinct") || fnName.getFunction()
                 .equalsIgnoreCase("array_remove") || fnName.getFunction().equalsIgnoreCase("array_sort")
+                || fnName.getFunction().equalsIgnoreCase("array_reverse_sort")
                 || fnName.getFunction().equalsIgnoreCase("array_overlap")
                 || fnName.getFunction().equalsIgnoreCase("array_union")
                 || fnName.getFunction().equalsIgnoreCase("array_intersect")
@@ -1838,26 +1861,6 @@ public class FunctionCallExpr extends Expr {
             character = iterator.next();
         }
         return result.toString();
-    }
-
-    public void finalizeImplForNereids() throws AnalysisException {
-
-    }
-
-    private List<Type> getArgTypesForNereids() {
-        if (argTypesForNereids.isPresent()) {
-            return argTypesForNereids.get();
-        } else {
-            return Lists.newArrayList(collectChildReturnTypes());
-        }
-    }
-
-    /**
-     * NOTICE: This function only used for Nereids, should not call it if u don't
-     * know what it is mean.
-     */
-    public void setMergeForNereids(boolean isMergeAggFn) {
-        this.isMergeAggFn = isMergeAggFn;
     }
 
     public List<OrderByElement> getOrderByElements() {

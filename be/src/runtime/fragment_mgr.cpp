@@ -25,7 +25,6 @@
 #include <memory>
 #include <sstream>
 
-#include "agent/cgroups_mgr.h"
 #include "common/object_pool.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/PaloInternalService_types.h"
@@ -223,7 +222,6 @@ Status FragmentExecState::execute() {
     int64_t duration_ns = 0;
     {
         SCOPED_RAW_TIMER(&duration_ns);
-        CgroupsMgr::apply_system_cgroup();
         opentelemetry::trace::Tracer::GetCurrentSpan()->AddEvent("start executing Fragment");
         Status st = _executor.open();
         WARN_IF_ERROR(st,
@@ -821,7 +819,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         }
 
         fragments_ctx->get_shared_hash_table_controller()->set_pipeline_engine_enabled(true);
-        fragments_ctx->timeout_second = params.query_options.query_timeout;
+        fragments_ctx->timeout_second = params.query_options.execution_timeout;
         _set_scan_concurrency(params, fragments_ctx.get());
 
         bool has_query_mem_tracker =
@@ -1211,7 +1209,7 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
     exec_fragment_params.__set_params(fragment_exec_params);
     TQueryOptions query_options;
     query_options.batch_size = params.batch_size;
-    query_options.query_timeout = params.query_timeout;
+    query_options.execution_timeout = params.execution_timeout;
     query_options.mem_limit = params.mem_limit;
     query_options.query_type = TQueryType::EXTERNAL;
     exec_fragment_params.__set_query_options(query_options);

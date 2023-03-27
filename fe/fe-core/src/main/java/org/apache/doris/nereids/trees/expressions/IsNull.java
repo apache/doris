@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
@@ -31,7 +32,7 @@ import java.util.Objects;
 /**
  * expr is null predicate.
  */
-public class IsNull extends Expression implements UnaryExpression {
+public class IsNull extends Expression implements UnaryExpression, AlwaysNotNullable {
 
     public IsNull(Expression e) {
         super(e);
@@ -40,11 +41,6 @@ public class IsNull extends Expression implements UnaryExpression {
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitIsNull(this, context);
-    }
-
-    @Override
-    public boolean nullable() {
-        return false;
     }
 
     @Override

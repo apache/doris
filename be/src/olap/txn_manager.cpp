@@ -298,7 +298,7 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     TabletInfo tablet_info(tablet_id, schema_hash, tablet_uid);
     RowsetSharedPtr rowset_ptr = nullptr;
-    TabletTxnInfo* load_info = nullptr;
+    TabletTxnInfo load_info;
     {
         {
             std::unique_lock<std::mutex> txn_rlock(_get_txn_lock(transaction_id));
@@ -310,8 +310,8 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
                 if (load_itr != it->second.end()) {
                     // found load for txn,tablet
                     // case 1: user commit rowset, then the load id must be equal
-                    load_info = &load_itr->second;
-                    rowset_ptr = load_info->rowset;
+                    load_info = load_itr->second;
+                    rowset_ptr = load_info.rowset;
                 }
             }
         }
@@ -323,13 +323,13 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
             rowset_ptr->make_visible(version);
             // update delete_bitmap
             {
-                if (load_info != nullptr && load_info->unique_key_merge_on_write) {
+                if (load_info.unique_key_merge_on_write) {
                     auto tablet =
                             StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
                     if (tablet == nullptr) {
                         return Status::OK();
                     }
-                    RETURN_IF_ERROR(tablet->update_delete_bitmap(rowset_ptr, load_info));
+                    RETURN_IF_ERROR(tablet->update_delete_bitmap(rowset_ptr, &load_info));
                     std::shared_lock rlock(tablet->get_header_lock());
                     tablet->save_meta();
                 }

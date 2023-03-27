@@ -32,6 +32,8 @@
 #include "olap/row_cursor.h" // RowCursor
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_factory.h"
+#include "olap/rowset/segment_v2/inverted_index_cache.h"
+#include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/segment_writer.h"
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
@@ -215,13 +217,18 @@ Status BetaRowsetWriter::_rename_compacted_segments(int64_t begin, int64_t end) 
     auto src_seg_path = BetaRowset::local_segment_path_segcompacted(_context.rowset_dir,
                                                                     _context.rowset_id, begin, end);
     auto dst_seg_path = BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id,
-                                                      _num_segcompacted++);
+                                                      _num_segcompacted);
     ret = rename(src_seg_path.c_str(), dst_seg_path.c_str());
     if (ret) {
         LOG(WARNING) << "failed to rename " << src_seg_path << " to " << dst_seg_path
                      << ". ret:" << ret << " errno:" << errno;
         return Status::Error<ROWSET_RENAME_FILE_FAILED>();
     }
+
+    // rename inverted index files
+    RETURN_NOT_OK(_rename_compacted_indices(begin, end, 0));
+
+    _num_segcompacted++;
     return Status::OK();
 }
 
@@ -255,12 +262,46 @@ Status BetaRowsetWriter::_rename_compacted_segment_plain(uint64_t seg_id) {
         _segid_statistics_map.emplace(_num_segcompacted, org);
         _clear_statistics_for_deleting_segments_unsafe(seg_id, seg_id);
     }
-    ++_num_segcompacted;
     ret = rename(src_seg_path.c_str(), dst_seg_path.c_str());
     if (ret) {
         LOG(WARNING) << "failed to rename " << src_seg_path << " to " << dst_seg_path
                      << ". ret:" << ret << " errno:" << errno;
         return Status::Error<ROWSET_RENAME_FILE_FAILED>();
+    }
+    // rename remaining inverted index files
+    RETURN_NOT_OK(_rename_compacted_indices(-1, -1, seg_id));
+
+    ++_num_segcompacted;
+    return Status::OK();
+}
+
+Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, uint64_t seg_id) {
+    int ret;
+    // rename remaining inverted index files
+    for (auto column : _context.tablet_schema->columns()) {
+        if (_context.tablet_schema->has_inverted_index(column.unique_id())) {
+            auto index_id =
+                    _context.tablet_schema->get_inverted_index(column.unique_id())->index_id();
+            auto src_idx_path =
+                    begin < 0 ? InvertedIndexDescriptor::inverted_index_file_path(
+                                        _context.rowset_dir, _context.rowset_id, seg_id, index_id)
+                              : InvertedIndexDescriptor::local_inverted_index_path_segcompacted(
+                                        _context.rowset_dir, _context.rowset_id, begin, end,
+                                        index_id);
+            auto dst_idx_path = InvertedIndexDescriptor::inverted_index_file_path(
+                    _context.rowset_dir, _context.rowset_id, _num_segcompacted, index_id);
+            VLOG_DEBUG << "segcompaction skip this index. rename " << src_idx_path << " to "
+                       << dst_idx_path;
+            ret = rename(src_idx_path.c_str(), dst_idx_path.c_str());
+            if (ret) {
+                LOG(WARNING) << "failed to rename " << src_idx_path << " to " << dst_idx_path
+                             << ". ret:" << ret << " errno:" << errno;
+                return Status::Error<INVERTED_INDEX_RENAME_FILE_FAILED>();
+            }
+            // Erase the origin index file cache
+            InvertedIndexSearcherCache::instance()->erase(src_idx_path);
+            InvertedIndexSearcherCache::instance()->erase(dst_idx_path);
+        }
     }
     return Status::OK();
 }

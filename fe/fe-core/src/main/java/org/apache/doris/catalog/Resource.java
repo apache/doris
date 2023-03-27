@@ -203,7 +203,7 @@ public abstract class Resource implements Writable, GsonPostProcessable {
      * @throws DdlException
      */
     public void modifyProperties(Map<String, String> properties) throws DdlException {
-        notifyUpdate();
+        notifyUpdate(properties);
     }
 
     /**
@@ -274,7 +274,7 @@ public abstract class Resource implements Writable, GsonPostProcessable {
         return copied;
     }
 
-    private void notifyUpdate() {
+    private void notifyUpdate(Map<String, String> properties) {
         references.entrySet().stream().collect(Collectors.groupingBy(Entry::getValue)).forEach((type, refs) -> {
             if (type == ReferenceType.CATALOG) {
                 for (Map.Entry<String, ReferenceType> ref : refs) {
@@ -289,7 +289,7 @@ public abstract class Resource implements Writable, GsonPostProcessable {
                                 + "names(resource={}, catalog.resource={})", catalogName, name, catalog.getResource());
                         continue;
                     }
-                    catalog.notifyPropertiesUpdated();
+                    catalog.notifyPropertiesUpdated(properties);
                 }
             }
         });

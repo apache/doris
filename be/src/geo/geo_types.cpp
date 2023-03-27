@@ -306,6 +306,19 @@ bool GeoPoint::ComputeDistance(double x_lng, double x_lat, double y_lng, double 
     return true;
 }
 
+bool GeoPoint::ComputeAngle(double x_lng, double x_lat, double y_lng, double y_lat, double* angle) {
+    S2LatLng x = S2LatLng::FromDegrees(x_lat, x_lng);
+    if (!x.is_valid()) {
+        return false;
+    }
+    S2LatLng y = S2LatLng::FromDegrees(y_lat, y_lng);
+    if (!y.is_valid()) {
+        return false;
+    }
+    *angle = (x.GetDistance(y)).degrees();
+    return true;
+}
+
 GeoParseStatus GeoLine::from_coords(const GeoCoordinateList& list) {
     return to_s2polyline(list, &_polyline);
 }

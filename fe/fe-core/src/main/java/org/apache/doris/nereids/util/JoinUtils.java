@@ -317,8 +317,13 @@ public class JoinUtils {
         final long rightTableId = rightHashSpec.getTableId();
         final Set<Long> leftTablePartitions = leftHashSpec.getPartitionIds();
         final Set<Long> rightTablePartitions = rightHashSpec.getPartitionIds();
-        boolean noNeedCheckColocateGroup = (leftTableId == rightTableId)
-                && (leftTablePartitions.equals(rightTablePartitions)) && (leftTablePartitions.size() <= 1);
+
+        // For UT or no partition is selected, getSelectedIndexId() == -1, see selectMaterializedView()
+        boolean hitSameIndex = (leftTableId == rightTableId)
+                && (leftHashSpec.getSelectedIndexId() != -1 && rightHashSpec.getSelectedIndexId() != -1)
+                && (leftHashSpec.getSelectedIndexId() == rightHashSpec.getSelectedIndexId());
+        boolean noNeedCheckColocateGroup = hitSameIndex && (leftTablePartitions.equals(rightTablePartitions))
+                && (leftTablePartitions.size() <= 1);
         ColocateTableIndex colocateIndex = Env.getCurrentColocateIndex();
         if (noNeedCheckColocateGroup
                 || (colocateIndex.isSameGroup(leftTableId, rightTableId)

@@ -45,7 +45,7 @@ DECIMALV3有一套很复杂的类型推演规则，针对不同的表达式，�
 
 #### 四则运算
 
-* 加法 / 减法：DECIMALV3(a, b) + DECIMALV3(x, y) -> DECIMALV3(max(a - b, x - y) + max(b, y), max(b, y))，即整数部分和小数部分都分别使用两个操作数中较大的值。
+* 加法 / 减法：DECIMALV3(a, b) + DECIMALV3(x, y) -> DECIMALV3(max(a - b, x - y) + max(b, y) + 1, max(b, y))。
 * 乘法：DECIMALV3(a, b) + DECIMALV3(x, y) -> DECIMALV3(a + x, b + y)。
 * 除法：DECIMALV3(a, b) + DECIMALV3(x, y) -> DECIMALV3(a + y, b)。
 

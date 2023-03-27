@@ -28,6 +28,7 @@
 #include <rapidjson/prettywriter.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
+#include "common/config.h"
 #include "common/consts.h"
 #include "common/logging.h"
 #include "common/utils.h"
@@ -599,6 +600,13 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         LOG(WARNING) << "plan streaming load failed. errmsg=" << plan_status << ctx->brief();
         return plan_status;
     }
+
+    auto& query_options = ctx->put_result.params.query_options;
+    if (query_options.__isset.is_report_success && query_options.is_report_success &&
+        !config::enable_stream_load_profile_log) {
+        query_options.is_report_success = false;
+    }
+
     VLOG_NOTICE << "params is " << apache::thrift::ThriftDebugString(ctx->put_result.params);
     // if we not use streaming, we must download total content before we begin
     // to process this load

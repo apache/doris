@@ -24,7 +24,6 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/test")
 set(AGENT_TEST_FILES
     agent/utils_test.cpp
     # agent/agent_server_test.cpp
-    # agent/cgroups_mgr_test.cpp
     # agent/heartbeat_server_test.cpp
 )
 set(COMMON_TEST_FILES
@@ -225,6 +224,7 @@ set(VEC_TEST_FILES
     vec/aggregate_functions/agg_histogram_test.cpp
     vec/aggregate_functions/agg_test.cpp
     vec/aggregate_functions/agg_min_max_test.cpp
+    vec/aggregate_functions/agg_replace_test.cpp
     vec/aggregate_functions/vec_window_funnel_test.cpp
     vec/aggregate_functions/vec_retention_test.cpp
     vec/aggregate_functions/vec_sequence_match_test.cpp

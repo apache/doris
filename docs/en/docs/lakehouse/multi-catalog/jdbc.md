@@ -480,3 +480,13 @@ The transaction mechanism ensures the atomicity of data writing to JDBC External
 7. What to do with errors such as "CAUSED BY: SQLException OutOfMemoryError" when performing JDBC queries?
 
    If you have set `useCursorFetch`  for MySQL, you can increase the JVM memory limit by modifying the value of `jvm_max_heap_size` in be.conf. The current default value is 1024M.
+
+8. When using JDBC to query MySQL large data volume, if the query can occasionally succeed, occasionally report the following errors, and all the MySQL connections are completely disconnected when the error occurs:
+
+   ```
+    ERROR 1105 (HY000): errCode = 2, detailMessage = [INTERNAL_ERROR]UdfRuntimeException: JDBC executor sql has error:
+    CAUSED BY: CommunicationsException: Communications link failure
+    The last packet successfully received from the server was 4,446 milliseconds ago. The last packet sent successfully to the server was 4,446 milliseconds ago.
+    ```
+
+    When the above phenomenon appears, it may be that mysql server's own memory or CPU resources are exhausted and the MySQL service is unavailable. You can try to increase the memory or CPU resources of MySQL Server.

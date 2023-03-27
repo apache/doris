@@ -285,6 +285,13 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 children.get(1), joinReorderContext);
     }
 
+    public LogicalJoin<Plan, Plan> withHashJoinConjunctsAndChildren(
+            List<Expression> hashJoinConjuncts, Plan left, Plan right) {
+        Preconditions.checkArgument(children.size() == 2);
+        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint,
+                markJoinSlotReference, left, right, joinReorderContext);
+    }
+
     public LogicalJoin<Plan, Plan> withConjunctsChildren(List<Expression> hashJoinConjuncts,
             List<Expression> otherJoinConjuncts, Plan left, Plan right) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint, markJoinSlotReference, left,
@@ -293,8 +300,12 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
 
     public LogicalJoin<Plan, Plan> withJoinType(JoinType joinType) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint,
-                markJoinSlotReference, left(), right(),
-                joinReorderContext);
+                markJoinSlotReference, left(), right(), joinReorderContext);
+    }
+
+    public LogicalJoin<Plan, Plan> withTypeChildren(JoinType joinType, Plan left, Plan right) {
+        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint,
+                markJoinSlotReference, left, right, joinReorderContext);
     }
 
     public LogicalJoin<Plan, Plan> withOtherJoinConjuncts(List<Expression> otherJoinConjuncts) {

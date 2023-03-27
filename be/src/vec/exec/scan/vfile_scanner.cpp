@@ -43,7 +43,7 @@ using namespace ErrorCode;
 
 VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
                            const TFileScanRange& scan_range, RuntimeProfile* profile,
-                           KVCache<std::string>& kv_cache)
+                           ShardedKVCache* kv_cache)
         : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
           _params(scan_range.params),
           _ranges(scan_range.ranges),
@@ -75,6 +75,7 @@ Status VFileScanner::prepare(
     _pre_filter_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerPreFilterTimer");
     _convert_to_output_block_timer =
             ADD_TIMER(_parent->_scanner_profile, "FileScannerConvertOuputBlockTime");
+    _empty_file_counter = ADD_COUNTER(_parent->_scanner_profile, "EmptyFileNum", TUnit::UNIT);
 
     _file_cache_statistics.reset(new io::FileCacheStatistics());
     _io_ctx.reset(new io::IOContext());
@@ -534,9 +535,10 @@ Status VFileScanner::_get_next_reader() {
         // TODO: use data lake type
         switch (_params.format_type) {
         case TFileFormatType::FORMAT_PARQUET: {
-            ParquetReader* parquet_reader = new ParquetReader(
-                    _profile, _params, range, _state->query_options().batch_size,
-                    const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx.get(), _state);
+            ParquetReader* parquet_reader =
+                    new ParquetReader(_profile, _params, range, _state->query_options().batch_size,
+                                      const_cast<cctz::time_zone*>(&_state->timezone_obj()),
+                                      _io_ctx.get(), _state, _kv_cache);
             RETURN_IF_ERROR(parquet_reader->open());
             if (!_is_load && _push_down_expr == nullptr && _vconjunct_ctx != nullptr) {
                 RETURN_IF_ERROR(_vconjunct_ctx->clone(_state, &_push_down_expr));
@@ -594,9 +596,12 @@ Status VFileScanner::_get_next_reader() {
         }
 
         if (init_status.is<END_OF_FILE>()) {
+            COUNTER_UPDATE(_empty_file_counter, 1);
             continue;
         } else if (!init_status.ok()) {
             if (init_status.is<ErrorCode::NOT_FOUND>()) {
+                COUNTER_UPDATE(_empty_file_counter, 1);
+                LOG(INFO) << "failed to find file: " << range.path;
                 return init_status;
             }
             return Status::InternalError("failed to init reader for file {}, err: {}", range.path,

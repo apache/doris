@@ -769,6 +769,13 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * Default value: 100
 * Dynamically modifiable: Yes
 
+#### `enable_stream_load_profile_log`
+
+* Type: bool
+* Description: Whether to enable stream load profile to be printed to the log.
+* Default value: false
+* Dynamically modifiable: Yes
+
 ### Thread
 
 #### `delete_worker_count`

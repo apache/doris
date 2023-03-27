@@ -124,6 +124,8 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     // invalid: -1
     protected long cardinality;
 
+    protected long cardinalityAfterFilter = -1;
+
     // number of nodes on which the plan tree rooted at this node would execute;
     // set in computeStats(); invalid: -1
     protected int numNodes;
@@ -717,6 +719,10 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
      * Assign remaining unassigned conjuncts.
      */
     protected void assignConjuncts(Analyzer analyzer) {
+        // we cannot plan conjuncts on exchange node, so we just skip the node.
+        if (this instanceof ExchangeNode) {
+            return;
+        }
         List<Expr> unassigned = analyzer.getUnassignedConjuncts(this);
         for (Expr unassignedConjunct : unassigned) {
             addConjunct(unassignedConjunct);
@@ -827,6 +833,10 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     public int getNumInstances() {
         return numInstances;
+    }
+
+    public boolean shouldColoAgg() {
+        return true;
     }
 
     public void setNumInstances(int numInstances) {
@@ -1142,5 +1152,9 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     public void setVConjunct(Set<Expr> exprs) {
         vconjunct = convertConjunctsToAndCompoundPredicate(new ArrayList<>(exprs));
+    }
+
+    public void setCardinalityAfterFilter(long cardinalityAfterFilter) {
+        this.cardinalityAfterFilter = cardinalityAfterFilter;
     }
 }

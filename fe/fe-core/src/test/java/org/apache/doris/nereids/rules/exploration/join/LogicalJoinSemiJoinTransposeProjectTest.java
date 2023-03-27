@@ -37,14 +37,14 @@ class LogicalJoinSemiJoinTransposeProjectTest implements MemoPatternMatchSupport
 
     @Test
     public void testSimple() {
-        LogicalPlan topJoin = new LogicalPlanBuilder(scan1)
+        LogicalPlan topJoin1 = new LogicalPlanBuilder(scan1)
                 .join(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0)) // t1.id = t2.id
                 .project(ImmutableList.of(0, 1))
                 .join(scan3, JoinType.INNER_JOIN, Pair.of(0, 0)) // t1.id = t3.id
                 .build();
 
-        PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
-                .applyExploration(LogicalJoinSemiJoinTransposeProject.INSTANCE.build())
+        PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin1)
+                .applyExploration(LogicalJoinSemiJoinTransposeProject.INSTANCE.buildRules())
                 .printlnExploration()
                 .matchesExploration(
                         leftSemiLogicalJoin(
@@ -55,18 +55,39 @@ class LogicalJoinSemiJoinTransposeProjectTest implements MemoPatternMatchSupport
                                 logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2"))
                         )
                 );
+
+        LogicalPlan topJoin2 = new LogicalPlanBuilder(scan1)
+                .join(
+                        new LogicalPlanBuilder(scan2)
+                                .join(scan3, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0)) // t2.id = t3.id
+                                .project(ImmutableList.of(0, 1))
+                                .build(),
+                        JoinType.INNER_JOIN, Pair.of(0, 0) // t1.id = t2.id
+                ).build();
+        PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin2)
+                .applyExploration(LogicalJoinSemiJoinTransposeProject.INSTANCE.buildRules())
+                .printlnExploration()
+                .matchesExploration(
+                        leftSemiLogicalJoin(
+                                innerLogicalJoin(
+                                        logicalOlapScan().when(scan -> scan.getTable().getName().equals("t1")),
+                                        logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2"))
+                                ),
+                                logicalOlapScan().when(scan -> scan.getTable().getName().equals("t3"))
+                        )
+                );
     }
 
     @Test
     public void generateTopProject() {
-        LogicalPlan topJoin = new LogicalPlanBuilder(scan1)
+        LogicalPlan topJoin1 = new LogicalPlanBuilder(scan1)
                 .join(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0)) // t1.id = t2.id
                 .project(ImmutableList.of(0))
                 .join(scan3, JoinType.INNER_JOIN, Pair.of(0, 0)) // t1.id = t3.id
                 .build();
 
-        PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
-                .applyExploration(LogicalJoinSemiJoinTransposeProject.INSTANCE.build())
+        PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin1)
+                .applyExploration(LogicalJoinSemiJoinTransposeProject.INSTANCE.buildRules())
                 .printlnExploration()
                 .matchesExploration(
                         logicalProject(

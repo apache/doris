@@ -293,6 +293,16 @@ public class ExternalFileScanNode extends ExternalScanNode {
                 scanProvider = new IcebergScanProvider(hmsSource, analyzer);
                 break;
             case HIVE:
+                String inputFormat = hmsTable.getRemoteTable().getSd().getInputFormat();
+                if (inputFormat.contains("TextInputFormat")) {
+                    for (SlotDescriptor slot : desc.getSlots()) {
+                        if (!slot.getType().isScalarType()) {
+                            throw new UserException("For column `" + slot.getColumn().getName()
+                                    + "`, The column types ARRAY/MAP/STRUCT are not supported yet"
+                                    + " for text input format of Hive. ");
+                        }
+                    }
+                }
                 scanProvider = new HiveScanProvider(hmsTable, desc, columnNameToRange);
                 break;
             default:
@@ -734,6 +744,9 @@ public class ExternalFileScanNode extends ExternalScanNode {
                             .append(" start: ").append(file.getStartOffset())
                             .append(" length: ").append(file.getFileSize())
                             .append("\n");
+                }
+                if (files.size() > 3) {
+                    output.append(prefix).append("    ...other ").append(files.size() - 3).append(" files\n");
                 }
             }
         }

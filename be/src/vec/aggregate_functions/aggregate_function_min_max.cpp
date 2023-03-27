@@ -26,21 +26,21 @@
 
 namespace doris::vectorized {
 /// min, max, any
-template <template <typename> class AggregateFunctionTemplate, template <typename> class Data>
-IAggregateFunction* create_aggregate_function_single_value(const String& name,
-                                                           const DataTypes& argument_types,
-                                                           const bool result_is_nullable) {
+template <template <typename> class Data>
+AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
+                                                            const DataTypes& argument_types,
+                                                            const bool result_is_nullable) {
     assert_unary(name, argument_types);
 
-    IAggregateFunction* res(creator_with_numeric_type::create<AggregateFunctionTemplate, Data,
-                                                              SingleValueDataFixed>(
-            result_is_nullable, argument_types));
+    AggregateFunctionPtr res(creator_with_numeric_type::create<AggregateFunctionsSingleValue, Data,
+                                                               SingleValueDataFixed>(
+            argument_types, result_is_nullable));
     if (res) {
         return res;
     }
-    res = creator_with_decimal_type::create<AggregateFunctionTemplate, Data,
-                                            SingleValueDataDecimal>(result_is_nullable,
-                                                                    argument_types);
+    res = creator_with_decimal_type::create<AggregateFunctionsSingleValue, Data,
+                                            SingleValueDataDecimal>(argument_types,
+                                                                    result_is_nullable);
     if (res) {
         return res;
     }
@@ -48,58 +48,35 @@ IAggregateFunction* create_aggregate_function_single_value(const String& name,
     WhichDataType which(argument_type);
 
     if (which.idx == TypeIndex::String) {
-        return creator_without_type::create<AggregateFunctionTemplate<Data<SingleValueDataString>>>(
-                result_is_nullable, argument_types);
+        return creator_without_type::create<
+                AggregateFunctionsSingleValue<Data<SingleValueDataString>>>(argument_types,
+                                                                            result_is_nullable);
     }
     if (which.idx == TypeIndex::DateTime || which.idx == TypeIndex::Date) {
         return creator_without_type::create<
-                AggregateFunctionTemplate<Data<SingleValueDataFixed<Int64>>>>(result_is_nullable,
-                                                                              argument_types);
+                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<Int64>>>>(
+                argument_types, result_is_nullable);
     }
     if (which.idx == TypeIndex::DateV2) {
         return creator_without_type::create<
-                AggregateFunctionTemplate<Data<SingleValueDataFixed<UInt32>>>>(result_is_nullable,
-                                                                               argument_types);
+                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<UInt32>>>>(
+                argument_types, result_is_nullable);
     }
     if (which.idx == TypeIndex::DateTimeV2) {
         return creator_without_type::create<
-                AggregateFunctionTemplate<Data<SingleValueDataFixed<UInt64>>>>(result_is_nullable,
-                                                                               argument_types);
+                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<UInt64>>>>(
+                argument_types, result_is_nullable);
     }
     return nullptr;
 }
 
-AggregateFunctionPtr create_aggregate_function_max(const std::string& name,
-                                                   const DataTypes& argument_types,
-                                                   const bool result_is_nullable) {
-    return AggregateFunctionPtr(
-            create_aggregate_function_single_value<AggregateFunctionsSingleValue,
-                                                   AggregateFunctionMaxData>(name, argument_types,
-                                                                             result_is_nullable));
-}
-
-AggregateFunctionPtr create_aggregate_function_min(const std::string& name,
-                                                   const DataTypes& argument_types,
-                                                   const bool result_is_nullable) {
-    return AggregateFunctionPtr(
-            create_aggregate_function_single_value<AggregateFunctionsSingleValue,
-                                                   AggregateFunctionMinData>(name, argument_types,
-                                                                             result_is_nullable));
-}
-
-AggregateFunctionPtr create_aggregate_function_any(const std::string& name,
-                                                   const DataTypes& argument_types,
-                                                   const bool result_is_nullable) {
-    return AggregateFunctionPtr(
-            create_aggregate_function_single_value<AggregateFunctionsSingleValue,
-                                                   AggregateFunctionAnyData>(name, argument_types,
-                                                                             result_is_nullable));
-}
-
 void register_aggregate_function_minmax(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function_both("max", create_aggregate_function_max);
-    factory.register_function_both("min", create_aggregate_function_min);
-    factory.register_function_both("any", create_aggregate_function_any);
+    factory.register_function_both(
+            "max", create_aggregate_function_single_value<AggregateFunctionMaxData>);
+    factory.register_function_both(
+            "min", create_aggregate_function_single_value<AggregateFunctionMinData>);
+    factory.register_function_both(
+            "any", create_aggregate_function_single_value<AggregateFunctionAnyData>);
     factory.register_alias("any", "any_value");
 }
 
