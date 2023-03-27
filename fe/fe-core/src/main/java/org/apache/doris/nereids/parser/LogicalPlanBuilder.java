@@ -392,7 +392,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     .add(rightQuery)
                     .build();
 
-            LogicalPlan plan = null;
+            LogicalPlan plan;
             if (ctx.UNION() != null) {
                 plan = new LogicalUnion(qualifier, newChildren);
             } else if (ctx.EXCEPT() != null) {

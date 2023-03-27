@@ -66,7 +66,7 @@ query
 queryTerm
     : queryPrimary                                                                       #queryTermDefault
     | left=queryTerm operator=(UNION | EXCEPT | INTERSECT)
-      setQuantifier? right=queryTerm                                                     #setOperation
+      setQuantifier? right=queryTerm                                                    #setOperation
     ;
 
 setQuantifier
