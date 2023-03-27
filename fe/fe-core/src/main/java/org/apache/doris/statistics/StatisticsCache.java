@@ -17,6 +17,9 @@
 
 package org.apache.doris.statistics;
 
+//import org.apache.doris.common.ThreadPoolManager;
+
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.qe.ConnectContext;
 
 import com.github.benmanes.caffeine.cache.AsyncLoadingCache;
@@ -26,16 +29,43 @@ import org.apache.logging.log4j.Logger;
 
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 public class StatisticsCache {
 
     private static final Logger LOG = LogManager.getLogger(StatisticsCache.class);
 
+    /**
+     * Use a standalone thread pool to avoid interference between this and any other jdk function
+     * that use the thread of ForkJoinPool#common in the system.
+     */
+    private final ThreadPoolExecutor threadPool
+            = ThreadPoolManager.newDaemonFixedThreadPool(
+            10, Integer.MAX_VALUE, "STATS_FETCH", true);
+
+    private final StatisticsCacheLoader cacheLoader = new StatisticsCacheLoader();
+
     private final AsyncLoadingCache<StatisticsCacheKey, ColumnLevelStatisticCache> cache = Caffeine.newBuilder()
             .maximumSize(StatisticConstants.STATISTICS_RECORDS_CACHE_SIZE)
             .expireAfterAccess(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_VALID_DURATION_IN_HOURS))
             .refreshAfterWrite(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_REFRESH_INTERVAL))
-            .buildAsync(new StatisticsCacheLoader());
+            .executor(threadPool)
+            .buildAsync(cacheLoader);
+
+    {
+        threadPool.submit(() -> {
+            while (true) {
+                try {
+                    cacheLoader.removeExpiredInProgressing();
+                    Thread.sleep(TimeUnit.MINUTES.toMillis(15));
+                } catch (Throwable t) {
+                    // IGNORE
+                }
+            }
+
+        });
+    }
 
     public ColumnStatistic getColumnStatistics(long tblId, String colName) {
         ColumnLevelStatisticCache columnLevelStatisticCache = getColumnStatistics(tblId, -1, colName);
