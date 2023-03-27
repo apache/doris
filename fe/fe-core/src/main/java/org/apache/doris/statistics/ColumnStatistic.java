@@ -83,13 +83,15 @@ public class ColumnStatistic {
      */
     public final double selectivity;
 
+    public final double originalNdv;
+
     // For display only.
     public final LiteralExpr minExpr;
     public final LiteralExpr maxExpr;
 
     public final Histogram histogram;
 
-    public ColumnStatistic(double count, double ndv, double avgSizeByte,
+    public ColumnStatistic(double count, double ndv, double originalNdv, double avgSizeByte,
             double numNulls, double dataSize, double minValue, double maxValue,
             double selectivity, LiteralExpr minExpr, LiteralExpr maxExpr, boolean isUnKnown, Histogram histogram) {
         this.count = count;
@@ -104,6 +106,7 @@ public class ColumnStatistic {
         this.maxExpr = maxExpr;
         this.isUnKnown = isUnKnown;
         this.histogram = histogram;
+        this.originalNdv = originalNdv;
     }
 
     // TODO: use thrift
@@ -141,6 +144,7 @@ public class ColumnStatistic {
             columnStatisticBuilder.setMaxExpr(StatisticsUtil.readableValue(col.getType(), max));
             columnStatisticBuilder.setMinExpr(StatisticsUtil.readableValue(col.getType(), min));
             columnStatisticBuilder.setSelectivity(1.0);
+            columnStatisticBuilder.setOriginalNdv(ndv);
             Histogram histogram = Env.getCurrentEnv().getStatisticsCache().getHistogram(tblId, idxId, colName);
             columnStatisticBuilder.setHistogram(histogram);
             return columnStatisticBuilder.build();
