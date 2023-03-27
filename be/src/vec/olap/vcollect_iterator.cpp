@@ -158,6 +158,7 @@ Status VCollectIterator::build_heap(std::vector<RowsetReaderSharedPtr>& rs_reade
     } else {
         auto level1_iter = std::make_unique<Level1Iterator>(_children, _reader, _merge, _is_reverse,
                                                             _skip_same);
+        _children.clear();
         RETURN_IF_ERROR(level1_iter->init_level0_iterators_for_union());
         _inner_iter.reset(level1_iter.release());
     }
