@@ -1363,7 +1363,6 @@ Status VScanNode::_prepare_scanners() {
         COUNTER_SET(_num_scanners, static_cast<int64_t>(scanners.size()));
         RETURN_IF_ERROR(_start_scanners(scanners));
     }
-
     return Status::OK();
 }
 } // namespace doris::vectorized
