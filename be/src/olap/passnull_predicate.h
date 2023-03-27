@@ -30,13 +30,13 @@ namespace doris {
 /**
  * A wrapper predicate that delegate to nested predicate
  *  but pass (set/return true) for NULL value rows.
- * 
+ *
  * At parent, it's used for topn runtime predicate.
 */
 class PassNullPredicate : public ColumnPredicate {
 public:
 
-    PassNullPredicate(ColumnPredicate* nested) : 
+    PassNullPredicate(ColumnPredicate* nested) :
         ColumnPredicate(nested->column_id(), nested->opposite()), _nested {nested} {}
 
     PredicateType type() const override { return _nested->type();}
