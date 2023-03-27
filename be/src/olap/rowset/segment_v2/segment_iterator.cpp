@@ -1602,6 +1602,16 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
 }
 
 Status SegmentIterator::next_batch(vectorized::Block* block) {
+    Status st;
+    try {
+        st = _next_batch_internal(block);
+    } catch (const doris::Exception& e) {
+        st = Status::Error(e.code(), e.to_string());
+    }
+    return st;
+}
+
+Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     bool is_mem_reuse = block->mem_reuse();
     DCHECK(is_mem_reuse);
 
