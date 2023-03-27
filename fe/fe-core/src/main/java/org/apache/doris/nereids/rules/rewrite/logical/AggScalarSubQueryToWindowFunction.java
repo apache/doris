@@ -75,6 +75,7 @@ import java.util.stream.Collectors;
  * logicalFilter(logicalApply(any(), logicalAggregate()))
  * to
  * logicalProject((logicalFilter(logicalWindow(logicalFilter(any())))))
+ * refer paper: WinMagic - Subquery Elimination Using Window Aggregation
  */
 
 public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobContext> implements CustomRewriter {
@@ -110,9 +111,6 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
     }
 
     private LogicalApply<Plan, LogicalAggregate<Plan>> checkPattern(LogicalFilter<? extends Plan> filter) {
-        if (!(filter.child() instanceof LogicalProject)) {
-            return null;
-        }
         LogicalPlan plan = ((LogicalPlan) filter.child());
         if (plan instanceof LogicalProject) {
             plan = ((LogicalPlan) ((LogicalProject) plan).child());
