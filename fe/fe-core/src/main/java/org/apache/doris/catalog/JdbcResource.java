@@ -283,7 +283,7 @@ public class JdbcResource extends Resource {
             newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "useUnicode", "false", "true");
             newJdbcUrl = checkAndSetJdbcParam(newJdbcUrl, "characterEncoding", "utf-8");
         }
-        if (dbType.equals(MYSQL) || dbType.equals(POSTGRESQL)) {
+        if (dbType.equals(POSTGRESQL)) {
             newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "useCursorFetch", "false", "true");
         }
         return newJdbcUrl;

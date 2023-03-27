@@ -438,7 +438,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         //for schema change add column optimize, direct modify table meta.
                         List<Index> newIndexes = olapTable.getCopiedIndexes();
                         long jobId = Env.getCurrentEnv().getNextId();
-                        Env.getCurrentEnv().getSchemaChangeHandler().modifyTableAddOrDropColumns(
+                        Env.getCurrentEnv().getSchemaChangeHandler().modifyTableLightSchemaChange(
                                 db, olapTable, indexSchemaMap, newIndexes, jobId, false);
                     } else {
                         throw new MetaNotFoundException("table_id "

@@ -38,9 +38,11 @@ import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -875,6 +877,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             SortNode sortNode = translateSortNode(topN, inputFragment.getPlanRoot(), context);
             sortNode.setOffset(topN.getOffset());
             sortNode.setLimit(topN.getLimit());
+            if (topN.getMutableState(PhysicalTopN.TOPN_RUNTIME_FILTER).isPresent()) {
+                sortNode.setUseTopnOpt(true);
+                PlanNode child = sortNode.getChild(0);
+                Preconditions.checkArgument(child instanceof OlapScanNode,
+                        "topN opt expect OlapScanNode, but we get " + child);
+                ((OlapScanNode) child).setUseTopnOpt(true);
+            }
             addPlanRoot(currentFragment, sortNode, topN);
         } else {
             // For mergeSort, we need to push sortInfo to exchangeNode
@@ -1364,11 +1373,18 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     // TODO: generate expression mapping when be project could do in ExecNode.
     @Override
     public PlanFragment visitPhysicalProject(PhysicalProject<? extends Plan> project, PlanTranslatorContext context) {
+        MarkJoinSlotReference markJoinSlot = null;
         if (project.child(0) instanceof PhysicalHashJoin) {
             ((PhysicalHashJoin<?, ?>) project.child(0)).setShouldTranslateOutput(false);
+            if (((PhysicalHashJoin<?, ?>) project.child(0)).getMarkJoinSlotReference().isPresent()) {
+                markJoinSlot = (((PhysicalHashJoin<?, ?>) project.child(0)).getMarkJoinSlotReference().get());
+            }
         }
         if (project.child(0) instanceof PhysicalNestedLoopJoin) {
             ((PhysicalNestedLoopJoin<?, ?>) project.child(0)).setShouldTranslateOutput(false);
+            if (((PhysicalNestedLoopJoin<?, ?>) project.child(0)).getMarkJoinSlotReference().isPresent()) {
+                markJoinSlot = (((PhysicalNestedLoopJoin<?, ?>) project.child(0)).getMarkJoinSlotReference().get());
+            }
         }
         if (project.child(0) instanceof PhysicalFilter) {
             if (project.child(0).child(0) instanceof PhysicalHashJoin) {
@@ -1390,6 +1406,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .stream()
                 .map(e -> e.toSlot())
                 .collect(Collectors.toList());
+
+        if (markJoinSlot != null) {
+            // add mark join slot to output
+            slotList.add(markJoinSlot);
+            execExprList.add(ExpressionTranslator.translate(markJoinSlot, context));
+        }
         // For hash join node, use vSrcToOutputSMap to describe the expression calculation, use
         // vIntermediateTupleDescList as input, and set vOutputTupleDesc as the final output.
         // TODO: HashJoinNode's be implementation is not support projection yet, remove this after when supported.
@@ -1669,7 +1691,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .map(e -> ExpressionTranslator.translate(e, context))
                 .collect(Collectors.toCollection(ArrayList::new));
         TupleDescriptor tupleDescriptor = generateTupleDesc(generate.getGeneratorOutput(), null, context);
-        List<SlotId> outputSlotIds = Stream.concat(currentFragment.getPlanRoot().getTupleIds().stream(),
+        List<TupleId> childOutputTupleIds = currentFragment.getPlanRoot().getOutputTupleIds();
+        if (childOutputTupleIds == null || childOutputTupleIds.isEmpty()) {
+            childOutputTupleIds = currentFragment.getPlanRoot().getTupleIds();
+        }
+        List<SlotId> outputSlotIds = Stream.concat(childOutputTupleIds.stream(),
                         Stream.of(tupleDescriptor.getId()))
                 .map(id -> context.getTupleDesc(id).getSlots())
                 .flatMap(List::stream)
@@ -2092,11 +2118,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         Expr rhs = exprIdToSlotRef.get(exprId);
 
         Expr bothNull = new CompoundPredicate(CompoundPredicate.Operator.AND,
-                new IsNullPredicate(lhs, false), new IsNullPredicate(rhs, false));
+                new IsNullPredicate(lhs, false, true), new IsNullPredicate(rhs, false, true));
         Expr lhsEqRhsNotNull = new CompoundPredicate(CompoundPredicate.Operator.AND,
                 new CompoundPredicate(CompoundPredicate.Operator.AND,
-                        new IsNullPredicate(lhs, true), new IsNullPredicate(rhs, true)),
-                new BinaryPredicate(BinaryPredicate.Operator.EQ, lhs, rhs));
+                        new IsNullPredicate(lhs, true, true), new IsNullPredicate(rhs, true, true)),
+                new BinaryPredicate(BinaryPredicate.Operator.EQ, lhs, rhs,
+                        Type.BOOLEAN, NullableMode.DEPEND_ON_ARGUMENT));
 
         Expr remainder = windowExprsHaveMatchedNullable(exprIdToExpr, exprIdToSlotRef, expressions, i + 1, size);
         return new CompoundPredicate(CompoundPredicate.Operator.AND,

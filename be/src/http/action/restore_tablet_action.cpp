@@ -22,7 +22,6 @@
 #include <sstream>
 #include <string>
 
-#include "agent/cgroups_mgr.h"
 #include "env/env.h"
 #include "gutil/strings/substitute.h" // for Substitute
 #include "http/http_channel.h"
@@ -50,8 +49,6 @@ RestoreTabletAction::RestoreTabletAction(ExecEnv* exec_env) : _exec_env(exec_env
 
 void RestoreTabletAction::handle(HttpRequest* req) {
     LOG(INFO) << "accept one request " << req->debug_string();
-    // add tid to cgroup in order to limit read bandwidth
-    CgroupsMgr::apply_system_cgroup();
     Status status = _handle(req);
     std::string result = status.to_json();
     LOG(INFO) << "handle request result:" << result;

@@ -399,6 +399,8 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
             if (ref_tablet->tablet_state() == TABLET_SHUTDOWN) {
                 return Status::Aborted("tablet has shutdown");
             }
+            // be would definitely set it as true no matter has missed version or not
+            // but it would take no effets on the following range loop
             if (request.__isset.missing_version) {
                 for (int64_t missed_version : request.missing_version) {
                     Version version = {missed_version, missed_version};
@@ -424,8 +426,18 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                 }
             }
 
+            // be would definitely set it as true no matter has missed version or not, we could
+            // just check whether the missed version is empty or not
             int64_t version = -1;
-            if (!res.ok() || !request.__isset.missing_version) {
+            if (!res.ok() || request.missing_version.empty()) {
+                if (!request.__isset.missing_version &&
+                    ref_tablet->tablet_meta()->cooldown_meta_id().initialized()) {
+                    LOG(WARNING) << "currently not support backup tablet with cooldowned remote "
+                                    "data. tablet="
+                                 << request.tablet_id;
+                    return Status::NotSupported(
+                            "currently not support backup tablet with cooldowned remote data");
+                }
                 /// not all missing versions are found, fall back to full snapshot.
                 res = Status::OK();         // reset res
                 consistent_rowsets.clear(); // reset vector

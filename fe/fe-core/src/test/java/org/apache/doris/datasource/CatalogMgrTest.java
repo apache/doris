@@ -47,6 +47,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
+import org.apache.doris.datasource.hive.HiveMetaStoreCache.FileCacheKey;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache.HivePartitionValues;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache.PartitionValueCacheKey;
 import org.apache.doris.mysql.privilege.Auth;
@@ -59,10 +60,13 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.base.Preconditions;
+import com.google.common.cache.LoadingCache;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.RangeMap;
+import org.apache.hadoop.mapred.InputSplit;
 import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -284,6 +288,9 @@ public class CatalogMgrTest extends TestWithFeService {
         showStmt = (ShowCatalogStmt) parseAndAnalyzeStmt(showCatalogSql);
         showResultSet = mgr.showCatalogs(showStmt);
         Assertions.assertEquals(6, showResultSet.getResultRows().size());
+
+        //test alter fileCache
+        testAlterFileCache();
     }
 
     private void testCatalogMgrPersist() throws Exception {
@@ -605,5 +612,91 @@ public class CatalogMgrTest extends TestWithFeService {
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
                 "Required property 'driver_url' is missing",
                 () -> mgr.createCatalog(createStmt4));
+
+        createCatalogSql = "CREATE CATALOG bad_hive_3 PROPERTIES (\n"
+                + "    'type'='hms',\n"
+                + "    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',\n"
+                + "    'hadoop.username' = 'hive',\n"
+                + "    'dfs.nameservices'='your-nameservice',\n"
+                + "    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',\n"
+                + "    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',\n"
+                + "    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',\n"
+                + "    'file.meta.cache.ttl-second'='2m'\n"
+                + ");";
+        CreateCatalogStmt createStmt5 = (CreateCatalogStmt) parseAndAnalyzeStmt(createCatalogSql);
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "The parameter file.meta.cache.ttl-second is wrong, value is 2m",
+                () -> mgr.createCatalog(createStmt5));
+
+        createCatalogSql = "CREATE CATALOG bad_hive_4 PROPERTIES (\n"
+                + "    'type'='hms',\n"
+                + "    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',\n"
+                + "    'hadoop.username' = 'hive',\n"
+                + "    'dfs.nameservices'='your-nameservice',\n"
+                + "    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',\n"
+                + "    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',\n"
+                + "    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',\n"
+                + "    'file.meta.cache.ttl-second'=''\n"
+                + ");";
+        CreateCatalogStmt createStmt6 = (CreateCatalogStmt) parseAndAnalyzeStmt(createCatalogSql);
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "The parameter file.meta.cache.ttl-second is wrong, value is ",
+                () -> mgr.createCatalog(createStmt6));
+
+        createCatalogSql = "CREATE CATALOG good_hive_2 PROPERTIES (\n"
+                + "    'type'='hms',\n"
+                + "    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',\n"
+                + "    'hadoop.username' = 'hive',\n"
+                + "    'dfs.nameservices'='your-nameservice',\n"
+                + "    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',\n"
+                + "    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',\n"
+                + "    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',\n"
+                + "    'file.meta.cache.ttl-second'='60',\n"
+                + "    'dfs.client.failover.proxy.provider.your-nameservice'"
+                + "='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'\n"
+                + ");";
+        CreateCatalogStmt createStmt7 = (CreateCatalogStmt) parseAndAnalyzeStmt(createCatalogSql);
+        ExceptionChecker.expectThrowsNoException(() -> mgr.createCatalog(createStmt7));
     }
+
+    public void testAlterFileCache() throws Exception {
+        String catalogName = "good_hive_3";
+        String createCatalogSql = "CREATE CATALOG " + catalogName + " PROPERTIES (\n"
+                + "    'type'='hms',\n"
+                + "    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',\n"
+                + "    'hadoop.username' = 'hive',\n"
+                + "    'dfs.nameservices'='your-nameservice',\n"
+                + "    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',\n"
+                + "    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',\n"
+                + "    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',\n"
+                + "    'file.meta.cache.ttl-second'='60',\n"
+                + "    'dfs.client.failover.proxy.provider.your-nameservice'"
+                + "='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'\n"
+                + ");";
+        CreateCatalogStmt createStmt8 = (CreateCatalogStmt) parseAndAnalyzeStmt(createCatalogSql);
+        ExceptionChecker.expectThrowsNoException(() -> mgr.createCatalog(createStmt8));
+
+        HMSExternalCatalog hiveCatalog = (HMSExternalCatalog) mgr.getCatalog(catalogName);
+        HiveMetaStoreCache metaStoreCache = externalMetaCacheMgr.getMetaStoreCache(hiveCatalog);
+        LoadingCache<FileCacheKey, ImmutableList<InputSplit>> preFileCache = metaStoreCache.getFileCacheRef().get();
+
+
+        // 1. properties contains `file.meta.cache.ttl-second`, it should not be equal
+        String alterCatalogProp = "ALTER CATALOG " + catalogName + " SET PROPERTIES"
+                + " ('file.meta.cache.ttl-second'='120');";
+        mgr.alterCatalogProps((AlterCatalogPropertyStmt) parseAndAnalyzeStmt(alterCatalogProp));
+        Assertions.assertEquals("120", mgr.getCatalog(catalogName).getProperties().get("file.meta.cache.ttl-second"));
+
+        Assertions.assertNotEquals(preFileCache, metaStoreCache.getFileCacheRef().get());
+        preFileCache = metaStoreCache.getFileCacheRef().get();
+
+        // 2. properties not contains `file.meta.cache.ttl-second`, it should be equal
+        alterCatalogProp = "ALTER CATALOG " + catalogName + " SET PROPERTIES"
+                + " (\"type\" = \"hms\", \"hive.metastore.uris\" = \"thrift://172.16.5.9:9083\");";
+        mgr.alterCatalogProps((AlterCatalogPropertyStmt) parseAndAnalyzeStmt(alterCatalogProp));
+        Assertions.assertEquals(preFileCache, metaStoreCache.getFileCacheRef().get());
+
+
+    }
+
 }

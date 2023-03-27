@@ -101,7 +101,6 @@ set(UTIL_FILES
   telemetry/open_telemetry_scop_wrapper.hpp
   quantile_state.cpp
   jni-util.cpp
-  exception.cpp
   libjvm_loader.cpp
   jni_native_method.cpp
 )

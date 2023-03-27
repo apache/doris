@@ -26,15 +26,13 @@ template <typename T, typename HasLimit>
 AggregateFunctionPtr do_create_agg_function_collect(bool distinct, const DataTypes& argument_types,
                                                     const bool result_is_nullable) {
     if (distinct) {
-        return AggregateFunctionPtr(
-                creator_without_type::create<AggregateFunctionCollect<
-                        AggregateFunctionCollectSetData<T, HasLimit>, HasLimit>>(result_is_nullable,
-                                                                                 argument_types));
+        return creator_without_type::create<
+                AggregateFunctionCollect<AggregateFunctionCollectSetData<T, HasLimit>, HasLimit>>(
+                argument_types, result_is_nullable);
     } else {
-        return AggregateFunctionPtr(
-                creator_without_type::create<AggregateFunctionCollect<
-                        AggregateFunctionCollectListData<T, HasLimit>, HasLimit>>(
-                        result_is_nullable, argument_types));
+        return creator_without_type::create<
+                AggregateFunctionCollect<AggregateFunctionCollectListData<T, HasLimit>, HasLimit>>(
+                argument_types, result_is_nullable);
     }
 }
 

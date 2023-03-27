@@ -244,4 +244,14 @@ public class VariableMgrTest {
         executor.execute();
         Assert.assertEquals("123", ctx.traceId());
     }
+
+    @Test
+    public void testSetGlobalDefault() throws Exception {
+        // Set global variable with default value
+        SetStmt stmt = (SetStmt) UtFrameUtils.parseAndAnalyzeStmt("set global enable_profile = default", ctx);
+        SetExecutor executor = new SetExecutor(ctx, stmt);
+        executor.execute();
+        SessionVariable defaultSessionVar = new SessionVariable();
+        Assert.assertEquals(defaultSessionVar.enableProfile(), VariableMgr.newSessionVariable().enableProfile());
+    }
 }

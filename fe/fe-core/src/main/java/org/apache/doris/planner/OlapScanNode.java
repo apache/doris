@@ -952,7 +952,7 @@ public class OlapScanNode extends ScanNode {
             final List<Tablet> tablets = Lists.newArrayList();
             final Collection<Long> tabletIds = distributionPrune(selectedTable, partition.getDistributionInfo());
             LOG.debug("distribution prune tablets: {}", tabletIds);
-            if (sampleTabletIds.size() != 0) {
+            if (tabletIds != null && sampleTabletIds.size() != 0) {
                 tabletIds.retainAll(sampleTabletIds);
                 LOG.debug("after sample tablets: {}", tabletIds);
             }
@@ -1027,12 +1027,12 @@ public class OlapScanNode extends ScanNode {
         return result;
     }
 
-    // Only called when Coordinator exec in point query
+    // Only called when Coordinator exec in high performance point query
     public List<TScanRangeLocations> lazyEvaluateRangeLocations() throws UserException {
         // Lazy evaluation
         selectedIndexId = olapTable.getBaseIndexId();
-        // TODO(lhy) this function is a heavy operation for point query
-        computeColumnFilter();
+        // Only key columns
+        computeColumnFilter(olapTable.getBaseSchemaKeyColumns());
         computePartitionInfo();
         scanBackendIds.clear();
         scanTabletIds.clear();

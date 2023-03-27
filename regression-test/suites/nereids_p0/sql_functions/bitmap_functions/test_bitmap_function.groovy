@@ -60,12 +60,10 @@ suite("test_bitmap_function") {
     qt_sql_bitmap_or1 """ select bitmap_count(bitmap_or(to_bitmap(1), to_bitmap(2))) cnt """
     qt_sql_bitmap_or2 """ select bitmap_count(bitmap_or(to_bitmap(1), to_bitmap(1))) cnt """
     qt_sql_bitmap_or3 """ select bitmap_to_string(bitmap_or(to_bitmap(1), to_bitmap(2))) """
-    // TODO: fix constant fold of bitmap_or and enable this case
-    // qt_sql_bitmap_or4 """ select bitmap_to_string(bitmap_or(to_bitmap(1), to_bitmap(2), to_bitmap(10), to_bitmap(0), NULL)) """
+    qt_sql_bitmap_or4 """ select bitmap_to_string(bitmap_or(to_bitmap(1), to_bitmap(2), to_bitmap(10), to_bitmap(0), NULL)) """
     qt_sql_bitmap_or5 """ select bitmap_to_string(bitmap_or(to_bitmap(1), to_bitmap(2), to_bitmap(10), to_bitmap(0), bitmap_empty())) """
     qt_sql_bitmap_or6 """ select bitmap_to_string(bitmap_or(to_bitmap(10), bitmap_from_string('1,2'), bitmap_from_string('1,2,3,4,5'))) """
-    // TODO: fix constant fold of bitmap_or and enable this case
-    // qt_sql_bitmap_or7 """ select bitmap_count(bitmap_or(to_bitmap(1), null)) cnt """
+    qt_sql_bitmap_or7 """ select bitmap_count(bitmap_or(to_bitmap(1), null)) cnt """
 
     // bitmap_or of all nullable column
     sql """ DROP TABLE IF EXISTS test_bitmap1 """
@@ -297,16 +295,14 @@ suite("test_bitmap_function") {
     qt_sql_bitmap_and_count3 """ select bitmap_and_count(bitmap_from_string('1,2,3'),bitmap_from_string('3,4,5')) """
     qt_sql_bitmap_and_count4 """ select bitmap_and_count(bitmap_from_string('1,2,3'), bitmap_from_string('1,2'), bitmap_from_string('1,2,3,4,5')) """
     qt_sql_bitmap_and_count5 """ select bitmap_and_count(bitmap_from_string('1,2,3'), bitmap_from_string('1,2'), bitmap_from_string('1,2,3,4,5'),bitmap_empty()) """
-    // TODO: fix constant fold and enable this case
-    // qt_sql_bitmap_and_count6 """ select bitmap_and_count(bitmap_from_string('1,2,3'), bitmap_from_string('1,2'), bitmap_from_string('1,2,3,4,5'), NULL) """
+    qt_sql_bitmap_and_count6 """ select bitmap_and_count(bitmap_from_string('1,2,3'), bitmap_from_string('1,2'), bitmap_from_string('1,2,3,4,5'), NULL) """
 
     // bitmap_or_count
     qt_sql_bitmap_or_count1 """ select bitmap_or_count(bitmap_from_string('1,2,3'),bitmap_empty()) """
     qt_sql_bitmap_or_count2 """ select bitmap_or_count(bitmap_from_string('1,2,3'),bitmap_from_string('1,2,3'))"""
     qt_sql_bitmap_or_count3 """ select bitmap_or_count(bitmap_from_string('1,2,3'),bitmap_from_string('3,4,5')) """
     qt_sql_bitmap_or_count4 """ select bitmap_or_count(bitmap_from_string('1,2,3'), bitmap_from_string('3,4,5'), to_bitmap(100), bitmap_empty()) """
-    // TODO: fix constant fold of bitmap_or and enable this case
-    // qt_sql_bitmap_or_count5 """ select bitmap_or_count(bitmap_from_string('1,2,3'), bitmap_from_string('3,4,5'), to_bitmap(100), NULL) """
+    qt_sql_bitmap_or_count5 """ select bitmap_or_count(bitmap_from_string('1,2,3'), bitmap_from_string('3,4,5'), to_bitmap(100), NULL) """
 
     // BITMAP_XOR
     qt_sql """ select bitmap_count(bitmap_xor(bitmap_from_string('2,3'),bitmap_from_string('1,2,3,4'))) cnt """
@@ -321,8 +317,7 @@ suite("test_bitmap_function") {
     qt_sql_bitmap_xor_count3 """ select bitmap_xor_count(bitmap_from_string('1,2,3'),bitmap_from_string('4,5,6')) """
     qt_sql_bitmap_xor_count4 """ select (bitmap_xor_count(bitmap_from_string('2,3'),bitmap_from_string('1,2,3,4'),bitmap_from_string('3,4,5'))) """
     qt_sql_bitmap_xor_count5 """ select (bitmap_xor_count(bitmap_from_string('2,3'),bitmap_from_string('1,2,3,4'),bitmap_from_string('3,4,5'),bitmap_empty())) """
-    // TODO: fix constant fold and enable this case
-    // qt_sql_bitmap_xor_count6 """ select (bitmap_xor_count(bitmap_from_string('2,3'),bitmap_from_string('1,2,3,4'),bitmap_from_string('3,4,5'),NULL)) """
+    qt_sql_bitmap_xor_count6 """ select (bitmap_xor_count(bitmap_from_string('2,3'),bitmap_from_string('1,2,3,4'),bitmap_from_string('3,4,5'),NULL)) """
 
     // bitmap_and_count, bitmap_xor_count, bitmap_and_not_count of all nullable column
     sql """ DROP TABLE IF EXISTS test_bitmap1 """
@@ -529,8 +524,7 @@ suite("test_bitmap_function") {
 
     // BITMAP_AND_NOT_COUNT
     qt_sql_bitmap_and_not_count1 """ select bitmap_and_not_count(bitmap_from_string('1,2,3'),bitmap_from_string('3,4,5')) cnt """
-    // TODO: fix constant fold and enable this case
-    // qt_sql_bitmap_and_not_count2 """ select bitmap_and_not_count(bitmap_from_string('1,2,3'),null) cnt """
+    qt_sql_bitmap_and_not_count2 """ select bitmap_and_not_count(bitmap_from_string('1,2,3'),null) cnt """
 
     // BITMAP_SUBSET_IN_RANGE
     qt_sql """ select bitmap_to_string(bitmap_subset_in_range(bitmap_from_string('1,2,3,4,5'), 0, 9)) value """

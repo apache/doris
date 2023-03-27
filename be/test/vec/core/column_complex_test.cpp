@@ -140,6 +140,13 @@ TEST_F(ColumnBitmapTest, ColumnBitmapReadWrite) {
     data[row_size - 1].add(33333);
     data[row_size - 1].add(0);
     check_serialize_and_deserialize(column);
+
+    Field field;
+    column->get(0, field);
+    auto str = field.get<String>();
+    auto* bitmap = reinterpret_cast<const BitmapValue*>(str.c_str());
+    EXPECT_TRUE(bitmap->contains(10));
+    EXPECT_TRUE(bitmap->contains(1000000));
 }
 
 TEST_F(ColumnQuantileStateTest, ColumnQuantileStateReadWrite) {

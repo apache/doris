@@ -151,6 +151,22 @@ CREATE CATALOG hive WITH RESOURCE hms_resource PROPERTIES(
 	'key' = 'value'
 );
 ```
+<version since="dev"></version>
+创建 Catalog 时可以采用参数 `file.meta.cache.ttl-second` 来设置 File Cache 自动失效时间，也可以将该值设置为 0 来禁用 File Cache。时间单位为：秒。示例如下：
+```sql
+CREATE CATALOG hive PROPERTIES (
+    'type'='hms',
+    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
+    'hadoop.username' = 'hive',
+    'dfs.nameservices'='your-nameservice',
+    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
+    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider',
+    'file.meta.cache.ttl-second' = '60'
+);
+```
+
 
 我们也可以直接将 hive-site.xml 放到 FE 和 BE 的 conf 目录下，系统也会自动读取 hive-site.xml 中的信息。信息覆盖的规则如下：
 	

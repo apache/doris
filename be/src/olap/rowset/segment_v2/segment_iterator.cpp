@@ -852,13 +852,7 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
 }
 
 bool SegmentIterator::_need_read_data(ColumnId cid) {
-    int32_t unique_id = _schema.unique_id(cid);
-    if (_need_read_data_indices.count(unique_id) > 0 && !_need_read_data_indices[unique_id] &&
-        _output_columns.count(unique_id) < 1) {
-        VLOG_DEBUG << "SegmentIterator no need read data for column: "
-                   << _opts.tablet_schema->column_by_uid(unique_id).name();
-        return false;
-    }
+    // TODO(xk) impl right logic
     return true;
 }
 
@@ -1551,6 +1545,7 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
         }
     }
 
+    _opts.stats->vec_cond_input_rows += original_size;
     _opts.stats->rows_vec_cond_filtered += original_size - new_size;
     return new_size;
 }
@@ -1568,7 +1563,8 @@ uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_ro
         auto& short_cir_column = _current_return_columns[column_id];
         selected_size = predicate->evaluate(*short_cir_column, vec_sel_rowid_idx, selected_size);
     }
-    _opts.stats->rows_vec_cond_filtered += original_size - selected_size;
+    _opts.stats->short_circuit_cond_input_rows += original_size;
+    _opts.stats->rows_short_circuit_cond_filtered += original_size - selected_size;
 
     // evaluate delete condition
     original_size = selected_size;
@@ -1600,6 +1596,16 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
 }
 
 Status SegmentIterator::next_batch(vectorized::Block* block) {
+    Status st;
+    try {
+        st = _next_batch_internal(block);
+    } catch (const doris::Exception& e) {
+        st = Status::Error(e.code(), e.to_string());
+    }
+    return st;
+}
+
+Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     bool is_mem_reuse = block->mem_reuse();
     DCHECK(is_mem_reuse);
 
@@ -2000,7 +2006,7 @@ void SegmentIterator::_convert_dict_code_for_predicate_if_necessary() {
     }
 
     for (auto column_id : _delete_bloom_filter_column_ids) {
-        _current_return_columns[column_id].get()->generate_hash_values_for_runtime_filter();
+        _current_return_columns[column_id].get()->initialize_hash_values_for_runtime_filter();
     }
 }
 
@@ -2012,7 +2018,7 @@ void SegmentIterator::_convert_dict_code_for_predicate_if_necessary_impl(
     if (PredicateTypeTraits::is_range(predicate->type())) {
         col_ptr->convert_dict_codes_if_necessary();
     } else if (PredicateTypeTraits::is_bloom_filter(predicate->type())) {
-        col_ptr->generate_hash_values_for_runtime_filter();
+        col_ptr->initialize_hash_values_for_runtime_filter();
     }
 }
 

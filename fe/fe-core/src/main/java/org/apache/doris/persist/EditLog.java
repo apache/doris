@@ -890,9 +890,9 @@ public class EditLog {
                     env.getCatalogMgr().replayRefreshCatalog(log);
                     break;
                 }
-                case OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_COLUMNS: {
+                case OperationType.OP_MODIFY_TABLE_LIGHT_SCHEMA_CHANGE: {
                     final TableAddOrDropColumnsInfo info = (TableAddOrDropColumnsInfo) journal.getData();
-                    env.getSchemaChangeHandler().replayModifyTableAddOrDropColumns(info);
+                    env.getSchemaChangeHandler().replayModifyTableLightSchemaChange(info);
                     break;
                 }
                 case OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES: {
@@ -1737,7 +1737,7 @@ public class EditLog {
     }
 
     public void logModifyTableAddOrDropColumns(TableAddOrDropColumnsInfo info) {
-        logEdit(OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_COLUMNS, info);
+        logEdit(OperationType.OP_MODIFY_TABLE_LIGHT_SCHEMA_CHANGE, info);
     }
 
     public void logModifyTableAddOrDropInvertedIndices(TableAddOrDropInvertedIndicesInfo info) {

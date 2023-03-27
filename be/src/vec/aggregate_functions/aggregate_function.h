@@ -23,7 +23,6 @@
 #include <parallel_hashmap/phmap.h>
 
 #include "vec/columns/column_complex.h"
-#include "vec/common/exception.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/field.h"

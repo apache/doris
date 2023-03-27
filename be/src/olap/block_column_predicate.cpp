@@ -60,7 +60,7 @@ void SingleColumnBlockPredicate::evaluate_vec(vectorized::MutableColumns& block,
     if (PredicateTypeTraits::is_range(_predicate->type())) {
         column->convert_dict_codes_if_necessary();
     } else if (PredicateTypeTraits::is_bloom_filter(_predicate->type())) {
-        column->generate_hash_values_for_runtime_filter();
+        column->initialize_hash_values_for_runtime_filter();
     }
 
     _predicate->evaluate_vec(*column, size, flags);

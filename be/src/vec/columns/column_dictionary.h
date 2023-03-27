@@ -283,11 +283,11 @@ public:
         return _dict.find_code_by_bound(value, greater, eq);
     }
 
-    void generate_hash_values_for_runtime_filter() override {
-        _dict.generate_hash_values_for_runtime_filter(_type);
+    void initialize_hash_values_for_runtime_filter() override {
+        _dict.initialize_hash_values_for_runtime_filter();
     }
 
-    uint32_t get_hash_value(uint32_t idx) const { return _dict.get_hash_value(_codes[idx]); }
+    uint32_t get_hash_value(uint32_t idx) const { return _dict.get_hash_value(_codes[idx], _type); }
 
     void find_codes(const phmap::flat_hash_set<StringRef>& values,
                     std::vector<vectorized::UInt8>& selected) const {
@@ -363,31 +363,38 @@ public:
         inline const StringRef& get_value(T code) const { return (*_dict_data)[code]; }
 
         // The function is only used in the runtime filter feature
-        inline void generate_hash_values_for_runtime_filter(FieldType type) {
+        inline void initialize_hash_values_for_runtime_filter() {
             if (_hash_values.empty()) {
                 _hash_values.resize(_dict_data->size());
-                for (size_t i = 0; i < _dict_data->size(); i++) {
-                    auto& sv = (*_dict_data)[i];
-                    // The char data is stored in the disk with the schema length,
-                    // and zeros are filled if the length is insufficient
-
-                    // When reading data, use shrink_char_type_column_suffix_zero(_char_type_idx)
-                    // Remove the suffix 0
-                    // When writing data, use the CharField::consume function to fill in the trailing 0.
-
-                    // For dictionary data of char type, sv.size is the schema length,
-                    // so use strnlen to remove the 0 at the end to get the actual length.
-                    int32_t len = sv.size;
-                    if (type == OLAP_FIELD_TYPE_CHAR) {
-                        len = strnlen(sv.data, sv.size);
-                    }
-                    uint32_t hash_val = HashUtil::murmur_hash3_32(sv.data, len, 0);
-                    _hash_values[i] = hash_val;
-                }
+                _compute_hash_value_flags.resize(_dict_data->size());
+                _compute_hash_value_flags.assign(_dict_data->size(), 0);
             }
         }
 
-        inline uint32_t get_hash_value(T code) const { return _hash_values[code]; }
+        inline uint32_t get_hash_value(T code, FieldType type) const {
+            if (_compute_hash_value_flags[code]) {
+                return _hash_values[code];
+            } else {
+                auto& sv = (*_dict_data)[code];
+                // The char data is stored in the disk with the schema length,
+                // and zeros are filled if the length is insufficient
+
+                // When reading data, use shrink_char_type_column_suffix_zero(_char_type_idx)
+                // Remove the suffix 0
+                // When writing data, use the CharField::consume function to fill in the trailing 0.
+
+                // For dictionary data of char type, sv.size is the schema length,
+                // so use strnlen to remove the 0 at the end to get the actual length.
+                int32_t len = sv.size;
+                if (type == OLAP_FIELD_TYPE_CHAR) {
+                    len = strnlen(sv.data, sv.size);
+                }
+                uint32_t hash_val = HashUtil::murmur_hash3_32(sv.data, len, 0);
+                _hash_values[code] = hash_val;
+                _compute_hash_value_flags[code] = 1;
+                return _hash_values[code];
+            }
+        }
 
         // For > , code takes upper_bound - 1; For >= , code takes upper_bound
         // For < , code takes upper_bound; For <=, code takes upper_bound - 1
@@ -432,9 +439,13 @@ public:
             _dict_data->clear();
             _code_convert_table.clear();
             _hash_values.clear();
+            _compute_hash_value_flags.clear();
         }
 
-        void clear_hash_values() { _hash_values.clear(); }
+        void clear_hash_values() {
+            _hash_values.clear();
+            _compute_hash_value_flags.clear();
+        }
 
         void sort() {
             size_t dict_size = _dict_data->size();
@@ -504,7 +515,8 @@ public:
         // But in TPC-DS 1GB q60,we see no significant improvement.
         // This may because the magnitude of the data is not large enough(in q60, only about 80k rows data is filtered for largest table)
         // So we may need more test here.
-        HashValueContainer _hash_values;
+        mutable HashValueContainer _hash_values;
+        mutable std::vector<uint8> _compute_hash_value_flags;
         IColumn::Permutation _perm;
         size_t _total_str_len;
     };

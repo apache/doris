@@ -126,6 +126,9 @@ public class Function implements Writable {
     // library's checksum to make sure all backends use one library to serve user's request
     protected String checksum = "";
 
+    // If true, this function is global function
+    protected boolean isGlobal = false;
+
     // Only used for serialization
     protected Function() {
     }
@@ -144,7 +147,7 @@ public class Function implements Writable {
     }
 
     public Function(long id, FunctionName name, List<Type> argTypes, Type retType, boolean hasVarArgs,
-                    TFunctionBinaryType binaryType, boolean userVisible, boolean vectorized, NullableMode mode) {
+            TFunctionBinaryType binaryType, boolean userVisible, boolean vectorized, NullableMode mode) {
         this.id = id;
         this.name = name;
         this.hasVarArgs = hasVarArgs;
@@ -161,7 +164,7 @@ public class Function implements Writable {
     }
 
     public Function(long id, FunctionName name, List<Type> argTypes, Type retType,
-                    boolean hasVarArgs, boolean vectorized, NullableMode mode) {
+            boolean hasVarArgs, boolean vectorized, NullableMode mode) {
         this(id, name, argTypes, retType, hasVarArgs, TFunctionBinaryType.BUILTIN, true, vectorized, mode);
     }
 
@@ -272,6 +275,14 @@ public class Function implements Writable {
 
     public String getChecksum() {
         return checksum;
+    }
+
+    public boolean isGlobal() {
+        return isGlobal;
+    }
+
+    public void setGlobal(boolean global) {
+        isGlobal = global;
     }
 
     // TODO(cmy): Currently we judge whether it is UDF by wheter the 'location' is set.

@@ -480,3 +480,14 @@ set enable_odbc_transcation = true;
 7. 在使用JDBC查询过程中时，如果出现"CAUSED BY: SQLException OutOfMemoryError" 类似的错误
 
     如果MYSQL已经主动设置useCursorFetch，可以在be.conf中修改jvm_max_heap_size的值，尝试增大JVM的内存，目前默认值为1024M。
+
+8. 使用JDBC查询MYSQL大数据量时，如果查询偶尔能够成功，偶尔会报如下错误，且出现该错误时MYSQL的连接被全部断开，无法连接到MYSQL SERVER，过段时间后mysql又恢复正常，但是之前的连接都没了：
+
+    ```
+    ERROR 1105 (HY000): errCode = 2, detailMessage = [INTERNAL_ERROR]UdfRuntimeException: JDBC executor sql has error:
+    CAUSED BY: CommunicationsException: Communications link failure
+    The last packet successfully received from the server was 4,446 milliseconds ago. The last packet sent successfully to the server was 4,446 milliseconds ago.
+    ```
+
+    出现上述现象时，可能是Mysql Server自身的内存或CPU资源被耗尽导致Mysql服务不可用，可以尝试增大Mysql Server的内存或CPU配置。
+ 
