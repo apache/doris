@@ -94,6 +94,10 @@ public class AuditEvent {
     public String traceId = "";
     @AuditField(value = "FuzzyVariables")
     public String fuzzyVariables = "";
+    @AuditField(value = "SourceTable")
+    public String sourceTable = "";
+    @AuditField(value = "TargetTable")
+    public String targetTable = "";
 
     public static class AuditEventBuilder {
 
@@ -218,6 +222,16 @@ public class AuditEvent {
 
         public AuditEventBuilder setFuzzyVariables(String variables) {
             auditEvent.fuzzyVariables = variables;
+            return this;
+        }
+
+        public AuditEventBuilder setSourceTable(String sourceTable) {
+            auditEvent.sourceTable = sourceTable;
+            return this;
+        }
+
+        public AuditEventBuilder setTargetTable(String targetTable) {
+            auditEvent.targetTable = targetTable;
             return this;
         }
 

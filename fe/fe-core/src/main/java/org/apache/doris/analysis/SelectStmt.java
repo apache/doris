@@ -2617,4 +2617,8 @@ public class SelectStmt extends QueryStmt {
             return null;
         }
     }
+
+    public FromClause getFromClause() {
+        return this.fromClause;
+    }
 }
