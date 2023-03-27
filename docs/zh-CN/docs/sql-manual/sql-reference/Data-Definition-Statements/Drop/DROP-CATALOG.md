@@ -41,7 +41,7 @@ CREATE CATALOG
 语法：
 
 ```sql
-DROP CATALOG [I EXISTS] catalog_name;
+DROP CATALOG [IF EXISTS] catalog_name;
 ```
 
 ### Example
