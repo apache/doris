@@ -165,9 +165,6 @@ CONF_String(log_buffer_level, "");
 // number of threads available to serve backend execution requests
 CONF_Int32(be_service_threads, "64");
 
-// cgroups allocated for doris
-CONF_String(doris_cgroups, "");
-
 // Controls the number of threads to run work per core.  It's common to pick 2x
 // or 3x the number of cores.  This keeps the cores busy without causing excessive
 // thrashing.

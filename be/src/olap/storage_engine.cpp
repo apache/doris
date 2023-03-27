@@ -34,7 +34,6 @@
 #include <random>
 #include <set>
 
-#include "agent/cgroups_mgr.h"
 #include "agent/task_worker_pool.h"
 #include "env/env.h"
 #include "env/env_util.h"
