@@ -91,9 +91,9 @@ struct AggregationMethodSerialized {
             keys_memory_usage = _arena->size();
         } else {
             _arena.reset();
-            _serialize_key_arena.reset(new Arena());
             if (total_bytes > _serialized_key_buffer_size) {
                 _serialized_key_buffer_size = total_bytes;
+                _serialize_key_arena.reset(new Arena());
                 _serialized_key_buffer = reinterpret_cast<uint8_t*>(
                         _serialize_key_arena->alloc(_serialized_key_buffer_size));
             }
