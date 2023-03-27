@@ -80,20 +80,22 @@ struct AggregationMethodSerialized {
         }
         size_t total_bytes = max_one_row_byte_size * num_rows;
 
-        _arena.reset(new Arena());
         if (total_bytes > SERIALIZE_KEYS_MEM_LIMIT_IN_BYTES) {
             // reach mem limit, don't serialize in batch
             // for simplicity, we just create a new arena here.
+            _arena.reset(new Arena());
             size_t keys_size = key_columns.size();
             for (size_t i = 0; i < num_rows; ++i) {
                 keys[i] = serialize_keys_to_pool_contiguous(i, keys_size, key_columns, *_arena);
             }
             keys_memory_usage = _arena->size();
         } else {
+            _arena.reset();
+            _serialize_key_arena.reset(new Arena());
             if (total_bytes > _serialized_key_buffer_size) {
                 _serialized_key_buffer_size = total_bytes;
-                _serialized_key_buffer =
-                        reinterpret_cast<uint8_t*>(_arena->alloc(_serialized_key_buffer_size));
+                _serialized_key_buffer = reinterpret_cast<uint8_t*>(
+                        _serialize_key_arena->alloc(_serialized_key_buffer_size));
             }
 
             for (size_t i = 0; i < num_rows; ++i) {
@@ -135,6 +137,7 @@ struct AggregationMethodSerialized {
 private:
     size_t _serialized_key_buffer_size;
     uint8_t* _serialized_key_buffer;
+    std::unique_ptr<Arena> _serialize_key_arena;
     std::unique_ptr<Arena> _arena;
     static constexpr size_t SERIALIZE_KEYS_MEM_LIMIT_IN_BYTES = 16 * 1024 * 1024; // 16M
 };
