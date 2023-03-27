@@ -41,6 +41,7 @@ import org.apache.doris.nereids.types.DecimalV2Type;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -283,10 +284,10 @@ public class NereidsParserTest extends ParserTestBase {
         LogicalPlan logicalPlan2 = nereidsParser.parseSingle(union2);
         System.out.println(logicalPlan2.treeString());
 
-        String union3 = "select a.k1 k1, a.k2, a.k3, b.k1, b.k2, b.k3 from test a left outer join baseall b"
+        String union3 = "select a.k1, a.k2, a.k3, b.k1, b.k2, b.k3 from test a left outer join baseall b"
                 + " on a.k1 = b.k1 and a.k2 > b.k2 union (select a.k1, a.k2, a.k3, b.k1, b.k2, b.k3"
                 + " from test a right outer join baseall b on a.k1 = b.k1 and a.k2 > b.k2)"
-                + " order by isnull(k1), 1, 2, 3, 4, 5 limit 65535";
+                + " order by isnull(a.k1), 1, 2, 3, 4, 5 limit 65535";
         LogicalPlan logicalPlan3 = nereidsParser.parseSingle(union3);
         System.out.println(logicalPlan3.treeString());
     }
