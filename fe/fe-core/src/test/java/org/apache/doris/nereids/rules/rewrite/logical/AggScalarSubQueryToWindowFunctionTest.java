@@ -134,7 +134,7 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
                         + "            select 0.2 * avg(l_quantity)\n"
                         + "            from lineitem\n"
                         + "            where l_partkey = p_partkey\n"
-                        + "            and p_brand = 'Brand#23');",
+                        + "            and p_brand = 'Brand#24');",
                 "select sum(l_extendedprice) / 7.0 as avg_yearly\n"
                         + "    from lineitem, part\n"
                         + "    where\n"
