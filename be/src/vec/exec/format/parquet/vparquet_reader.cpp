@@ -167,21 +167,30 @@ void ParquetReader::close() {
 }
 
 Status ParquetReader::_open_file() {
+    LOG(INFO) << "yy debug 1";
     if (_file_reader == nullptr) {
+    LOG(INFO) << "yy debug 2";
         SCOPED_RAW_TIMER(&_statistics.open_file_time);
         ++_statistics.open_file_num;
         RETURN_IF_ERROR(FileFactory::create_file_reader(
                 _profile, _system_properties, _file_description, &_file_system, &_file_reader));
+    LOG(INFO) << "yy debug 3";
     }
+    LOG(INFO) << "yy debug 4";
     if (_file_metadata == nullptr) {
+    // LOG(INFO) << "yy debug 5: file size: " << _file_reader->size();
         SCOPED_RAW_TIMER(&_statistics.parse_footer_time);
         if (_file_reader->size() == 0) {
+    LOG(INFO) << "yy debug 6";
             return Status::EndOfFile("open file failed, empty parquet file: " + _scan_range.path);
         }
+    LOG(INFO) << "yy debug 7";
         if (_kv_cache == nullptr) {
+    LOG(INFO) << "yy debug 8";
             _is_file_metadata_owned = true;
             RETURN_IF_ERROR(parse_thrift_footer(_file_reader, &_file_metadata));
         } else {
+    LOG(INFO) << "yy debug 9";
             _is_file_metadata_owned = false;
             _file_metadata = _kv_cache->get<FileMetaData>(
                     _meta_cache_key(_file_reader->path()), [&]() -> FileMetaData* {
@@ -194,9 +203,12 @@ Status ParquetReader::_open_file() {
                         }
                         return meta;
                     });
+    LOG(INFO) << "yy debug 10";
         }
 
+    LOG(INFO) << "yy debug 11";
         if (_file_metadata == nullptr) {
+    LOG(INFO) << "yy debug 12";
             return Status::InternalError("failed to get file meta data: {}",
                                          _file_description.path);
         }
@@ -230,6 +242,7 @@ void ParquetReader::_init_file_description() {
     _file_description.path = _scan_range.path;
     _file_description.start_offset = _scan_range.start_offset;
     _file_description.file_size = _scan_range.__isset.file_size ? _scan_range.file_size : 0;
+    LOG(INFO) << "yy debug _file_description.file_size: " << _scan_range.file_size;
 }
 
 Status ParquetReader::init_reader(

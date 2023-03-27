@@ -874,8 +874,6 @@ CONF_Int32(segcompaction_threshold_segment_num, "10");
 // The segment whose row number above the threshold will be compacted during segcompaction
 CONF_Int32(segcompaction_small_threshold, "1048576");
 
-CONF_String(jvm_max_heap_size, "1024M");
-
 // enable java udf and jdbc scannode
 CONF_Bool(enable_java_support, "true");
 

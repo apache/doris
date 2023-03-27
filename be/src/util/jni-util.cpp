@@ -37,10 +37,10 @@ namespace doris {
 
 namespace {
 JavaVM* g_vm;
-std::once_flag g_vm_once;
+[[maybe_unused]] std::once_flag g_vm_once;
 
 const std::string GetDorisJNIClasspath() {
-    const auto* classpath = getenv("DORIS_JNI_CLASSPATH_PARAMETER");
+    const auto* classpath = getenv("DORIS_CLASSPATH");
     if (classpath) {
         return classpath;
     } else {
@@ -66,12 +66,13 @@ const std::string GetDorisJNIClasspath() {
     }
 }
 
-void FindOrCreateJavaVM() {
+// Only used on non-x86 platform
+[[maybe_unused]] void FindOrCreateJavaVM() {
     int num_vms;
     int rv = LibJVMLoader::JNI_GetCreatedJavaVMs(&g_vm, 1, &num_vms);
     if (rv == 0) {
         auto classpath = GetDorisJNIClasspath();
-        std::string heap_size = fmt::format("-Xmx{}", config::jvm_max_heap_size);
+        std::string heap_size = fmt::format("-Xmx{}", "1024m");
         std::string log_path = fmt::format("-DlogPath={}/log/udf-jdbc.log", getenv("DORIS_HOME"));
         std::string jvm_name = fmt::format("-Dsun.java.command={}", "DorisBE");
 
@@ -152,6 +153,7 @@ Status JniLocalFrame::push(JNIEnv* env, int max_local_ref) {
 Status JniUtil::GetJNIEnvSlowPath(JNIEnv** env) {
     DCHECK(!tls_env_) << "Call GetJNIEnv() fast path";
 
+#ifdef USE_LIBHDFS3
     std::call_once(g_vm_once, FindOrCreateJavaVM);
     int rc = g_vm->GetEnv(reinterpret_cast<void**>(&tls_env_), JNI_VERSION_1_8);
     if (rc == JNI_EDETACHED) {
@@ -160,6 +162,10 @@ Status JniUtil::GetJNIEnvSlowPath(JNIEnv** env) {
     if (rc != 0 || tls_env_ == nullptr) {
         return Status::InternalError("Unable to get JVM: {}", rc);
     }
+#else
+    // the hadoop libhdfs will do all the stuff
+    tls_env_ = getJNIEnv();
+#endif
     *env = tls_env_;
     return Status::OK();
 }
@@ -219,7 +225,9 @@ Status JniUtil::LocalToGlobalRef(JNIEnv* env, jobject local_ref, jobject* global
 }
 
 Status JniUtil::Init() {
+#ifdef USE_LIBHDFS3
     RETURN_IF_ERROR(LibJVMLoader::instance().load());
+#endif
 
     // Get the JNIEnv* corresponding to current thread.
     JNIEnv* env;

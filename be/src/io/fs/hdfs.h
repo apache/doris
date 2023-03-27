@@ -17,33 +17,8 @@
 
 #pragma once
 
-#include <map>
-#include <memory>
-#include <string>
-
-#include "common/status.h"
-#include "io/fs/hdfs.h"
-#include "io/fs/path.h"
-#include "io/hdfs_builder.h"
-
-namespace doris {
-namespace io {
-
-class HDFSHandle {
-public:
-    ~HDFSHandle() {}
-
-    static HDFSHandle& instance();
-
-    hdfsFS create_hdfs_fs(HDFSCommonBuilder& builder);
-
-private:
-    HDFSHandle() {}
-};
-
-// if the format of path is hdfs://ip:port/path, replace it to /path.
-// path like hdfs://ip:port/path can't be used by libhdfs3.
-Path convert_path(const Path& path, const std::string& namenode);
-
-} // namespace io
-} // namespace doris
+#if defined(__x86_64__)
+#include <hadoop_hdfs/hdfs.h>
+#else
+#include <hdfs/hdfs.h>
+#endif
