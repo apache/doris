@@ -271,7 +271,6 @@ public class MetadataGenerator {
             } else {
                 trow.addToColumnValue(new TCell().setStringVal(backend.getIp()));
             }
-            trow.addToColumnValue(new TCell().setStringVal(backend.getHostName()));
             if (Strings.isNullOrEmpty(backendsParam.cluster_name)) {
                 trow.addToColumnValue(new TCell().setIntVal(backend.getHeartbeatPort()));
                 trow.addToColumnValue(new TCell().setIntVal(backend.getBePort()));
