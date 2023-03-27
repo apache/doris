@@ -592,6 +592,26 @@ Status VNestedLoopJoinNode::_do_filtering_and_update_visited_flags(Block* block,
                     block, column_to_keep, build_block_idx, processed_blocks_num, materialize,
                     filter);
         }
+    } else if (block->rows() > 0) {
+        if constexpr (SetBuildSideFlag) {
+            for (size_t i = 0; i < processed_blocks_num; i++) {
+                auto& build_side_flag =
+                        assert_cast<ColumnUInt8*>(_build_side_visited_flags[build_block_idx].get())
+                                ->get_data();
+                auto* __restrict build_side_flag_data = build_side_flag.data();
+                auto cur_sz = build_side_flag.size();
+                _offset_stack.pop();
+                memset(reinterpret_cast<void*>(build_side_flag_data), 1, cur_sz);
+                build_block_idx =
+                        build_block_idx == 0 ? _build_blocks.size() - 1 : build_block_idx - 1;
+            }
+        }
+        if constexpr (SetProbeSideFlag) {
+            _cur_probe_row_visited_flags = true;
+        }
+        if (!materialize) {
+            CLEAR_BLOCK
+        }
     }
     Block::erase_useless_column(block, column_to_keep);
     return Status::OK();
