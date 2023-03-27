@@ -123,7 +123,7 @@ if [[ -z "${PARALLEL}" ]]; then
     PARALLEL="$(($(nproc) / 5 + 1))"
 fi
 
-CMAKE_BUILD_TYPE="${BUILD_TYPE:-ASAN}"
+CMAKE_BUILD_TYPE="${BUILD_TYPE_UT:-ASAN}"
 CMAKE_BUILD_TYPE="$(echo "${CMAKE_BUILD_TYPE}" | awk '{ print(toupper($0)) }')"
 
 echo "Get params:
