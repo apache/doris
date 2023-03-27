@@ -387,6 +387,7 @@
                                 "sql-manual/sql-functions/spatial-functions/st_y",
                                 "sql-manual/sql-functions/spatial-functions/st_circle",
                                 "sql-manual/sql-functions/spatial-functions/st_distance_sphere",
+                                "sql-manual/sql-functions/spatial-functions/st_angle_sphere",
                                 "sql-manual/sql-functions/spatial-functions/st_point",
                                 "sql-manual/sql-functions/spatial-functions/st_polygon",
                                 "sql-manual/sql-functions/spatial-functions/st_astext",
