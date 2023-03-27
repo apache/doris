@@ -84,14 +84,14 @@ Status VerticalBetaRowsetWriter::add_columns(const vectorized::Block* block,
         // init if it's first value column write in current segment
         if (_cur_writer_idx == 0 && num_rows_written == 0) {
             VLOG_NOTICE << "init first value column segment writer";
-            RETURN_IF_ERROR(_segment_writers[_cur_writer_idx]->init(col_ids, is_key));
+            RETURN_IF_ERROR(_segment_writers[_cur_writer_idx]->init(col_ids, is_key, nullptr));
         }
         if (num_rows_written > max_rows_per_segment) {
             RETURN_IF_ERROR(_flush_columns(&_segment_writers[_cur_writer_idx]));
             // switch to next writer
             ++_cur_writer_idx;
             VLOG_NOTICE << "init next value column segment writer: " << _cur_writer_idx;
-            RETURN_IF_ERROR(_segment_writers[_cur_writer_idx]->init(col_ids, is_key));
+            RETURN_IF_ERROR(_segment_writers[_cur_writer_idx]->init(col_ids, is_key, nullptr));
         }
         RETURN_IF_ERROR(_segment_writers[_cur_writer_idx]->append_block(block, 0, num_rows));
     }
@@ -160,7 +160,7 @@ Status VerticalBetaRowsetWriter::_create_segment_writer(
         _file_writers.push_back(std::move(file_writer));
     }
 
-    auto s = (*writer)->init(column_ids, is_key);
+    auto s = (*writer)->init(column_ids, is_key, nullptr);
     if (!s.ok()) {
         LOG(WARNING) << "failed to init segment writer: " << s.to_string();
         writer->reset(nullptr);

@@ -40,7 +40,6 @@
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
-#include "vec/common/schema_util.h" // LocalSchemaChangeRecorder
 #include "vec/jsonb/serialize.h"
 
 namespace doris {
@@ -207,7 +206,7 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
         std::vector<uint32_t> column_ids = column_groups[i];
 
         writer->clear();
-        writer->init(column_ids, is_key);
+        writer->init(column_ids, is_key, nullptr);
         auto schema = std::make_shared<Schema>(ctx.tablet_schema->columns(), column_ids);
         OlapReaderStatistics reader_stats;
         std::unique_ptr<vectorized::VerticalBlockReader> reader;

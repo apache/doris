@@ -31,11 +31,13 @@
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/HeartbeatService_types.h"
 #include "olap/rowset/rowset_writer_context.h"
+#include "olap/utils.h"
 #include "runtime/client_cache.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "util/thrift_rpc_helper.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/columns/columns_number.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -312,6 +314,11 @@ void unfold_object(size_t dynamic_col_position, Block& block, bool cast_to_origi
 
     // extract columns from dynamic column
     for (auto& subcolumn : column_object_ptr->get_subcolumns()) {
+        // Remove nullable if hidden columns
+        if (subcolumn->path.get_path() == DELETE_SIGN ||
+            subcolumn->path.get_path() == VERSION_COL) {
+            subcolumn->data.remove_nullable();
+        }
         subcolumns.push_back(subcolumn->data.get_finalized_column().get_ptr());
         types.push_back(subcolumn->data.get_least_common_type());
         names.push_back(subcolumn->path.get_path());
@@ -349,38 +356,6 @@ void unfold_object(size_t dynamic_col_position, Block& block, bool cast_to_origi
             entry.column->assume_mutable()->insert_many_defaults(num_rows - entry.column->size());
         }
     }
-}
-
-void LocalSchemaChangeRecorder::add_extended_columns(const TabletColumn& new_column,
-                                                     int32_t schema_version) {
-    std::lock_guard<std::mutex> lock(_lock);
-    _schema_version = std::max(_schema_version, schema_version);
-    auto it = _extended_columns.find(new_column.name());
-    if (it != _extended_columns.end()) {
-        return;
-    }
-    _extended_columns.emplace_hint(it, new_column.name(), new_column);
-}
-
-bool LocalSchemaChangeRecorder::has_extended_columns() {
-    std::lock_guard<std::mutex> lock(_lock);
-    return !_extended_columns.empty();
-}
-
-std::map<std::string, TabletColumn> LocalSchemaChangeRecorder::copy_extended_columns() {
-    std::lock_guard<std::mutex> lock(_lock);
-    return _extended_columns;
-}
-
-const TabletColumn& LocalSchemaChangeRecorder::column(const std::string& col_name) {
-    std::lock_guard<std::mutex> lock(_lock);
-    assert(_extended_columns.find(col_name) != _extended_columns.end());
-    return _extended_columns[col_name];
-}
-
-int32_t LocalSchemaChangeRecorder::schema_version() {
-    std::lock_guard<std::mutex> lock(_lock);
-    return _schema_version;
 }
 
 } // namespace doris::vectorized::schema_util

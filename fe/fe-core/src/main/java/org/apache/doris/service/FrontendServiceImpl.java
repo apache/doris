@@ -380,15 +380,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 // prepare columnDefs
                 for (TColumnDef tColumnDef : addColumns) {
                     if (request.isAllowTypeConflict()) {
-                        // ignore column with same name
-                        boolean hasSameNameColumn = false;
-                        for (Column column : olapTable.getBaseSchema()) {
-                            if (column.getName().equalsIgnoreCase(tColumnDef.getColumnDesc().getColumnName())) {
-                                hasSameNameColumn = true;
-                            }
-                        }
-                        // ignore this column
-                        if (hasSameNameColumn) {
+                        String targetColName = tColumnDef.getColumnDesc().getColumnName();
+                        // ignore duplicated columns
+                        if (olapTable.getBaseSchema(true /*show hidden columns*/).stream().anyMatch(
+                                column -> column.getName().equalsIgnoreCase(targetColName))) {
                             continue;
                         }
                     }

@@ -750,7 +750,21 @@ public class Load {
         }
 
         // add a implict container column "DORIS_DYNAMIC_COL" for dynamic columns
-        if (tbl instanceof OlapTable && ((OlapTable) tbl).isDynamicSchema()) {
+        if (tbl instanceof OlapTable && ((OlapTable) tbl).isDynamicSchema()
+                    && !slotDescByName.containsKey(Column.DYNAMIC_COLUMN_NAME)) {
+            // Add DELETE_SIGN and SEQUENCE_COL col
+            OlapTable olapTable = (OlapTable) tbl;
+            if (olapTable.hasDeleteSign()) {
+                SlotDescriptor deleteSignSlotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
+                deleteSignSlotDesc.setColumn(olapTable.getDeleteSignColumn());
+                deleteSignSlotDesc.setIsNullable(false);
+                deleteSignSlotDesc.setNullIndicatorBit(-1);
+                deleteSignSlotDesc.setNullIndicatorByte(0);
+                deleteSignSlotDesc.setIsMaterialized(true);
+                slotDescByName.put(Column.DELETE_SIGN, deleteSignSlotDesc);
+                LOG.debug("add delete sign column to srcTupleDesc id:{}", deleteSignSlotDesc.getId().asInt());
+            }
+
             analyzer.getDescTbl().addReferencedTable(tbl);
             SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
             String name = Column.DYNAMIC_COLUMN_NAME;

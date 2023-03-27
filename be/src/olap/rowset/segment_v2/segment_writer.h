@@ -25,6 +25,7 @@
 #include "common/status.h" // Status
 #include "gen_cpp/segment_v2.pb.h"
 #include "gutil/macros.h"
+#include "olap/rowset/rowset_writer.h"
 #include "olap/tablet_schema.h"
 #include "util/faststring.h"
 #include "vec/core/block.h"
@@ -75,11 +76,10 @@ public:
                            uint32_t max_row_per_segment, const SegmentWriterOptions& opts);
     ~SegmentWriter();
 
-    Status init(const vectorized::Block* block = nullptr);
+    Status init(const FlushContext* flush_ctx);
 
     // for vertical compaction
-    Status init(const std::vector<uint32_t>& col_ids, bool has_key,
-                const vectorized::Block* block = nullptr);
+    Status init(const std::vector<uint32_t>& col_ids, bool has_key, const FlushContext* flush_ctx);
 
     template <typename RowType>
     Status append_row(const RowType& row);
@@ -115,10 +115,8 @@ public:
     void clear();
 
 private:
-    Status _create_writers_with_dynamic_block(
-            const vectorized::Block* block,
-            std::function<Status(uint32_t, const TabletColumn&)> writer_creator);
-    Status _create_writers(std::function<Status(uint32_t, const TabletColumn&)> writer_creator);
+    Status _create_writers(const TabletSchema& tablet_schema, const std::vector<uint32_t>& col_ids,
+                           std::function<Status(uint32_t, const TabletColumn&)> writer_creator);
     DISALLOW_COPY_AND_ASSIGN(SegmentWriter);
     Status _write_data();
     Status _write_ordinal_index();

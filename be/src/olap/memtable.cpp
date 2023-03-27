@@ -17,18 +17,24 @@
 
 #include "olap/memtable.h"
 
+#include <memory>
+
 #include "common/logging.h"
 #include "olap/rowset/beta_rowset.h"
+#include "olap/rowset/beta_rowset_writer.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/schema.h"
 #include "olap/schema_change.h"
+#include "olap/tablet_schema.h"
 #include "runtime/load_channel_mgr.h"
 #include "util/doris_metrics.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column_object.h"
+#include "vec/common/schema_util.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/core/field.h"
+#include "vec/data_types/data_type_factory.hpp"
 #include "vec/jsonb/serialize.h"
 
 namespace doris {
@@ -97,12 +103,22 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
             function = _tablet_schema->column(cid).get_aggregate_function(
                     {block->get_data_type(cid)}, vectorized::AGG_LOAD_SUFFIX);
         }
-
         DCHECK(function != nullptr);
         _agg_functions[cid] = function;
     }
 
-    for (uint32_t cid = _schema->num_key_columns(); cid < _schema->num_columns(); ++cid) {
+    if (_tablet_schema->is_dynamic_schema() && _keys_type == KeysType::UNIQUE_KEYS) {
+        // Handle the extra dynamic column,only replace_load for it
+        auto function = vectorized::AggregateFunctionSimpleFactory::instance().get(
+                "replace_load", {block->get_data_types().back()},
+                block->get_data_types().back()->is_nullable());
+        DCHECK(function != nullptr);
+        _offsets_of_aggregate_states.resize(block->columns());
+        _agg_functions.resize(block->columns());
+        _agg_functions.back() = function;
+    }
+
+    for (uint32_t cid = _schema->num_key_columns(); cid < _agg_functions.size(); ++cid) {
         _offsets_of_aggregate_states[cid] = _total_size_of_aggregate_states;
         _total_size_of_aggregate_states += _agg_functions[cid]->size_of_data();
 
@@ -125,7 +141,7 @@ MemTable::~MemTable() {
         for (it.SeekToFirst(); it.Valid(); it.Next()) {
             // We should release agg_places here, because they are not released when a
             // load is canceled.
-            for (size_t i = _schema->num_key_columns(); i < _schema->num_columns(); ++i) {
+            for (size_t i = _schema->num_key_columns(); i < _agg_functions.size(); ++i) {
                 auto function = _agg_functions[i];
                 DCHECK(function != nullptr);
                 DCHECK(it.key()->agg_places(i) != nullptr);
@@ -179,6 +195,7 @@ void MemTable::insert(const vectorized::Block* input_block, const std::vector<in
     } else {
         _input_mutable_block.add_rows(&target_block, row_idxs.data(), row_idxs.data() + num_rows);
     }
+
     size_t input_size = target_block.allocated_bytes() * num_rows / target_block.rows();
     _mem_usage += input_size;
     _insert_mem_tracker->consume(input_size);
@@ -206,7 +223,7 @@ void MemTable::_insert_one_row_from_block(RowInBlock* row_in_block) {
         row_in_block->init_agg_places(
                 (char*)_table_mem_pool->allocate_aligned(_total_size_of_aggregate_states, 16),
                 _offsets_of_aggregate_states.data());
-        for (auto cid = _schema->num_key_columns(); cid < _schema->num_columns(); cid++) {
+        for (auto cid = _schema->num_key_columns(); cid < _agg_functions.size(); cid++) {
             auto col_ptr = _input_mutable_block.mutable_columns()[cid].get();
             auto data = row_in_block->agg_places(cid);
             _agg_functions[cid]->create(data);
@@ -233,7 +250,7 @@ void MemTable::_aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_
         row_in_skiplist->_row_pos = new_row->_row_pos;
     }
     // dst is non-sequence row, or dst sequence is smaller
-    for (uint32_t cid = _schema->num_key_columns(); cid < _schema->num_columns(); ++cid) {
+    for (uint32_t cid = _schema->num_key_columns(); cid < _agg_functions.size(); ++cid) {
         auto col_ptr = _input_mutable_block.mutable_columns()[cid].get();
         _agg_functions[cid]->add(row_in_skiplist->agg_places(cid),
                                  const_cast<const doris::vectorized::IColumn**>(&col_ptr),
@@ -263,7 +280,7 @@ void MemTable::_collect_vskiplist_results() {
                         *block_data[i].column.get(), it.key()->_row_pos);
             }
             // get value columns from agg_places
-            for (size_t i = _schema->num_key_columns(); i < _schema->num_columns(); ++i) {
+            for (size_t i = _schema->num_key_columns(); i < _agg_functions.size(); ++i) {
                 auto function = _agg_functions[i];
                 auto agg_place = it.key()->agg_places(i);
                 auto col_ptr = _output_mutable_block.get_column_by_position(i).get();
@@ -375,15 +392,16 @@ Status MemTable::_do_flush(int64_t& duration_ns) {
     SCOPED_RAW_TIMER(&duration_ns);
     _collect_vskiplist_results<true>();
     vectorized::Block block = _output_mutable_block.to_block();
+    FlushContext ctx;
     if (_tablet_schema->store_row_column()) {
         // convert block to row store format
         serialize_block_to_row_column(block);
     }
     if (_tablet_schema->is_dynamic_schema()) {
         // Unfold variant column
-        unfold_variant_column(block);
+        RETURN_IF_ERROR(unfold_variant_column(block, &ctx));
     }
-    RETURN_NOT_OK(_rowset_writer->flush_single_memtable(&block, &_flush_size));
+    RETURN_NOT_OK(_rowset_writer->flush_single_memtable(&block, &_flush_size, ctx));
     return Status::OK();
 }
 
@@ -391,24 +409,66 @@ Status MemTable::close() {
     return flush();
 }
 
-void MemTable::unfold_variant_column(vectorized::Block& block) {
+Status MemTable::unfold_variant_column(vectorized::Block& block, FlushContext* ctx) {
     if (block.rows() == 0) {
-        return;
+        return Status::OK();
     }
-    vectorized::ColumnWithTypeAndName variant_column =
-            block.get_by_name(BeConsts::DYNAMIC_COLUMN_NAME);
-    // remove it
-    block.erase(BeConsts::DYNAMIC_COLUMN_NAME);
+
+    // Sanitize block to match exactly from the same type of frontend meta
+    vectorized::schema_util::FullBaseSchemaView schema_view;
+    schema_view.table_id = _tablet_schema->table_id();
+    vectorized::ColumnWithTypeAndName* variant_column =
+            block.try_get_by_name(BeConsts::DYNAMIC_COLUMN_NAME);
+    if (!variant_column) {
+        return Status::OK();
+    }
+    auto base_column = variant_column->column;
     vectorized::ColumnObject& object_column =
-            assert_cast<vectorized::ColumnObject&>(variant_column.column->assume_mutable_ref());
-    // extend
+            assert_cast<vectorized::ColumnObject&>(base_column->assume_mutable_ref());
+    if (object_column.empty()) {
+        block.erase(BeConsts::DYNAMIC_COLUMN_NAME);
+        return Status::OK();
+    }
+    object_column.finalize();
+    // Has extended columns
+    RETURN_IF_ERROR(vectorized::schema_util::send_fetch_full_base_schema_view_rpc(&schema_view));
+    // Dynamic Block consists of two parts, dynamic part of columns and static part of columns
+    //  static   dynamic
+    // | ----- | ------- |
+    // The static ones are original _tablet_schame columns
+    TabletSchemaSPtr flush_schema = std::make_shared<TabletSchema>(*_tablet_schema);
+    vectorized::Block flush_block(std::move(block));
+    // The dynamic ones are auto generated and extended, append them the the orig_block
     for (auto& entry : object_column.get_subcolumns()) {
-        if (entry->path.get_path() == vectorized::ColumnObject::COLUMN_NAME_DUMMY) {
+        const std::string& column_name = entry->path.get_path();
+        auto column_iter = schema_view.column_name_to_column.find(column_name);
+        if (UNLIKELY(column_iter == schema_view.column_name_to_column.end())) {
+            // Column maybe dropped by light weight schema change DDL
             continue;
         }
-        block.insert({entry->data.get_finalized_column().get_ptr(),
-                      entry->data.get_least_common_type(), entry->path.get_path()});
+        TabletColumn column(column_iter->second);
+        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
+                column, column.is_nullable());
+        // Dynamic generated columns does not appear in original tablet schema
+        if (!flush_block.has(column.name())) {
+            flush_schema->append_column(column);
+            flush_block.insert({data_type->create_column(), data_type, column.name()});
+        }
     }
+    // Schema version updated, update currently flush_schema as final schema
+    if (schema_view.schema_version > _tablet_schema->schema_version()) {
+        flush_schema->set_schema_version(schema_view.schema_version);
+        _tablet->update_max_version_schema(flush_schema);
+    }
+    // Last schema alignment before flush to disk, due to the schema maybe variant before this procedure
+    // Eg. add columnA(INT) -> drop ColumnA -> add ColumnA(Double), then columnA could be type of `Double`,
+    // unfold will cast to Double type
+    vectorized::schema_util::unfold_object(
+            flush_block.get_position_by_name(BeConsts::DYNAMIC_COLUMN_NAME), flush_block, true);
+    flush_block.erase(BeConsts::DYNAMIC_COLUMN_NAME);
+    ctx->flush_schema = flush_schema;
+    block.swap(flush_block);
+    return Status::OK();
 }
 
 void MemTable::serialize_block_to_row_column(vectorized::Block& block) {

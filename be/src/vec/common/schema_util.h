@@ -28,10 +28,6 @@
 #include "runtime/descriptors.h"
 #include "vec/data_types/data_type.h"
 
-namespace doris {
-class LocalSchemaChangeRecorder;
-}
-
 namespace doris::vectorized::schema_util {
 /// Returns number of dimensions in Array type. 0 if type is not array.
 size_t get_number_of_dimensions(const IDataType& type);
@@ -61,16 +57,6 @@ void unfold_object(size_t dynamic_col_position, Block& block, bool cast_to_origi
 bool is_conversion_required_between_integers(const IDataType& lhs, const IDataType& rhs);
 bool is_conversion_required_between_integers(FieldType lhs, FieldType rhs);
 
-// Align block schema with tablet schema
-// eg.
-// Block:   col1(int), col2(string)
-// Schema:  col1(double), col3(date)
-// 1. col1(int) in block which type missmatch with schema col1 will be converted to double
-// 2. col2 in block which missing in current schema will launch a schema change rpc
-// 3. col3 in schema which missing in block will be ignored
-// After schema changed, schame change history will add new columns
-Status align_block_with_schema(const TabletSchema& schema, int64_t table_id /*for schema change*/,
-                               Block& block, LocalSchemaChangeRecorder* history);
 // record base schema column infos
 // maybe use col_unique_id as key in the future
 // but for dynamic table, column name if ok
@@ -88,20 +74,5 @@ Status send_add_columns_rpc(ColumnsWithTypeAndName column_type_names,
                             FullBaseSchemaView* schema_view);
 
 Status send_fetch_full_base_schema_view_rpc(FullBaseSchemaView* schema_view);
-
-// For tracking local schema change during load procedure
-class LocalSchemaChangeRecorder {
-public:
-    void add_extended_columns(const TabletColumn& new_column, int32_t schema_version);
-    bool has_extended_columns();
-    std::map<std::string, TabletColumn> copy_extended_columns();
-    const TabletColumn& column(const std::string& col_name);
-    int32_t schema_version();
-
-private:
-    std::mutex _lock;
-    int32_t _schema_version = -1;
-    std::map<std::string, TabletColumn> _extended_columns;
-};
 
 } // namespace  doris::vectorized::schema_util

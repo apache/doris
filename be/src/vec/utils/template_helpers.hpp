@@ -25,6 +25,7 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_map.h"
+#include "vec/columns/column_object.h"
 #include "vec/columns/column_struct.h"
 #include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type.h"
@@ -61,7 +62,8 @@
     M(Map, ColumnMap)                  \
     M(Struct, ColumnStruct)            \
     M(BitMap, ColumnBitmap)            \
-    M(HLL, ColumnHLL)
+    M(HLL, ColumnHLL)                  \
+    M(VARIANT, ColumnObject)
 
 #define TYPE_TO_BASIC_COLUMN_TYPE(M) \
     NUMERIC_TYPE_TO_COLUMN_TYPE(M)   \

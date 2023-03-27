@@ -117,7 +117,7 @@ protected:
         DataDir data_dir(kSegmentDir);
         data_dir.init();
         SegmentWriter writer(file_writer.get(), 0, build_schema, &data_dir, INT32_MAX, opts);
-        st = writer.init();
+        st = writer.init(nullptr);
         EXPECT_TRUE(st.ok());
 
         RowCursor row;

@@ -23,11 +23,17 @@
 #include "olap/column_mapping.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_writer_context.h"
+#include "olap/tablet_schema.h"
 #include "vec/core/block.h"
 
 namespace doris {
 
 class MemTable;
+
+// Context for single memtable flush
+struct FlushContext {
+    TabletSchemaSPtr flush_schema;
+};
 
 class RowsetWriter {
 public:
@@ -58,7 +64,8 @@ public:
     }
     virtual Status final_flush() { return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(); }
 
-    virtual Status flush_single_memtable(const vectorized::Block* block, int64_t* flush_size) {
+    virtual Status flush_single_memtable(const vectorized::Block* block, int64_t* flush_size,
+                                         const FlushContext& flush_ctx) {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
     }
 

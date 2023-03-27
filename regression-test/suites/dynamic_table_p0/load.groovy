@@ -28,7 +28,7 @@ suite("regression_test_dynamic_table", "dynamic_table"){
             set 'format', format_flag
             set 'read_json_by_line', read_flag
             if (rand_id) {
-                set 'columns', 'id= rand() * 100000'
+                set 'columns', 'id= rand() * 100'
             }
 
             file file_name // import json file
@@ -67,7 +67,7 @@ suite("regression_test_dynamic_table", "dynamic_table"){
                 ...
             )
             DUPLICATE KEY(`id`)
-            DISTRIBUTED BY RANDOM BUCKETS 5 
+            DISTRIBUTED BY HASH(id) BUCKETS 5 
             properties("replication_num" = "1");
         """
 
@@ -123,8 +123,9 @@ suite("regression_test_dynamic_table", "dynamic_table"){
     json_load_unique("btc_transactions.json", "test_btc_json")
     json_load_unique("ghdata_sample.json", "test_ghdata_json")
     json_load_unique("nbagames_sample.json", "test_nbagames_json")
-    // sql """insert into test_ghdata_json_unique select * from test_ghdata_json_unique"""
-    // sql """insert into test_btc_json_unique select * from test_btc_json_unique"""
+    json_load_unique("unique_delete_sign.json", "test_delete_sign");
+    sql """insert into test_ghdata_json_unique select * from test_ghdata_json_unique"""
+    sql """insert into test_btc_json_unique select * from test_btc_json_unique"""
 
     // load more
     table_name = "gharchive";

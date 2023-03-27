@@ -1,0 +1,12 @@
+{"name":"lisi","age":11,"__DORIS_DELETE_SIGN__":1}
+{"name":"lisi","age":11,"__DORIS_DELETE_SIGN__":0}
+{"name":"lisix","age":11, "height": 185, "__DORIS_DELETE_SIGN__":0}
+{"name":"lisixx","age":11, "city": "shanghai", "__DORIS_DELETE_SIGN__":0}
+{"name":"lisix1","age":11, "ratio": 1.2889191111, "__DORIS_DELETE_SIGN__":0}
+{"name":"lisix","age":11, "ratio": 1.2889191111, "__DORIS_DELETE_SIGN__":0}
+{"name":"lisix11","age":11, "ratio": 1.1889191111, "__DORIS_DELETE_SIGN__":1}
+{"name":"lisix12","age":11, "ratio": 1.2889191111, "__DORIS_DELETE_SIGN__":1}
+{"name":"lisix14","age":11, "ratio": 1.3889191111, "__ORIS_DELETE_SIGN__":1}
+{"name":"lisix15","age":11, "ratio": 1.4889191111, "__DORIS_DELETE_IGN__":1}
+{"name":"lisix16","age":11, "ratio": 1.5889191111}
+

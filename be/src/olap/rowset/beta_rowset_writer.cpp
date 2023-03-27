@@ -32,6 +32,7 @@
 #include "olap/row_cursor.h" // RowCursor
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_factory.h"
+#include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/segment_writer.h"
@@ -39,7 +40,6 @@
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "segcompaction.h"
-#include "vec/common/schema_util.h" // LocalSchemaChangeRecorder
 #include "vec/jsonb/serialize.h"
 
 namespace doris {
@@ -110,9 +110,6 @@ Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) 
     }
     _rowset_meta->set_tablet_uid(_context.tablet_uid);
     _rowset_meta->set_tablet_schema(_context.tablet_schema);
-    _context.schema_change_recorder =
-            std::make_shared<vectorized::schema_util::LocalSchemaChangeRecorder>();
-
     return Status::OK();
 }
 
@@ -121,7 +118,7 @@ Status BetaRowsetWriter::add_block(const vectorized::Block* block) {
         return Status::OK();
     }
     if (UNLIKELY(_segment_writer == nullptr)) {
-        RETURN_NOT_OK(_create_segment_writer(&_segment_writer, block));
+        RETURN_NOT_OK(_create_segment_writer(&_segment_writer, nullptr));
     }
     return _add_block(block, &_segment_writer);
 }
@@ -394,7 +391,8 @@ Status BetaRowsetWriter::_segcompaction_ramaining_if_necessary() {
 }
 
 Status BetaRowsetWriter::_add_block(const vectorized::Block* block,
-                                    std::unique_ptr<segment_v2::SegmentWriter>* segment_writer) {
+                                    std::unique_ptr<segment_v2::SegmentWriter>* segment_writer,
+                                    const FlushContext* flush_ctx) {
     size_t block_size_in_bytes = block->bytes();
     size_t block_row_num = block->rows();
     size_t row_avg_size_in_bytes = std::max((size_t)1, block_size_in_bytes / block_row_num);
@@ -405,7 +403,7 @@ Status BetaRowsetWriter::_add_block(const vectorized::Block* block,
         if (UNLIKELY(max_row_add < 1)) {
             // no space for another signle row, need flush now
             RETURN_NOT_OK(_flush_segment_writer(segment_writer));
-            RETURN_NOT_OK(_create_segment_writer(segment_writer, block));
+            RETURN_NOT_OK(_create_segment_writer(segment_writer, flush_ctx));
             max_row_add = (*segment_writer)->max_row_to_add(row_avg_size_in_bytes);
             DCHECK(max_row_add > 0);
         }
@@ -451,14 +449,15 @@ Status BetaRowsetWriter::flush() {
     return Status::OK();
 }
 
-Status BetaRowsetWriter::flush_single_memtable(const vectorized::Block* block, int64* flush_size) {
+Status BetaRowsetWriter::flush_single_memtable(const vectorized::Block* block, int64* flush_size,
+                                               const FlushContext& flush_ctx) {
     if (block->rows() == 0) {
         return Status::OK();
     }
 
     std::unique_ptr<segment_v2::SegmentWriter> writer;
-    RETURN_NOT_OK(_create_segment_writer(&writer, block));
-    RETURN_NOT_OK(_add_block(block, &writer));
+    RETURN_NOT_OK(_create_segment_writer(&writer, &flush_ctx));
+    RETURN_NOT_OK(_add_block(block, &writer, &flush_ctx));
     RETURN_NOT_OK(_flush_segment_writer(&writer, flush_size));
     RETURN_NOT_OK(_segcompaction_if_necessary());
     return Status::OK();
@@ -537,21 +536,15 @@ RowsetSharedPtr BetaRowsetWriter::build() {
         _rowset_meta->set_newest_write_timestamp(UnixSeconds());
     }
 
-    // schema changed during this load
-    if (_context.schema_change_recorder->has_extended_columns()) {
-        DCHECK(_context.tablet_schema->is_dynamic_schema())
-                << "Load can change local schema only in dynamic table";
-        TabletSchemaSPtr new_schema = std::make_shared<TabletSchema>();
-        new_schema->copy_from(*_context.tablet_schema);
-        for (auto const& [_, col] : _context.schema_change_recorder->copy_extended_columns()) {
-            new_schema->append_column(col);
-        }
-        new_schema->set_schema_version(_context.schema_change_recorder->schema_version());
-        if (_context.schema_change_recorder->schema_version() >
+    if (_context.tablet_schema->is_dynamic_schema() && _context.tablet && _context.tablet_schema) {
+        // Schema changed during this load, update rowset meta tablet schema,
+        // _tablet->tablet_schema() is updated during flushing
+        if (_context.tablet->tablet_schema()->schema_version() >
             _context.tablet_schema->schema_version()) {
-            _context.tablet->update_max_version_schema(new_schema);
+            _rowset_meta->set_tablet_schema(_context.tablet->tablet_schema());
+            // _cur_rowset->tablet_schema()->copy_from(*_tablet->tablet_schema());
+            VLOG_DEBUG << "dump schema " << _context.tablet->tablet_schema()->get_all_field_names();
         }
-        _rowset_meta->set_tablet_schema(new_schema);
     }
 
     RowsetSharedPtr rowset;
@@ -661,7 +654,7 @@ RowsetSharedPtr BetaRowsetWriter::build_tmp() {
 
 Status BetaRowsetWriter::_do_create_segment_writer(
         std::unique_ptr<segment_v2::SegmentWriter>* writer, bool is_segcompaction, int64_t begin,
-        int64_t end, const vectorized::Block* block) {
+        int64_t end, const FlushContext* flush_ctx) {
     std::string path;
     int32_t segment_id = 0;
     if (is_segcompaction) {
@@ -705,7 +698,7 @@ Status BetaRowsetWriter::_do_create_segment_writer(
             std::lock_guard<SpinLock> l(_lock);
             _file_writers.push_back(std::move(file_writer));
         }
-        auto s = (*writer)->init(block);
+        auto s = (*writer)->init(flush_ctx);
         if (!s.ok()) {
             LOG(WARNING) << "failed to init segment writer: " << s.to_string();
             writer->reset(nullptr);
@@ -717,7 +710,7 @@ Status BetaRowsetWriter::_do_create_segment_writer(
 }
 
 Status BetaRowsetWriter::_create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
-                                                const vectorized::Block* block) {
+                                                const FlushContext* flush_ctx) {
     size_t total_segment_num = _num_segment - _segcompacted_point + 1 + _num_segcompacted;
     if (UNLIKELY(total_segment_num > config::max_segment_num_per_rowset)) {
         LOG(WARNING) << "too many segments in rowset."
@@ -728,7 +721,7 @@ Status BetaRowsetWriter::_create_segment_writer(std::unique_ptr<segment_v2::Segm
                      << " _num_segcompacted:" << _num_segcompacted;
         return Status::Error<TOO_MANY_SEGMENTS>();
     } else {
-        return _do_create_segment_writer(writer, false, -1, -1, block);
+        return _do_create_segment_writer(writer, false, -1, -1, flush_ctx);
     }
 }
 

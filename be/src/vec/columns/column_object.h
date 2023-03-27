@@ -29,6 +29,7 @@
 #include <vec/json/json_parser.h>
 
 #include "common/status.h"
+#include "vec/data_types/data_type_nullable.h"
 namespace doris::vectorized {
 
 /// Info that represents a scalar or array field in a decomposed view.
@@ -120,6 +121,8 @@ public:
 
         const ColumnPtr& get_finalized_column_ptr() const;
 
+        void remove_nullable();
+
         friend class ColumnObject;
 
     private:
@@ -134,6 +137,8 @@ public:
             const DataTypePtr& getBase() const { return base_type; }
 
             size_t get_dimensions() const { return num_dimensions; }
+
+            void remove_nullable() { type = doris::vectorized::remove_nullable(type); }
 
         private:
             DataTypePtr type;
@@ -183,12 +188,20 @@ public:
     // return null if not found
     const Subcolumn* get_subcolumn(const PathInData& key) const;
 
+    /** More efficient methods of manipulation */
+    [[noreturn]] IColumn& get_data() { LOG(FATAL) << "Not implemented method get_data()"; }
+    [[noreturn]] const IColumn& get_data() const {
+        LOG(FATAL) << "Not implemented method get_data()";
+    }
+
     // return null if not found
     Subcolumn* get_subcolumn(const PathInData& key);
 
     void incr_num_rows() { ++num_rows; }
 
     void incr_num_rows(size_t n) { num_rows += n; }
+
+    void set_num_rows(size_t n) { num_rows = n; }
 
     size_t rows() const { return num_rows; }
 
