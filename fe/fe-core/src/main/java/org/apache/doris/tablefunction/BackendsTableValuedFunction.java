@@ -69,6 +69,7 @@ public class BackendsTableValuedFunction extends MetadataTableValuedFunction {
         resColumns.add(new Column("BackendId", ScalarType.createType(PrimitiveType.BIGINT)));
         resColumns.add(new Column("Cluster", ScalarType.createVarchar(64)));
         resColumns.add(new Column("IP", ScalarType.createVarchar(16)));
+        resColumns.add(new Column("HostName", ScalarType.createVarchar(16)));
         resColumns.add(new Column("HeartbeatPort", ScalarType.createType(PrimitiveType.INT)));
         resColumns.add(new Column("BePort", ScalarType.createType(PrimitiveType.INT)));
         resColumns.add(new Column("HttpPort", ScalarType.createType(PrimitiveType.INT)));
