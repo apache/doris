@@ -200,6 +200,10 @@ rapidjson::Value* get_json_object(std::string_view json_string, std::string_view
 #endif
     std::vector<std::string> paths(tok.begin(), tok.end());
     get_parsed_paths(paths, &tmp_parsed_paths);
+    if (tmp_parsed_paths.empty()) {
+        return document;
+    }
+
     parsed_paths = &tmp_parsed_paths;
 
     if (!(*parsed_paths)[0].is_valid) {
@@ -648,6 +652,57 @@ struct FunctionJsonQuoteImpl {
     }
 };
 
+struct FunctionJsonExtractImpl {
+    static constexpr auto name = "json_extract";
+
+    static rapidjson::Value parse_json(const ColumnString* json_col, const ColumnString* path_col,
+                                       rapidjson::Document::AllocatorType& allocator,
+                                       const int row) {
+        rapidjson::Value value;
+        rapidjson::Document document;
+
+        const auto obj = json_col->get_data_at(row);
+        std::string_view json_string(obj.data, obj.size);
+        const auto path = path_col->get_data_at(row);
+        std::string_view path_string(path.data, path.size);
+
+        auto root = get_json_object<JSON_FUN_STRING>(json_string, path_string, &document);
+        if (root != nullptr) {
+            value.CopyFrom(*root, allocator);
+        }
+        return value;
+    }
+
+    static void execute(const std::vector<const ColumnString*>& data_columns,
+                        ColumnString& result_column, size_t input_rows_count) {
+        rapidjson::Document document;
+        rapidjson::Document::AllocatorType& allocator = document.GetAllocator();
+        rapidjson::StringBuffer buf;
+        rapidjson::Writer<rapidjson::StringBuffer> writer(buf);
+
+        const auto json_col = data_columns[0];
+        for (size_t row = 0; row < input_rows_count; row++) {
+            rapidjson::Value value;
+            if (data_columns.size() == 2) {
+                value = parse_json(json_col, data_columns[1], allocator, row);
+            } else {
+                value.SetArray();
+                value.Reserve(data_columns.size() - 1, allocator);
+                for (size_t col = 1; col < data_columns.size(); ++col) {
+                    value.PushBack(parse_json(json_col, data_columns[col], allocator, row),
+                                   allocator);
+                }
+            }
+
+            // write value as string
+            buf.Clear();
+            writer.Reset(buf);
+            value.Accept(writer);
+            result_column.insert_data(buf.GetString(), buf.GetSize());
+        }
+    }
+};
+
 template <typename Impl>
 class FunctionJson : public IFunction {
 public:
@@ -763,6 +818,7 @@ void register_function_json(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionJsonAlwaysNotNullable<FunctionJsonArrayImpl>>();
     factory.register_function<FunctionJsonAlwaysNotNullable<FunctionJsonObjectImpl>>();
     factory.register_function<FunctionJson<FunctionJsonQuoteImpl>>();
+    factory.register_function<FunctionJson<FunctionJsonExtractImpl>>();
 
     factory.register_function<FunctionJsonValid>();
 }
