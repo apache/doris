@@ -57,7 +57,7 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
             buildSubQuery(MIN)
     };
 
-    private static String buildFromTemplate(String predicate[], String query[]) {
+    private static String buildFromTemplate(String[] predicate, String[] query) {
         String sql = SQL_TEMPLATE;
         for (int i = 0; i < predicate.length; ++i) {
             for (int j = 0; j < query.length; ++j) {
