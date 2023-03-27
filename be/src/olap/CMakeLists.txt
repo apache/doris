@@ -35,7 +35,6 @@ add_library(Olap STATIC
     cumulative_compaction_policy.cpp
     delete_handler.cpp
     delta_writer.cpp
-    file_helper.cpp
     hll.cpp
     inverted_index_parser.cpp
     itoken_extractor.cpp

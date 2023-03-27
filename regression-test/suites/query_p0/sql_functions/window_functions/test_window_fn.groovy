@@ -356,6 +356,14 @@ suite("test_window_fn") {
         from example_window_tb order by u_id;
     """
 
+    sql """
+        create view v as select row_number() over(partition by u_city order by u_salary) as wf from example_window_tb    
+    """
+
+    sql """
+        drop view v
+    """
+
     sql "DROP TABLE IF EXISTS example_window_tb;"
 }
 

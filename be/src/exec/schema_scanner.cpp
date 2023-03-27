@@ -230,11 +230,8 @@ Status SchemaScanner::fill_dest_column_for_range(vectorized::Block* block, size_
         }
 
         case TYPE_DATE: {
-            vectorized::VecDateTimeValue value;
-            DateTimeValue* ts_slot = reinterpret_cast<DateTimeValue*>(data);
-            value.convert_dt_to_vec_dt(ts_slot);
             reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_data(
-                    reinterpret_cast<char*>(&value), 0);
+                    reinterpret_cast<char*>(data), 0);
             break;
         }
 
@@ -246,11 +243,8 @@ Status SchemaScanner::fill_dest_column_for_range(vectorized::Block* block, size_
         }
 
         case TYPE_DATETIME: {
-            vectorized::VecDateTimeValue value;
-            DateTimeValue* ts_slot = reinterpret_cast<DateTimeValue*>(data);
-            value.convert_dt_to_vec_dt(ts_slot);
             reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_data(
-                    reinterpret_cast<char*>(&value), 0);
+                    reinterpret_cast<char*>(data), 0);
             break;
         }
 

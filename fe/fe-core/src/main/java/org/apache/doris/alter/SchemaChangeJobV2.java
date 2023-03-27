@@ -546,7 +546,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                             AlterReplicaTask rollupTask = new AlterReplicaTask(shadowReplica.getBackendId(), dbId,
                                     tableId, partitionId, shadowIdxId, originIdxId, shadowTabletId, originTabletId,
                                     shadowReplica.getId(), shadowSchemaHash, originSchemaHash, visibleVersion, jobId,
-                                    JobType.SCHEMA_CHANGE, defineExprs, descTable, originSchemaColumns);
+                                    JobType.SCHEMA_CHANGE, defineExprs, descTable, originSchemaColumns, null);
                             schemaChangeBatchTask.addTask(rollupTask);
                         }
                     }

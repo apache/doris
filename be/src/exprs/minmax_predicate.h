@@ -48,13 +48,7 @@ public:
             return;
         }
 
-        T val_data;
-        if constexpr (std::is_same_v<T, DateTimeValue>) {
-            reinterpret_cast<const vectorized::VecDateTimeValue*>(data)->convert_vec_dt_to_dt(
-                    &val_data);
-        } else {
-            val_data = *reinterpret_cast<const T*>(data);
-        }
+        T val_data = *reinterpret_cast<const T*>(data);
 
         if (_empty) {
             _min = val_data;

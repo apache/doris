@@ -217,6 +217,10 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
     if (!fs) {
         return Status::Error<INIT_FAILED>();
     }
+    if (fs->type() != io::FileSystemType::LOCAL) {
+        return Status::InternalError("should be local file system");
+    }
+    io::LocalFileSystem* local_fs = (io::LocalFileSystem*)fs.get();
     for (int i = 0; i < num_segments(); ++i) {
         auto dst_path = segment_file_path(dir, new_rowset_id, i + new_rowset_start_seg_id);
         // TODO(lingbin): use Env API? or EnvUtil?
@@ -228,7 +232,7 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
         auto src_path = segment_file_path(i);
         // TODO(lingbin): how external storage support link?
         //     use copy? or keep refcount to avoid being delete?
-        if (!fs->link_file(src_path, dst_path).ok()) {
+        if (!local_fs->link_file(src_path, dst_path).ok()) {
             LOG(WARNING) << "fail to create hard link. from=" << src_path << ", "
                          << "to=" << dst_path << ", errno=" << Errno::no();
             return Status::Error<OS_ERROR>();
@@ -244,7 +248,7 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
                         InvertedIndexDescriptor::get_index_file_name(dst_path,
                                                                      index_meta->index_id());
 
-                if (!fs->link_file(inverted_index_src_file_path, inverted_index_dst_file_path)
+                if (!local_fs->link_file(inverted_index_src_file_path, inverted_index_dst_file_path)
                              .ok()) {
                     LOG(WARNING) << "fail to create hard link. from="
                                  << inverted_index_src_file_path << ", "

@@ -22,7 +22,7 @@
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/substitute.h"
 #include "io/file_factory.h"
-#include "io/file_writer.h"
+#include "io/fs/file_writer.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/descriptors.h"
 #include "runtime/large_int_value.h"
@@ -78,9 +78,13 @@ void VFileResultWriter::_init_profile() {
 Status VFileResultWriter::_create_success_file() {
     std::string file_name;
     RETURN_IF_ERROR(_get_success_file_name(&file_name));
-    RETURN_IF_ERROR(_create_file_writer(file_name));
-    // set only close to true to avoid dead loop
-    return _close_file_writer(true, true);
+    RETURN_IF_ERROR(FileFactory::create_file_writer(
+            FileFactory::convert_storage_type(_storage_type), _state->exec_env(),
+            _file_opts->broker_addresses, _file_opts->broker_properties, file_name, 0,
+            _file_writer_impl));
+    // must write somthing because s3 file writer can not writer empty file
+    RETURN_IF_ERROR(_file_writer_impl->append({"success"}));
+    return _file_writer_impl->close();
 }
 
 Status VFileResultWriter::_get_success_file_name(std::string* file_name) {
@@ -113,7 +117,6 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
             FileFactory::convert_storage_type(_storage_type), _state->exec_env(),
             _file_opts->broker_addresses, _file_opts->broker_properties, file_name, 0,
             _file_writer_impl));
-    RETURN_IF_ERROR(_file_writer_impl->open());
     switch (_file_opts->file_format) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
         // just use file writer is enough
@@ -381,10 +384,7 @@ Status VFileResultWriter::write_csv_header() {
         if (_header_type == BeConsts::CSV_WITH_NAMES_AND_TYPES) {
             tmp_header += gen_types();
         }
-        size_t written_len = 0;
-        RETURN_IF_ERROR(
-                _file_writer_impl->write(reinterpret_cast<const uint8_t*>(tmp_header.c_str()),
-                                         tmp_header.size(), &written_len));
+        RETURN_IF_ERROR(_file_writer_impl->append(tmp_header));
         _header_sent = true;
     }
     return Status::OK();
@@ -398,9 +398,8 @@ Status VFileResultWriter::_flush_plain_text_outstream(bool eos) {
     }
 
     const std::string& buf = _plain_text_outstream.str();
-    size_t written_len = 0;
-    RETURN_IF_ERROR(_file_writer_impl->write(reinterpret_cast<const uint8_t*>(buf.c_str()),
-                                             buf.size(), &written_len));
+    size_t written_len = buf.size();
+    RETURN_IF_ERROR(_file_writer_impl->append(buf));
     COUNTER_UPDATE(_written_data_bytes, written_len);
     _current_written_bytes += written_len;
 
@@ -426,17 +425,13 @@ Status VFileResultWriter::_create_new_file_if_exceed_size() {
     return Status::OK();
 }
 
-Status VFileResultWriter::_close_file_writer(bool done, bool only_close) {
+Status VFileResultWriter::_close_file_writer(bool done) {
     if (_vfile_writer) {
         _vfile_writer->close();
         COUNTER_UPDATE(_written_data_bytes, _current_written_bytes);
         _vfile_writer.reset(nullptr);
     } else if (_file_writer_impl) {
         _file_writer_impl->close();
-    }
-
-    if (only_close) {
-        return Status::OK();
     }
 
     if (!done) {

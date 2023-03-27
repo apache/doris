@@ -17,6 +17,9 @@
 
 package org.apache.doris.statistics;
 
+//import org.apache.doris.common.ThreadPoolManager;
+
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.qe.ConnectContext;
 
 import com.github.benmanes.caffeine.cache.AsyncLoadingCache;
@@ -26,36 +29,67 @@ import org.apache.logging.log4j.Logger;
 
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 public class StatisticsCache {
 
     private static final Logger LOG = LogManager.getLogger(StatisticsCache.class);
 
+    /**
+     * Use a standalone thread pool to avoid interference between this and any other jdk function
+     * that use the thread of ForkJoinPool#common in the system.
+     */
+    private final ThreadPoolExecutor threadPool
+            = ThreadPoolManager.newDaemonFixedThreadPool(
+            10, Integer.MAX_VALUE, "STATS_FETCH", true);
+
+    private final StatisticsCacheLoader cacheLoader = new StatisticsCacheLoader();
+
     private final AsyncLoadingCache<StatisticsCacheKey, ColumnLevelStatisticCache> cache = Caffeine.newBuilder()
             .maximumSize(StatisticConstants.STATISTICS_RECORDS_CACHE_SIZE)
             .expireAfterAccess(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_VALID_DURATION_IN_HOURS))
             .refreshAfterWrite(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_REFRESH_INTERVAL))
-            .buildAsync(new StatisticsCacheLoader());
+            .executor(threadPool)
+            .buildAsync(cacheLoader);
 
-    public ColumnStatistic getColumnStatistics(long tblId, String colName) {
-        return getColumnStatistics(tblId, -1, colName);
+    {
+        threadPool.submit(() -> {
+            while (true) {
+                try {
+                    cacheLoader.removeExpiredInProgressing();
+                    Thread.sleep(TimeUnit.MINUTES.toMillis(15));
+                } catch (Throwable t) {
+                    // IGNORE
+                }
+            }
+
+        });
     }
 
-    public ColumnStatistic getColumnStatistics(long tblId, long idxId, String colName) {
+    public ColumnStatistic getColumnStatistics(long tblId, String colName) {
+        ColumnLevelStatisticCache columnLevelStatisticCache = getColumnStatistics(tblId, -1, colName);
+        if (columnLevelStatisticCache == null) {
+            return ColumnStatistic.UNKNOWN;
+        }
+        return columnLevelStatisticCache.columnStatistic;
+    }
+
+    public ColumnLevelStatisticCache getColumnStatistics(long tblId, long idxId, String colName) {
         ConnectContext ctx = ConnectContext.get();
         if (ctx != null && ctx.getSessionVariable().internalSession) {
-            return ColumnStatistic.UNKNOWN;
+            return null;
         }
         StatisticsCacheKey k = new StatisticsCacheKey(tblId, idxId, colName);
         try {
             CompletableFuture<ColumnLevelStatisticCache> f = cache.get(k);
             if (f.isDone() && f.get() != null) {
-                return f.get().getColumnStatistic();
+                return f.get();
             }
         } catch (Exception e) {
             LOG.warn("Unexpected exception while returning ColumnStatistic", e);
         }
-        return ColumnStatistic.UNKNOWN;
+        return null;
     }
 
     public Histogram getHistogram(long tblId, String colName) {

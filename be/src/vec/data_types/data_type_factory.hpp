@@ -142,6 +142,31 @@ public:
                     return entity.second;
                 }
             }
+        } else if (type_ptr->get_type_id() == TypeIndex::Array) {
+            // register the Array<Struct<>>/Array<Map<>>
+            auto nested_type = ((DataTypeArray*)type_ptr.get())->get_nested_type();
+            nested_type = nested_type->is_nullable()
+                                  ? ((DataTypeNullable*)(nested_type.get()))->get_nested_type()
+                                  : nested_type;
+
+            if (nested_type->get_type_id() == TypeIndex::Struct ||
+                nested_type->get_type_id() == TypeIndex::Map) {
+                auto key = nested_type->get_name();
+                auto val = nested_type;
+                DataTypeFactory::instance().register_data_type(key, val);
+                DataTypeFactory::instance().register_data_type(
+                        "Array(" + key + ")", std::make_shared<vectorized::DataTypeArray>(val));
+                DataTypeFactory::instance().register_data_type(
+                        "Array(Nullable(" + key + "))",
+                        std::make_shared<vectorized::DataTypeArray>(
+                                std::make_shared<vectorized::DataTypeNullable>(val)));
+            }
+
+            for (const auto& entity : _invert_data_type_map) {
+                if (entity.first->equals(*type_ptr)) {
+                    return entity.second;
+                }
+            }
         }
         return _empty_string;
     }

@@ -41,9 +41,9 @@ std::vector<SchemaScanner::ColumnDesc> SchemaTablesScanner::_s_tbls_columns = {
         {"INDEX_LENGTH", TYPE_BIGINT, sizeof(int64_t), true},
         {"DATA_FREE", TYPE_BIGINT, sizeof(int64_t), true},
         {"AUTO_INCREMENT", TYPE_BIGINT, sizeof(int64_t), true},
-        {"CREATE_TIME", TYPE_DATETIME, sizeof(DateTimeValue), true},
-        {"UPDATE_TIME", TYPE_DATETIME, sizeof(DateTimeValue), true},
-        {"CHECK_TIME", TYPE_DATETIME, sizeof(DateTimeValue), true},
+        {"CREATE_TIME", TYPE_DATETIME, sizeof(int128_t), true},
+        {"UPDATE_TIME", TYPE_DATETIME, sizeof(int128_t), true},
+        {"CHECK_TIME", TYPE_DATETIME, sizeof(int128_t), true},
         {"TABLE_COLLATION", TYPE_VARCHAR, sizeof(StringRef), true},
         {"CHECKSUM", TYPE_BIGINT, sizeof(int64_t), true},
         {"CREATE_OPTIONS", TYPE_VARCHAR, sizeof(StringRef), true},
@@ -237,7 +237,7 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
     { fill_dest_column_for_range(block, 13, null_datas); }
     // creation_time
     {
-        DateTimeValue srcs[table_num];
+        vectorized::VecDateTimeValue srcs[table_num];
         for (int i = 0; i < table_num; ++i) {
             const TTableStatus& tbl_status = _table_result.tables[i];
             if (tbl_status.__isset.create_time) {
@@ -256,7 +256,7 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
     }
     // update_time
     {
-        DateTimeValue srcs[table_num];
+        vectorized::VecDateTimeValue srcs[table_num];
         for (int i = 0; i < table_num; ++i) {
             const TTableStatus& tbl_status = _table_result.tables[i];
             if (tbl_status.__isset.update_time) {
@@ -275,7 +275,7 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
     }
     // check_time
     {
-        DateTimeValue srcs[table_num];
+        vectorized::VecDateTimeValue srcs[table_num];
         for (int i = 0; i < table_num; ++i) {
             const TTableStatus& tbl_status = _table_result.tables[i];
             if (tbl_status.__isset.last_check_time) {

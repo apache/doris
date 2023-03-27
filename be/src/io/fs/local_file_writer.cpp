@@ -56,21 +56,21 @@ Status sync_dir(const io::Path& dirname) {
 
 namespace io {
 
-LocalFileWriter::LocalFileWriter(Path path, int fd, std::shared_ptr<LocalFileSystem> fs)
-        : FileWriter(std::move(path)), _fd(fd), _fs(std::move(fs)) {
+LocalFileWriter::LocalFileWriter(Path path, int fd, FileSystemSPtr fs)
+        : FileWriter(std::move(path), fs), _fd(fd) {
+    _opened = true;
     DorisMetrics::instance()->local_file_open_writing->increment(1);
     DorisMetrics::instance()->local_file_writer_total->increment(1);
 }
 
-LocalFileWriter::LocalFileWriter(Path path, int fd) : FileWriter(std::move(path)), _fd(fd) {
-    DorisMetrics::instance()->local_file_open_writing->increment(1);
-    DorisMetrics::instance()->local_file_writer_total->increment(1);
-}
+LocalFileWriter::LocalFileWriter(Path path, int fd)
+        : LocalFileWriter(path, fd, global_local_filesystem()) {}
 
 LocalFileWriter::~LocalFileWriter() {
-    if (!_closed) {
-        WARN_IF_ERROR(abort(), fmt::format("Cannot abort {}", _path.native()));
+    if (_opened) {
+        close();
     }
+    CHECK(!_opened || _closed) << "open: " << _opened << ", closed: " << _closed;
 }
 
 Status LocalFileWriter::close() {
@@ -80,14 +80,6 @@ Status LocalFileWriter::close() {
 Status LocalFileWriter::abort() {
     RETURN_IF_ERROR(_close(false));
     return io::global_local_filesystem()->delete_file(_path);
-}
-
-Status LocalFileWriter::append(const Slice& data) {
-    Status st = appendv(&data, 1);
-    if (st.ok()) {
-        DorisMetrics::instance()->local_bytes_written_total->increment(data.size);
-    }
-    return st;
 }
 
 Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
@@ -142,6 +134,26 @@ Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
     return Status::OK();
 }
 
+Status LocalFileWriter::write_at(size_t offset, const Slice& data) {
+    DCHECK(!_closed);
+    _dirty = true;
+
+    size_t bytes_req = data.size;
+    char* from = data.data;
+
+    while (bytes_req != 0) {
+        auto res = ::pwrite(_fd, from, bytes_req, offset);
+        if (-1 == res && errno != EINTR) {
+            return Status::IOError("cannot write to {}: {}", _path.native(), std::strerror(errno));
+        }
+        if (res > 0) {
+            from += res;
+            bytes_req -= res;
+        }
+    }
+    return Status::OK();
+}
+
 Status LocalFileWriter::finalize() {
     DCHECK(!_closed);
     if (_dirty) {
@@ -159,6 +171,7 @@ Status LocalFileWriter::_close(bool sync) {
     if (_closed) {
         return Status::OK();
     }
+    _closed = true;
     if (sync && _dirty) {
 #ifdef __APPLE__
         if (fcntl(_fd, F_FULLFSYNC) < 0) {
@@ -172,7 +185,6 @@ Status LocalFileWriter::_close(bool sync) {
         RETURN_IF_ERROR(detail::sync_dir(_path.parent_path()));
         _dirty = false;
     }
-    _closed = true;
 
     DorisMetrics::instance()->local_file_open_writing->increment(-1);
     DorisMetrics::instance()->file_created_total->increment(1);
@@ -180,26 +192,6 @@ Status LocalFileWriter::_close(bool sync) {
 
     if (0 != ::close(_fd)) {
         return Status::IOError("cannot close {}: {}", _path.native(), std::strerror(errno));
-    }
-    return Status::OK();
-}
-
-Status LocalFileWriter::write_at(size_t offset, const Slice& data) {
-    DCHECK(!_closed);
-    _dirty = true;
-
-    size_t bytes_req = data.size;
-    char* from = data.data;
-
-    while (bytes_req != 0) {
-        auto res = ::pwrite(_fd, from, bytes_req, offset);
-        if (-1 == res && errno != EINTR) {
-            return Status::IOError("cannot write to {}: {}", _path.native(), std::strerror(errno));
-        }
-        if (res > 0) {
-            from += res;
-            bytes_req -= res;
-        }
     }
     return Status::OK();
 }

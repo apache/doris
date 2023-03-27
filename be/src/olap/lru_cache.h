@@ -314,13 +314,10 @@ private:
     void _resize();
 };
 
-// pair first is timestatmp, put <timestatmp, LRUHandle*> into asc priority_queue,
-// when need to free space, can first evict the top of the LRUHandleHeap,
-// because the top element's timestamp is the oldest.
-typedef std::priority_queue<std::pair<int64_t, LRUHandle*>,
-                            std::vector<std::pair<int64_t, LRUHandle*>>,
-                            std::greater<std::pair<int64_t, LRUHandle*>>>
-        LRUHandleHeap;
+// pair first is timestatmp, put <timestatmp, LRUHandle*> into asc set,
+// when need to free space, can first evict the begin of the set,
+// because the begin element's timestamp is the oldest.
+using LRUHandleSortedSet = std::set<std::pair<int64_t, LRUHandle*>>;
 
 // A single shard of sharded cache.
 class LRUCache {
@@ -386,8 +383,8 @@ private:
 
     CacheValueTimeExtractor _cache_value_time_extractor;
     bool _cache_value_check_timestamp = false;
-    LRUHandleHeap _sorted_normal_entries_with_timestamp;
-    LRUHandleHeap _sorted_durable_entries_with_timestamp;
+    LRUHandleSortedSet _sorted_normal_entries_with_timestamp;
+    LRUHandleSortedSet _sorted_durable_entries_with_timestamp;
 
     uint32_t _element_count_capacity = 0;
 };

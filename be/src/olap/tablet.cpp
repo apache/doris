@@ -96,24 +96,14 @@ bvar::Window<bvar::Adder<uint64_t>> exceed_version_limit_counter_minute(
         &exceed_version_limit_counter, 60);
 
 struct WriteCooldownMetaExecutors {
-    WriteCooldownMetaExecutors(size_t executor_nums = 5) : _executor_nums(executor_nums) {
-        for (size_t i = 0; i < _executor_nums; i++) {
-            std::unique_ptr<ThreadPool> pool;
-            ThreadPoolBuilder("AsyncWriteCooldownMetaExecutor")
-                    .set_min_threads(1)
-                    .set_max_threads(1)
-                    .set_max_queue_size(std::numeric_limits<int>::max())
-                    .build(&pool);
-            _executors.emplace_back(std::move(pool));
-        }
-    }
+    WriteCooldownMetaExecutors(size_t executor_nums = 5);
 
     static WriteCooldownMetaExecutors* GetInstance() {
         static WriteCooldownMetaExecutors instance;
         return &instance;
     }
 
-    void submit(int64_t tablet_id, std::function<void()> task);
+    void submit(TabletSharedPtr tablet);
     size_t _get_executor_pos(int64_t tablet_id) const { return tablet_id % _executor_nums; };
     std::vector<std::unique_ptr<ThreadPool>> _executors;
     std::unordered_set<int64_t> _pengding_tablets;
@@ -121,15 +111,58 @@ struct WriteCooldownMetaExecutors {
     size_t _executor_nums;
 };
 
-void WriteCooldownMetaExecutors::submit(int64_t tablet_id, std::function<void()> task) {
+WriteCooldownMetaExecutors::WriteCooldownMetaExecutors(size_t executor_nums)
+        : _executor_nums(executor_nums) {
+    for (size_t i = 0; i < _executor_nums; i++) {
+        std::unique_ptr<ThreadPool> pool;
+        ThreadPoolBuilder("AsyncWriteCooldownMetaExecutor")
+                .set_min_threads(1)
+                .set_max_threads(1)
+                .set_max_queue_size(std::numeric_limits<int>::max())
+                .build(&pool);
+        _executors.emplace_back(std::move(pool));
+    }
+}
+
+void WriteCooldownMetaExecutors::WriteCooldownMetaExecutors::submit(TabletSharedPtr tablet) {
+    auto tablet_id = tablet->tablet_id();
+
     {
+        std::shared_lock rdlock(tablet->get_header_lock());
+        if (!tablet->tablet_meta()->cooldown_meta_id().initialized()) {
+            VLOG_NOTICE << "tablet " << tablet_id << " is not cooldown replica";
+            return;
+        }
+    }
+    {
+        // one tablet could at most have one cooldown task to be done
         std::unique_lock<std::mutex> lck {_latch};
         if (_pengding_tablets.count(tablet_id) > 0) {
             return;
         }
         _pengding_tablets.insert(tablet_id);
     }
-    _executors[_get_executor_pos(tablet_id)]->submit_func([task = std::move(task)]() { task(); });
+
+    auto async_write_task = [this, t = std::move(tablet)]() {
+        {
+            std::unique_lock<std::mutex> lck {_latch};
+            _pengding_tablets.erase(t->tablet_id());
+        }
+        auto s = t->write_cooldown_meta();
+        if (s.ok()) {
+            return;
+        }
+        if (!s.is<ABORTED>()) {
+            LOG_EVERY_SECOND(WARNING)
+                    << "write tablet " << t->tablet_id() << " cooldown meta failed because: " << s;
+            submit(t);
+            return;
+        }
+        VLOG_DEBUG << "tablet " << t->tablet_id() << " is not cooldown replica";
+    };
+
+    _executors[_get_executor_pos(tablet_id)]->submit_func(
+            [task = std::move(async_write_task)]() { task(); });
 }
 
 TabletSharedPtr Tablet::create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
@@ -1819,13 +1852,12 @@ Status Tablet::_read_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& 
                                    TabletMetaPB* tablet_meta_pb) {
     std::string remote_meta_path =
             remote_tablet_meta_path(tablet_id(), _cooldown_replica_id, _cooldown_term);
-    IOContext io_ctx;
     io::FileReaderSPtr tablet_meta_reader;
-    RETURN_IF_ERROR(fs->open_file(remote_meta_path, &tablet_meta_reader, &io_ctx));
+    RETURN_IF_ERROR(fs->open_file(remote_meta_path, &tablet_meta_reader));
     auto file_size = tablet_meta_reader->size();
     size_t bytes_read;
     auto buf = std::unique_ptr<uint8_t[]>(new uint8_t[file_size]);
-    RETURN_IF_ERROR(tablet_meta_reader->read_at(0, {buf.get(), file_size}, io_ctx, &bytes_read));
+    RETURN_IF_ERROR(tablet_meta_reader->read_at(0, {buf.get(), file_size}, &bytes_read));
     tablet_meta_reader->close();
     if (!tablet_meta_pb->ParseFromArray(buf.get(), file_size)) {
         return Status::InternalError("malformed tablet meta");
@@ -1853,28 +1885,11 @@ Status check_version_continuity(const std::vector<RowsetMetaSharedPtr>& rs_metas
 // It's guaranteed the write cooldown meta task would be invoked at the end unless BE crashes
 // one tablet would at most have one async task to be done
 void Tablet::async_write_cooldown_meta(TabletSharedPtr tablet) {
-    auto tablet_id = tablet->tablet_id();
-    auto async_write_task = [t = std::move(tablet)]() {
-        auto ex = WriteCooldownMetaExecutors::GetInstance();
-        {
-            std::unique_lock<std::mutex> lck {ex->_latch};
-            ex->_pengding_tablets.erase(t->tablet_id());
-        }
-        auto s = t->_write_cooldown_meta();
-        if (s.ok()) {
-            return;
-        }
-        LOG_WARNING("write tablet {} cooldown meta failed because: {}", t->tablet_id(),
-                    s.to_string());
-        if (!s.is<ABORTED>()) {
-            ex->submit(t->tablet_id(), [t]() { Tablet::async_write_cooldown_meta(t); });
-        }
-    };
-    WriteCooldownMetaExecutors::GetInstance()->submit(tablet_id, std::move(async_write_task));
+    WriteCooldownMetaExecutors::GetInstance()->submit(std::move(tablet));
 }
 
 // hold SHARED `cooldown_conf_lock`
-Status Tablet::_write_cooldown_meta() {
+Status Tablet::write_cooldown_meta() {
     auto [cooldown_replica_id, cooldown_term] = cooldown_conf();
 
     std::shared_ptr<io::RemoteFileSystem> fs;
@@ -2131,7 +2146,7 @@ void Tablet::remove_unused_remote_files() {
     req.__isset.confirm_list = true;
     // tablet_id -> [fs, unused_remote_files]
     using unused_remote_files_buffer_t = std::unordered_map<
-            int64_t, std::pair<std::shared_ptr<io::RemoteFileSystem>, std::vector<io::Path>>>;
+            int64_t, std::pair<std::shared_ptr<io::RemoteFileSystem>, std::vector<io::FileInfo>>>;
     unused_remote_files_buffer_t buffer;
     int64_t num_files_in_buffer = 0;
     // assume a filename is 0.1KB, buffer size should not larger than 100MB
@@ -2161,15 +2176,17 @@ void Tablet::remove_unused_remote_files() {
             return;
         }
 
-        std::vector<io::Path> files;
+        std::vector<io::FileInfo> files;
         // FIXME(plat1ko): What if user reset resource in storage policy to another resource?
         //  Maybe we should also list files in previously uploaded resources.
-        st = dest_fs->list(remote_tablet_path(t->tablet_id()), &files);
+        bool exists = true;
+        st = dest_fs->list(io::Path(remote_tablet_path(t->tablet_id())), true, &files, &exists);
         if (!st.ok()) {
             LOG(WARNING) << "encounter error when remove unused remote files, tablet_id="
                          << t->tablet_id() << " : " << st;
+            return;
         }
-        if (files.empty()) {
+        if (!exists || files.empty()) {
             return;
         }
         // get all cooldowned rowsets
@@ -2197,8 +2214,8 @@ void Tablet::remove_unused_remote_files() {
                 fmt::format("{}.{}.meta", cooldown_replica_id, cooldown_term);
         // filter out the paths that should be reserved
         // clang-format off
-        files.erase(std::remove_if(files.begin(), files.end(), [&](io::Path& path) {
-            const std::string& path_str = path.native();
+        files.erase(std::remove_if(files.begin(), files.end(), [&](io::FileInfo& info) {
+            const std::string& path_str = info.file_name;
             if (StringPiece(path_str).ends_with(".meta")) {
                 return path_str == remote_meta_path;
             }
@@ -2251,10 +2268,14 @@ void Tablet::remove_unused_remote_files() {
                           << " tablet_id=" << id;
                 io::Path dir("data/" + std::to_string(id));
                 for (auto& file : files) {
-                    file = dir / file;
-                    LOG(INFO) << "delete unused file: " << file.native();
+                    auto delete_path = dir / io::Path(file.file_name);
+                    LOG(INFO) << "delete unused file: " << delete_path.native();
                 }
-                st = fs->batch_delete(files);
+                std::vector<io::Path> file_names;
+                for (auto& info : files) {
+                    file_names.emplace_back(info.file_name);
+                }
+                st = fs->batch_delete(file_names);
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to delete unused files, tablet_id=" << id << " : "
                                  << st;

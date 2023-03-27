@@ -45,6 +45,7 @@ suite("nereids_lateral_view") {
           LATERAL VIEW explode_json_array_string(c2) lv2 AS clv2
           LATERAL VIEW explode_json_array_int(c3) lv3 AS clv3
           LATERAL VIEW explode_json_array_double(c4) lv4 AS clv4
+          order by c1, c2, c3, c4, clv1, clv2, clv3, clv4
     """
 
     order_qt_all_function_outer """
@@ -53,6 +54,7 @@ suite("nereids_lateral_view") {
           LATERAL VIEW explode_json_array_string_outer(c2) lv2 AS clv2
           LATERAL VIEW explode_json_array_int_outer(c3) lv3 AS clv3
           LATERAL VIEW explode_json_array_double_outer(c4) lv4 AS clv4
+          order by c1, c2, c3, c4, clv1, clv2, clv3, clv4
     """
 
     order_qt_column_prune """
@@ -61,6 +63,7 @@ suite("nereids_lateral_view") {
           LATERAL VIEW explode_json_array_string_outer(c2) lv2 AS clv2
           LATERAL VIEW explode_json_array_int(c3) lv3 AS clv3
           LATERAL VIEW explode_json_array_double_outer(c4) lv4 AS clv4
+          order by c1, c2, c3, c4, clv1, clv2, clv3, clv4
     """
 
     order_qt_alias_query """
@@ -69,6 +72,7 @@ suite("nereids_lateral_view") {
           LATERAL VIEW explode_json_array_string_outer(c2) lv2 AS clv2
           LATERAL VIEW explode_json_array_int(c3) lv3 AS clv3
           LATERAL VIEW explode_json_array_double_outer(c4) lv4 AS clv4
+         order by c1, c2, c3, c4, clv1, clv2, clv3, clv4
     """
 
     order_qt_function_nested """

@@ -20,19 +20,31 @@ package org.apache.doris.nereids.rules.mv;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.WhenClause;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HllHash;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBitmap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBitmapWithCheck;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
@@ -45,7 +57,6 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * Base class for selecting materialized index rules.
@@ -68,25 +79,19 @@ public abstract class AbstractSelectMaterializedIndexRule {
             Set<Slot> requiredScanOutput) {
 
         OlapTable table = scan.getTable();
-        // Scan slot exprId -> slot name
-        Map<ExprId, String> exprIdToName = Stream.concat(
-                        scan.getOutput().stream(), scan.getNonUserVisibleOutput().stream())
-                .collect(Collectors.toMap(NamedExpression::getExprId, NamedExpression::getName));
 
-        // get required column names in metadata.
-        Set<String> requiredColumnNames = requiredScanOutput
-                .stream()
-                .map(slot -> exprIdToName.get(slot.getExprId()))
+        Set<String> requiredColumnNames = requiredScanOutput.stream()
+                .map(s -> normalizeName(s.getName()))
                 .collect(Collectors.toSet());
 
-        Set<String> nameMap = table.getSchemaByIndexId(index.getId(), true).stream()
-                .map(Column::getNameWithoutMvPrefix)
+        Set<String> mvColNames = table.getSchemaByIndexId(index.getId(), true).stream()
+                .map(c -> normalizeName(c.getNameWithoutMvPrefix()))
                 .collect(Collectors.toSet());
 
         table.getSchemaByIndexId(index.getId(), true).stream()
-                .forEach(column -> nameMap.add(column.getName()));
+                .forEach(column -> mvColNames.add(normalizeName(column.getName())));
 
-        return nameMap
+        return mvColNames
                 .containsAll(requiredColumnNames);
     }
 
@@ -285,5 +290,31 @@ public abstract class AbstractSelectMaterializedIndexRule {
 
     protected boolean preAggEnabledByHint(LogicalOlapScan olapScan) {
         return olapScan.getHints().stream().anyMatch("PREAGGOPEN"::equalsIgnoreCase);
+    }
+
+    public static String normalizeName(String name) {
+        return name.replace("`", "");
+    }
+
+    public static Expression slotToCaseWhen(Expression expression) {
+        return new CaseWhen(ImmutableList.of(new WhenClause(new IsNull(expression), new TinyIntLiteral((byte) 0))),
+                new TinyIntLiteral((byte) 1));
+    }
+
+    protected static String spliceScalarFunctionWithSlot(ScalarFunction scalarFunction, Slot slot) {
+        if (scalarFunction instanceof ToBitmap) {
+            return new ToBitmapWithCheck(slot).toSql();
+        }
+        return scalarFunction.withChildren(slot).toSql();
+    }
+
+    protected static String spliceAggFunctionWithSlot(AggregateFunction aggregateFunction, Slot slot) {
+        if (aggregateFunction instanceof Count && aggregateFunction.isDistinct() && aggregateFunction.arity() == 1) {
+            return new ToBitmapWithCheck(slot).toSql();
+        }
+        if (aggregateFunction instanceof Ndv) {
+            return new HllHash(slot).toSql();
+        }
+        return aggregateFunction.withChildren(slot).toSql();
     }
 }

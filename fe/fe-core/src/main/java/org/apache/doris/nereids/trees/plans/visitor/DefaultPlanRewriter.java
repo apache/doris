@@ -32,16 +32,7 @@ public abstract class DefaultPlanRewriter<C> extends PlanVisitor<Plan, C> {
 
     @Override
     public Plan visit(Plan plan, C context) {
-        List<Plan> newChildren = new ArrayList<>();
-        boolean hasNewChildren = false;
-        for (Plan child : plan.children()) {
-            Plan newChild = child.accept(this, context);
-            if (newChild != child) {
-                hasNewChildren = true;
-            }
-            newChildren.add(newChild);
-        }
-        return hasNewChildren ? plan.withChildren(newChildren) : plan;
+        return visitChildren(this, plan, context);
     }
 
     @Override
@@ -51,5 +42,19 @@ public abstract class DefaultPlanRewriter<C> extends PlanVisitor<Plan, C> {
             return storageLayerAggregate.withPhysicalOlapScan(olapScan);
         }
         return storageLayerAggregate;
+    }
+
+    /** visitChildren */
+    public static final <P extends Plan, C> P visitChildren(DefaultPlanRewriter<C> rewriter, P plan, C context) {
+        List<Plan> newChildren = new ArrayList<>();
+        boolean hasNewChildren = false;
+        for (Plan child : plan.children()) {
+            Plan newChild = child.accept(rewriter, context);
+            if (newChild != child) {
+                hasNewChildren = true;
+            }
+            newChildren.add(newChild);
+        }
+        return hasNewChildren ? (P) plan.withChildren(newChildren) : plan;
     }
 }

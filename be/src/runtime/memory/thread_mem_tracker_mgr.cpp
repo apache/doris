@@ -45,10 +45,11 @@ void ThreadMemTrackerMgr::detach_limiter_tracker(
     _limiter_tracker_raw = old_mem_tracker.get();
 }
 
-void ThreadMemTrackerMgr::cancel_fragment() {
-    ExecEnv::GetInstance()->fragment_mgr()->cancel(_fragment_instance_id,
-                                                   PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED,
-                                                   _exceed_mem_limit_msg);
+void ThreadMemTrackerMgr::cancel_fragment(const std::string& exceed_msg) {
+    if (_check_limit) {
+        ExecEnv::GetInstance()->fragment_mgr()->cancel(
+                _fragment_instance_id, PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED, exceed_msg);
+    }
     _check_limit = false; // Make sure it will only be canceled once
 }
 
@@ -59,18 +60,7 @@ void ThreadMemTrackerMgr::exceeded(int64_t size) {
     _limiter_tracker_raw->print_log_usage(_exceed_mem_limit_msg);
 
     if (is_attach_query()) {
-        if (_is_process_exceed && _wait_gc) {
-            int64_t wait_milliseconds = config::thread_wait_gc_max_milliseconds;
-            while (wait_milliseconds > 0) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(100)); // Check every 100 ms.
-                if (!MemTrackerLimiter::sys_mem_exceed_limit_check(size)) {
-                    MemInfo::refresh_interval_memory_growth += size;
-                    return; // Process memory is sufficient, no cancel query.
-                }
-                wait_milliseconds -= 100;
-            }
-        }
-        cancel_fragment();
+        cancel_fragment(_exceed_mem_limit_msg);
     }
 }
 

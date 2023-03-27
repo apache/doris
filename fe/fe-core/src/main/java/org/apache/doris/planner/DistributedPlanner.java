@@ -688,7 +688,11 @@ public class DistributedPlanner {
                 // check the rhs join expr type is same as distribute column
                 for (int j = 0; j < leftJoinColumnNames.size(); j++) {
                     if (leftJoinColumnNames.get(j).equals(distributeColumnName)) {
-                        if (rightExprs.get(j).getType().equals(leftDistributeColumns.get(i).getType())) {
+                        // varchar and string type don't need to check the length property
+                        if ((rightExprs.get(j).getType().isVarcharOrStringType()
+                                && leftDistributeColumns.get(i).getType().isVarcharOrStringType())
+                                || (rightExprs.get(j).getType()
+                                        .equals(leftDistributeColumns.get(i).getType()))) {
                             rhsJoinExprs.add(rightExprs.get(j));
                             findRhsExprs = true;
                             break;
@@ -925,7 +929,8 @@ public class DistributedPlanner {
         if (isDistinct) {
             return createPhase2DistinctAggregationFragment(node, childFragment, fragments);
         } else {
-            if (canColocateAgg(node.getAggInfo(), childFragment.getDataPartition())) {
+            if (canColocateAgg(node.getAggInfo(), childFragment.getDataPartition())
+                    && childFragment.getPlanRoot().shouldColoAgg()) {
                 childFragment.addPlanRoot(node);
                 childFragment.setHasColocatePlanNode(true);
                 return childFragment;

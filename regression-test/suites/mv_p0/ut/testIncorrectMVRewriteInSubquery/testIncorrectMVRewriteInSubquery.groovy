@@ -33,13 +33,13 @@ suite ("testIncorrectMVRewriteInSubquery") {
 
     createMV("create materialized view user_tags_mv as select user_id, bitmap_union(to_bitmap(tag_id)) from user_tags group by user_id;")
 
-    sql """insert into user_tags values("2020-01-01",1,"a",1);"""
+    sql """insert into user_tags values("2020-01-01",1,"a",2);"""
 
     explain {
         sql("select * from user_tags order by time_col;")
         contains "(user_tags)"
     }
-    qt_select_star "select * from user_tags order by time_col;"
+    qt_select_star "select * from user_tags order by time_col,tag_id;"
 
     explain {
         sql("select user_id, bitmap_union(to_bitmap(tag_id)) from user_tags where user_name in (select user_name from user_tags group by user_name having bitmap_union_count(to_bitmap(tag_id)) >1 ) group by user_id order by user_id;")

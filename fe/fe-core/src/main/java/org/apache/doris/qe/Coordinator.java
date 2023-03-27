@@ -249,8 +249,6 @@ public class Coordinator {
 
     private boolean enablePipelineEngine = false;
 
-    private boolean enableRpcOptForPipeline = false;
-
     // Runtime filter merge instance address and ID
     public TNetworkAddress runtimeFilterMergeAddr;
     public TUniqueId runtimeFilterMergeInstanceId;
@@ -328,8 +326,6 @@ public class Coordinator {
         this.returnedAllResults = false;
         this.enableShareHashTableForBroadcastJoin = context.getSessionVariable().enableShareHashTableForBroadcastJoin;
         this.enablePipelineEngine = context.getSessionVariable().enablePipelineEngine;
-        this.enableRpcOptForPipeline = context.getSessionVariable().enablePipelineEngine
-                && context.getSessionVariable().enableRpcOptForPipeline;
         initQueryOptions(context);
 
         setFromUserProperty(analyzer);
@@ -499,7 +495,7 @@ public class Coordinator {
 
     public Map<String, Integer> getBeToInstancesNum() {
         Map<String, Integer> result = Maps.newTreeMap();
-        if (enableRpcOptForPipeline) {
+        if (enablePipelineEngine) {
             for (PipelineExecContexts ctxs : beToPipelineExecCtxs.values()) {
                 result.put(ctxs.brpcAddr.hostname.concat(":").concat("" + ctxs.brpcAddr.port), ctxs.ctxs.size());
             }
@@ -644,7 +640,7 @@ public class Coordinator {
             profileDoneSignal.addMark(instanceId, -1L /* value is meaningless */);
         }
         if (!isPointQuery) {
-            if (enableRpcOptForPipeline) {
+            if (enablePipelineEngine) {
                 sendPipelineCtx();
             } else {
                 sendFragment();
@@ -1273,7 +1269,7 @@ public class Coordinator {
     }
 
     private void cancelRemoteFragmentsAsync(Types.PPlanFragmentCancelReason cancelReason) {
-        if (enableRpcOptForPipeline) {
+        if (enablePipelineEngine) {
             for (PipelineExecContext ctx : pipelineExecContexts.values()) {
                 ctx.cancelFragmentInstance(cancelReason);
             }
@@ -2098,7 +2094,7 @@ public class Coordinator {
     }
 
     public void updateFragmentExecStatus(TReportExecStatusParams params) {
-        if (enableRpcOptForPipeline) {
+        if (enablePipelineEngine) {
             PipelineExecContext ctx = pipelineExecContexts.get(params.getFragmentId());
             if (!ctx.updateProfile(params)) {
                 return;
@@ -2217,7 +2213,7 @@ public class Coordinator {
     }
 
     public void endProfile(boolean waitProfileDone) {
-        if (enableRpcOptForPipeline) {
+        if (enablePipelineEngine) {
             if (pipelineExecContexts.isEmpty()) {
                 return;
             }
@@ -2285,7 +2281,7 @@ public class Coordinator {
      * return true if all of them are OK. Otherwise, return false.
      */
     private boolean checkBackendState() {
-        if (enableRpcOptForPipeline) {
+        if (enablePipelineEngine) {
             for (PipelineExecContext ctx : needCheckPipelineExecContexts) {
                 if (!ctx.isBackendStateHealthy()) {
                     queryStatus = new Status(TStatusCode.INTERNAL_ERROR, "backend "
@@ -3297,7 +3293,7 @@ public class Coordinator {
                 Lists.newArrayList();
         lock();
         try {
-            if (enableRpcOptForPipeline) {
+            if (enablePipelineEngine) {
                 for (int index = 0; index < fragments.size(); index++) {
                     for (PipelineExecContext ctx : pipelineExecContexts.values()) {
                         if (fragments.get(index).getFragmentId() != ctx.fragmentId) {
@@ -3326,7 +3322,7 @@ public class Coordinator {
     }
 
     private void attachInstanceProfileToFragmentProfile() {
-        if (enableRpcOptForPipeline) {
+        if (enablePipelineEngine) {
             for (PipelineExecContext ctx : pipelineExecContexts.values()) {
                 if (!ctx.computeTimeInProfile(fragmentProfile.size())) {
                     return;

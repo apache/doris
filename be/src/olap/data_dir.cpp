@@ -44,7 +44,6 @@
 #include "gutil/strings/substitute.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
-#include "olap/file_helper.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_meta_manager.h"
@@ -121,8 +120,8 @@ Status DataDir::init() {
 }
 
 void DataDir::stop_bg_worker() {
-    std::unique_lock<std::mutex> lck(_check_path_mutex);
     _stop_bg_worker = true;
+    std::unique_lock<std::mutex> lck(_check_path_mutex);
     _check_path_cv.notify_one();
 }
 
@@ -669,6 +668,10 @@ void DataDir::perform_path_scan() {
             continue;
         }
         for (const auto& tablet_id : tablet_ids) {
+            if (_stop_bg_worker) {
+                break;
+            }
+
             auto tablet_id_path = fmt::format("{}/{}", shard_path, tablet_id);
             std::set<std::string> schema_hashes;
             ret = FileUtils::list_dirs_files(tablet_id_path, &schema_hashes, nullptr,
@@ -681,6 +684,9 @@ void DataDir::perform_path_scan() {
 
             for (const auto& schema_hash : schema_hashes) {
                 int32_t interval_ms = config::path_scan_step_interval_ms;
+                if (_stop_bg_worker) {
+                    break;
+                }
                 if (interval_ms > 0) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(interval_ms));
                 }

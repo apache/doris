@@ -148,6 +148,19 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_sort(array(cast ('2023-02-06' as datev2),cast ('2023-02-05' as datev2)))"
     qt_sql "select array_sort(array(cast (111.111 as decimalv3(6,3)),cast (222.222 as decimalv3(6,3))))"
 
+    // array_reverse_sort function
+    qt_sql "select array_reverse_sort([1,2,3])"
+    qt_sql "select array_reverse_sort([3,2,1])"
+    qt_sql "select array_reverse_sort([1,2,3,null])"
+    qt_sql "select array_reverse_sort([null,1,2,3])"
+    qt_sql "select array_reverse_sort(['a','b','c'])"
+    qt_sql "select array_reverse_sort(['c','b','a'])"
+    qt_sql "select array_reverse_sort([true, false, true])"
+    qt_sql "select array_reverse_sort([])"
+    qt_sql "select array_reverse_sort(array(cast ('2023-02-06 22:07:34.999' as datetimev2(3)),cast ('2023-02-04 23:07:34.999' as datetimev2(3))))"
+    qt_sql "select array_reverse_sort(array(cast ('2023-02-06' as datev2),cast ('2023-02-05' as datev2)))"
+    qt_sql "select array_reverse_sort(array(cast (111.111 as decimalv3(6,3)),cast (222.222 as decimalv3(6,3))))"
+
     // array_overlap function
     qt_sql "select arrays_overlap([1,2,3], [4,5,6])"
     qt_sql "select arrays_overlap([1,2,3], [3,4,5])"
@@ -265,6 +278,16 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_concat(array(cast (12.99 as decimal(10,3)), cast (34.99 as decimal(10,3))), array(cast (999.28 as decimal(10,3)), cast (123.99 as decimal(10,3))))"
     qt_sql "select array_concat(array(cast ('2023-03-05' as datev2), cast ('2023-03-04' as datev2)), array(cast ('2023-02-01' as datev2), cast ('2023-02-05' as datev2)))"
     qt_sql "select array_concat(array(cast ('2023-03-05 12:23:24.999' as datetimev2(3)),cast ('2023-03-05 15:23:23.997' as datetimev2(3))))"
+    // array_zip
+    qt_sql "select array_zip(['a', 'b', 'c'], ['d', 'e', 'f'])"
+    qt_sql "select array_zip(['a', 'b', 'c'], ['d', 'e', 'f'], ['g', 'h', 'i'])"
+    qt_sql "select array_zip([1, 2, 3, 4, 5], ['d', 'o', 'r', 'i', 's'])"
+    qt_sql "select array_zip([1.1, 2.2, 3.3], [1, 2, 3])"
+    qt_sql "select array_zip([1, null, 3], [null, 'b', null])"
+    qt_sql "select array_zip(array(cast (3.05 as decimal(10,3)), cast (2.22 as decimal(10,3))), array(cast (3.14 as decimal(10,3)), cast (6.66 as decimal(10,3))))" 
+    qt_sql "select array_zip(array(cast ('2000-03-05' as datev2), cast ('2023-03-10' as datev2)), array(cast ('2000-02-02' as datev2), cast ('2023-03-10' as datev2)))"
+    qt_sql "select array_zip(array(cast ('2023-03-05 12:23:24.999' as datetimev2(3)),cast ('2023-03-05 15:23:23.997' as datetimev2(3))))"
+    qt_sql "select array_zip([1, 2, 3], null, ['foo', 'bar', 'test'])"
 
     qt_sql "select array(8, null)"
     qt_sql "select array('a', 1, 2)"

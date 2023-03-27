@@ -63,6 +63,7 @@ public class SortNode extends PlanNode {
     private final SortInfo info;
     private final boolean  useTopN;
     private boolean useTopnOpt;
+    private boolean useTwoPhaseReadOpt;
 
     private boolean  isDefaultLimit;
     // if true, the output of this node feeds an AnalyticNode
@@ -142,6 +143,14 @@ public class SortNode extends PlanNode {
         this.useTopnOpt = useTopnOpt;
     }
 
+    public boolean getUseTwoPhaseReadOpt() {
+        return useTopnOpt;
+    }
+
+    public void setUseTwoPhaseReadOpt(boolean useTwoPhaseReadOpt) {
+        this.useTwoPhaseReadOpt = useTwoPhaseReadOpt;
+    }
+
     public List<Expr> getResolvedTupleExprs() {
         return resolvedTupleExprs;
     }
@@ -175,6 +184,9 @@ public class SortNode extends PlanNode {
 
         if (useTopnOpt) {
             output.append(detailPrefix + "TOPN OPT\n");
+        }
+        if (useTwoPhaseReadOpt) {
+            output.append(detailPrefix + "OPT TWO PHASE\n");
         }
         output.append(detailPrefix).append("offset: ").append(offset).append("\n");
         return output.toString();

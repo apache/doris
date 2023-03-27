@@ -19,6 +19,7 @@
 
 #include <queue>
 
+#include "io/io_common.h"
 #include "table_format_reader.h"
 #include "vec/columns/column_dictionary.h"
 #include "vec/exec/format/format_common.h"
@@ -27,8 +28,6 @@
 #include "vec/exprs/vexpr.h"
 
 namespace doris {
-
-struct IOContext;
 
 namespace vectorized {
 
@@ -41,8 +40,8 @@ public:
 
     IcebergTableReader(GenericReader* file_format_reader, RuntimeProfile* profile,
                        RuntimeState* state, const TFileScanRangeParams& params,
-                       const TFileRangeDesc& range, KVCache<std::string>& kv_cache,
-                       IOContext* io_ctx);
+                       const TFileRangeDesc& range, ShardedKVCache* kv_cache,
+                       io::IOContext* io_ctx);
     ~IcebergTableReader() override = default;
 
     Status init_row_filters(const TFileRangeDesc& range) override;
@@ -97,12 +96,14 @@ private:
     Status _gen_col_name_maps(std::vector<tparquet::KeyValue> parquet_meta_kv);
     void _gen_file_col_names();
     void _gen_new_colname_to_value_range();
+    std::string _delet_file_cache_key(const std::string& path) { return "delete_" + path; }
 
     RuntimeProfile* _profile;
     RuntimeState* _state;
     const TFileScanRangeParams& _params;
     const TFileRangeDesc& _range;
-    KVCache<std::string>& _kv_cache;
+    // owned by scan node
+    ShardedKVCache* _kv_cache;
     IcebergProfile _iceberg_profile;
     std::vector<int64_t> _delete_rows;
     // col names from _file_slot_descs
@@ -121,7 +122,7 @@ private:
     // col names in table but not in parquet file
     std::vector<std::string> _not_in_file_col_names;
 
-    IOContext* _io_ctx;
+    io::IOContext* _io_ctx;
     bool _has_schema_change = false;
     bool _has_iceberg_schema = false;
 };

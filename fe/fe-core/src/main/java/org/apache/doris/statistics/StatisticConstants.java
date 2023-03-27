@@ -62,4 +62,6 @@ public class StatisticConstants {
 
     public static final int LOAD_TASK_LIMITS = 10;
 
+    public static final double DEFAULT_INNER_JOIN_FACTOR = 0.1;
+
 }

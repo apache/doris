@@ -39,11 +39,20 @@ suite ("multi_slot_k123p") {
     createMV ("create materialized view k123p as select k1,k2+k3 from d_table;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
+    sql "insert into d_table select 3,-3,null,'c';"
+    qt_select_star "select * from d_table order by k1,k4;"
 
-    qt_select_star "select * from d_table order by k1;"
+    streamLoad {
+        table "d_table"
+        set 'column_separator', ','
+        set 'columns', 'k1, k2, k3, k4'
+        file 'multi_slot_k123p.csv'
+        time 10000
+    }
+    qt_select_star "select * from d_table order by k1,k4;"
 
     explain {
-        sql("select k1,k2+k3 from d_table;")
+        sql("select k1,k2+k3 from d_table order by k1;")
         contains "(k123p)"
     }
     qt_select_mv "select k1,k2+k3 from d_table order by k1;"

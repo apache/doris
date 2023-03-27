@@ -24,7 +24,6 @@ import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
@@ -43,7 +42,7 @@ import org.apache.doris.common.TableAliasGenerator;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.SqlUtils;
-import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.common.util.ToSqlContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
@@ -86,7 +85,7 @@ public class SelectStmt extends QueryStmt {
 
     protected SelectList selectList;
     private final ArrayList<String> colLabels; // lower case column labels
-    protected final FromClause fromClause;
+    protected FromClause fromClause;
     protected GroupByClause groupByClause;
     private List<Expr> originalExpr;
 
@@ -121,6 +120,8 @@ public class SelectStmt extends QueryStmt {
     // SQL string of this SelectStmt before inline-view expression substitution.
     // Set in analyze().
     protected String sqlString;
+
+    boolean isReAnalyze = false;
 
     // Table alias generator used during query rewriting.
     private TableAliasGenerator tableAliasGenerator = null;
@@ -248,11 +249,14 @@ public class SelectStmt extends QueryStmt {
         if (whereClause != null) {
             whereClause = originalWhereClause;
         }
+
         for (TableRef tableRef : getTableRefs()) {
             if (tableRef instanceof InlineViewRef) {
                 ((InlineViewRef) tableRef).getViewStmt().resetSelectList();
             }
         }
+
+        isReAnalyze = true;
     }
 
     @Override
@@ -296,6 +300,10 @@ public class SelectStmt extends QueryStmt {
 
     public Expr getWhereClause() {
         return whereClause;
+    }
+
+    public Expr getOriginalWhereClause() {
+        return originalWhereClause;
     }
 
     public void setWhereClause(Expr whereClause) {
@@ -377,13 +385,6 @@ public class SelectStmt extends QueryStmt {
                     View view = (View) table;
                     view.getQueryStmt().getTables(analyzer, expandView, tableMap, parentViewNameSet);
                 } else {
-                    // check auth
-                    if (!Env.getCurrentEnv().getAccessManager()
-                            .checkTblPriv(ConnectContext.get(), tblRef.getName(), PrivPredicate.SELECT)) {
-                        ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
-                                ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                                dbName + "." + tableName);
-                    }
                     tableMap.put(table.getId(), table);
                 }
             }
@@ -465,9 +466,9 @@ public class SelectStmt extends QueryStmt {
                 }
                 try {
                     Expr expr = tableRef.getOnClause();
-                    if (CreateMaterializedViewStmt.isMVColumn(expr.toSqlWithoutTbl())) {
-                        tableRef.setOnClause(expr.trySubstitute(mvSMap, analyzer, false));
-                    }
+                    Expr originalExpr = expr.clone().substituteImpl(mvSMap, null, analyzer);
+                    originalExpr.reset();
+                    tableRef.setOnClause(originalExpr);
                 } catch (Exception e) {
                     LOG.warn("", e);
                 }
@@ -2033,6 +2034,9 @@ public class SelectStmt extends QueryStmt {
      */
     private Expr rewriteSubquery(Expr expr, Analyzer analyzer)
             throws AnalysisException {
+        if (isReAnalyze) {
+            return null;
+        }
         if (expr instanceof Subquery) {
             if (!(((Subquery) expr).getStatement() instanceof SelectStmt)) {
                 throw new AnalysisException("Only support select subquery in case-when clause.");
@@ -2140,7 +2144,9 @@ public class SelectStmt extends QueryStmt {
     @Override
     public String toSql() {
         if (sqlString != null) {
-            return sqlString;
+            if (ToSqlContext.get() == null || ToSqlContext.get().isNeedSlotRefId()) {
+                return sqlString;
+            }
         }
         StringBuilder strBuilder = new StringBuilder();
         if (withClause != null) {

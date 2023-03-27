@@ -305,7 +305,7 @@ public class InsertStmt extends DdlStmt {
 
         db = analyzer.getEnv().getCatalogMgr().getCatalog(tblName.getCtl()).getDbOrAnalysisException(tblName.getDb());
         // create label and begin transaction
-        long timeoutSecond = ConnectContext.get().resetExecTimeoutByInsert();
+        long timeoutSecond = ConnectContext.get().getExecTimeout();
         if (Strings.isNullOrEmpty(label)) {
             label = "insert_" + DebugUtil.printId(analyzer.getContext().queryId()).replace("-", "_");
         }
@@ -505,6 +505,13 @@ public class InsertStmt extends DdlStmt {
         // Check if all columns mentioned is enough
         checkColumnCoverage(mentionedColumns, targetTable.getBaseSchema());
 
+        Map<String, Expr> slotToIndex = Maps.newTreeMap();
+        List<Column> baseColumns = targetTable.getBaseSchema();
+        int size = Math.min(baseColumns.size(), queryStmt.getResultExprs().size());
+        for (int i = 0; i < size; i++) {
+            slotToIndex.put(baseColumns.get(i).getName(), queryStmt.getResultExprs().get(i));
+        }
+
         // handle VALUES() or SELECT constant list
         if (isValuesOrConstantSelect) {
             SelectStmt selectStmt = (SelectStmt) queryStmt;
@@ -512,7 +519,7 @@ public class InsertStmt extends DdlStmt {
                 // INSERT INTO VALUES(...)
                 List<ArrayList<Expr>> rows = selectStmt.getValueList().getRows();
                 for (int rowIdx = 0; rowIdx < rows.size(); ++rowIdx) {
-                    analyzeRow(analyzer, targetColumns, rows, rowIdx, origColIdxsForExtendCols);
+                    analyzeRow(analyzer, targetColumns, rows, rowIdx, origColIdxsForExtendCols, slotToIndex);
                 }
 
                 // clear these 2 structures, rebuild them using VALUES exprs
@@ -527,9 +534,10 @@ public class InsertStmt extends DdlStmt {
                 // INSERT INTO SELECT 1,2,3 ...
                 List<ArrayList<Expr>> rows = Lists.newArrayList();
                 // ATTN: must copy the `selectStmt.getResultExprs()`, otherwise the following
-                // `selectStmt.getResultExprs().clear();` will clear the `rows` too, causing error.
+                // `selectStmt.getResultExprs().clear();` will clear the `rows` too, causing
+                // error.
                 rows.add(Lists.newArrayList(selectStmt.getResultExprs()));
-                analyzeRow(analyzer, targetColumns, rows, 0, origColIdxsForExtendCols);
+                analyzeRow(analyzer, targetColumns, rows, 0, origColIdxsForExtendCols, slotToIndex);
                 // rows may be changed in analyzeRow(), so rebuild the result exprs
                 selectStmt.getResultExprs().clear();
                 for (Expr expr : rows.get(0)) {
@@ -550,7 +558,7 @@ public class InsertStmt extends DdlStmt {
                         List<SlotRef> columns = entry.second.getRefColumns();
                         for (SlotRef slot : columns) {
                             smap.getLhs().add(slot);
-                            smap.getRhs().add(queryStmt.getResultExprs().get(entry.first));
+                            smap.getRhs().add(slotToIndex.get(slot.getColumnName()));
                         }
                         Expr e = Expr.substituteList(Lists.newArrayList(entry.second.getDefineExpr()),
                                 smap, analyzer, false).get(0);
@@ -579,7 +587,7 @@ public class InsertStmt extends DdlStmt {
                         List<SlotRef> columns = entry.second.getRefColumns();
                         for (SlotRef slot : columns) {
                             smap.getLhs().add(slot);
-                            smap.getRhs().add(queryStmt.getResultExprs().get(entry.first));
+                            smap.getRhs().add(slotToIndex.get(slot.getColumnName()));
                         }
                         Expr e = Expr.substituteList(Lists.newArrayList(entry.second.getDefineExpr()),
                                 smap, analyzer, false).get(0);
@@ -609,7 +617,8 @@ public class InsertStmt extends DdlStmt {
     }
 
     private void analyzeRow(Analyzer analyzer, List<Column> targetColumns, List<ArrayList<Expr>> rows,
-            int rowIdx, List<Pair<Integer, Column>> origColIdxsForExtendCols) throws AnalysisException {
+            int rowIdx, List<Pair<Integer, Column>> origColIdxsForExtendCols, Map<String, Expr> slotToIndex)
+            throws AnalysisException {
         // 1. check number of fields if equal with first row
         // targetColumns contains some shadow columns, which is added by system,
         // so we should minus this
@@ -637,7 +646,7 @@ public class InsertStmt extends DdlStmt {
                         List<SlotRef> columns = entry.second.getRefColumns();
                         for (SlotRef slot : columns) {
                             smap.getLhs().add(slot);
-                            smap.getRhs().add(extentedRow.get(entry.first));
+                            smap.getRhs().add(slotToIndex.get(slot.getColumnName()));
                         }
                         extentedRow.add(Expr.substituteList(Lists.newArrayList(entry.second.getDefineExpr()),
                                 smap, analyzer, false).get(0));

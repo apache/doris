@@ -26,9 +26,9 @@
 #include <boost/noncopyable.hpp>
 #include <utility>
 
+#include "common/exception.h"
 #include "common/status.h"
 #include "util/runtime_profile.h"
-#include "vec/common/exception.h"
 #include "vec/common/hash_table/hash_table_allocator.h"
 #include "vec/common/hash_table/hash_table_key_holder.h"
 #include "vec/core/types.h"
@@ -411,8 +411,7 @@ template <typename Cell>
 struct ZeroValueStorage<false, Cell> {
     bool get_has_zero() const { return false; }
     void set_get_has_zero() {
-        throw doris::vectorized::Exception("HashTable: logical error",
-                                           doris::TStatusCode::VEC_LOGIC_ERROR);
+        throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT, "HashTable: logical error");
     }
     void clear_get_has_zero() {}
 

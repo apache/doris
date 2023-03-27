@@ -454,12 +454,12 @@ TEST_F(TestDeltaWriter, vec_write) {
         int128_t k5 = -90000;
         columns[4]->insert_data((const char*)&k5, sizeof(k5));
 
-        DateTimeValue k6;
+        vectorized::VecDateTimeValue k6;
         k6.from_date_str("2048-11-10", 10);
         auto k6_int = k6.to_int64();
         columns[5]->insert_data((const char*)&k6_int, sizeof(k6_int));
 
-        DateTimeValue k7;
+        vectorized::VecDateTimeValue k7;
         k7.from_date_str("2636-08-16 19:39:43", 19);
         auto k7_int = k7.to_int64();
         columns[6]->insert_data((const char*)&k7_int, sizeof(k7_int));
@@ -491,12 +491,12 @@ TEST_F(TestDeltaWriter, vec_write) {
         int128_t v5 = -90000;
         columns[15]->insert_data((const char*)&v5, sizeof(v5));
 
-        DateTimeValue v6;
+        vectorized::VecDateTimeValue v6;
         v6.from_date_str("2048-11-10", 10);
         auto v6_int = v6.to_int64();
         columns[16]->insert_data((const char*)&v6_int, sizeof(v6_int));
 
-        DateTimeValue v7;
+        vectorized::VecDateTimeValue v7;
         v7.from_date_str("2636-08-16 19:39:43", 19);
         auto v7_int = v7.to_int64();
         columns[17]->insert_data((const char*)&v7_int, sizeof(v7_int));
@@ -592,7 +592,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
         int16_t c2 = 456;
         columns[1]->insert_data((const char*)&c2, sizeof(c2));
 
-        DateTimeValue c3;
+        vectorized::VecDateTimeValue c3;
         c3.from_date_str("2020-07-16 19:39:43", 19);
         int64_t c3_int = c3.to_int64();
         columns[2]->insert_data((const char*)&c3_int, sizeof(c3));
@@ -614,7 +614,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
         int16_t c2 = 456;
         columns[1]->insert_data((const char*)&c2, sizeof(c2));
 
-        DateTimeValue c3;
+        vectorized::VecDateTimeValue c3;
         c3.from_date_str("2020-07-31 19:39:43", 19);
         int64_t c3_int = c3.to_int64();
         columns[2]->insert_data((const char*)&c3_int, sizeof(c3));

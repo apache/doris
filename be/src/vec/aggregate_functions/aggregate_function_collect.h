@@ -51,6 +51,9 @@ struct AggregateFunctionCollectSetData {
 
     void merge(const SelfType& rhs) {
         if constexpr (HasLimit::value) {
+            DCHECK(max_size == -1 || max_size == rhs.max_size);
+            max_size = rhs.max_size;
+
             for (auto& rhs_elem : rhs.data_set) {
                 if (size() >= max_size) {
                     return;
@@ -62,9 +65,15 @@ struct AggregateFunctionCollectSetData {
         }
     }
 
-    void write(BufferWritable& buf) const { data_set.write(buf); }
+    void write(BufferWritable& buf) const {
+        data_set.write(buf);
+        write_var_int(max_size, buf);
+    }
 
-    void read(BufferReadable& buf) { data_set.read(buf); }
+    void read(BufferReadable& buf) {
+        data_set.read(buf);
+        read_var_int(max_size, buf);
+    }
 
     void insert_result_into(IColumn& to) const {
         auto& vec = assert_cast<ColVecType&>(to).get_data();
@@ -98,6 +107,9 @@ struct AggregateFunctionCollectSetData<StringRef, HasLimit> {
     void merge(const SelfType& rhs, Arena* arena) {
         bool inserted;
         Set::LookupResult it;
+        DCHECK(max_size == -1 || max_size == rhs.max_size);
+        max_size = rhs.max_size;
+
         for (auto& rhs_elem : rhs.data_set) {
             if constexpr (HasLimit::value) {
                 if (size() >= max_size) {
@@ -114,6 +126,7 @@ struct AggregateFunctionCollectSetData<StringRef, HasLimit> {
         for (const auto& elem : data_set) {
             write_string_binary(elem.get_value(), buf);
         }
+        write_var_int(max_size, buf);
     }
 
     void read(BufferReadable& buf) {
@@ -124,6 +137,7 @@ struct AggregateFunctionCollectSetData<StringRef, HasLimit> {
             read_string_binary(ref, buf);
             data_set.insert(ref);
         }
+        read_var_int(max_size, buf);
     }
 
     void insert_result_into(IColumn& to) const {
@@ -154,6 +168,8 @@ struct AggregateFunctionCollectListData {
 
     void merge(const SelfType& rhs) {
         if constexpr (HasLimit::value) {
+            DCHECK(max_size == -1 || max_size == rhs.max_size);
+            max_size = rhs.max_size;
             for (auto& rhs_elem : rhs.data) {
                 if (size() >= max_size) {
                     return;
@@ -168,6 +184,7 @@ struct AggregateFunctionCollectListData {
     void write(BufferWritable& buf) const {
         write_var_uint(size(), buf);
         buf.write(data.raw_data(), size() * sizeof(ElementType));
+        write_var_int(max_size, buf);
     }
 
     void read(BufferReadable& buf) {
@@ -175,6 +192,7 @@ struct AggregateFunctionCollectListData {
         read_var_uint(rows, buf);
         data.resize(rows);
         buf.read(reinterpret_cast<char*>(data.data()), rows * sizeof(ElementType));
+        read_var_int(max_size, buf);
     }
 
     void reset() { data.clear(); }
@@ -202,6 +220,9 @@ struct AggregateFunctionCollectListData<StringRef, HasLimit> {
 
     void merge(const AggregateFunctionCollectListData& rhs) {
         if constexpr (HasLimit::value) {
+            DCHECK(max_size == -1 || max_size == rhs.max_size);
+            max_size = rhs.max_size;
+
             data->insert_range_from(*rhs.data, 0,
                                     std::min(static_cast<size_t>(max_size - size()), rhs.size()));
         } else {
@@ -217,6 +238,7 @@ struct AggregateFunctionCollectListData<StringRef, HasLimit> {
 
         write_var_uint(col.get_chars().size(), buf);
         buf.write(col.get_chars().raw_data(), col.get_chars().size());
+        write_var_int(max_size, buf);
     }
 
     void read(BufferReadable& buf) {
@@ -231,6 +253,7 @@ struct AggregateFunctionCollectListData<StringRef, HasLimit> {
         read_var_uint(chars_size, buf);
         col.get_chars().resize(chars_size);
         buf.read(reinterpret_cast<char*>(col.get_chars().data()), chars_size);
+        read_var_int(max_size, buf);
     }
 
     void reset() { data->clear(); }

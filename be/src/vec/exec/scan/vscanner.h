@@ -39,7 +39,9 @@ class VScanner {
 public:
     VScanner(RuntimeState* state, VScanNode* parent, int64_t limit, RuntimeProfile* profile);
 
-    virtual ~VScanner() {}
+    virtual ~VScanner() = default;
+
+    virtual Status init() { return Status::OK(); }
 
     virtual Status open(RuntimeState* state) { return Status::OK(); }
 
@@ -66,6 +68,8 @@ public:
     int64_t get_time_cost_ns() const { return _per_scanner_timer; }
 
     int64_t get_rows_read() const { return _num_rows_read; }
+
+    bool is_init() const { return _is_init; }
 
     Status try_append_late_arrival_runtime_filter();
 
@@ -178,6 +182,8 @@ protected:
     bool _is_load = false;
     // set to true after decrease the "_num_unfinished_scanners" in scanner context
     bool _is_counted_down = false;
+
+    bool _is_init = true;
 
     ScannerCounter _counter;
     int64_t _per_scanner_timer = 0;

@@ -33,9 +33,6 @@ void BlockSpillWriter::_init_profile() {
 Status BlockSpillWriter::open() {
     RETURN_IF_ERROR(FileFactory::create_file_writer(TFileType::FILE_LOCAL, ExecEnv::GetInstance(),
                                                     {}, {}, file_path_, 0, file_writer_));
-
-    RETURN_IF_ERROR(file_writer_->open());
-
     is_open_ = true;
     return Status::OK();
 }
@@ -53,17 +50,17 @@ Status BlockSpillWriter::close() {
     meta_.append((const char*)&written_blocks_, sizeof(written_blocks_));
 
     Status status;
-    size_t written_bytes;
     // meta: block1 offset, block2 offset, ..., blockn offset, n
     {
         SCOPED_TIMER(write_timer_);
-        status = file_writer_->write((const uint8_t*)meta_.data(), meta_.size(), &written_bytes);
+        status = file_writer_->append(meta_);
     }
     if (!status.ok()) {
         unlink(file_path_.c_str());
         return status;
     }
 
+    RETURN_IF_ERROR(file_writer_->close());
     file_writer_.reset();
     return Status::OK();
 }
@@ -91,9 +88,13 @@ Status BlockSpillWriter::write(const Block& block) {
             auto& dst_data = tmp_block_.get_columns_with_type_and_name();
 
             size_t block_rows = std::min(rows - row_idx, batch_size_);
-            for (size_t col_idx = 0; col_idx < block.columns(); ++col_idx) {
-                dst_data[col_idx].column->assume_mutable()->insert_range_from(
-                        *src_data[col_idx].column, row_idx, block_rows);
+            try {
+                for (size_t col_idx = 0; col_idx < block.columns(); ++col_idx) {
+                    dst_data[col_idx].column->assume_mutable()->insert_range_from(
+                            *src_data[col_idx].column, row_idx, block_rows);
+                }
+            } catch (const doris::Exception& e) {
+                return Status::Error(e.code(), e.to_string());
             }
 
             RETURN_IF_ERROR(_write_internal(tmp_block_));
@@ -125,13 +126,13 @@ Status BlockSpillWriter::_write_internal(const Block& block) {
 
     {
         SCOPED_TIMER(write_timer_);
-        status = file_writer_->write((const uint8_t*)buff.data(), buff.size(), &written_bytes);
+        status = file_writer_->append(buff);
+        written_bytes = buff.size();
     }
     if (!status.ok()) {
         unlink(file_path_.c_str());
         return status;
     }
-    DCHECK(written_bytes == buff.size());
 
     max_sub_block_size_ = std::max(max_sub_block_size_, written_bytes);
 

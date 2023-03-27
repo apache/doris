@@ -51,33 +51,27 @@ public class SimplifyNotExprRule extends AbstractExpressionRewriteRule {
         Expression child = not.child();
         if (child instanceof ComparisonPredicate) {
             ComparisonPredicate cp = (ComparisonPredicate) not.child();
-            Expression left = rewrite(cp.left(), context);
-            Expression right = rewrite(cp.right(), context);
+            Expression left = cp.left();
+            Expression right = cp.right();
 
-            // TODO: visit concrete class instead of `instanceof`.
             if (child instanceof GreaterThan) {
-                return new LessThanEqual(left, right);
+                return new LessThanEqual(left, right).accept(this, context);
             } else if (child instanceof GreaterThanEqual) {
-                return new LessThan(left, right);
+                return new LessThan(left, right).accept(this, context);
             } else if (child instanceof LessThan) {
-                return new GreaterThanEqual(left, right);
+                return new GreaterThanEqual(left, right).accept(this, context);
             } else if (child instanceof LessThanEqual) {
-                return new GreaterThan(left, right);
-            } else {
-                not.withChildren(child.withChildren(left, right));
+                return new GreaterThan(left, right).accept(this, context);
             }
         } else if (child instanceof CompoundPredicate) {
-            CompoundPredicate cp = (CompoundPredicate) not.child();
-            Expression left = rewrite(new Not(cp.left()), context);
-            Expression right = rewrite(new Not(cp.right()), context);
-            return cp.flip(left, right);
+            CompoundPredicate cp = (CompoundPredicate) child;
+            Not left = new Not(cp.left());
+            Not right = new Not(cp.right());
+            return cp.flip(left, right).accept(this, context);
+        } else if (child instanceof Not) {
+            return child.child(0).accept(this, context);
         }
 
-        if (child instanceof Not) {
-            Not son = (Not) child;
-            return rewrite(son.child(), context);
-        }
-
-        return not;
+        return super.visitNot(not, context);
     }
 }

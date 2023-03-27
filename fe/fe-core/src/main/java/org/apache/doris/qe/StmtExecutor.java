@@ -200,8 +200,10 @@ public class StmtExecutor implements ProfileWriter {
     private boolean isCached;
     private QueryPlannerProfile plannerProfile = new QueryPlannerProfile();
     private String stmtName;
-    private PrepareStmt prepareStmt;
+    private PrepareStmt prepareStmt = null;
     private String mysqlLoadId;
+    // Distinguish from prepare and execute command
+    private boolean isExecuteStmt = false;
 
     // The result schema if "dry_run_query" is true.
     // Only one column to indicate the real return row numbers.
@@ -521,7 +523,7 @@ public class StmtExecutor implements ProfileWriter {
                 parsedStmt.analyze(analyzer);
             }
 
-            if (prepareStmt instanceof PrepareStmt) {
+            if (prepareStmt instanceof PrepareStmt && !isExecuteStmt) {
                 handlePrepareStmt();
                 return;
             }
@@ -594,7 +596,7 @@ public class StmtExecutor implements ProfileWriter {
                 handleTransactionStmt();
             } else if (parsedStmt instanceof CreateTableAsSelectStmt) {
                 handleCtasStmt();
-            } else if (parsedStmt instanceof InsertStmt) { // Must ahead of DdlStmt because InserStmt is its subclass
+            } else if (parsedStmt instanceof InsertStmt) { // Must ahead of DdlStmt because InsertStmt is its subclass
                 try {
                     handleInsertStmt();
                     if (!((InsertStmt) parsedStmt).getQueryStmt().isExplain()) {
@@ -744,8 +746,10 @@ public class StmtExecutor implements ProfileWriter {
             parsedStmt = preparedStmtCtx.stmt.getInnerStmt();
             planner = preparedStmtCtx.planner;
             analyzer = preparedStmtCtx.analyzer;
+            prepareStmt = preparedStmtCtx.stmt;
             Preconditions.checkState(parsedStmt.isAnalyzed());
             LOG.debug("already prepared stmt: {}", preparedStmtCtx.stmtString);
+            isExecuteStmt = true;
             if (!preparedStmtCtx.stmt.needReAnalyze()) {
                 // Return directly to bypass analyze and plan
                 return;
@@ -1498,8 +1502,8 @@ public class StmtExecutor implements ProfileWriter {
             InterruptedException, ExecutionException, TimeoutException {
         TransactionEntry txnEntry = context.getTxnEntry();
         TTxnParams txnConf = txnEntry.getTxnConf();
-        SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
-        long timeoutSecond = ConnectContext.get().getExecTimeout();
+        SessionVariable sessionVariable = context.getSessionVariable();
+        long timeoutSecond = context.getExecTimeout();
 
         TransactionState.LoadJobSourceType sourceType = TransactionState.LoadJobSourceType.INSERT_STREAMING;
         Database dbObj = Env.getCurrentInternalCatalog()
@@ -1547,7 +1551,7 @@ public class StmtExecutor implements ProfileWriter {
         executor.beginTransaction(request);
     }
 
-    // Process a select statement.
+    // Process an insert statement.
     private void handleInsertStmt() throws Exception {
         // Every time set no send flag and clean all data in buffer
         if (context.getMysqlChannel() != null) {
@@ -1568,9 +1572,6 @@ public class StmtExecutor implements ProfileWriter {
         }
 
         analyzeVariablesInStmt(insertStmt.getQueryStmt());
-        // reset the executionTimeout since query hint maybe change the insert_timeout again
-        context.resetExecTimeoutByInsert();
-
         long createTime = System.currentTimeMillis();
         Throwable throwable = null;
         long txnId = -1;
@@ -1829,13 +1830,25 @@ public class StmtExecutor implements ProfileWriter {
         // sends how many columns
         serializer.reset();
         serializer.writeVInt(colNames.size());
-        LOG.debug("sendFields {}", colNames.size());
+        LOG.debug("sendFields {}", colNames);
         context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         // send field one by one
         for (int i = 0; i < colNames.size(); ++i) {
             serializer.reset();
-            serializer.writeField(colNames.get(i), types.get(i));
-            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+            if (prepareStmt != null && isExecuteStmt) {
+                // Using PreparedStatment pre serializedField to avoid serialize each time
+                // we send a field
+                byte[] serializedField = prepareStmt.getSerializedField(colNames.get(i));
+                if (serializedField == null) {
+                    serializer.writeField(colNames.get(i), types.get(i));
+                    serializedField = serializer.toArray();
+                    prepareStmt.setSerializedField(colNames.get(i), serializedField);
+                }
+                context.getMysqlChannel().sendOnePacket(ByteBuffer.wrap(serializedField));
+            } else {
+                serializer.writeField(colNames.get(i), types.get(i));
+                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+            }
         }
         // send EOF
         serializer.reset();
@@ -2020,6 +2033,7 @@ public class StmtExecutor implements ProfileWriter {
         if (MysqlStateType.OK.equals(context.getState().getStateType())) {
             try {
                 parsedStmt = ctasStmt.getInsertStmt();
+                parsedStmt.setUserInfo(context.getCurrentUserIdentity());
                 execute();
                 if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
                     LOG.warn("CTAS insert data error, stmt={}", ctasStmt.toSql());

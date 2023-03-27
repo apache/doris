@@ -20,6 +20,8 @@
 #include <cstdint>
 
 #include "vec/columns/column_complex.h"
+#include "vec/columns/column_map.h"
+#include "vec/columns/column_struct.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
@@ -235,6 +237,9 @@ public:
 
         if constexpr (std::is_same_v<ColumnType, ColumnString> ||
                       std::is_same_v<ColumnType, ColumnBitmap> ||
+                      std::is_same_v<ColumnType, ColumnArray> ||
+                      std::is_same_v<ColumnType, ColumnMap> ||
+                      std::is_same_v<ColumnType, ColumnStruct> ||
                       std::is_same_v<ColumnType, ColumnHLL>) {
             // result_column and all then_column is not nullable.
             // can't simd when type is string.

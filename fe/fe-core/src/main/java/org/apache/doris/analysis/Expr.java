@@ -1224,6 +1224,19 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return true;
     }
 
+
+    /**
+     * Returns true if expr have child bound by tids, otherwise false.
+     */
+    public boolean isRelativedByTupleIds(List<TupleId> tids) {
+        for (Expr child : children) {
+            if (child.isRelativedByTupleIds(tids)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * Returns true if expr is fully bound by slotId, otherwise false.
      */
@@ -2139,21 +2152,6 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             return false;
         }
         return true;
-    }
-
-    public final void finalizeForNereids() throws AnalysisException {
-        if (isAnalyzed()) {
-            return;
-        }
-        for (Expr child : children) {
-            child.finalizeForNereids();
-        }
-        finalizeImplForNereids();
-        analysisDone();
-    }
-
-    public void finalizeImplForNereids() throws AnalysisException {
-        throw new AnalysisException("analyze for Nereids do not implementation.");
     }
 
     public void materializeSrcExpr() {

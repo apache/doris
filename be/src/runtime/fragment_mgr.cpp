@@ -98,7 +98,7 @@ public:
 
     PlanFragmentExecutor* executor() { return &_executor; }
 
-    const DateTimeValue& start_time() const { return _start_time; }
+    const vectorized::VecDateTimeValue& start_time() const { return _start_time; }
 
     void set_merge_controller_handler(
             std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
@@ -120,7 +120,7 @@ public:
         _group = info.group;
     }
 
-    bool is_timeout(const DateTimeValue& now) const {
+    bool is_timeout(const vectorized::VecDateTimeValue& now) const {
         if (_timeout_second <= 0) {
             return false;
         }
@@ -148,7 +148,7 @@ private:
     TNetworkAddress _coord_addr;
 
     PlanFragmentExecutor _executor;
-    DateTimeValue _start_time;
+    vectorized::VecDateTimeValue _start_time;
 
     std::mutex _status_lock;
     Status _exec_status;
@@ -185,7 +185,7 @@ FragmentExecState::FragmentExecState(const TUniqueId& query_id,
           _timeout_second(-1),
           _fragments_ctx(std::move(fragments_ctx)),
           _report_status_cb_impl(report_status_cb_impl) {
-    _start_time = DateTimeValue::local_time();
+    _start_time = vectorized::VecDateTimeValue::local_time();
     _coord_addr = _fragments_ctx->coord_addr;
 }
 
@@ -753,12 +753,12 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
         {
             SCOPED_RAW_TIMER(&duration_ns);
             auto prepare_st = context->prepare(params);
-            g_fragmentmgr_prepare_latency << (duration_ns / 1000);
             if (!prepare_st.ok()) {
                 context->close_if_prepare_failed();
                 return prepare_st;
             }
         }
+        g_fragmentmgr_prepare_latency << (duration_ns / 1000);
 
         std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
         _runtimefilter_controller.add_entity(params, &handler, context->get_runtime_state());
@@ -821,7 +821,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         }
 
         fragments_ctx->get_shared_hash_table_controller()->set_pipeline_engine_enabled(true);
-        fragments_ctx->timeout_second = params.query_options.query_timeout;
+        fragments_ctx->timeout_second = params.query_options.execution_timeout;
         _set_scan_concurrency(params, fragments_ctx.get());
 
         bool has_query_mem_tracker =
@@ -909,12 +909,12 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         {
             SCOPED_RAW_TIMER(&duration_ns);
             auto prepare_st = context->prepare(params, i);
-            g_fragmentmgr_prepare_latency << (duration_ns / 1000);
             if (!prepare_st.ok()) {
                 context->close_if_prepare_failed();
                 return prepare_st;
             }
         }
+        g_fragmentmgr_prepare_latency << (duration_ns / 1000);
 
         std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
         _runtimefilter_controller.add_entity(params, local_params, &handler,
@@ -1063,7 +1063,7 @@ void FragmentMgr::cancel_worker() {
     do {
         std::vector<TUniqueId> to_cancel;
         std::vector<TUniqueId> to_cancel_queries;
-        DateTimeValue now = DateTimeValue::local_time();
+        vectorized::VecDateTimeValue now = vectorized::VecDateTimeValue::local_time();
         {
             std::lock_guard<std::mutex> lock(_lock);
             for (auto& it : _fragment_map) {
@@ -1095,7 +1095,7 @@ void FragmentMgr::debug(std::stringstream& ss) {
 
     ss << "FragmentMgr have " << _fragment_map.size() << " jobs.\n";
     ss << "job_id\t\tstart_time\t\texecute_time(s)\n";
-    DateTimeValue now = DateTimeValue::local_time();
+    vectorized::VecDateTimeValue now = vectorized::VecDateTimeValue::local_time();
     for (auto& it : _fragment_map) {
         ss << it.first << "\t" << it.second->start_time().debug_string() << "\t"
            << now.second_diff(it.second->start_time()) << "\n";
@@ -1211,7 +1211,7 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
     exec_fragment_params.__set_params(fragment_exec_params);
     TQueryOptions query_options;
     query_options.batch_size = params.batch_size;
-    query_options.query_timeout = params.query_timeout;
+    query_options.execution_timeout = params.execution_timeout;
     query_options.mem_limit = params.mem_limit;
     query_options.query_type = TQueryType::EXTERNAL;
     exec_fragment_params.__set_query_options(query_options);

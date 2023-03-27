@@ -1652,6 +1652,35 @@ bd9a11352a4d84a4725035750ddea145189a72b6eb89c0e07fa9d3b21d70004a
 0.0
 0.0
 
+-- !sql_st_angle_sphere_Double_Double_Double_Double --
+\N
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_st_angle_sphere_Double_Double_Double_Double_notnull --
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
 -- !sql_st_geometryfromtext_Varchar --
 \N
 \N

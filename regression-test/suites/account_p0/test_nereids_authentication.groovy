@@ -57,7 +57,7 @@ suite("test_nereids_authentication", "query") {
             fail()
         } catch (Exception e) {
             log.info(e.getMessage())
-            assertTrue(e.getMessage().contains('SELECT command denied to user'))
+            assertTrue(e.getMessage().contains('Permission denied'))
         }
     }
 
@@ -67,7 +67,7 @@ suite("test_nereids_authentication", "query") {
             fail()
         } catch (Exception e) {
             log.info(e.getMessage())
-            assertTrue(e.getMessage().contains('SELECT command denied to user'))
+            assertTrue(e.getMessage().contains('Permission denied'))
         }
     }
 

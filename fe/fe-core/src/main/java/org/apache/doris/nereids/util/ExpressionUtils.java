@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -203,10 +204,10 @@ public class ExpressionUtils {
     /**
      * Choose the minimum slot from input parameter.
      */
-    public static Slot selectMinimumColumn(List<Slot> slots) {
+    public static <S extends NamedExpression> S selectMinimumColumn(Collection<S> slots) {
         Preconditions.checkArgument(!slots.isEmpty());
-        Slot minSlot = null;
-        for (Slot slot : slots) {
+        S minSlot = null;
+        for (S slot : slots) {
             if (minSlot == null) {
                 minSlot = slot;
             } else {

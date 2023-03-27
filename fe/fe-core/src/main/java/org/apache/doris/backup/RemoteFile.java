@@ -26,12 +26,17 @@ public class RemoteFile {
     private String name;
     private boolean isFile;
     private long size;
+    // Block size of underlying file system. e.g. HDFS and S3.
+    // A large file will split into multiple blocks. The blocks are transparent to the user.
+    // Default block size for HDFS 2.x is 128M.
+    private long blockSize;
 
-    public RemoteFile(String name, boolean isFile, long size) {
+    public RemoteFile(String name, boolean isFile, long size, long blockSize) {
         Preconditions.checkState(!Strings.isNullOrEmpty(name));
         this.name = name;
         this.isFile = isFile;
         this.size = size;
+        this.blockSize = blockSize;
     }
 
     public String getName() {
@@ -44,6 +49,10 @@ public class RemoteFile {
 
     public long getSize() {
         return size;
+    }
+
+    public long getBlockSize() {
+        return blockSize;
     }
 
     @Override

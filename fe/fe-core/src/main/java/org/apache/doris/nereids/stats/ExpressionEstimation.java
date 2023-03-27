@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -289,12 +290,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     // TODO: return a proper estimated stat after supports histogram
     @Override
     public ColumnStatistic visitSum(Sum sum, Statistics context) {
-        ColumnStatistic columnStatistic = sum.child().accept(this, context);
-        return new ColumnStatisticBuilder(columnStatistic)
-                .setMaxValue(columnStatistic.maxValue * context.getRowCount() / columnStatistic.ndv)
-                .setMinValue(columnStatistic.minValue * context.getRowCount() / columnStatistic.ndv)
-                .setAvgSizeByte(sum.getDataType().width())
-                .setDataSize(sum.getDataType().width() * context.getRowCount()).build();
+        return sum.child().accept(this, context);
     }
 
     // TODO: return a proper estimated stat after supports histogram
@@ -381,12 +377,15 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
 
     @Override
     public ColumnStatistic visitTimestampArithmetic(TimestampArithmetic arithmetic, Statistics context) {
-        ColumnStatistic colStat = arithmetic.child(0).accept(this, context);
-        ColumnStatisticBuilder builder = new ColumnStatisticBuilder(colStat);
-        builder.setMinValue(Double.MIN_VALUE);
-        builder.setMaxValue(Double.MAX_VALUE);
-        builder.setSelectivity(1.0);
-        return builder.build();
+        Operator operator = arithmetic.getOp();
+        switch (operator) {
+            case ADD:
+                return dateAdd(arithmetic, context);
+            case SUBTRACT:
+                return dateSub(arithmetic, context);
+            default:
+                return arithmetic.left().accept(this, context);
+        }
     }
 
     @Override

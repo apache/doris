@@ -65,7 +65,8 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 + "username VARCHAR(50) NOT NULL,\n" + "city VARCHAR(20),\n" + "age SMALLINT,\n" + "sex TINYINT,\n"
                 + "phone LARGEINT,\n" + "address VARCHAR(500),\n" + "register_time DATETIME)\n"
                 + "UNIQUE  KEY(user_id, username)\n" + "DISTRIBUTED BY HASH(user_id) BUCKETS 1\n"
-                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true');";
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true',\n"
+                + "'enable_unique_key_merge_on_write' = 'true');";
         createTable(createUniqTblStmtStr);
 
         String createDupTblStmtStr = "CREATE TABLE IF NOT EXISTS test.sc_dup (\n" + "timestamp DATETIME,\n"

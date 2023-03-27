@@ -328,23 +328,24 @@ set enable_odbc_transcation = true;
 
 ### Clickhouse
 
-| ClickHouse Type        | Doris Type | Comment                                             |
-|------------------------|------------|-----------------------------------------------------|
-| Bool                   | BOOLEAN    |                                                     |
-| String                 | STRING     |                                                     |
-| Date/Date32            | DATE       |                                                     |
-| DateTime/DateTime64    | DATETIME   | 对于超过了Doris最大的DateTime精度的数据，将截断处理                    |
-| Float32                | FLOAT      |                                                     |
-| Float64                | DOUBLE     |                                                     |
-| Int8                   | TINYINT    |                                                     |
-| Int16/UInt8            | SMALLINT   | Doris没有UNSIGNED数据类型，所以扩大一个数量级                       |
-| Int32/UInt16           | INT        | Doris没有UNSIGNED数据类型，所以扩大一个数量级                       |
-| Int64/Uint32           | BIGINT     | Doris没有UNSIGNED数据类型，所以扩大一个数量级                       |
-| Int128/UInt64          | LARGEINT   | Doris没有UNSIGNED数据类型，所以扩大一个数量级                       |
-| Int256/UInt128/UInt256 | STRING     | Doris没有这个数量级的数据类型，采用STRING处理                        |
-| DECIMAL                | DECIMAL    | 对于超过了Doris最大的Decimal精度的数据，将映射为STRING                |
-| Enum/IPv4/IPv6/UUID    | STRING     | 在显示上IPv4,IPv6会额外在数据最前面显示一个`/`,需要自己用`split_part`函数处理 |
-|Other| UNSUPPORTED |
+| ClickHouse Type                                         | Doris Type               | Comment                                           |
+|---------------------------------------------------------|--------------------------|---------------------------------------------------|
+| Bool                                                    | BOOLEAN                  |                                                   |
+| String                                                  | STRING                   |                                                   |
+| Date/Date32                                             | DATEV2                   | Jdbc Catlog连接Doris时默认使用DATEV2类型                   |
+| DateTime/DateTime64                                     | DATETIMEV2               | Jdbc Catlog连接Doris时默认使用DATETIMEV2类型               |
+| Float32                                                 | FLOAT                    |                                                   |
+| Float64                                                 | DOUBLE                   |                                                   |
+| Int8                                                    | TINYINT                  |                                                   |
+| Int16/UInt8                                             | SMALLINT                 | Doris没有UNSIGNED数据类型，所以扩大一个数量级                     |
+| Int32/UInt16                                            | INT                      | Doris没有UNSIGNED数据类型，所以扩大一个数量级                     |
+| Int64/Uint32                                            | BIGINT                   | Doris没有UNSIGNED数据类型，所以扩大一个数量级                     |
+| Int128/UInt64                                           | LARGEINT                 | Doris没有UNSIGNED数据类型，所以扩大一个数量级                     |
+| Int256/UInt128/UInt256                                  | STRING                   | Doris没有这个数量级的数据类型，采用STRING处理                      |
+| DECIMAL                                                 | DECIMAL/DECIMALV3/STRING | 将根据Doris DECIMAL字段的（precision, scale）和`enable_decimal_conversion`开关选择用何种类型|
+| Enum/IPv4/IPv6/UUID                                     | STRING                   | 在显示上IPv4,IPv6会额外在数据最前面显示一个`/`,需要自己用`split_part`函数处理 |
+| <version since="dev" type="inline"> Array(T) </version> | ARRAY\<T\>               | Array内部类型适配逻辑参考上述类型，不支持嵌套类型        |
+| Other                                                   | UNSUPPORTED              |                                                   |
 
 ### Doris
 
@@ -369,7 +370,7 @@ set enable_odbc_transcation = true;
 | TEXT | STRING | |
 |Other| UNSUPPORTED |
 
-### SAP_HANA
+### SAP HANA
 
 | SAP_HANA     | Doris                    | Comment                                                                               |
 |--------------|--------------------------|---------------------------------------------------------------------------------------|
@@ -479,3 +480,14 @@ set enable_odbc_transcation = true;
 7. 在使用JDBC查询过程中时，如果出现"CAUSED BY: SQLException OutOfMemoryError" 类似的错误
 
     如果MYSQL已经主动设置useCursorFetch，可以在be.conf中修改jvm_max_heap_size的值，尝试增大JVM的内存，目前默认值为1024M。
+
+8. 使用JDBC查询MYSQL大数据量时，如果查询偶尔能够成功，偶尔会报如下错误，且出现该错误时MYSQL的连接被全部断开，无法连接到MYSQL SERVER，过段时间后mysql又恢复正常，但是之前的连接都没了：
+
+    ```
+    ERROR 1105 (HY000): errCode = 2, detailMessage = [INTERNAL_ERROR]UdfRuntimeException: JDBC executor sql has error:
+    CAUSED BY: CommunicationsException: Communications link failure
+    The last packet successfully received from the server was 4,446 milliseconds ago. The last packet sent successfully to the server was 4,446 milliseconds ago.
+    ```
+
+    出现上述现象时，可能是Mysql Server自身的内存或CPU资源被耗尽导致Mysql服务不可用，可以尝试增大Mysql Server的内存或CPU配置。
+ 

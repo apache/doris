@@ -827,13 +827,6 @@ public class Config extends ConfigBase {
      */
     @ConfField public static String default_storage_medium = "HDD";
     /**
-     * When create a table(or partition), you can specify its storage medium(HDD or SSD).
-     * If set to SSD, this specifies the default duration that tablets will stay on SSD.
-     * After that, tablets will be moved to HDD automatically.
-     * You can set storage cooldown time in CREATE TABLE stmt.
-     */
-    @ConfField public static long storage_cooldown_second = 30 * 24 * 3600L; // 30 days
-    /**
      * After dropping database(table/partition), you can recover it by using RECOVER stmt.
      * And this specifies the maximal data retention time. After time, the data will be deleted permanently.
      */
@@ -2070,5 +2063,11 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static String bdbje_file_logging_level = "ALL";
+
+    /**
+     * When holding lock time exceeds the threshold, need to report it.
+     */
+    @ConfField
+    public static long lock_reporting_threshold_ms = 500L;
 }
 
