@@ -82,9 +82,10 @@ suite("sort") {
       `update_time` datetime REPLACE NULL
     ) ENGINE=OLAP
     AGGREGATE KEY(`time_period`, `area_name`, `province`, `res_name`, `dev`)
-    DISTRIBUTED BY HASH(`time_period`, `area_name`, `province`, `res_name`, `dev`) BUCKETS 4
+    DISTRIBUTED BY HASH(`area_name`) BUCKETS 1
     PROPERTIES (
-    "replication_allocation" = "tag.location.default: 1"
+    "replication_allocation" = "tag.location.default: 1",
+    "disable_auto_compaction" = "true"
     );
     """
 
