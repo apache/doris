@@ -51,7 +51,8 @@ public:
         return _insert_mem_tracker->consumption() + _flush_mem_tracker->consumption();
     }
     // insert tuple from (row_pos) to (row_pos+num_rows)
-    void insert(const vectorized::Block* block, const std::vector<int>& row_idxs);
+    void insert(const vectorized::Block* block, const std::vector<int>& row_idxs,
+                bool is_append = false);
 
     void shrink_memtable_by_agg();
 
@@ -113,6 +114,12 @@ private:
     // serialize block to row store format and append serialized data into row store column
     // in block
     void serialize_block_to_row_column(vectorized::Block& block);
+
+    // Unfold variant column to Block
+    // Eg. [A | B | C | (D, E, F)]
+    // After unfold block structure changed to -> [A | B | C | D | E | F]
+    // The expanded D, E, F is dynamic part of the block
+    void unfold_variant_column(vectorized::Block& block);
 
 private:
     TabletSharedPtr _tablet;

@@ -28,12 +28,9 @@ struct AggregateFunctionHistogramData {
     using ColVecType =
             std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128>, ColumnVector<T>>;
 
-    void set_parameters(double input_sample_rate, size_t input_max_bucket_num) {
-        if (input_sample_rate > 0 && input_sample_rate <= 1) {
-            sample_rate = input_sample_rate;
-        }
-        if (input_max_bucket_num > 0) {
-            max_bucket_num = (uint32_t)input_max_bucket_num;
+    void set_parameters(int input_max_num_buckets) {
+        if (input_max_num_buckets > 0) {
+            max_num_buckets = (size_t)input_max_num_buckets;
         }
     }
 
@@ -59,12 +56,11 @@ struct AggregateFunctionHistogramData {
     }
 
     void merge(const AggregateFunctionHistogramData& rhs) {
-        if (!rhs.sample_rate) {
+        if (!rhs.max_num_buckets) {
             return;
         }
 
-        sample_rate = rhs.sample_rate;
-        max_bucket_num = rhs.max_bucket_num;
+        max_num_buckets = rhs.max_num_buckets;
 
         for (auto rhs_it : rhs.ordered_map) {
             auto lhs_it = ordered_map.find(rhs_it.first);
@@ -77,10 +73,9 @@ struct AggregateFunctionHistogramData {
     }
 
     void write(BufferWritable& buf) const {
-        write_binary(sample_rate, buf);
-        write_binary(max_bucket_num, buf);
+        write_binary(max_num_buckets, buf);
 
-        uint64_t element_number = (uint64_t)ordered_map.size();
+        size_t element_number = (size_t)ordered_map.size();
         write_binary(element_number, buf);
 
         auto pair_vector = map_to_vector();
@@ -93,14 +88,13 @@ struct AggregateFunctionHistogramData {
     }
 
     void read(BufferReadable& buf) {
-        read_binary(sample_rate, buf);
-        read_binary(max_bucket_num, buf);
+        read_binary(max_num_buckets, buf);
 
-        uint64_t element_number = 0;
+        size_t element_number = 0;
         read_binary(element_number, buf);
 
         ordered_map.clear();
-        std::pair<T, uint64_t> element;
+        std::pair<T, size_t> element;
         for (auto i = 0; i < element_number; i++) {
             read_binary(element.first, buf);
             read_binary(element.second, buf);
@@ -124,13 +118,13 @@ struct AggregateFunctionHistogramData {
     std::string get(const DataTypePtr& data_type) const {
         std::vector<Bucket<T>> buckets;
         rapidjson::StringBuffer buffer;
-        build_bucket_from_data(buckets, ordered_map, max_bucket_num);
-        build_json_from_bucket(buffer, buckets, data_type, sample_rate, max_bucket_num);
+        build_histogram(buckets, ordered_map, max_num_buckets);
+        histogram_to_json(buffer, buckets, data_type);
         return std::string(buffer.GetString());
     }
 
-    std::vector<std::pair<uint64_t, T>> map_to_vector() const {
-        std::vector<std::pair<uint64_t, T>> pair_vector;
+    std::vector<std::pair<size_t, T>> map_to_vector() const {
+        std::vector<std::pair<size_t, T>> pair_vector;
         for (auto it : ordered_map) {
             pair_vector.emplace_back(it.second, it.first);
         }
@@ -138,9 +132,8 @@ struct AggregateFunctionHistogramData {
     }
 
 private:
-    double sample_rate = 1.0;
-    uint32_t max_bucket_num = 128;
-    std::map<T, uint64_t> ordered_map;
+    size_t max_num_buckets = 128;
+    std::map<T, size_t> ordered_map;
 };
 
 template <typename Data, typename T, bool has_input_param>
@@ -169,8 +162,7 @@ public:
 
         if (has_input_param) {
             this->data(place).set_parameters(
-                    static_cast<const ColumnFloat64*>(columns[1])->get_element(row_num),
-                    static_cast<const ColumnInt32*>(columns[2])->get_element(row_num));
+                    static_cast<const ColumnInt32*>(columns[1])->get_element(row_num));
         }
 
         if constexpr (std::is_same_v<T, std::string>) {

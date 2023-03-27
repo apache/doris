@@ -25,7 +25,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.IdGenerator;
-import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.thrift.TStorageType;
 
@@ -39,12 +39,7 @@ public class PlanConstructor {
     public static final OlapTable score;
     public static final OlapTable course;
 
-    public static final LogicalOlapScan scan1;
-    public static final LogicalOlapScan scan2;
-    public static final LogicalOlapScan scan3;
-    public static final LogicalOlapScan scan4;
-
-    private static final IdGenerator<RelationId> RELATION_ID_GENERATOR = RelationId.createGenerator();
+    private static final IdGenerator<ObjectId> RELATION_ID_GENERATOR = ObjectId.createGenerator();
 
     static {
         student = new OlapTable(0L, "student",
@@ -81,11 +76,6 @@ public class PlanConstructor {
                 0, 0, (short) 0,
                 TStorageType.COLUMN,
                 KeysType.PRIMARY_KEYS);
-
-        scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
-        scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
-        scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
-        scan4 = PlanConstructor.newLogicalOlapScan(3, "t4", 0);
     }
 
     public static OlapTable newOlapTable(long tableId, String tableName, int hashColumn) {
@@ -119,11 +109,11 @@ public class PlanConstructor {
     }
 
     public static LogicalOlapScan newLogicalOlapScanWithSameId(long tableId, String tableName, int hashColumn) {
-        return new LogicalOlapScan(RelationId.createGenerator().getNextId(),
+        return new LogicalOlapScan(ObjectId.createGenerator().getNextId(),
                 newOlapTable(tableId, tableName, hashColumn), ImmutableList.of("db"));
     }
 
-    public static RelationId getNextRelationId() {
+    public static ObjectId getNextRelationId() {
         return RELATION_ID_GENERATOR.getNextId();
     }
 }

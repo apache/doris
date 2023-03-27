@@ -51,7 +51,7 @@ suite("test_map_export", "export") {
     }
 
     // define the table
-    def testTable = "tbl_test_map"
+    def testTable = "tbl_test_map_export"
 
     sql "DROP TABLE IF EXISTS ${testTable}"
     sql "ADMIN SET FRONTEND CONFIG ('enable_map_type' = 'true')"
@@ -76,7 +76,7 @@ suite("test_map_export", "export") {
     // check result
     qt_select """ SELECT * FROM ${testTable} ORDER BY id; """
 
-    def outFilePath = """${context.file.parent}/tmp"""
+    def outFilePath = """${context.file.parent}/test_map_export"""
     logger.info("test_map_export the outFilePath=" + outFilePath)
     // map select into outfile
     try {

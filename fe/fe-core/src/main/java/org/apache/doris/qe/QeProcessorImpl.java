@@ -187,6 +187,7 @@ public final class QeProcessorImpl implements QeProcessor {
         }
         final TReportExecStatusResult result = new TReportExecStatusResult();
         final QueryInfo info = coordinatorMap.get(params.query_id);
+
         if (info == null) {
             result.setStatus(new TStatus(TStatusCode.RUNTIME_ERROR));
             LOG.info("ReportExecStatus() runtime error, query {} does not exist", DebugUtil.printId(params.query_id));
@@ -195,7 +196,7 @@ public final class QeProcessorImpl implements QeProcessor {
         try {
             info.getCoord().updateFragmentExecStatus(params);
             if (info.getCoord().getProfileWriter() != null && params.isSetProfile()) {
-                writeProfileExecutor.submit(new WriteProfileTask(params));
+                writeProfileExecutor.submit(new WriteProfileTask(params, info));
             }
         } catch (Exception e) {
             LOG.warn(e.getMessage());
@@ -253,8 +254,11 @@ public final class QeProcessorImpl implements QeProcessor {
     private class WriteProfileTask implements Runnable {
         private TReportExecStatusParams params;
 
-        WriteProfileTask(TReportExecStatusParams params) {
+        private QueryInfo queryInfo;
+
+        WriteProfileTask(TReportExecStatusParams params, QueryInfo queryInfo) {
             this.params = params;
+            this.queryInfo = queryInfo;
         }
 
         @Override

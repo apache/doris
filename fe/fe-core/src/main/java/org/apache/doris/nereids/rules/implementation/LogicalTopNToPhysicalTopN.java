@@ -38,10 +38,16 @@ public class LogicalTopNToPhysicalTopN extends OneImplementationRuleFactory {
                 .toRule(RuleType.LOGICAL_TOP_N_TO_PHYSICAL_TOP_N_RULE);
     }
 
+    /**
+     * before: logicalTopN(off, limit)
+     * after:
+     *     gatherTopN(limit, off, require gather)
+     *     mergeTopN(limit, off, require gather) -> localTopN(off+limit, 0, require any)
+     */
     private List<PhysicalTopN<? extends Plan>> twoPhaseSort(LogicalTopN logicalTopN) {
-        PhysicalTopN localSort = new PhysicalTopN(logicalTopN.getOrderKeys(), logicalTopN.getLimit(),
-                logicalTopN.getOffset(), SortPhase.LOCAL_SORT, logicalTopN.getLogicalProperties(), logicalTopN.child(0)
-        );
+        PhysicalTopN localSort = new PhysicalTopN(logicalTopN.getOrderKeys(),
+                logicalTopN.getLimit() + logicalTopN.getOffset(), 0, SortPhase.LOCAL_SORT,
+                logicalTopN.getLogicalProperties(), logicalTopN.child(0));
         PhysicalTopN twoPhaseSort = new PhysicalTopN<>(logicalTopN.getOrderKeys(), logicalTopN.getLimit(),
                 logicalTopN.getOffset(), SortPhase.MERGE_SORT, logicalTopN.getLogicalProperties(), localSort);
         PhysicalTopN onePhaseSort = new PhysicalTopN<>(logicalTopN.getOrderKeys(), logicalTopN.getLimit(),

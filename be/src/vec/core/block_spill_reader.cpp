@@ -38,9 +38,8 @@ Status BlockSpillReader::open() {
     FileDescription file_description;
     file_description.path = file_path_;
 
-    IOContext io_ctx;
     RETURN_IF_ERROR(FileFactory::create_file_reader(nullptr, system_properties, file_description,
-                                                    &file_system, &file_reader_, &io_ctx));
+                                                    &file_system, &file_reader_));
     if (delete_after_read_) {
         unlink(file_path_.c_str());
     }
@@ -51,11 +50,11 @@ Status BlockSpillReader::open() {
 
     // read block count
     size_t bytes_read = 0;
-    RETURN_IF_ERROR(file_reader_->read_at(file_size - sizeof(size_t), result, {}, &bytes_read));
+    RETURN_IF_ERROR(file_reader_->read_at(file_size - sizeof(size_t), result, &bytes_read));
 
     // read max sub block size
     result.data = (char*)&max_sub_block_size_;
-    RETURN_IF_ERROR(file_reader_->read_at(file_size - sizeof(size_t) * 2, result, {}, &bytes_read));
+    RETURN_IF_ERROR(file_reader_->read_at(file_size - sizeof(size_t) * 2, result, &bytes_read));
 
     size_t buff_size = std::max(block_count_ * sizeof(size_t), max_sub_block_size_);
     read_buff_.reset(new char[buff_size]);
@@ -65,7 +64,7 @@ Status BlockSpillReader::open() {
     result.data = read_buff_.get();
     result.size = block_count_ * sizeof(size_t);
 
-    RETURN_IF_ERROR(file_reader_->read_at(read_offset, result, {}, &bytes_read));
+    RETURN_IF_ERROR(file_reader_->read_at(read_offset, result, &bytes_read));
     DCHECK(bytes_read == block_count_ * sizeof(size_t));
 
     block_start_offsets_.resize(block_count_ + 1);
@@ -96,7 +95,7 @@ Status BlockSpillReader::read(Block* block, bool* eos) {
 
     {
         SCOPED_TIMER(read_time_);
-        RETURN_IF_ERROR(file_reader_->read_at(block_start_offsets_[read_block_index_], result, {},
+        RETURN_IF_ERROR(file_reader_->read_at(block_start_offsets_[read_block_index_], result,
                                               &bytes_read));
     }
     DCHECK(bytes_read == bytes_to_read);

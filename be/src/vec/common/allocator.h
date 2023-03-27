@@ -25,8 +25,6 @@
 #include <fmt/format.h>
 #include <string.h>
 
-#include <exception>
-
 #include "common/config.h"
 #include "common/status.h"
 #include "runtime/memory/chunk.h"
@@ -55,8 +53,8 @@
 /// Thread sanitizer does not intercept mremap. The usage of mremap will lead to false positives.
 #define DISABLE_MREMAP 1
 #endif
+#include "common/exception.h"
 #include "vec/common/allocator_fwd.h"
-#include "vec/common/exception.h"
 #include "vec/common/mremap.h"
 
 /// Required for older Darwin builds, that lack definition of MAP_ANONYMOUS
@@ -133,17 +131,53 @@ static constexpr size_t MALLOC_MIN_ALIGNMENT = 8;
 template <bool clear_memory_, bool mmap_populate>
 class Allocator {
 public:
+    void sys_memory_check(size_t size) {
+        if (doris::MemTrackerLimiter::sys_mem_exceed_limit_check(size)) {
+            if (doris::thread_context()->thread_mem_tracker_mgr->is_attach_query() &&
+                doris::thread_context()->thread_mem_tracker_mgr->wait_gc()) {
+                int64_t wait_milliseconds = doris::config::thread_wait_gc_max_milliseconds;
+                while (wait_milliseconds > 0) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                    if (!doris::MemTrackerLimiter::sys_mem_exceed_limit_check(size)) {
+                        doris::MemInfo::refresh_interval_memory_growth += size;
+                        break;
+                    }
+                    wait_milliseconds -= 100;
+                }
+                if (wait_milliseconds <= 0) {
+                    auto err_msg = fmt::format(
+                            "Allocator Sys Memory Check Failed In Query/Load: Cannot alloc {}, "
+                            "{}.",
+                            size,
+                            doris::MemTrackerLimiter::process_limit_exceeded_errmsg_str(size));
+                    doris::thread_context()->thread_mem_tracker_mgr->disable_wait_gc();
+                    if (!doris::enable_thread_catch_bad_alloc) {
+                        doris::thread_context()->thread_mem_tracker_mgr->cancel_fragment(err_msg);
+                    } else {
+                        LOG(WARNING) << err_msg;
+                        throw std::bad_alloc {};
+                    }
+                }
+            } else if (doris::enable_thread_catch_bad_alloc) {
+                LOG(WARNING) << fmt::format(
+                        "Allocator Sys Memory Check Failed: Cannot alloc {}, {}.", size,
+                        doris::MemTrackerLimiter::process_limit_exceeded_errmsg_str(size));
+                throw std::bad_alloc {};
+            }
+        }
+    }
+
     /// Allocate memory range.
     void* alloc(size_t size, size_t alignment = 0) {
+        sys_memory_check(size);
         void* buf;
 
         if (size >= MMAP_THRESHOLD) {
             if (alignment > MMAP_MIN_ALIGNMENT)
-                throw doris::vectorized::Exception(
-                        fmt::format(
-                                "Too large alignment {}: more than page size when allocating {}.",
-                                alignment, size),
-                        doris::TStatusCode::VEC_BAD_ARGUMENTS);
+                throw doris::Exception(
+                        doris::ErrorCode::INVALID_ARGUMENT,
+                        "Too large alignment {}: more than page size when allocating {}.",
+                        alignment, size);
 
             if (!TRY_CONSUME_THREAD_MEM_TRACKER(size)) {
                 RETURN_BAD_ALLOC_IF_PRE_CATCH(
@@ -222,6 +256,7 @@ public:
             /// BTW, it's not possible to change alignment while doing realloc.
         } else if (old_size < CHUNK_THRESHOLD && new_size < CHUNK_THRESHOLD &&
                    alignment <= MALLOC_MIN_ALIGNMENT) {
+            sys_memory_check(new_size);
             /// Resize malloc'd memory region with no special alignment requirement.
             void* new_buf = ::realloc(buf, new_size);
             if (nullptr == new_buf) {
@@ -234,6 +269,7 @@ public:
                 if (new_size > old_size)
                     memset(reinterpret_cast<char*>(buf) + old_size, 0, new_size - old_size);
         } else if (old_size >= MMAP_THRESHOLD && new_size >= MMAP_THRESHOLD) {
+            sys_memory_check(new_size);
             /// Resize mmap'd memory region.
             if (!TRY_CONSUME_THREAD_MEM_TRACKER(new_size - old_size)) {
                 RETURN_BAD_ALLOC_IF_PRE_CATCH(fmt::format(
@@ -260,6 +296,7 @@ public:
                     memset(reinterpret_cast<char*>(buf) + old_size, 0, new_size - old_size);
             }
         } else {
+            sys_memory_check(new_size);
             // CHUNK_THRESHOLD <= old_size <= MMAP_THRESHOLD use system realloc is slow, use ChunkAllocator.
             // Big allocs that requires a copy.
             void* new_buf = alloc(new_size, alignment);

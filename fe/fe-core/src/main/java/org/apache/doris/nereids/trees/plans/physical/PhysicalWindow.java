@@ -30,7 +30,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Window;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 
@@ -65,10 +65,10 @@ public class PhysicalWindow<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     /** constructor for PhysicalWindow */
     public PhysicalWindow(WindowFrameGroup windowFrameGroup, RequireProperties requireProperties,
                           Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-                          PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult,
+                          PhysicalProperties physicalProperties, Statistics statistics,
                           CHILD_TYPE child) {
         super(PlanType.PHYSICAL_WINDOW, groupExpression, logicalProperties, physicalProperties,
-                statsDeriveResult, child);
+                statistics, child);
         this.windowFrameGroup = Objects.requireNonNull(windowFrameGroup, "windowFrameGroup in PhysicalWindow"
             + "cannot be null");
         this.requireProperties = requireProperties;
@@ -95,7 +95,7 @@ public class PhysicalWindow<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalWindow",
+        return Utils.toSqlString("PhysicalWindow[" + id.asInt() + "]" + getGroupIdAsString(),
             "windowFrameGroup", windowFrameGroup,
             "requiredProperties", requireProperties
         );
@@ -145,9 +145,9 @@ public class PhysicalWindow<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
-                                                       StatsDeriveResult statsDeriveResult) {
-        return new PhysicalWindow<>(windowFrameGroup, requireProperties, Optional.empty(),
-                getLogicalProperties(), physicalProperties, statsDeriveResult, child());
+                                                       Statistics statistics) {
+        return new PhysicalWindow<>(windowFrameGroup, requireProperties, groupExpression,
+                getLogicalProperties(), physicalProperties, statistics, child());
     }
 
     @Override
@@ -159,6 +159,6 @@ public class PhysicalWindow<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     public <C extends Plan> PhysicalWindow<C> withRequirePropertiesAndChild(RequireProperties requireProperties,
                                                                             C newChild) {
         return new PhysicalWindow<>(windowFrameGroup, requireProperties, Optional.empty(),
-                getLogicalProperties(), physicalProperties, statsDeriveResult, newChild);
+                getLogicalProperties(), physicalProperties, statistics, newChild);
     }
 }

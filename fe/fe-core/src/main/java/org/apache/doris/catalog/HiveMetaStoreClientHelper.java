@@ -824,7 +824,7 @@ public class HiveMetaStoreClientHelper {
                 output.append("PARTITIONED BY (\n")
                         .append(remoteTable.getPartitionKeys().stream().map(
                                         partition ->
-                                                String.format(" `%s` `%s`", partition.getName(), partition.getType()))
+                                                String.format(" `%s` %s", partition.getName(), partition.getType()))
                                 .collect(Collectors.joining(",\n")))
                         .append(")\n");
             }

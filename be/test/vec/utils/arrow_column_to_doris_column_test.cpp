@@ -419,9 +419,9 @@ TEST(ArrowColumnToDorisColumnTest, test_decimalv2) {
 }
 
 template <int bytes_width, bool is_nullable = false>
-static inline std::shared_ptr<arrow::Array> create_fixed_size_binary_array(int64_t num_elements,
-                                                                           const std::string& value,
-                                                                           size_t& counter) {
+std::shared_ptr<arrow::Array> create_fixed_size_binary_array(int64_t num_elements,
+                                                             const std::string& value,
+                                                             size_t& counter) {
     auto data_buf_size = bytes_width * num_elements;
     auto data_buf_tmp = arrow::AllocateBuffer(data_buf_size);
     std::shared_ptr<arrow::Buffer> data_buf = std::move(data_buf_tmp.ValueOrDie());
@@ -513,9 +513,8 @@ TEST(ArrowColumnToDorisColumnTest, test_fixed_binary) {
 }
 
 template <typename ArrowType, bool is_nullable = false>
-static inline std::shared_ptr<arrow::Array> create_binary_array(int64_t num_elements,
-                                                                const std::string& value,
-                                                                size_t& counter) {
+std::shared_ptr<arrow::Array> create_binary_array(int64_t num_elements, const std::string& value,
+                                                  size_t& counter) {
     using offset_type = typename ArrowType::offset_type;
     size_t offsets_bytes = (num_elements + 1) * sizeof(offset_type);
     auto offsets_buf_tmp = arrow::AllocateBuffer(offsets_bytes);
@@ -612,10 +611,11 @@ TEST(ArrowColumnToDorisColumnTest, test_binary) {
 }
 
 template <typename ArrowValueType, bool is_nullable = false>
-static inline std::shared_ptr<arrow::Array> create_array_array(
-        std::vector<ColumnArray::Offset64>& vec_offsets, std::vector<bool>& null_map,
-        std::shared_ptr<arrow::DataType> value_type, std::shared_ptr<arrow::Array> values,
-        size_t& counter) {
+std::shared_ptr<arrow::Array> create_array_array(std::vector<ColumnArray::Offset64>& vec_offsets,
+                                                 std::vector<bool>& null_map,
+                                                 std::shared_ptr<arrow::DataType> value_type,
+                                                 std::shared_ptr<arrow::Array> values,
+                                                 size_t& counter) {
     using offset_type = typename arrow::ListType::offset_type;
     size_t num_rows = vec_offsets.size() - 1;
     DCHECK(null_map.size() == num_rows);

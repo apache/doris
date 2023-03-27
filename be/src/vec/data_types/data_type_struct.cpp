@@ -159,6 +159,9 @@ Status DataTypeStruct::from_string(ReadBuffer& rb, IColumn* column) const {
 
     // here need handle the empty struct '{}'
     if (rb.count() == 2) {
+        for (size_t i = 0; i < struct_column->tuple_size(); ++i) {
+            struct_column->get_column(i).insert_default();
+        }
         return Status::OK();
     }
 
@@ -300,7 +303,7 @@ static inline IColumn& extract_element_column(IColumn& column, size_t idx) {
 }
 
 template <typename F>
-static void add_element_safe(const DataTypes& elems, IColumn& column, F&& impl) {
+void add_element_safe(const DataTypes& elems, IColumn& column, F&& impl) {
     /// We use the assumption that tuples of zero size do not exist.
     size_t old_size = column.size();
 

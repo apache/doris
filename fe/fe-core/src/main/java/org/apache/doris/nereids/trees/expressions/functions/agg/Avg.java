@@ -52,9 +52,7 @@ public class Avg extends NullableAggregateFunction
             FunctionSignature.ret(DoubleType.INSTANCE).args(BigIntType.INSTANCE),
             FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE),
             FunctionSignature.ret(DecimalV2Type.SYSTEM_DEFAULT).args(DecimalV2Type.SYSTEM_DEFAULT),
-            FunctionSignature.ret(DecimalV3Type.DEFAULT_DECIMAL128).args(DecimalV3Type.DEFAULT_DECIMAL32),
-            FunctionSignature.ret(DecimalV3Type.DEFAULT_DECIMAL128).args(DecimalV3Type.DEFAULT_DECIMAL64),
-            FunctionSignature.ret(DecimalV3Type.DEFAULT_DECIMAL128).args(DecimalV3Type.DEFAULT_DECIMAL128)
+            FunctionSignature.ret(DecimalV3Type.WILDCARD).args(DecimalV3Type.WILDCARD)
     );
 
     /**
@@ -86,25 +84,22 @@ public class Avg extends NullableAggregateFunction
     @Override
     public FunctionSignature computePrecision(FunctionSignature signature) {
         DataType argumentType = getArgumentType(0);
-        if (argumentType.isDecimalV3Type()) {
-            DecimalV3Type decimalV3Type = (DecimalV3Type) argumentType;
-
+        if (signature.getArgType(0) instanceof DecimalV3Type) {
+            DecimalV3Type decimalV3Type = DecimalV3Type.forType(argumentType);
             // DecimalV3 scale lower than DEFAULT_MIN_AVG_DECIMAL128_SCALE should do cast
-            if (argumentType.toCatalogDataType().getDecimalDigits() < ScalarType.DEFAULT_MIN_AVG_DECIMAL128_SCALE) {
-                signature = signature.withArgumentTypes(getArguments(), (index, type, arg) -> {
-                    if (index == 0) {
-                        return DecimalV3Type.createDecimalV3Type(
-                                decimalV3Type.getPrecision(),
-                                Math.max(decimalV3Type.getScale(), 4));
-                    } else {
-                        return type;
-                    }
-                });
+            int precision = decimalV3Type.getPrecision();
+            int scale = decimalV3Type.getScale();
+            if (decimalV3Type.getScale() < ScalarType.DEFAULT_MIN_AVG_DECIMAL128_SCALE) {
+                scale = ScalarType.DEFAULT_MIN_AVG_DECIMAL128_SCALE;
+                precision = precision - decimalV3Type.getScale() + scale;
+                if (precision > DecimalV3Type.MAX_DECIMAL128_PRECISION) {
+                    precision = DecimalV3Type.MAX_DECIMAL128_PRECISION;
+                }
             }
-
-            return signature.withReturnType(DecimalV3Type.createDecimalV3Type(
-                    DecimalV3Type.MAX_DECIMAL128_PRECISION,
-                    Math.max(decimalV3Type.getScale(), 4)
+            decimalV3Type = DecimalV3Type.createDecimalV3Type(precision, scale);
+            return signature.withArgumentType(0, decimalV3Type)
+                    .withReturnType(DecimalV3Type.createDecimalV3Type(
+                    DecimalV3Type.MAX_DECIMAL128_PRECISION, decimalV3Type.getScale()
             ));
         } else {
             return signature;

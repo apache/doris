@@ -30,6 +30,7 @@ public class LogicalLimitToPhysicalLimit extends OneImplementationRuleFactory {
         return logicalLimit().then(limit -> new PhysicalLimit<>(
                 limit.getLimit(),
                 limit.getOffset(),
+                limit.getPhase(),
                 limit.getLogicalProperties(),
                 limit.child())
         ).toRule(RuleType.LOGICAL_LIMIT_TO_PHYSICAL_LIMIT_RULE);

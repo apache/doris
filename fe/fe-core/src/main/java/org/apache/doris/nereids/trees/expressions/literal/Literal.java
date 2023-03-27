@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -26,7 +27,11 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VarcharType;
 
 import org.apache.commons.lang3.StringUtils;
 
@@ -234,33 +239,82 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
         } else if (targetType.isBigIntType()) {
             return Literal.of(Double.valueOf(desc).longValue());
         } else if (targetType.isLargeIntType()) {
-            return Literal.of(new BigInteger(desc));
+            return Literal.of(new BigDecimal(desc).toBigInteger());
         } else if (targetType.isFloatType()) {
-            return Literal.of(Float.parseFloat(desc));
+            return Literal.of(Double.valueOf(desc).floatValue());
         } else if (targetType.isDoubleType()) {
             return Literal.of(Double.parseDouble(desc));
         } else if (targetType.isCharType()) {
-            return new CharLiteral(desc, ((CharType) targetType).getLen());
+            if (((CharType) targetType).getLen() >= desc.length()) {
+                return new CharLiteral(desc, ((CharType) targetType).getLen());
+            }
         } else if (targetType.isVarcharType()) {
-            return new VarcharLiteral(desc, desc.length());
-        } else if (targetType.isStringLikeType()) {
-            return Literal.of(desc);
+            return new VarcharLiteral(desc, ((VarcharType) targetType).getLen());
+        } else if (targetType instanceof StringType) {
+            return new StringLiteral(desc);
         } else if (targetType.isDateType()) {
             return new DateLiteral(desc);
         } else if (targetType.isDateTimeType()) {
             return new DateTimeLiteral(desc);
         } else if (targetType.isDecimalV2Type()) {
-            return new DecimalLiteral(BigDecimal.valueOf(Double.parseDouble(desc)));
+            return new DecimalLiteral((DecimalV2Type) targetType, new BigDecimal(desc));
+        } else if (targetType.isDecimalV3Type()) {
+            return new DecimalV3Literal((DecimalV3Type) targetType, new BigDecimal(desc));
         } else if (targetType.isDateV2Type()) {
             return new DateV2Literal(desc);
         } else if (targetType.isDateTimeV2Type()) {
             return new DateTimeV2Literal((DateTimeV2Type) targetType, desc);
         }
-        throw new AnalysisException("no support cast!");
+        throw new AnalysisException("cannot cast " + desc + " from type " + this.dataType + " to type " + targetType);
     }
 
     public boolean isCharacterLiteral() {
         return this instanceof StringLiteral || this instanceof CharLiteral || this instanceof VarcharLiteral;
+    }
+
+    /** fromLegacyLiteral */
+    public static Literal fromLegacyLiteral(LiteralExpr literalExpr, Type type) {
+        DataType dataType = DataType.fromCatalogType(type);
+        if (literalExpr instanceof org.apache.doris.analysis.MaxLiteral) {
+            return new MaxLiteral(dataType);
+        }
+        String stringValue = literalExpr.getStringValue();
+        if (dataType.isTinyIntType()) {
+            return new TinyIntLiteral(Byte.valueOf(stringValue).byteValue());
+        } else if (dataType.isSmallIntType()) {
+            return new SmallIntLiteral(Short.valueOf(stringValue).shortValue());
+        } else if (dataType.isIntegerType()) {
+            return new IntegerLiteral(Integer.valueOf(stringValue).intValue());
+        } else if (dataType.isBigIntType()) {
+            return new BigIntLiteral(Long.valueOf(stringValue).longValue());
+        } else if (dataType.isLargeIntType()) {
+            return new LargeIntLiteral(new BigInteger(stringValue));
+        } else if (dataType.isStringType()) {
+            return new StringLiteral(stringValue);
+        } else if (dataType.isCharType()) {
+            return new CharLiteral(stringValue, ((CharType) dataType).getLen());
+        } else if (dataType.isVarcharType()) {
+            return new VarcharLiteral(stringValue, ((VarcharType) dataType).getLen());
+        } else if (dataType.isFloatType()) {
+            return new FloatLiteral(Float.valueOf(stringValue));
+        } else if (dataType.isDoubleType()) {
+            return new DoubleLiteral(Double.valueOf(stringValue));
+        } else if (dataType.isDecimalV2Type()) {
+            return new DecimalLiteral((DecimalV2Type) dataType, new BigDecimal(stringValue));
+        } else if (dataType.isDecimalV3Type()) {
+            return new DecimalV3Literal((DecimalV3Type) dataType, new BigDecimal(stringValue));
+        } else if (dataType.isDateType()) {
+            return new DateLiteral(stringValue);
+        } else if (dataType.isDateV2Type()) {
+            return new DateV2Literal(stringValue);
+        } else if (dataType.isDateTimeType()) {
+            return new DateTimeLiteral(stringValue);
+        } else if (dataType.isDateTimeV2Type()) {
+            return new DateTimeV2Literal(stringValue);
+        } else {
+            throw new AnalysisException("Unsupported convert the " + literalExpr.getType()
+                    + " of legacy literal to nereids literal");
+        }
     }
 
     @Override
@@ -287,7 +341,7 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
 
     public abstract LiteralExpr toLegacyLiteral();
 
-    public boolean isStringLiteral() {
+    public boolean isStringLikeLiteral() {
         return dataType.isStringLikeType();
     }
 }

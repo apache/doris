@@ -28,6 +28,7 @@ import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -71,6 +72,8 @@ public class ElementSlice extends ScalarFunction
                     .args(ArrayType.of(DoubleType.INSTANCE), BigIntType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT))
                     .args(ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT), BigIntType.INSTANCE),
+            FunctionSignature.ret(ArrayType.of(DecimalV3Type.WILDCARD))
+                    .args(ArrayType.of(DecimalV3Type.WILDCARD), BigIntType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(VarcharType.SYSTEM_DEFAULT))
                     .args(ArrayType.of(VarcharType.SYSTEM_DEFAULT), BigIntType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(StringType.INSTANCE))
@@ -97,6 +100,8 @@ public class ElementSlice extends ScalarFunction
                     .args(ArrayType.of(DoubleType.INSTANCE), BigIntType.INSTANCE, BigIntType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT))
                     .args(ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT), BigIntType.INSTANCE, BigIntType.INSTANCE),
+            FunctionSignature.ret(ArrayType.of(DecimalV3Type.WILDCARD))
+                    .args(ArrayType.of(DecimalV3Type.WILDCARD), BigIntType.INSTANCE, BigIntType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(VarcharType.SYSTEM_DEFAULT))
                     .args(ArrayType.of(VarcharType.SYSTEM_DEFAULT), BigIntType.INSTANCE, BigIntType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(StringType.INSTANCE))

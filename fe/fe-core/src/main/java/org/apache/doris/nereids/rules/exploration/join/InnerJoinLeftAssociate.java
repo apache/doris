@@ -53,6 +53,7 @@ public class InnerJoinLeftAssociate extends OneExplorationRuleFactory {
         return innerLogicalJoin(group(), innerLogicalJoin())
                 .when(InnerJoinLeftAssociate::checkReorder)
                 .whenNot(join -> join.hasJoinHint() || join.right().hasJoinHint())
+                .whenNot(join -> join.isMarkJoin() || join.right().isMarkJoin())
                 .then(topJoin -> {
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.right();
                     GroupPlan a = topJoin.left();
@@ -110,12 +111,9 @@ public class InnerJoinLeftAssociate extends OneExplorationRuleFactory {
      * Check JoinReorderContext.
      */
     public static boolean checkReorder(LogicalJoin<GroupPlan, ? extends Plan> topJoin) {
-        if (topJoin.getJoinReorderContext().hasCommute()
-                || topJoin.getJoinReorderContext().hasLeftAssociate()
-                || topJoin.getJoinReorderContext().hasRightAssociate()
-                || topJoin.getJoinReorderContext().hasExchange()) {
-            return false;
-        }
-        return true;
+        return !topJoin.getJoinReorderContext().hasCommute()
+                && !topJoin.getJoinReorderContext().hasLeftAssociate()
+                && !topJoin.getJoinReorderContext().hasRightAssociate()
+                && !topJoin.getJoinReorderContext().hasExchange();
     }
 }

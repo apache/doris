@@ -39,7 +39,7 @@ The GRANT command has the following functions:
 
 >Note that.
 >
->"Grant the specified role to the user" is not supported in the current version
+>"Grant specified roles to user" is supported in versions 2.0 and later
 
 ```sql
 GRANT privilege_list ON priv_level TO user_identity [ROLE role_name]

@@ -34,7 +34,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.nereids.util.MutableState.EmptyMutableState;
 import org.apache.doris.nereids.util.TreeStringUtils;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
@@ -54,7 +54,7 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
                     .addEnhancers(new AddCounterEventEnhancer())
                     .addConsumers(new LogConsumer(CounterEvent.class, EventChannel.LOG)));
 
-    protected final StatsDeriveResult statsDeriveResult;
+    protected final Statistics statistics;
     protected final PlanType type;
     protected final Optional<GroupExpression> groupExpression;
     protected final Supplier<LogicalProperties> logicalPropertiesSupplier;
@@ -78,7 +78,7 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
      * all parameter constructor.
      */
     public AbstractPlan(PlanType type, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> optLogicalProperties, @Nullable StatsDeriveResult statsDeriveResult,
+            Optional<LogicalProperties> optLogicalProperties, @Nullable Statistics statistics,
             Plan... children) {
         super(groupExpression, children);
         this.type = Objects.requireNonNull(type, "type can not be null");
@@ -86,7 +86,7 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         Objects.requireNonNull(optLogicalProperties, "logicalProperties can not be null");
         this.logicalPropertiesSupplier = Suppliers.memoize(() -> optLogicalProperties.orElseGet(
                 this::computeLogicalProperties));
-        this.statsDeriveResult = statsDeriveResult;
+        this.statistics = statistics;
         PLAN_CONSTRUCT_TRACER.log(CounterEvent.of(Memo.getStateId(), CounterType.PLAN_CONSTRUCTOR, null, null, null));
     }
 
@@ -99,8 +99,8 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         return groupExpression;
     }
 
-    public StatsDeriveResult getStats() {
-        return statsDeriveResult;
+    public Statistics getStats() {
+        return statistics;
     }
 
     @Override
@@ -182,5 +182,16 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     @Override
     public void setMutableState(String key, Object state) {
         this.mutableState = this.mutableState.set(key, state);
+    }
+
+    /**
+     * used in treeString()
+     * @return "" if groupExpression is empty, o.w. string format of group id
+     */
+    public String getGroupIdAsString() {
+        String groupId = getGroupExpression().isPresent()
+                ? "#" + getGroupExpression().get().getOwnerGroup().getGroupId().asInt()
+                : "";
+        return groupId;
     }
 }

@@ -17,8 +17,6 @@
 
 #include "stream_load_pipe.h"
 
-#include <gen_cpp/internal_service.pb.h>
-
 #include "olap/iterators.h"
 #include "runtime/thread_context.h"
 #include "util/bit_util.h"
@@ -41,8 +39,8 @@ StreamLoadPipe::~StreamLoadPipe() {
     }
 }
 
-Status StreamLoadPipe::read_at(size_t /*offset*/, Slice result, const IOContext& /*io_ctx*/,
-                               size_t* bytes_read) {
+Status StreamLoadPipe::read_at_impl(size_t /*offset*/, Slice result, size_t* bytes_read,
+                                    const IOContext* /*io_ctx*/) {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
     *bytes_read = 0;
     size_t bytes_req = result.size;
@@ -100,8 +98,7 @@ Status StreamLoadPipe::read_one_message(std::unique_ptr<uint8_t[]>* data, size_t
     // _total_length > 0, read the entire data
     data->reset(new uint8_t[_total_length]);
     Slice result(data->get(), _total_length);
-    IOContext io_ctx;
-    Status st = read_at(0, result, io_ctx, length);
+    Status st = read_at(0, result, length);
     return st;
 }
 
@@ -110,6 +107,16 @@ Status StreamLoadPipe::append_and_flush(const char* data, size_t size, size_t pr
     buf->put_bytes(data, size);
     buf->flip();
     return _append(buf, proto_byte_size);
+}
+
+Status StreamLoadPipe::append(std::unique_ptr<PDataRow>&& row) {
+    PDataRow* row_ptr = row.get();
+    {
+        std::unique_lock<std::mutex> l(_lock);
+        _data_row_ptrs.emplace_back(std::move(row));
+    }
+    return append_and_flush(reinterpret_cast<char*>(&row_ptr), sizeof(row_ptr),
+                            sizeof(PDataRow*) + row_ptr->ByteSizeLong());
 }
 
 Status StreamLoadPipe::append(const char* data, size_t size) {
@@ -168,8 +175,11 @@ Status StreamLoadPipe::_read_next_buffer(std::unique_ptr<uint8_t[]>* data, size_
     _buf_queue.pop_front();
     _buffered_bytes -= buf->limit;
     if (_use_proto) {
-        PDataRow** ptr = reinterpret_cast<PDataRow**>(data->get());
-        _proto_buffered_bytes -= (sizeof(PDataRow*) + (*ptr)->GetCachedSize());
+        auto row_ptr = std::move(_data_row_ptrs.front());
+        _proto_buffered_bytes -= (sizeof(PDataRow*) + row_ptr->GetCachedSize());
+        _data_row_ptrs.pop_front();
+        // PlainBinaryLineReader will hold the PDataRow
+        row_ptr.release();
     }
     _put_cond.notify_one();
     return Status::OK();

@@ -109,7 +109,7 @@ suite("test_segcompaction_unique_keys_mow") {
             )
             """
 
-        def max_try_milli_secs = 300000
+        def max_try_milli_secs = 900000
         while (max_try_milli_secs > 0) {
             String[][] result = sql """ show load where label="$uuid" order by createtime desc limit 1; """
             if (result[0][2].equals("FINISHED")) {

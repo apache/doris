@@ -26,22 +26,22 @@
 
 /// To be sure, that this function is zero-cost for non-floating point types.
 template <typename T>
-inline std::enable_if_t<std::is_floating_point_v<T>, bool> is_nan(T x) {
+std::enable_if_t<std::is_floating_point_v<T>, bool> is_nan(T x) {
     return std::isnan(x);
 }
 
 template <typename T>
-inline std::enable_if_t<!std::is_floating_point_v<T>, bool> is_nan(T) {
+std::enable_if_t<!std::is_floating_point_v<T>, bool> is_nan(T) {
     return false;
 }
 
 template <typename T>
-inline std::enable_if_t<std::is_floating_point_v<T>, bool> is_finite(T x) {
+std::enable_if_t<std::is_floating_point_v<T>, bool> is_finite(T x) {
     return std::isfinite(x);
 }
 
 template <typename T>
-inline std::enable_if_t<!std::is_floating_point_v<T>, bool> is_finite(T) {
+std::enable_if_t<!std::is_floating_point_v<T>, bool> is_finite(T) {
     return true;
 }
 

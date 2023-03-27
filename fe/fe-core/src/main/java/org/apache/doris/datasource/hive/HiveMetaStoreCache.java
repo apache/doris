@@ -36,8 +36,10 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.planner.ColumnBound;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PartitionPrunerV2Base.UniqueId;
+import org.apache.doris.planner.external.HiveSplitter;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
@@ -49,9 +51,11 @@ import com.google.common.collect.RangeMap;
 import com.google.common.collect.TreeRangeMap;
 import lombok.Data;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
+import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.mapred.FileInputFormat;
 import org.apache.hadoop.mapred.InputFormat;
 import org.apache.hadoop.mapred.InputSplit;
@@ -59,7 +63,6 @@ import org.apache.hadoop.mapred.JobConf;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.parquet.Strings;
 
 import java.security.PrivilegedExceptionAction;
 import java.util.HashMap;
@@ -249,14 +252,20 @@ public class HiveMetaStoreCache {
             try {
                 InputFormat<?, ?> inputFormat = HiveUtil.getInputFormat(jobConf, key.inputFormat, false);
                 InputSplit[] splits;
-                String remoteUser = jobConf.get(HdfsResource.HADOOP_USER_NAME);
-                if (!Strings.isNullOrEmpty(remoteUser)) {
-                    UserGroupInformation ugi = UserGroupInformation.createRemoteUser(remoteUser);
-                    splits = ugi.doAs(
-                            (PrivilegedExceptionAction<InputSplit[]>) () -> inputFormat.getSplits(jobConf, 0));
+                // TODO: This is a temp config, will remove it after the HiveSplitter is stable.
+                if (key.useSelfSplitter) {
+                    splits = HiveSplitter.getHiveSplits(new Path(finalLocation), inputFormat, jobConf);
                 } else {
-                    splits = inputFormat.getSplits(jobConf, 0 /* use hdfs block size as default */);
+                    String remoteUser = jobConf.get(HdfsResource.HADOOP_USER_NAME);
+                    if (!Strings.isNullOrEmpty(remoteUser)) {
+                        UserGroupInformation ugi = UserGroupInformation.createRemoteUser(remoteUser);
+                        splits = ugi.doAs(
+                            (PrivilegedExceptionAction<InputSplit[]>) () -> inputFormat.getSplits(jobConf, 0));
+                    } else {
+                        splits = inputFormat.getSplits(jobConf, 0 /* use hdfs block size as default */);
+                    }
                 }
+
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("load #{} files for {} in catalog {}", splits.length, key, catalog.getName());
                 }
@@ -308,10 +317,10 @@ public class HiveMetaStoreCache {
         }
     }
 
-    public List<InputSplit> getFilesByPartitions(List<HivePartition> partitions) {
+    public List<InputSplit> getFilesByPartitions(List<HivePartition> partitions, boolean useSelfSplitter) {
         long start = System.currentTimeMillis();
         List<FileCacheKey> keys = Lists.newArrayListWithExpectedSize(partitions.size());
-        partitions.stream().forEach(p -> keys.add(new FileCacheKey(p.getPath(), p.getInputFormat())));
+        partitions.stream().forEach(p -> keys.add(new FileCacheKey(p.getPath(), p.getInputFormat(), useSelfSplitter)));
 
         Stream<FileCacheKey> stream;
         if (partitions.size() < MIN_BATCH_FETCH_PARTITION_NUM) {
@@ -374,6 +383,17 @@ public class HiveMetaStoreCache {
             LOG.debug("invalid table cache for {}.{} in catalog {}, cache num: {}, cost: {} ms",
                     dbName, tblName, catalog.getName(), partitionValues.partitionValuesMap.size(),
                     (System.currentTimeMillis() - start));
+        } else {
+            /**
+             * A file cache entry can be created reference to
+             * {@link org.apache.doris.planner.external.HiveSplitter#getSplits},
+             * so we need to invalidate it if this is a non-partitioned table.
+             *
+             * */
+            Table table = catalog.getClient().getTable(dbName, tblName);
+            // we just need to assign the `location` filed because the `equals` method of `FileCacheKey`
+            // just compares the value of `location`
+            fileCache.invalidate(new FileCacheKey(table.getSd().getLocation(), null));
         }
     }
 
@@ -599,10 +619,20 @@ public class HiveMetaStoreCache {
         private String location;
         // not in key
         private String inputFormat;
+        // Temp variable, use self file splitter or use InputFormat.getSplits.
+        // Will remove after self splitter is stable.
+        private boolean useSelfSplitter;
 
         public FileCacheKey(String location, String inputFormat) {
             this.location = location;
             this.inputFormat = inputFormat;
+            this.useSelfSplitter = false;
+        }
+
+        public FileCacheKey(String location, String inputFormat, boolean useSelfSplitter) {
+            this.location = location;
+            this.inputFormat = inputFormat;
+            this.useSelfSplitter = useSelfSplitter;
         }
 
         @Override

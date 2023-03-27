@@ -110,8 +110,7 @@ PARTITION BY LIST(`city`)
 (
     PARTITION `p_cn` VALUES IN ("Beijing", "Shanghai", "Hong Kong"),
     PARTITION `p_usa` VALUES IN ("New York", "San Francisco"),
-    PARTITION `p_jp` VALUES IN ("Tokyo"),
-    PARTITION `default`
+    PARTITION `p_jp` VALUES IN ("Tokyo")
 )
 DISTRIBUTED BY HASH(`user_id`) BUCKETS 16
 PROPERTIES
@@ -305,9 +304,15 @@ Range partitioning also supports batch partitioning. For example, you can create
   PARTITION BY LIST(`id`, `city`)
   (
       PARTITION `p1_city` VALUES IN (("1", "Beijing"), ("1", "Shanghai")),
+      PARTITION `p2_city` VALUES IN (("2", "Beijing"), ("2", "Shanghai")),
+      PARTITION `p3_city` VALUES IN (("3", "Beijing"), ("3", "Shanghai"))
+  )
+  ```
+
+  In the above example, we specify `id` (INT type) and `city` (VARCHAR type) as the partitioning columns, so the resulting partitions will be as follows:
 
   ```
-  p1_city: [("1", "Beijing"), ("1", "Shanghai")]
+  * p1_city: [("1", "Beijing"), ("1", "Shanghai")]
   * p2_city: [("2", "Beijing"), ("2", "Shanghai")]
   * p3_city: [("3", "Beijing"), ("3", "Shanghai")]
   ```
@@ -332,6 +337,7 @@ Range partitioning also supports batch partitioning. For example, you can create
      1. If you choose to specify multiple bucketing columns, the data will be more evenly distributed. However, if the query condition does not include the equivalent conditions for all bucketing columns, the system will scan all buckets, largely increasing the query throughput and decreasing the latency of a single query. This method is suitable for high-throughput, low-concurrency query scenarios.
      2. If you choose to specify only one or a few bucketing columns, point queries might scan only one bucket. Thus, when multiple point queries are preformed concurrently, they might scan various buckets, with no interaction between the IO operations (especially when the buckets are stored on various disks). This approach is suitable for high-concurrency point query scenarios.
 
+   * AutoBucket: Calculates the number of partition buckets based on the amount of data. For partitioned tables, you can determine a bucket based on the amount of data, the number of machines, and the number of disks in the historical partition.
    * There is no theoretical limit on the number of buckets.
 
 3. Recommendations on the number and data volume for Partitions and Buckets.

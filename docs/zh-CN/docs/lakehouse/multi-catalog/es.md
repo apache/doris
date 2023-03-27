@@ -90,6 +90,7 @@ CREATE CATALOG es PROPERTIES (
 |other| unsupported ||
 
 <version since="dev">
+
 ### Array 类型
 
 Elasticsearch 没有明确的数组类型，但是它的某个字段可以含有[0个或多个值](https://www.elastic.co/guide/en/elasticsearch/reference/current/array.html)。
@@ -150,6 +151,7 @@ curl -X PUT "localhost:9200/doc/_mapping?pretty" -H 'Content-Type: application/j
 `array_fields`：用来表示是数组类型的字段。
 
 </version>
+
 ## 最佳实践
 
 ### 过滤条件下推

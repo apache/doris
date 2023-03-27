@@ -17,8 +17,7 @@
 
 suite("test_cast_function") {
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
-    sql "SET enable_fallback_to_original_planner=false" 
+    sql "SET enable_fallback_to_original_planner=false"
     qt_sql """ select cast (1 as BIGINT) """
     qt_sql """ select cast(cast ("11.2" as double) as bigint) """
     qt_sql """ select cast ("0.0101031417" as datetime) """

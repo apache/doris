@@ -310,6 +310,8 @@ public:
     ////////////////////////////////////////////////////////////////////////////
     // begin cooldown functions
     ////////////////////////////////////////////////////////////////////////////
+    int64_t last_failed_follow_cooldown_time() const { return _last_failed_follow_cooldown_time; }
+
     // Cooldown to remote fs.
     Status cooldown();
 
@@ -364,6 +366,7 @@ public:
 
     std::shared_mutex& get_cooldown_conf_lock() { return _cooldown_conf_lock; }
 
+    static void async_write_cooldown_meta(TabletSharedPtr tablet);
     Status write_cooldown_meta();
     ////////////////////////////////////////////////////////////////////////////
     // end cooldown functions
@@ -563,6 +566,7 @@ private:
     // `_cold_compaction_lock` is used to serialize cold data compaction and all operations that
     // may delete compaction input rowsets.
     std::mutex _cold_compaction_lock;
+    int64_t _last_failed_follow_cooldown_time = 0;
 
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 

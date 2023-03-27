@@ -90,8 +90,8 @@ public class JniUtil {
      * Serializes input into a byte[] using the default protocol factory.
      */
     public static <T extends TBase<?, ?>> byte[] serializeToThrift(T input) throws InternalException {
-        TSerializer serializer = new TSerializer(protocolFactory_);
         try {
+            TSerializer serializer = new TSerializer(protocolFactory_);
             return serializer.serialize(input);
         } catch (TException e) {
             throw new InternalException(e.getMessage());
@@ -103,8 +103,8 @@ public class JniUtil {
      */
     public static <T extends TBase<?, ?>, F extends TProtocolFactory> byte[] serializeToThrift(
             T input, F protocolFactory) throws InternalException {
-        TSerializer serializer = new TSerializer(protocolFactory);
         try {
+            TSerializer serializer = new TSerializer(protocolFactory);
             return serializer.serialize(input);
         } catch (TException e) {
             throw new InternalException(e.getMessage());
@@ -122,8 +122,8 @@ public class JniUtil {
     public static <T extends TBase<?, ?>, F extends TProtocolFactory> void deserializeThrift(
             F protocolFactory, T result, byte[] thriftData) throws InternalException {
         // TODO: avoid creating deserializer for each query?
-        TDeserializer deserializer = new TDeserializer(protocolFactory);
         try {
+            TDeserializer deserializer = new TDeserializer(protocolFactory);
             deserializer.deserialize(result, thriftData);
         } catch (TException e) {
             throw new InternalException(e.getMessage());

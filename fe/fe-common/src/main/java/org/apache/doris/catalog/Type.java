@@ -39,6 +39,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -101,6 +102,7 @@ public abstract class Type {
     public static final ScalarType CHAR = ScalarType.createCharType(-1);
     public static final ScalarType BITMAP = new ScalarType(PrimitiveType.BITMAP);
     public static final ScalarType QUANTILE_STATE = new ScalarType(PrimitiveType.QUANTILE_STATE);
+    public static final ScalarType LAMBDA_FUNCTION = new ScalarType(PrimitiveType.LAMBDA_FUNCTION);
     // Only used for alias function, to represent any type in function args
     public static final ScalarType ALL = new ScalarType(PrimitiveType.ALL);
     public static final MapType MAP = new MapType();
@@ -180,6 +182,9 @@ public abstract class Type {
         arraySubTypes.add(CHAR);
         arraySubTypes.add(VARCHAR);
         arraySubTypes.add(STRING);
+        arraySubTypes.add(DECIMAL32);
+        arraySubTypes.add(DECIMAL64);
+        arraySubTypes.add(DECIMAL128);
 
         mapSubTypes = Lists.newArrayList();
         mapSubTypes.add(BOOLEAN);
@@ -367,6 +372,11 @@ public abstract class Type {
                 || isScalarType(PrimitiveType.STRING);
     }
 
+    public boolean isVarcharOrStringType() {
+        return isScalarType(PrimitiveType.VARCHAR)
+                || isScalarType(PrimitiveType.STRING);
+    }
+
     public boolean isVarchar() {
         return isScalarType(PrimitiveType.VARCHAR);
     }
@@ -381,13 +391,13 @@ public abstract class Type {
     // 3. don't support group by
     // 4. don't support index
     public boolean isOnlyMetricType() {
-        return isObjectStored() || isComplexType();
+        return isObjectStored() || isComplexType() || isJsonbType();
     }
 
     public static final String OnlyMetricTypeErrorMsg =
-            "Doris hll, bitmap, array, map, struct column must use with specific function, and don't"
+            "Doris hll, bitmap, array, map, struct, jsonb column must use with specific function, and don't"
                     + " support filter or group by. please run 'help hll' or 'help bitmap' or 'help array'"
-                    + " or 'help map' or 'help struct' in your mysql client.";
+                    + " or 'help map' or 'help struct' or 'help jsonb' in your mysql client.";
 
     public boolean isHllType() {
         return isScalarType(PrimitiveType.HLL);
@@ -399,6 +409,10 @@ public abstract class Type {
 
     public boolean isQuantileStateType() {
         return isScalarType(PrimitiveType.QUANTILE_STATE);
+    }
+
+    public boolean isLambdaFunctionType() {
+        return isScalarType(PrimitiveType.LAMBDA_FUNCTION);
     }
 
     public boolean isObjectStored() {
@@ -507,6 +521,25 @@ public abstract class Type {
         return isScalarType(PrimitiveType.DATEV2);
     }
 
+    public boolean isDateV2OrDateTimeV2() {
+        return isScalarType(PrimitiveType.DATEV2) || isScalarType(PrimitiveType.DATETIMEV2);
+    }
+
+    public boolean hasTemplateType() {
+        return false;
+    }
+
+    // return a new type without template type, by specialize tempalte type in this type
+    public Type specializeTemplateType(Type specificType, Map<String, Type> specializedTypeMap,
+                                       boolean useSpecializedType) throws TypeException {
+        if (hasTemplateType()) {
+            // throw exception by default, sub class should specialize tempalte type properly
+            throw new TypeException("specializeTemplateType not implemented");
+        } else {
+            return this;
+        }
+    }
+
     /**
      * Returns true if Impala supports this type in the metdata. It does not mean we
      * can manipulate data of this type. For tables that contain columns with these
@@ -584,12 +617,9 @@ public abstract class Type {
             return ScalarType.isImplicitlyCastable((ScalarType) t1, (ScalarType) t2, strict);
         }
         if (t1.isComplexType() || t2.isComplexType()) {
-            if (t1.isArrayType() && t2.isArrayType()) {
+            if ((t1.isArrayType() && t2.isArrayType()) || (t1.isMapType() && t2.isMapType())
+                    || (t1.isStructType() && t2.isStructType())) {
                 return t1.matchesType(t2);
-            } else if (t1.isMapType() && t2.isMapType()) {
-                return true;
-            } else if (t1.isStructType() && t2.isStructType()) {
-                return true;
             }
             return false;
         }
@@ -787,6 +817,8 @@ public abstract class Type {
                 return Type.QUANTILE_STATE;
             case VARIANT:
                 return new VariantType();
+            case LAMBDA_FUNCTION:
+                return Type.LAMBDA_FUNCTION;
             default:
                 return null;
         }
@@ -1560,8 +1592,10 @@ public abstract class Type {
                         || t1 == PrimitiveType.TIMEV2 || t2 == PrimitiveType.TIMEV2
                         || t1 == PrimitiveType.MAP || t2 == PrimitiveType.MAP
                         || t1 == PrimitiveType.STRUCT || t2 == PrimitiveType.STRUCT
+                        || t1 == PrimitiveType.TEMPLATE || t2 == PrimitiveType.TEMPLATE
                         || t1 == PrimitiveType.UNSUPPORTED || t2 == PrimitiveType.UNSUPPORTED
-                        || t1 == PrimitiveType.VARIANT || t2 == PrimitiveType.VARIANT) {
+                        || t1 == PrimitiveType.VARIANT || t2 == PrimitiveType.VARIANT
+                        || t1 == PrimitiveType.LAMBDA_FUNCTION || t2 == PrimitiveType.LAMBDA_FUNCTION) {
                     continue;
                 }
                 Preconditions.checkNotNull(compatibilityMatrix[i][j]);
@@ -1782,6 +1816,10 @@ public abstract class Type {
 
     // Whether `type1` matches the exact type of `type2`.
     public static boolean matchExactType(Type type1, Type type2) {
+        return matchExactType(type1, type2, false);
+    }
+
+    public static boolean matchExactType(Type type1, Type type2, boolean ignorePrecision) {
         if (type1.matchesType(type2)) {
             if (PrimitiveType.typeWithPrecision.contains(type2.getPrimitiveType())) {
                 // For types which has precision and scale, we also need to check quality between precisions and scales
@@ -1789,6 +1827,10 @@ public abstract class Type {
                         == ((ScalarType) type1).decimalPrecision()) && (((ScalarType) type2).decimalScale()
                         == ((ScalarType) type1).decimalScale())) {
                     return true;
+                } else if (((ScalarType) type2).decimalScale() == ((ScalarType) type1).decimalScale()
+                        && ignorePrecision) {
+                    return isSameDecimalTypeWithDifferentPrecision(((ScalarType) type2).decimalPrecision(),
+                            ((ScalarType) type1).decimalPrecision());
                 }
             } else if (type2.isArrayType()) {
                 // For types array, we also need to check contains null for case like
@@ -1799,6 +1841,21 @@ public abstract class Type {
             } else {
                 return true;
             }
+        }
+        return false;
+    }
+
+    public static boolean isSameDecimalTypeWithDifferentPrecision(int precision1, int precision2) {
+        if (precision1 <= ScalarType.MAX_DECIMAL32_PRECISION && precision2 <= ScalarType.MAX_DECIMAL32_PRECISION) {
+            return true;
+        } else if (precision1 > ScalarType.MAX_DECIMAL32_PRECISION && precision2 > ScalarType.MAX_DECIMAL32_PRECISION
+                && precision1 <= ScalarType.MAX_DECIMAL64_PRECISION
+                && precision2 <= ScalarType.MAX_DECIMAL64_PRECISION) {
+            return true;
+        } else if (precision1 > ScalarType.MAX_DECIMAL64_PRECISION && precision2 > ScalarType.MAX_DECIMAL64_PRECISION
+                && precision1 <= ScalarType.MAX_DECIMAL128_PRECISION
+                && precision2 <= ScalarType.MAX_DECIMAL128_PRECISION) {
+            return true;
         }
         return false;
     }

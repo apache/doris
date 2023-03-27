@@ -827,13 +827,6 @@ public class Config extends ConfigBase {
      */
     @ConfField public static String default_storage_medium = "HDD";
     /**
-     * When create a table(or partition), you can specify its storage medium(HDD or SSD).
-     * If set to SSD, this specifies the default duration that tablets will stay on SSD.
-     * After that, tablets will be moved to HDD automatically.
-     * You can set storage cooldown time in CREATE TABLE stmt.
-     */
-    @ConfField public static long storage_cooldown_second = 30 * 24 * 3600L; // 30 days
-    /**
      * After dropping database(table/partition), you can recover it by using RECOVER stmt.
      * And this specifies the maximal data retention time. After time, the data will be deleted permanently.
      */
@@ -1697,7 +1690,7 @@ public class Config extends ConfigBase {
      * Default is false.
      * */
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_quantile_state_type = false;
+    public static boolean enable_quantile_state_type = true;
 
     @ConfField
     public static boolean enable_vectorized_load = true;
@@ -1713,6 +1706,9 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = false)
     public static long file_scan_node_split_num = 128;
+
+    @ConfField(mutable = true, masterOnly = false)
+    public static long file_split_size = 0; // 0 means use the block size in HDFS/S3 as split size
 
     /**
      * If set to TRUE, FE will:
@@ -2056,5 +2052,22 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = false, masterOnly = false)
     public static String mysql_load_server_secure_path = "";
+
+
+    @ConfField(mutable = false, masterOnly = false)
+    public static int mysql_load_thread_pool = 4;
+
+    /**
+     * BDBJE file logging level
+     * OFF, SEVERE, WARNING, INFO, CONFIG, FINE, FINER, FINEST, ALL
+     */
+    @ConfField
+    public static String bdbje_file_logging_level = "ALL";
+
+    /**
+     * When holding lock time exceeds the threshold, need to report it.
+     */
+    @ConfField
+    public static long lock_reporting_threshold_ms = 500L;
 }
 

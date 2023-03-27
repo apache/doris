@@ -26,6 +26,10 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TIcebergMetadataParams;
+import org.apache.doris.thrift.TIcebergQueryType;
+import org.apache.doris.thrift.TMetaScanRange;
+import org.apache.doris.thrift.TMetadataType;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
@@ -40,8 +44,6 @@ import java.util.Map;
  */
 public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
 
-    public enum MetadataType { SNAPSHOTS }
-
     public static final String NAME = "iceberg_meta";
     private static final String TABLE = "table";
     private static final String QUERY_TYPE = "query_type";
@@ -51,54 +53,71 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
             .add(QUERY_TYPE)
             .build();
 
-    private final MetadataType queryType;
-    private final TableName tableName;
+    private TIcebergQueryType queryType;
+
+    // here tableName represents the name of a table in Iceberg.
+    private final TableName icebergTableName;
 
     public IcebergTableValuedFunction(Map<String, String> params) throws AnalysisException {
-        super(MetaType.ICEBERG);
         Map<String, String> validParams = Maps.newHashMap();
         for (String key : params.keySet()) {
             if (!PROPERTIES_SET.contains(key.toLowerCase())) {
                 throw new AnalysisException("'" + key + "' is invalid property");
             }
-            // check ctl db tbl
+            // check ctl, db, tbl
             validParams.put(key.toLowerCase(), params.get(key));
         }
         String tableName = validParams.get(TABLE);
-        String queryType = validParams.get(QUERY_TYPE);
-        if (tableName == null || queryType == null) {
+        String queryTypeString = validParams.get(QUERY_TYPE);
+        if (tableName == null || queryTypeString == null) {
             throw new AnalysisException("Invalid iceberg metadata query");
         }
         String[] names = tableName.split("\\.");
         if (names.length != 3) {
             throw new AnalysisException("The iceberg table name contains the catalogName, databaseName, and tableName");
         }
-        this.tableName = new TableName(names[0], names[1], names[2]);
+        this.icebergTableName = new TableName(names[0], names[1], names[2]);
         // check auth
         if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), this.tableName, PrivPredicate.SELECT)) {
+                .checkTblPriv(ConnectContext.get(), this.icebergTableName, PrivPredicate.SELECT)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                    this.tableName.getDb() + ": " + this.tableName.getTbl());
+                    this.icebergTableName.getDb() + ": " + this.icebergTableName.getTbl());
         }
         try {
-            this.queryType = MetadataType.valueOf(queryType.toUpperCase());
+            // TODO(ftw): check here
+            this.queryType = TIcebergQueryType.valueOf(queryTypeString.toUpperCase());
         } catch (IllegalArgumentException e) {
             throw new AnalysisException("Unsupported iceberg metadata query type: " + queryType);
         }
     }
 
+    public TIcebergQueryType getIcebergQueryType() {
+        return queryType;
+    }
+
+    @Override
+    public TMetadataType getMetadataType() {
+        return TMetadataType.ICEBERG;
+    }
+
+    @Override
+    public TMetaScanRange getMetaScanRange() {
+        TMetaScanRange metaScanRange = new TMetaScanRange();
+        metaScanRange.setMetadataType(TMetadataType.ICEBERG);
+        // set iceberg metadata params
+        TIcebergMetadataParams icebergMetadataParams = new TIcebergMetadataParams();
+        icebergMetadataParams.setIcebergQueryType(queryType);
+        icebergMetadataParams.setCatalog(icebergTableName.getCtl());
+        icebergMetadataParams.setDatabase(icebergTableName.getDb());
+        icebergMetadataParams.setTable(icebergTableName.getTbl());
+        metaScanRange.setIcebergParams(icebergMetadataParams);
+        return metaScanRange;
+    }
+
     @Override
     public String getTableName() {
         return "IcebergMetadataTableValuedFunction";
-    }
-
-    public TableName getMetadataTableName() {
-        return tableName;
-    }
-
-    public MetadataType getMetaQueryType() {
-        return queryType;
     }
 
     /**
@@ -110,7 +129,7 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
     @Override
     public List<Column> getTableColumns() throws AnalysisException {
         List<Column> resColumns = new ArrayList<>();
-        if (queryType == MetadataType.SNAPSHOTS) {
+        if (queryType == TIcebergQueryType.SNAPSHOTS) {
             resColumns.add(new Column("committed_at", PrimitiveType.DATETIMEV2, false));
             resColumns.add(new Column("snapshot_id", PrimitiveType.BIGINT, false));
             resColumns.add(new Column("parent_id", PrimitiveType.BIGINT, false));

@@ -18,18 +18,11 @@
 #include "vec/aggregate_functions/aggregate_function_retention.h"
 
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-#include "vec/aggregate_functions/factory_helpers.h"
 #include "vec/aggregate_functions/helpers.h"
 
 namespace doris::vectorized {
-
-AggregateFunctionPtr create_aggregate_function_retention(const std::string& name,
-                                                         const DataTypes& argument_types,
-                                                         const bool result_is_nullable) {
-    return std::make_shared<AggregateFunctionRetention>(argument_types);
-}
-
 void register_aggregate_function_retention(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function("retention", create_aggregate_function_retention, false);
+    factory.register_function_both("retention",
+                                   creator_without_type::creator<AggregateFunctionRetention>);
 }
 } // namespace doris::vectorized

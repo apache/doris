@@ -1,4 +1,3 @@
-set enable_vectorized_engine=true;
 select `answers.date`, `answers.user` from test_es_nested_json where size(`answers.date`) > 3 limit 10;
 select `answers.date`[1], qid, title from test_es_nested_json where array_contains(`answers.user`, 'Michael Ecklund (804104)')  order by qid limit 10;
 select qid, title from test_es_nested_json where array_contains(`answers.date`, '2012-04-03T19:35:38.007');

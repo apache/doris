@@ -22,8 +22,9 @@ import org.apache.doris.nereids.pattern.PatternDescriptor;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.LimitPhase;
+import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -104,8 +105,8 @@ class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSup
                 logicalLimit(
                         logicalProject(
                                 logicalJoin(
-                                        logicalLimit(logicalOlapScan().when(s -> s.equals(scanScore))),
-                                        logicalOlapScan().when(s -> s.equals(scanStudent))
+                                        logicalLimit(logicalOlapScan().when(s -> s.getTable().getName().equals("score"))),
+                                        logicalOlapScan().when(s -> s.getTable().getName().equals("student"))
                                 ).when(j -> j.getJoinType() == JoinType.LEFT_OUTER_JOIN)
                         )
                 )
@@ -113,8 +114,8 @@ class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSup
         test(JoinType.LEFT_OUTER_JOIN, false,
                 logicalLimit(
                         logicalJoin(
-                                logicalLimit(logicalOlapScan().when(s -> s.equals(scanScore))),
-                                logicalOlapScan().when(s -> s.equals(scanStudent))
+                                logicalLimit(logicalOlapScan().when(s -> s.getTable().getName().equals("score"))),
+                                logicalOlapScan().when(s -> s.getTable().getName().equals("student"))
                         ).when(j -> j.getJoinType() == JoinType.LEFT_OUTER_JOIN)
                 )
         );
@@ -126,19 +127,19 @@ class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSup
         test(JoinType.RIGHT_OUTER_JOIN, true,
                 logicalLimit(
                         logicalProject(
-                                logicalJoin(
-                                        logicalOlapScan().when(s -> s.equals(scanScore)),
-                                        logicalLimit(logicalOlapScan().when(s -> s.equals(scanStudent)))
-                                ).when(j -> j.getJoinType() == JoinType.RIGHT_OUTER_JOIN)
+                                rightOuterLogicalJoin(
+                                        logicalOlapScan().when(s -> s.getTable().getName().equals("score")),
+                                        logicalLimit(logicalOlapScan().when(s -> s.getTable().getName().equals("student")))
+                                )
                         )
                 )
         );
         test(JoinType.RIGHT_OUTER_JOIN, false,
                 logicalLimit(
-                        logicalJoin(
-                                logicalOlapScan().when(s -> s.equals(scanScore)),
-                                logicalLimit(logicalOlapScan().when(s -> s.equals(scanStudent)))
-                        ).when(j -> j.getJoinType() == JoinType.RIGHT_OUTER_JOIN)
+                        rightOuterLogicalJoin(
+                                logicalOlapScan().when(s -> s.getTable().getName().equals("score")),
+                                logicalLimit(logicalOlapScan().when(s -> s.getTable().getName().equals("student")))
+                        )
                 )
         );
     }
@@ -148,19 +149,19 @@ class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSup
         test(JoinType.CROSS_JOIN, true,
                 logicalLimit(
                         logicalProject(
-                                logicalJoin(
-                                        logicalLimit(logicalOlapScan().when(s -> s.equals(scanScore))),
-                                        logicalLimit(logicalOlapScan().when(s -> s.equals(scanStudent)))
-                                ).when(j -> j.getJoinType() == JoinType.CROSS_JOIN)
+                                crossLogicalJoin(
+                                        logicalLimit(logicalOlapScan()),
+                                        logicalLimit(logicalOlapScan())
+                                )
                         )
                 )
         );
         test(JoinType.CROSS_JOIN, false,
                 logicalLimit(
-                        logicalJoin(
-                                logicalLimit(logicalOlapScan().when(s -> s.equals(scanScore))),
-                                logicalLimit(logicalOlapScan().when(s -> s.equals(scanStudent)))
-                        ).when(j -> j.getJoinType() == JoinType.CROSS_JOIN)
+                        crossLogicalJoin(
+                                logicalLimit(logicalOlapScan().when(s -> s.getTable().getName().equals("score"))),
+                                logicalLimit(logicalOlapScan().when(s -> s.getTable().getName().equals("student")))
+                        )
                 )
         );
     }
@@ -171,8 +172,8 @@ class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSup
                 logicalLimit(
                         logicalProject(
                                 logicalJoin(
-                                        logicalLimit(logicalOlapScan().when(s -> s.equals(scanScore))),
-                                        logicalLimit(logicalOlapScan().when(s -> s.equals(scanStudent)))
+                                        logicalLimit(logicalOlapScan().when(s -> s.getTable().getName().equals("score"))),
+                                        logicalLimit(logicalOlapScan().when(s -> s.getTable().getName().equals("student")))
                                 )
                         )
                 )
@@ -180,8 +181,8 @@ class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSup
         test(JoinType.INNER_JOIN, false,
                 logicalLimit(
                         logicalJoin(
-                                logicalLimit(logicalOlapScan().when(s -> s.equals(scanScore))),
-                                logicalLimit(logicalOlapScan().when(s -> s.equals(scanStudent)))
+                                logicalLimit(logicalOlapScan().when(s -> s.getTable().getName().equals("score"))),
+                                logicalLimit(logicalOlapScan().when(s -> s.getTable().getName().equals("student")))
                         )
                 )
         );
@@ -204,12 +205,19 @@ class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSup
                                     // plan among fragments has duplicate elements.
                                     (s1, s2) -> s1)
                             );
-
                     // limit is push down to left scan of `t1`.
                     Assertions.assertEquals(2, nameToScan.size());
                     Assertions.assertEquals(5, nameToScan.get("t1").getLimit());
                 }
         );
+    }
+
+    @Test
+    public void testLimitPushSort() {
+        PlanChecker.from(connectContext)
+                .analyze("select k1 from t1 order by k1 limit 1")
+                .rewrite()
+                .matches(logicalTopN());
     }
 
     @Test
@@ -229,8 +237,10 @@ class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSup
                                         logicalOlapScan().when(scan -> "t2".equals(scan.getTable().getName()))
                                 ),
                                 logicalLimit(
-                                        logicalProject(
-                                                logicalOlapScan().when(scan -> "t3".equals(scan.getTable().getName()))
+                                        logicalLimit(
+                                            logicalProject(
+                                                    logicalOlapScan().when(scan -> "t3".equals(scan.getTable().getName()))
+                                            )
                                         )
                                 )
                         )
@@ -241,7 +251,7 @@ class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSup
         Plan plan = generatePlan(joinType, hasProject);
         PlanChecker.from(MemoTestUtils.createConnectContext())
                 .analyze(plan)
-                .applyTopDown(new InnerToCrossJoin())
+                .applyTopDown(new ConvertInnerOrCrossJoin())
                 .applyTopDown(new PushdownLimit())
                 .matchesFromRoot(pattern);
     }
@@ -255,18 +265,18 @@ class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSup
         LogicalJoin<? extends Plan, ? extends Plan> join = new LogicalJoin<>(
                 joinType,
                 joinConditions,
-                new LogicalOlapScan(new RelationId(0), PlanConstructor.score),
-                new LogicalOlapScan(new RelationId(1), PlanConstructor.student)
+                new LogicalOlapScan(new ObjectId(0), PlanConstructor.score),
+                new LogicalOlapScan(new ObjectId(1), PlanConstructor.student)
         );
 
         if (hasProject) {
             // return limit -> project -> join
-            return new LogicalLimit<>(10, 0, new LogicalProject<>(
+            return new LogicalLimit<>(10, 0, LimitPhase.ORIGIN, new LogicalProject<>(
                     ImmutableList.of(new UnboundSlot("sid"), new UnboundSlot("id")),
                     join));
         } else {
             // return limit -> join
-            return new LogicalLimit<>(10, 0, join);
+            return new LogicalLimit<>(10, 0, LimitPhase.ORIGIN, join);
         }
     }
 }

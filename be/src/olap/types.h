@@ -1398,7 +1398,7 @@ struct TypeTraits : public FieldTypeTraits<field_type> {
 };
 
 template <FieldType field_type>
-inline const TypeInfo* get_scalar_type_info() {
+const TypeInfo* get_scalar_type_info() {
     static constexpr TypeTraits<field_type> traits;
     static ScalarTypeInfo scalar_type_info(traits);
     return &scalar_type_info;

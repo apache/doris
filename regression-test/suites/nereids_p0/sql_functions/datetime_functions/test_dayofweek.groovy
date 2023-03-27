@@ -17,7 +17,6 @@
 
 suite("test_dayofweek") {
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
-    sql "SET enable_fallback_to_original_planner=false" 
+    sql "SET enable_fallback_to_original_planner=false"
     qt_select "select k1, dayofweek(k10) from test_query_db.baseall order by k1"
 }

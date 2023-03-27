@@ -42,22 +42,8 @@ namespace doris {
 class RowDescriptor;
 class Status;
 class TupleDescriptor;
-struct TypeDescriptor;
 
 namespace vectorized {
-
-// DYNAMIC block is a special type of Block.
-// It could extends it's structure by align with
-// other blocks by add_rows, merge, append_block_by_selector ...
-// eg.
-// BlockA: A(int) | B(double) | C(float) | D(string)
-// BlockB: E(date) | F(int)
-// when BlockA.add_rows/merge/... with BlockB
-// then BlockA structure will become:
-// A(int) | B(double) | C(float) | D(string) | E(date) | F(int)
-// Both E & F are added to BlockA with same rows, and missing columns are
-// filled with default values
-enum class BlockType { NORMAL, DYNAMIC };
 
 /** Container for set of columns for bunch of rows in memory.
   * This is unit of data processing.
@@ -79,7 +65,6 @@ private:
     int64_t _decompressed_bytes = 0;
 
     mutable int64_t _compress_time_ns = 0;
-    BlockType _type {BlockType::NORMAL};
 
 public:
     Block() = default;
@@ -163,9 +148,6 @@ public:
         element.column = element.column->convert_to_full_column_if_const();
     }
 
-    void set_block_type(BlockType type) { _type = type; }
-    BlockType get_block_type() { return _type; }
-
     ColumnWithTypeAndName& safe_get_by_position(size_t position);
     const ColumnWithTypeAndName& safe_get_by_position(size_t position) const;
 
@@ -200,7 +182,7 @@ public:
     /// Returns number of rows from first column in block, not equal to nullptr. If no columns, returns 0.
     size_t rows() const;
 
-    std::string each_col_size();
+    std::string each_col_size() const;
 
     // Cut the rows in block, use in LIMIT operation
     void set_num_rows(size_t length);
@@ -224,6 +206,8 @@ public:
 
     /** Get a list of column names separated by commas. */
     std::string dump_names() const;
+
+    std::string dump_types() const;
 
     /** List of names, types and lengths of columns. Designed for debugging. */
     std::string dump_structure() const;
@@ -388,8 +372,6 @@ public:
 
 private:
     void erase_impl(size_t position);
-    bool is_column_data_null(const doris::TypeDescriptor& type_desc, const StringRef& data_ref,
-                             const IColumn* column_with_type_and_name, int row);
 };
 
 using Blocks = std::vector<Block>;
@@ -405,12 +387,8 @@ private:
 
     using IndexByName = phmap::flat_hash_map<String, size_t>;
     IndexByName index_by_name;
-    BlockType _type {BlockType::NORMAL};
 
 public:
-    void set_block_type(BlockType type) { _type = type; }
-    BlockType get_block_type() { return _type; }
-
     static MutableBlock build_mutable_block(Block* block) {
         return block == nullptr ? MutableBlock() : MutableBlock(block);
     }
@@ -423,15 +401,13 @@ public:
     MutableBlock(Block* block)
             : _columns(block->mutate_columns()),
               _data_types(block->get_data_types()),
-              _names(block->get_names()),
-              _type(block->get_block_type()) {
+              _names(block->get_names()) {
         initialize_index_by_name();
     }
     MutableBlock(Block&& block)
             : _columns(block.mutate_columns()),
               _data_types(block.get_data_types()),
-              _names(block.get_names()),
-              _type(block.get_block_type()) {
+              _names(block.get_names()) {
         initialize_index_by_name();
     }
 
@@ -439,7 +415,6 @@ public:
         _columns = std::move(m_block._columns);
         _data_types = std::move(m_block._data_types);
         _names = std::move(m_block._names);
-        _type = m_block.get_block_type();
         initialize_index_by_name();
     }
 
@@ -500,10 +475,20 @@ public:
         return 0;
     }
 
+    std::string dump_types() const {
+        std::string res;
+        for (auto type : _data_types) {
+            if (res.size()) {
+                res += ", ";
+            }
+            res += type->get_name();
+        }
+        return res;
+    }
+
     template <typename T>
-    void merge(T&& block) {
+    Status merge(T&& block) {
         // merge is not supported in dynamic block
-        DCHECK(_type != BlockType::DYNAMIC);
         if (_columns.size() == 0 && _data_types.size() == 0) {
             _data_types = block.get_data_types();
             _names = block.get_names();
@@ -519,7 +504,11 @@ public:
             }
             initialize_index_by_name();
         } else {
-            DCHECK_EQ(_columns.size(), block.columns());
+            if (_columns.size() != block.columns()) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                        "Merge block not match, self:[{}], input:[{}], ", dump_types(),
+                        block.dump_types());
+            }
             for (int i = 0; i < _columns.size(); ++i) {
                 if (!_data_types[i]->equals(*block.get_by_position(i).type)) {
                     DCHECK(_data_types[i]->is_nullable())
@@ -541,6 +530,7 @@ public:
                 }
             }
         }
+        return Status::OK();
     }
 
     Block to_block(int start_column = 0);

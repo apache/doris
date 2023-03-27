@@ -505,6 +505,16 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_ADD_GLOBAL_FUNCTION: {
+                data = Function.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_DROP_GLOBAL_FUNCTION: {
+                data = FunctionSearchDesc.read(in);
+                isRead = true;
+                break;
+            }
             case OperationType.OP_CREATE_ENCRYPTKEY: {
                 data = EncryptKey.read(in);
                 isRead = true;
@@ -737,7 +747,7 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
-            case OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_COLUMNS: {
+            case OperationType.OP_MODIFY_TABLE_LIGHT_SCHEMA_CHANGE: {
                 data = TableAddOrDropColumnsInfo.read(in);
                 isRead = true;
                 break;

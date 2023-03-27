@@ -36,7 +36,6 @@ struct ArrayIteratorFunctionsBase;
 class ArrayIterator;
 class Status;
 class ObjectPool;
-struct TypeDescriptor;
 
 template <PrimitiveType type>
 struct ArrayIteratorFunctions;

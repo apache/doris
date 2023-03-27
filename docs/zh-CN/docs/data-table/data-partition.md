@@ -48,7 +48,7 @@ under the License.
 
 多个 Tablet 在逻辑上归属于不同的分区（Partition）。一个 Tablet 只属于一个 Partition。而一个 Partition 包含若干个 Tablet。因为 Tablet 在物理上是独立存储的，所以可以视为 Partition 在物理上也是独立。Tablet 是数据移动、复制等操作的最小物理存储单元。
 
-若干个 Partition 组成一个 Table。Partition 可以视为是逻辑上最小的管理单元。数据的导入与删除，都可以或仅能针对一个 Partition 进行。
+若干个 Partition 组成一个 Table。Partition 可以视为是逻辑上最小的管理单元。数据的导入与删除，仅能针对一个 Partition 进行。
 
 ## 数据划分
 
@@ -112,8 +112,7 @@ PARTITION BY LIST(`city`)
 (
     PARTITION `p_cn` VALUES IN ("Beijing", "Shanghai", "Hong Kong"),
     PARTITION `p_usa` VALUES IN ("New York", "San Francisco"),
-    PARTITION `p_jp` VALUES IN ("Tokyo"),
-    PARTITION `default`
+    PARTITION `p_jp` VALUES IN ("Tokyo")
 )
 DISTRIBUTED BY HASH(`user_id`) BUCKETS 16
 PROPERTIES
@@ -285,7 +284,6 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
        p_cn: ("Beijing", "Shanghai", "Hong Kong")
        p_usa: ("New York", "San Francisco")
        p_jp: ("Tokyo")
-       default
        ```
 
      - 当我们增加一个分区 p_uk VALUES IN ("London")，分区结果如下：
@@ -295,7 +293,6 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
        p_usa: ("New York", "San Francisco")
        p_jp: ("Tokyo")
        p_uk: ("London")
-       default
        ```
 
      - 当我们删除分区 p_jp，分区结果如下：
@@ -304,7 +301,6 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
        p_cn: ("Beijing", "Shanghai", "Hong Kong")
        p_usa: ("New York", "San Francisco")
        p_uk: ("London")
-       default
        ```
 
    List分区也支持**多列分区**，示例如下：
@@ -314,8 +310,7 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
    (
        PARTITION `p1_city` VALUES IN (("1", "Beijing"), ("1", "Shanghai")),
        PARTITION `p2_city` VALUES IN (("2", "Beijing"), ("2", "Shanghai")),
-       PARTITION `p3_city` VALUES IN (("3", "Beijing"), ("3", "Shanghai")),
-       PARTITION `default`
+       PARTITION `p3_city` VALUES IN (("3", "Beijing"), ("3", "Shanghai"))
    )
    ```
    
@@ -325,7 +320,6 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
    * p1_city: [("1", "Beijing"), ("1", "Shanghai")]
    * p2_city: [("2", "Beijing"), ("2", "Shanghai")]
    * p3_city: [("3", "Beijing"), ("3", "Shanghai")]
-   * default:
    ```
    
    当用户插入数据时，分区列值会按照顺序依次比较，最终得到对应的分区。举例如下：
@@ -336,11 +330,9 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
    * 1, Shanghai    ---> p1_city
    * 2, Shanghai    ---> p2_city
    * 3, Beijing     ---> p3_city
-   * 1, Tianjin     ---> 无法导入,但在存在默认分区时会导入进默认分区
-   * 4, Beijing     ---> 无法导入,但在存在默认分区时会导入进默认分区
+   * 1, Tianjin     ---> 无法导入
+   * 4, Beijing     ---> 无法导入
    ```
-
-   List分区支持默认分区,当用户指定默认分区时,所有不满足其他分区条件约束的数据都会存放到默认分区.在查询存在默认分区的表时会默认查询默认分区的数据，默认分区**可能会拖慢查询速度**.
 
 2. **Bucket**
 
@@ -349,6 +341,7 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
    - 分桶列的选择，是在 **查询吞吐** 和 **查询并发** 之间的一种权衡：
      1. 如果选择多个分桶列，则数据分布更均匀。如果一个查询条件不包含所有分桶列的等值条件，那么该查询会触发所有分桶同时扫描，这样查询的吞吐会增加，单个查询的延迟随之降低。这个方式适合大吞吐低并发的查询场景。
      2. 如果仅选择一个或少数分桶列，则对应的点查询可以仅触发一个分桶扫描。此时，当多个点查询并发时，这些查询有较大的概率分别触发不同的分桶扫描，各个查询之间的IO影响较小（尤其当不同桶分布在不同磁盘上时），所以这种方式适合高并发的点查询场景。
+   - AutoBucket: 根据数据量，计算分桶数。 对于分区表，可以根据历史分区的数据量、机器数、盘数，确定一个分桶。
    - 分桶的数量理论上没有上限。
 
 3. **关于 Partition 和 Bucket 的数量和数据量的建议。**

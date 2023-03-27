@@ -25,7 +25,6 @@
 #include "testutil/any_type.h"
 #include "testutil/function_utils.h"
 #include "udf/udf.h"
-#include "udf/udf_internal.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/core/columns_with_type_and_name.h"
@@ -249,7 +248,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
 
     FunctionUtils fn_utils(fn_ctx_return, arg_types, 0);
     auto* fn_ctx = fn_utils.get_fn_ctx();
-    fn_ctx->impl()->set_constant_cols(constant_cols);
+    fn_ctx->set_constant_cols(constant_cols);
     func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
     func->open(fn_ctx, FunctionContext::THREAD_LOCAL);
 

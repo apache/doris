@@ -60,6 +60,12 @@ public class ScalarApplyToJoin extends OneRewriteRuleFactory {
                         AssertNumRowsElement.Assertion.EQ),
                 (LogicalPlan) apply.right());
         return new LogicalJoin<>(JoinType.CROSS_JOIN,
+                ExpressionUtils.EMPTY_CONDITION,
+                apply.getSubCorrespondingConject().isPresent()
+                    ? ExpressionUtils.extractConjunction((Expression) apply.getSubCorrespondingConject().get())
+                    : ExpressionUtils.EMPTY_CONDITION,
+                JoinHint.NONE,
+                apply.getMarkJoinSlotReference(),
                 (LogicalPlan) apply.left(), assertNumRows);
     }
 
@@ -73,14 +79,20 @@ public class ScalarApplyToJoin extends OneRewriteRuleFactory {
                         throw new AnalysisException(
                                 "scalar subquery's correlatedPredicates's operator must be EQ");
                     });
+        } else {
+            throw new AnalysisException("correlationFilter can't be null in correlatedToJoin");
         }
 
-        return new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
+        return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN,
                 ExpressionUtils.EMPTY_CONDITION,
-                correlationFilter
-                        .map(ExpressionUtils::extractConjunction)
-                        .orElse(ExpressionUtils.EMPTY_CONDITION),
+                ExpressionUtils.extractConjunction(
+                    apply.getSubCorrespondingConject().isPresent()
+                        ? ExpressionUtils.and(
+                            (Expression) apply.getSubCorrespondingConject().get(),
+                            correlationFilter.get())
+                        : correlationFilter.get()),
                 JoinHint.NONE,
+                apply.getMarkJoinSlotReference(),
                 (LogicalPlan) apply.left(),
                 (LogicalPlan) apply.right());
     }

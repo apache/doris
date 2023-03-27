@@ -815,8 +815,6 @@ The Apache Software License, Version 2.0
     * Curator Recipes:
         - org.apache.curator:curator-recipes:2.6.0 (http://curator.apache.org/curator-recipes)
         - org.apache.curator:curator-recipes:2.7.1 (http://curator.apache.org/curator-recipes)
-    * Data Mapper for Jackson:
-        - org.codehaus.jackson:jackson-mapper-asl:1.9.13 (http://jackson.codehaus.org)
     * DataNucleus Core:
         - org.datanucleus:datanucleus-core:4.1.17 (http://www.datanucleus.org/#/datanucleus-core)
     * DataNucleus JDO API plugin:
@@ -934,8 +932,6 @@ The Apache Software License, Version 2.0
     * JVM Integration for Metrics:
         - io.dropwizard.metrics:metrics-jvm:3.1.5 (http://metrics.codahale.com/metrics-jvm/)
         - io.dropwizard.metrics:metrics-jvm:4.2.7 (https://metrics.dropwizard.io/metrics-jvm)
-    * Jackson:
-        - org.codehaus.jackson:jackson-core-asl:1.9.13 (http://jackson.codehaus.org)
     * Jackson Integration for Metrics:
         - io.dropwizard.metrics:metrics-json:3.1.5 (http://metrics.codahale.com/metrics-json/)
         - io.dropwizard.metrics:metrics-json:4.2.7 (https://metrics.dropwizard.io/metrics-json)

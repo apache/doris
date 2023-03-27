@@ -22,6 +22,7 @@
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
+//TODO: add manual info to docs.
 class FunctionEqForNull : public IFunction {
 public:
     static constexpr auto name = "eq_for_null";

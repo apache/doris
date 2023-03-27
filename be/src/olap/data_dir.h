@@ -163,7 +163,7 @@ private:
     bool _check_pending_ids(const std::string& id);
 
 private:
-    bool _stop_bg_worker = false;
+    std::atomic<bool> _stop_bg_worker = false;
 
     std::string _path;
     size_t _path_hash;

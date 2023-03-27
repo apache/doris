@@ -26,19 +26,6 @@
 #include "gen_cpp/version.h"
 #include "util/cpu_info.h"
 
-#define PRECISION 2
-#define KILOBYTE (1024)
-#define MEGABYTE (1024 * 1024)
-#define GIGABYTE (1024 * 1024 * 1024)
-
-#define SECOND (1000)
-#define MINUTE (1000 * 60)
-#define HOUR (1000 * 60 * 60)
-
-#define THOUSAND (1000)
-#define MILLION (THOUSAND * 1000)
-#define BILLION (MILLION * 1000)
-
 namespace doris {
 
 std::string print_plan_node_type(const TPlanNodeType::type& type) {

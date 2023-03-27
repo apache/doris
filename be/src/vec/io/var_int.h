@@ -39,7 +39,7 @@ size_t get_length_of_var_int(Int64 x);
 
 /** Write Int64 in variable length format (base128) */
 template <typename OUT>
-inline void write_var_int(Int64 x, OUT& ostr) {
+void write_var_int(Int64 x, OUT& ostr) {
     write_var_uint(static_cast<UInt64>((x << 1) ^ (x >> 63)), ostr);
 }
 
@@ -49,7 +49,7 @@ inline char* write_var_int(Int64 x, char* ostr) {
 
 /** Read Int64, written in variable length format (base128) */
 template <typename IN>
-inline void read_var_int(Int64& x, IN& istr) {
+void read_var_int(Int64& x, IN& istr) {
     read_var_uint(*reinterpret_cast<UInt64*>(&x), istr);
     x = (static_cast<UInt64>(x) >> 1) ^ -(x & 1);
 }

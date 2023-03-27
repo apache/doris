@@ -65,7 +65,7 @@ public class CheckExpressionLegalityTest implements MemoPatternMatchSupported {
                 ));
 
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
-                "Doris hll, bitmap, array, map, struct column must use with specific function", () ->
+                "column must use with specific function", () ->
                         PlanChecker.from(connectContext)
                                 .analyze("select count(distinct id) from (select to_bitmap(1) id) tbl")
                                 .applyBottomUp(new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE))

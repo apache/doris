@@ -418,6 +418,8 @@ CONF_mInt32(stream_load_record_batch_size, "50");
 CONF_Int32(stream_load_record_expire_time_secs, "28800");
 // time interval to clean expired stream load records
 CONF_mInt64(clean_stream_load_record_interval_secs, "1800");
+// Whether to enable stream load profile to be printed to the log, the default is false.
+CONF_mBool(enable_stream_load_profile_log, "false");
 
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.
@@ -833,7 +835,8 @@ CONF_mInt64(file_cache_alive_time_sec, "604800");  // 1 week
 // "whole_file_cache": the whole file.
 CONF_mString(file_cache_type, "");
 CONF_Validator(file_cache_type, [](const std::string config) -> bool {
-    return config == "sub_file_cache" || config == "whole_file_cache" || config == "";
+    return config == "sub_file_cache" || config == "whole_file_cache" || config == "" ||
+           config == "file_block_cache";
 });
 CONF_mInt64(file_cache_max_size_per_disk, "0"); // zero for no limit
 
@@ -917,6 +920,7 @@ CONF_mDouble(inverted_index_ram_buffer_size, "512");
 CONF_Int32(query_bkd_inverted_index_limit_percent, "5"); // 5%
 // dict path for chinese analyzer
 CONF_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
+CONF_Int32(inverted_index_read_buffer_size, "4096");
 // tree depth for bkd index
 CONF_Int32(max_depth_in_bkd_tree, "32");
 // use num_broadcast_buffer blocks as buffer to do broadcast

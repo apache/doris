@@ -318,8 +318,10 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
             WindowFrame wf = windowFrame.get();
             if (wf.getLeftBoundary().isNot(FrameBoundType.UNBOUNDED_PRECEDING)
                     && wf.getLeftBoundary().isNot(FrameBoundType.PRECEDING)) {
-                windowExpression = windowExpression.withWindowFrame(wf.withRightBoundary(wf.getLeftBoundary()));
+                windowExpression = windowExpression.withWindowFrame(
+                        wf.withFrameUnits(FrameUnitsType.ROWS).withRightBoundary(wf.getLeftBoundary()));
                 LastValue lastValue = new LastValue(firstValue.child());
+                windowExpression = windowExpression.withFunction(lastValue);
                 return lastValue;
             }
 

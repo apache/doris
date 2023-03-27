@@ -25,18 +25,16 @@ namespace doris::vectorized {
 template <typename T>
 AggregateFunctionPtr create_agg_function_histogram(const DataTypes& argument_types,
                                                    const bool result_is_nullable) {
-    bool has_input_param = (argument_types.size() == 3);
+    bool has_input_param = (argument_types.size() == 2);
 
     if (has_input_param) {
-        return AggregateFunctionPtr(
-                creator_without_type::create<
-                        AggregateFunctionHistogram<AggregateFunctionHistogramData<T>, T, true>>(
-                        result_is_nullable, argument_types));
+        return creator_without_type::create<
+                AggregateFunctionHistogram<AggregateFunctionHistogramData<T>, T, true>>(
+                argument_types, result_is_nullable);
     } else {
-        return AggregateFunctionPtr(
-                creator_without_type::create<
-                        AggregateFunctionHistogram<AggregateFunctionHistogramData<T>, T, false>>(
-                        result_is_nullable, argument_types));
+        return creator_without_type::create<
+                AggregateFunctionHistogram<AggregateFunctionHistogramData<T>, T, false>>(
+                argument_types, result_is_nullable);
     }
 }
 

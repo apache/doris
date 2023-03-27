@@ -31,6 +31,7 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -70,6 +71,8 @@ public class ArrayContains extends ScalarFunction
             FunctionSignature.ret(BooleanType.INSTANCE).args(ArrayType.of(DoubleType.INSTANCE), DoubleType.INSTANCE),
             FunctionSignature.ret(BooleanType.INSTANCE)
                     .args(ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT), DecimalV2Type.SYSTEM_DEFAULT),
+            FunctionSignature.ret(BooleanType.INSTANCE)
+                    .args(ArrayType.of(DecimalV3Type.WILDCARD), DecimalV3Type.WILDCARD),
             FunctionSignature.ret(BooleanType.INSTANCE)
                     .args(ArrayType.of(VarcharType.SYSTEM_DEFAULT), VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(BooleanType.INSTANCE).args(ArrayType.of(StringType.INSTANCE), StringType.INSTANCE)

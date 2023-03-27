@@ -20,7 +20,6 @@
 #include "gen_cpp/internal_service.pb.h"
 #include "runtime/descriptors.h"
 #include "runtime/primitive_type.h"
-#include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
@@ -39,9 +38,9 @@ VDataStreamMgr::~VDataStreamMgr() {
 
 inline uint32_t VDataStreamMgr::get_hash_value(const TUniqueId& fragment_instance_id,
                                                PlanNodeId node_id) {
-    uint32_t value = RawValue::get_hash_value(&fragment_instance_id.lo, TYPE_BIGINT, 0);
-    value = RawValue::get_hash_value(&fragment_instance_id.hi, TYPE_BIGINT, value);
-    value = RawValue::get_hash_value(&node_id, TYPE_INT, value);
+    uint32_t value = HashUtil::hash(&fragment_instance_id.lo, 8, 0);
+    value = HashUtil::hash(&fragment_instance_id.hi, 8, value);
+    value = HashUtil::hash(&node_id, 4, value);
     return value;
 }
 

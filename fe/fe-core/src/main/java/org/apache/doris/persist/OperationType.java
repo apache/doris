@@ -75,7 +75,7 @@ public class OperationType {
     public static final short OP_MODIFY_TABLE_ENGINE = 127;
 
     //schema change for add and drop columns
-    public static final short OP_MODIFY_TABLE_ADD_OR_DROP_COLUMNS = 128;
+    public static final short OP_MODIFY_TABLE_LIGHT_SCHEMA_CHANGE = 128;
 
     //schema change for add and drop inverted indices
     public static final short OP_MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES = 220;
@@ -180,6 +180,8 @@ public class OperationType {
     // UDF 130-140
     public static final short OP_ADD_FUNCTION = 130;
     public static final short OP_DROP_FUNCTION = 131;
+    public static final short OP_ADD_GLOBAL_FUNCTION = 132;
+    public static final short OP_DROP_GLOBAL_FUNCTION = 133;
 
     // routine load 200
     public static final short OP_CREATE_ROUTINE_LOAD_JOB = 200;

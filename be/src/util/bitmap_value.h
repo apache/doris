@@ -1628,14 +1628,14 @@ public:
         return true;
     }
 
-    doris::BigIntVal minimum() const {
+    int64_t minimum() const {
         switch (_type) {
         case SINGLE:
-            return doris::BigIntVal(_sv);
+            return _sv;
         case BITMAP:
-            return doris::BigIntVal(_bitmap.minimum());
+            return _bitmap.minimum();
         default:
-            return doris::BigIntVal::null();
+            return 0;
         }
     }
 
@@ -1673,14 +1673,14 @@ public:
         return ss.str();
     }
 
-    doris::BigIntVal maximum() const {
+    int64_t maximum() const {
         switch (_type) {
         case SINGLE:
-            return doris::BigIntVal(_sv);
+            return _sv;
         case BITMAP:
-            return doris::BigIntVal(_bitmap.maximum());
+            return _bitmap.maximum();
         default:
-            return doris::BigIntVal::null();
+            return 0;
         }
     }
 

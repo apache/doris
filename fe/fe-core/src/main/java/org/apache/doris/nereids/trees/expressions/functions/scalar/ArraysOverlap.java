@@ -30,6 +30,7 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -77,6 +78,8 @@ public class ArraysOverlap extends CompatibleTypeArrayFunction
                     .args(ArrayType.of(DoubleType.INSTANCE), ArrayType.of(DoubleType.INSTANCE)),
             FunctionSignature.ret(BooleanType.INSTANCE)
                     .args(ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT), ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT)),
+            FunctionSignature.ret(BooleanType.INSTANCE)
+                    .args(ArrayType.of(DecimalV3Type.WILDCARD), ArrayType.of(DecimalV3Type.WILDCARD)),
             FunctionSignature.ret(BooleanType.INSTANCE)
                     .args(ArrayType.of(VarcharType.SYSTEM_DEFAULT), ArrayType.of(VarcharType.SYSTEM_DEFAULT)),
             FunctionSignature.ret(BooleanType.INSTANCE)

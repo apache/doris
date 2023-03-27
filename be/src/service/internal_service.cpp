@@ -463,8 +463,8 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
 
         std::unique_ptr<vectorized::GenericReader> reader(nullptr);
         std::unique_ptr<RuntimeProfile> profile(new RuntimeProfile("FetchTableSchema"));
-        IOContext io_ctx;
-        FileCacheStatistics file_cache_statis;
+        io::IOContext io_ctx;
+        io::FileCacheStatistics file_cache_statis;
         io_ctx.file_cache_stats = &file_cache_statis;
         switch (params.format_type) {
         case TFileFormatType::FORMAT_CSV_PLAIN:
@@ -480,7 +480,7 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
             break;
         }
         case TFileFormatType::FORMAT_PARQUET: {
-            reader.reset(new vectorized::ParquetReader(params, range, &io_ctx));
+            reader.reset(new vectorized::ParquetReader(params, range, &io_ctx, nullptr));
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
@@ -728,10 +728,14 @@ void PInternalServiceImpl::send_data(google::protobuf::RpcController* controller
         } else {
             auto pipe = stream_load_ctx->pipe;
             for (int i = 0; i < request->data_size(); ++i) {
-                PDataRow* row = new PDataRow();
+                std::unique_ptr<PDataRow> row(new PDataRow());
                 row->CopyFrom(request->data(i));
-                pipe->append_and_flush(reinterpret_cast<char*>(&row), sizeof(row),
-                                       sizeof(row) + row->ByteSizeLong());
+                Status s = pipe->append(std::move(row));
+                if (!s.ok()) {
+                    response->mutable_status()->set_status_code(1);
+                    response->mutable_status()->add_error_msgs(s.to_string());
+                    return;
+                }
             }
             response->mutable_status()->set_status_code(0);
         }

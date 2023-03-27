@@ -119,9 +119,4 @@ public class BetweenPredicate extends Predicate {
     public int hashCode() {
         return 31 * super.hashCode() + Boolean.hashCode(isNotBetween);
     }
-
-    @Override
-    public void finalizeImplForNereids() throws AnalysisException {
-        throw new AnalysisException("analyze between predicate for Nereids do not implementation.");
-    }
 }

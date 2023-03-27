@@ -17,49 +17,39 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
-import com.google.common.collect.Lists;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.List;
-
-public class EliminateFilterTest {
+/**
+ * Tests for {@link EliminateFilter}.
+ */
+class EliminateFilterTest implements MemoPatternMatchSupported {
     @Test
-    public void testEliminateFilterFalse() {
+    void testEliminateFilterFalse() {
         LogicalPlan filterFalse = new LogicalPlanBuilder(PlanConstructor.newLogicalOlapScan(0, "t1", 0))
                 .filter(BooleanLiteral.FALSE)
                 .build();
 
-        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(filterFalse);
-        List<Rule> rules = Lists.newArrayList(new EliminateFilter().build());
-        cascadesContext.topDownRewrite(rules);
-
-        Plan actual = cascadesContext.getMemo().copyOut();
-        Assertions.assertTrue(actual instanceof LogicalEmptyRelation);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), filterFalse)
+                .applyTopDown(new EliminateFilter())
+                .matches(logicalEmptyRelation());
     }
 
     @Test
-    public void testEliminateFilterTrue() {
-        LogicalPlan filterFalse = new LogicalPlanBuilder(PlanConstructor.newLogicalOlapScan(0, "t1", 0))
+    void testEliminateFilterTrue() {
+        LogicalPlan filterTrue = new LogicalPlanBuilder(PlanConstructor.newLogicalOlapScan(0, "t1", 0))
                 .filter(BooleanLiteral.TRUE)
                 .build();
 
-        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(filterFalse);
-        List<Rule> rules = Lists.newArrayList(new EliminateFilter().build());
-        cascadesContext.topDownRewrite(rules);
-
-        Plan actual = cascadesContext.getMemo().copyOut();
-        Assertions.assertTrue(actual instanceof LogicalOlapScan);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), filterTrue)
+                .applyTopDown(new EliminateFilter())
+                .matches(logicalOlapScan());
     }
 }

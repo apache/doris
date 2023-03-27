@@ -288,11 +288,13 @@ public class OlapTable extends Table {
 
     public void setIndexMeta(long indexId, String indexName, List<Column> schema, int schemaVersion, int schemaHash,
             short shortKeyColumnCount, TStorageType storageType, KeysType keysType) {
-        setIndexMeta(indexId, indexName, schema, schemaVersion, schemaHash, shortKeyColumnCount, storageType, keysType,
+        setIndexMeta(indexId, indexName, schema, null, schemaVersion, schemaHash, shortKeyColumnCount, storageType,
+                keysType,
                 null);
     }
 
-    public void setIndexMeta(long indexId, String indexName, List<Column> schema, int schemaVersion, int schemaHash,
+    public void setIndexMeta(long indexId, String indexName, List<Column> schema, Column whereColumn, int schemaVersion,
+            int schemaHash,
             short shortKeyColumnCount, TStorageType storageType, KeysType keysType, OriginStatement origStmt) {
         // Nullable when meta comes from schema change log replay.
         // The replay log only save the index id, so we need to get name by id.
@@ -317,6 +319,9 @@ public class OlapTable extends Table {
 
         MaterializedIndexMeta indexMeta = new MaterializedIndexMeta(indexId, schema, schemaVersion,
                 schemaHash, shortKeyColumnCount, storageType, keysType, origStmt);
+        if (whereColumn != null) {
+            indexMeta.setWhereClause(whereColumn.getDefineExpr());
+        }
 
         indexIdToMeta.put(indexId, indexMeta);
         indexNameToId.put(indexName, indexId);
@@ -339,7 +344,7 @@ public class OlapTable extends Table {
                 }
             }
         }
-        LOG.debug("after rebuild full schema. table {}, schema: {}", id, fullSchema);
+        LOG.debug("after rebuild full schema. table {}, schema size: {}", id, fullSchema.size());
     }
 
     public boolean deleteIndexInfo(String indexName) {
@@ -409,6 +414,18 @@ public class OlapTable extends Table {
             }
         }
         return null;
+    }
+
+    public boolean findWhereClause(Expr whereClause) {
+        for (MaterializedIndexMeta meta : getVisibleIndexIdToMeta().values()) {
+            if (meta.getWhereClause() != null) {
+                if (MaterializedIndexMeta.matchColumnName(meta.getWhereClause().toSqlWithoutTbl(),
+                        whereClause.toSqlWithoutTbl())) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     @Override
@@ -1320,8 +1337,13 @@ public class OlapTable extends Table {
         }
 
         // remove shadow index from copied table
-        List<MaterializedIndex> shadowIndex = copied.getPartitions().stream().findFirst()
-                .get().getMaterializedIndices(IndexExtState.SHADOW);
+        // NOTICE that there maybe not partition in table.
+        List<MaterializedIndex> shadowIndex = Lists.newArrayList();
+        Optional<Partition> firstPartition = copied.getPartitions().stream().findFirst();
+        if (firstPartition.isPresent()) {
+            shadowIndex = firstPartition.get().getMaterializedIndices(IndexExtState.SHADOW);
+        }
+
         for (MaterializedIndex deleteIndex : shadowIndex) {
             LOG.debug("copied table delete shadow index : {}", deleteIndex.getId());
             copied.deleteIndexInfo(copied.getIndexNameById(deleteIndex.getId()));

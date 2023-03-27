@@ -19,7 +19,6 @@
 
 #include "common/logging.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-#include "vec/aggregate_functions/factory_helpers.h"
 #include "vec/aggregate_functions/helpers.h"
 
 namespace doris::vectorized {
@@ -41,24 +40,25 @@ AggregateFunctionPtr create_aggregate_function_sequence_base(const std::string& 
     }
 
     if (WhichDataType(remove_nullable(argument_types[1])).is_date_time_v2()) {
-        return std::make_shared<AggregateFunction<DateV2Value<DateTimeV2ValueType>, UInt64>>(
-                argument_types);
+        return creator_without_type::create<
+                AggregateFunction<DateV2Value<DateTimeV2ValueType>, UInt64>>(argument_types,
+                                                                             result_is_nullable);
     } else if (WhichDataType(remove_nullable(argument_types[1])).is_date_time()) {
-        return std::make_shared<AggregateFunction<VecDateTimeValue, Int64>>(argument_types);
+        return creator_without_type::create<AggregateFunction<VecDateTimeValue, Int64>>(
+                argument_types, result_is_nullable);
     } else if (WhichDataType(remove_nullable(argument_types[1])).is_date_v2()) {
-        return std::make_shared<AggregateFunction<DateV2Value<DateV2ValueType>, UInt32>>(
-                argument_types);
-    } else {
-        LOG(FATAL) << "Only support Date and DateTime type as timestamp argument!";
-        return nullptr;
+        return creator_without_type::create<
+                AggregateFunction<DateV2Value<DateV2ValueType>, UInt32>>(argument_types,
+                                                                         result_is_nullable);
     }
+    return nullptr;
 }
 
 void register_aggregate_function_sequence_match(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function(
+    factory.register_function_both(
             "sequence_match",
             create_aggregate_function_sequence_base<AggregateFunctionSequenceMatch>);
-    factory.register_function(
+    factory.register_function_both(
             "sequence_count",
             create_aggregate_function_sequence_base<AggregateFunctionSequenceCount>);
 }

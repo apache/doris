@@ -38,6 +38,8 @@ suite("test_cast_array_functions_by_literal") {
     qt_sql5 "select cast('[]' as array<int>)"
     qt_sql6 """select cast('["a", "b", "c"]' as array<int>)"""
     qt_sql7 """select cast('["a", "b", "c"]' as array<string>)"""
+    // empty string is invalid array, return NULL
+    qt_sql8 """select cast('' as array<string>)"""
 
     test {
         sql "select cast(NULL as array<int>)"

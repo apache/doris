@@ -21,13 +21,13 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.Scan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import java.util.List;
 import java.util.Optional;
@@ -39,17 +39,17 @@ public class PhysicalSchemaScan extends PhysicalRelation implements Scan {
 
     private final Table table;
 
-    public PhysicalSchemaScan(RelationId id, Table table, List<String> qualifier,
+    public PhysicalSchemaScan(ObjectId id, Table table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties) {
         super(id, PlanType.PHYSICAL_SCHEMA_SCAN, qualifier, groupExpression, logicalProperties);
         this.table = table;
     }
 
-    public PhysicalSchemaScan(RelationId id, Table table, List<String> qualifier,
+    public PhysicalSchemaScan(ObjectId id, Table table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult) {
+            PhysicalProperties physicalProperties, Statistics statistics) {
         super(id, PlanType.PHYSICAL_SCHEMA_SCAN, qualifier, groupExpression, logicalProperties, physicalProperties,
-                statsDeriveResult);
+                statistics);
         this.table = table;
     }
 
@@ -66,20 +66,20 @@ public class PhysicalSchemaScan extends PhysicalRelation implements Scan {
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalSchemaScan(id, table, qualifier, groupExpression, getLogicalProperties(), physicalProperties,
-                statsDeriveResult);
+                statistics);
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new PhysicalSchemaScan(id, table, qualifier, groupExpression, logicalProperties.get(),
-                physicalProperties, statsDeriveResult);
+                physicalProperties, statistics);
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
-            StatsDeriveResult statsDeriveResult) {
+            Statistics statistics) {
         return new PhysicalSchemaScan(id, table, qualifier, groupExpression, getLogicalProperties(), physicalProperties,
-                statsDeriveResult);
+                statistics);
     }
 
     @Override

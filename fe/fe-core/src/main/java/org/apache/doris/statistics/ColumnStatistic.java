@@ -19,6 +19,7 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -40,8 +41,8 @@ public class ColumnStatistic {
 
     private static final Logger LOG = LogManager.getLogger(ColumnStatistic.class);
 
-    public static ColumnStatistic DEFAULT = new ColumnStatisticBuilder().setAvgSizeByte(1).setNdv(1)
-            .setNumNulls(1).setCount(1).setMaxValue(Double.MAX_VALUE).setMinValue(Double.MIN_VALUE)
+    public static ColumnStatistic UNKNOWN = new ColumnStatisticBuilder().setAvgSizeByte(1).setNdv(1)
+            .setNumNulls(1).setCount(1).setMaxValue(Double.POSITIVE_INFINITY).setMinValue(Double.NEGATIVE_INFINITY)
             .setSelectivity(1.0).setIsUnknown(true)
             .build();
 
@@ -81,9 +82,11 @@ public class ColumnStatistic {
     public final LiteralExpr minExpr;
     public final LiteralExpr maxExpr;
 
+    public final Histogram histogram;
+
     public ColumnStatistic(double count, double ndv, double avgSizeByte,
             double numNulls, double dataSize, double minValue, double maxValue,
-            double selectivity, LiteralExpr minExpr, LiteralExpr maxExpr, boolean isUnKnown) {
+            double selectivity, LiteralExpr minExpr, LiteralExpr maxExpr, boolean isUnKnown, Histogram histogram) {
         this.count = count;
         this.ndv = ndv;
         this.avgSizeByte = avgSizeByte;
@@ -95,6 +98,7 @@ public class ColumnStatistic {
         this.minExpr = minExpr;
         this.maxExpr = maxExpr;
         this.isUnKnown = isUnKnown;
+        this.histogram = histogram;
     }
 
     // TODO: use thrift
@@ -123,7 +127,7 @@ public class ColumnStatistic {
                 LOG.warn("Failed to deserialize column statistics, ctlId: {} dbId: {}"
                                 + "tblId: {} column: {} not exists",
                         catalogId, dbID, tblId, colName);
-                return ColumnStatistic.DEFAULT;
+                return ColumnStatistic.UNKNOWN;
             }
             String min = resultRow.getColumnValue("min");
             String max = resultRow.getColumnValue("max");
@@ -132,10 +136,12 @@ public class ColumnStatistic {
             columnStatisticBuilder.setMaxExpr(StatisticsUtil.readableValue(col.getType(), max));
             columnStatisticBuilder.setMinExpr(StatisticsUtil.readableValue(col.getType(), min));
             columnStatisticBuilder.setSelectivity(1.0);
+            Histogram histogram = Env.getCurrentEnv().getStatisticsCache().getHistogram(tblId, idxId, colName);
+            columnStatisticBuilder.setHistogram(histogram);
             return columnStatisticBuilder.build();
         } catch (Exception e) {
             LOG.warn("Failed to deserialize column statistics, column not exists", e);
-            return ColumnStatistic.DEFAULT;
+            return ColumnStatistic.UNKNOWN;
         }
     }
 
@@ -183,7 +189,7 @@ public class ColumnStatistic {
 
     public ColumnStatistic updateBySelectivity(double selectivity, double rowCount) {
         if (isUnKnown) {
-            return DEFAULT;
+            return UNKNOWN;
         }
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder(this);
         Double rowsAfterFilter = rowCount * selectivity;
@@ -251,5 +257,9 @@ public class ColumnStatistic {
     public String toString() {
         return isUnKnown ? "unKnown" : String.format("ndv=%.4f, min=%f, max=%f, sel=%f, count=%.4f",
                 ndv, minValue, maxValue, selectivity, count);
+    }
+
+    public boolean minOrMaxIsInf() {
+        return Double.isInfinite(maxValue) || Double.isInfinite(minValue);
     }
 }

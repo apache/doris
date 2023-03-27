@@ -159,7 +159,7 @@ public class FileGroupInfo {
         return hiddenColumns;
     }
 
-    public void getFileStatusAndCalcInstance(BackendPolicy backendPolicy) throws UserException {
+    public void getFileStatusAndCalcInstance(FederationBackendPolicy backendPolicy) throws UserException {
         if (filesAdded == 0) {
             throw new UserException("No source file in this table(" + targetTable.getName() + ").");
         }
@@ -188,7 +188,7 @@ public class FileGroupInfo {
         LOG.info("number instance of file scan node is: {}, bytes per instance: {}", numInstances, bytesPerInstance);
     }
 
-    public void createScanRangeLocations(ParamCreateContext context, BackendPolicy backendPolicy,
+    public void createScanRangeLocations(ParamCreateContext context, FederationBackendPolicy backendPolicy,
             List<TScanRangeLocations> scanRangeLocations) throws UserException {
         TScanRangeLocations curLocations = newLocations(context.params, brokerDesc, backendPolicy);
         long curInstanceBytes = 0;
@@ -242,7 +242,7 @@ public class FileGroupInfo {
     }
 
     protected TScanRangeLocations newLocations(TFileScanRangeParams params, BrokerDesc brokerDesc,
-            BackendPolicy backendPolicy) throws UserException {
+            FederationBackendPolicy backendPolicy) throws UserException {
 
         Backend selectedBackend = backendPolicy.getNextBe();
 

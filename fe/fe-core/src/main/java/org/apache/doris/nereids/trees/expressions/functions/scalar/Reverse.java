@@ -28,6 +28,7 @@ import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -62,6 +63,8 @@ public class Reverse extends ScalarFunction
             FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE)).args(ArrayType.of(DoubleType.INSTANCE)),
             FunctionSignature.ret(ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT))
                     .args(ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT)),
+            FunctionSignature.ret(ArrayType.of(DecimalV3Type.WILDCARD))
+                    .args(ArrayType.of(DecimalV3Type.WILDCARD)),
             FunctionSignature.ret(ArrayType.of(VarcharType.SYSTEM_DEFAULT))
                     .args(ArrayType.of(VarcharType.SYSTEM_DEFAULT)),
             FunctionSignature.ret(ArrayType.of(StringType.INSTANCE)).args(ArrayType.of(StringType.INSTANCE))

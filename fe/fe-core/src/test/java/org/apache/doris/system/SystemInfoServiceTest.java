@@ -34,6 +34,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -270,6 +271,48 @@ public class SystemInfoServiceTest {
         BeSelectionPolicy policy07 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga))
                 .setStorageMedium(TStorageMedium.HDD).preferComputeNode(true).assignExpectBeNum(3).build();
         Assert.assertEquals(3, infoService.selectBackendIdsByPolicy(policy07, 3).size());
+    }
+
+    @Test
+    public void testPreferLocationsSelect() throws Exception {
+        Tag taga = Tag.create(Tag.TYPE_LOCATION, "taga");
+
+        // add more backends
+        addBackend(10002, "192.168.1.2", 9050);
+        Backend be2 = infoService.getBackend(10002);
+        be2.setAlive(true);
+        addBackend(10003, "192.168.1.3", 9050);
+        Backend be3 = infoService.getBackend(10003);
+        be3.setAlive(true);
+        addBackend(10004, "192.168.1.4", 9050);
+        Backend be4 = infoService.getBackend(10004);
+        be4.setAlive(true);
+        addBackend(10005, "192.168.1.5", 9050);
+        Backend be5 = infoService.getBackend(10005);
+        be5.setAlive(true);
+
+        setComputeNode(be5, taga);
+
+        List<String> preferLocations = new ArrayList<>();
+        preferLocations.add("192.168.1.2");
+        BeSelectionPolicy policy1 = new BeSelectionPolicy.Builder().addPreLocations(preferLocations).build();
+        Assert.assertEquals(1, infoService.selectBackendIdsByPolicy(policy1, 1).size());
+        preferLocations.add("192.168.1.3");
+        BeSelectionPolicy policy2 = new BeSelectionPolicy.Builder().addPreLocations(preferLocations).build();
+
+        Assert.assertEquals(2, infoService.selectBackendIdsByPolicy(policy2, 2).size());
+
+        // only one preferLocations
+        preferLocations.clear();
+        preferLocations.add("192.168.1.4");
+        BeSelectionPolicy policy3 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga))
+                .addPreLocations(preferLocations).preferComputeNode(true).assignExpectBeNum(3).build();
+        Assert.assertEquals(1, infoService.selectBackendIdsByPolicy(policy3, 1).size());
+
+        preferLocations.add("192.168.1.5");
+        BeSelectionPolicy policy4 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga))
+                .addPreLocations(preferLocations).preferComputeNode(true).assignExpectBeNum(1).build();
+        Assert.assertEquals(1, infoService.selectBackendIdsByPolicy(policy4, 1).size());
     }
 
     @Test

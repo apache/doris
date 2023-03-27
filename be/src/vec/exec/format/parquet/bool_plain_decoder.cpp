@@ -43,7 +43,7 @@ Status BoolPlainDecoder::skip_values(size_t num_values) {
 }
 
 Status BoolPlainDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                                       ColumnSelectVector& select_vector) {
+                                       ColumnSelectVector& select_vector, bool is_dict_filter) {
     auto& column_data = static_cast<ColumnVector<UInt8>&>(*doris_column).get_data();
     size_t data_index = column_data.size();
     column_data.resize(data_index + select_vector.num_values() - select_vector.num_filtered());

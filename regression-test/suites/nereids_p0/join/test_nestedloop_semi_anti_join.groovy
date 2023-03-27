@@ -17,8 +17,7 @@
 
 suite("test_nestedloop_semi_anti_join", "nereids_p0") {
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
-    sql "SET enable_fallback_to_original_planner=false" 
+    sql "SET enable_fallback_to_original_planner=false"
     def tbl1 = "test_nestedloop_semi_anti_join1"
     def tbl2 = "test_nestedloop_semi_anti_join2"
 

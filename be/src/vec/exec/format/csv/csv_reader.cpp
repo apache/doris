@@ -41,7 +41,7 @@ const static Slice _s_null_slice = Slice("\\N");
 
 CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                      const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                     const std::vector<SlotDescriptor*>& file_slot_descs, IOContext* io_ctx)
+                     const std::vector<SlotDescriptor*>& file_slot_descs, io::IOContext* io_ctx)
         : _state(state),
           _profile(profile),
           _counter(counter),
@@ -69,7 +69,7 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
 
 CsvReader::CsvReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                      const TFileRangeDesc& range,
-                     const std::vector<SlotDescriptor*>& file_slot_descs, IOContext* io_ctx)
+                     const std::vector<SlotDescriptor*>& file_slot_descs, io::IOContext* io_ctx)
         : _state(nullptr),
           _profile(profile),
           _params(params),
@@ -138,9 +138,8 @@ Status CsvReader::init_reader(bool is_load) {
     if (_params.file_type == TFileType::FILE_STREAM) {
         RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader));
     } else {
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties,
-                                                        _file_description, &_file_system,
-                                                        &_file_reader, _io_ctx));
+        RETURN_IF_ERROR(FileFactory::create_file_reader(
+                _profile, _system_properties, _file_description, &_file_system, &_file_reader));
     }
     if (_file_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM &&
         _params.file_type != TFileType::FILE_BROKER) {
@@ -179,7 +178,7 @@ Status CsvReader::init_reader(bool is_load) {
 
         break;
     case TFileFormatType::FORMAT_PROTO:
-        _line_reader.reset(new NewPlainBinaryLineReader(_file_reader, _params.file_type));
+        _line_reader.reset(new NewPlainBinaryLineReader(_file_reader));
         break;
     default:
         return Status::InternalError(
@@ -230,7 +229,7 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     while (rows < batch_size && !_line_reader_eof) {
         const uint8_t* ptr = nullptr;
         size_t size = 0;
-        RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof));
+        RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
         if (_skip_lines > 0) {
             _skip_lines--;
             continue;
@@ -441,16 +440,11 @@ Status CsvReader::_line_split_to_values(const Slice& line, bool* success) {
 }
 
 void CsvReader::_split_line_for_proto_format(const Slice& line) {
-    PDataRow** ptr = reinterpret_cast<PDataRow**>(line.data);
-    PDataRow* row = *ptr;
-    for (const PDataColumn& col : (row)->col()) {
-        int len = col.value().size();
-        uint8_t* buf = new uint8_t[len];
-        memcpy(buf, col.value().c_str(), len);
-        _split_values.emplace_back(buf, len);
+    PDataRow** row_ptr = reinterpret_cast<PDataRow**>(line.data);
+    PDataRow* row = *row_ptr;
+    for (const PDataColumn& col : row->col()) {
+        _split_values.emplace_back(col.value());
     }
-    delete row;
-    delete[] ptr;
 }
 
 void CsvReader::_split_line_for_single_char_delimiter(const Slice& line) {
@@ -630,7 +624,7 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
     _file_description.start_offset = start_offset;
 
     RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties, _file_description,
-                                                    &_file_system, &_file_reader, _io_ctx));
+                                                    &_file_system, &_file_reader));
     if (_file_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM &&
         _params.file_type != TFileType::FILE_BROKER) {
         return Status::EndOfFile("get parsed schema failed, empty csv file: " + _range.path);
@@ -656,7 +650,7 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
 Status CsvReader::_parse_col_nums(size_t* col_nums) {
     const uint8_t* ptr = nullptr;
     size_t size = 0;
-    RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof));
+    RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
     if (size == 0) {
         return Status::InternalError("The first line is empty, can not parse column numbers");
     }
@@ -672,7 +666,7 @@ Status CsvReader::_parse_col_names(std::vector<std::string>* col_names) {
     const uint8_t* ptr = nullptr;
     size_t size = 0;
     // no use of _line_reader_eof
-    RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof));
+    RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
     if (size == 0) {
         return Status::InternalError("The first line is empty, can not parse column names");
     }

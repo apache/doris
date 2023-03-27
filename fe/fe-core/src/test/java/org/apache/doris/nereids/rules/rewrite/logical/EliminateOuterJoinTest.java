@@ -20,7 +20,7 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
-import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -41,7 +41,7 @@ class EliminateOuterJoinTest implements MemoPatternMatchSupported {
 
     public EliminateOuterJoinTest() throws Exception {
         // clear id so that slot id keep consistent every running
-        NamedExpressionUtil.clear();
+        StatementScopeIdGenerator.clear();
         scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
         scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
     }

@@ -20,10 +20,12 @@ package org.apache.doris.nereids.rules;
 import org.apache.doris.nereids.rules.exploration.join.InnerJoinLAsscom;
 import org.apache.doris.nereids.rules.exploration.join.InnerJoinLAsscomProject;
 import org.apache.doris.nereids.rules.exploration.join.JoinCommute;
+import org.apache.doris.nereids.rules.exploration.join.LogicalJoinSemiJoinTranspose;
+import org.apache.doris.nereids.rules.exploration.join.LogicalJoinSemiJoinTransposeProject;
 import org.apache.doris.nereids.rules.exploration.join.OuterJoinLAsscom;
 import org.apache.doris.nereids.rules.exploration.join.OuterJoinLAsscomProject;
-import org.apache.doris.nereids.rules.exploration.join.SemiJoinLogicalJoinTranspose;
-import org.apache.doris.nereids.rules.exploration.join.SemiJoinLogicalJoinTransposeProject;
+import org.apache.doris.nereids.rules.exploration.join.PushdownProjectThroughInnerJoin;
+import org.apache.doris.nereids.rules.exploration.join.PushdownProjectThroughSemiJoin;
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTranspose;
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTransposeProject;
 import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
@@ -82,16 +84,18 @@ public class RuleSet {
     public static final List<Rule> OTHER_REORDER_RULES = planRuleFactories()
             .add(OuterJoinLAsscom.INSTANCE)
             .add(OuterJoinLAsscomProject.INSTANCE)
-            .add(SemiJoinLogicalJoinTranspose.LEFT_DEEP)
-            .add(SemiJoinLogicalJoinTransposeProject.LEFT_DEEP)
             .add(SemiJoinSemiJoinTranspose.INSTANCE)
             .add(SemiJoinSemiJoinTransposeProject.INSTANCE)
+            .add(LogicalJoinSemiJoinTranspose.INSTANCE)
+            .add(LogicalJoinSemiJoinTransposeProject.INSTANCE)
+            .add(PushdownProjectThroughInnerJoin.INSTANCE)
+            .add(PushdownProjectThroughSemiJoin.INSTANCE)
             .build();
 
     /**
      * This rule need to be shadow in DPHyp
      */
-    public static final List<Rule> JOINORDER_RULE = planRuleFactories()
+    public static final List<Rule> JOIN_REORDER_RULE = planRuleFactories()
             .add(JoinCommute.ZIG_ZAG)
             .add(InnerJoinLAsscom.INSTANCE)
             .add(InnerJoinLAsscomProject.INSTANCE)
@@ -175,20 +179,18 @@ public class RuleSet {
 
     public List<Rule> getExplorationRules() {
         List<Rule> rules = new ArrayList<>();
-        rules.addAll(JOINORDER_RULE);
+        rules.addAll(JOIN_REORDER_RULE);
         rules.addAll(OTHER_REORDER_RULES);
         rules.addAll(EXPLORATION_RULES);
         return rules;
     }
 
     public List<Rule> getExplorationRulesWithoutReorder() {
-        List<Rule> rules = new ArrayList<>();
-        rules.addAll(EXPLORATION_RULES);
-        return rules;
+        return new ArrayList<>(EXPLORATION_RULES);
     }
 
     public List<Rule> getJoinOrderRule() {
-        return JOINORDER_RULE;
+        return JOIN_REORDER_RULE;
     }
 
     public List<Rule> getImplementationRules() {

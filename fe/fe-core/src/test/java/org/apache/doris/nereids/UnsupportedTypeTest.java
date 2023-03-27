@@ -66,14 +66,10 @@ public class UnsupportedTypeTest extends TestWithFeService {
                 "select jsonb_parse('{\"k1\":\"v31\",\"k2\":300}')",
                 "select karr from type_tb",
                 "select array_range(10)",
-                "select kdcml from type_tb",
-                "select cast(0.3 as decimalv3(12, 2))",
                 "select kmap from type_tb1",
         };
         Class[] exceptions = {
                 null,
-                AnalysisException.class,
-                AnalysisException.class,
                 AnalysisException.class,
                 AnalysisException.class,
                 AnalysisException.class,

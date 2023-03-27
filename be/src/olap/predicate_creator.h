@@ -152,7 +152,7 @@ private:
 };
 
 template <PredicateType PT, typename ConditionType>
-inline std::unique_ptr<PredicateCreator<ConditionType>> get_creator(const FieldType& type) {
+std::unique_ptr<PredicateCreator<ConditionType>> get_creator(const FieldType& type) {
     switch (type) {
     case OLAP_FIELD_TYPE_TINYINT: {
         return std::make_unique<IntegerPredicateCreator<TYPE_TINYINT, PT, ConditionType>>();
@@ -237,25 +237,24 @@ inline std::unique_ptr<PredicateCreator<ConditionType>> get_creator(const FieldT
 }
 
 template <PredicateType PT, typename ConditionType>
-inline ColumnPredicate* create_predicate(const TabletColumn& column, int index,
-                                         const ConditionType& conditions, bool opposite,
-                                         MemPool* pool) {
+ColumnPredicate* create_predicate(const TabletColumn& column, int index,
+                                  const ConditionType& conditions, bool opposite, MemPool* pool) {
     return get_creator<PT, ConditionType>(column.type())
             ->create(column, index, conditions, opposite, pool);
 }
 
 template <PredicateType PT>
-inline ColumnPredicate* create_comparison_predicate(const TabletColumn& column, int index,
-                                                    const std::string& condition, bool opposite,
-                                                    MemPool* pool) {
+ColumnPredicate* create_comparison_predicate(const TabletColumn& column, int index,
+                                             const std::string& condition, bool opposite,
+                                             MemPool* pool) {
     static_assert(PredicateTypeTraits::is_comparison(PT));
     return create_predicate<PT, std::string>(column, index, condition, opposite, pool);
 }
 
 template <PredicateType PT>
-inline ColumnPredicate* create_list_predicate(const TabletColumn& column, int index,
-                                              const std::vector<std::string>& conditions,
-                                              bool opposite, MemPool* pool) {
+ColumnPredicate* create_list_predicate(const TabletColumn& column, int index,
+                                       const std::vector<std::string>& conditions, bool opposite,
+                                       MemPool* pool) {
     static_assert(PredicateTypeTraits::is_list(PT));
     return create_predicate<PT, std::vector<std::string>>(column, index, conditions, opposite,
                                                           pool);

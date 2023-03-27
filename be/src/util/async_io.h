@@ -22,7 +22,6 @@
 #include "io/fs/file_system.h"
 #include "olap/olap_define.h"
 #include "priority_thread_pool.hpp"
-#include "runtime/threadlocal.h"
 
 namespace doris {
 
@@ -82,10 +81,10 @@ public:
             cv.notify_one();
         };
 
-        if (file_type == io::FileSystemType::S3) {
-            AsyncIO::instance().remote_thread_pool()->offer(task);
-        } else {
+        if (file_type == io::FileSystemType::LOCAL) {
             AsyncIO::instance().io_thread_pool()->offer(task);
+        } else {
+            AsyncIO::instance().remote_thread_pool()->offer(task);
         }
         cv.wait(l);
     }

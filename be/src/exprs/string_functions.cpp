@@ -32,10 +32,10 @@
 namespace doris {
 
 // This function sets options in the RE2 library before pattern matching.
-bool StringFunctions::set_re2_options(const StringVal& match_parameter, std::string* error_str,
+bool StringFunctions::set_re2_options(const StringRef& match_parameter, std::string* error_str,
                                       re2::RE2::Options* opts) {
-    for (int i = 0; i < match_parameter.len; i++) {
-        char match = match_parameter.ptr[i];
+    for (int i = 0; i < match_parameter.size; i++) {
+        char match = match_parameter.data[i];
         switch (match) {
         case 'i':
             opts->set_case_sensitive(false);
@@ -62,10 +62,10 @@ bool StringFunctions::set_re2_options(const StringVal& match_parameter, std::str
 }
 
 // The caller owns the returned regex. Returns nullptr if the pattern could not be compiled.
-bool StringFunctions::compile_regex(const StringVal& pattern, std::string* error_str,
-                                    const StringVal& match_parameter,
+bool StringFunctions::compile_regex(const StringRef& pattern, std::string* error_str,
+                                    const StringRef& match_parameter,
                                     std::unique_ptr<re2::RE2>& re) {
-    re2::StringPiece pattern_sp(reinterpret_cast<char*>(pattern.ptr), pattern.len);
+    re2::StringPiece pattern_sp(pattern.data, pattern.size);
     re2::RE2::Options options;
     // Disable error logging in case e.g. every row causes an error
     options.set_log_errors(false);
@@ -73,15 +73,15 @@ bool StringFunctions::compile_regex(const StringVal& pattern, std::string* error
     // Return the leftmost longest match (rather than the first match).
     // options.set_longest_match(true);
     options.set_dot_nl(true);
-    if (!match_parameter.is_null &&
+    if (match_parameter.size > 0 &&
         !StringFunctions::set_re2_options(match_parameter, error_str, &options)) {
         return false;
     }
     re.reset(new re2::RE2(pattern_sp, options));
     if (!re->ok()) {
         std::stringstream ss;
-        ss << "Could not compile regexp pattern: "
-           << std::string(reinterpret_cast<char*>(pattern.ptr), pattern.len) << std::endl
+        ss << "Could not compile regexp pattern: " << std::string(pattern.data, pattern.size)
+           << std::endl
            << "Error: " << re->error();
         *error_str = ss.str();
         re.reset();

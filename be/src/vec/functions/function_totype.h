@@ -423,8 +423,7 @@ public:
                         size_t result, size_t input_rows_count) override {
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
 
-        auto col_ptr =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto& col_ptr = block.get_by_position(arguments[0]).column;
 
         auto res = Impl::ColumnType::create();
         if (const ColumnString* col = check_and_get_column<ColumnString>(col_ptr.get())) {

@@ -27,7 +27,9 @@ suite("test_add_drop_index", "inverted_index"){
             alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
             alter_res = alter_res.toString()
             if(alter_res.contains("FINISHED")) {
-                 break
+                sleep(3000) // wait change table state to normal
+                logger.info(table_name + " latest alter job finished, detail: " + alter_res)
+                break
             }
             useTime = t
             sleep(delta_time)
@@ -54,8 +56,6 @@ suite("test_add_drop_index", "inverted_index"){
     """
     
 
-    // set enable_vectorized_engine=true
-    sql """ SET enable_vectorized_engine=true; """
     def var_result = sql "show variables"
     logger.info("show variales result: " + var_result )
 
@@ -86,24 +86,20 @@ suite("test_add_drop_index", "inverted_index"){
     }
     assertEquals(create_dup_index_result, "fail")
     // case1.3 create duplicate different index for one colume with same name
-    /*
     sql "create index age_idx_diff on ${indexTbName1}(`age`) using bitmap"
     wait_for_latest_op_on_table_finish(indexTbName1, timeout)
     show_result = sql "show index from ${indexTbName1}"
     logger.info("show index from " + indexTbName1 + " result: " + show_result)
     assertEquals(show_result[1][2], "age_idx_diff")
-    */
     
     // case1.4 drop index
     def drop_result = sql "drop index age_idx on ${indexTbName1}"
     logger.info("drop index age_idx on " + indexTbName1 + "; result: " + drop_result)
     wait_for_latest_op_on_table_finish(indexTbName1, timeout)
 
-    /*
     drop_result = sql "drop index age_idx_diff on ${indexTbName1}"
     logger.info("drop index age_idx_diff on " + indexTbName1 + "; result: " + drop_result)
     wait_for_latest_op_on_table_finish(indexTbName1, timeout)
-    */
 
     show_result = sql "show index from ${indexTbName1}"
     assertEquals(show_result.size(), 0)

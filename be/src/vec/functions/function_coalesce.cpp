@@ -68,9 +68,10 @@ public:
             const auto& arg_type = block.get_by_position(arguments[i]).type;
             filtered_args.push_back(arguments[i]);
             if (!arg_type->is_nullable()) {
-                if (i == 0) { //if the first column not null, return it's directly
+                if (i == 0) {
                     block.get_by_position(result).column =
-                            block.get_by_position(arguments[0]).column;
+                            block.get_by_position(arguments[0])
+                                    .column->clone_resized(input_rows_count);
                     return Status::OK();
                 } else {
                     break;
@@ -166,8 +167,9 @@ public:
                 //if not string type, could check one column firstly,
                 //and then fill the not null value in result column,
                 //this method may result in higher CPU cache
-                filled_result_column(result_type, result_column, argument_columns[i], null_map_data,
-                                     filled_flags.data(), input_rows_count);
+                RETURN_IF_ERROR(filled_result_column(result_type, result_column,
+                                                     argument_columns[i], null_map_data,
+                                                     filled_flags.data(), input_rows_count));
             }
         }
 
@@ -212,9 +214,32 @@ public:
         return Status::OK();
     }
 
-    Status filled_result_column(const DataTypePtr& data_type, MutableColumnPtr& result_column,
-                                ColumnPtr& argument_column, UInt8* __restrict null_map_data,
-                                UInt8* __restrict filled_flag, const size_t input_rows_count) {
+    Status insert_result_data_bitmap(MutableColumnPtr& result_column, ColumnPtr& argument_column,
+                                     const UInt8* __restrict null_map_data,
+                                     UInt8* __restrict filled_flag, const size_t input_rows_count) {
+        auto* __restrict result_raw_data =
+                reinterpret_cast<ColumnBitmap*>(result_column.get())->get_data().data();
+        auto* __restrict column_raw_data =
+                reinterpret_cast<const ColumnBitmap*>(argument_column.get())->get_data().data();
+
+        // Here it's SIMD thought the compiler automatically also
+        // true: null_map_data[row]==0 && filled_idx[row]==0
+        // if true, could filled current row data into result column
+        for (size_t row = 0; row < input_rows_count; ++row) {
+            if (!(null_map_data[row] | filled_flag[row])) {
+                result_raw_data[row] = column_raw_data[row];
+            }
+            filled_flag[row] += (!(null_map_data[row] | filled_flag[row]));
+        }
+        return Status::OK();
+    }
+
+    [[nodiscard]] Status filled_result_column(const DataTypePtr& data_type,
+                                              MutableColumnPtr& result_column,
+                                              ColumnPtr& argument_column,
+                                              UInt8* __restrict null_map_data,
+                                              UInt8* __restrict filled_flag,
+                                              const size_t input_rows_count) {
         WhichDataType which(data_type->is_nullable()
                                     ? reinterpret_cast<const DataTypeNullable*>(data_type.get())
                                               ->get_nested_type()
@@ -227,6 +252,12 @@ public:
         DECIMAL_TYPE_TO_COLUMN_TYPE(DISPATCH)
         TIME_TYPE_TO_COLUMN_TYPE(DISPATCH)
 #undef DISPATCH
+
+        if (which.idx == TypeIndex::BitMap) {
+            return insert_result_data_bitmap(result_column, argument_column, null_map_data,
+                                             filled_flag, input_rows_count);
+        }
+
         return Status::NotSupported("argument_type {} not supported", data_type->get_name());
     }
 };

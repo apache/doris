@@ -189,6 +189,16 @@ public:
                 MemInfo::refresh_interval_memory_growth);
     }
 
+    static std::string process_limit_exceeded_errmsg_str(int64_t bytes) {
+        return fmt::format(
+                "process memory used {} exceed limit {} or sys mem available {} less than low "
+                "water mark {}, failed alloc size {}",
+                PerfCounters::get_vm_rss_str(), MemInfo::mem_limit_str(),
+                MemInfo::sys_mem_available_str(),
+                PrettyPrinter::print(MemInfo::sys_mem_available_low_water_mark(), TUnit::BYTES),
+                print_bytes(bytes));
+    }
+
     std::string debug_string() {
         std::stringstream msg;
         msg << "limit: " << _limit << "; "
@@ -219,16 +229,6 @@ private:
                 print_bytes(bytes), exceed_tracker->label(), print_bytes(exceed_tracker->limit()),
                 print_bytes(exceed_tracker->_consumption->peak_value()),
                 print_bytes(exceed_tracker->_consumption->current_value()));
-    }
-
-    static std::string process_limit_exceeded_errmsg_str(int64_t bytes) {
-        return fmt::format(
-                "process memory used {} exceed limit {} or sys mem available {} less than low "
-                "water mark {}, failed alloc size {}",
-                PerfCounters::get_vm_rss_str(), MemInfo::mem_limit_str(),
-                MemInfo::sys_mem_available_str(),
-                PrettyPrinter::print(MemInfo::sys_mem_available_low_water_mark(), TUnit::BYTES),
-                print_bytes(bytes));
     }
 
 private:

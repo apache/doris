@@ -42,6 +42,7 @@ suite("test_rollup_agg") {
     while (max_try_secs--) {
         String res = getJobRollupState(tbName)
         if (res == "FINISHED") {
+            sleep(3000)
             break
         } else {
             Thread.sleep(2000)
@@ -57,6 +58,7 @@ suite("test_rollup_agg") {
     while (max_try_secs--) {
         String res = getJobColumnState(tbName)
         if (res == "FINISHED") {
+            sleep(3000)
             break
         } else {
             Thread.sleep(2000)

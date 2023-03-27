@@ -39,6 +39,7 @@ import com.google.common.collect.Lists;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -429,10 +430,15 @@ public class LoadStmt extends DdlStmt {
                     throw new AnalysisException("Load local data from fe local is not enabled. If you want to use it,"
                             + " plz set the `mysql_load_server_secure_path` for FE to be a right path.");
                 } else {
-                    if (!(path.startsWith(Config.mysql_load_server_secure_path))) {
-                        throw new AnalysisException("Local file should be under the secure path of FE.");
+                    File file = new File(path);
+                    try {
+                        if (!(file.getCanonicalPath().startsWith(Config.mysql_load_server_secure_path))) {
+                            throw new AnalysisException("Local file should be under the secure path of FE.");
+                        }
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
                     }
-                    if (!new File(path).exists()) {
+                    if (!file.exists()) {
                         throw new AnalysisException("File: " + path + " is not exists.");
                     }
                 }

@@ -19,8 +19,8 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FunctionUtil;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -51,9 +51,19 @@ public class ShowFunctionsStmt extends ShowStmt {
 
     private Expr expr;
 
-    public ShowFunctionsStmt(String dbName, boolean isBuiltin, boolean isVerbose, String wild, Expr expr) {
+    private SetType type = SetType.DEFAULT;
+
+    public ShowFunctionsStmt(String dbName, boolean isBuiltin, boolean isVerbose, String wild,
+            Expr expr) {
         this.dbName = dbName;
         this.isBuiltin = isBuiltin;
+        this.isVerbose = isVerbose;
+        this.wild = wild;
+        this.expr = expr;
+    }
+
+    public ShowFunctionsStmt(boolean isVerbose, String wild, Expr expr) {
+        this.type = SetType.GLOBAL;
         this.isVerbose = isVerbose;
         this.wild = wild;
         this.expr = expr;
@@ -79,6 +89,10 @@ public class ShowFunctionsStmt extends ShowStmt {
         return expr;
     }
 
+    public SetType getType() {
+        return type;
+    }
+
     public boolean like(String str) {
         str = str.toLowerCase();
         return str.matches(wild.replace(".", "\\.").replace("?", ".").replace("%", ".*").toLowerCase());
@@ -88,16 +102,12 @@ public class ShowFunctionsStmt extends ShowStmt {
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
 
-        if (Strings.isNullOrEmpty(dbName)) {
-            dbName = analyzer.getDefaultDb();
-            if (Strings.isNullOrEmpty(dbName)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-            }
-        } else {
-            dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
+        if (!FunctionUtil.isGlobalFunction(this.type)) {
+            this.dbName = FunctionUtil.reAcquireDbName(analyzer, dbName, getClusterName());
         }
 
-        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SHOW)) {
+        if (!FunctionUtil.isGlobalFunction(this.type) && !Env.getCurrentEnv().getAccessManager()
+                .checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(
                     ErrorCode.ERR_DBACCESS_DENIED_ERROR, ConnectContext.get().getQualifiedUser(), dbName);
         }
@@ -117,6 +127,9 @@ public class ShowFunctionsStmt extends ShowStmt {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("SHOW ");
+        if (FunctionUtil.isGlobalFunction(this.type)) {
+            sb.append("GLOBAL ");
+        }
         if (isVerbose) {
             sb.append("FULL ");
         }

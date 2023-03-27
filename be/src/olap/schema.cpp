@@ -195,10 +195,9 @@ vectorized::IColumn::MutablePtr Schema::get_predicate_column_ptr(const Field& fi
     }
     case OLAP_FIELD_TYPE_MAP:
         ptr = doris::vectorized::ColumnMap::create(
-                doris::vectorized::ColumnArray::create(
-                        get_predicate_column_ptr(*field.get_sub_field(0), true)),
-                doris::vectorized::ColumnArray::create(
-                        get_predicate_column_ptr(*field.get_sub_field(1), true)));
+                get_predicate_column_ptr(*field.get_sub_field(0)),
+                get_predicate_column_ptr(*field.get_sub_field(1)),
+                doris::vectorized::ColumnArray::ColumnOffsets::create());
         break;
     default:
         LOG(FATAL) << "Unexpected type when choosing predicate column, type=" << field.type();

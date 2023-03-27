@@ -61,7 +61,7 @@ inline void write_bin_byte(UInt8 byte, void* out) {
 
 /// Produces hex representation of an unsigned int with leading zeros (for checksums)
 template <typename TUInt>
-inline void write_hex_uint_impl(TUInt uint_, char* out, const char* const table) {
+void write_hex_uint_impl(TUInt uint_, char* out, const char* const table) {
     union {
         TUInt value;
         UInt8 uint8[sizeof(TUInt)];
@@ -76,12 +76,12 @@ inline void write_hex_uint_impl(TUInt uint_, char* out, const char* const table)
 }
 
 template <typename TUInt>
-inline void write_hex_uint_uppercase(TUInt uint_, char* out) {
+void write_hex_uint_uppercase(TUInt uint_, char* out) {
     write_hex_uint_impl(uint_, out, hex_byte_to_char_uppercase_table);
 }
 
 template <typename TUInt>
-inline void write_hex_uint_lowercase(TUInt uint_, char* out) {
+void write_hex_uint_lowercase(TUInt uint_, char* out) {
     write_hex_uint_impl(uint_, out, hex_byte_to_char_lowercase_table);
 }
 

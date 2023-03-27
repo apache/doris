@@ -27,10 +27,10 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
-public class PushdownProjectThroughLimitTest implements MemoPatternMatchSupported {
+class PushdownProjectThroughLimitTest implements MemoPatternMatchSupported {
 
     @Test
-    public void testPushdownProjectThroughLimit() {
+    void testPushdownProjectThroughLimit() {
         LogicalPlan project = new LogicalPlanBuilder(PlanConstructor.newLogicalOlapScan(0, "t1", 0))
                 .limit(1, 1)
                 .project(ImmutableList.of(0)) // id

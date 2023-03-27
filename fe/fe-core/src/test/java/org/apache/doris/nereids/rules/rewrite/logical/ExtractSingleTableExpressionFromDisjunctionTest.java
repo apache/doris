@@ -83,14 +83,14 @@ public class ExtractSingleTableExpressionFromDisjunctionTest implements MemoPatt
                 )
         );
         Plan join = new LogicalJoin<>(JoinType.CROSS_JOIN, student, course);
-        LogicalFilter root = new LogicalFilter(ImmutableSet.of(expr), join);
+        LogicalFilter root = new LogicalFilter<>(ImmutableSet.of(expr), join);
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyTopDown(new ExtractSingleTableExpressionFromDisjunction())
                 .matchesFromRoot(
                         logicalFilter()
                                 .when(filter -> verifySingleTableExpression1(filter.getConjuncts()))
                 );
-        Assertions.assertTrue(studentGender != null);
+        Assertions.assertNotNull(studentGender);
     }
 
     private boolean verifySingleTableExpression1(Set<Expression> conjuncts) {

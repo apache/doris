@@ -35,7 +35,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import java.util.List;
 import java.util.Set;
@@ -173,8 +173,8 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
      * @return true if runtime-filter is effective
      */
     private boolean isEffectiveRuntimeFilter(EqualTo equalTo, PhysicalHashJoin join) {
-        StatsDeriveResult leftStats = ((AbstractPlan) join.child(0)).getStats();
-        StatsDeriveResult rightStats = ((AbstractPlan) join.child(1)).getStats();
+        Statistics leftStats = ((AbstractPlan) join.child(0)).getStats();
+        Statistics rightStats = ((AbstractPlan) join.child(1)).getStats();
         Set<Slot> leftSlots = equalTo.child(0).getInputSlots();
         if (leftSlots.size() > 1) {
             return false;
@@ -185,12 +185,12 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
         }
         Slot leftSlot = leftSlots.iterator().next();
         Slot rightSlot = rightSlots.iterator().next();
-        ColumnStatistic probeColumnStat = leftStats.getColumnStatsBySlot(leftSlot);
-        ColumnStatistic buildColumnStat = rightStats.getColumnStatsBySlot(rightSlot);
+        ColumnStatistic probeColumnStat = leftStats.findColumnStatistics(leftSlot);
+        ColumnStatistic buildColumnStat = rightStats.findColumnStatistics(rightSlot);
         //TODO remove these code when we ensure left child if from probe side
         if (probeColumnStat == null || buildColumnStat == null) {
-            probeColumnStat = leftStats.getColumnStatsBySlot(rightSlot);
-            buildColumnStat = rightStats.getColumnStatsBySlot(leftSlot);
+            probeColumnStat = leftStats.findColumnStatistics(rightSlot);
+            buildColumnStat = rightStats.findColumnStatistics(leftSlot);
             if (probeColumnStat == null || buildColumnStat == null) {
                 return false;
             }

@@ -377,16 +377,17 @@ struct TDataGenScanRange {
   1: optional TTVFNumbersScanRange numbers_params
 }
 
-enum TIcebergMetadataType {
-  SNAPSHOTS = 0,
-}
 
 struct TIcebergMetadataParams {
-  1: optional TIcebergMetadataType metadata_type
+  1: optional Types.TIcebergQueryType iceberg_query_type
+  2: optional string catalog
+  3: optional string database
+  4: optional string table
 }
 
 struct TMetaScanRange {
-  1: optional TIcebergMetadataParams iceberg_params
+  1: optional Types.TMetadataType metadata_type
+  2: optional TIcebergMetadataParams iceberg_params
 }
 
 // Specification of an individual data range which is held in its entirety
@@ -532,9 +533,7 @@ struct TSchemaScanNode {
 
 struct TMetaScanNode {
   1: required Types.TTupleId tuple_id
-  2: optional string catalog
-  3: optional string database
-  4: optional string table
+  2: optional Types.TMetadataType metadata_type
 }
 
 struct TTestExternalScanNode {

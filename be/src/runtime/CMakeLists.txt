@@ -27,7 +27,6 @@ set(RUNTIME_FILES
     broker_mgr.cpp
     buffer_control_block.cpp
     client_cache.cpp
-    datetime_value.cpp
     descriptors.cpp
     exec_env.cpp
     exec_env_init.cpp

@@ -26,7 +26,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.SortPhase;
 import org.apache.doris.nereids.trees.plans.algebra.Sort;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
 
@@ -58,8 +58,8 @@ public abstract class AbstractPhysicalSort<CHILD_TYPE extends Plan> extends Phys
      */
     public AbstractPhysicalSort(PlanType type, List<OrderKey> orderKeys,
             SortPhase phase, Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult, CHILD_TYPE child) {
-        super(type, groupExpression, logicalProperties, physicalProperties, statsDeriveResult, child);
+            PhysicalProperties physicalProperties, Statistics statistics, CHILD_TYPE child) {
+        super(type, groupExpression, logicalProperties, physicalProperties, statistics, child);
         this.orderKeys = ImmutableList.copyOf(Objects.requireNonNull(orderKeys, "orderKeys can not be null"));
         this.phase = phase;
     }

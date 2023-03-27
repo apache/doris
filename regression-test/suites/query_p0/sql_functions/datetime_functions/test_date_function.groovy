@@ -647,6 +647,13 @@ suite("test_date_function") {
             where
               birth2 <= date_sub('2023-02-01 10:35:13', INTERVAL dayofmonth('2023-02-01 10:35:13')-1 DAY)
         """
+    test {
+        sql"""select current_timestamp(7);"""
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
     sql """ DROP TABLE IF EXISTS ${tableName}; """
 
 }

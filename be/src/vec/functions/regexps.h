@@ -89,8 +89,8 @@ private:
 using DeferredConstructedRegexpsPtr = std::shared_ptr<DeferredConstructedRegexps>;
 
 template <bool save_indices, bool WithEditDistance>
-inline Regexps constructRegexps(const std::vector<String>& str_patterns,
-                                [[maybe_unused]] std::optional<UInt32> edit_distance) {
+Regexps constructRegexps(const std::vector<String>& str_patterns,
+                         [[maybe_unused]] std::optional<UInt32> edit_distance) {
     /// Common pointers
     std::vector<const char*> patterns;
     std::vector<unsigned int> flags;
@@ -205,8 +205,8 @@ struct GlobalCacheTable {
 /// If WithEditDistance is False, edit_distance must be nullopt. Also, we use templates here because each instantiation of function template
 /// has its own copy of local static variables which must not be the same for different hyperscan compilations.
 template <bool save_indices, bool WithEditDistance>
-inline DeferredConstructedRegexpsPtr getOrSet(const std::vector<StringRef>& patterns,
-                                              std::optional<UInt32> edit_distance) {
+DeferredConstructedRegexpsPtr getOrSet(const std::vector<StringRef>& patterns,
+                                       std::optional<UInt32> edit_distance) {
     static GlobalCacheTable
             pool; /// Different variables for different pattern parameters, thread-safe in C++11
 

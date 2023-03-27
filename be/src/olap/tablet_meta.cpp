@@ -20,7 +20,8 @@
 #include <sstream>
 
 #include "common/consts.h"
-#include "olap/file_helper.h"
+#include "io/fs/file_writer.h"
+#include "olap/file_header.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/tablet_meta_manager.h"
@@ -321,22 +322,9 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
 }
 
 Status TabletMeta::create_from_file(const string& file_path) {
-    FileHeader<TabletMetaPB> file_header;
-    FileHandler file_handler;
-
-    auto open_status = file_handler.open(file_path, O_RDONLY);
-
-    if (!open_status.ok()) {
-        LOG(WARNING) << "fail to open ordinal file. file=" << file_path;
-        return open_status;
-    }
-
-    // In file_header.unserialize(), it validates file length, signature, checksum of protobuf.
-    if (file_header.unserialize(&file_handler) != Status::OK()) {
-        LOG(WARNING) << "fail to unserialize tablet_meta. file='" << file_path;
-        return Status::Error<PARSE_PROTOBUF_ERROR>();
-    }
-
+    FileHeader<TabletMetaPB> file_header(file_path);
+    // In file_header.deserialize(), it validates file length, signature, checksum of protobuf.
+    RETURN_IF_ERROR(file_header.deserialize());
     TabletMetaPB tablet_meta_pb;
     try {
         tablet_meta_pb.CopyFrom(file_header.message());
@@ -398,30 +386,15 @@ Status TabletMeta::save(const string& file_path) {
 
 Status TabletMeta::save(const string& file_path, const TabletMetaPB& tablet_meta_pb) {
     DCHECK(!file_path.empty());
-
-    FileHeader<TabletMetaPB> file_header;
-    FileHandler file_handler;
-
-    auto open_status =
-            file_handler.open_with_mode(file_path, O_CREAT | O_WRONLY | O_TRUNC, S_IRUSR | S_IWUSR);
-    if (!open_status.ok()) {
-        LOG(WARNING) << "fail to open header file. file='" << file_path;
-        return open_status;
-    }
-
+    FileHeader<TabletMetaPB> file_header(file_path);
     try {
         file_header.mutable_message()->CopyFrom(tablet_meta_pb);
     } catch (...) {
         LOG(WARNING) << "fail to copy protocol buffer object. file='" << file_path;
         return Status::Error<ErrorCode::INTERNAL_ERROR>();
     }
-
-    if (file_header.prepare(&file_handler) != Status::OK() ||
-        file_header.serialize(&file_handler) != Status::OK()) {
-        LOG(WARNING) << "fail to serialize to file header. file='" << file_path;
-        return Status::Error<SERIALIZE_PROTOBUF_ERROR>();
-    }
-
+    RETURN_IF_ERROR(file_header.prepare());
+    RETURN_IF_ERROR(file_header.serialize());
     return Status::OK();
 }
 
@@ -578,8 +551,6 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
     tablet_meta_pb->set_shard_id(shard_id());
     tablet_meta_pb->set_creation_time(creation_time());
     tablet_meta_pb->set_cumulative_layer_point(cumulative_layer_point());
-    tablet_meta_pb->set_local_data_size(tablet_local_size());
-    tablet_meta_pb->set_remote_data_size(tablet_remote_size());
     *(tablet_meta_pb->mutable_tablet_uid()) = tablet_uid().to_proto();
     tablet_meta_pb->set_tablet_type(_tablet_type);
     switch (tablet_state()) {

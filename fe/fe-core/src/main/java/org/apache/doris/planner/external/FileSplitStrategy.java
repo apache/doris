@@ -19,8 +19,6 @@ package org.apache.doris.planner.external;
 
 import org.apache.doris.common.Config;
 
-import org.apache.hadoop.mapred.FileSplit;
-
 public class FileSplitStrategy {
     private long totalSplitSize;
     private int splitNum;
@@ -36,7 +34,7 @@ public class FileSplitStrategy {
     }
 
     public boolean hasNext() {
-        return totalSplitSize > Config.file_scan_node_split_size || splitNum > Config.file_scan_node_split_num;
+        return totalSplitSize >= Config.file_scan_node_split_size || splitNum >= Config.file_scan_node_split_num;
     }
 
     public void next() {

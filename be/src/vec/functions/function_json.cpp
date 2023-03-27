@@ -261,6 +261,9 @@ struct GetJsonNumberType {
             } else if constexpr (std::is_same_v<int32_t, typename NumberType::T>) {
                 root = get_json_object<JSON_FUN_DOUBLE>(json_string, path_string, &document);
                 handle_result<int32_t>(root, res[i], null_map[i]);
+            } else if constexpr (std::is_same_v<int64_t, typename NumberType::T>) {
+                root = get_json_object<JSON_FUN_DOUBLE>(json_string, path_string, &document);
+                handle_result<int64_t>(root, res[i], null_map[i]);
             }
         }
     }
@@ -272,6 +275,8 @@ struct GetJsonNumberType {
             res_null = 1;
         } else if (root->IsInt()) {
             res = root->GetInt();
+        } else if (root->IsInt64()) {
+            res = root->GetInt64();
         } else if (root->IsDouble()) {
             res = root->GetDouble();
         } else {
@@ -283,6 +288,15 @@ struct GetJsonNumberType {
     static void handle_result(rapidjson::Value* root, int32_t& res, uint8_t& res_null) {
         if (root != nullptr && root->IsInt()) {
             res = root->GetInt();
+        } else {
+            res_null = 1;
+        }
+    }
+
+    template <typename T, std::enable_if_t<std::is_same_v<int64_t, T>, T>* = nullptr>
+    static void handle_result(rapidjson::Value* root, int64_t& res, uint8_t& res_null) {
+        if (root != nullptr && root->IsInt64()) {
+            res = root->GetInt64();
         } else {
             res_null = 1;
         }
@@ -302,6 +316,12 @@ struct JsonNumberTypeInt {
     using ColumnType = ColumnVector<T>;
 };
 
+struct JsonNumberTypeBigInt {
+    using T = int64_t;
+    using ReturnType = DataTypeInt64;
+    using ColumnType = ColumnVector<T>;
+};
+
 struct GetJsonDouble : public GetJsonNumberType<JsonNumberTypeDouble> {
     static constexpr auto name = "get_json_double";
     using ReturnType = typename JsonNumberTypeDouble::ReturnType;
@@ -312,6 +332,12 @@ struct GetJsonInt : public GetJsonNumberType<JsonNumberTypeInt> {
     static constexpr auto name = "get_json_int";
     using ReturnType = typename JsonNumberTypeInt::ReturnType;
     using ColumnType = typename JsonNumberTypeInt::ColumnType;
+};
+
+struct GetJsonBigInt : public GetJsonNumberType<JsonNumberTypeBigInt> {
+    static constexpr auto name = "get_json_bigint";
+    using ReturnType = typename JsonNumberTypeBigInt::ReturnType;
+    using ColumnType = typename JsonNumberTypeBigInt::ColumnType;
 };
 
 struct GetJsonString {
@@ -398,7 +424,7 @@ struct JsonParser<'2'> {
     // int
     static void update_value(StringParser::ParseResult& result, rapidjson::Value& value,
                              StringRef data, rapidjson::Document::AllocatorType& allocator) {
-        value.SetInt(StringParser::string_to_int<int>(data.data, data.size, &result));
+        value.SetInt(StringParser::string_to_int<int32_t>(data.data, data.size, &result));
     }
 };
 
@@ -418,6 +444,15 @@ struct JsonParser<'4'> {
                              StringRef data, rapidjson::Document::AllocatorType& allocator) {
         // remove double quotes, "xxx" -> xxx
         value.SetString(data.data + 1, data.size - 2, allocator);
+    }
+};
+
+template <>
+struct JsonParser<'5'> {
+    // bigint
+    static void update_value(StringParser::ParseResult& result, rapidjson::Value& value,
+                             StringRef data, rapidjson::Document::AllocatorType& allocator) {
+        value.SetInt64(StringParser::string_to_int<int64_t>(data.data, data.size, &result));
     }
 };
 
@@ -441,7 +476,7 @@ struct FunctionJsonArrayImpl {
                               rapidjson::Document::AllocatorType& allocator,
                               const std::vector<const ColumnUInt8*>& nullmaps) {
         for (int i = 0; i < data_columns.size() - 1; i++) {
-            constexpr_int_match<'0', '5', Reducer>::run(type_flags[i], objects, allocator,
+            constexpr_int_match<'0', '6', Reducer>::run(type_flags[i], objects, allocator,
                                                         data_columns[i], nullmaps[i]);
         }
     }
@@ -481,7 +516,7 @@ struct FunctionJsonObjectImpl {
         }
 
         for (int i = 0; i + 1 < data_columns.size() - 1; i += 2) {
-            constexpr_int_match<'0', '5', Reducer>::run(type_flags[i + 1], objects, allocator,
+            constexpr_int_match<'0', '6', Reducer>::run(type_flags[i + 1], objects, allocator,
                                                         data_columns[i], data_columns[i + 1],
                                                         nullmaps[i + 1]);
         }
@@ -496,7 +531,7 @@ struct FunctionJsonObjectImpl {
         rapidjson::Value key;
         rapidjson::Value value;
         for (int i = 0; i < objects.size(); i++) {
-            JsonParser<'5'>::update_value(result, key, key_column->get_data_at(i),
+            JsonParser<'6'>::update_value(result, key, key_column->get_data_at(i),
                                           allocator); // key always is string
             if (nullmap != nullptr && nullmap->get_data()[i]) {
                 JsonParser<'0'>::update_value(result, value, value_column->get_data_at(i),
@@ -653,6 +688,7 @@ public:
 
 using FunctionGetJsonDouble = FunctionBinaryStringOperateToNullType<GetJsonDouble>;
 using FunctionGetJsonInt = FunctionBinaryStringOperateToNullType<GetJsonInt>;
+using FunctionGetJsonBigInt = FunctionBinaryStringOperateToNullType<GetJsonBigInt>;
 using FunctionGetJsonString = FunctionBinaryStringOperateToNullType<GetJsonString>;
 
 class FunctionJsonValid : public IFunction {
@@ -720,6 +756,7 @@ public:
 
 void register_function_json(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionGetJsonInt>();
+    factory.register_function<FunctionGetJsonBigInt>();
     factory.register_function<FunctionGetJsonDouble>();
     factory.register_function<FunctionGetJsonString>();
 

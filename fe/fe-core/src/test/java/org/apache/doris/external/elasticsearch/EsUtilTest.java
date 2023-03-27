@@ -220,8 +220,8 @@ public class EsUtilTest extends EsTestCase {
     @Test
     public void testDateType() throws IOException, URISyntaxException {
         ObjectNode testDateFormat = EsUtil.getRootSchema(
-                EsUtil.getMapping(loadJsonFromFile("data/es/test_date_format.json")), null);
-        List<Column> parseColumns = EsUtil.genColumnsFromEs("test_date_format", null, testDateFormat, false);
+                EsUtil.getMapping(loadJsonFromFile("data/es/test_date_format.json")), null, new ArrayList<>());
+        List<Column> parseColumns = EsUtil.genColumnsFromEs("test_date_format", null, testDateFormat, false, new ArrayList<>());
         Assertions.assertEquals(8, parseColumns.size());
         for (Column column : parseColumns) {
             String name = column.getName();
@@ -248,6 +248,15 @@ public class EsUtilTest extends EsTestCase {
                 Assertions.assertEquals("bigint(20)", type);
             }
         }
+    }
+
+    @Test
+    public void testFieldAlias() throws IOException, URISyntaxException {
+        ObjectNode testFieldAlias = EsUtil.getRootSchema(
+                EsUtil.getMapping(loadJsonFromFile("data/es/test_field_alias.json")), null, new ArrayList<>());
+        List<Column> parseColumns = EsUtil.genColumnsFromEs("test_field_alias", null, testFieldAlias, true, new ArrayList<>());
+        Assertions.assertEquals("datetimev2(0)", parseColumns.get(2).getType().toSql());
+        Assertions.assertEquals("text", parseColumns.get(4).getType().toSql());
     }
 
 }

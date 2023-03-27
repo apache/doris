@@ -490,7 +490,13 @@ if (COMPILER_CLANG)
         message(FATAL_ERROR "Need Clang version at least 13")
     endif()
 
-    add_compile_options(-fcolor-diagnostics -Wpedantic)
+    add_compile_options(-fcolor-diagnostics 
+                        -Wpedantic
+                        -Wunused-template
+                        -Wunused-private-field
+                        -Wunused-property-ivar
+                        -Wunused-member-function
+                        -Wunused-macros)
     add_compile_options(-Wno-zero-length-array
                         -Wno-variadic-macros
                         -Wno-gnu-zero-variadic-macro-arguments
@@ -901,6 +907,11 @@ set (TEST_LINK_LIBS ${DORIS_LINK_LIBS}
 
 # Only build static libs
 set(BUILD_SHARED_LIBS OFF)
+
+option(ENABLE_CLANG_COVERAGE "coverage option" OFF)
+if (ENABLE_CLANG_COVERAGE AND ENABLE_CLANG_COVERAGE STREQUAL ON AND COMPILER_CLANG)
+    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-instr-generate -fcoverage-mapping")
+endif ()
 
 if (${MAKE_TEST} STREQUAL "ON")
     add_compile_options(-fprofile-arcs -ftest-coverage -DGTEST_USE_OWN_TR1_TUPLE=0)

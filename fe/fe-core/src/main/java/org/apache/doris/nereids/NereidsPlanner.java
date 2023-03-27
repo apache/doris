@@ -61,6 +61,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -101,12 +102,13 @@ public class NereidsPlanner extends Planner {
             return;
         }
         PhysicalPlan physicalPlan = (PhysicalPlan) resultPlan;
-        PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator();
         PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
+        PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator(planTranslatorContext,
+                ConnectContext.get().getStatsErrorEstimator());
         if (ConnectContext.get().getSessionVariable().isEnableNereidsTrace()) {
             CounterEvent.clearCounter();
         }
-        PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan, planTranslatorContext);
+        PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan);
 
         scanNodeList = planTranslatorContext.getScanNodes();
         descTable = planTranslatorContext.getDescTable();
@@ -179,10 +181,23 @@ public class NereidsPlanner extends Planner {
 
             optimize();
 
+            //print memo before choose plan.
+            //if chooseNthPlan failed, we could get memo to debug
+            if (ConnectContext.get().getSessionVariable().isDumpNereidsMemo()) {
+                String memo = cascadesContext.getMemo().toString();
+                LOG.info(memo);
+            }
+
             int nth = ConnectContext.get().getSessionVariable().getNthOptimizedPlan();
             PhysicalPlan physicalPlan = chooseNthPlan(getRoot(), requireProperties, nth);
 
             physicalPlan = postProcess(physicalPlan);
+
+            if (ConnectContext.get().getSessionVariable().isDumpNereidsMemo()) {
+                String tree = physicalPlan.treeString();
+                LOG.info(tree);
+            }
+
             if (explainLevel == ExplainLevel.OPTIMIZED_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
                 optimizedPlan = physicalPlan;
             }
@@ -266,7 +281,7 @@ public class NereidsPlanner extends Planner {
         if (nthPlan <= 1) {
             cost = rootGroup.getLowestCostPlan(physicalProperties).orElseThrow(
                     () -> new AnalysisException("lowestCostPlans with physicalProperties("
-                            + physicalProperties + ") doesn't exist in root group")).first;
+                            + physicalProperties + ") doesn't exist in root group")).first.getValue();
             return chooseBestPlan(rootGroup, physicalProperties);
         }
         Memo memo = cascadesContext.getMemo();
@@ -292,8 +307,8 @@ public class NereidsPlanner extends Planner {
             if (!(plan instanceof PhysicalPlan)) {
                 throw new AnalysisException("Result plan must be PhysicalPlan");
             }
-
-            // TODO: set (logical and physical)properties/statistics/... for physicalPlan.
+            // add groupExpression to plan so that we could print group id in plan.treeString()
+            plan = plan.withGroupExpression(Optional.of(groupExpression));
             PhysicalPlan physicalPlan = ((PhysicalPlan) plan).withPhysicalPropertiesAndStats(
                     groupExpression.getOutputProperties(physicalProperties),
                     groupExpression.getOwnerGroup().getStatistics());

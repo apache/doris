@@ -49,27 +49,23 @@ public class PushdownProjectThroughSemiJoin extends OneExplorationRuleFactory {
     @Override
     public Rule build() {
         return logicalProject(logicalJoin())
-                .when(project -> project.child().getJoinType().isLeftSemiOrAntiJoin())
-                .when(JoinReorderUtils::isOneSlotProject)
-                // Just pushdown project with non-column expr like (t.id + 1)
-                .whenNot(JoinReorderUtils::isAllSlotProject)
-                .whenNot(project -> project.child().hasJoinHint())
-                .then(project -> {
-                    LogicalJoin<GroupPlan, GroupPlan> join = project.child();
-                    Set<Slot> aOutputExprIdSet = join.left().getOutputSet();
-                    Set<Slot> conditionLeftSlots = join.getConditionSlot().stream()
-                            .filter(aOutputExprIdSet::contains)
-                            .collect(Collectors.toSet());
+            .when(project -> project.child().getJoinType().isLeftSemiOrAntiJoin())
+            // Just pushdown project with non-column expr like (t.id + 1)
+            .whenNot(JoinReorderUtils::isAllSlotProject)
+            .whenNot(project -> project.child().hasJoinHint())
+            .then(project -> {
+                LogicalJoin<GroupPlan, GroupPlan> join = project.child();
+                Set<Slot> conditionLeftSlots = JoinReorderUtils.joinChildConditionSlots(join, true);
 
-                    List<NamedExpression> newProject = new ArrayList<>(project.getProjects());
-                    Set<Slot> projectUsedSlots = project.getProjects().stream()
-                            .map(NamedExpression::toSlot).collect(Collectors.toSet());
-                    conditionLeftSlots.stream().filter(slot -> !projectUsedSlots.contains(slot))
-                            .forEach(newProject::add);
-                    Plan newLeft = JoinReorderUtils.projectOrSelf(newProject, join.left());
-                    Plan newJoin = join.withChildren(newLeft, join.right());
-                    return JoinReorderUtils.projectOrSelf(new ArrayList<>(project.getOutput()), newJoin);
-                }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_SEMI_JOIN);
+                List<NamedExpression> newProject = new ArrayList<>(project.getProjects());
+                Set<Slot> projectUsedSlots = project.getProjects().stream().map(NamedExpression::toSlot)
+                        .collect(Collectors.toSet());
+                conditionLeftSlots.stream().filter(slot -> !projectUsedSlots.contains(slot)).forEach(newProject::add);
+                Plan newLeft = JoinReorderUtils.projectOrSelf(newProject, join.left());
+
+                Plan newJoin = join.withChildren(newLeft, join.right());
+                return JoinReorderUtils.projectOrSelf(new ArrayList<>(project.getOutput()), newJoin);
+            }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_SEMI_JOIN);
     }
 
     List<NamedExpression> sort(List<NamedExpression> projects, Plan sortPlan) {

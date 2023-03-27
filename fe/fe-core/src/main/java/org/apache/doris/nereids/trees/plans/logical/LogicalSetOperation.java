@@ -146,7 +146,7 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
         for (int i = 0; i < resetNullableForLeftOutputs.size(); ++i) {
             Slot left = resetNullableForLeftOutputs.get(i);
             Slot right = child(1).getOutput().get(i);
-            DataType compatibleType = DataType.convertFromCatalogDataType(Type.getAssignmentCompatibleType(
+            DataType compatibleType = DataType.fromCatalogType(Type.getAssignmentCompatibleType(
                     left.getDataType().toCatalogDataType(),
                     right.getDataType().toCatalogDataType(),
                     false));

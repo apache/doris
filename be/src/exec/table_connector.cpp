@@ -95,6 +95,13 @@ Status TableConnector::append(const std::string& table_name, vectorized::Block* 
         // Translate utf8 string to utf16 to use unicode encoding
         insert_stmt = utf8_to_u16string(_insert_stmt_buffer.data(),
                                         _insert_stmt_buffer.data() + _insert_stmt_buffer.size());
+    } else if (table_type == TOdbcTableType::SAP_HANA) {
+        SCOPED_TIMER(_convert_tuple_timer);
+        sap_hana_type_append(table_name, block, output_vexpr_ctxs, start_send_row, num_rows_sent,
+                             table_type);
+        // Translate utf8 string to utf16 to use unicode encoding
+        insert_stmt = utf8_to_u16string(_insert_stmt_buffer.data(),
+                                        _insert_stmt_buffer.data() + _insert_stmt_buffer.size());
     } else {
         SCOPED_TIMER(_convert_tuple_timer);
         fmt::format_to(_insert_stmt_buffer, "INSERT INTO {} VALUES (", table_name);
@@ -164,12 +171,44 @@ Status TableConnector::oracle_type_append(
     return Status::OK();
 }
 
+Status TableConnector::sap_hana_type_append(
+        const std::string& table_name, vectorized::Block* block,
+        const std::vector<vectorized::VExprContext*>& output_vexpr_ctxs, uint32_t start_send_row,
+        uint32_t* num_rows_sent, TOdbcTableType::type table_type) {
+    fmt::format_to(_insert_stmt_buffer, "INSERT INTO {} ", table_name);
+    int num_rows = block->rows();
+    int num_columns = block->columns();
+    for (int i = start_send_row; i < num_rows; ++i) {
+        (*num_rows_sent)++;
+        fmt::format_to(_insert_stmt_buffer, "SELECT ");
+        // Construct insert statement of odbc/jdbc table
+        for (int j = 0; j < num_columns; ++j) {
+            if (j != 0) {
+                fmt::format_to(_insert_stmt_buffer, "{}", ", ");
+            }
+            auto& column_ptr = block->get_by_position(j).column;
+            auto& type_ptr = block->get_by_position(j).type;
+            RETURN_IF_ERROR(convert_column_data(
+                    column_ptr, type_ptr, output_vexpr_ctxs[j]->root()->type(), i, table_type));
+        }
+
+        if (i < num_rows - 1 && _insert_stmt_buffer.size() < INSERT_BUFFER_SIZE) {
+            fmt::format_to(_insert_stmt_buffer, "{}", " FROM dummy UNION ALL ");
+        } else {
+            // batch exhausted or _insert_stmt_buffer is full, need to do real insert stmt
+            fmt::format_to(_insert_stmt_buffer, "{}", " FROM dummy");
+            break;
+        }
+    }
+    return Status::OK();
+}
+
 Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_ptr,
                                            const vectorized::DataTypePtr& type_ptr,
                                            const TypeDescriptor& type, int row,
                                            TOdbcTableType::type table_type) {
     auto extra_convert_func = [&](const std::string_view& str, const bool& is_date) -> void {
-        if (table_type != TOdbcTableType::ORACLE) {
+        if (table_type != TOdbcTableType::ORACLE && table_type != TOdbcTableType::SAP_HANA) {
             fmt::format_to(_insert_stmt_buffer, "\"{}\"", str);
         } else {
             //if is ORACLE and date type, insert into need convert
@@ -194,6 +233,12 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
     auto [item, size] = column->get_data_at(row);
     switch (type.type) {
     case TYPE_BOOLEAN:
+        if (table_type == TOdbcTableType::SAP_HANA) {
+            fmt::format_to(_insert_stmt_buffer, "{}", *reinterpret_cast<const bool*>(item));
+        } else {
+            fmt::format_to(_insert_stmt_buffer, "{}", *reinterpret_cast<const int8_t*>(item));
+        }
+        break;
     case TYPE_TINYINT:
         fmt::format_to(_insert_stmt_buffer, "{}", *reinterpret_cast<const int8_t*>(item));
         break;
@@ -260,7 +305,8 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
     case TYPE_STRING: {
         // TODO(zhangstar333): check array data type of postgresql
         // for oracle/pg database string must be '
-        if (table_type == TOdbcTableType::ORACLE || table_type == TOdbcTableType::POSTGRESQL) {
+        if (table_type == TOdbcTableType::ORACLE || table_type == TOdbcTableType::POSTGRESQL ||
+            table_type == TOdbcTableType::SAP_HANA) {
             fmt::format_to(_insert_stmt_buffer, "'{}'", fmt::basic_string_view(item, size));
         } else {
             fmt::format_to(_insert_stmt_buffer, "\"{}\"", fmt::basic_string_view(item, size));

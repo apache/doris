@@ -51,7 +51,9 @@ public class NereidsAnalyzer extends BatchRewriteJob {
                 new BindRelation(),
                 new CheckPolicy(),
                 new UserAuthentication(),
-                new BindExpression(),
+                new BindExpression()
+            ),
+            bottomUp(
                 new ProjectToGlobalAggregate(),
                 // this rule check's the logicalProject node's isDisinct property
                 // and replace the logicalProject node with a LogicalAggregate node

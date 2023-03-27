@@ -102,7 +102,7 @@ PROPERTIES ("strict_mode" = "true")
 ```
 1. The only difference between the syntax of importing server level local files and importing client side syntax is whether the'LOCAL 'keyword is added after the'LOAD DATA' keyword.
 2. FE will have multi-nodes, and importing server level files can only import FE nodes connected by the client side, and cannot import files local to other FE nodes.
-3. Server side load was disabled by default. Enable it by setting `mysql_load_server_secure_path` with a secure path. All the load file should be under this path. Recommend create a `local_import_data` directory under `DORIS_HOME` to load data.
+3. Server side load was disabled by default. Enable it by setting `mysql_load_server_secure_path` with a secure path. All the load file should be under this path.
 
 ### Return result
 Since MySQL load is a synchronous import method, the imported results are returned to the user through SQL syntax.
@@ -112,6 +112,10 @@ If the import fails, a specific error message will be displayed. If the import i
 Query OK, 1 row affected (0.17 sec)
 Records: 1 Deleted: 0 Skipped: 0 Warnings: 0
 ```
+
+### Configuration
+1. `mysql_load_thread_pool`: the thread pool size for singe FE node, set 4 thread by default. The block queue size is 5 times of `mysql_load_thread_pool`. So FE can accept 4 + 4*5 = 24 requests in one time. Increase this configuration if the parallelism are larger than 24.
+2. `mysql_load_server_secure_path`: the secure path for load data from server. Empty path by default means that it's not allowed for server load. Recommend to create a `local_import_data` directory under `DORIS_HOME` to load data if you want enable it.
 
 ## Notice 
 

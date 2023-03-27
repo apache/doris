@@ -472,7 +472,7 @@ public abstract class BaseExecutor {
         }
     }
 
-    protected abstract long getCurrentOutputOffset(long row);
+    protected abstract long getCurrentOutputOffset(long row, boolean isArrayType);
 
     /**
      * Close the class loader we may have created.
@@ -615,7 +615,7 @@ public abstract class BaseExecutor {
             case STRING: {
                 long bufferSize = UdfUtils.UNSAFE.getLong(null, outputIntermediateStatePtr);
                 byte[] bytes = ((String) obj).getBytes(StandardCharsets.UTF_8);
-                long offset = getCurrentOutputOffset(row);
+                long offset = getCurrentOutputOffset(row, false);
                 if (offset + bytes.length > bufferSize) {
                     return false;
                 }
@@ -637,7 +637,7 @@ public abstract class BaseExecutor {
     }
 
     public boolean arrayTypeOutputData(Object obj, Type type, long row) throws UdfRuntimeException {
-        long offset = getCurrentOutputOffset(row);
+        long offset = getCurrentOutputOffset(row, true);
         long bufferSize = UdfUtils.UNSAFE.getLong(null, outputIntermediateStatePtr);
         long outputNullMapBase = UdfUtils.UNSAFE.getLong(null, outputArrayNullPtr);
         long outputBufferBase = UdfUtils.UNSAFE.getLong(null, outputBufferPtr);

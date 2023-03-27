@@ -77,6 +77,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -142,7 +143,7 @@ public class BindExpression implements AnalysisRuleFactory {
                     Set<Expression> boundConjuncts = filter.getConjuncts().stream()
                             .map(expr -> bindSlot(expr, filter.children(), ctx.cascadesContext))
                             .map(expr -> bindFunction(expr, ctx.cascadesContext))
-                            .collect(Collectors.toSet());
+                            .collect(Collectors.toCollection(LinkedHashSet::new));
                     return new LogicalFilter<>(boundConjuncts, filter.child());
                 })
             ),
@@ -153,8 +154,8 @@ public class BindExpression implements AnalysisRuleFactory {
                     LogicalJoin<Plan, Plan> lj = new LogicalJoin<>(using.getJoinType() == JoinType.CROSS_JOIN
                             ? JoinType.INNER_JOIN : using.getJoinType(),
                             using.getHashJoinConjuncts(),
-                            using.getOtherJoinConjuncts(), using.getHint(), using.left(),
-                            using.right());
+                            using.getOtherJoinConjuncts(), using.getHint(), using.getMarkJoinSlotReference(),
+                            using.left(), using.right());
                     List<Expression> unboundSlots = lj.getHashJoinConjuncts();
                     Set<String> slotNames = new HashSet<>();
                     List<Slot> leftOutput = new ArrayList<>(lj.left().getOutput());
@@ -201,7 +202,8 @@ public class BindExpression implements AnalysisRuleFactory {
                             .map(expr -> bindFunction(expr, ctx.cascadesContext))
                             .collect(Collectors.toList());
                     return new LogicalJoin<>(join.getJoinType(),
-                            hashJoinConjuncts, cond, join.getHint(), join.left(), join.right());
+                            hashJoinConjuncts, cond, join.getHint(), join.getMarkJoinSlotReference(),
+                            join.left(), join.right());
                 })
             ),
             RuleType.BINDING_AGGREGATE_SLOT.build(

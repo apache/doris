@@ -286,8 +286,6 @@ TEST_F(TestRowCursor, InitRowCursorWithColumnCount) {
     EXPECT_EQ(res, Status::OK());
     EXPECT_EQ(row.get_fixed_len(), 23);
     EXPECT_EQ(row.get_variable_len(), 0);
-    row.allocate_memory_for_string_type(tablet_schema);
-    EXPECT_EQ(row.get_variable_len(), 0);
 }
 
 TEST_F(TestRowCursor, InitRowCursorWithColIds) {

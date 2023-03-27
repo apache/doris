@@ -59,6 +59,7 @@ regression-test/framework/dependency-reduced-pom.xml
 regression-test/realdata/*
 regression-test/cacheData/*
 regression-test/conf/regression-conf-custom.groovy
+regression-test/framework/bin/*
 
 samples/doris-demo/remote-udf-python-demo/*_pb2.py
 samples/doris-demo/remote-udf-python-demo/*_pb2_grpc.py
@@ -96,5 +97,7 @@ tools/single-node-cluster/fe*
 
 # be-ut
 data_test
+lru_cache_test
 
 /conf/log4j2-spring.xml
+/fe/fe-core/src/test/resources/real-help-resource.zip

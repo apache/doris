@@ -28,6 +28,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 
 import com.google.common.collect.ImmutableList;
@@ -82,13 +84,23 @@ public class PushdownLimit implements RewriteRuleFactory {
                             return limit.withChildren(union.withChildren(newUnionChildren));
                         })
                         .toRule(RuleType.PUSH_LIMIT_THROUGH_UNION),
+                // limit -> sort ==> topN
+                logicalLimit(logicalSort())
+                        .then(limit -> {
+                            LogicalSort sort = limit.child();
+                            LogicalTopN topN = new LogicalTopN(sort.getOrderKeys(),
+                                    limit.getLimit(),
+                                    limit.getOffset(),
+                                    sort.child(0));
+                            return topN;
+                        }).toRule(RuleType.PUSH_LIMIT_INTO_SORT),
                 logicalLimit(logicalOneRowRelation())
-                        .then(limit -> limit.getLimit() > 0
+                        .then(limit -> limit.getLimit() > 0 && limit.getOffset() == 0
                                 ? limit.child() : new LogicalEmptyRelation(limit.child().getOutput()))
-                        .toRule(RuleType.PUSH_LIMIT_THROUGH_ONE_ROW_RELATION),
+                        .toRule(RuleType.ELIMINATE_LIMIT_ON_ONE_ROW_RELATION),
                 logicalLimit(logicalEmptyRelation())
                         .then(UnaryNode::child)
-                        .toRule(RuleType.PUSH_LIMIT_THROUGH_EMPTY_RELATION),
+                        .toRule(RuleType.ELIMINATE_LIMIT_ON_EMPTY_RELATION),
                 new MergeLimits().build()
         );
     }

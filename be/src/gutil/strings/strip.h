@@ -115,7 +115,7 @@ void StripWhiteSpace(string* str);
 namespace strings {
 
 template <typename Collection>
-inline void StripWhiteSpaceInCollection(Collection* collection) {
+void StripWhiteSpaceInCollection(Collection* collection) {
     for (typename Collection::iterator it = collection->begin(); it != collection->end(); ++it)
         StripWhiteSpace(&(*it));
 }

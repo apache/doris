@@ -64,6 +64,7 @@ public class OuterJoinLAsscom extends OneExplorationRuleFactory {
                 .when(topJoin -> checkReorder(topJoin, topJoin.left()))
                 .whenNot(join -> join.hasJoinHint() || join.left().hasJoinHint())
                 .when(topJoin -> checkCondition(topJoin, topJoin.left().right().getOutputExprIdSet()))
+                .whenNot(LogicalJoin::isMarkJoin)
                 .then(topJoin -> {
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left();
                     GroupPlan a = bottomJoin.left();

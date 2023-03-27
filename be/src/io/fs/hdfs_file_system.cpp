@@ -19,17 +19,22 @@
 
 #include "gutil/hash/hash.h"
 #include "io/cache/block/cached_remote_file_reader.h"
+#include "io/fs/fs_utils.h"
 #include "io/fs/hdfs_file_reader.h"
+#include "io/fs/hdfs_file_writer.h"
+#include "io/fs/local_file_system.h"
 #include "io/hdfs_builder.h"
 #include "service/backend_options.h"
+#include "util/hdfs_util.h"
+#include "util/stack_util.h"
 
 namespace doris {
 namespace io {
 
 #ifndef CHECK_HDFS_HANDLE
-#define CHECK_HDFS_HANDLE(handle)                               \
-    if (!handle) {                                              \
-        return Status::InternalError("init Hdfs handle error"); \
+#define CHECK_HDFS_HANDLE(handle)                         \
+    if (!handle) {                                        \
+        return Status::IOError("init Hdfs handle error"); \
     }
 #endif
 
@@ -61,9 +66,10 @@ private:
     void _clean_oldest();
 };
 
-std::shared_ptr<HdfsFileSystem> HdfsFileSystem::create(const THdfsParams& hdfs_params,
-                                                       const std::string& path) {
-    return std::shared_ptr<HdfsFileSystem>(new HdfsFileSystem(hdfs_params, path));
+Status HdfsFileSystem::create(const THdfsParams& hdfs_params, const std::string& path,
+                              std::shared_ptr<HdfsFileSystem>* fs) {
+    (*fs).reset(new HdfsFileSystem(hdfs_params, path));
+    return (*fs)->connect();
 }
 
 HdfsFileSystem::HdfsFileSystem(const THdfsParams& hdfs_params, const std::string& path)
@@ -83,32 +89,25 @@ HdfsFileSystem::~HdfsFileSystem() {
     }
 }
 
-Status HdfsFileSystem::connect() {
+Status HdfsFileSystem::connect_impl() {
     RETURN_IF_ERROR(HdfsFileSystemCache::instance()->get_connection(_hdfs_params, &_fs_handle));
     if (!_fs_handle) {
-        return Status::InternalError("failed to init Hdfs handle with, please check hdfs params.");
+        return Status::IOError("failed to init Hdfs handle with, please check hdfs params.");
     }
     return Status::OK();
 }
 
-Status HdfsFileSystem::create_file(const Path& /*path*/, FileWriterPtr* /*writer*/) {
-    // auto handle = get_handle();
-    // CHECK_HDFS_HANDLE(handle);
-    // auto hdfs_file = hdfsOpenFile(handle->hdfs_fs, path.string().c_str(), O_WRONLY, 0, 0, 0);
-    // if (hdfs_file == nullptr) {
-    //     return Status::InternalError("Failed to create file {}", path.string());
-    // }
-    // hdfsCloseFile(handle->hdfs_fs, hdfs_file);
-    // return Status::OK();
-    return Status::NotSupported("Currently not support to create file to HDFS");
+Status HdfsFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer) {
+    *writer = std::make_unique<HdfsFileWriter>(file, getSPtr());
+    return Status::OK();
 }
 
-Status HdfsFileSystem::open_file(const Path& path, FileReaderSPtr* reader, IOContext* /*io_ctx*/) {
+Status HdfsFileSystem::open_file_internal(const Path& file, FileReaderSPtr* reader) {
     CHECK_HDFS_HANDLE(_fs_handle);
     size_t file_len = 0;
-    RETURN_IF_ERROR(file_size(path, &file_len));
+    RETURN_IF_ERROR(file_size_impl(file, &file_len));
 
-    Path real_path = _covert_path(path);
+    Path real_path = convert_path(file, _namenode);
     auto hdfs_file =
             hdfsOpenFile(_fs_handle->hdfs_fs, real_path.string().c_str(), O_RDONLY, 0, 0, 0);
     if (hdfs_file == nullptr) {
@@ -118,112 +117,249 @@ Status HdfsFileSystem::open_file(const Path& path, FileReaderSPtr* reader, IOCon
             _fs_handle->dec_ref();
             // retry
             RETURN_IF_ERROR(connect());
-            hdfs_file = hdfsOpenFile(_fs_handle->hdfs_fs, path.string().c_str(), O_RDONLY, 0, 0, 0);
+            hdfs_file = hdfsOpenFile(_fs_handle->hdfs_fs, file.string().c_str(), O_RDONLY, 0, 0, 0);
             if (hdfs_file == nullptr) {
-                return Status::InternalError(
-                        "open file failed. (BE: {}) namenode:{}, path:{}, err: {}",
-                        BackendOptions::get_localhost(), _namenode, path.string(),
-                        hdfsGetLastError());
+                return Status::IOError("failed to open {}: {}", file.native(), hdfs_error());
             }
         } else {
-            return Status::InternalError("open file failed. (BE: {}) namenode:{}, path:{}, err: {}",
-                                         BackendOptions::get_localhost(), _namenode, path.string(),
-                                         hdfsGetLastError());
+            return Status::IOError("failed to open {} from cache: {}", file.native(), hdfs_error());
         }
     }
     *reader = std::make_shared<HdfsFileReader>(
-            path, file_len, _namenode, hdfs_file,
+            file, file_len, _namenode, hdfs_file,
             std::static_pointer_cast<HdfsFileSystem>(shared_from_this()));
     return Status::OK();
 }
 
-Status HdfsFileSystem::delete_file(const Path& path) {
+Status HdfsFileSystem::create_directory_impl(const Path& dir) {
     CHECK_HDFS_HANDLE(_fs_handle);
-    Path real_path = _covert_path(path);
-    // The recursive argument `is_recursive` is irrelevant if path is a file.
-    int is_recursive = 0;
-    int res = hdfsDelete(_fs_handle->hdfs_fs, real_path.string().c_str(), is_recursive);
-    if (res == -1) {
-        return Status::InternalError("Failed to delete file {}", path.string());
-    }
-    return Status::OK();
-}
-
-Status HdfsFileSystem::create_directory(const Path& path) {
-    CHECK_HDFS_HANDLE(_fs_handle);
-    Path real_path = _covert_path(path);
+    Path real_path = convert_path(dir, _namenode);
     int res = hdfsCreateDirectory(_fs_handle->hdfs_fs, real_path.string().c_str());
     if (res == -1) {
-        return Status::InternalError("Failed to create directory {}", path.string());
+        return Status::IOError("failed to create directory {}: {}", dir.native(), hdfs_error());
     }
     return Status::OK();
 }
 
-Status HdfsFileSystem::delete_directory(const Path& path) {
+Status HdfsFileSystem::delete_file_impl(const Path& file) {
+    return delete_internal(file, 0);
+}
+
+Status HdfsFileSystem::delete_directory_impl(const Path& dir) {
+    return delete_internal(dir, 1);
+}
+
+Status HdfsFileSystem::batch_delete_impl(const std::vector<Path>& files) {
+    for (auto& file : files) {
+        RETURN_IF_ERROR(delete_file_impl(file));
+    }
+    return Status::OK();
+}
+
+Status HdfsFileSystem::delete_internal(const Path& path, int is_recursive) {
+    bool exists = true;
+    RETURN_IF_ERROR(exists_impl(path, &exists));
+    if (!exists) {
+        return Status::OK();
+    }
     CHECK_HDFS_HANDLE(_fs_handle);
-    Path real_path = _covert_path(path);
-    // delete in recursive mode
-    int is_recursive = 1;
+    Path real_path = convert_path(path, _namenode);
     int res = hdfsDelete(_fs_handle->hdfs_fs, real_path.string().c_str(), is_recursive);
     if (res == -1) {
-        return Status::InternalError("Failed to delete directory {}", path.string());
+        return Status::IOError("failed to delete directory {}: {}", path.native(), hdfs_error());
     }
     return Status::OK();
 }
 
-Status HdfsFileSystem::exists(const Path& path, bool* res) const {
+Status HdfsFileSystem::exists_impl(const Path& path, bool* res) const {
     CHECK_HDFS_HANDLE(_fs_handle);
-    Path real_path = _covert_path(path);
+    Path real_path = convert_path(path, _namenode);
     int is_exists = hdfsExists(_fs_handle->hdfs_fs, real_path.string().c_str());
-    if (is_exists == 0) {
-        *res = true;
-    } else {
-        *res = false;
-    }
+    *res = (is_exists == 0);
     return Status::OK();
 }
 
-Status HdfsFileSystem::file_size(const Path& path, size_t* file_size) const {
+Status HdfsFileSystem::file_size_impl(const Path& path, size_t* file_size) const {
     CHECK_HDFS_HANDLE(_fs_handle);
-    Path real_path = _covert_path(path);
+    Path real_path = convert_path(path, _namenode);
     hdfsFileInfo* file_info = hdfsGetPathInfo(_fs_handle->hdfs_fs, real_path.string().c_str());
     if (file_info == nullptr) {
-        return Status::InternalError("Failed to get file size of {}", path.string());
+        return Status::IOError("failed to get file size of {}: {}", path.native(), hdfs_error());
     }
     *file_size = file_info->mSize;
     hdfsFreeFileInfo(file_info, 1);
     return Status::OK();
 }
 
-Status HdfsFileSystem::list(const Path& path, std::vector<Path>* files) {
+Status HdfsFileSystem::list_impl(const Path& path, bool only_file, std::vector<FileInfo>* files,
+                                 bool* exists) {
+    RETURN_IF_ERROR(exists_impl(path, exists));
+    if (!(*exists)) {
+        return Status::OK();
+    }
+
     CHECK_HDFS_HANDLE(_fs_handle);
-    Path real_path = _covert_path(path);
+    Path real_path = convert_path(path, _namenode);
     int numEntries = 0;
-    hdfsFileInfo* file_info =
-            hdfsListDirectory(_fs_handle->hdfs_fs, real_path.string().c_str(), &numEntries);
-    if (file_info == nullptr) {
-        return Status::InternalError("Failed to list files/directors of {}", path.string());
+    hdfsFileInfo* hdfs_file_info =
+            hdfsListDirectory(_fs_handle->hdfs_fs, real_path.c_str(), &numEntries);
+    if (hdfs_file_info == nullptr) {
+        return Status::IOError("failed to list files/directors {}: {}", path.native(),
+                               hdfs_error());
     }
     for (int idx = 0; idx < numEntries; ++idx) {
-        files->emplace_back(file_info[idx].mName);
+        auto& file = hdfs_file_info[idx];
+        if (only_file && file.mKind == kObjectKindDirectory) {
+            continue;
+        }
+        FileInfo file_info;
+        file_info.file_name = file.mName;
+        file_info.file_size = file.mSize;
+        file_info.is_file = (file.mKind != kObjectKindDirectory);
+        files->emplace_back(std::move(file_info));
     }
-    hdfsFreeFileInfo(file_info, numEntries);
+    hdfsFreeFileInfo(hdfs_file_info, numEntries);
+    return Status::OK();
+}
+
+Status HdfsFileSystem::rename_impl(const Path& orig_name, const Path& new_name) {
+    Path normal_orig_name = convert_path(orig_name, _namenode);
+    Path normal_new_name = convert_path(new_name, _namenode);
+    int ret = hdfsRename(_fs_handle->hdfs_fs, normal_orig_name.c_str(), normal_new_name.c_str());
+    if (ret == 0) {
+        LOG(INFO) << "finished to rename file. orig: " << normal_orig_name
+                  << ", new: " << normal_new_name;
+        return Status::OK();
+    } else {
+        return Status::IOError("fail to rename from {} to {}: {}", normal_orig_name.native(),
+                               normal_new_name.native(), hdfs_error());
+    }
+    return Status::OK();
+}
+
+Status HdfsFileSystem::rename_dir_impl(const Path& orig_name, const Path& new_name) {
+    return rename_impl(orig_name, new_name);
+}
+
+Status HdfsFileSystem::upload_impl(const Path& local_file, const Path& remote_file) {
+    // 1. open local file for read
+    FileSystemSPtr local_fs = global_local_filesystem();
+    FileReaderSPtr local_reader = nullptr;
+    RETURN_IF_ERROR(local_fs->open_file(local_file, &local_reader));
+    size_t file_len = local_reader->size();
+    if (file_len == -1) {
+        return Status::IOError("failed to get size of file: {}", local_file.string());
+    }
+
+    // 2. open remote file for write
+    FileWriterPtr hdfs_writer = nullptr;
+    RETURN_IF_ERROR(create_file_impl(remote_file, &hdfs_writer));
+
+    constexpr size_t buf_sz = 1024 * 1024;
+    char read_buf[buf_sz];
+    size_t left_len = file_len;
+    size_t read_offset = 0;
+    size_t bytes_read = 0;
+    while (left_len > 0) {
+        size_t read_len = left_len > buf_sz ? buf_sz : left_len;
+        RETURN_IF_ERROR(local_reader->read_at(read_offset, {read_buf, read_len}, &bytes_read));
+        RETURN_IF_ERROR(hdfs_writer->append({read_buf, read_len}));
+
+        read_offset += read_len;
+        left_len -= read_len;
+    }
+
+    LOG(INFO) << "finished to write file: " << local_file << ", length: " << file_len;
+    return Status::OK();
+}
+
+Status HdfsFileSystem::batch_upload_impl(const std::vector<Path>& local_files,
+                                         const std::vector<Path>& remote_files) {
+    DCHECK(local_files.size() == remote_files.size());
+    for (int i = 0; i < local_files.size(); ++i) {
+        RETURN_IF_ERROR(upload_impl(local_files[i], remote_files[i]));
+    }
+    return Status::OK();
+}
+
+Status HdfsFileSystem::direct_upload_impl(const Path& remote_file, const std::string& content) {
+    FileWriterPtr hdfs_writer = nullptr;
+    RETURN_IF_ERROR(create_file(remote_file, &hdfs_writer));
+    RETURN_IF_ERROR(hdfs_writer->append({content}));
+    return Status::OK();
+}
+
+Status HdfsFileSystem::upload_with_checksum_impl(const Path& local, const Path& remote_file,
+                                                 const std::string& checksum) {
+    std::string temp = remote_file.string() + ".part";
+    std::string final_file = remote_file.string() + "." + checksum;
+    RETURN_IF_ERROR(upload_impl(local, temp));
+    return rename_impl(temp, final_file);
+}
+
+Status HdfsFileSystem::download_impl(const Path& remote_file, const Path& local_file) {
+    // 1. open remote file for read
+    FileReaderSPtr hdfs_reader = nullptr;
+    RETURN_IF_ERROR(open_file_internal(remote_file, &hdfs_reader));
+
+    // 2. remove the existing local file if exist
+    if (std::filesystem::remove(local_file)) {
+        LOG(INFO) << "remove the previously exist local file: " << local_file;
+    }
+
+    // 3. open local file for write
+    FileSystemSPtr local_fs = global_local_filesystem();
+    FileWriterPtr local_writer = nullptr;
+    RETURN_IF_ERROR(local_fs->create_file(local_file, &local_writer));
+
+    // 4. read remote and write to local
+    LOG(INFO) << "read remote file: " << remote_file << " to local: " << local_file;
+    constexpr size_t buf_sz = 1024 * 1024;
+    std::unique_ptr<char[]> read_buf(new char[buf_sz]);
+    size_t write_offset = 0;
+    size_t cur_offset = 0;
+    while (true) {
+        size_t read_len = 0;
+        Slice file_slice(read_buf.get(), buf_sz);
+        RETURN_IF_ERROR(hdfs_reader->read_at(cur_offset, file_slice, &read_len));
+        cur_offset += read_len;
+        if (read_len == 0) {
+            break;
+        }
+
+        RETURN_IF_ERROR(local_writer->write_at(write_offset, {read_buf.get(), read_len}));
+        write_offset += read_len;
+    }
+
+    return Status::OK();
+}
+
+Status HdfsFileSystem::direct_download_impl(const Path& remote_file, std::string* content) {
+    // 1. open remote file for read
+    FileReaderSPtr hdfs_reader = nullptr;
+    RETURN_IF_ERROR(open_file_internal(remote_file, &hdfs_reader));
+
+    constexpr size_t buf_sz = 1024 * 1024;
+    std::unique_ptr<char[]> read_buf(new char[buf_sz]);
+    size_t write_offset = 0;
+    size_t cur_offset = 0;
+    while (true) {
+        size_t read_len = 0;
+        Slice file_slice(read_buf.get(), buf_sz);
+        RETURN_IF_ERROR(hdfs_reader->read_at(cur_offset, file_slice, &read_len));
+        cur_offset += read_len;
+        if (read_len == 0) {
+            break;
+        }
+
+        content->insert(write_offset, read_buf.get(), read_len);
+        write_offset += read_len;
+    }
     return Status::OK();
 }
 
 HdfsFileSystemHandle* HdfsFileSystem::get_handle() {
     return _fs_handle;
-}
-
-Path HdfsFileSystem::_covert_path(const Path& path) const {
-    // if the format of path is hdfs://ip:port/path, replace it to /path.
-    // path like hdfs://ip:port/path can't be used by libhdfs3.
-    Path real_path(path);
-    if (path.string().find(_namenode) != std::string::npos) {
-        std::string real_path_str = path.string().substr(_namenode.size());
-        real_path = real_path_str;
-    }
-    return real_path;
 }
 
 // ************* HdfsFileSystemCache ******************
@@ -234,7 +370,8 @@ Status HdfsFileSystemCache::_create_fs(const THdfsParams& hdfs_params, hdfsFS* f
     RETURN_IF_ERROR(createHDFSBuilder(hdfs_params, &builder));
     hdfsFS hdfs_fs = hdfsBuilderConnect(builder.get());
     if (hdfs_fs == nullptr) {
-        return Status::InternalError("connect to hdfs failed. error: {}", hdfsGetLastError());
+        return Status::IOError("faield to connect to hdfs {}: {}", hdfs_params.fs_name,
+                               hdfs_error());
     }
     *fs = hdfs_fs;
     return Status::OK();

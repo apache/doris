@@ -50,6 +50,7 @@ suite("rollup") {
     while (max_try_secs--) {
         String res = getJobRollupState("rollup_t1")
         if (res == "FINISHED") {
+            sleep(3000)
             break
         } else {
             Thread.sleep(2000)

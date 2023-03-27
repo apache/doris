@@ -727,6 +727,8 @@ public class Load {
                 } else {
                     if (formatType == TFileFormatType.FORMAT_JSON
                                 && tbl instanceof OlapTable && ((OlapTable) tbl).isDynamicSchema()) {
+                        // Dynamic table does not require conversion from VARCHAR to corresponding data types.
+                        // Some columns are self-described and their types are dynamically generated.
                         slotDesc.setType(tblColumn.getType());
                         slotDesc.setColumn(new Column(realColName, tblColumn.getType()));
                         slotDesc.setIsNullable(tblColumn.isAllowNull());
@@ -756,8 +758,10 @@ public class Load {
                                     "stream load auto dynamic column");
             slotDesc.setType(Type.VARIANT);
             slotDesc.setColumn(col);
-            // alaways nullable
-            slotDesc.setIsNullable(true);
+            slotDesc.setIsNullable(false);
+            // Non-nullable slots will have 0 for the byte offset and -1 for the bit mask
+            slotDesc.setNullIndicatorBit(-1);
+            slotDesc.setNullIndicatorByte(0);
             slotDesc.setIsMaterialized(true);
             srcSlotIds.add(slotDesc.getId().asInt());
             slotDescByName.put(name, slotDesc);

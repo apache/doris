@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -203,10 +204,10 @@ public class ExpressionUtils {
     /**
      * Choose the minimum slot from input parameter.
      */
-    public static Slot selectMinimumColumn(List<Slot> slots) {
+    public static <S extends NamedExpression> S selectMinimumColumn(Collection<S> slots) {
         Preconditions.checkArgument(!slots.isEmpty());
-        Slot minSlot = null;
-        for (Slot slot : slots) {
+        S minSlot = null;
+        for (S slot : slots) {
             if (minSlot == null) {
                 minSlot = slot;
             } else {
@@ -346,11 +347,11 @@ public class ExpressionUtils {
      * infer notNulls slot from predicate
      */
     public static Set<Slot> inferNotNullSlots(Set<Expression> predicates, CascadesContext cascadesContext) {
-        Literal nullLiteral = Literal.of(null);
         Set<Slot> notNullSlots = Sets.newHashSet();
         for (Expression predicate : predicates) {
             for (Slot slot : predicate.getInputSlots()) {
                 Map<Expression, Expression> replaceMap = new HashMap<>();
+                Literal nullLiteral = new NullLiteral(slot.getDataType());
                 replaceMap.put(slot, nullLiteral);
                 Expression evalExpr = FoldConstantRule.INSTANCE.rewrite(
                         ExpressionUtils.replace(predicate, replaceMap),
@@ -409,6 +410,13 @@ public class ExpressionUtils {
         return expressions.stream()
                 .flatMap(expr -> expr.<Set<E>>collect(predicate).stream())
                 .collect(ImmutableSet.toImmutableSet());
+    }
+
+    public static <E> Set<E> mutableCollect(List<? extends Expression> expressions,
+            Predicate<TreeNode<Expression>> predicate) {
+        return expressions.stream()
+                .flatMap(expr -> expr.<Set<E>>collect(predicate).stream())
+                .collect(Collectors.toSet());
     }
 
     public static <E> List<E> collectAll(List<? extends Expression> expressions,

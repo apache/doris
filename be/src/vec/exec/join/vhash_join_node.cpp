@@ -474,41 +474,46 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
     Status st;
     if (_probe_index < _probe_block.rows()) {
         DCHECK(_has_set_need_null_map_for_probe);
-        std::visit(
-                [&](auto&& arg, auto&& process_hashtable_ctx, auto need_null_map_for_probe,
-                    auto ignore_null) {
-                    using HashTableProbeType = std::decay_t<decltype(process_hashtable_ctx)>;
-                    if constexpr (!std::is_same_v<HashTableProbeType, std::monostate>) {
-                        using HashTableCtxType = std::decay_t<decltype(arg)>;
-                        if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                            if (_have_other_join_conjunct) {
-                                st = process_hashtable_ctx
-                                             .template do_process_with_other_join_conjuncts<
-                                                     need_null_map_for_probe, ignore_null>(
-                                                     arg,
-                                                     need_null_map_for_probe
-                                                             ? &_null_map_column->get_data()
-                                                             : nullptr,
-                                                     mutable_join_block, &temp_block,
-                                                     _probe_block.rows(), _is_mark_join);
+        try {
+            std::visit(
+                    [&](auto&& arg, auto&& process_hashtable_ctx, auto need_null_map_for_probe,
+                        auto ignore_null) {
+                        using HashTableProbeType = std::decay_t<decltype(process_hashtable_ctx)>;
+                        if constexpr (!std::is_same_v<HashTableProbeType, std::monostate>) {
+                            using HashTableCtxType = std::decay_t<decltype(arg)>;
+                            if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
+                                if (_have_other_join_conjunct) {
+                                    st = process_hashtable_ctx
+                                                 .template do_process_with_other_join_conjuncts<
+                                                         need_null_map_for_probe, ignore_null>(
+                                                         arg,
+                                                         need_null_map_for_probe
+                                                                 ? &_null_map_column->get_data()
+                                                                 : nullptr,
+                                                         mutable_join_block, &temp_block,
+                                                         _probe_block.rows(), _is_mark_join);
+                                } else {
+                                    st = process_hashtable_ctx.template do_process<
+                                            need_null_map_for_probe, ignore_null>(
+                                            arg,
+                                            need_null_map_for_probe ? &_null_map_column->get_data()
+                                                                    : nullptr,
+                                            mutable_join_block, &temp_block, _probe_block.rows(),
+                                            _is_mark_join);
+                                }
                             } else {
-                                st = process_hashtable_ctx.template do_process<
-                                        need_null_map_for_probe, ignore_null>(
-                                        arg,
-                                        need_null_map_for_probe ? &_null_map_column->get_data()
-                                                                : nullptr,
-                                        mutable_join_block, &temp_block, _probe_block.rows(),
-                                        _is_mark_join);
+                                LOG(FATAL) << "FATAL: uninited hash table";
                             }
                         } else {
-                            LOG(FATAL) << "FATAL: uninited hash table";
+                            LOG(FATAL) << "FATAL: uninited hash table probe";
                         }
-                    } else {
-                        LOG(FATAL) << "FATAL: uninited hash table probe";
-                    }
-                },
-                *_hash_table_variants, *_process_hashtable_ctx_variants,
-                make_bool_variant(_need_null_map_for_probe), make_bool_variant(_probe_ignore_null));
+                    },
+                    *_hash_table_variants, *_process_hashtable_ctx_variants,
+                    make_bool_variant(_need_null_map_for_probe),
+                    make_bool_variant(_probe_ignore_null));
+        } catch (const doris::Exception& e) {
+            return Status::Error(e.code(), e.to_string());
+        }
     } else if (_probe_eos) {
         if (_is_right_semi_anti || (_is_outer_join && _join_op != TJoinOp::LEFT_OUTER_JOIN)) {
             std::visit(
@@ -598,6 +603,22 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
         *eos = true;
         return Status::OK();
     }
+
+    if (_join_op == TJoinOp::RIGHT_OUTER_JOIN) {
+        const auto hash_table_empty = std::visit(
+                Overload {[&](std::monostate&) -> bool {
+                              LOG(FATAL) << "FATAL: uninited hash table";
+                              __builtin_unreachable();
+                          },
+                          [&](auto&& arg) -> bool { return arg.hash_table.size() == 0; }},
+                *_hash_table_variants);
+
+        if (hash_table_empty) {
+            *eos = true;
+            return Status::OK();
+        }
+    }
+
     while (need_more_input_data()) {
         prepare_for_next();
         SCOPED_TIMER(_probe_next_timer);
@@ -865,7 +886,7 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
 
     // Since the comparison of null values is meaningless, null aware left anti join should not output null
     // when the build side is not empty.
-    if (eos && !_build_blocks->empty() && _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+    if (!_build_blocks->empty() && _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
         _probe_ignore_null = true;
     }
     return Status::OK();

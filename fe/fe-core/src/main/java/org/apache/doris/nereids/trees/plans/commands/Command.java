@@ -25,7 +25,7 @@ import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import org.jetbrains.annotations.Nullable;
 
@@ -47,9 +47,9 @@ public abstract class Command extends AbstractPlan implements LogicalPlan {
 
     public Command(PlanType type, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> optLogicalProperties,
-            @Nullable StatsDeriveResult statsDeriveResult,
+            @Nullable Statistics statistics,
             Plan... children) {
-        super(type, groupExpression, optLogicalProperties, statsDeriveResult, children);
+        super(type, groupExpression, optLogicalProperties, statistics, children);
     }
 
     @Override

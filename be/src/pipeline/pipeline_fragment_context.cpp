@@ -344,6 +344,9 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     if (request.__isset.load_job_id) {
         _runtime_state->set_load_job_id(request.load_job_id);
     }
+    if (request.__isset.shared_scan_opt) {
+        _runtime_state->set_shared_scan_opt(request.shared_scan_opt);
+    }
 
     if (request.query_options.__isset.is_report_success) {
         fragment_context->set_is_report_success(request.query_options.is_report_success);
@@ -556,10 +559,15 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         break;
     }
     case TPlanNodeType::MYSQL_SCAN_NODE: {
+#ifdef DORIS_WITH_MYSQL
         OperatorBuilderPtr operator_t =
                 std::make_shared<MysqlScanOperatorBuilder>(next_operator_builder_id(), node);
         RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
         break;
+#else
+        return Status::InternalError(
+                "Don't support MySQL table, you should rebuild Doris with WITH_MYSQL option ON");
+#endif
     }
     case TPlanNodeType::SCHEMA_SCAN_NODE: {
         OperatorBuilderPtr operator_t =

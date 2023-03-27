@@ -27,8 +27,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.Utils;
 
-import com.google.common.base.Preconditions;
-
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -52,6 +50,7 @@ public class InnerJoinLAsscom extends OneExplorationRuleFactory {
         return innerLogicalJoin(innerLogicalJoin(), group())
                 .when(topJoin -> checkReorder(topJoin, topJoin.left()))
                 .whenNot(join -> join.hasJoinHint() || join.left().hasJoinHint())
+                .whenNot(join -> join.isMarkJoin() || join.left().isMarkJoin())
                 .then(topJoin -> {
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left();
                     GroupPlan a = bottomJoin.left();
@@ -63,17 +62,16 @@ public class InnerJoinLAsscom extends OneExplorationRuleFactory {
                             bottomJoin, bottomJoin.getHashJoinConjuncts());
                     List<Expression> newTopHashConjuncts = splitHashConjuncts.get(true);
                     List<Expression> newBottomHashConjuncts = splitHashConjuncts.get(false);
-                    Preconditions.checkState(!newTopHashConjuncts.isEmpty(),
-                            "LAsscom newTopHashJoinConjuncts join can't empty");
-                    if (newBottomHashConjuncts.size() == 0) {
-                        return null;
-                    }
 
                     // split OtherJoinConjuncts.
                     Map<Boolean, List<Expression>> splitOtherConjunts = splitConjuncts(topJoin.getOtherJoinConjuncts(),
                             bottomJoin, bottomJoin.getOtherJoinConjuncts());
                     List<Expression> newTopOtherConjuncts = splitOtherConjunts.get(true);
                     List<Expression> newBottomOtherConjuncts = splitOtherConjunts.get(false);
+
+                    if (newBottomHashConjuncts.isEmpty() && newBottomOtherConjuncts.isEmpty()) {
+                        return null;
+                    }
 
                     LogicalJoin<Plan, Plan> newBottomJoin = topJoin.withConjunctsChildren(newBottomHashConjuncts,
                             newBottomOtherConjuncts, a, c);
@@ -93,7 +91,8 @@ public class InnerJoinLAsscom extends OneExplorationRuleFactory {
     public static boolean checkReorder(LogicalJoin<? extends Plan, GroupPlan> topJoin,
             LogicalJoin<GroupPlan, GroupPlan> bottomJoin) {
         return !bottomJoin.getJoinReorderContext().hasCommuteZigZag()
-                && !topJoin.getJoinReorderContext().hasLAsscom();
+                && !topJoin.getJoinReorderContext().hasLAsscom()
+                && (!bottomJoin.isMarkJoin() && !topJoin.isMarkJoin());
     }
 
     /**

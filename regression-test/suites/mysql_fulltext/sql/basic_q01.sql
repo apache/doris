@@ -1,5 +1,3 @@
-SET enable_vectorized_engine=true;
-
 SELECT * FROM articles_uk WHERE title MATCH_ANY 'Database' OR body MATCH_ANY 'Database' ORDER BY id;
 SELECT COUNT(*) FROM articles_uk WHERE title MATCH_ANY 'database' OR body MATCH_ANY 'database';
 SELECT * FROM articles_uk WHERE title MATCH_ANY 'Tutorial' OR body MATCH_ANY 'Tutorial' ORDER BY id;

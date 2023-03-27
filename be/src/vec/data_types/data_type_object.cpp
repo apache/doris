@@ -22,6 +22,7 @@
 #include <vec/data_types/data_type_object.h>
 #include <vec/io/io_helper.h>
 
+#include <cassert>
 #include <vec/data_types/data_type_factory.hpp>
 
 namespace doris::vectorized {
@@ -65,6 +66,10 @@ int64_t DataTypeObject::get_uncompressed_serialized_bytes(const IColumn& column,
 char* DataTypeObject::serialize(const IColumn& column, char* buf, int be_exec_version) const {
     const auto& column_object = assert_cast<const ColumnObject&>(column);
     assert(column_object.is_finalized());
+#ifndef NDEBUG
+    // DCHECK size
+    column_object.check_consistency();
+#endif
 
     const auto& subcolumns = column_object.get_subcolumns();
 
@@ -123,7 +128,10 @@ const char* DataTypeObject::deserialize(const char* buf, IColumn* column,
     }
 
     column_object->finalize();
-
+#ifndef NDEBUG
+    // DCHECK size
+    column_object->check_consistency();
+#endif
     return buf;
 }
 

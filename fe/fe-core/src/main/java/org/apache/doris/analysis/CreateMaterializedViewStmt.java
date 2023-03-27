@@ -18,12 +18,15 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
@@ -87,6 +90,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
      * This order of mvColumnItemList is meaningful.
      */
     private List<MVColumnItem> mvColumnItemList = Lists.newArrayList();
+    MVColumnItem whereClauseItem;
     private String baseIndexName;
     private String dbName;
     private KeysType mvKeysType = KeysType.DUP_KEYS;
@@ -136,6 +140,17 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         return mvKeysType;
     }
 
+    public Column getWhereClauseItemExpr(OlapTable olapTable) throws DdlException {
+        if (whereClauseItem == null) {
+            return null;
+        }
+        return whereClauseItem.toMVColumn(olapTable);
+    }
+
+    public Expr getWhereClause() {
+        return selectStmt.getWhereClause();
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
@@ -150,8 +165,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         analyzeSelectClause(analyzer);
         analyzeFromClause();
         if (selectStmt.getWhereClause() != null) {
-            throw new AnalysisException("The where clause is not supported in add materialized view clause, expr:"
-                    + selectStmt.getWhereClause().toSql());
+            whereClauseItem = new MVColumnItem(selectStmt.getWhereClause());
         }
         if (selectStmt.getHavingPred() != null) {
             throw new AnalysisException("The having clause is not supported in add materialized view clause, expr:"
@@ -236,6 +250,10 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             throw new AnalysisException("The materialized view only support one table in from clause.");
         }
         TableName tableName = tableRefList.get(0).getName();
+        if (tableName == null) {
+            throw new AnalysisException("table in from clause is invalid, please check if it's single table "
+                    + "and not sub-query");
+        }
         baseIndexName = tableName.getTbl();
         dbName = tableName.getDb();
     }

@@ -52,7 +52,7 @@ suite("test_array_export", "export") {
     
     // define the table and out file path
     def tableName = "array_outfile_test"
-    def outFilePath = """${context.file.parent}/tmp"""
+    def outFilePath = """${context.file.parent}/test_array_export"""
     logger.warn("test_array_export the outFilePath=" + outFilePath)
     
     def create_test_table = {testTablex ->

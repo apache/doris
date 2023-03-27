@@ -27,12 +27,12 @@
 
 namespace doris {
 
-typedef bool (*CompareLargeFunc)(const void*, const void*);
+using CompareLargeFunc = bool (*)(const void*, const void*);
 
 static const char* NEGATIVE_INFINITY = "-oo";
 static const char* POSITIVE_INFINITY = "+oo";
 
-typedef struct OlapScanRange {
+struct OlapScanRange {
 public:
     OlapScanRange() : begin_include(true), end_include(true) {
         begin_scan_range.add_value(NEGATIVE_INFINITY);
@@ -49,7 +49,7 @@ public:
     bool end_include;
     OlapTuple begin_scan_range;
     OlapTuple end_scan_range;
-} OlapScanRange;
+};
 
 static char encoding_table[] = {'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
                                 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
@@ -97,7 +97,7 @@ enum SQLFilterOp {
 };
 
 template <PrimitiveType>
-static constexpr bool always_false_v = false;
+constexpr bool always_false_v = false;
 
 inline SQLFilterOp to_olap_filter_type(TExprOpcode::type type, bool opposite) {
     switch (type) {

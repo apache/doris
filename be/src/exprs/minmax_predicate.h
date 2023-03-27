@@ -41,23 +41,14 @@ template <class T>
 class MinMaxNumFunc : public MinMaxFuncBase {
 public:
     MinMaxNumFunc() = default;
-    ~MinMaxNumFunc() = default;
+    ~MinMaxNumFunc() override = default;
 
     void insert(const void* data) override {
         if (data == nullptr) {
             return;
         }
 
-        T val_data;
-        if constexpr (std::is_same_v<T, DateTimeValue>) {
-            reinterpret_cast<const vectorized::VecDateTimeValue*>(data)->convert_vec_dt_to_dt(
-                    &val_data);
-        } else if constexpr (sizeof(T) >= sizeof(int128_t)) {
-            // use dereference operator on unalign address maybe lead segmentation fault
-            memcpy(&val_data, data, sizeof(T));
-        } else {
-            val_data = *reinterpret_cast<const T*>(data);
-        }
+        T val_data = *reinterpret_cast<const T*>(data);
 
         if (_empty) {
             _min = val_data;

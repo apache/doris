@@ -25,6 +25,7 @@ import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.NullLiteral;
+import org.apache.doris.analysis.SchemaChangeExpr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
@@ -113,7 +114,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
     }
 
     private Type type = Type.QUERY;
-    private final BackendPolicy backendPolicy = new BackendPolicy();
+    private final FederationBackendPolicy backendPolicy = new FederationBackendPolicy();
 
     // Only for load job.
     // Save all info about load attributes and files.
@@ -292,6 +293,16 @@ public class ExternalFileScanNode extends ExternalScanNode {
                 scanProvider = new IcebergScanProvider(hmsSource, analyzer);
                 break;
             case HIVE:
+                String inputFormat = hmsTable.getRemoteTable().getSd().getInputFormat();
+                if (inputFormat.contains("TextInputFormat")) {
+                    for (SlotDescriptor slot : desc.getSlots()) {
+                        if (!slot.getType().isScalarType()) {
+                            throw new UserException("For column `" + slot.getColumn().getName()
+                                    + "`, The column types ARRAY/MAP/STRUCT are not supported yet"
+                                    + " for text input format of Hive. ");
+                        }
+                    }
+                }
                 scanProvider = new HiveScanProvider(hmsTable, desc, columnNameToRange);
                 break;
             default:
@@ -616,6 +627,10 @@ public class ExternalFileScanNode extends ExternalScanNode {
                 String name = "jsonb_parse_" + nullable + "_error_to_null";
                 expr = new FunctionCallExpr(name, args);
                 expr.analyze(analyzer);
+            } else if (dstType == PrimitiveType.VARIANT) {
+                // Generate SchemaChange expr for dynamicly generating columns
+                TableIf targetTbl = desc.getTable();
+                expr = new SchemaChangeExpr((SlotRef) expr, (int) targetTbl.getId());
             } else {
                 expr = castToSlot(destSlotDesc, expr);
             }
@@ -729,6 +744,9 @@ public class ExternalFileScanNode extends ExternalScanNode {
                             .append(" start: ").append(file.getStartOffset())
                             .append(" length: ").append(file.getFileSize())
                             .append("\n");
+                }
+                if (files.size() > 3) {
+                    output.append(prefix).append("    ...other ").append(files.size() - 3).append(" files\n");
                 }
             }
         }

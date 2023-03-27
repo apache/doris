@@ -59,7 +59,7 @@ CREATE CATALOG iceberg PROPERTIES (
 
 </version>
 
-- Hive Metastore作为元数据服务
+#### Hive Metastore作为元数据服务
 
 ```sql
 CREATE CATALOG iceberg PROPERTIES (
@@ -75,7 +75,7 @@ CREATE CATALOG iceberg PROPERTIES (
 );
 ```
 
-- Glue Catalog作为元数据服务
+#### Glue Catalog作为元数据服务
 
 ```sql
 CREATE CATALOG glue PROPERTIES (
@@ -94,6 +94,8 @@ CREATE CATALOG glue PROPERTIES (
 `glue.endpoint`: Glue Endpoint. 参阅：[AWS Glue endpoints and quotas](https://docs.aws.amazon.com/general/latest/gr/glue.html).
 
 `warehouse`: Glue Warehouse Location. Glue Catalog的根路径，用于指定数据存放位置。
+
+属性详情参见 [Iceberg Glue Catalog](https://iceberg.apache.org/docs/latest/aws/#glue-catalog)
 
 - REST Catalog作为元数据服务
 

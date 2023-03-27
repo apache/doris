@@ -35,6 +35,9 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
+import org.apache.doris.task.AgentBatchTask;
+import org.apache.doris.task.AgentTaskExecutor;
+import org.apache.doris.task.PushStoragePolicyTask;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
@@ -50,6 +53,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -508,6 +512,13 @@ public class PolicyMgr implements Writable {
 
         // log alter
         Env.getCurrentEnv().getEditLog().logAlterStoragePolicy(storagePolicy);
+        AgentBatchTask batchTask = new AgentBatchTask();
+        for (long backendId : Env.getCurrentSystemInfo().getIdToBackend().keySet()) {
+            PushStoragePolicyTask pushStoragePolicyTask = new PushStoragePolicyTask(backendId,
+                    Collections.singletonList(storagePolicy), Collections.emptyList(), Collections.emptyList());
+            batchTask.addTask(pushStoragePolicyTask);
+        }
+        AgentTaskExecutor.submit(batchTask);
         LOG.info("Alter storage policy success. policy: {}", storagePolicy);
     }
 

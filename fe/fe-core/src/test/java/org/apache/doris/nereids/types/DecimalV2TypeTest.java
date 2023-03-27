@@ -21,15 +21,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class DecimalV2TypeTest {
-    @Test
-    public void testIsWiderThan() {
-        Assertions.assertTrue(DecimalV2Type.createDecimalV2Type(10, 5)
-                .isWiderThan(DecimalV2Type.createDecimalV2Type(8, 4)));
-        Assertions.assertFalse(DecimalV2Type.createDecimalV2Type(10, 5)
-                .isWiderThan(DecimalV2Type.createDecimalV2Type(8, 6)));
-        Assertions.assertFalse(DecimalV2Type.createDecimalV2Type(10, 5)
-                .isWiderThan(DecimalV2Type.createDecimalV2Type(8, 2)));
-    }
 
     @Test
     public void testWiderDecimal() {

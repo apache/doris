@@ -77,44 +77,6 @@ typename std::decay_t<Visitor>::ResultType apply_visitor(Visitor&& visitor, F&& 
 }
 
 template <typename Visitor, typename F1, typename F2>
-static typename std::decay_t<Visitor>::ResultType apply_binary_visitor_impl(Visitor&& visitor,
-                                                                            F1&& field1,
-                                                                            F2&& field2) {
-    switch (field2.getType()) {
-    case Field::Types::Null:
-        return visitor(field1, field2.template get<Null>());
-    case Field::Types::UInt64:
-        return visitor(field1, field2.template get<UInt64>());
-    case Field::Types::UInt128:
-        return visitor(field1, field2.template get<UInt128>());
-    case Field::Types::Int64:
-        return visitor(field1, field2.template get<Int64>());
-    case Field::Types::Float64:
-        return visitor(field1, field2.template get<Float64>());
-    case Field::Types::String:
-        return visitor(field1, field2.template get<String>());
-    case Field::Types::Array:
-        return visitor(field1, field2.template get<Array>());
-    case Field::Types::Tuple:
-        return visitor(field1, field2.template get<Tuple>());
-    case Field::Types::Decimal32:
-        return visitor(field1, field2.template get<DecimalField<Decimal32>>());
-    case Field::Types::Decimal64:
-        return visitor(field1, field2.template get<DecimalField<Decimal64>>());
-    case Field::Types::Decimal128:
-        return visitor(field1, field2.template get<DecimalField<Decimal128>>());
-    case Field::Types::Decimal128I:
-        return visitor(field1, field2.template get<DecimalField<Decimal128I>>());
-    case Field::Types::AggregateFunctionState:
-        return visitor(field1, field2.template get<AggregateFunctionStateData>());
-
-    default:
-        LOG(FATAL) << "Bad type of Field";
-        return {};
-    }
-}
-
-template <typename Visitor, typename F1, typename F2>
 typename std::decay_t<Visitor>::ResultType apply_visitor(Visitor&& visitor, F1&& field1,
                                                          F2&& field2) {
     switch (field1.getType()) {

@@ -18,6 +18,7 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_CONTEXT_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_CONTEXT_H
 
+#include "io/io_common.h"
 #include "olap/column_predicate.h"
 #include "olap/olap_common.h"
 #include "runtime/runtime_state.h"
@@ -64,6 +65,7 @@ struct RowsetReaderContext {
     OlapReaderStatistics* stats = nullptr;
     RuntimeState* runtime_state = nullptr;
     vectorized::VExpr* remaining_vconjunct_root = nullptr;
+    vectorized::VExprContext* common_vexpr_ctxs_pushdown = nullptr;
     bool use_page_cache = false;
     int sequence_id_idx = -1;
     int batch_size = 1024;

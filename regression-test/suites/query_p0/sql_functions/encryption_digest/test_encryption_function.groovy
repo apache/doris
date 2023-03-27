@@ -16,6 +16,18 @@
 // under the License.
 
 suite("test_encryption_function") {
+    def tableName = "dwd_candidates"
+    sql "DROP TABLE IF EXISTS ${tableName}"
+    sql """
+        CREATE TABLE IF NOT EXISTS ${tableName} (
+          c_int INT,
+          `name` varchar(65530) NULL COMMENT ""
+        )
+        DISTRIBUTED BY HASH(c_int) BUCKETS 1
+        PROPERTIES (
+          "replication_num" = "1"
+        )
+    """
     sql "set batch_size = 4096;"
 
     sql "set block_encryption_mode=\"AES_256_CBC\";"
@@ -47,11 +59,10 @@ suite("test_encryption_function") {
     qt_sql "SELECT TO_BASE64(AES_ENCRYPT('text','F3229A0B371ED2D9441B830D21A390C3', '0123456789'));"
     qt_sql "SELECT AES_DECRYPT(FROM_BASE64('wr2JEDVXzL9+2XtRhgIloA=='),'F3229A0B371ED2D9441B830D21A390C3');"
     qt_sql "SELECT AES_DECRYPT(FROM_BASE64('mvZT1KJw7N0RJf27aipUpg=='),'F3229A0B371ED2D9441B830D21A390C3', '0123456789');"
-
-    qt_sql "SELECT MD5(\"abc\");"
-
-    qt_sql "SELECT MD5(\"abcd\");"
-    qt_sql "SELECT MD5SUM(\"ab\",\"cd\");"
+    explain {
+        sql "SELECT AES_DECRYPT(UNHEX(r_2_3.`name`), 'namePnhe3E0MWyfZivUnVzDy12caymnrKp', '0123456789') AS x0 FROM dwd_candidates AS r_2_3\n" +
+                "GROUP BY x0;"
+    }
 
     sql "set block_encryption_mode=\"SM4_128_CBC\";"
     qt_sql "SELECT TO_BASE64(SM4_ENCRYPT('text','F3229A0B371ED2D9441B830D21A390C3'));"

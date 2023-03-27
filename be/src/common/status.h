@@ -13,7 +13,6 @@
 
 #include "common/compiler_util.h"
 #include "gen_cpp/Status_types.h" // for TStatus
-#include "service/backend_options.h"
 #ifdef ENABLE_STACKTRACE
 #include "util/stack_util.h"
 #endif
@@ -72,6 +71,7 @@ E(FILE_FORMAT_ERROR, -119);
 E(EVAL_CONJUNCTS_ERROR, -120);
 E(COPY_FILE_ERROR, -121);
 E(FILE_ALREADY_EXIST, -122);
+E(BAD_CAST, -123);
 E(CALL_SEQUENCE_ERROR, -202);
 E(BUFFER_OVERFLOW, -204);
 E(CONFIG_ERROR, -205);
@@ -246,19 +246,21 @@ E(SEGCOMPACTION_INIT_READER, -3117);
 E(SEGCOMPACTION_INIT_WRITER, -3118);
 E(SEGCOMPACTION_FAILED, -3119);
 E(PIP_WAIT_FOR_RF, -3120);
+E(PIP_WAIT_FOR_SC, -3121);
 E(INVERTED_INDEX_INVALID_PARAMETERS, -6000);
 E(INVERTED_INDEX_NOT_SUPPORTED, -6001);
 E(INVERTED_INDEX_CLUCENE_ERROR, -6002);
 E(INVERTED_INDEX_FILE_NOT_FOUND, -6003);
 E(INVERTED_INDEX_FILE_HIT_LIMIT, -6004);
 E(INVERTED_INDEX_NO_TERMS, -6005);
+E(INVERTED_INDEX_RENAME_FILE_FAILED, -6006);
 #undef E
 } // namespace ErrorCode
 
 // clang-format off
 // whether to capture stacktrace
 template <int code>
-static constexpr bool capture_stacktrace() {
+constexpr bool capture_stacktrace() {
     return code != ErrorCode::OK
         && code != ErrorCode::END_OF_FILE
         && code != ErrorCode::MEM_LIMIT_EXCEEDED
@@ -300,7 +302,6 @@ public:
         if (rhs._err_msg) {
             _err_msg = std::make_unique<ErrMsg>(*rhs._err_msg);
         }
-        _be_ip = rhs._be_ip;
         return *this;
     }
 
@@ -383,6 +384,7 @@ public:
     ERROR_CTOR(EndOfFile, END_OF_FILE)
     ERROR_CTOR(InternalError, INTERNAL_ERROR)
     ERROR_CTOR(WaitForRf, PIP_WAIT_FOR_RF)
+    ERROR_CTOR(WaitForScannerContext, PIP_WAIT_FOR_SC)
     ERROR_CTOR(RuntimeError, RUNTIME_ERROR)
     ERROR_CTOR(Cancelled, CANCELLED)
     ERROR_CTOR(MemoryLimitExceeded, MEM_LIMIT_EXCEEDED)
@@ -401,8 +403,6 @@ public:
     }
 
     bool ok() const { return _code == ErrorCode::OK; }
-
-    bool is_blocked_by_rf() const { return _code == ErrorCode::PIP_WAIT_FOR_RF; }
 
     bool is_io_error() const {
         return ErrorCode::IO_ERROR == _code || ErrorCode::READ_UNENOUGH == _code ||
@@ -479,12 +479,10 @@ private:
 #endif
     };
     std::unique_ptr<ErrMsg> _err_msg;
-    std::string_view _be_ip = BackendOptions::get_localhost();
 };
 
 inline std::ostream& operator<<(std::ostream& ostr, const Status& status) {
     ostr << '[' << status.code_as_string() << ']';
-    ostr << '[' << status._be_ip << ']';
     ostr << (status._err_msg ? status._err_msg->_msg : "");
 #ifdef ENABLE_STACKTRACE
     if (status._err_msg && !status._err_msg->_stack.empty()) {
@@ -510,7 +508,7 @@ inline std::string Status::to_string() const {
     } while (false)
 
 #define RETURN_ERROR_IF_NON_VEC \
-    return Status::NotSupported("Non-vectorized engine is not supported since Doris 1.3+.");
+    return Status::NotSupported("Non-vectorized engine is not supported since Doris 2.0.");
 
 // End _get_next_span after last call to get_next method
 #define RETURN_IF_ERROR_AND_CHECK_SPAN(stmt, get_next_span, done) \

@@ -56,7 +56,7 @@ import java.util.BitSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -68,6 +68,7 @@ public class PlanReceiver implements AbstractReceiver {
     HashMap<Long, Group> planTable = new HashMap<>();
     HashMap<Long, BitSet> usdEdges = new HashMap<>();
     HashMap<Long, List<NamedExpression>> projectsOnSubgraph = new HashMap<>();
+    HashMap<Long, List<NamedExpression>> complexProjectMap = new HashMap<>();
     int limit;
     int emitCount = 0;
 
@@ -226,16 +227,19 @@ public class PlanReceiver implements AbstractReceiver {
                 () -> JoinUtils.getJoinOutput(joinType, left, right));
         if (JoinUtils.shouldNestedLoopJoin(joinType, hashConjuncts)) {
             return Lists.newArrayList(
-                    new PhysicalNestedLoopJoin<>(joinType, hashConjuncts, otherConjuncts, joinProperties, left,
-                            right),
-                    new PhysicalNestedLoopJoin<>(joinType.swap(), hashConjuncts, otherConjuncts, joinProperties,
+                    new PhysicalNestedLoopJoin<>(joinType, hashConjuncts, otherConjuncts,
+                            Optional.empty(), joinProperties,
+                            left, right),
+                    new PhysicalNestedLoopJoin<>(joinType.swap(), hashConjuncts, otherConjuncts, Optional.empty(),
+                            joinProperties,
                             right, left));
         } else {
             return Lists.newArrayList(
-                    new PhysicalHashJoin<>(joinType, hashConjuncts, otherConjuncts, JoinHint.NONE, joinProperties,
-                            left,
-                            right),
+                    new PhysicalHashJoin<>(joinType, hashConjuncts, otherConjuncts, JoinHint.NONE, Optional.empty(),
+                            joinProperties,
+                            left, right),
                     new PhysicalHashJoin<>(joinType.swap(), hashConjuncts, otherConjuncts, JoinHint.NONE,
+                            Optional.empty(),
                             joinProperties,
                             right, left));
         }
@@ -258,6 +262,17 @@ public class PlanReceiver implements AbstractReceiver {
         return joinType;
     }
 
+    private boolean extractIsMarkJoin(List<Edge> edges) {
+        boolean isMarkJoin = false;
+        JoinType joinType = null;
+        for (Edge edge : edges) {
+            Preconditions.checkArgument(joinType == null || joinType == edge.getJoinType());
+            isMarkJoin = edge.getJoin().isMarkJoin() || isMarkJoin;
+            joinType = edge.getJoinType();
+        }
+        return isMarkJoin;
+    }
+
     @Override
     public void addGroup(long bitmap, Group group) {
         Preconditions.checkArgument(LongBitmap.getCardinality(bitmap) == 1);
@@ -278,10 +293,13 @@ public class PlanReceiver implements AbstractReceiver {
 
     @Override
     public void reset() {
+        Preconditions.checkArgument(complexProjectMap.isEmpty(),
+                "complexProjectMap should be empty when call reset()");
         planTable.clear();
         projectsOnSubgraph.clear();
         usdEdges.clear();
         emitCount = 0;
+        complexProjectMap.putAll(hyperGraph.getComplexProject());
     }
 
     @Override
@@ -322,8 +340,8 @@ public class PlanReceiver implements AbstractReceiver {
             } else if (physicalPlan instanceof AbstractPhysicalJoin) {
                 AbstractPhysicalJoin physicalJoin = (AbstractPhysicalJoin) physicalPlan;
                 logicalPlan = new LogicalJoin<>(physicalJoin.getJoinType(), physicalJoin.getHashJoinConjuncts(),
-                        physicalJoin.getOtherJoinConjuncts(), JoinHint.NONE, physicalJoin.child(0),
-                        physicalJoin.child(1));
+                        physicalJoin.getOtherJoinConjuncts(), JoinHint.NONE, physicalJoin.getMarkJoinSlotReference(),
+                        physicalJoin.child(0), physicalJoin.child(1));
             } else {
                 throw new RuntimeException("DPhyp can only handle join and project operator");
             }
@@ -345,13 +363,12 @@ public class PlanReceiver implements AbstractReceiver {
         if (!projectsOnSubgraph.containsKey(fullKey)) {
             List<NamedExpression> projects = new ArrayList<>();
             // Calculate complex expression
-            Map<Long, List<NamedExpression>> complexExpressionMap = hyperGraph.getComplexProject();
-            List<Long> bitmaps = complexExpressionMap.keySet().stream()
+            List<Long> bitmaps = complexProjectMap.keySet().stream()
                     .filter(bitmap -> LongBitmap.isSubset(bitmap, fullKey)).collect(Collectors.toList());
 
             for (long bitmap : bitmaps) {
-                projects.addAll(complexExpressionMap.get(bitmap));
-                complexExpressionMap.remove(bitmap);
+                projects.addAll(complexProjectMap.get(bitmap));
+                complexProjectMap.remove(bitmap);
             }
 
             // calculate required columns

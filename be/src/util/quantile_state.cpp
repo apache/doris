@@ -113,22 +113,22 @@ bool QuantileState<T>::is_valid(const Slice& slice) {
 }
 
 template <typename T>
-T QuantileState<T>::get_explicit_value_by_percentile(float percentile) {
+T QuantileState<T>::get_explicit_value_by_percentile(float percentile) const {
     DCHECK(_type == EXPLICIT);
     int n = _explicit_data.size();
-    std::sort(_explicit_data.begin(), _explicit_data.end());
+    std::vector<T> sorted_data(_explicit_data.begin(), _explicit_data.end());
+    std::sort(sorted_data.begin(), sorted_data.end());
 
     double index = (n - 1) * percentile;
     int intIdx = (int)index;
     if (intIdx == n - 1) {
-        return _explicit_data[intIdx];
+        return sorted_data[intIdx];
     }
-    return _explicit_data[intIdx + 1] * (index - intIdx) +
-           _explicit_data[intIdx] * (intIdx + 1 - index);
+    return sorted_data[intIdx + 1] * (index - intIdx) + sorted_data[intIdx] * (intIdx + 1 - index);
 }
 
 template <typename T>
-T QuantileState<T>::get_value_by_percentile(float percentile) {
+T QuantileState<T>::get_value_by_percentile(float percentile) const {
     DCHECK(percentile >= 0 && percentile <= 1);
     switch (_type) {
     case EMPTY: {
@@ -191,7 +191,7 @@ bool QuantileState<T>::deserialize(const Slice& slice) {
     }
     case TDIGEST: {
         // 4: Tdigest object value
-        _tdigest_ptr = std::make_unique<TDigest>(0);
+        _tdigest_ptr = std::make_shared<TDigest>(0);
         _tdigest_ptr->unserialize(ptr);
         break;
     }
@@ -241,7 +241,7 @@ size_t QuantileState<T>::serialize(uint8_t* dst) const {
 }
 
 template <typename T>
-void QuantileState<T>::merge(QuantileState<T>& other) {
+void QuantileState<T>::merge(const QuantileState<T>& other) {
     switch (other._type) {
     case EMPTY:
         break;
@@ -263,7 +263,7 @@ void QuantileState<T>::merge(QuantileState<T>& other) {
         case EXPLICIT:
             if (_explicit_data.size() + other._explicit_data.size() > QUANTILE_STATE_EXPLICIT_NUM) {
                 _type = TDIGEST;
-                _tdigest_ptr = std::make_unique<TDigest>(_compression);
+                _tdigest_ptr = std::make_shared<TDigest>(_compression);
                 for (int i = 0; i < _explicit_data.size(); i++) {
                     _tdigest_ptr->add(_explicit_data[i]);
                 }
@@ -330,7 +330,7 @@ void QuantileState<T>::add_value(const T& value) {
         break;
     case EXPLICIT:
         if (_explicit_data.size() == QUANTILE_STATE_EXPLICIT_NUM) {
-            _tdigest_ptr = std::make_unique<TDigest>(_compression);
+            _tdigest_ptr = std::make_shared<TDigest>(_compression);
             for (int i = 0; i < _explicit_data.size(); i++) {
                 _tdigest_ptr->add(_explicit_data[i]);
             }

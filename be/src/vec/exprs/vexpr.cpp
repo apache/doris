@@ -27,13 +27,17 @@
 #include "vec/exprs/varray_literal.h"
 #include "vec/exprs/vcase_expr.h"
 #include "vec/exprs/vcast_expr.h"
+#include "vec/exprs/vcolumn_ref.h"
 #include "vec/exprs/vcompound_pred.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vinfo_func.h"
+#include "vec/exprs/vlambda_function_call_expr.h"
+#include "vec/exprs/vlambda_function_expr.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vmap_literal.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
+#include "vec/exprs/vschema_change_expr.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/exprs/vstruct_literal.h"
 #include "vec/exprs/vtuple_is_null_predicate.h"
@@ -145,8 +149,20 @@ Status VExpr::create_expr(doris::ObjectPool* pool, const doris::TExprNode& texpr
         *expr = pool->add(new VSlotRef(texpr_node));
         break;
     }
+    case doris::TExprNodeType::COLUMN_REF: {
+        *expr = pool->add(new VColumnRef(texpr_node));
+        break;
+    }
     case doris::TExprNodeType::COMPOUND_PRED: {
         *expr = pool->add(new VcompoundPred(texpr_node));
+        break;
+    }
+    case doris::TExprNodeType::LAMBDA_FUNCTION_EXPR: {
+        *expr = pool->add(new VLambdaFunctionExpr(texpr_node));
+        break;
+    }
+    case doris::TExprNodeType::LAMBDA_FUNCTION_CALL_EXPR: {
+        *expr = pool->add(new VLambdaFunctionCallExpr(texpr_node));
         break;
     }
     case doris::TExprNodeType::ARITHMETIC_EXPR:
@@ -178,6 +194,10 @@ Status VExpr::create_expr(doris::ObjectPool* pool, const doris::TExprNode& texpr
     }
     case TExprNodeType::TUPLE_IS_NULL_PRED: {
         *expr = pool->add(new VTupleIsNullPredicate(texpr_node));
+        break;
+    }
+    case TExprNodeType::SCHEMA_CHANGE_EXPR: {
+        *expr = pool->add(new VSchemaChangeExpr(texpr_node));
         break;
     }
     default:
@@ -380,7 +400,7 @@ Status VExpr::init_function_context(VExprContext* context,
             RETURN_IF_ERROR(c->get_const_col(context, &const_col));
             constant_cols.push_back(const_col);
         }
-        fn_ctx->impl()->set_constant_cols(constant_cols);
+        fn_ctx->set_constant_cols(constant_cols);
     }
 
     if (scope == FunctionContext::FRAGMENT_LOCAL) {

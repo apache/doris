@@ -26,7 +26,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -56,8 +56,8 @@ public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
 
     public PhysicalFilter(Set<Expression> conjuncts, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
-            StatsDeriveResult statsDeriveResult, CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_FILTER, groupExpression, logicalProperties, physicalProperties, statsDeriveResult,
+            Statistics statistics, CHILD_TYPE child) {
+        super(PlanType.PHYSICAL_FILTER, groupExpression, logicalProperties, physicalProperties, statistics,
                 child);
         this.conjuncts = ImmutableSet.copyOf(Objects.requireNonNull(conjuncts, "conjuncts can not be null"));
     }
@@ -73,9 +73,9 @@ public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalFilter",
+        return Utils.toSqlString("PhysicalFilter[" + id.asInt() + "]" + getGroupIdAsString(),
                 "predicates", getPredicate(),
-                "stats", statsDeriveResult
+                "stats", statistics
         );
     }
 
@@ -119,8 +119,8 @@ public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
 
     @Override
     public PhysicalFilter<CHILD_TYPE> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
-            StatsDeriveResult statsDeriveResult) {
-        return new PhysicalFilter<>(conjuncts, Optional.empty(), getLogicalProperties(), physicalProperties,
-                statsDeriveResult, child());
+            Statistics statistics) {
+        return new PhysicalFilter<>(conjuncts, groupExpression, getLogicalProperties(), physicalProperties,
+                statistics, child());
     }
 }

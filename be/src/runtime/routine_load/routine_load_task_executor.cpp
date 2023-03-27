@@ -320,8 +320,9 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
 
         std::vector<RdKafka::TopicPartition*> topic_partitions;
         for (auto& kv : ctx->kafka_info->cmt_offset) {
-            RdKafka::TopicPartition* tp1 =
-                    RdKafka::TopicPartition::create(ctx->kafka_info->topic, kv.first, kv.second);
+            // The offsets you commit are the offsets of the messages you want to read next
+            RdKafka::TopicPartition* tp1 = RdKafka::TopicPartition::create(ctx->kafka_info->topic,
+                                                                           kv.first, kv.second + 1);
             topic_partitions.push_back(tp1);
         }
 
@@ -370,8 +371,7 @@ Status RoutineLoadTaskExecutor::_execute_plan_for_test(std::shared_ptr<StreamLoa
             int64_t len = 1;
             size_t read_bytes = 0;
             Slice result((uint8_t*)&one, len);
-            IOContext io_ctx;
-            Status st = pipe->read_at(0, result, io_ctx, &read_bytes);
+            Status st = pipe->read_at(0, result, &read_bytes);
             if (!st.ok()) {
                 LOG(WARNING) << "read failed";
                 ctx->promise.set_value(st);

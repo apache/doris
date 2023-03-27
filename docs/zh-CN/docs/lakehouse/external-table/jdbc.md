@@ -150,9 +150,9 @@ CREATE EXTERNAL TABLE `ext_pg` (
   `k1` int
 ) ENGINE=JDBC
 PROPERTIES (
-"resource" = "jdbc_pg",
-"table" = "pg_tbl",
-"table_type"="postgresql"
+    "resource" = "jdbc_pg",
+    "table" = "pg_tbl",
+    "table_type"="postgresql"
 );
 ```
 
@@ -169,10 +169,37 @@ PROPERTIES (
 目前只测试了这一个版本其他版本测试后补充
 
 #### 5.ClickHouse测试
-| ClickHouse版本 | ClickHouse JDBC驱动版本 |
-|----------| ------------------- |
-| 22       | clickhouse-jdbc-0.3.2-patch11-all.jar |
+| ClickHouse版本 | ClickHouse JDBC驱动版本                   |
+|--------------|---------------------------------------|
+| 22           | clickhouse-jdbc-0.3.2-patch11-all.jar |
+| 22           | clickhouse-jdbc-0.4.1-all.jar         |
 
+#### 6.Sap_Hana测试
+
+| Sap_Hana版本 | Sap_Hana JDBC驱动版本 |
+|------------|-------------------|
+| 2.0        | ngdbc.jar         |
+
+```sql
+CREATE EXTERNAL RESOURCE jdbc_hana
+properties (
+    "type"="jdbc",
+    "user"="SYSTEM",
+    "password"="SAPHANA",
+    "jdbc_url" = "jdbc:sap://localhost:31515/TEST",
+    "driver_url" = "file:///path/to/ngdbc.jar",
+    "driver_class" = "com.sap.db.jdbc.Driver"
+);
+
+CREATE EXTERNAL TABLE `ext_hana` (
+  `k1` int
+) ENGINE=JDBC
+PROPERTIES (
+    "resource" = "jdbc_hana",
+    "table" = "TEST.HANA",
+    "table_type"="sap_hana"
+);
+```
 
 ## 类型匹配
 
@@ -243,26 +270,53 @@ PROPERTIES (
 
 ### ClickHouse
 
-| ClickHouse |  Doris   |
-|:----------:|:--------:|
-|  BOOLEAN   | BOOLEAN  |
-|    CHAR    |   CHAR   |
-|  VARCHAR   | VARCHAR  |
-|   STRING   |  STRING  |
-|    DATE    |   DATE   |
-|  Float32   |  FLOAT   |
-|  Float64   |  DOUBLE  |
-|    Int8    | TINYINT  |
-|   Int16    | SMALLINT |
-|   Int32    |   INT    |
-|   Int64    |  BIGINT  |
-|   Int128   | LARGEINT |
-|  DATETIME  | DATETIME |
-|  DECIMAL   | DECIMAL  |
+|                        ClickHouse                        |          Doris           |
+|:--------------------------------------------------------:|:------------------------:|
+|                         Boolean                          |         BOOLEAN          |
+|                          String                          |          STRING          |
+|                       Date/Date32                        |       DATE/DATEV2        |
+|                   DateTime/DateTime64                    |   DATETIME/DATETIMEV2    |
+|                         Float32                          |          FLOAT           |
+|                         Float64                          |          DOUBLE          |
+|                           Int8                           |         TINYINT          |
+|                       Int16/UInt8                        |         SMALLINT         |
+|                       Int32/UInt16                       |           INT            |
+|                       Int64/Uint32                       |          BIGINT          |
+|                      Int128/UInt64                       |         LARGEINT         |
+|                  Int256/UInt128/UInt256                  |          STRING          |
+|                         Decimal                          | DECIMAL/DECIMALV3/STRING |
+|                   Enum/IPv4/IPv6/UUID                    |          STRING          |
+| <version since="dev" type="inline"> Array(T)  </version> |        ARRAY\<T\>        |
 
 **注意：**
+
+- <version since="dev" type="inline"> 对于ClickHouse里的Array类型,可用Doris的Array类型来匹配，Array内的基础类型匹配参考基础类型匹配规则即可，不支持嵌套Array </version>
 - 对于ClickHouse里的一些特殊类型，如UUID,IPv4,IPv6,Enum8可以用Doris的Varchar/String类型来匹配,但是在显示上IPv4,IPv6会额外在数据最前面显示一个`/`,需要自己用`split_part`函数处理
 - 对于ClickHouse的Geo类型Point,无法进行匹配
+
+### SAP HANA
+
+|   SAP_HANA   |        Doris        |
+|:------------:|:-------------------:|
+|   BOOLEAN    |       BOOLEAN       |
+|   TINYINT    |       TINYINT       |
+|   SMALLINT   |      SMALLINT       |
+|   INTERGER   |         INT         |
+|    BIGINT    |       BIGINT        |
+| SMALLDECIMAL |  DECIMAL/DECIMALV3  |
+|   DECIMAL    |  DECIMAL/DECIMALV3  |
+|     REAL     |        FLOAT        |
+|    DOUBLE    |       DOUBLE        |
+|     DATE     |     DATE/DATEV2     |
+|     TIME     |        TEXT         |
+|  TIMESTAMP   | DATETIME/DATETIMEV2 |
+|  SECONDDATE  | DATETIME/DATETIMEV2 |
+|   VARCHAR    |        TEXT         |
+|   NVARCHAR   |        TEXT         |
+|   ALPHANUM   |        TEXT         |
+|  SHORTTEXT   |        TEXT         |
+|     CHAR     |        CHAR         |
+|    NCHAR     |        CHAR         |
 
 ## Q&A
 
