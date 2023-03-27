@@ -1670,6 +1670,11 @@ visible_functions = [
     [['ST_Distance_Sphere'], 'DOUBLE', ['DOUBLE', 'DOUBLE', 'DOUBLE', 'DOUBLE'], 'ALWAYS_NULLABLE'],
     [['ST_Angle_Sphere'], 'DOUBLE', ['DOUBLE', 'DOUBLE', 'DOUBLE', 'DOUBLE'], 'ALWAYS_NULLABLE'],
 
+    [['ST_Area_Square_Meters'], 'DOUBLE', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['ST_Area_Square_Meters'], 'DOUBLE', ['STRING'], 'ALWAYS_NULLABLE'],
+    [['ST_Area_Square_Km'], 'DOUBLE', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['ST_Area_Square_Km'], 'DOUBLE', ['STRING'], 'ALWAYS_NULLABLE'],
+
     [['ST_AsText', 'ST_AsWKT'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
     [['ST_AsText', 'ST_AsWKT'], 'VARCHAR', ['STRING'], 'ALWAYS_NULLABLE'],
     [['ST_GeometryFromText', 'ST_GeomFromText'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],

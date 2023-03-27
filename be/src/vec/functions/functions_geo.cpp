@@ -233,6 +233,76 @@ struct StAngleSphere {
     }
 };
 
+struct StAreaSquareMeters {
+    static constexpr auto NEED_CONTEXT = false;
+    static constexpr auto NAME = "st_area_square_meters";
+    static const size_t NUM_ARGS = 1;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 1);
+        auto return_type = block.get_data_type(result);
+        MutableColumnPtr res = return_type->create_column();
+
+        auto col = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const auto size = col->size();
+
+        std::unique_ptr<GeoShape> shape;
+
+        for (int row = 0; row < size; ++row) {
+            auto shape_value = col->get_data_at(row);
+            shape.reset(GeoShape::from_encoded(shape_value.data, shape_value.size));
+            if (shape == nullptr) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+
+            double area = 0;
+            if (!GeoShape::ComputeArea(shape.get(), &area, "square_meters")) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+            res->insert_data(const_cast<const char*>((char*)&area), 0);
+        }
+
+        block.replace_by_position(result, std::move(res));
+        return Status::OK();
+    }
+};
+
+struct StAreaSquareKm {
+    static constexpr auto NEED_CONTEXT = false;
+    static constexpr auto NAME = "st_area_square_km";
+    static const size_t NUM_ARGS = 1;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 1);
+        auto return_type = block.get_data_type(result);
+        MutableColumnPtr res = return_type->create_column();
+
+        auto col = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const auto size = col->size();
+
+        std::unique_ptr<GeoShape> shape;
+
+        for (int row = 0; row < size; ++row) {
+            auto shape_value = col->get_data_at(row);
+            shape.reset(GeoShape::from_encoded(shape_value.data, shape_value.size));
+            if (shape == nullptr) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+
+            double area = 0;
+            if (!GeoShape::ComputeArea(shape.get(), &area, "square_km")) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+            res->insert_data(const_cast<const char*>((char*)&area), 0);
+        }
+
+        block.replace_by_position(result, std::move(res));
+        return Status::OK();
+    }
+};
+
 struct StCircle {
     static constexpr auto NEED_CONTEXT = true;
     static constexpr auto NAME = "st_circle";
@@ -420,6 +490,8 @@ void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StGeoFromText<StPolygon>>>();
     factory.register_function<GeoFunction<StGeoFromText<StPolygonFromText>>>();
     factory.register_function<GeoFunction<StGeoFromText<StPolyFromText>>>();
+    factory.register_function<GeoFunction<StAreaSquareMeters, DataTypeFloat64>>();
+    factory.register_function<GeoFunction<StAreaSquareKm, DataTypeFloat64>>();
 }
 
 } // namespace doris::vectorized
