@@ -371,7 +371,7 @@ TEST_F(LocalFileSystemTest, TestRandomAccess) {
     EXPECT_TRUE(file_writer->appendv(slices, 2).ok());
     EXPECT_TRUE(file_writer->close().ok());
 
-    size_t size;
+    int64_t size;
     EXPECT_TRUE(io::global_local_filesystem()->file_size(fname, &size).ok());
     EXPECT_EQ(115, size);
     {
@@ -425,7 +425,7 @@ TEST_F(LocalFileSystemTest, TestRandomWrite) {
     EXPECT_TRUE(file_writer->write_at(3, slices[1]).ok());
     EXPECT_TRUE(file_writer->close().ok());
 
-    size_t size = 0;
+    int64_t size = 0;
     EXPECT_TRUE(io::global_local_filesystem()->file_size(fname, &size).ok());
     EXPECT_EQ(109, size);
     {

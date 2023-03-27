@@ -131,7 +131,7 @@ protected:
         return _local_fs->exists(get_remote_path(path), res);
     }
 
-    Status file_size_impl(const Path& path, size_t* file_size) const override {
+    Status file_size_impl(const Path& path, int64_t* file_size) const override {
         return _local_fs->file_size(get_remote_path(path), file_size);
     }
 
@@ -173,7 +173,8 @@ protected:
         return Status::OK();
     }
 
-    Status open_file_internal(const Path& file, io::FileReaderSPtr* reader) override {
+    Status open_file_internal(const Path& file, int64_t file_size,
+                              io::FileReaderSPtr* reader) override {
         return _local_fs->open_file(get_remote_path(file), io::FileReaderOptions::DEFAULT, reader);
     }
 

@@ -96,7 +96,7 @@ private:
 
 TEST_F(RemoteFileSystemTest, TestBrokerFileSystem) {
     std::shared_ptr<io::BrokerFileSystem> fs;
-    CHECK_STATUS_OK(io::BrokerFileSystem::create(broker_addr, hdfs_prop, 0, &fs));
+    CHECK_STATUS_OK(io::BrokerFileSystem::create(broker_addr, hdfs_prop, &fs));
 
     // delete directory
     io::Path delete_path = broker_location + "/tmp1";
@@ -131,7 +131,7 @@ TEST_F(RemoteFileSystemTest, TestBrokerFileSystem) {
     ASSERT_TRUE(exists);
 
     // file size
-    size_t file_size = 0;
+    int64_t file_size = 0;
     CHECK_STATUS_OK(fs->file_size(file1, &file_size));
     // file size is not implemented
     ASSERT_EQ(0, file_size);
@@ -281,7 +281,7 @@ TEST_F(RemoteFileSystemTest, TestHdfsFileSystem) {
     ASSERT_TRUE(exists);
 
     // file size
-    size_t file_size = 0;
+    int64_t file_size = 0;
     CHECK_STATUS_OK(fs->file_size(file1, &file_size));
     ASSERT_EQ(7, file_size);
 
@@ -432,7 +432,7 @@ TEST_F(RemoteFileSystemTest, TestS3FileSystem) {
     ASSERT_FALSE(exists);
 
     // file size
-    size_t file_size = 0;
+    int64_t file_size = 0;
     CHECK_STATUS_OK(fs->file_size(file1, &file_size));
     ASSERT_EQ(7, file_size);
 
