@@ -56,6 +56,15 @@ MySql Load currently only supports data formats: CSV (text).
 
 ## Basic operations
 
+### client connection
+```bash
+mysql --local-infile  -h 127.0.0.1 -P 9030 -u root -D testdb
+```
+
+Notice that if you want to use mysql load you must connection doris server with `--local-infile` in client command.
+If you're use jdbc to connect doris, you must add property named `allowLoadLocalInfile=true` in jdbc url.
+
+
 ### Create test table
 ```sql
  CREATE TABLE testdb.t1 (pk INT, v1 INT SUM) AGGREGATE KEY (pk) DISTRIBUTED BY hash (pk) PROPERTIES ('replication_num' = '1');
@@ -104,7 +113,7 @@ PROPERTIES ("strict_mode" = "true")
 2. FE will have multi-nodes, and importing server level files can only import FE nodes connected by the client side, and cannot import files local to other FE nodes.
 3. Server side load was disabled by default. Enable it by setting `mysql_load_server_secure_path` with a secure path. All the load file should be under this path.
 
-### Return result
+### Right result
 Since MySQL load is a synchronous import method, the imported results are returned to the user through SQL syntax.
 If the import fails, a specific error message will be displayed. If the import is successful, the number of imported rows will be displayed.
 
@@ -113,9 +122,25 @@ Query OK, 1 row affected (0.17 sec)
 Records: 1 Deleted: 0 Skipped: 0 Warnings: 0
 ```
 
+### Error result
+If mysql load go wrong, it will show the error in the client as below:
+```text
+ERROR 1105 (HY000): errCode = 2, detailMessage = [INTERNAL_ERROR]too many filtered rows with load id b612907c-ccf4-4ac2-82fe-107ece655f0f
+```
+
+If you meet this error, you can extract the `loadId` and use it in the `show load warnings` command to get more detail message.
+```sql
+show load warnings where label='b612907c-ccf4-4ac2-82fe-107ece655f0f';
+```
+
+The loadId was the label value in this case.
+
+
 ### Configuration
-1. `mysql_load_thread_pool`: the thread pool size for singe FE node, set 4 thread by default. The block queue size is 5 times of `mysql_load_thread_pool`. So FE can accept 4 + 4*5 = 24 requests in one time. Increase this configuration if the parallelism are larger than 24.
+1. `mysql_load_thread_pool`: the thread pool size for singe FE node, set 4 thread by default. The block queue size is 5 times of `mysql_load_thread_pool`. So FE can accept 4 + 4\*5 = 24 requests in one time. Increase this configuration if the parallelism are larger than 24.
 2. `mysql_load_server_secure_path`: the secure path for load data from server. Empty path by default means that it's not allowed for server load. Recommend to create a `local_import_data` directory under `DORIS_HOME` to load data if you want enable it.
+3. `mysql_load_in_memory_record` The failed mysql load record size. The record was keep in memory and only have 20 records by default. If you want to track more records,  you can rise the config but be careful about the fe memory. This record will expired after one day and there is a async thread to clean it in every day.
+
 
 ## Notice 
 
