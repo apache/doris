@@ -398,9 +398,10 @@ public:
 
     Status update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset);
     Status update_delete_bitmap(const RowsetSharedPtr& rowset, const TabletTxnInfo* load_info);
-    uint64_t calc_compaction_output_rowset_delete_bitmap(
+    void calc_compaction_output_rowset_delete_bitmap(
             const std::vector<RowsetSharedPtr>& input_rowsets,
             const RowIdConversion& rowid_conversion, uint64_t start_version, uint64_t end_version,
+            std::set<RowLocation>* missed_rows,
             std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>* location_map,
             DeleteBitmap* output_rowset_delete_bitmap);
     void merge_delete_bitmap(const DeleteBitmap& delete_bitmap);
