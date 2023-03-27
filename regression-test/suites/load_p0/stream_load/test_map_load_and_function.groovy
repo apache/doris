@@ -23,7 +23,7 @@ import java.nio.file.Paths
 
 suite("test_map_load_and_function", "p0") {
     // define a sql table
-    def testTable = "tbl_test_map"
+    def testTable = "tbl_test_map_lf"
     def dataFile = "test_map.csv"
 
     sql "DROP TABLE IF EXISTS ${testTable}"
