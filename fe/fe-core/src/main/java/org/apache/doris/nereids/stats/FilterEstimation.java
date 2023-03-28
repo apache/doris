@@ -319,10 +319,8 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     @Override
     public Statistics visitNot(Not not, EstimationContext context) {
         Statistics childStats = new FilterEstimation().estimate(not.child(), context.statistics);
-        double rowCount = Math.max(context.statistics.getRowCount() - childStats.getRowCount(), 0);
-        if (rowCount == 0.0) {
-            return Statistics.zero(context.statistics);
-        }
+        //if estimated rowCount is 0, adjust to 1 to make upper join reorder reasonable.
+        double rowCount = Math.max(context.statistics.getRowCount() - childStats.getRowCount(), 1);
         StatisticsBuilder statisticsBuilder = new StatisticsBuilder(context.statistics).setRowCount(rowCount);
         for (Entry<Expression, ColumnStatistic> entry : context.statistics.columnStatistics().entrySet()) {
             Expression expr = entry.getKey();
