@@ -1596,7 +1596,7 @@ The max size of one sys log and audit log
 
 #### `sys_log_dir`
 
-Default：PaloFe.DORIS_HOME_DIR + "/log"
+Default：DorisFE.DORIS_HOME_DIR + "/log"
 
 sys_log_dir:
 
@@ -2406,7 +2406,7 @@ Default：{
 
 #### `yarn_config_dir`
 
-Default：PaloFe.DORIS_HOME_DIR + "/lib/yarn-config"
+Default：DorisFE.DORIS_HOME_DIR + "/lib/yarn-config"
 
 Default yarn config file directory ，Each time before running the yarn command, we need to check that the  config file exists under this path, and if not, create them.
 
@@ -2444,13 +2444,13 @@ Default spark dpp version
 
 #### `tmp_dir`
 
-Default：PaloFe.DORIS_HOME_DIR + "/temp_dir"
+Default：DorisFE.DORIS_HOME_DIR + "/temp_dir"
 
 temp dir is used to save intermediate results of some process, such as backup and restore process.  file in this dir will be cleaned after these process is finished.
 
 #### `custom_config_dir`
 
-Default：PaloFe.DORIS_HOME_DIR + "/conf"
+Default：DorisFE.DORIS_HOME_DIR + "/conf"
 
 Custom configuration file directory
 

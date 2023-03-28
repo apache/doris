@@ -56,8 +56,8 @@ import java.lang.management.ManagementFactory;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 
-public class PaloFe {
-    private static final Logger LOG = LogManager.getLogger(PaloFe.class);
+public class DorisFE {
+    private static final Logger LOG = LogManager.getLogger(DorisFE.class);
 
     static {
         InternalLoggerFactory.setDefaultFactory(Log4JLoggerFactory.INSTANCE);
