@@ -41,8 +41,7 @@ suite("test_array_index"){
 	COMMENT 'OLAP'
 	DISTRIBUTED BY HASH(`id`) BUCKETS 1
 	PROPERTIES(
- 		"replication_allocation" = "tag.location.default: 1",
-		"persistent"="false"
+ 		"replication_allocation" = "tag.location.default: 1"
 	);
     """
     
