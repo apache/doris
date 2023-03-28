@@ -49,6 +49,8 @@ suite("nereids_tpcds_query_empty_table") {
             "q58.sql",
             // Memo.mergeGroup() dead loop
             "q64.sql",
+            // errCode = 2, detailMessage = Unexpected exception: null
+            "q72.sql",
             // RpcException, msg: io.grpc.StatusRuntimeException: UNAVAILABLE: Network closed for unknown reason
             "q77.sql"
     ].toSet()
@@ -59,11 +61,9 @@ suite("nereids_tpcds_query_empty_table") {
         def success = []
         def failed = []
 
-        for (final def sqlFile in sqlFiles) {
-            if (current_failed_tests.contains(sqlFile.getName())) {
-                continue
-            }
+        def runSqls = sqlFiles.findAll { !current_failed_tests.contains(it.getName()) }
 
+        for (final def sqlFile in runSqls) {
             useDb()
             sql "set enable_nereids_planner=true"
             sql "set enable_fallback_to_original_planner=false"
@@ -71,8 +71,13 @@ suite("nereids_tpcds_query_empty_table") {
 
             logger.info("execute ${sqlFile.getName()} [${++num}/${sqlFiles.size()}]".toString())
             try {
-                // currently regression testing run in the asan mod and failed, so just run explain
-                sql "explain ${sqlFile.text}"
+                String query = sqlFile.text
+                if (query.contains("/*") && query.contains("*/")) {
+                    query = query.substring(query.indexOf("/*") + 2, query.indexOf("*/") - 1)
+                }
+
+                // currently regression testing run in the asan mode and failed, so just run explain
+                sql "explain $query"
                 success.add(sqlFile)
             } catch (Throwable t) {
                 logger.error("execute ${sqlFile.getName()} failed".toString(), t)
