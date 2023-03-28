@@ -171,8 +171,6 @@ public class SessionVariable implements Serializable, Writable {
     // If user set a very small value, use this value instead.
     public static final long MIN_INSERT_VISIBLE_TIMEOUT_MS = 1000;
 
-    public static final String ENABLE_VECTORIZED_ENGINE = "enable_vectorized_engine";
-
     public static final String ENABLE_PIPELINE_ENGINE = "enable_pipeline_engine";
     public static final String ENABLE_RPC_OPT_FOR_PIPELINE = "enable_rpc_opt_for_pipeline";
 
@@ -521,8 +519,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = EXTRACT_WIDE_RANGE_EXPR, needForward = true)
     public boolean extractWideRangeExpr = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_VECTORIZED_ENGINE)
-    public boolean enableVectorizedEngine = true;
 
     @VariableMgr.VarAttr(name = ENABLE_PIPELINE_ENGINE, fuzzy = true)
     public boolean enablePipelineEngine = false;
@@ -1329,14 +1325,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setRuntimeFilterMaxInNum(int runtimeFilterMaxInNum) {
         this.runtimeFilterMaxInNum = runtimeFilterMaxInNum;
-    }
-
-    public boolean enableVectorizedEngine() {
-        return enableVectorizedEngine;
-    }
-
-    public void setEnableVectorizedEngine(boolean enableVectorizedEngine) {
-        this.enableVectorizedEngine = enableVectorizedEngine;
     }
 
     public boolean enablePipelineEngine() {
