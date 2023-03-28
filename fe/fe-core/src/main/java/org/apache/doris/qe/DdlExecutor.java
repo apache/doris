@@ -62,6 +62,7 @@ import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateMultiTableMaterializedViewStmt;
 import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.CreateRepositoryStmt;
+import org.apache.doris.analysis.CreateResourceGroupStmt;
 import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.CreateRoleStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
@@ -259,6 +260,8 @@ public class DdlExecutor {
             env.getResourceMgr().createResource((CreateResourceStmt) ddlStmt);
         } else if (ddlStmt instanceof DropResourceStmt) {
             env.getResourceMgr().dropResource((DropResourceStmt) ddlStmt);
+        } else if (ddlStmt instanceof CreateResourceGroupStmt) {
+            env.getResourceGroupMgr().createResourceGroup((CreateResourceGroupStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateDataSyncJobStmt) {
             CreateDataSyncJobStmt createSyncJobStmt = (CreateDataSyncJobStmt) ddlStmt;
             SyncJobManager syncJobMgr = env.getSyncJobManager();

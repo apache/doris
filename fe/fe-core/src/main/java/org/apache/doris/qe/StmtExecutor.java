@@ -66,6 +66,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ResourceGroupMgr;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
@@ -874,7 +875,12 @@ public class StmtExecutor implements ProfileWriter {
 
         if (parsedStmt instanceof QueryStmt
                 || parsedStmt instanceof InsertStmt
-                || parsedStmt instanceof CreateTableAsSelectStmt) {
+                || parsedStmt instanceof CreateTableAsSelectStmt
+                || parsedStmt instanceof LogicalPlanAdapter) {
+            if (context.sessionVariable.enablePipelineEngine()) {
+                analyzer.setResourceGroups(
+                        analyzer.getEnv().getResourceGroupMgr().getResourceGroup(ResourceGroupMgr.DEFAULT_GROUP_NAME));
+            }
             Map<Long, TableIf> tableMap = Maps.newTreeMap();
             QueryStmt queryStmt;
             Set<String> parentViewNameSet = Sets.newHashSet();

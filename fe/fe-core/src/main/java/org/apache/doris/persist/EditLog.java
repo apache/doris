@@ -32,6 +32,7 @@ import org.apache.doris.catalog.EncryptKeySearchDesc;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
+import org.apache.doris.catalog.PipelineResourceGroup;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.Cluster;
@@ -1001,6 +1002,11 @@ public class EditLog {
                     env.getCatalogMgr().replayRefreshExternalPartitions(log);
                     break;
                 }
+                case OperationType.OP_CREATE_RESOURCE_GROUP: {
+                    final PipelineResourceGroup resourceGroup = (PipelineResourceGroup) journal.getData();
+                    env.getResourceGroupMgr().replayCreateResourceGroup(resourceGroup);
+                    break;
+                }
                 case OperationType.OP_INIT_EXTERNAL_TABLE: {
                     // Do nothing.
                     break;
@@ -1546,6 +1552,10 @@ public class EditLog {
 
     public void logAlterResource(Resource resource) {
         logEdit(OperationType.OP_ALTER_RESOURCE, resource);
+    }
+
+    public void logCreateResourceGroup(PipelineResourceGroup resourceGroup) {
+        logEdit(OperationType.OP_CREATE_RESOURCE_GROUP, resourceGroup);
     }
 
     public void logAlterStoragePolicy(StoragePolicy storagePolicy) {
