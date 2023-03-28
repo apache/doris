@@ -282,4 +282,26 @@ suite("test_colocate_join") {
         sql ("select * from ${db1}.test_global_tbl1 a join ${db2}.test_global_tbl3 b on a.id = b.id and a.name = b.name")
         contains "COLOCATE"
     }
+    /* add partition */
+    sql """alter table ${db2}.test_global_tbl3 add partition p4 values less than("2022-05-01")"""
+    sql """insert into ${db2}.test_global_tbl3 values (7, "jack7", "2022-04-01", 16)"""
+    order_qt_global3 """select * from ${db1}.test_global_tbl1 a join ${db2}.test_global_tbl3 b on a.id = b.id and a.name = b.name """
+    explain {
+        sql ("select * from ${db1}.test_global_tbl1 a join ${db2}.test_global_tbl3 b on a.id = b.id and a.name = b.name")
+        contains "COLOCATE"
+    }
+
+    /* modify group: unset */
+    sql """alter table ${db2}.test_global_tbl3 set ("colocate_with" = "");"""
+    explain {
+        sql ("select * from ${db1}.test_global_tbl1 a join ${db2}.test_global_tbl3 b on a.id = b.id and a.name = b.name")
+        contains "Tables are not in the same group"
+    }
+
+    /* modify group: from global to database level */
+    sql """alter table ${db1}.test_global_tbl2 set ("colocate_with" = "db_level_group");"""
+    explain {
+        sql ("select * from ${db1}.test_global_tbl1 a join ${db1}.test_global_tbl2 b on a.id = b.id and a.name = b.name")
+        contains "Tables are not in the same group"
+    }
 }
