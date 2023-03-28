@@ -1849,6 +1849,7 @@ public class SessionVariable implements Serializable, Writable {
         TQueryOptions queryOptions = new TQueryOptions();
         queryOptions.setMemLimit(maxExecMemByte);
         queryOptions.setQueryTimeout(queryTimeoutS);
+        queryOptions.setInsertTimeout(insertTimeoutS);
         return queryOptions;
     }
 
