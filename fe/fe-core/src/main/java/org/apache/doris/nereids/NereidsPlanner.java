@@ -107,7 +107,7 @@ public class NereidsPlanner extends Planner {
         PhysicalPlan physicalPlan = (PhysicalPlan) resultPlan;
         PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
         PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator(planTranslatorContext,
-                ConnectContext.get().getStatsErrorEstimator());
+                statementContext.getConnectContext().getStatsErrorEstimator());
         if (ConnectContext.get().getSessionVariable().isEnableNereidsTrace()) {
             CounterEvent.clearCounter();
         }
