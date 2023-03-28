@@ -54,6 +54,7 @@ package org.apache.doris.builtins;\n\
 \n\
 import org.apache.doris.catalog.ArrayType;\n\
 import org.apache.doris.catalog.MapType;\n\
+import org.apache.doris.catalog.StructType;\n\
 import org.apache.doris.catalog.TemplateType;\n\
 import org.apache.doris.catalog.Type;\n\
 import org.apache.doris.catalog.Function;\n\
@@ -114,9 +115,14 @@ def generate_fe_datatype(str_type, template_types):
     # delete whitespace
     str_type = str_type.replace(' ', '').replace('\t', '')
 
+    # delete ellipsis dots
+    str_type = str_type.replace('...', '')
+
     # process template
     if str_type in template_types:
         return 'new TemplateType("{0}")'.format(str_type)
+    elif str_type + "..." in template_types:
+        return 'new TemplateType("{0}", true)'.format(str_type)
 
     # process Array, Map, Struct template
     template_start = str_type.find('<')
@@ -129,6 +135,12 @@ def generate_fe_datatype(str_type, template_types):
         elif str_type.startswith("MAP<"):
             types = template.split(',', 2)
             return 'new MapType({0}, {1})'.format(generate_fe_datatype(types[0], template_types), generate_fe_datatype(types[1], template_types))
+        elif str_type.startswith("STRUCT<"):
+            types = template.split(',')
+            field_str = generate_fe_datatype(types[0], template_types)
+            for i in range(1, len(types)):
+                field_str += ", " + generate_fe_datatype(types[i], template_types)
+            return 'new StructType({0})'.format(field_str)
 
     # lagacy Array, Map syntax
     if str_type.startswith("ARRAY_"):
