@@ -268,6 +268,8 @@ private:
             return false;
         }
 
+        Status init_level0_iterators_for_union();
+
     private:
         Status _merge_next(IteratorRowRef* ref);
 
