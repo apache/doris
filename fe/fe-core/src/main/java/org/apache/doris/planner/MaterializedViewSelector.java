@@ -325,8 +325,8 @@ public class MaterializedViewSelector {
             }
 
             if (entry.getValue().getWhereClause() != null) {
-                if (selectStmt.getOriginalWhereClause() == null || !entry.getValue().getWhereClause().toSqlWithoutTbl()
-                        .equals(selectStmt.getOriginalWhereClause().toSqlWithoutTbl())) {
+                if (selectStmt.getOriginalWhereClause() == null || !selectStmt.getOriginalWhereClause()
+                        .containsSubPredicate(entry.getValue().getWhereClause())) {
                     iterator.remove();
                 }
                 continue;
