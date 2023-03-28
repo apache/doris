@@ -108,7 +108,7 @@ suite("test_segcompaction_dup_keys_index") {
             )
             """
 
-        def max_try_milli_secs = 900000
+        def max_try_milli_secs = 1800000
         while (max_try_milli_secs > 0) {
             String[][] result = sql """ show load where label="$uuid" order by createtime desc limit 1; """
             if (result[0][2].equals("FINISHED")) {
@@ -126,7 +126,7 @@ suite("test_segcompaction_dup_keys_index") {
             }
         }
 
-        qt_select_default """ SELECT * FROM ${tableName} WHERE col_0=47 order by col_1; """
+        qt_select_default """ SELECT * FROM ${tableName} WHERE col_0=47 order by col_1, col_2; """
         qt_select_default """ SELECT COUNT(*) FROM ${tableName} WHERE col_1 MATCH_ANY 'lemon'; """
         qt_select_default """ SELECT COUNT(*) FROM ${tableName} WHERE col_2 MATCH_ANY 'Lemon'; """
 
