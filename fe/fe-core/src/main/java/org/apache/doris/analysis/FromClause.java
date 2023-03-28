@@ -137,8 +137,8 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
             tblRef.analyze(analyzer);
             leftTblRef = tblRef;
             Expr clause = tblRef.getOnClause();
-            if (clause != null && StmtRewriter.childrenContainExists(clause)) {
-                throw new AnalysisException("Not support OnClause contain ExistsPredicates "
+            if (clause != null && clause.contains(Subquery.class)) {
+                throw new AnalysisException("Not support OnClause contain Subquery, expr:"
                         + clause.toSql());
             }
         }
