@@ -139,6 +139,7 @@ CREATE EXTERNAL TABLE `delta_binary_packed`(
   bitwidth64 bigint,
   int_value  int
   )
+STORED AS parquet
 LOCATION
   '/user/doris/preinstalled_data/different_types_parquet/delta_binary_packed'
 TBLPROPERTIES (
