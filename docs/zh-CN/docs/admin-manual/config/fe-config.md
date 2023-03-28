@@ -2328,6 +2328,16 @@ hive metastore 的默认超时时间
 
 是否为 Master FE 节点独有的配置项：true
 
+#### `max_external_cache_loader_thread_pool_size`
+
+用于 external 外部表的 meta 缓存加载线程池的最大线程数。
+
+默认值：10
+
+是否可以动态配置：false
+
+是否为 Master FE 节点独有的配置项：false
+
 #### `max_external_file_cache_num`
 
 用于 external 外部表的最大文件缓存数量。

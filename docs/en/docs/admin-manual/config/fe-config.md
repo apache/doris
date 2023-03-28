@@ -2328,9 +2328,19 @@ Is it possible to dynamically configure: true
 
 Is it a configuration item unique to the Master FE node: true
 
+#### `max_external_cache_loader_thread_pool_size`
+
+Maximum thread pool size for loading external meta cache.
+
+Default: 10
+
+Is it possible to dynamically configure: false
+
+Is it a configuration item unique to the Master FE node: false
+
 #### `max_external_file_cache_num`
 
-Maximum number of file cache to use for external external tables.
+Maximum number of file cache to use for external tables.
 
 Default: 100000
 
