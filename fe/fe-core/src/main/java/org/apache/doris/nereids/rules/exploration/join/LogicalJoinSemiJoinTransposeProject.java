@@ -75,7 +75,7 @@ public class LogicalJoinSemiJoinTransposeProject implements ExplorationRuleFacto
                             Plan newTopJoin = bottomJoin.withChildren(newBottomJoin, c);
                             return JoinReorderUtils.projectOrSelf(new ArrayList<>(topJoin.getOutput()),
                                     newTopJoin);
-                        }).toRule(RuleType.LOGICAL_JOIN_LOGICAL_SEMI_JOIN_TRANSPOSE)
+                        }).toRule(RuleType.LOGICAL_JOIN_LOGICAL_SEMI_JOIN_TRANSPOSE_PROJECT)
         );
     }
 }
