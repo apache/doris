@@ -162,15 +162,6 @@ public class NereidsRewriter extends BatchRewriteJob {
                 // efficient because it can find the new plans and apply transform wherever it is
                 bottomUp(RuleSet.PUSH_DOWN_FILTERS),
 
-                // pushdown SEMI Join
-                topDown(
-                    // new SemiJoinCommute(),
-                    new SemiJoinLogicalJoinTranspose(),
-                    new SemiJoinLogicalJoinTransposeProject(),
-                    new SemiJoinAggTranspose(),
-                    new SemiJoinAggTransposeProject()
-                ),
-
                 topDown(
                     new MergeFilters(),
                     new ReorderJoin(),
@@ -179,6 +170,16 @@ public class NereidsRewriter extends BatchRewriteJob {
                     new ConvertInnerOrCrossJoin(),
                     new EliminateNullAwareLeftAntiJoin()
                 ),
+
+                // pushdown SEMI Join
+                topDown(
+                        // new SemiJoinCommute(),
+                        new SemiJoinLogicalJoinTranspose(),
+                        new SemiJoinLogicalJoinTransposeProject(),
+                        new SemiJoinAggTranspose(),
+                        new SemiJoinAggTransposeProject()
+                ),
+
                 topDown(
                     new EliminateDedupJoinCondition()
                 )

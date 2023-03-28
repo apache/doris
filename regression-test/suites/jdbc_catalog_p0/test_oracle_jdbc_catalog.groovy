@@ -105,6 +105,24 @@ suite("test_oracle_jdbc_catalog", "p0") {
         sql """drop catalog if exists ${catalog_name} """
         sql """drop resource if exists ${resource_name}"""
 
+        // test only_specified_database and specified_database_list argument
+        sql """create resource if not exists ${resource_name} properties(
+                    "type"="jdbc",
+                    "user"="doris_test",
+                    "password"="123456",
+                    "jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:${oracle_port}:${SID}",
+                    "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/ojdbc8.jar",
+                    "driver_class" = "oracle.jdbc.driver.OracleDriver",
+                    "only_specified_database" = "true",
+                    "specified_database_list" = "${ex_db_name}"
+        );"""
+        sql """ CREATE CATALOG ${catalog_name} WITH RESOURCE ${resource_name} """
+        sql """ switch ${catalog_name} """
+
+        qt_specified_database   """ show databases; """
+        sql """drop catalog if exists ${catalog_name} """
+        sql """drop resource if exists ${resource_name}"""
+
         // test lower_case_table_names argument
         sql """create resource if not exists ${resource_name} properties(
                     "type"="jdbc",

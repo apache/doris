@@ -46,6 +46,7 @@ import java.util.stream.Collectors;
 public abstract class Resource implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(OdbcCatalogResource.class);
     public static final String REFERENCE_SPLIT = "@";
+    public static final String SPECIFIED_DATABASE_LIST = "specified_database_list";
 
     public enum ResourceType {
         UNKNOWN,
