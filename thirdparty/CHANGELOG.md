@@ -2,6 +2,11 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## v20230328
+- Modified: brpc 1.2.0 -> 1.4.0
+- Modified: boost 1.73.0 -> 1.81.0
+- Modified: clucene 2.4.6 -> 2.4.8
+
 ## v20230228
 - Modified: thrift 0.13 -> 0.16
 
