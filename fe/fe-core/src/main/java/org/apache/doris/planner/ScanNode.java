@@ -131,6 +131,15 @@ public abstract class ScanNode extends PlanNode {
     public abstract List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength);
 
     /**
+     * Get the ScanInfoList of this ScanNode, each subclass need to override this method.
+     * This method will eventually replace the method getScanRangeLocations.
+     * @return ScanRangeList for this ScanNode
+     */
+    public ScanRangeList getScanRangeList() {
+        return null;
+    }
+
+    /**
      * Update required_slots in scan node contexts. This is called after Nereids planner do the projection.
      * In the projection process, some slots may be removed. So call this to update the slots info.
      * Currently, it is only used by ExternalFileScanNode, add the interface here to keep the Nereids code clean.

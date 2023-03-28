@@ -35,6 +35,7 @@ import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.planner.ScanRangeList;
 import org.apache.doris.planner.external.ExternalFileScanNode.ParamCreateContext;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TBrokerFileStatus;
@@ -45,7 +46,6 @@ import org.apache.doris.thrift.TFileScanSlotInfo;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.THdfsParams;
-import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -138,11 +138,10 @@ public class LoadScanProvider implements FileScanProviderIf {
     }
 
     @Override
-    public void createScanRangeLocations(ParamCreateContext context, FederationBackendPolicy backendPolicy,
-            List<TScanRangeLocations> scanRangeLocations) throws UserException {
+    public void createScanRangeList(ParamCreateContext context, ScanRangeList scanRangeList) throws UserException {
         Preconditions.checkNotNull(fileGroupInfo);
-        fileGroupInfo.getFileStatusAndCalcInstance(backendPolicy);
-        fileGroupInfo.createScanRangeLocations(context, backendPolicy, scanRangeLocations);
+        fileGroupInfo.getFileStatusAndCalcInstance(new FederationBackendPolicy());
+        fileGroupInfo.createScanRangeList(context, scanRangeList);
     }
 
     @Override

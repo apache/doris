@@ -41,12 +41,4 @@ public class FileSplit extends Split {
         this.fileLength = fileLength;
         this.hosts = hosts;
     }
-
-    public String[] getHosts() {
-        if (this.hosts == null) {
-            return new String[]{};
-        } else {
-            return this.hosts;
-        }
-    }
 }

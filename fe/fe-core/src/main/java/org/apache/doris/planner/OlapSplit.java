@@ -20,20 +20,8 @@ package org.apache.doris.planner;
 import lombok.Data;
 
 @Data
-public abstract class Split {
-    protected String[] hosts;
+public class OlapSplit extends Split {
+    private long tabletId;
 
-    public Split() {}
-
-    public Split(String[] hosts) {
-        this.hosts = hosts;
-    }
-
-    public String[] getHosts() {
-        if (this.hosts == null) {
-            return new String[]{};
-        } else {
-            return this.hosts;
-        }
-    }
+    public OlapSplit() {}
 }

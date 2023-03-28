@@ -96,6 +96,7 @@ import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TResourceLimit;
 import org.apache.doris.thrift.TRuntimeFilterParams;
 import org.apache.doris.thrift.TRuntimeFilterTargetParams;
+import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TScanRangeParams;
@@ -272,11 +273,11 @@ public class Coordinator {
         }
     }
 
-    private static class ScanRangeHash implements Funnel<TScanRangeLocations> {
+    private static class ScanRangeHash implements Funnel<TScanRange> {
         @Override
-        public void funnel(TScanRangeLocations scanRange, PrimitiveSink primitiveSink) {
-            Preconditions.checkState(scanRange.scan_range.isSetExtScanRange());
-            for (TFileRangeDesc desc : scanRange.scan_range.ext_scan_range.file_scan_range.ranges) {
+        public void funnel(TScanRange scanRange, PrimitiveSink primitiveSink) {
+            Preconditions.checkState(scanRange.isSetExtScanRange());
+            for (TFileRangeDesc desc : scanRange.ext_scan_range.file_scan_range.ranges) {
                 primitiveSink.putBytes(desc.path.getBytes(StandardCharsets.UTF_8));
                 primitiveSink.putLong(desc.start_offset);
                 primitiveSink.putLong(desc.size);
@@ -1888,11 +1889,15 @@ public class Coordinator {
             List<TScanRangeLocations> locations;
             // the parameters of getScanRangeLocations may ignore, It doesn't take effect
             locations = scanNode.getScanRangeLocations(0);
-            if (locations == null) {
+            // TODO: Currently we only implement getScanRangeList for ExternalScanNode,
+            //  will implement other ScanNode later.
+            if (locations == null && !(scanNode instanceof ExternalScanNode)) {
                 // only analysis olap scan node
                 continue;
             }
-            Collections.shuffle(locations);
+            if (!(scanNode instanceof ExternalScanNode)) {
+                Collections.shuffle(locations);
+            }
             Set<Integer> scanNodeIds = fragmentIdToScanNodeIds.computeIfAbsent(scanNode.getFragmentId(),
                     k -> Sets.newHashSet());
             scanNodeIds.add(scanNode.getId().asInt());
@@ -2024,38 +2029,30 @@ public class Coordinator {
 
     private void computeScanRangeAssignmentByConsistentHash(
             ScanNode scanNode,
-            final List<TScanRangeLocations> locations,
             FragmentScanRangeAssignment assignment,
-            Map<TNetworkAddress, Long> assignedBytesPerHost,
-            Map<TNetworkAddress, Long> replicaNumPerHost) throws Exception {
+            Map<TNetworkAddress, Long> assignedBytesPerHost) throws Exception {
         Collection<Backend> aliveBEs = idToBackend.values().stream().filter(SimpleScheduler::isAvailable)
                 .collect(Collectors.toList());
         if (aliveBEs.isEmpty()) {
             throw new UserException("No available backends");
         }
         int virtualNumber = Math.max(Math.min(512 / aliveBEs.size(), 32), 2);
-        ConsistentHash<TScanRangeLocations, Backend> consistentHash = new ConsistentHash<>(
+        ConsistentHash<TScanRange, Backend> consistentHash = new ConsistentHash<>(
                 Hashing.murmur3_128(), new ScanRangeHash(), new BackendHash(), aliveBEs, virtualNumber);
-        for (TScanRangeLocations scanRangeLocations : locations) {
-            TScanRangeLocation minLocation = scanRangeLocations.locations.get(0);
-            Backend backend = consistentHash.getNode(scanRangeLocations);
+        for (TScanRange range : scanNode.getScanRangeList().getScanRanges()) {
+            Backend backend = consistentHash.getNode(range);
             TNetworkAddress execHostPort = new TNetworkAddress(backend.getIp(), backend.getBePort());
             this.addressToBackendID.put(execHostPort, backend.getId());
-            // Why only increase 1 in other implementations ?
-            if (scanRangeLocations.getScanRange().isSetExtScanRange()) {
-                for (TFileRangeDesc desc : scanRangeLocations.scan_range.ext_scan_range.file_scan_range.ranges) {
-                    assignedBytesPerHost.compute(execHostPort, (k, v) -> (v == null) ? desc.size : desc.size + v);
-                }
+            for (TFileRangeDesc desc : range.getExtScanRange().getFileScanRange().getRanges()) {
+                assignedBytesPerHost.compute(execHostPort, (k, v) -> (v == null) ? desc.size : desc.size + v);
             }
-            // Is replicaNumPerHost useful ?
-            replicaNumPerHost.computeIfPresent(minLocation.server, (k, v) -> v - 1);
 
             Map<Integer, List<TScanRangeParams>> scanRanges = findOrInsert(assignment, execHostPort, new HashMap<>());
             List<TScanRangeParams> scanRangeParamsList =
                     findOrInsert(scanRanges, scanNode.getId().asInt(), new ArrayList<>());
             TScanRangeParams scanRangeParams = new TScanRangeParams();
-            scanRangeParams.scan_range = scanRangeLocations.scan_range;
-            scanRangeParams.setVolumeId(minLocation.volume_id);
+            scanRangeParams.scan_range = range;
+            scanRangeParams.setVolumeId(-1);
             scanRangeParamsList.add(scanRangeParams);
         }
     }
@@ -2068,8 +2065,7 @@ public class Coordinator {
             Map<TNetworkAddress, Long> replicaNumPerHost) throws Exception {
         if (scanNode instanceof ExternalScanNode) {
             // Use consistent hash to assign the same scan range into the same backend among different queries
-            computeScanRangeAssignmentByConsistentHash(
-                    scanNode, locations, assignment, assignedBytesPerHost, replicaNumPerHost);
+            computeScanRangeAssignmentByConsistentHash(scanNode, assignment, assignedBytesPerHost);
             return;
         }
         for (TScanRangeLocations scanRangeLocations : locations) {

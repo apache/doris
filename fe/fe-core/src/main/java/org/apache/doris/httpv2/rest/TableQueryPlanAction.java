@@ -259,6 +259,9 @@ public class TableQueryPlanAction extends RestBaseController {
      */
     private Map<String, Node> assemblePrunedPartitions(List<TScanRangeLocations> scanRangeLocationsList) {
         Map<String, Node> result = new HashMap<>();
+        if (scanRangeLocationsList == null) {
+            return result;
+        }
         for (TScanRangeLocations scanRangeLocations : scanRangeLocationsList) {
             // only process palo(doris) scan range
             TPaloScanRange scanRange = scanRangeLocations.scan_range.palo_scan_range;

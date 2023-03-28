@@ -22,15 +22,14 @@ import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.BrokerFileGroup;
+import org.apache.doris.planner.ScanRangeList;
 import org.apache.doris.planner.external.ExternalFileScanNode.ParamCreateContext;
-import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileFormatType;
@@ -40,8 +39,6 @@ import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRange;
-import org.apache.doris.thrift.TScanRangeLocation;
-import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
@@ -188,9 +185,8 @@ public class FileGroupInfo {
         LOG.info("number instance of file scan node is: {}, bytes per instance: {}", numInstances, bytesPerInstance);
     }
 
-    public void createScanRangeLocations(ParamCreateContext context, FederationBackendPolicy backendPolicy,
-            List<TScanRangeLocations> scanRangeLocations) throws UserException {
-        TScanRangeLocations curLocations = newLocations(context.params, brokerDesc, backendPolicy);
+    public void createScanRangeList(ParamCreateContext context, ScanRangeList scanRangeList) throws UserException {
+        TScanRange range = newRange(context.params, brokerDesc);
         long curInstanceBytes = 0;
         long curFileOffset = 0;
         for (int i = 0; i < fileStatuses.size(); ) {
@@ -211,24 +207,24 @@ public class FileGroupInfo {
                     long rangeBytes = bytesPerInstance - curInstanceBytes;
                     TFileRangeDesc rangeDesc = createFileRangeDesc(curFileOffset, fileStatus, rangeBytes,
                             columnsFromPath);
-                    curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
+                    range.getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
                     curFileOffset += rangeBytes;
                 } else {
                     TFileRangeDesc rangeDesc = createFileRangeDesc(curFileOffset, fileStatus, leftBytes,
                             columnsFromPath);
-                    curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
+                    range.getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
                     curFileOffset = 0;
                     i++;
                 }
 
                 // New one scan
-                scanRangeLocations.add(curLocations);
-                curLocations = newLocations(context.params, brokerDesc, backendPolicy);
+                scanRangeList.addToScanRanges(range);
+                range = newRange(context.params, brokerDesc);
                 curInstanceBytes = 0;
 
             } else {
                 TFileRangeDesc rangeDesc = createFileRangeDesc(curFileOffset, fileStatus, leftBytes, columnsFromPath);
-                curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
+                range.getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
                 curFileOffset = 0;
                 curInstanceBytes += leftBytes;
                 i++;
@@ -236,53 +232,25 @@ public class FileGroupInfo {
         }
 
         // Put the last file
-        if (curLocations.getScanRange().getExtScanRange().getFileScanRange().isSetRanges()) {
-            scanRangeLocations.add(curLocations);
+        if (range.getExtScanRange().getFileScanRange().getRangesSize() > 0) {
+            scanRangeList.addToScanRanges(range);
         }
     }
 
-    protected TScanRangeLocations newLocations(TFileScanRangeParams params, BrokerDesc brokerDesc,
-            FederationBackendPolicy backendPolicy) throws UserException {
-
-        Backend selectedBackend = backendPolicy.getNextBe();
-
-        // Generate one file scan range
+    private TScanRange newRange(TFileScanRangeParams params, BrokerDesc brokerDesc) {
         TFileScanRange fileScanRange = new TFileScanRange();
-
         if (brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER) {
-            FsBroker broker = null;
-            try {
-                broker = Env.getCurrentEnv().getBrokerMgr().getBroker(brokerDesc.getName(), selectedBackend.getIp());
-            } catch (AnalysisException e) {
-                throw new UserException(e.getMessage());
-            }
+            FsBroker broker = Env.getCurrentEnv().getBrokerMgr().getAnyAliveBroker();
             params.addToBrokerAddresses(new TNetworkAddress(broker.ip, broker.port));
         } else {
             params.setBrokerAddresses(new ArrayList<>());
         }
         fileScanRange.setParams(params);
-
-        // Scan range
         TExternalScanRange externalScanRange = new TExternalScanRange();
         externalScanRange.setFileScanRange(fileScanRange);
         TScanRange scanRange = new TScanRange();
         scanRange.setExtScanRange(externalScanRange);
-
-        // Locations
-        TScanRangeLocations locations = new TScanRangeLocations();
-        locations.setScanRange(scanRange);
-
-        if (jobType == JobType.BULK_LOAD) {
-            TScanRangeLocation location = new TScanRangeLocation();
-            location.setBackendId(selectedBackend.getId());
-            location.setServer(new TNetworkAddress(selectedBackend.getIp(), selectedBackend.getBePort()));
-            locations.addToLocations(location);
-        } else {
-            // stream load do not need locations
-            locations.setLocations(Lists.newArrayList());
-        }
-
-        return locations;
+        return scanRange;
     }
 
     private TFileFormatType formatType(String fileFormat, String path) throws UserException {

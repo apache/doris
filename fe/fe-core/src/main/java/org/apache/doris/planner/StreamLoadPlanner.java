@@ -59,7 +59,7 @@ import org.apache.doris.thrift.TPlanFragmentExecParams;
 import org.apache.doris.thrift.TQueryGlobals;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryType;
-import org.apache.doris.thrift.TScanRangeLocations;
+import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeParams;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -258,8 +258,8 @@ public class StreamLoadPlanner {
         execParams.destinations = Lists.newArrayList();
         Map<Integer, List<TScanRangeParams>> perNodeScanRange = Maps.newHashMap();
         List<TScanRangeParams> scanRangeParams = Lists.newArrayList();
-        for (TScanRangeLocations locations : scanNode.getScanRangeLocations(0)) {
-            scanRangeParams.add(new TScanRangeParams(locations.getScanRange()));
+        for (TScanRange range : scanNode.getScanRangeList().getScanRanges()) {
+            scanRangeParams.add(new TScanRangeParams(range));
         }
         // For stream load, only one sender
         execParams.setSenderId(0);

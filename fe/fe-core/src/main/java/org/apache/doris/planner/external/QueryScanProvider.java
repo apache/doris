@@ -24,12 +24,12 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
+import org.apache.doris.planner.ScanRangeList;
 import org.apache.doris.planner.Split;
 import org.apache.doris.planner.Splitter;
 import org.apache.doris.planner.external.ExternalFileScanNode.ParamCreateContext;
 import org.apache.doris.planner.external.iceberg.IcebergScanProvider;
 import org.apache.doris.planner.external.iceberg.IcebergSplit;
-import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileFormatType;
@@ -40,10 +40,7 @@ import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.THdfsParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRange;
-import org.apache.doris.thrift.TScanRangeLocation;
-import org.apache.doris.thrift.TScanRangeLocations;
 
-import com.google.common.base.Joiner;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -59,8 +56,38 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
     public abstract TFileAttributes getFileAttributes() throws UserException;
 
     @Override
-    public void createScanRangeLocations(ParamCreateContext context, FederationBackendPolicy backendPolicy,
-            List<TScanRangeLocations> scanRangeLocations) throws UserException {
+    public int getInputSplitNum() {
+        return this.inputSplitNum;
+    }
+
+    @Override
+    public long getInputFileSize() {
+        return this.inputFileSize;
+    }
+
+    private TFileRangeDesc createFileRangeDesc(FileSplit fileSplit, List<String> columnsFromPath,
+            List<String> columnsFromPathKeys)
+            throws DdlException, MetaNotFoundException {
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        rangeDesc.setStartOffset(fileSplit.getStart());
+        rangeDesc.setSize(fileSplit.getLength());
+        // fileSize only be used when format is orc or parquet and TFileType is broker
+        // When TFileType is other type, it is not necessary
+        rangeDesc.setFileSize(fileSplit.getFileLength());
+        rangeDesc.setColumnsFromPath(columnsFromPath);
+        rangeDesc.setColumnsFromPathKeys(columnsFromPathKeys);
+
+        if (getLocationType() == TFileType.FILE_HDFS) {
+            rangeDesc.setPath(fileSplit.getPath().toUri().getPath());
+        } else if (getLocationType() == TFileType.FILE_S3 || getLocationType() == TFileType.FILE_BROKER) {
+            // need full path
+            rangeDesc.setPath(fileSplit.getPath().toString());
+        }
+        return rangeDesc;
+    }
+
+    @Override
+    public void createScanRangeList(ParamCreateContext context, ScanRangeList scanRangeList) throws UserException {
         long start = System.currentTimeMillis();
         List<Split> inputSplits = splitter.getSplits(context.conjuncts);
         this.inputSplitNum = inputSplits.size();
@@ -76,6 +103,7 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
             context.params.setFileAttributes(getFileAttributes());
         }
 
+        TScanRange range = newRange(context.params);
         // set hdfs params for hdfs file type.
         Map<String, String> locationProperties = getLocationProperties();
         if (locationType == TFileType.FILE_HDFS || locationType == TFileType.FILE_BROKER) {
@@ -104,10 +132,8 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
         } else if (locationType == TFileType.FILE_S3) {
             context.params.setProperties(locationProperties);
         }
-        TScanRangeLocations curLocations = newLocations(context.params, backendPolicy);
 
         FileSplitStrategy fileSplitStrategy = new FileSplitStrategy();
-
         for (Split split : inputSplits) {
             FileSplit fileSplit = (FileSplit) split;
             List<String> pathPartitionKeys = getPathPartitionKeys();
@@ -119,80 +145,32 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
             if (fileSplit instanceof IcebergSplit) {
                 IcebergScanProvider.setIcebergParams(rangeDesc, (IcebergSplit) fileSplit);
             }
-
-            curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
-            LOG.debug("assign to backend {} with table split: {} ({}, {}), location: {}",
-                    curLocations.getLocations().get(0).getBackendId(), fileSplit.getPath(), fileSplit.getStart(),
-                    fileSplit.getLength(), Joiner.on("|").join(fileSplit.getHosts()));
-
+            range.getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
+            this.inputFileSize += fileSplit.getLength();
             fileSplitStrategy.update(fileSplit);
-            // Add a new location when it's can be split
+            // Add a new location when current scanInfo size is too large or including too many splits.
             if (fileSplitStrategy.hasNext()) {
-                scanRangeLocations.add(curLocations);
-                curLocations = newLocations(context.params, backendPolicy);
+                scanRangeList.addToScanRanges(range);
+                range = newRange(context.params);
                 fileSplitStrategy.next();
             }
-            this.inputFileSize += fileSplit.getLength();
         }
-        if (curLocations.getScanRange().getExtScanRange().getFileScanRange().getRangesSize() > 0) {
-            scanRangeLocations.add(curLocations);
+        if (range.getExtScanRange().getFileScanRange().getRangesSize() > 0) {
+            scanRangeList.addToScanRanges(range);
         }
-        LOG.debug("create #{} ScanRangeLocations cost: {} ms",
-                scanRangeLocations.size(), (System.currentTimeMillis() - start));
+        LOG.debug("create #{} ScanRangeList cost: {} ms",
+                scanRangeList.getScanRangeSize(), (System.currentTimeMillis() - start));
     }
 
-    @Override
-    public int getInputSplitNum() {
-        return this.inputSplitNum;
-    }
-
-    @Override
-    public long getInputFileSize() {
-        return this.inputFileSize;
-    }
-
-    private TScanRangeLocations newLocations(TFileScanRangeParams params, FederationBackendPolicy backendPolicy) {
+    private TScanRange newRange(TFileScanRangeParams params) {
         // Generate on file scan range
         TFileScanRange fileScanRange = new TFileScanRange();
         fileScanRange.setParams(params);
-
         // Scan range
         TExternalScanRange externalScanRange = new TExternalScanRange();
         externalScanRange.setFileScanRange(fileScanRange);
         TScanRange scanRange = new TScanRange();
         scanRange.setExtScanRange(externalScanRange);
-
-        // Locations
-        TScanRangeLocations locations = new TScanRangeLocations();
-        locations.setScanRange(scanRange);
-
-        TScanRangeLocation location = new TScanRangeLocation();
-        Backend selectedBackend = backendPolicy.getNextBe();
-        location.setBackendId(selectedBackend.getId());
-        location.setServer(new TNetworkAddress(selectedBackend.getIp(), selectedBackend.getBePort()));
-        locations.addToLocations(location);
-
-        return locations;
-    }
-
-    private TFileRangeDesc createFileRangeDesc(FileSplit fileSplit, List<String> columnsFromPath,
-            List<String> columnsFromPathKeys)
-            throws DdlException, MetaNotFoundException {
-        TFileRangeDesc rangeDesc = new TFileRangeDesc();
-        rangeDesc.setStartOffset(fileSplit.getStart());
-        rangeDesc.setSize(fileSplit.getLength());
-        // fileSize only be used when format is orc or parquet and TFileType is broker
-        // When TFileType is other type, it is not necessary
-        rangeDesc.setFileSize(fileSplit.getFileLength());
-        rangeDesc.setColumnsFromPath(columnsFromPath);
-        rangeDesc.setColumnsFromPathKeys(columnsFromPathKeys);
-
-        if (getLocationType() == TFileType.FILE_HDFS) {
-            rangeDesc.setPath(fileSplit.getPath().toUri().getPath());
-        } else if (getLocationType() == TFileType.FILE_S3 || getLocationType() == TFileType.FILE_BROKER) {
-            // need full path
-            rangeDesc.setPath(fileSplit.getPath().toString());
-        }
-        return rangeDesc;
+        return scanRange;
     }
 }

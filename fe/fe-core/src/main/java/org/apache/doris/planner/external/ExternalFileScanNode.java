@@ -48,6 +48,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanRangeList;
 import org.apache.doris.planner.external.iceberg.IcebergApiSource;
 import org.apache.doris.planner.external.iceberg.IcebergHMSSource;
 import org.apache.doris.planner.external.iceberg.IcebergScanProvider;
@@ -65,14 +66,12 @@ import org.apache.doris.thrift.TFileScanSlotInfo;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
-import org.apache.doris.thrift.TScanRangeLocations;
+import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Multimap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -132,7 +131,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
     private List<ParamCreateContext> contexts = Lists.newArrayList();
 
     // Final output of this file scan node
-    private List<TScanRangeLocations> scanRangeLocations = Lists.newArrayList();
+    private ScanRangeList scanRangeList = new ScanRangeList();
 
     // For explain
     private long inputSplitsNum = 0;
@@ -424,7 +423,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
             setDefaultValueExprs(scanProvider, context);
             setColumnPositionMappingForTextFile(scanProvider, context);
             finalizeParamsForLoad(context, analyzer);
-            createScanRangeLocations(context, scanProvider);
+            createScanInfoList(context, scanProvider);
             this.inputSplitsNum += scanProvider.getInputSplitNum();
             this.totalFileSize += scanProvider.getInputFileSize();
             TableIf table = desc.getTable();
@@ -450,7 +449,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
             setDefaultValueExprs(scanProvider, context);
             setColumnPositionMappingForTextFile(scanProvider, context);
             finalizeParamsForLoad(context, analyzer);
-            createScanRangeLocations(context, scanProvider);
+            createScanInfoList(context, scanProvider);
             this.inputSplitsNum += scanProvider.getInputSplitNum();
             this.totalFileSize += scanProvider.getInputFileSize();
             TableIf table = desc.getTable();
@@ -677,9 +676,8 @@ public class ExternalFileScanNode extends ExternalScanNode {
         }
     }
 
-    private void createScanRangeLocations(ParamCreateContext context, FileScanProviderIf scanProvider)
-            throws UserException {
-        scanProvider.createScanRangeLocations(context, backendPolicy, scanRangeLocations);
+    private void createScanInfoList(ParamCreateContext context, FileScanProviderIf scanProvider) throws UserException {
+        scanProvider.createScanRangeList(context, scanRangeList);
     }
 
     private void genSlotToSchemaIdMap(ParamCreateContext context) {
@@ -700,7 +698,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
 
     @Override
     public int getNumInstances() {
-        return scanRangeLocations.size();
+        return scanRangeList.getScanRangeSize();
     }
 
     @Override
@@ -712,9 +710,9 @@ public class ExternalFileScanNode extends ExternalScanNode {
     }
 
     @Override
-    public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
-        LOG.debug("There is {} scanRangeLocations for execution.", scanRangeLocations.size());
-        return scanRangeLocations;
+    public ScanRangeList getScanRangeList() {
+        LOG.debug("There is {} scanRanges for execution.", scanRangeList.getScanRangeSize());
+        return scanRangeList;
     }
 
     @Override
@@ -730,29 +728,24 @@ public class ExternalFileScanNode extends ExternalScanNode {
         }
 
         output.append(prefix).append("inputSplitNum=").append(inputSplitsNum).append(", totalFileSize=")
-                .append(totalFileSize).append(", scanRanges=").append(scanRangeLocations.size()).append("\n");
+                .append(totalFileSize).append(", scanRanges=").append(scanRangeList.getScanRangeSize()).append("\n");
         output.append(prefix).append("partition=").append(readPartitionNum).append("/").append(totalPartitionNum)
                 .append("\n");
 
         if (detailLevel == TExplainLevel.VERBOSE) {
-            output.append(prefix).append("backends:").append("\n");
-            Multimap<Long, TFileRangeDesc> scanRangeLocationsMap = ArrayListMultimap.create();
-            // 1. group by backend id
-            for (TScanRangeLocations locations : scanRangeLocations) {
-                scanRangeLocationsMap.putAll(locations.getLocations().get(0).backend_id,
-                        locations.getScanRange().getExtScanRange().getFileScanRange().getRanges());
-            }
-            for (long beId : scanRangeLocationsMap.keySet()) {
-                output.append(prefix).append("  ").append(beId).append("\n");
-                List<TFileRangeDesc> fileRangeDescs = Lists.newArrayList(scanRangeLocationsMap.get(beId));
-                // 2. sort by file start offset
+            int seq = 1;
+            output.append(prefix).append("  scanRangeListSize: ").append(scanRangeList.getScanRangeSize()).append("\n");
+            for (TScanRange range : scanRangeList.getScanRanges()) {
+                output.append(prefix).append("  range sequence: ").append(seq).append("\n");
+                List<TFileRangeDesc> fileRangeDescs = range.getExtScanRange().getFileScanRange().getRanges();
+                // 1. sort by file start offset
                 Collections.sort(fileRangeDescs, new Comparator<TFileRangeDesc>() {
                     @Override
                     public int compare(TFileRangeDesc o1, TFileRangeDesc o2) {
                         return Long.compare(o1.getStartOffset(), o2.getStartOffset());
                     }
                 });
-                // 3. if size <= 4, print all. if size > 4, print first 3 and last 1
+                // 2. if size <= 4, print all. if size > 4, print first 3 and last 1
                 int size = fileRangeDescs.size();
                 if (size <= 4) {
                     for (TFileRangeDesc file : fileRangeDescs) {
@@ -776,6 +769,10 @@ public class ExternalFileScanNode extends ExternalScanNode {
                             .append(" start: ").append(file.getStartOffset())
                             .append(" length: ").append(file.getFileSize())
                             .append("\n");
+                }
+                seq++;
+                if (seq > 4) {
+                    break;
                 }
             }
         }

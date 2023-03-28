@@ -22,10 +22,10 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.planner.ScanRangeList;
 import org.apache.doris.planner.external.ExternalFileScanNode.ParamCreateContext;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
-import org.apache.doris.thrift.TScanRangeLocations;
 
 import java.util.List;
 import java.util.Map;
@@ -44,8 +44,7 @@ public interface FileScanProviderIf {
 
     ParamCreateContext createContext(Analyzer analyzer) throws UserException;
 
-    void createScanRangeLocations(ParamCreateContext context, FederationBackendPolicy backendPolicy,
-            List<TScanRangeLocations> scanRangeLocations) throws UserException;
+    void createScanRangeList(ParamCreateContext context, ScanRangeList scanRangeList) throws UserException;
 
     int getInputSplitNum();
 
