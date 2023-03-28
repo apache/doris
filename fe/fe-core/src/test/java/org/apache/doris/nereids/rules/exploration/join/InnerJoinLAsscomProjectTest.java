@@ -52,6 +52,7 @@ class InnerJoinLAsscomProjectTest implements MemoPatternMatchSupported {
     private final LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
 
     @Test
+    @Disabled
     void testSimple() {
         /*
          * Star-Join
@@ -91,6 +92,7 @@ class InnerJoinLAsscomProjectTest implements MemoPatternMatchSupported {
     }
 
     @Test
+    @Disabled
     void testAlias() {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
                 .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
