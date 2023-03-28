@@ -122,8 +122,8 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         std::unique_ptr<char[]> buffer(new char[size]);
         {
             SCOPED_RAW_TIMER(&stats.remote_read_timer);
-            RETURN_IF_ERROR(_remote_file_reader->read_at(empty_start, Slice(buffer.get(), size), &size,
-                                                     io_ctx));
+            RETURN_IF_ERROR(_remote_file_reader->read_at(empty_start, Slice(buffer.get(), size),
+                                                         &size, io_ctx));
         }
         for (auto& segment : empty_segments) {
             if (segment->state() == FileBlock::State::SKIP_CACHE) {

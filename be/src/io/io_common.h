@@ -34,14 +34,15 @@ enum ReaderType {
 namespace io {
 
 struct FileCacheStatistics {
-    int64_t num_io_total = 0;
-    int64_t num_io_hit_cache = 0;
-    int64_t num_io_bytes_read_total = 0;
-    int64_t num_io_bytes_read_from_file_cache = 0;
-    int64_t num_io_bytes_read_from_write_cache = 0;
-    int64_t num_io_written_in_file_cache = 0;
-    int64_t num_io_bytes_written_in_file_cache = 0;
-    int64_t num_io_bytes_skip_cache = 0;
+    int64_t num_local_io_total = 0;
+    int64_t num_remote_io_total = 0;
+    int64_t local_io_timer = 0;
+    int64_t bytes_read_from_local = 0;
+    int64_t bytes_read_from_remote = 0;
+    int64_t remote_io_timer = 0;
+    int64_t write_cache_io_timer = 0;
+    int64_t bytes_write_into_cache = 0;
+    int64_t num_skip_cache_io_total = 0;
 };
 
 class IOContext {
