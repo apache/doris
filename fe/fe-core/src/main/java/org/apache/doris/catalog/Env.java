@@ -4144,7 +4144,7 @@ public class Env {
                 expr.collect(SlotRef.class, slots);
                 for (SlotRef slot : slots) {
                     String name = MaterializedIndexMeta
-                            .normalizeName(CreateMaterializedViewStmt.mvColumnBreaker(slot.toSqlWithOriginalName()));
+                            .normalizeName(CreateMaterializedViewStmt.mvColumnBreaker(slot.toSqlWithoutTbl()));
                     if (!isReplay && name.equals(colName)) {
                         throw new DdlException("Column[" + colName + "] have materialized view index");
                     }

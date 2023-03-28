@@ -95,7 +95,6 @@ public class TableRef implements ParseNode, Writable {
     protected boolean hasExplicitAlias;
     protected JoinOperator joinOp;
     protected boolean isInBitmap;
-    protected boolean showOriginalName = false;
     // for mark join
     protected boolean isMark;
     // we must record mark tuple name for re-analyze
@@ -235,11 +234,6 @@ public class TableRef implements ParseNode, Writable {
         ErrorReport.reportAnalysisException(ErrorCode.ERR_UNRESOLVED_TABLE_REF, tableRefToSql());
     }
 
-    public String toSqlWithOriginalName() {
-        showOriginalName = true;
-        return toSql();
-    }
-
     @Override
     public String toSql() {
         if (joinOp == null) {
@@ -263,7 +257,7 @@ public class TableRef implements ParseNode, Writable {
         if (usingColNames != null) {
             output.append("USING (").append(Joiner.on(", ").join(usingColNames)).append(")");
         } else if (onClause != null) {
-            output.append("ON ").append(showOriginalName ? onClause.toSqlWithOriginalName() : onClause.toSql());
+            output.append("ON ").append(onClause.toSql());
         }
         return output.toString();
     }
@@ -751,7 +745,7 @@ public class TableRef implements ParseNode, Writable {
         String tblName = tableNameToSql();
         if (lateralViewRefs != null) {
             for (LateralViewRef viewRef : lateralViewRefs) {
-                tblName += " " + (showOriginalName ? viewRef.toSqlWithOriginalName() : viewRef.toSql());
+                tblName += " " + viewRef.toSql();
             }
         }
         return tblName;

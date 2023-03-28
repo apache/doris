@@ -202,7 +202,7 @@ public class MaterializedViewSelectorTest {
                 result = index3Columns;
                 indexMeta4.getSchema();
                 result = index4Columns;
-                slotRef1.toSqlWithOriginalName();
+                slotRef1.toSqlWithoutTbl();
                 result = "c1";
             }
         };
@@ -268,7 +268,7 @@ public class MaterializedViewSelectorTest {
                 result = index2Columns;
                 indexMeta3.getSchema();
                 result = index3Columns;
-                slotRef1.toSqlWithOriginalName();
+                slotRef1.toSqlWithoutTbl();
                 result = "c1";
             }
         };

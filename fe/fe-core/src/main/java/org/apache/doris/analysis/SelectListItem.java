@@ -28,7 +28,6 @@ public class SelectListItem {
     private final TableName tblName;
     private final boolean isStar;
     private String alias;
-    protected boolean showOriginalName = false;
 
     public SelectListItem(Expr expr, String alias) {
         super();
@@ -87,11 +86,6 @@ public class SelectListItem {
         return alias;
     }
 
-    public String toSqlWithOriginalName() {
-        showOriginalName = true;
-        return toSql();
-    }
-
     public String toSql() {
         if (!isStar) {
             Preconditions.checkNotNull(expr);
@@ -99,8 +93,7 @@ public class SelectListItem {
             if (alias != null) {
                 aliasSql = "`" + alias + "`";
             }
-            return (showOriginalName ? expr.toSqlWithOriginalName() : expr.toSql())
-                    + ((aliasSql == null) ? "" : " " + aliasSql);
+            return expr.toSql() + ((aliasSql == null) ? "" : " " + aliasSql);
         } else if (tblName != null) {
             return tblName.toString() + ".*";
         } else {

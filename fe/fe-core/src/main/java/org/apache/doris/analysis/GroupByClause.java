@@ -50,7 +50,6 @@ public class GroupByClause implements ParseNode {
     // max num of distinct expressions
     private boolean analyzed = false;
     private boolean exprGenerated = false;
-    private boolean showOriginalName = false;
     private GroupingType groupingType;
     private ArrayList<Expr> groupingExprs;
     private ArrayList<Expr> oriGroupingExprs;
@@ -213,11 +212,6 @@ public class GroupByClause implements ParseNode {
         return groupingType != GroupingType.GROUP_BY;
     }
 
-    public String toSqlWithOriginalName() {
-        showOriginalName = true;
-        return toSql();
-    }
-
     @Override
     public String toSql() {
         StringBuilder strBuilder = new StringBuilder();
@@ -225,8 +219,7 @@ public class GroupByClause implements ParseNode {
             case GROUP_BY:
                 if (oriGroupingExprs != null) {
                     for (int i = 0; i < oriGroupingExprs.size(); ++i) {
-                        strBuilder.append(showOriginalName ? oriGroupingExprs.get(i).toSqlWithOriginalName()
-                                : oriGroupingExprs.get(i).toSql());
+                        strBuilder.append(oriGroupingExprs.get(i).toSql());
                         strBuilder.append((i + 1 != oriGroupingExprs.size()) ? ", " : "");
                     }
                 }
@@ -243,8 +236,7 @@ public class GroupByClause implements ParseNode {
                             strBuilder.append(", (");
                         }
                         for (int i = 0; i < groupingExprs.size(); ++i) {
-                            strBuilder.append(showOriginalName ? groupingExprs.get(i).toSqlWithOriginalName()
-                                    : groupingExprs.get(i).toSql());
+                            strBuilder.append(groupingExprs.get(i).toSql());
                             strBuilder.append((i + 1 != groupingExprs.size()) ? ", " : "");
                         }
                         strBuilder.append(")");
@@ -256,8 +248,7 @@ public class GroupByClause implements ParseNode {
                 if (oriGroupingExprs != null) {
                     strBuilder.append("CUBE (");
                     for (int i = 0; i < oriGroupingExprs.size(); ++i) {
-                        strBuilder.append(showOriginalName ? oriGroupingExprs.get(i).toSqlWithOriginalName()
-                                : oriGroupingExprs.get(i).toSql());
+                        strBuilder.append(oriGroupingExprs.get(i).toSql());
                         strBuilder.append((i + 1 != oriGroupingExprs.size()) ? ", " : "");
                     }
                     strBuilder.append(")");
@@ -267,8 +258,7 @@ public class GroupByClause implements ParseNode {
                 if (oriGroupingExprs != null) {
                     strBuilder.append("ROLLUP (");
                     for (int i = 0; i < oriGroupingExprs.size(); ++i) {
-                        strBuilder.append(showOriginalName ? oriGroupingExprs.get(i).toSqlWithOriginalName()
-                                : oriGroupingExprs.get(i).toSql());
+                        strBuilder.append(oriGroupingExprs.get(i).toSql());
                         strBuilder.append((i + 1 != oriGroupingExprs.size()) ? ", " : "");
                     }
                     strBuilder.append(")");

@@ -43,8 +43,6 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
 
     private boolean analyzed = false;
     private boolean needToSql = false;
-    private boolean showOriginalName = false;
-
 
     // the tables positions may be changed by 'join reorder' optimization
     // after reset, the original order information is lost
@@ -192,19 +190,13 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
         this.analyzed = false;
     }
 
-    public String toSqlWithOriginalName() {
-        showOriginalName = true;
-        return toSql();
-    }
-
     @Override
     public String toSql() {
         StringBuilder builder = new StringBuilder();
         if (!tablerefs.isEmpty()) {
             builder.append(" FROM");
             for (int i = 0; i < tablerefs.size(); ++i) {
-                builder.append(
-                        " " + (showOriginalName ? tablerefs.get(i).toSqlWithOriginalName() : tablerefs.get(i).toSql()));
+                builder.append(" " + tablerefs.get(i).toSql());
             }
         }
         return builder.toString();

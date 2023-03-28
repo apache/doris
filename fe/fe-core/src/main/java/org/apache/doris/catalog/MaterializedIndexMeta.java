@@ -170,7 +170,7 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
                     throw new IOException("DefineExpr have multiple slot in MaterializedIndex, Expr=" + entry.getKey());
                 }
 
-                String name = MaterializedIndexMeta.normalizeName(slots.get(0).toSqlWithOriginalName());
+                String name = MaterializedIndexMeta.normalizeName(slots.get(0).toSqlWithoutTbl());
                 Column matchedColumn = null;
 
                 String columnList = "[";
@@ -188,19 +188,19 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
                             matchedColumn = column;
                         } else {
                             LOG.warn("DefineExpr match multiple column in MaterializedIndex, ExprName=" + entry.getKey()
-                                    + ", Expr=" + entry.getValue().toSqlWithOriginalName() + ", Slot=" + name
+                                    + ", Expr=" + entry.getValue().toSqlWithoutTbl() + ", Slot=" + name
                                     + ", Columns=" + columnList);
                         }
                     }
                 }
                 if (matchedColumn != null) {
                     LOG.debug("trans old MV, MV: {},  DefineExpr:{}, DefineName:{}",
-                            matchedColumn.getName(), entry.getValue().toSqlWithOriginalName(), entry.getKey());
+                            matchedColumn.getName(), entry.getValue().toSqlWithoutTbl(), entry.getKey());
                     matchedColumn.setDefineExpr(entry.getValue());
                     matchedColumn.setDefineName(entry.getKey());
                 } else {
                     LOG.warn("DefineExpr does not match any column in MaterializedIndex, ExprName=" + entry.getKey()
-                            + ", Expr=" + entry.getValue().toSqlWithOriginalName() + ", Slot=" + name
+                            + ", Expr=" + entry.getValue().toSqlWithoutTbl() + ", Slot=" + name
                             + ", Columns=" + columnList);
                 }
             }
