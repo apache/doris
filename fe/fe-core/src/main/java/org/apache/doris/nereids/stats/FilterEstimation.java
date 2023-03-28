@@ -175,9 +175,11 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         if (statsForLeft.histogram != null) {
             return estimateLessThanLiteralWithHistogram(leftExpr, statsForLeft, val, context, contains);
         }
+        //rightRange.distinctValues should not be used
+        StatisticRange rightRange = new StatisticRange(statsForLeft.minValue, val, statsForLeft.ndv);
         return estimateBinaryComparisonFilter(leftExpr,
                 statsForLeft,
-                new StatisticRange(Double.NEGATIVE_INFINITY, val, statsForLeft.ndv), context);
+                rightRange, context);
     }
 
     private Statistics updateGreaterThanLiteral(Expression leftExpr, ColumnStatistic statsForLeft,
@@ -185,7 +187,8 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         if (statsForLeft.histogram != null) {
             return estimateGreaterThanLiteralWithHistogram(leftExpr, statsForLeft, val, context, contains);
         }
-        StatisticRange rightRange = new StatisticRange(val, Double.POSITIVE_INFINITY,
+        //rightRange.distinctValues should not be used
+        StatisticRange rightRange = new StatisticRange(val, statsForLeft.maxValue,
                 statsForLeft.ndv);
         return estimateBinaryComparisonFilter(leftExpr, statsForLeft, rightRange, context);
     }
@@ -360,7 +363,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             StatisticRange rightRange, EstimationContext context) {
         StatisticRange leftRange =
                 new StatisticRange(leftStats.minValue, leftStats.maxValue, leftStats.ndv);
-        StatisticRange intersectRange = leftRange.intersect(rightRange);
+        StatisticRange intersectRange = leftRange.cover(rightRange);
         ColumnStatisticBuilder leftColumnStatisticBuilder = new ColumnStatisticBuilder(leftStats)
                 .setMinValue(intersectRange.getLow())
                 .setMaxValue(intersectRange.getHigh())
@@ -368,6 +371,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         double sel = leftRange.overlapPercentWith(rightRange);
         Statistics updatedStatistics = context.statistics.withSel(sel);
         updatedStatistics.addColumnStats(leftExpr, leftColumnStatisticBuilder.build());
+        leftExpr.accept(new ColumnStatsAdjustVisitor(), updatedStatistics);
         return updatedStatistics;
     }
 
