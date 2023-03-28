@@ -101,7 +101,7 @@ public:
             }
         }
 
-        // insert value into array
+        // insert value into map
         ColumnArray::Offset64 offset = 0;
         for (size_t row = 0; row < input_rows_count; ++row) {
             for (size_t i = 0; i < num_element; i += 2) {
