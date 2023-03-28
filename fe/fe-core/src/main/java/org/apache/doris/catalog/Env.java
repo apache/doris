@@ -3966,7 +3966,7 @@ public class Env {
         if (!isReplay) {
             Map<String, String> properties = Maps.newHashMapWithExpectedSize(1);
             properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, assignedGroup);
-            TablePropertyInfo info = new TablePropertyInfo(table.getId(), groupId, properties);
+            TablePropertyInfo info = new TablePropertyInfo(db.getId(), table.getId(), groupId, properties);
             editLog.logModifyTableColocate(info);
         }
         LOG.info("finished modify table's colocation property. table: {}, is replay: {}", table.getName(), isReplay);
@@ -3975,8 +3975,9 @@ public class Env {
     public void replayModifyTableColocate(TablePropertyInfo info) throws MetaNotFoundException {
         long dbId = info.getGroupId().dbId;
         if (dbId == 0) {
-            dbId = info.getGroupId().getDbIdByTblId(info.getTableId());
+            dbId = info.getDbId();
         }
+        Preconditions.checkState(dbId != 0, "replay modify table colocate failed, table id: " + info.getTableId());
         long tableId = info.getTableId();
         Map<String, String> properties = info.getPropertyMap();
 
