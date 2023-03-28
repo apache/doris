@@ -51,19 +51,19 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         auto result_col = block.get_by_position(result).type->create_column();
-        auto struct_column = check_and_get_column<ColumnStruct*>(result_col.get());
+        auto struct_column = typeid_cast<ColumnStruct*>(result_col.get());
         if (!struct_column) {
             return Status::RuntimeError("unsupported types for function {} return {}", get_name(),
                                         block.get_by_position(result).type->get_name());
         }
-        size_t num_element = struct_column.tuple_size();
+        size_t num_element = struct_column->tuple_size();
         DCHECK(arguments.size() == num_element)
                 << "function: " << get_name() << ", argument number should equal to return field number.";
         // convert to nullable column
         for (size_t i = 0; i < num_element; ++i) {
             auto& col = block.get_by_position(arguments[i]).column;
             col = col->convert_to_full_column_if_const();
-            IColumn& nested_col = struct_column->get_column(i);
+            auto& nested_col = struct_column->get_column(i);
             nested_col.reserve(input_rows_count);
             bool is_nullable = nested_col.is_nullable();
             // for now, column in struct is always nullable
@@ -73,11 +73,9 @@ public:
         }
 
         // insert value into struct
-        for (size_t row = 0; row < input_rows_count; ++row) {
-            for (size_t i = 0; i < num_element; ++i) {
-                struct_column->get_column(i).insert_from(*block.get_by_position(arguments[i]).column,
-                                                         row);
-            }
+        for (size_t i = 0; i < num_element; ++i) {
+            struct_column->get_column(i).insert_range_from(*block.get_by_position(arguments[i]).column, 
+                                                           0, input_rows_count);
         }
         block.replace_by_position(result, std::move(result_col));
         return Status::OK();

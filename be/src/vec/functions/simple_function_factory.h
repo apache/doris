@@ -233,6 +233,7 @@ public:
             register_function_hex_variadic(instance);
             register_function_array(instance);
             register_function_map(instance);
+            register_function_struct(instance);
             register_function_geo(instance);
             register_function_url(instance);
             register_function_multi_string_position(instance);
