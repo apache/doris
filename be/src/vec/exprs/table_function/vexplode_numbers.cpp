@@ -18,6 +18,7 @@
 #include "vec/exprs/table_function/vexplode_numbers.h"
 
 #include "common/status.h"
+#include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/columns_number.h"
 #include "vec/exprs/vexpr.h"
@@ -39,12 +40,15 @@ Status VExplodeNumbersTableFunction::process_init(Block* block) {
     _value_column = block->get_by_position(value_column_idx).column;
     if (is_column_const(*_value_column)) {
         _cur_size = 0;
-        if (_value_column->is_nullable()) {
-            if (!_value_column->is_null_at(0)) {
-                _cur_size = static_cast<const ColumnNullable*>(_value_column.get())->get_int(0);
+        auto& column_nested = assert_cast<const ColumnConst&>(*_value_column).get_data_column_ptr();
+        if (column_nested->is_nullable()) {
+            if (!column_nested->is_null_at(0)) {
+                _cur_size = static_cast<const ColumnNullable*>(column_nested.get())
+                                    ->get_nested_column()
+                                    .get_int(0);
             }
         } else {
-            _cur_size = _value_column->get_int(0);
+            _cur_size = column_nested->get_int(0);
         }
 
         if (_cur_size && _cur_size <= block->rows()) { // avoid elements_column too big or empty
