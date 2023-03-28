@@ -675,6 +675,8 @@ visible_functions = [
     [['array_exists'], 'ARRAY_BOOLEAN', ['ARRAY_VARCHAR'], ''],
     [['array_exists'], 'ARRAY_BOOLEAN', ['ARRAY_STRING'], ''],
 
+    [['array_first_index'], 'BIGINT', ['ARRAY_BOOLEAN'], 'ALWAYS_NULLABLE'],
+
     [['array_pushfront'], 'ARRAY_BOOLEAN',    ['ARRAY_BOOLEAN', 'BOOLEAN'], 'ALWAYS_NULLABLE'],
     [['array_pushfront'], 'ARRAY_TINYINT',    ['ARRAY_TINYINT', 'TINYINT'], 'ALWAYS_NULLABLE'],
     [['array_pushfront'], 'ARRAY_SMALLINT',   ['ARRAY_SMALLINT', 'SMALLINT'], 'ALWAYS_NULLABLE'],
