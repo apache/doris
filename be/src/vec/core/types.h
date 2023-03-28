@@ -317,9 +317,18 @@ struct Decimal {
     DECLARE_NUMERIC_CTOR(Int64)
     DECLARE_NUMERIC_CTOR(UInt32)
     DECLARE_NUMERIC_CTOR(UInt64)
-    DECLARE_NUMERIC_CTOR(Float32)
-    DECLARE_NUMERIC_CTOR(Float64)
+
 #undef DECLARE_NUMERIC_CTOR
+    Decimal(const Float32& value_) : value(value_) {
+        if constexpr (std::is_integral<T>::value) {
+            value = round(value_);
+        }
+    }
+    Decimal(const Float64& value_) : value(value_) {
+        if constexpr (std::is_integral<T>::value) {
+            value = round(value_);
+        }
+    }
 
     static Decimal double_to_decimal(double value_) {
         DecimalV2Value decimal_value;
