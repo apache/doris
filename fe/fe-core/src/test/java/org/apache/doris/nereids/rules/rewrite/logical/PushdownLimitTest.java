@@ -23,7 +23,6 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
-import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
@@ -265,8 +264,8 @@ class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSup
         LogicalJoin<? extends Plan, ? extends Plan> join = new LogicalJoin<>(
                 joinType,
                 joinConditions,
-                new LogicalOlapScan(new ObjectId(0), PlanConstructor.score),
-                new LogicalOlapScan(new ObjectId(1), PlanConstructor.student)
+                new LogicalOlapScan(((LogicalOlapScan) scanScore).getId(), PlanConstructor.score),
+                new LogicalOlapScan(((LogicalOlapScan) scanStudent).getId(), PlanConstructor.student)
         );
 
         if (hasProject) {
