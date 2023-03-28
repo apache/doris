@@ -189,6 +189,7 @@ CREATE CATALOG hana_catalog PROPERTIES (
 `driver_class` | 是 |  | JDBC Driver Class 名称 |
 `only_specified_database` | 否 | "false" | 指定是否只同步指定的 database  |
 `lower_case_table_names` | 否 | "false" | 是否以小写的形式同步jdbc外部数据源的表名 |
+`specified_database_list` | 否 | "" | 当only_specified_database=true时，指定同步多个database，以','分隔。db名称是大小写敏感的。 |
 
 > `driver_url` 可以通过以下三种方式指定：
 > 
@@ -200,7 +201,7 @@ CREATE CATALOG hana_catalog PROPERTIES (
 
 > `only_specified_database`:
 > 
-> 在jdbc连接时可以指定链接到哪个database/schema, 如：mysql中jdbc_url中可以指定database, pg的jdbc_url中可以指定currentSchema。`only_specified_database=true` 可以只同步指定的 database。
+> 在jdbc连接时可以指定链接到哪个database/schema, 如：mysql中jdbc_url中可以指定database, pg的jdbc_url中可以指定currentSchema。`only_specified_database=true` 且`specified_database_list`为空时，可以只同步指定的 database。当`only_specified_database=true`且`specified_database_list`指定了database列表时，则会同步指定的多个database。
 > 
 > 如果使用该参数时连接oracle数据库，要求使用ojdbc8.jar以上版本jar包。
 

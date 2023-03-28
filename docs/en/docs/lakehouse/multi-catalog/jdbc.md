@@ -188,6 +188,7 @@ CREATE CATALOG hana_catalog PROPERTIES (
 | `driver_class ` | Yes             |               | JDBC Driver Class                                  |
 | `only_specified_database` | No             |     "false"          | Whether only the database specified to be synchronized.                                  |
 | `lower_case_table_names` | No             |     "false"          | Whether to synchronize jdbc external data source table names in lower case. |
+| `specified_database_list` | No             |     ""          | When only_specified_database=true，only synchronize the specified databases. split with ','. db name is case sensitive.|
 
 > `driver_url` can be specified in three ways:
 >
@@ -199,7 +200,7 @@ CREATE CATALOG hana_catalog PROPERTIES (
 
 > `only_specified_database`:
 >
-> When the JDBC is connected, you can specify which database/schema to connect. For example, you can specify the DataBase in mysql `jdbc_url`; you can specify the CurrentSchema in PG `jdbc_url`. `only_specified_database` specifies whether only the database specified to be synchronized.
+> When the JDBC is connected, you can specify which database/schema to connect. For example, you can specify the DataBase in mysql `jdbc_url`; you can specify the CurrentSchema in PG `jdbc_url`. When `only_specified_database=true` and `specified_database_list` is empty, only the database in jdbc_url specified to be synchronized. When `only_specified_database=true` and `specified_database_list` with some database names，and these names will specified to be synchronized。
 > 
 > If you connect the Oracle database when using this property, please  use the version of the jar package above 8 or more (such as ojdbc8.jar).
 
