@@ -43,20 +43,27 @@ public:
 
     bool is_variadic() const override { return false; }
 
+    bool use_default_implementation_for_nulls() const override { return false; }
+
     size_t get_number_of_arguments() const override { return 2; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DCHECK(is_array(arguments[0]) || is_map(arguments[0]))
+        DataTypePtr arg_0 = arguments[0];
+        if (arguments[0]->is_nullable()) {
+            arg_0 = check_and_get_data_type<DataTypeNullable>(arguments[0].get())->get_nested_type();
+        }
+        DCHECK(is_array(arg_0) || is_map(arg_0))
                 << "first argument for function: " << name
-                << " should be DataTypeArray or DataTypeMap";
-        if (is_array(arguments[0])) {
+                << " should be DataTypeArray or DataTypeMap, but it is "
+                <<  arg_0->get_name();
+        if (is_array(arg_0)) {
             DCHECK(is_integer(arguments[1])) << "second argument for function: " << name
                                              << " should be Integer for array element";
             return make_nullable(
-                    check_and_get_data_type<DataTypeArray>(arguments[0].get())->get_nested_type());
-        } else if (is_map(arguments[0])) {
+                    check_and_get_data_type<DataTypeArray>(arg_0.get())->get_nested_type());
+        } else if (is_map(arg_0)) {
             return make_nullable(
-                    check_and_get_data_type<DataTypeMap>(arguments[0].get())->get_value_type());
+                    check_and_get_data_type<DataTypeMap>(arg_0.get())->get_value_type());
         } else {
             LOG(ERROR) << "element_at only support array and map so far.";
             return nullptr;
@@ -98,15 +105,9 @@ public:
 private:
     //=========================== map element===========================//
     ColumnPtr _get_mapped_idx(const ColumnArray& column, const ColumnWithTypeAndName& argument) {
-        auto right_column = argument.column->convert_to_full_column_if_const();
+        auto right_column = make_nullable(argument.column->convert_to_full_column_if_const());
         const ColumnArray::Offsets64& offsets = column.get_offsets();
-        ColumnPtr nested_ptr = nullptr;
-        if (is_column_nullable(column.get_data())) {
-            nested_ptr = reinterpret_cast<const ColumnNullable&>(column.get_data())
-                                 .get_nested_column_ptr();
-        } else {
-            nested_ptr = column.get_data_ptr();
-        }
+        ColumnPtr nested_ptr = make_nullable(column.get_data_ptr());
         size_t rows = offsets.size();
         // prepare return data
         auto matched_indices = ColumnVector<Int8>::create();
@@ -245,7 +246,9 @@ private:
         if (rows <= 0) {
             return nullptr;
         }
+        if (key_arr->is_nullable()) {
 
+        }
         ColumnPtr matched_indices = _get_mapped_idx(*key_arr, arguments[1]);
         if (!matched_indices) {
             return nullptr;
