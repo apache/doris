@@ -36,7 +36,6 @@ import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CheckConsistencyTask;
-import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Preconditions;
@@ -118,12 +117,6 @@ public class CheckConsistencyJob {
             return false;
         }
 
-        // get user resource info
-        TResourceInfo resourceInfo = null;
-        if (ConnectContext.get() != null) {
-            resourceInfo = ConnectContext.get().toResourceCtx();
-        }
-
         Tablet tablet = null;
 
         AgentBatchTask batchTask = new AgentBatchTask();
@@ -179,7 +172,7 @@ public class CheckConsistencyJob {
                     maxDataSize = replica.getDataSize();
                 }
 
-                CheckConsistencyTask task = new CheckConsistencyTask(resourceInfo, replica.getBackendId(),
+                CheckConsistencyTask task = new CheckConsistencyTask(replica.getBackendId(),
                                                                      tabletMeta.getDbId(),
                                                                      tabletMeta.getTableId(),
                                                                      tabletMeta.getPartitionId(),

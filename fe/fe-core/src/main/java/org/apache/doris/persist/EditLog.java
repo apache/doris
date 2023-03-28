@@ -1072,7 +1072,6 @@ public class EditLog {
         }
 
         long start = System.currentTimeMillis();
-
         try {
             journal.write(op, writable);
         } catch (Throwable t) {
