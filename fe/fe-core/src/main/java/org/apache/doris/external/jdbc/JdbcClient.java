@@ -62,14 +62,19 @@ public class JdbcClient {
 
     private boolean isLowerCaseTableNames = false;
 
+    private Map<String, Boolean> specifiedDatabaseMap = Maps.newHashMap();
+
     // only used when isLowerCaseTableNames = true.
     private Map<String, String> lowerTableToRealTable = Maps.newHashMap();
 
     public JdbcClient(String user, String password, String jdbcUrl, String driverUrl, String driverClass,
-            String onlySpecifiedDatabase, String isLowerCaseTableNames) {
+            String onlySpecifiedDatabase, String isLowerCaseTableNames, Map specifiedDatabaseMap) {
         this.jdbcUser = user;
         this.isOnlySpecifiedDatabase = Boolean.valueOf(onlySpecifiedDatabase).booleanValue();
         this.isLowerCaseTableNames = Boolean.valueOf(isLowerCaseTableNames).booleanValue();
+        if (specifiedDatabaseMap != null) {
+            this.specifiedDatabaseMap = specifiedDatabaseMap;
+        }
         try {
             this.dbType = JdbcResource.parseDbType(jdbcUrl);
         } catch (DdlException e) {
@@ -170,7 +175,7 @@ public class JdbcClient {
         Connection conn = getConnection();
         Statement stmt = null;
         ResultSet rs = null;
-        if (isOnlySpecifiedDatabase) {
+        if (isOnlySpecifiedDatabase && specifiedDatabaseMap.isEmpty()) {
             return getSpecifiedDatabase(conn);
         }
         List<String> databaseNames = Lists.newArrayList();
@@ -197,9 +202,18 @@ public class JdbcClient {
                 default:
                     throw new JdbcClientException("Not supported jdbc type");
             }
-
+            List<String> tempDatabaseNames = Lists.newArrayList();
             while (rs.next()) {
-                databaseNames.add(rs.getString(1));
+                tempDatabaseNames.add(rs.getString(1));
+            }
+            if (isOnlySpecifiedDatabase && !specifiedDatabaseMap.isEmpty()) {
+                for (String db : tempDatabaseNames) {
+                    if (specifiedDatabaseMap.get(db) != null) {
+                        databaseNames.add(db);
+                    }
+                }
+            } else {
+                databaseNames = tempDatabaseNames;
             }
         } catch (SQLException e) {
             throw new JdbcClientException("failed to get database name list from jdbc", e);
