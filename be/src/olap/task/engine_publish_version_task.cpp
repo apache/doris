@@ -218,7 +218,7 @@ void TabletPublishTxnTask::handle() {
     if (publish_status != Status::OK()) {
         LOG(WARNING) << "failed to publish version. rowset_id=" << _rowset->rowset_id()
                      << ", tablet_id=" << _tablet_info.tablet_id << ", txn_id=" << _transaction_id
-                     << ", res" << publish_status;
+                     << ", res=" << publish_status;
         _engine_publish_version_task->add_error_tablet_id(_tablet_info.tablet_id);
         return;
     }
