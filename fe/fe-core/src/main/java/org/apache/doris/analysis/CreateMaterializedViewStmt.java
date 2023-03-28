@@ -165,6 +165,11 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         analyzeSelectClause(analyzer);
         analyzeFromClause();
         if (selectStmt.getWhereClause() != null) {
+            if (!isReplay && selectStmt.getWhereClause().hasAggregateSlot()) {
+                throw new AnalysisException(
+                        "The where clause contained aggregate column is not supported, expr:"
+                                + selectStmt.getWhereClause().toSql());
+            }
             whereClauseItem = new MVColumnItem(selectStmt.getWhereClause());
         }
         if (selectStmt.getHavingPred() != null) {

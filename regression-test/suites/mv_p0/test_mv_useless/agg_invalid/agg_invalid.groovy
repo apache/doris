@@ -16,11 +16,6 @@
 // under the License.
 
 suite ("agg_invalid") {
-    def testTable = "test_agg_mv_useless_table"
-    def getJobState = { tableName ->
-        def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${testTable}' ORDER BY CreateTime DESC LIMIT 1; """
-        return jobStateResult[0][8]
-    }
     sql """drop table if exists t1;"""
 
     sql """
@@ -42,7 +37,7 @@ suite ("agg_invalid") {
         exception null
     }
 
-        test {
+    test {
         sql "CREATE MATERIALIZED VIEW mv_4 AS SELECT p1, SUM(abs(v1)) FROM t1 GROUP BY p1;"
         exception "errCode = 2,"
     }
