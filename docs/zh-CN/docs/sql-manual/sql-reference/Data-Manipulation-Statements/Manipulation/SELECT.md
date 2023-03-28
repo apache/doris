@@ -98,7 +98,7 @@ SELECT
 
 **联接查询：**
 
-Doris 支持一下JOIN语法
+Doris 支持以下JOIN语法
 
 ```sql
 JION
