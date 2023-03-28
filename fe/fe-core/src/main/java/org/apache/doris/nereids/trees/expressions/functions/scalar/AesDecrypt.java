@@ -80,9 +80,6 @@ public class AesDecrypt extends AesCryptoFunction {
         } else if (children().size() == 3) {
             return new AesDecrypt(children.get(0), children.get(1), children.get(2));
         } else {
-            if (!(children.get(3) instanceof StringLiteral)) {
-                throw new AnalysisException("the 4th parameter should be string literal: " + this.toSql());
-            }
             return new AesDecrypt(children.get(0), children.get(1), children.get(2), (StringLiteral) children.get(3));
         }
     }
