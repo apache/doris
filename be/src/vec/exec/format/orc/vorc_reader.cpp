@@ -805,10 +805,8 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
                         ->get_value_type());
         const orc::Type* orc_key_type = orc_column_type->getSubtype(0);
         const orc::Type* orc_value_type = orc_column_type->getSubtype(1);
-        const ColumnPtr& doris_key_column =
-                typeid_cast<const ColumnArray*>(doris_map.get_keys_ptr().get())->get_data_ptr();
-        const ColumnPtr& doris_value_column =
-                typeid_cast<const ColumnArray*>(doris_map.get_values_ptr().get())->get_data_ptr();
+        const ColumnPtr& doris_key_column = doris_map.get_keys_ptr();
+        const ColumnPtr& doris_value_column = doris_map.get_values_ptr();
         RETURN_IF_ERROR(_orc_column_to_doris_column(col_name, doris_key_column, doris_key_type,
                                                     orc_key_type, orc_map->keys.get(),
                                                     element_size));
