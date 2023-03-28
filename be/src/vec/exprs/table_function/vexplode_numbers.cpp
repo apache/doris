@@ -38,7 +38,15 @@ Status VExplodeNumbersTableFunction::process_init(Block* block) {
                                                                    &value_column_idx));
     _value_column = block->get_by_position(value_column_idx).column;
     if (is_column_const(*_value_column)) {
-        _cur_size = std::max((int64_t)0, _value_column->get_int(0));
+        _cur_size = 0;
+        if (_value_column->is_nullable()) {
+            if (!_value_column->is_null_at(0)) {
+                _cur_size = static_cast<const ColumnNullable*>(_value_column.get())->get_int(0);
+            }
+        } else {
+            _cur_size = _value_column->get_int(0);
+        }
+
         if (_cur_size && _cur_size <= block->rows()) { // avoid elements_column too big or empty
             _is_const = true;                          // use const optimize
             for (int i = 0; i < _cur_size; i++) {
