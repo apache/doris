@@ -58,7 +58,8 @@ public:
         }
         size_t num_element = struct_column->tuple_size();
         DCHECK(arguments.size() == num_element)
-                << "function: " << get_name() << ", argument number should equal to return field number.";
+                << "function: " << get_name()
+                << ", argument number should equal to return field number.";
         // convert to nullable column
         for (size_t i = 0; i < num_element; ++i) {
             auto& col = block.get_by_position(arguments[i]).column;
@@ -74,8 +75,8 @@ public:
 
         // insert value into struct
         for (size_t i = 0; i < num_element; ++i) {
-            struct_column->get_column(i).insert_range_from(*block.get_by_position(arguments[i]).column, 
-                                                           0, input_rows_count);
+            struct_column->get_column(i).insert_range_from(
+                    *block.get_by_position(arguments[i]).column, 0, input_rows_count);
         }
         block.replace_by_position(result, std::move(result_col));
         return Status::OK();
