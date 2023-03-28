@@ -24,11 +24,7 @@
 #include <vec/functions/function_helpers.h>
 #include <vec/functions/simple_function_factory.h>
 
-#include <cstddef>
 #include <vec/utils/util.hpp>
-
-#include "vec/common/assert_cast.h"
-#include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
 
