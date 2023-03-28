@@ -362,6 +362,7 @@ class StreamLoadAction implements SuiteAction {
             }
         } catch (Throwable t) {
             log.info("failed to waitForPublishOrFailure. response: ${responseText}", t);
+            throw t;
         }
     }
 }
