@@ -17,7 +17,7 @@
 
 package org.apache.doris.load.loadv2;
 
-import org.apache.doris.PaloFe;
+import org.apache.doris.DorisFE;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
@@ -85,7 +85,7 @@ public class SparkRepository {
         this.brokerDesc = brokerDesc;
         this.currentDppVersion = Config.spark_dpp_version;
         this.currentArchive = new SparkArchive(getRemoteArchivePath(currentDppVersion), currentDppVersion);
-        this.localDppPath = PaloFe.DORIS_HOME_DIR + DPP_RESOURCE_DIR + SPARK_DPP_JAR;
+        this.localDppPath = DorisFE.DORIS_HOME_DIR + DPP_RESOURCE_DIR + SPARK_DPP_JAR;
         if (!Strings.isNullOrEmpty(Config.spark_resource_path)) {
             this.localSpark2xPath = Config.spark_resource_path;
         } else {
