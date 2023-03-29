@@ -17,7 +17,7 @@
 
 #include "runtime/runtime_predicate.h"
 
-#include "olap/passnull_predicate.h"
+#include "olap/accept_null_predicate.h"
 #include "olap/predicate_creator.h"
 
 namespace doris {
@@ -165,12 +165,13 @@ Status RuntimePredicate::update(const Field& value, const String& col_name, bool
                 column, index, val, false, _predicate_arena.get());
     }
 
-    // For NULLS FIRST, wrap a PassNullPredicate to return true for NULL
+    // For NULLS FIRST, wrap a AcceptNullPredicate to return true for NULL
     // since ORDER BY ASC/DESC should get NULL first but pred returns NULL
     // and NULL in where predicate will be treated as FALSE
     if (_nulls_first) {
-        _predictate.reset(new PassNullPredicate(pred));
+        pred = new AcceptNullPredicate(pred);
     }
+    _predictate.reset(pred);
 
     return Status::OK();
 }

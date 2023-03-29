@@ -33,9 +33,9 @@ namespace doris {
  *
  * At parent, it's used for topn runtime predicate.
 */
-class PassNullPredicate : public ColumnPredicate {
+class AcceptNullPredicate : public ColumnPredicate {
 public:
-    PassNullPredicate(ColumnPredicate* nested)
+    AcceptNullPredicate(ColumnPredicate* nested)
             : ColumnPredicate(nested->column_id(), nested->opposite()), _nested {nested} {}
 
     PredicateType type() const override { return _nested->type(); }
@@ -61,7 +61,7 @@ public:
         if (column.has_null()) {
             // copy original flags
             bool* original_flags = new bool[size];
-            memcpy(flags, original_flags, size * sizeof(bool));
+            memcpy(original_flags, flags, size * sizeof(bool));
 
             // call evaluate_and and restore true for NULL rows
             _nested->evaluate_and(column, sel, size, flags);
@@ -93,8 +93,8 @@ public:
     }
 
     bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
-        // min value is null means has null in range
-        if (statistic.first->is_null()) {
+        // there is null in range, accept it
+        if (statistic.first->is_null() || statistic.second->is_null()) {
             return true;
         }
         return _nested->evaluate_and(statistic);
@@ -126,7 +126,7 @@ public:
         if (column.has_null()) {
             // copy original flags
             bool* original_flags = new bool[size];
-            memcpy(flags, original_flags, size * sizeof(bool));
+            memcpy(original_flags, flags, size * sizeof(bool));
 
             // call evaluate_and_vec and restore true for NULL rows
             _nested->evaluate_and_vec(column, size, flags);
@@ -153,7 +153,7 @@ public:
         if (need_to_clone()) {
             ColumnPredicate* clone_nested;
             _nested->clone(&clone_nested);
-            *to = new PassNullPredicate(clone_nested);
+            *to = new AcceptNullPredicate(clone_nested);
         }
     }
 
