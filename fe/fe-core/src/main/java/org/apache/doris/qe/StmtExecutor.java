@@ -879,7 +879,8 @@ public class StmtExecutor implements ProfileWriter {
                 || parsedStmt instanceof LogicalPlanAdapter) {
             if (context.sessionVariable.enablePipelineEngine()) {
                 analyzer.setResourceGroups(
-                        analyzer.getEnv().getResourceGroupMgr().getResourceGroup(ResourceGroupMgr.DEFAULT_GROUP_NAME));
+                        analyzer.getEnv().getResourceGroupMgr()
+                                .getResourceGroup(context.sessionVariable.resourceGroup));
             }
             Map<Long, TableIf> tableMap = Maps.newTreeMap();
             QueryStmt queryStmt;

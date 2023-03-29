@@ -49,7 +49,7 @@ public class ResourceGroupMgr implements Writable {
 
     private static final Logger LOG = LogManager.getLogger(ResourceGroupMgr.class);
 
-    public static final String DEFAULT_GROUP_NAME = "default";
+    public static final String DEFAULT_GROUP_NAME = "normal";
 
     private static final String CPU_SCHEDULING_WEIGHT = "cpu_scheduling_weight";
 
