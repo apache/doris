@@ -102,10 +102,9 @@ public class FunctionBinder extends DefaultExpressionRewriter<CascadesContext> {
                 .build()
                 : (List) unboundFunction.getArguments();
 
-        if (BinaryArithmeticFunctionBinder.INSTANCE.canBind(unboundFunction.getName())) {
-            BinaryArithmetic op = BinaryArithmeticFunctionBinder.INSTANCE
-                    .bind(unboundFunction.getName(), unboundFunction.children());
-            return TypeCoercionUtils.processBinaryArithmetic(op, op.left(), op.right());
+        if (ArithmeticFunctionBinder.INSTANCE.canBind(unboundFunction.getName())) {
+            return ArithmeticFunctionBinder.INSTANCE.bind(
+                    unboundFunction.getName(), unboundFunction.children(), context);
         }
         FunctionBuilder builder = functionRegistry.findFunctionBuilder(functionName, arguments);
         BoundFunction boundFunction = builder.build(functionName, arguments);
@@ -243,23 +242,26 @@ public class FunctionBinder extends DefaultExpressionRewriter<CascadesContext> {
             inSubquery.isNot());
     }
 
-    private static class BinaryArithmeticFunctionBinder {
-        public static final BinaryArithmeticFunctionBinder INSTANCE = new BinaryArithmeticFunctionBinder();
-        private static final Map<String, BinaryArithmetic> FUNCTION_TO_EXPRESSION =
-                ImmutableMap.<String, BinaryArithmetic>builder()
+    private static class ArithmeticFunctionBinder extends DefaultExpressionRewriter<Void> {
+        public static final ArithmeticFunctionBinder INSTANCE = new ArithmeticFunctionBinder();
+        private static final Map<String, Expression> FUNCTION_TO_EXPRESSION =
+                ImmutableMap.<String, Expression>builder()
                 .put("add", new Add(null, null))
                 .put("subtract", new Subtract(null, null))
                 .put("multiply", new Multiply(null, null))
                 .put("divide", new Divide(null, null))
                 .put("mod", new Mod(null, null))
+                .put("bitnot", new BitNot(null))
+                .put("int_divide", new IntegralDivide(null, null))
                 .build();
 
         public boolean canBind(String functionName) {
             return FUNCTION_TO_EXPRESSION.containsKey(functionName);
         }
 
-        public BinaryArithmetic bind(String functionName, List<Expression> children) {
-            return FUNCTION_TO_EXPRESSION.get(functionName).withChildren(children);
+        public Expression bind(String functionName, List<Expression> children, CascadesContext context) {
+            return FunctionBinder.INSTANCE
+                    .bind(FUNCTION_TO_EXPRESSION.get(functionName).withChildren(children), context);
         }
     }
 }
