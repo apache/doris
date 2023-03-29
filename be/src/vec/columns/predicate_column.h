@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <optional>
+
 #include "olap/decimal12.h"
 #include "olap/uint24.h"
 #include "runtime/primitive_type.h"
