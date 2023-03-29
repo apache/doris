@@ -266,7 +266,7 @@ bool histogram_to_json(rapidjson::StringBuffer& buffer, const std::vector<Bucket
         // String type is different, it has to pass in length
         if constexpr (std::is_same_v<T, std::string>) {
             lower_column->insert_data(bucket.lower.c_str(), bucket.lower.length());
-            upper_column->insert_data(bucket.upper.c_str(), bucket.lower.length());
+            upper_column->insert_data(bucket.upper.c_str(), bucket.upper.length());
         } else {
             lower_column->insert_data(bucket.lower, 0);
             upper_column->insert_data(bucket.upper, 0);
