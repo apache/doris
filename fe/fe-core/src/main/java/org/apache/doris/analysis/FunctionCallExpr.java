@@ -1708,6 +1708,7 @@ public class FunctionCallExpr extends Expr {
 
         retExpr.fnParams = new FunctionParams(oriExpr.fnParams.isDistinct(), oriParamsExprs);
 
+        // retExpr changed to original function, so the fn should be null.
         retExpr.fn = null;
 
         // reset children
