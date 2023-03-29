@@ -587,7 +587,7 @@ template <PrimitiveType Type, PredicateType PT, typename ConditionType, typename
 ColumnPredicate* _create_in_list_predicate(uint32_t column_id, const ConditionType& conditions,
                                            const ConvertFunc& convert, bool is_opposite = false,
                                            const TabletColumn* col = nullptr,
-                                           MemPool* pool = nullptr) {
+                                           vectorized::Arena* arena = nullptr) {
     using T = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
     if constexpr (N >= 1 && N <= 12) {
         using Set = std::conditional_t<
@@ -595,14 +595,14 @@ ColumnPredicate* _create_in_list_predicate(uint32_t column_id, const ConditionTy
                 HybridSet<Type, FixedContainer<T, N>,
                           vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>>;
         return new InListPredicateBase<Type, PT, Set>(column_id, conditions, convert, is_opposite,
-                                                      col, pool);
+                                                      col, arena);
     } else {
         using Set = std::conditional_t<
                 std::is_same_v<T, StringRef>, StringSet<DynamicContainer<std::string>>,
                 HybridSet<Type, DynamicContainer<T>,
                           vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>>;
         return new InListPredicateBase<Type, PT, Set>(column_id, conditions, convert, is_opposite,
-                                                      col, pool);
+                                                      col, arena);
     }
 }
 
@@ -610,46 +610,46 @@ template <PrimitiveType Type, PredicateType PT, typename ConditionType, typename
 ColumnPredicate* create_in_list_predicate(uint32_t column_id, const ConditionType& conditions,
                                           const ConvertFunc& convert, bool is_opposite = false,
                                           const TabletColumn* col = nullptr,
-                                          MemPool* pool = nullptr) {
+                                          vectorized::Arena* arena = nullptr) {
     if (conditions.size() == 1) {
         return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 1>(
-                column_id, conditions, convert, is_opposite, col, pool);
+                column_id, conditions, convert, is_opposite, col, arena);
     } else if (conditions.size() == 2) {
         return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 2>(
-                column_id, conditions, convert, is_opposite, col, pool);
+                column_id, conditions, convert, is_opposite, col, arena);
     } else if (conditions.size() == 3) {
         return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 3>(
-                column_id, conditions, convert, is_opposite, col, pool);
+                column_id, conditions, convert, is_opposite, col, arena);
     } else if (conditions.size() == 4) {
         return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 4>(
-                column_id, conditions, convert, is_opposite, col, pool);
+                column_id, conditions, convert, is_opposite, col, arena);
     } else if (conditions.size() == 5) {
         return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 5>(
-                column_id, conditions, convert, is_opposite, col, pool);
+                column_id, conditions, convert, is_opposite, col, arena);
     } else if (conditions.size() == 6) {
         return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 6>(
-                column_id, conditions, convert, is_opposite, col, pool);
+                column_id, conditions, convert, is_opposite, col, arena);
     } else if (conditions.size() == 7) {
         return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 7>(
-                column_id, conditions, convert, is_opposite, col, pool);
+                column_id, conditions, convert, is_opposite, col, arena);
     } else if (conditions.size() == 8) {
         return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 8>(
-                column_id, conditions, convert, is_opposite, col, pool);
+                column_id, conditions, convert, is_opposite, col, arena);
     } else if (conditions.size() == 9) {
         return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 9>(
-                column_id, conditions, convert, is_opposite, col, pool);
+                column_id, conditions, convert, is_opposite, col, arena);
     } else if (conditions.size() == 10) {
         return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 10>(
-                column_id, conditions, convert, is_opposite, col, pool);
+                column_id, conditions, convert, is_opposite, col, arena);
     } else if (conditions.size() == 11) {
         return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 11>(
-                column_id, conditions, convert, is_opposite, col, pool);
+                column_id, conditions, convert, is_opposite, col, arena);
     } else if (conditions.size() == 12) {
         return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 12>(
-                column_id, conditions, convert, is_opposite, col, pool);
+                column_id, conditions, convert, is_opposite, col, arena);
     } else {
         return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc>(
-                column_id, conditions, convert, is_opposite, col, pool);
+                column_id, conditions, convert, is_opposite, col, arena);
     }
 }
 
