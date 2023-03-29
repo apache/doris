@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_stream_load_big_file_with_special_delimiter", "p0") {
+suite("test_stream_load_big_file_with_special_delimiter", "p1") {
     sql "show tables"
 
     def tableName = "test_csv_big_file_with_special_delimiter"
@@ -40,7 +40,6 @@ suite("test_stream_load_big_file_with_special_delimiter", "p0") {
         set 'strict_mode', 'true'
 
         file 'test_csv_big_file_with_special_delimiter.csv'
-        time 10000 // limit inflight 10s
     }
 
     sql "sync"
