@@ -40,6 +40,12 @@ import java.util.ArrayList;
 public class EmptySetNode extends PlanNode {
     private static final Logger LOG = LogManager.getLogger(EmptySetNode.class);
 
+    public EmptySetNode(PlanNodeId id) {
+        super(id, new ArrayList<>(), "EMPTYSET", StatisticalType.EMPTY_SET_NODE);
+        cardinality = 0L;
+        offset = 0;
+    }
+
     public EmptySetNode(PlanNodeId id, ArrayList<TupleId> tupleIds) {
         super(id, tupleIds, "EMPTYSET", StatisticalType.EMPTY_SET_NODE);
         cardinality = 0L;

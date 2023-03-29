@@ -56,25 +56,24 @@ public class FetchPartitionCache implements RewriteRuleFactory {
                     CacheContext cacheContext = ctx.statementContext.getCacheContext();
                     final LogicalFilter<LogicalOlapScan> filter = ctx.root;
                     final LogicalOlapScan olapScan = filter.child();
-                    List<Long> partitionIds = ImmutableList.of(cacheContext.getLastPartition().getId());
 
                     if (PartitionCache.getCacheDataForNereids(cacheContext)) {
                         // miss
                         LogicalOlapScan missScan = olapScan.withCachePartition(ImmutableList.of());
                         LogicalFilter missFilter = new LogicalFilter(cacheContext.getMissConjuncts(), missScan);
-
                         // hit
+                        List<Long> partitionIds = ImmutableList.of(cacheContext.getLastPartition().getId());
                         LogicalOlapScan hitScan = olapScan.withCachePartition(partitionIds);
                         LogicalFilter hitFilter = new LogicalFilter(cacheContext.getHitConjuncts(), hitScan);
                         LogicalCache hitCache = new LogicalCache(cacheContext.getCacheKey(), hitFilter);
-
+                        // union
+                        LogicalUnion union = new LogicalUnion(SetOperation.Qualifier.ALL,
+                                ImmutableList.of(missFilter, hitCache));
                         List<NamedExpression> slots = filter.getOutput().stream()
                                 .map(m -> (NamedExpression) m).collect(Collectors.toList());
-                        return new LogicalUnion(SetOperation.Qualifier.ALL, slots,
-                                false, false, ImmutableList.of(missFilter, hitCache)
-                        );
+                        return union.withNewOutputs(slots);
                     } else {
-                        LogicalOlapScan checkedScan = olapScan.withCachePartition(partitionIds);
+                        LogicalOlapScan checkedScan = olapScan.withCachePartition(ImmutableList.of());
                         return filter.withChildren(checkedScan);
                     }
                 })

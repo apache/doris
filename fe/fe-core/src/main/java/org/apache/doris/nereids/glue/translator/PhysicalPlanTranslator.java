@@ -431,7 +431,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
     @Override
     public PlanFragment visitPhysicalCache(PhysicalCache cache, PlanTranslatorContext context) {
-        return cache.child(0).accept(this, context);
+        EmptySetNode emptySetNode = new EmptySetNode(context.nextPlanNodeId());
+        PlanFragment planFragment = createPlanFragment(emptySetNode, DataPartition.UNPARTITIONED, cache);
+        context.addPlanFragment(planFragment);
+        updateLegacyPlanIdToPhysicalPlan(planFragment.getPlanRoot(), cache);
+        return planFragment;
     }
 
     @Override
@@ -1580,26 +1584,51 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalSetOperation(
             PhysicalSetOperation setOperation, PlanTranslatorContext context) {
-        if (setOperation.getArity() == 2 && setOperation.child(1) instanceof PhysicalCache) {
-            return setOperation.child(0).accept(this, context);
-        }
+        ArrayList<ArrayList<TupleId>> childrenTupleId = new ArrayList<>();
         List<PlanFragment> childrenFragments = new ArrayList<>();
+        List<PlanNode> cacheChildren = new ArrayList<>();
         Map<Plan, PlanFragment> childNodeToFragment = new HashMap<>();
         for (Plan plan : setOperation.children()) {
             PlanFragment planFragment = plan.accept(this, context);
-            if (planFragment != null) {
-                childrenFragments.add(planFragment);
+            if (planFragment == null) {
+                childNodeToFragment.put(plan, planFragment);
+                continue;
             }
-            childNodeToFragment.put(plan, planFragment);
+            childrenFragments.add(planFragment);
+
+            PlanNode planNode = planFragment.getPlanRoot();
+            if (planNode == null) {
+                continue;
+            }
+            if (plan instanceof PhysicalCache) {
+                cacheChildren.add(planFragment.getPlanRoot());
+            } else {
+                ArrayList<TupleId> tupleIds = context.getTupleDesc(planNode)
+                        .stream()
+                        .map(TupleDescriptor::getId)
+                        .collect(Collectors.toCollection(ArrayList::new));
+                childrenTupleId.add(tupleIds);
+            }
+        }
+
+        TupleDescriptor setTuple;
+        if (!cacheChildren.isEmpty()) {
+            Preconditions.checkState(cacheChildren.size() == 1);
+            Preconditions.checkState(childrenTupleId.size() == 1);
+            Preconditions.checkState(childrenTupleId.get(0).size() == 1);
+
+            cacheChildren.get(0).resetTupleIds(childrenTupleId.get(0));
+            setTuple = context.getTupleDesc(childrenTupleId.get(0).get(0));
+        } else {
+            List<Slot> allSlots = new Builder<Slot>()
+                    .addAll(setOperation.getOutput())
+                    .build();
+            setTuple = generateTupleDesc(allSlots, null, context);
         }
 
         PlanFragment setOperationFragment;
         SetOperationNode setOperationNode;
 
-        List<Slot> allSlots = new Builder<Slot>()
-                .addAll(setOperation.getOutput())
-                .build();
-        TupleDescriptor setTuple = generateTupleDesc(allSlots, null, context);
         List<SlotDescriptor> outputSLotDescs = new ArrayList<>(setTuple.getSlots());
 
         // create setOperationNode
