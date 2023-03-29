@@ -61,9 +61,6 @@ public class Sm4EncryptV2 extends Sm4Encrypt {
         } else if (children().size() == 3) {
             return new Sm4EncryptV2(children.get(0), children.get(1), children.get(2));
         } else {
-            if (!(children.get(3) instanceof StringLiteral)) {
-                throw new AnalysisException("the 4th parameter should be string literal: " + this.toSql());
-            }
             return new Sm4EncryptV2(children.get(0), children.get(1), children.get(2), (StringLiteral) children.get(3));
         }
     }
