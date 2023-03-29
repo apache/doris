@@ -27,11 +27,13 @@ import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FloatLiteral;
+import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.Subquery;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
@@ -59,6 +61,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -268,58 +271,94 @@ public class IcebergUtils {
             }
         }
 
-        TExprOpcode opCode = expr.getOpcode();
-        switch (opCode) {
-            case EQ:
-            case NE:
-            case GE:
-            case GT:
-            case LE:
-            case LT:
-            case EQ_FOR_NULL:
-                BinaryPredicate eq = (BinaryPredicate) expr;
-                SlotRef slotRef = convertDorisExprToSlotRef(eq.getChild(0));
-                LiteralExpr literalExpr = null;
-                if (slotRef == null && eq.getChild(0).isLiteral()) {
-                    literalExpr = (LiteralExpr) eq.getChild(0);
-                    slotRef = convertDorisExprToSlotRef(eq.getChild(1));
-                } else if (eq.getChild(1).isLiteral()) {
-                    literalExpr = (LiteralExpr) eq.getChild(1);
-                }
-                if (slotRef == null || literalExpr == null) {
-                    return null;
-                }
-                String colName = slotRef.getColumnName();
-                Types.NestedField nestedField = schema.caseInsensitiveFindField(colName);
-                colName = nestedField.name();
-                Object value = extractDorisLiteral(literalExpr);
-                if (value == null) {
-                    if (opCode == TExprOpcode.EQ_FOR_NULL && literalExpr instanceof NullLiteral) {
-                        return Expressions.isNull(colName);
-                    } else {
+        // BinaryPredicate
+        if (expr instanceof BinaryPredicate) {
+            TExprOpcode opCode = expr.getOpcode();
+            switch (opCode) {
+                case EQ:
+                case NE:
+                case GE:
+                case GT:
+                case LE:
+                case LT:
+                case EQ_FOR_NULL:
+                    BinaryPredicate eq = (BinaryPredicate) expr;
+                    SlotRef slotRef = convertDorisExprToSlotRef(eq.getChild(0));
+                    LiteralExpr literalExpr = null;
+                    if (slotRef == null && eq.getChild(0).isLiteral()) {
+                        literalExpr = (LiteralExpr) eq.getChild(0);
+                        slotRef = convertDorisExprToSlotRef(eq.getChild(1));
+                    } else if (eq.getChild(1).isLiteral()) {
+                        literalExpr = (LiteralExpr) eq.getChild(1);
+                    }
+                    if (slotRef == null || literalExpr == null) {
                         return null;
                     }
-                }
-                switch (opCode) {
-                    case EQ:
-                    case EQ_FOR_NULL:
-                        return Expressions.equal(colName, value);
-                    case NE:
-                        return Expressions.not(Expressions.equal(colName, value));
-                    case GE:
-                        return Expressions.greaterThanOrEqual(colName, value);
-                    case GT:
-                        return Expressions.greaterThan(colName, value);
-                    case LE:
-                        return Expressions.lessThanOrEqual(colName, value);
-                    case LT:
-                        return Expressions.lessThan(colName, value);
-                    default:
-                        return null;
-                }
-            default:
-                return null;
+                    String colName = slotRef.getColumnName();
+                    Types.NestedField nestedField = schema.caseInsensitiveFindField(colName);
+                    colName = nestedField.name();
+                    Object value = extractDorisLiteral(literalExpr);
+                    if (value == null) {
+                        if (opCode == TExprOpcode.EQ_FOR_NULL && literalExpr instanceof NullLiteral) {
+                            return Expressions.isNull(colName);
+                        } else {
+                            return null;
+                        }
+                    }
+                    switch (opCode) {
+                        case EQ:
+                        case EQ_FOR_NULL:
+                            return Expressions.equal(colName, value);
+                        case NE:
+                            return Expressions.not(Expressions.equal(colName, value));
+                        case GE:
+                            return Expressions.greaterThanOrEqual(colName, value);
+                        case GT:
+                            return Expressions.greaterThan(colName, value);
+                        case LE:
+                            return Expressions.lessThanOrEqual(colName, value);
+                        case LT:
+                            return Expressions.lessThan(colName, value);
+                        default:
+                            return null;
+                    }
+                default:
+                    return null;
+            }
         }
+
+        // InPredicate, only support a in (1,2,3)
+        if (expr instanceof InPredicate) {
+            InPredicate inExpr = (InPredicate) expr;
+            if (inExpr.contains(Subquery.class)) {
+                return null;
+            }
+            SlotRef slotRef = convertDorisExprToSlotRef(inExpr.getChild(0));
+            if (slotRef == null) {
+                return null;
+            }
+            List<Object> valueList = new ArrayList<>();
+            for (int i = 1; i < inExpr.getChildren().size(); ++i) {
+                if (!(inExpr.getChild(i) instanceof  LiteralExpr)) {
+                    return null;
+                }
+                LiteralExpr literalExpr = (LiteralExpr) inExpr.getChild(i);
+                Object value = extractDorisLiteral(literalExpr);
+                valueList.add(value);
+            }
+            String colName = slotRef.getColumnName();
+            Types.NestedField nestedField = schema.caseInsensitiveFindField(colName);
+            colName = nestedField.name();
+            if (inExpr.isNotIn()) {
+                // not in
+                return Expressions.notIn(colName, valueList);
+            } else {
+                // in
+                return Expressions.in(colName, valueList);
+            }
+        }
+
+        return null;
     }
 
     private static Object extractDorisLiteral(Expr expr) {
