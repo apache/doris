@@ -47,15 +47,16 @@ public class TVFSplitter implements Splitter {
         List<Split> splits = Lists.newArrayList();
         List<TBrokerFileStatus> fileStatuses = tableValuedFunction.getFileStatuses();
         for (TBrokerFileStatus fileStatus : fileStatuses) {
+            long fileLength = fileStatus.getSize();
             Path path = new Path(fileStatus.getPath());
             if (fileStatus.isSplitable) {
                 long splitSize = Config.file_split_size;
                 if (splitSize <= 0) {
                     splitSize = fileStatus.getBlockSize() > 0 ? fileStatus.getBlockSize() : DEFAULT_SPLIT_SIZE;
                 }
-                addFileSplits(path, fileStatus.getSize(), splitSize, splits);
+                addFileSplits(path, fileLength, splitSize, splits);
             } else {
-                Split split = new FileSplit(path, 0, fileStatus.getSize(), new String[0]);
+                Split split = new FileSplit(path, 0, fileLength, fileLength, new String[0]);
                 splits.add(split);
             }
         }
@@ -66,10 +67,10 @@ public class TVFSplitter implements Splitter {
         long bytesRemaining;
         for (bytesRemaining = fileSize; (double) bytesRemaining / (double) splitSize > 1.1D;
                 bytesRemaining -= splitSize) {
-            splits.add(new FileSplit(path, fileSize - bytesRemaining, splitSize, new String[0]));
+            splits.add(new FileSplit(path, fileSize - bytesRemaining, splitSize, fileSize, new String[0]));
         }
         if (bytesRemaining != 0L) {
-            splits.add(new FileSplit(path, fileSize - bytesRemaining, bytesRemaining, new String[0]));
+            splits.add(new FileSplit(path, fileSize - bytesRemaining, bytesRemaining, fileSize, new String[0]));
         }
     }
 

@@ -64,7 +64,7 @@ public class PushdownProjectThroughSemiJoin extends OneExplorationRuleFactory {
                 Plan newLeft = JoinReorderUtils.projectOrSelf(newProject, join.left());
 
                 Plan newJoin = join.withChildren(newLeft, join.right());
-                return JoinReorderUtils.projectOrSelf(new ArrayList<>(project.getOutput()), newJoin);
+                return JoinReorderUtils.projectOrSelfInOrder(new ArrayList<>(project.getOutput()), newJoin);
             }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_SEMI_JOIN);
     }
 

@@ -420,4 +420,10 @@ suite("test_jsonb_load_and_function", "p0") {
     qt_select """SELECT JSON_VALID('{"k1":"v31","k2":300}')"""
     qt_select """SELECT JSON_VALID('invalid json')"""
     qt_select """SELECT JSON_VALID(NULL)"""
+
+    qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.k1') FROM ${testTable} ORDER BY id"""
+    qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.k2', '\$.[1]') FROM ${testTable} ORDER BY id"""
+    qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.k2', '\$.x.y') FROM ${testTable} ORDER BY id"""
+    qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.k2', null) FROM ${testTable} ORDER BY id"""
+    qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.a1[0].k1', '\$.a1[0].k2', '\$.a1[2]') FROM ${testTable} ORDER BY id"""
 }

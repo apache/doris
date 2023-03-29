@@ -50,7 +50,6 @@ set(RUNTIME_FILES
     fragment_mgr.cpp
     load_path_mgr.cpp
     types.cpp
-    tmp_file_mgr.cc
     load_channel_mgr.cpp
     load_channel.cpp
     tablets_channel.cpp

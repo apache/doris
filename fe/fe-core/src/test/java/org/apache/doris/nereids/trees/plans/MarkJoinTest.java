@@ -61,6 +61,23 @@ public class MarkJoinTest extends TestWithFeService {
                 + "\"storage_format\" = \"V2\",\n"
                 + "\"disable_auto_compaction\" = \"false\"\n"
                 + ");");
+
+        createTable("CREATE TABLE `test_sq_dj3` (\n"
+                + " `c1` bigint(20) NULL,\n"
+                + " `c2` bigint(20) NULL,\n"
+                + " `c3` bigint(20) not NULL,\n"
+                + " `k4` bitmap BITMAP_UNION NULL,\n"
+                + " `k5` bitmap BITMAP_UNION NULL\n"
+                + ") ENGINE=OLAP\n"
+                + "AGGREGATE KEY(`c1`, `c2`, `c3`)\n"
+                + "COMMENT 'OLAP'\n"
+                + "DISTRIBUTED BY HASH(`c2`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                + "\"in_memory\" = \"false\",\n"
+                + "\"storage_format\" = \"V2\",\n"
+                + "\"disable_auto_compaction\" = \"false\"\n"
+                + ");");
     }
 
     // grouping sets
@@ -234,6 +251,15 @@ public class MarkJoinTest extends TestWithFeService {
     }
 
     @Test
+    public void test17_1() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("SELECT * FROM test_sq_dj1 WHERE ((c1 != (SELECT sum(c1) FROM test_sq_dj2) and c1 = 1 OR c1 < 10) and c1 = 10)"
+                    + " and (c1 IN (SELECT c1 FROM test_sq_dj2 WHERE test_sq_dj1.c1 = test_sq_dj2.c1)"
+                    + " OR c1 < (SELECT sum(c1) FROM test_sq_dj2 WHERE test_sq_dj1.c1 = test_sq_dj2.c1))"
+                    + " and exists (SELECT sum(c1) FROM test_sq_dj2 WHERE test_sq_dj1.c1 = test_sq_dj2.c1);");
+    }
+
+    @Test
     public void test18() {
         PlanChecker.from(connectContext)
                 .checkPlannerResult("select * from test_sq_dj1 where test_sq_dj1.c1 != (select sum(c1) from test_sq_dj2 where test_sq_dj2.c3 = test_sq_dj1.c3) or c1 > 10");
@@ -281,5 +307,27 @@ public class MarkJoinTest extends TestWithFeService {
     public void test25() {
         PlanChecker.from(connectContext)
                 .checkPlannerResult("select * from test_sq_dj1 where c1 in (select c1 from test_sq_dj1 where c2 in (select c2 from test_sq_dj2) and c2 > (select sum(c1) from test_sq_dj2))");
+    }
+
+    @Test
+    public void test26() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("SELECT * FROM test_sq_dj1 WHERE exists (SELECT * FROM test_sq_dj2 WHERE test_sq_dj1.c1 = test_sq_dj2.c1 and test_sq_dj2.c1 = 1)"
+                    + " and (exists (SELECT * FROM test_sq_dj2 WHERE test_sq_dj1.c1 = test_sq_dj2.c1 and test_sq_dj2.c1 = 2)"
+                    + " or exists (SELECT * FROM test_sq_dj2 WHERE test_sq_dj1.c1 = test_sq_dj2.c1 and test_sq_dj2.c1 = 3))");
+    }
+
+    @Test
+    public void test27() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("SELECT * FROM test_sq_dj1 WHERE exists (SELECT * FROM test_sq_dj2 WHERE test_sq_dj1.c1 = test_sq_dj2.c1 and test_sq_dj2.c1 = 1)"
+                    + " and (exists (SELECT * FROM test_sq_dj2, test_sq_dj3 WHERE test_sq_dj1.c1 = test_sq_dj2.c1 and test_sq_dj2.c1 = test_sq_dj3.c1 and test_sq_dj2.c1 = 2)"
+                    + " or exists (SELECT * FROM test_sq_dj2, test_sq_dj3 WHERE test_sq_dj1.c1 = test_sq_dj2.c1 and test_sq_dj2.c1 = test_sq_dj3.c1 and test_sq_dj2.c1 = 3))");
+    }
+
+    @Test
+    public void test28() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("SELECT * FROM test_sq_dj1 WHERE (c1 between (SELECT distinct c2+1 FROM test_sq_dj2 WHERE test_sq_dj2.c1 = 1) and (select distinct (c2 + 3) from test_sq_dj2 where test_sq_dj2.c1 = 1))");
     }
 }

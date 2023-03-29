@@ -508,17 +508,13 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("json_object")) {
             len = len - 1;
         }
-        if (fnName.getFunction().equalsIgnoreCase("aes_decrypt")
-                || fnName.getFunction().equalsIgnoreCase("aes_encrypt")
-                || fnName.getFunction().equalsIgnoreCase("sm4_decrypt")
-                || fnName.getFunction().equalsIgnoreCase("sm4_encrypt")) {
-            len = len - 1;
-        }
+
         for (int i = 0; i < len; ++i) {
-            if (i == 1 && (fnName.getFunction().equalsIgnoreCase("aes_decrypt")
-                    || fnName.getFunction().equalsIgnoreCase("aes_encrypt")
-                    || fnName.getFunction().equalsIgnoreCase("sm4_decrypt")
-                    || fnName.getFunction().equalsIgnoreCase("sm4_encrypt"))) {
+            if (ConnectContext.get() != null && ConnectContext.get().getState().isQuery() && i == 1
+                    && (fnName.getFunction().equalsIgnoreCase("aes_decrypt")
+                            || fnName.getFunction().equalsIgnoreCase("aes_encrypt")
+                            || fnName.getFunction().equalsIgnoreCase("sm4_decrypt")
+                            || fnName.getFunction().equalsIgnoreCase("sm4_encrypt"))) {
                 result.add("\'***\'");
             } else if (orderByElements.size() > 0 && i == len - orderByElements.size()) {
                 result.add("ORDER BY " + children.get(i).toSql());
@@ -1873,5 +1869,13 @@ public class FunctionCallExpr extends Expr {
 
     private void setChildren() {
         orderByElements.forEach(o -> addChild(o.getExpr()));
+    }
+
+    @Override
+    public boolean haveFunction(String functionName) {
+        if (fnName.toString().equalsIgnoreCase(functionName)) {
+            return true;
+        }
+        return super.haveFunction(functionName);
     }
 }

@@ -19,7 +19,6 @@
 
 #include "common/consts.h"
 #include "common/logging.h" // LOG
-#include "env/env.h"        // Env
 #include "io/fs/file_writer.h"
 #include "olap/data_dir.h"
 #include "olap/primary_key_index.h"

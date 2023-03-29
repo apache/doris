@@ -25,7 +25,6 @@
 #include <memory>
 #include <sstream>
 
-#include "agent/cgroups_mgr.h"
 #include "common/object_pool.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/PaloInternalService_types.h"
@@ -223,7 +222,6 @@ Status FragmentExecState::execute() {
     int64_t duration_ns = 0;
     {
         SCOPED_RAW_TIMER(&duration_ns);
-        CgroupsMgr::apply_system_cgroup();
         opentelemetry::trace::Tracer::GetCurrentSpan()->AddEvent("start executing Fragment");
         Status st = _executor.open();
         WARN_IF_ERROR(st,

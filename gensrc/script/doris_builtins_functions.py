@@ -37,6 +37,11 @@
 # eg. [['element_at', '%element_extract%'], 'V', ['MAP<K, V>', 'K'], 'ALWAYS_NULLABLE', ['K', 'V']],
 #     'K' and 'V' is type template and will be specialized at runtime in FE to match specific args.
 #
+# 'template_types' support variadic template is now support variadic template.
+# eg. [['struct'], 'STRUCT<TYPES>', ['TYPES'], 'ALWAYS_NOT_NULLABLE', ['TYPES...']],
+#     Inspired by C++ std::vector::emplace_back() function. 'TYPES...' is variadic template and will
+#     be expanded to normal templates at runtime in FE to match variadic args. Please ensure that the
+#     variadic template is placed at the last position of all templates.
 visible_functions = [
     # Bit and Byte functions
     # For functions corresponding to builtin operators, we can reuse the implementations
@@ -73,6 +78,9 @@ visible_functions = [
     #[['map_contains_key_like'], 'BOOLEAN', ['MAP<K, V>', 'K'], '', ['K', 'V']],
     [['map_keys'], 'ARRAY<K>', ['MAP<K, V>'], '', ['K', 'V']],
     [['map_values'], 'ARRAY<V>', ['MAP<K, V>'], '', ['K', 'V']],
+
+    # struct functions
+    [['struct'], 'STRUCT<TYPES>', ['TYPES'], 'ALWAYS_NOT_NULLABLE', ['TYPES...']],
 
     # array functions
     [['array'], 'ARRAY', ['BOOLEAN', '...'], 'ALWAYS_NOT_NULLABLE'],
@@ -1561,6 +1569,7 @@ visible_functions = [
     [['json_object'], 'VARCHAR', ['VARCHAR', '...'], 'ALWAYS_NOT_NULLABLE'],
     [['json_quote'], 'VARCHAR', ['VARCHAR'], ''],
     [['json_valid'], 'INT', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['json_extract'], 'VARCHAR', ['VARCHAR', 'VARCHAR', '...'], ''],
 
     #hll function
     [['hll_cardinality'], 'BIGINT', ['HLL'], 'ALWAYS_NOT_NULLABLE'],
@@ -1669,6 +1678,11 @@ visible_functions = [
 
     [['ST_Distance_Sphere'], 'DOUBLE', ['DOUBLE', 'DOUBLE', 'DOUBLE', 'DOUBLE'], 'ALWAYS_NULLABLE'],
     [['ST_Angle_Sphere'], 'DOUBLE', ['DOUBLE', 'DOUBLE', 'DOUBLE', 'DOUBLE'], 'ALWAYS_NULLABLE'],
+
+    [['ST_Area_Square_Meters'], 'DOUBLE', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['ST_Area_Square_Meters'], 'DOUBLE', ['STRING'], 'ALWAYS_NULLABLE'],
+    [['ST_Area_Square_Km'], 'DOUBLE', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['ST_Area_Square_Km'], 'DOUBLE', ['STRING'], 'ALWAYS_NULLABLE'],
 
     [['ST_AsText', 'ST_AsWKT'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
     [['ST_AsText', 'ST_AsWKT'], 'VARCHAR', ['STRING'], 'ALWAYS_NULLABLE'],

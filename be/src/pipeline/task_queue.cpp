@@ -139,7 +139,7 @@ void TaskQueue::close() {
 }
 
 PipelineTask* TaskQueue::try_take(size_t core_id) {
-    PipelineTask* task;
+    PipelineTask* task = nullptr;
     while (!_closed) {
         task = _async_queue[core_id].try_take(false);
         if (task) {

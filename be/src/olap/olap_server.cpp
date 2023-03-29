@@ -25,7 +25,6 @@
 #include <random>
 #include <string>
 
-#include "agent/cgroups_mgr.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
@@ -37,7 +36,6 @@
 #include "olap/rowset/beta_rowset_writer.h"
 #include "olap/storage_engine.h"
 #include "service/point_query_executor.h"
-#include "util/file_utils.h"
 #include "util/time.h"
 
 using std::string;
@@ -339,7 +337,10 @@ void StorageEngine::_path_scan_thread_callback(DataDir* data_dir) {
     int32_t interval = config::path_scan_interval_second;
     do {
         LOG(INFO) << "try to perform path scan!";
-        data_dir->perform_path_scan();
+        Status st = data_dir->perform_path_scan();
+        if (!st) {
+            LOG(WARNING) << "path scan failed: " << st;
+        }
 
         interval = config::path_scan_interval_second;
         if (interval <= 0) {
@@ -359,10 +360,8 @@ void StorageEngine::_tablet_checkpoint_callback(const std::vector<DataDir*>& dat
     do {
         LOG(INFO) << "begin to produce tablet meta checkpoint tasks.";
         for (auto data_dir : data_dirs) {
-            auto st = _tablet_meta_checkpoint_thread_pool->submit_func([data_dir, this]() {
-                CgroupsMgr::apply_system_cgroup();
-                _tablet_manager->do_tablet_meta_checkpoint(data_dir);
-            });
+            auto st = _tablet_meta_checkpoint_thread_pool->submit_func(
+                    [data_dir, this]() { _tablet_manager->do_tablet_meta_checkpoint(data_dir); });
             if (!st.ok()) {
                 LOG(WARNING) << "submit tablet checkpoint tasks failed.";
             }
@@ -653,7 +652,6 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                         ? _cumu_compaction_thread_pool
                         : _base_compaction_thread_pool;
         auto st = thread_pool->submit_func([tablet, compaction_type, permits, this]() {
-            CgroupsMgr::apply_system_cgroup();
             tablet->execute_compaction(compaction_type);
             _permit_limiter.release(permits);
             // reset compaction

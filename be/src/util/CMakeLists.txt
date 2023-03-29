@@ -58,10 +58,8 @@ set(UTIL_FILES
   system_metrics.cpp
   url_parser.cpp
   url_coding.cpp
-  file_utils.cpp
   mysql_row_buffer.cpp
   error_util.cc
-  filesystem_util.cc
   time.cpp
   os_info.cpp
   os_util.cpp
@@ -80,7 +78,6 @@ set(UTIL_FILES
   utf8_check.cpp
   cgroup_util.cpp
   path_util.cpp
-  file_cache.cpp
   thread.cpp
   threadpool.cpp
   trace.cpp

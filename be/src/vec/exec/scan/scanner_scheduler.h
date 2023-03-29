@@ -41,7 +41,6 @@ namespace doris::vectorized {
 //     Each Scanner will act as a producer, read a group of blocks and put them into
 //     the corresponding block queue.
 //     The corresponding ScanNode will act as a consumer to consume blocks from the block queue.
-class Env;
 class ScannerScheduler {
 public:
     ScannerScheduler();

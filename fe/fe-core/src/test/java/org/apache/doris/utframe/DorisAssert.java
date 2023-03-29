@@ -169,6 +169,7 @@ public class DorisAssert {
 
         public QueryAssert(ConnectContext connectContext, String sql) {
             this.connectContext = connectContext;
+            this.connectContext.getState().setIsQuery(true);
             this.sql = sql;
         }
 

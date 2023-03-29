@@ -18,6 +18,9 @@
 #include "vec/exprs/table_function/vexplode_numbers.h"
 
 #include "common/status.h"
+#include "vec/columns/column_const.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/columns_number.h"
 #include "vec/exprs/vexpr.h"
 
 namespace doris::vectorized {
@@ -26,7 +29,7 @@ VExplodeNumbersTableFunction::VExplodeNumbersTableFunction() {
     _fn_name = "vexplode_numbers";
 }
 
-Status VExplodeNumbersTableFunction::process_init(vectorized::Block* block) {
+Status VExplodeNumbersTableFunction::process_init(Block* block) {
     CHECK(_vexpr_context->root()->children().size() == 1)
             << "VExplodeSplitTableFunction must be have 1 children but have "
             << _vexpr_context->root()->children().size();
@@ -35,24 +38,38 @@ Status VExplodeNumbersTableFunction::process_init(vectorized::Block* block) {
     RETURN_IF_ERROR(_vexpr_context->root()->children()[0]->execute(_vexpr_context, block,
                                                                    &value_column_idx));
     _value_column = block->get_by_position(value_column_idx).column;
+    if (is_column_const(*_value_column)) {
+        _cur_size = 0;
+        auto& column_nested = assert_cast<const ColumnConst&>(*_value_column).get_data_column_ptr();
+        if (column_nested->is_nullable()) {
+            if (!column_nested->is_null_at(0)) {
+                _cur_size = static_cast<const ColumnNullable*>(column_nested.get())
+                                    ->get_nested_column()
+                                    .get_int(0);
+            }
+        } else {
+            _cur_size = column_nested->get_int(0);
+        }
 
+        if (_cur_size && _cur_size <= block->rows()) { // avoid elements_column too big or empty
+            _is_const = true;                          // use const optimize
+            for (int i = 0; i < _cur_size; i++) {
+                ((ColumnInt32*)_elements_column.get())->insert_value(i);
+            }
+        }
+    }
     return Status::OK();
 }
 
 Status VExplodeNumbersTableFunction::process_row(size_t row_idx) {
-    _is_current_empty = false;
-    _eos = false;
+    RETURN_IF_ERROR(TableFunction::process_row(row_idx));
+    if (_is_const) {
+        return Status::OK();
+    }
 
     StringRef value = _value_column->get_data_at(row_idx);
-
-    if (value.data == nullptr) {
-        _is_current_empty = true;
-        _cur_size = 0;
-        _cur_offset = 0;
-    } else {
-        _cur_size = *reinterpret_cast<const int*>(value.data);
-        _cur_offset = 0;
-        _is_current_empty = (_cur_size <= 0);
+    if (value.data != nullptr) {
+        _cur_size = std::max(0, *reinterpret_cast<const int*>(value.data));
     }
     return Status::OK();
 }
@@ -62,28 +79,21 @@ Status VExplodeNumbersTableFunction::process_close() {
     return Status::OK();
 }
 
-Status VExplodeNumbersTableFunction::reset() {
-    _eos = false;
-    _cur_offset = 0;
-    return Status::OK();
-}
-
-Status VExplodeNumbersTableFunction::get_value(void** output) {
-    if (_is_current_empty) {
-        *output = nullptr;
+void VExplodeNumbersTableFunction::get_value(MutableColumnPtr& column) {
+    if (current_empty()) {
+        column->insert_default();
     } else {
-        *output = &_cur_offset;
+        if (_is_nullable) {
+            static_cast<ColumnInt32*>(
+                    static_cast<ColumnNullable*>(column.get())->get_nested_column_ptr().get())
+                    ->insert_value(_cur_offset);
+            static_cast<ColumnUInt8*>(
+                    static_cast<ColumnNullable*>(column.get())->get_null_map_column_ptr().get())
+                    ->insert_default();
+        } else {
+            static_cast<ColumnInt32*>(column.get())->insert_value(_cur_offset);
+        }
     }
-    return Status::OK();
-}
-
-Status VExplodeNumbersTableFunction::get_value_length(int64_t* length) {
-    if (_is_current_empty) {
-        *length = -1;
-    } else {
-        *length = sizeof(int);
-    }
-    return Status::OK();
 }
 
 } // namespace doris::vectorized

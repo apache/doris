@@ -56,6 +56,8 @@ public:
     virtual bool contains(const GeoShape* rhs) const { return false; }
     virtual std::string to_string() const { return ""; }
 
+    static bool ComputeArea(GeoShape* rhs, double* angle, std::string square_unit);
+
 protected:
     virtual void encode(std::string* buf) = 0;
     virtual bool decode(const void* data, size_t size) = 0;
@@ -125,6 +127,8 @@ public:
     bool contains(const GeoShape* rhs) const override;
     std::string as_wkt() const override;
 
+    double getArea() const;
+
 protected:
     void encode(std::string* buf) override;
     bool decode(const void* data, size_t size) override;
@@ -144,6 +148,8 @@ public:
 
     bool contains(const GeoShape* rhs) const override;
     std::string as_wkt() const override;
+
+    double getArea() const;
 
 protected:
     void encode(std::string* buf) override;

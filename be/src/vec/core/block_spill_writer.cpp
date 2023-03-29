@@ -20,7 +20,6 @@
 #include "agent/be_exec_version_manager.h"
 #include "io/file_factory.h"
 #include "runtime/runtime_state.h"
-#include "util/file_utils.h"
 
 namespace doris {
 namespace vectorized {

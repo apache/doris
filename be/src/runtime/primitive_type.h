@@ -268,16 +268,19 @@ struct PredicatePrimitiveTypeTraits<TYPE_DATETIMEV2> {
 template <PrimitiveType type>
 struct VecPrimitiveTypeTraits {
     using CppType = typename PrimitiveTypeTraits<type>::CppType;
+    using ColumnType = typename PrimitiveTypeTraits<type>::ColumnType;
 };
 
 template <>
 struct VecPrimitiveTypeTraits<TYPE_DATE> {
     using CppType = vectorized::VecDateTimeValue;
+    using ColumnType = vectorized::ColumnVector<vectorized::DateTime>;
 };
 
 template <>
 struct VecPrimitiveTypeTraits<TYPE_DATETIME> {
     using CppType = vectorized::VecDateTimeValue;
+    using ColumnType = vectorized::ColumnVector<vectorized::DateTime>;
 };
 
 } // namespace doris

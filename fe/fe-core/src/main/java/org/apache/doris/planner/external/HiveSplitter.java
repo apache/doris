@@ -147,10 +147,9 @@ public class HiveSplitter implements Splitter {
         }
         allFiles.addAll(files.stream().map(file -> {
             FileSplit fs = (FileSplit) file;
-            org.apache.doris.planner.external.FileSplit split = new org.apache.doris.planner.external.FileSplit();
-            split.setPath(fs.getPath());
-            split.setStart(fs.getStart());
-            split.setLength(fs.getLength());
+            org.apache.doris.planner.external.FileSplit split = new org.apache.doris.planner.external.FileSplit(
+                    fs.getPath(), fs.getStart(), fs.getLength(), -1, null
+            );
             return split;
         }).collect(Collectors.toList()));
     }

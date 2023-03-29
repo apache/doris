@@ -40,6 +40,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -856,6 +857,28 @@ public class Function implements Writable {
         }
 
         return false;
+    }
+
+    public boolean hasVariadicTemplateArg() {
+        for (Type t : getArgs()) {
+            if (t.needExpandTemplateType()) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // collect expand size of variadic template
+    public void collectTemplateExpandSize(Type[] args, Map<String, Integer> expandSizeMap) throws TypeException {
+        for (int i = argTypes.length - 1; i >= 0; i--) {
+            if (argTypes[i].hasTemplateType()) {
+                if (argTypes[i].needExpandTemplateType()) {
+                    argTypes[i].collectTemplateExpandSize(
+                            Arrays.copyOfRange(args, i, args.length), expandSizeMap);
+                }
+            }
+        }
     }
 
     @Override

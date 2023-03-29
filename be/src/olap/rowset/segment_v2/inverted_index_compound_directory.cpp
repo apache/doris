@@ -411,7 +411,7 @@ void DorisCompoundDirectory::FSIndexOutput::close() {
 
 int64_t DorisCompoundDirectory::FSIndexOutput::length() const {
     CND_PRECONDITION(writer != nullptr, "file is not open");
-    size_t ret;
+    int64_t ret;
     if (!writer->fs()->file_size(writer->path(), &ret).ok()) {
         return -1;
     }
@@ -599,7 +599,7 @@ int64_t DorisCompoundDirectory::fileLength(const char* name) const {
     CND_PRECONDITION(directory[0] != 0, "directory is not open");
     char buffer[CL_MAX_DIR];
     priv_getFN(buffer, name);
-    size_t size = 0;
+    int64_t size = -1;
     RETURN_IF_ERROR(fs->file_size(buffer, &size));
     return size;
 }

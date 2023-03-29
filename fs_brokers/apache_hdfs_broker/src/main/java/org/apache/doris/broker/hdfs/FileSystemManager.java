@@ -904,7 +904,7 @@ public class FileSystemManager {
                         fileOutputStream.close();
                         keytab = tmpFilePath;
                     } else {
-                        throw  new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
+                        throw new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
                             "keytab is required for kerberos authentication");
                     }
                     UserGroupInformation.setConfiguration(conf);
@@ -1284,4 +1284,24 @@ public class FileSystemManager {
         }
         return brokerFileSystem;
     }
+
+    public long fileSize(String path, Map<String, String> properties) {
+        WildcardURI pathUri = new WildcardURI(path);
+        BrokerFileSystem fileSystem = getFileSystem(path, properties);
+        Path filePath = new Path(pathUri.getPath());
+        try {
+            FileStatus fileStatus = fileSystem.getDFSFileSystem().getFileStatus(filePath);
+            if (fileStatus.isDirectory()) {
+                throw new BrokerException(TBrokerOperationStatusCode.INVALID_INPUT_FILE_PATH,
+                    "not a file: {}", path);
+            }
+            return fileStatus.getLen();
+        } catch (IOException e) {
+            logger.error("errors while getting file size: " + path);
+            fileSystem.closeFileSystem();
+            throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
+                    e, "errors while getting file size {}", path);
+        }
+    }
 }
+

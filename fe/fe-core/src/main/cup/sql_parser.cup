@@ -794,7 +794,7 @@ nonterminal SetVar option_value, option_value_follow_option_type, option_value_n
 nonterminal List<SetVar> option_value_list, option_value_list_continued, start_option_value_list,
         start_option_value_list_following_option_type, user_property_list;
 
-nonterminal Map<String, String> key_value_map, opt_key_value_map, opt_properties,
+nonterminal Map<String, String> key_value_map, opt_key_value_map, opt_key_value_map_in_paren, opt_properties,
             opt_ext_properties, opt_enable_feature_properties, properties;
 nonterminal ColumnDef column_definition;
 nonterminal IndexDef index_definition;
@@ -3319,6 +3319,23 @@ opt_key_value_map ::=
     :}
     ;
 
+opt_key_value_map_in_paren ::=
+    /* empty */
+    {:
+    RESULT = Maps.newHashMap();
+    :}
+    | STRING_LITERAL:name EQUAL STRING_LITERAL:value
+    {:
+    RESULT = Maps.newHashMap();
+    RESULT.put(name, value);
+    :}
+    | opt_key_value_map_in_paren:map COMMA STRING_LITERAL:name EQUAL STRING_LITERAL:value
+    {:
+    map.put(name, value);
+    RESULT = map;
+    :}
+    ;
+
 key_value_map ::=
     STRING_LITERAL:name EQUAL STRING_LITERAL:value
     {:
@@ -5362,7 +5379,7 @@ table_ref ::=
   ;
 
 table_valued_function_ref ::=
-  ident:func_name LPAREN key_value_map:properties RPAREN opt_table_alias:alias
+  ident:func_name LPAREN opt_key_value_map_in_paren:properties RPAREN opt_table_alias:alias
   {:
     RESULT = new TableValuedFunctionRef(func_name, alias, properties);
   :}

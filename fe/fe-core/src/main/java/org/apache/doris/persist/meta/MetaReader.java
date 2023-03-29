@@ -88,7 +88,8 @@ public class MetaReader {
                     continue;
                 }
                 // Should skip some bytes because ignore some meta, such as load job
-                if (metaIndex.name.equals("loadJob") || metaIndex.name.equals("cooldownJob")) {
+                if (metaIndex.name.equals("loadJob")
+                        || metaIndex.name.equals("cooldownJob")) {
                     LOG.info("Skip {} module", metaIndex.name);
                     if (i < metaFooter.metaIndices.size() - 1) {
                         IOUtils.skipFully(dis, metaFooter.metaIndices.get(i + 1).offset - metaIndex.offset);
