@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.parser;
 
-import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.StatementContext;
@@ -170,12 +169,7 @@ public class NereidsParserTest extends ParserTestBase {
         LogicalPlan logicalPlan0 = ((LogicalPlanAdapter) statementBases.get(0)).getLogicalPlan();
         LogicalPlan logicalPlan1 = ((LogicalPlanAdapter) statementBases.get(1)).getLogicalPlan();
         Assertions.assertTrue(logicalPlan0 instanceof LogicalProject);
-        Assertions.assertTrue(logicalPlan1 instanceof LogicalProject);
-        Assertions.assertNull(statementBases.get(0).getExplainOptions());
-        Assertions.assertNotNull(statementBases.get(1).getExplainOptions());
-        ExplainOptions explainOptions = statementBases.get(1).getExplainOptions();
-        Assertions.assertTrue(explainOptions.isGraph());
-        Assertions.assertFalse(explainOptions.isVerbose());
+        Assertions.assertTrue(logicalPlan1 instanceof ExplainCommand);
     }
 
     @Test
