@@ -33,7 +33,6 @@
 #include "gen_cpp/internal_service.pb.h"
 #include "olap/olap_define.h"
 #include "runtime/cache/cache_utils.h"
-#include "runtime/mem_pool.h"
 #include "util/uid_util.h"
 
 namespace doris {

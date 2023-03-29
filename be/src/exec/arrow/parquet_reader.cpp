@@ -29,7 +29,6 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "runtime/descriptors.h"
-#include "runtime/mem_pool.h"
 #include "util/string_util.h"
 #include "vec/common/string_ref.h"
 

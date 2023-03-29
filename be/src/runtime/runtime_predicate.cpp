@@ -30,7 +30,7 @@ Status RuntimePredicate::init(const PrimitiveType type) {
         return Status::OK();
     }
 
-    _predicate_mem_pool.reset(new MemPool());
+    _predicate_arena.reset(new Arena());
 
     // set get value function
     switch (type) {
@@ -150,8 +150,7 @@ Status RuntimePredicate::update(const Field& value, const String& col_name, bool
     VLOG_DEBUG << "update runtime predicate condition " << condition;
 
     // update _predictate
-    _predictate.reset(
-            parse_to_predicate(_tablet_schema, condition, _predicate_mem_pool.get(), false));
+    _predictate.reset(parse_to_predicate(_tablet_schema, condition, _predicate_arena.get(), false));
 
     return Status::OK();
 }

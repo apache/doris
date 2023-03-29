@@ -37,7 +37,6 @@
 #include "olap/utils.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
-#include "runtime/mem_pool.h"
 
 namespace doris {
 
@@ -172,8 +171,6 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     DeltaWriter* delta_writer = nullptr;
     DeltaWriter::open(&write_req, &delta_writer);
     EXPECT_NE(delta_writer, nullptr);
-
-    MemPool pool;
 
     res = delta_writer->close();
     EXPECT_EQ(Status::OK(), res);

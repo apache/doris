@@ -29,6 +29,7 @@
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
 #include "util/runtime_profile.h"
+#include "vec/common/arena.h"
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris {
@@ -162,7 +163,6 @@ public:
     // Return OK and set `*eof` to false when next block is read
     // Return OK and set `*eof` to true when no more rows can be read.
     // Return others when unexpected error happens.
-    // TODO: Rethink here we still need mem_pool and agg_pool?
     virtual Status next_block_with_aggregation(vectorized::Block* block, bool* eof) {
         return Status::Error<ErrorCode::READER_INITIALIZE_ERROR>();
     }
@@ -224,7 +224,7 @@ protected:
     TabletSharedPtr tablet() { return _tablet; }
     const TabletSchema& tablet_schema() { return *_tablet_schema; }
 
-    std::unique_ptr<MemPool> _predicate_mem_pool;
+    std::unique_ptr<vectorized::Arena> _predicate_arena;
     std::vector<uint32_t> _return_columns;
     // used for special optimization for query : ORDER BY key [ASC|DESC] LIMIT n
     // columns for orderby keys

@@ -24,7 +24,6 @@
 #include "olap/rowset/segment_v2/options.h"
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
-#include "runtime/mem_pool.h"
 
 using doris::segment_v2::PageBuilderOptions;
 using doris::segment_v2::PageDecoderOptions;
@@ -37,7 +36,7 @@ public:
 
     template <FieldType type, class PageDecoderType>
     void copy_one(PageDecoderType* decoder, typename TypeTraits<type>::CppType* ret) {
-        MemPool pool;
+        vectorized::Arena pool;
         std::unique_ptr<ColumnVectorBatch> cvb;
         ColumnVectorBatch::create(1, true, get_scalar_type_info(type), nullptr, &cvb);
         ColumnBlock block(cvb.get(), &pool);
@@ -74,7 +73,7 @@ public:
         EXPECT_EQ(0, rle_page_decoder.current_index());
         EXPECT_EQ(size, rle_page_decoder.count());
 
-        MemPool pool;
+        vectorized::Arena pool;
         std::unique_ptr<ColumnVectorBatch> cvb;
         ColumnVectorBatch::create(size, true, get_scalar_type_info(Type), nullptr, &cvb);
         ColumnBlock block(cvb.get(), &pool);
