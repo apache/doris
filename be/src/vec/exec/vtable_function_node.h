@@ -39,7 +39,7 @@ public:
     bool need_more_input_data() const { return !_child_block.rows() && !_child_eos; }
 
     void release_resource(doris::RuntimeState* state) override {
-        vectorized::VExpr::close(_vfn_ctxs, state);
+        VExpr::close(_vfn_ctxs, state);
 
         if (_num_rows_filtered_counter != nullptr) {
             COUNTER_SET(_num_rows_filtered_counter, static_cast<int64_t>(_num_rows_filtered));
@@ -47,7 +47,7 @@ public:
         ExecNode::release_resource(state);
     }
 
-    Status push(RuntimeState*, vectorized::Block* input_block, bool eos) override {
+    Status push(RuntimeState*, Block* input_block, bool eos) override {
         _child_eos = eos;
         if (input_block->rows() == 0) {
             return Status::OK();
@@ -60,8 +60,8 @@ public:
         return Status::OK();
     }
 
-    Status pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) override {
-        RETURN_IF_ERROR(get_expanded_block(state, output_block, eos));
+    Status pull(RuntimeState* state, Block* output_block, bool* eos) override {
+        RETURN_IF_ERROR(_get_expanded_block(state, output_block, eos));
         reached_limit(output_block, eos);
         return Status::OK();
     }
@@ -97,26 +97,39 @@ private:
             1. FE: create a new output tuple based on the real output slots;
             2. BE: refractor (V)TableFunctionNode output rows based no the new tuple;
     */
-    inline bool slot_need_copy(SlotId slot_id) const {
+    inline bool _slot_need_copy(SlotId slot_id) const {
         auto id = _output_slots[slot_id]->id();
         return (id < _output_slot_ids.size()) && (_output_slot_ids[id]);
     }
 
-    Status get_expanded_block(RuntimeState* state, Block* output_block, bool* eos);
+    Status _get_expanded_block(RuntimeState* state, Block* output_block, bool* eos);
+
+    void _copy_output_slots(std::vector<MutableColumnPtr>& columns) {
+        if (!_current_row_insert_times) {
+            return;
+        }
+        for (auto index : _output_slot_indexs) {
+            auto src_column = _child_block.get_by_position(index).column;
+            columns[index]->insert_many_from(*src_column, _cur_child_offset,
+                                             _current_row_insert_times);
+        }
+        _current_row_insert_times = 0;
+    }
+    int _current_row_insert_times = 0;
 
     Block _child_block;
     std::vector<SlotDescriptor*> _child_slots;
     std::vector<SlotDescriptor*> _output_slots;
     int64_t _cur_child_offset = 0;
 
-    std::vector<vectorized::VExprContext*> _vfn_ctxs;
+    std::vector<VExprContext*> _vfn_ctxs;
 
     std::vector<TableFunction*> _fns;
-    std::vector<void*> _fn_values;
-    std::vector<int64_t> _fn_value_lengths;
     int _fn_num = 0;
 
     std::vector<bool> _output_slot_ids;
+    std::vector<int> _output_slot_indexs;
+    std::vector<int> _useless_slot_indexs;
 
     std::vector<int> _child_slot_sizes;
     // indicate if child node reach the end
