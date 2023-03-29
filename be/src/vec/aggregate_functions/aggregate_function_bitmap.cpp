@@ -35,30 +35,6 @@ IAggregateFunction* create_with_int_data_type(const DataTypes& argument_type) {
     return nullptr;
 }
 
-AggregateFunctionPtr create_aggregate_function_bitmap_union(const std::string& name,
-                                                            const DataTypes& argument_types,
-                                                            const bool result_is_nullable) {
-    return AggregateFunctionPtr(
-            creator_without_type::create<AggregateFunctionBitmapOp<AggregateFunctionBitmapUnionOp>>(
-                    result_is_nullable, argument_types));
-}
-
-AggregateFunctionPtr create_aggregate_function_bitmap_intersect(const std::string& name,
-                                                                const DataTypes& argument_types,
-                                                                const bool result_is_nullable) {
-    return AggregateFunctionPtr(creator_without_type::create<
-                                AggregateFunctionBitmapOp<AggregateFunctionBitmapIntersectOp>>(
-            result_is_nullable, argument_types));
-}
-
-AggregateFunctionPtr create_aggregate_function_group_bitmap_xor(const std::string& name,
-                                                                const DataTypes& argument_types,
-                                                                const bool result_is_nullable) {
-    return AggregateFunctionPtr(creator_without_type::create<
-                                AggregateFunctionBitmapOp<AggregateFunctionGroupBitmapXorOp>>(
-            result_is_nullable, argument_types));
-}
-
 AggregateFunctionPtr create_aggregate_function_bitmap_union_count(const std::string& name,
                                                                   const DataTypes& argument_types,
                                                                   const bool result_is_nullable) {
@@ -75,18 +51,26 @@ AggregateFunctionPtr create_aggregate_function_bitmap_union_int(const std::strin
                                                                 const bool result_is_nullable) {
     const bool arg_is_nullable = argument_types[0]->is_nullable();
     if (arg_is_nullable) {
-        return std::shared_ptr<IAggregateFunction>(
+        return AggregateFunctionPtr(
                 create_with_int_data_type<true, AggregateFunctionBitmapCount>(argument_types));
     } else {
-        return std::shared_ptr<IAggregateFunction>(
+        return AggregateFunctionPtr(
                 create_with_int_data_type<false, AggregateFunctionBitmapCount>(argument_types));
     }
 }
 
 void register_aggregate_function_bitmap(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function_both("bitmap_union", create_aggregate_function_bitmap_union);
-    factory.register_function_both("bitmap_intersect", create_aggregate_function_bitmap_intersect);
-    factory.register_function_both("group_bitmap_xor", create_aggregate_function_group_bitmap_xor);
+    factory.register_function_both(
+            "bitmap_union", creator_without_type::creator<
+                                    AggregateFunctionBitmapOp<AggregateFunctionBitmapUnionOp>>);
+    factory.register_function_both(
+            "bitmap_intersect",
+            creator_without_type::creator<
+                    AggregateFunctionBitmapOp<AggregateFunctionBitmapIntersectOp>>);
+    factory.register_function_both(
+            "group_bitmap_xor",
+            creator_without_type::creator<
+                    AggregateFunctionBitmapOp<AggregateFunctionGroupBitmapXorOp>>);
     factory.register_function_both("bitmap_union_count",
                                    create_aggregate_function_bitmap_union_count);
     factory.register_function_both("bitmap_union_int", create_aggregate_function_bitmap_union_int);

@@ -18,12 +18,14 @@
 package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.Utils;
 
 import java.util.List;
 import java.util.Map;
@@ -52,21 +54,21 @@ class JoinReorderUtils {
     }
 
     /**
-     * If projectExprs is empty or project output equal plan output, return the original plan.
+     * If projects is empty or project output equal plan output, return the original plan.
      */
-    public static Plan projectOrSelf(List<NamedExpression> projectExprs, Plan plan) {
-        if (projectExprs.isEmpty() || projectExprs.stream().map(NamedExpression::getExprId).collect(Collectors.toSet())
-                .equals(plan.getOutputExprIdSet())) {
+    public static Plan projectOrSelf(List<NamedExpression> projects, Plan plan) {
+        Set<Slot> outputSet = plan.getOutputSet();
+        if (projects.isEmpty() || (outputSet.size() == projects.size() && outputSet.containsAll(projects))) {
             return plan;
         }
-        return new LogicalProject<>(projectExprs, plan);
+        return new LogicalProject<>(projects, plan);
     }
 
-    public static Plan projectOrSelfInOrder(List<NamedExpression> projectExprs, Plan plan) {
-        if (projectExprs.isEmpty() || projectExprs.equals(plan.getOutput())) {
+    public static Plan projectOrSelfInOrder(List<NamedExpression> projects, Plan plan) {
+        if (projects.isEmpty() || projects.equals(plan.getOutput())) {
             return plan;
         }
-        return new LogicalProject<>(projectExprs, plan);
+        return new LogicalProject<>(projects, plan);
     }
 
     /**
@@ -91,5 +93,31 @@ class JoinReorderUtils {
         return join.getConditionSlot().stream()
                 .filter(childSlots::contains)
                 .collect(Collectors.toSet());
+    }
+
+    public static Plan newProject(Set<ExprId> requiredExprIds, Plan plan) {
+        List<NamedExpression> projects = plan.getOutput().stream()
+                .filter(namedExpr -> requiredExprIds.contains(namedExpr.getExprId()))
+                .collect(Collectors.toList());
+        return new LogicalProject<>(projects, plan);
+    }
+
+    public static Map<Boolean, List<Expression>> splitConjuncts(List<Expression> topConjuncts,
+            List<Expression> bottomConjuncts, Set<ExprId> bExprIdSet) {
+        // top: (A B)(error) (A C) (B C) (A B C)
+        // Split topJoin Condition to two part according to include B.
+        Map<Boolean, List<Expression>> splitOn = topConjuncts.stream()
+                .collect(Collectors.partitioningBy(topHashOn -> {
+                    Set<ExprId> usedExprIds = topHashOn.getInputSlotExprIds();
+                    return Utils.isIntersecting(usedExprIds, bExprIdSet);
+                }));
+        // * don't include B, just include (A C)
+        // we add it into newBottomJoin HashConjuncts.
+        // * include B, include (A B C) or (A B)
+        // we add it into newTopJoin HashConjuncts.
+        List<Expression> newTopHashConjuncts = splitOn.get(true);
+        newTopHashConjuncts.addAll(bottomConjuncts);
+
+        return splitOn;
     }
 }

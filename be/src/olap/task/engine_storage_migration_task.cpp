@@ -41,6 +41,13 @@ Status EngineStorageMigrationTask::execute() {
 Status EngineStorageMigrationTask::_get_versions(int32_t start_version, int32_t* end_version,
                                                  std::vector<RowsetSharedPtr>* consistent_rowsets) {
     std::shared_lock rdlock(_tablet->get_header_lock());
+    // check if tablet is in cooldown, we don't support migration in this case
+    if (_tablet->tablet_meta()->cooldown_meta_id().initialized()) {
+        LOG(WARNING) << "currently not support migrate tablet with cooldowned remote data. tablet="
+                     << _tablet->tablet_id();
+        return Status::NotSupported(
+                "currently not support migrate tablet with cooldowned remote data");
+    }
     const RowsetSharedPtr last_version = _tablet->rowset_with_max_version();
     if (last_version == nullptr) {
         return Status::InternalError("failed to get rowset with max version, tablet={}",
@@ -193,12 +200,13 @@ Status EngineStorageMigrationTask::_migrate() {
         full_path = SnapshotManager::get_schema_hash_full_path(_tablet, shard_path);
         // if dir already exist then return err, it should not happen.
         // should not remove the dir directly, for safety reason.
-        if (FileUtils::check_exist(full_path)) {
+        bool exists = true;
+        RETURN_IF_ERROR(io::global_local_filesystem()->exists(full_path, &exists));
+        if (exists) {
             return Status::AlreadyExist("schema hash path {} already exist, skip this path",
                                         full_path);
         }
-
-        RETURN_IF_ERROR(FileUtils::create_dir(full_path));
+        RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(full_path));
     }
 
     std::vector<RowsetSharedPtr> temp_consistent_rowsets(consistent_rowsets);
@@ -262,7 +270,7 @@ Status EngineStorageMigrationTask::_migrate() {
 
     if (!res.ok()) {
         // we should remove the dir directly for avoid disk full of junk data, and it's safe to remove
-        FileUtils::remove_all(full_path);
+        io::global_local_filesystem()->delete_directory(full_path);
     }
     return res;
 }

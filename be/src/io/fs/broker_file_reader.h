@@ -52,10 +52,10 @@ protected:
                         const IOContext* io_ctx) override;
 
 private:
-    const Path& _path;
+    const Path _path;
     size_t _file_size;
 
-    const TNetworkAddress& _broker_addr;
+    const TNetworkAddress _broker_addr;
     TBrokerFD _fd;
 
     std::shared_ptr<BrokerFileSystem> _fs;

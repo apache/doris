@@ -188,6 +188,7 @@ CREATE CATALOG hana_catalog PROPERTIES (
 | `driver_class ` | Yes             |               | JDBC Driver Class                                  |
 | `only_specified_database` | No             |     "false"          | Whether only the database specified to be synchronized.                                  |
 | `lower_case_table_names` | No             |     "false"          | Whether to synchronize jdbc external data source table names in lower case. |
+| `specified_database_list` | No             |     ""          | When only_specified_database=true，only synchronize the specified databases. split with ','. db name is case sensitive.|
 
 > `driver_url` can be specified in three ways:
 >
@@ -199,7 +200,7 @@ CREATE CATALOG hana_catalog PROPERTIES (
 
 > `only_specified_database`:
 >
-> When the JDBC is connected, you can specify which database/schema to connect. For example, you can specify the DataBase in mysql `jdbc_url`; you can specify the CurrentSchema in PG `jdbc_url`. `only_specified_database` specifies whether only the database specified to be synchronized.
+> When the JDBC is connected, you can specify which database/schema to connect. For example, you can specify the DataBase in mysql `jdbc_url`; you can specify the CurrentSchema in PG `jdbc_url`. When `only_specified_database=true` and `specified_database_list` is empty, only the database in jdbc_url specified to be synchronized. When `only_specified_database=true` and `specified_database_list` with some database names，and these names will specified to be synchronized。
 > 
 > If you connect the Oracle database when using this property, please  use the version of the jar package above 8 or more (such as ojdbc8.jar).
 
@@ -480,3 +481,13 @@ The transaction mechanism ensures the atomicity of data writing to JDBC External
 7. What to do with errors such as "CAUSED BY: SQLException OutOfMemoryError" when performing JDBC queries?
 
    If you have set `useCursorFetch`  for MySQL, you can increase the JVM memory limit by modifying the value of `jvm_max_heap_size` in be.conf. The current default value is 1024M.
+
+8. When using JDBC to query MySQL large data volume, if the query can occasionally succeed, occasionally report the following errors, and all the MySQL connections are completely disconnected when the error occurs:
+
+   ```
+    ERROR 1105 (HY000): errCode = 2, detailMessage = [INTERNAL_ERROR]UdfRuntimeException: JDBC executor sql has error:
+    CAUSED BY: CommunicationsException: Communications link failure
+    The last packet successfully received from the server was 4,446 milliseconds ago. The last packet sent successfully to the server was 4,446 milliseconds ago.
+    ```
+
+    When the above phenomenon appears, it may be that mysql server's own memory or CPU resources are exhausted and the MySQL service is unavailable. You can try to increase the memory or CPU resources of MySQL Server.

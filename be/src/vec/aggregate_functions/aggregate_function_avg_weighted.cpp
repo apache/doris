@@ -19,18 +19,10 @@
 
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/helpers.h"
-#include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
-
-AggregateFunctionPtr create_aggregate_function_avg_weight(const std::string& name,
-                                                          const DataTypes& argument_types,
-                                                          const bool result_is_nullable) {
-    return AggregateFunctionPtr(creator_with_type::create<AggregateFunctionAvgWeight>(
-            result_is_nullable, argument_types));
-}
-
 void register_aggregate_function_avg_weighted(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function_both("avg_weighted", create_aggregate_function_avg_weight);
+    factory.register_function_both("avg_weighted",
+                                   creator_with_type::creator<AggregateFunctionAvgWeight>);
 }
 } // namespace doris::vectorized

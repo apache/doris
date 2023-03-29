@@ -21,6 +21,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "io/fs/err_utils.h"
 
 namespace doris {
 namespace io {
@@ -34,7 +35,7 @@ hdfsFS HDFSHandle::create_hdfs_fs(HDFSCommonBuilder& hdfs_builder) {
     hdfsFS hdfs_fs = hdfsBuilderConnect(hdfs_builder.get());
     if (hdfs_fs == nullptr) {
         LOG(WARNING) << "connect to hdfs failed."
-                     << ", error: " << hdfsGetLastError();
+                     << ", error: " << hdfs_error();
         return nullptr;
     }
     return hdfs_fs;

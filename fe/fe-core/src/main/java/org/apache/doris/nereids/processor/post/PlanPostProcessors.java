@@ -68,6 +68,7 @@ public class PlanPostProcessors {
             }
         }
         builder.add(new Validator());
+        builder.add(new TopNScanOpt());
         return builder.build();
     }
 }

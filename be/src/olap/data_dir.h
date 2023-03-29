@@ -25,10 +25,10 @@
 #include <string>
 
 #include "common/status.h"
-#include "env/env.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/olap_file.pb.h"
 #include "io/fs/file_system.h"
+#include "io/fs/fs_utils.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_id_generator.h"
 #include "util/metrics.h"
@@ -84,7 +84,7 @@ public:
 
     bool is_ssd_disk() const { return _storage_medium == TStorageMedium::SSD; }
 
-    bool is_remote() const { return FilePathDesc::is_remote(_storage_medium); }
+    bool is_remote() const { return io::FilePathDesc::is_remote(_storage_medium); }
 
     TStorageMedium::type storage_medium() const { return _storage_medium; }
 
@@ -109,7 +109,7 @@ public:
 
     // this function scans the paths in data dir to collect the paths to check
     // this is a producer function. After scan, it will notify the perform_path_gc function to gc
-    void perform_path_scan();
+    Status perform_path_scan();
 
     void perform_path_gc_by_rowsetid();
 
@@ -144,12 +144,12 @@ public:
 
 private:
     Status _init_cluster_id();
-    Status _init_capacity();
+    Status _init_capacity_and_create_shards();
     Status _init_meta();
 
     Status _check_disk();
     Status _read_and_write_test_file();
-    Status read_cluster_id(Env* env, const std::string& cluster_id_path, int32_t* cluster_id);
+    Status read_cluster_id(const std::string& cluster_id_path, int32_t* cluster_id);
     Status _write_cluster_id_to_path(const std::string& path, int32_t cluster_id);
     // Check whether has old format (hdr_ start) in olap. When doris updating to current version,
     // it may lead to data missing. When conf::storage_strict_check_incompatible_old_format is true,
@@ -169,14 +169,10 @@ private:
     size_t _path_hash;
 
     io::FileSystemSPtr _fs;
-    // user specified capacity
-    int64_t _capacity_bytes;
     // the actual available capacity of the disk of this data dir
-    // NOTICE that _available_bytes may be larger than _capacity_bytes, if capacity is set
-    // by user, not the disk's actual capacity
-    int64_t _available_bytes;
+    size_t _available_bytes;
     // the actual capacity of the disk of this data dir
-    int64_t _disk_capacity_bytes;
+    size_t _disk_capacity_bytes;
     TStorageMedium::type _storage_medium;
     bool _is_used;
 

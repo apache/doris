@@ -53,6 +53,11 @@ CREATE CATALOG iceberg PROPERTIES (
 );
 ```
 
+> `specified_database_list`:
+> 
+> only synchronize the specified databases, split with ','. Default values is '' will synchronize all databases. db name is case sensitive.
+> 
+
 ### Iceberg Native Catalog
 
 <version since="dev">

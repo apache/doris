@@ -57,12 +57,13 @@ public class ScalarApplyToJoin extends OneRewriteRuleFactory {
         LogicalAssertNumRows assertNumRows = new LogicalAssertNumRows<>(
                 new AssertNumRowsElement(
                         1, apply.getSubqueryExpr().toString(),
-                        AssertNumRowsElement.Assertion.EQ),
+                        apply.isNeedAddSubOutputToProjects()
+                            ? AssertNumRowsElement.Assertion.EQ : AssertNumRowsElement.Assertion.LE),
                 (LogicalPlan) apply.right());
         return new LogicalJoin<>(JoinType.CROSS_JOIN,
                 ExpressionUtils.EMPTY_CONDITION,
-                apply.getSubCorrespondingConject().isPresent()
-                    ? ExpressionUtils.extractConjunction((Expression) apply.getSubCorrespondingConject().get())
+                apply.getSubCorrespondingConjunct().isPresent()
+                    ? ExpressionUtils.extractConjunction((Expression) apply.getSubCorrespondingConjunct().get())
                     : ExpressionUtils.EMPTY_CONDITION,
                 JoinHint.NONE,
                 apply.getMarkJoinSlotReference(),
@@ -86,9 +87,9 @@ public class ScalarApplyToJoin extends OneRewriteRuleFactory {
         return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN,
                 ExpressionUtils.EMPTY_CONDITION,
                 ExpressionUtils.extractConjunction(
-                    apply.getSubCorrespondingConject().isPresent()
+                    apply.getSubCorrespondingConjunct().isPresent()
                         ? ExpressionUtils.and(
-                            (Expression) apply.getSubCorrespondingConject().get(),
+                            (Expression) apply.getSubCorrespondingConjunct().get(),
                             correlationFilter.get())
                         : correlationFilter.get()),
                 JoinHint.NONE,

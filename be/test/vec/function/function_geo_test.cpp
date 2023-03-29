@@ -136,6 +136,27 @@ TEST(VGeoFunctionsTest, function_geo_st_distance_sphere) {
     }
 }
 
+TEST(VGeoFunctionsTest, function_geo_st_angle_sphere) {
+    std::string func_name = "st_angle_sphere";
+    {
+        InputTypeSet input_types = {TypeIndex::Float64, TypeIndex::Float64, TypeIndex::Float64,
+                                    TypeIndex::Float64};
+
+        DataSet data_set = {
+                {{(double)116.35620117, (double)39.939093, (double)116.4274406433,
+                  (double)39.9020987219},
+                 (double)0.0659823452409903},
+                {{(double)116.35620117, (double)39.939093, (double)116.4274406433, Null()}, Null()},
+                {{(double)116.35620117, (double)39.939093, Null(), (double)39.9020987219}, Null()},
+                {{(double)116.35620117, Null(), (double)116.4274406433, (double)39.9020987219},
+                 Null()},
+                {{Null(), (double)39.939093, (double)116.4274406433, (double)39.9020987219},
+                 Null()}};
+
+        check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    }
+}
+
 TEST(VGeoFunctionsTest, function_geo_st_contains) {
     std::string func_name = "st_contains";
     {
@@ -279,6 +300,40 @@ TEST(VGeoFunctionsTest, function_geo_st_polygonfromtext) {
                             {{Null()}, Null()}};
 
         check_function<DataTypeString, true>(func_name, input_types, data_set);
+    }
+}
+
+TEST(VGeoFunctionsTest, function_geo_st_area_square_meters) {
+    std::string func_name = "st_area_square_meters";
+    {
+        InputTypeSet input_types = {TypeIndex::String};
+
+        GeoCircle circle;
+        auto cur_res = circle.init(0, 0, 1);
+        EXPECT_TRUE(cur_res == GEO_PARSE_OK);
+        std::string buf;
+        circle.encode_to(&buf);
+        DataSet data_set = {{{buf}, (double)3.1415926535897869}, {{Null()}, Null()}};
+
+        check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    }
+}
+
+TEST(VGeoFunctionsTest, function_geo_st_area_square_km) {
+    std::string func_name = "st_area_square_km";
+    {
+        InputTypeSet input_types = {TypeIndex::String};
+
+        GeoParseStatus status;
+        std::string buf;
+        std::string input = "POLYGON ((0 0, 1 0, 1 1, 0 1, 0 0))";
+        std::unique_ptr<GeoShape> shape(GeoShape::from_wkt(input.data(), input.size(), &status));
+        EXPECT_TRUE(shape != nullptr);
+        EXPECT_TRUE(status == GEO_PARSE_OK);
+        shape->encode_to(&buf);
+        DataSet data_set = {{{buf}, (double)12364.036567076409}, {{Null()}, Null()}};
+
+        check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
     }
 }
 

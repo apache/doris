@@ -53,6 +53,11 @@ CREATE CATALOG hive PROPERTIES (
 ```
 
 除了 `type` 和 `hive.metastore.uris` 两个必须参数外，还可以通过更多参数来传递连接所需要的信息。
+
+> `specified_database_list`:
+> 
+> 支持只同步指定的同步多个database，以','分隔。默认为''，同步所有database。db名称是大小写敏感的。
+> 
 	
 如提供 HDFS HA 信息，示例如下：
 	
@@ -151,6 +156,22 @@ CREATE CATALOG hive WITH RESOURCE hms_resource PROPERTIES(
 	'key' = 'value'
 );
 ```
+<version since="dev"></version>
+创建 Catalog 时可以采用参数 `file.meta.cache.ttl-second` 来设置 File Cache 自动失效时间，也可以将该值设置为 0 来禁用 File Cache。时间单位为：秒。示例如下：
+```sql
+CREATE CATALOG hive PROPERTIES (
+    'type'='hms',
+    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
+    'hadoop.username' = 'hive',
+    'dfs.nameservices'='your-nameservice',
+    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
+    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider',
+    'file.meta.cache.ttl-second' = '60'
+);
+```
+
 
 我们也可以直接将 hive-site.xml 放到 FE 和 BE 的 conf 目录下，系统也会自动读取 hive-site.xml 中的信息。信息覆盖的规则如下：
 	

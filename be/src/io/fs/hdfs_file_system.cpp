@@ -19,7 +19,7 @@
 
 #include "gutil/hash/hash.h"
 #include "io/cache/block/cached_remote_file_reader.h"
-#include "io/fs/fs_utils.h"
+#include "io/fs/err_utils.h"
 #include "io/fs/hdfs_file_reader.h"
 #include "io/fs/hdfs_file_writer.h"
 #include "io/fs/local_file_system.h"
@@ -102,10 +102,13 @@ Status HdfsFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer)
     return Status::OK();
 }
 
-Status HdfsFileSystem::open_file_internal(const Path& file, FileReaderSPtr* reader) {
+Status HdfsFileSystem::open_file_internal(const Path& file, int64_t file_size,
+                                          FileReaderSPtr* reader) {
     CHECK_HDFS_HANDLE(_fs_handle);
-    size_t file_len = 0;
-    RETURN_IF_ERROR(file_size_impl(file, &file_len));
+    int64_t fsize = file_size;
+    if (fsize < 0) {
+        RETURN_IF_ERROR(file_size_impl(file, &fsize));
+    }
 
     Path real_path = convert_path(file, _namenode);
     auto hdfs_file =
@@ -126,12 +129,12 @@ Status HdfsFileSystem::open_file_internal(const Path& file, FileReaderSPtr* read
         }
     }
     *reader = std::make_shared<HdfsFileReader>(
-            file, file_len, _namenode, hdfs_file,
+            file, fsize, _namenode, hdfs_file,
             std::static_pointer_cast<HdfsFileSystem>(shared_from_this()));
     return Status::OK();
 }
 
-Status HdfsFileSystem::create_directory_impl(const Path& dir) {
+Status HdfsFileSystem::create_directory_impl(const Path& dir, bool failed_if_exists) {
     CHECK_HDFS_HANDLE(_fs_handle);
     Path real_path = convert_path(dir, _namenode);
     int res = hdfsCreateDirectory(_fs_handle->hdfs_fs, real_path.string().c_str());
@@ -179,7 +182,7 @@ Status HdfsFileSystem::exists_impl(const Path& path, bool* res) const {
     return Status::OK();
 }
 
-Status HdfsFileSystem::file_size_impl(const Path& path, size_t* file_size) const {
+Status HdfsFileSystem::file_size_impl(const Path& path, int64_t* file_size) const {
     CHECK_HDFS_HANDLE(_fs_handle);
     Path real_path = convert_path(path, _namenode);
     hdfsFileInfo* file_info = hdfsGetPathInfo(_fs_handle->hdfs_fs, real_path.string().c_str());
@@ -246,7 +249,7 @@ Status HdfsFileSystem::upload_impl(const Path& local_file, const Path& remote_fi
     FileSystemSPtr local_fs = global_local_filesystem();
     FileReaderSPtr local_reader = nullptr;
     RETURN_IF_ERROR(local_fs->open_file(local_file, &local_reader));
-    size_t file_len = local_reader->size();
+    int64_t file_len = local_reader->size();
     if (file_len == -1) {
         return Status::IOError("failed to get size of file: {}", local_file.string());
     }
@@ -300,7 +303,7 @@ Status HdfsFileSystem::upload_with_checksum_impl(const Path& local, const Path& 
 Status HdfsFileSystem::download_impl(const Path& remote_file, const Path& local_file) {
     // 1. open remote file for read
     FileReaderSPtr hdfs_reader = nullptr;
-    RETURN_IF_ERROR(open_file_internal(remote_file, &hdfs_reader));
+    RETURN_IF_ERROR(open_file_internal(remote_file, -1, &hdfs_reader));
 
     // 2. remove the existing local file if exist
     if (std::filesystem::remove(local_file)) {
@@ -337,7 +340,7 @@ Status HdfsFileSystem::download_impl(const Path& remote_file, const Path& local_
 Status HdfsFileSystem::direct_download_impl(const Path& remote_file, std::string* content) {
     // 1. open remote file for read
     FileReaderSPtr hdfs_reader = nullptr;
-    RETURN_IF_ERROR(open_file_internal(remote_file, &hdfs_reader));
+    RETURN_IF_ERROR(open_file_internal(remote_file, -1, &hdfs_reader));
 
     constexpr size_t buf_sz = 1024 * 1024;
     std::unique_ptr<char[]> read_buf(new char[buf_sz]);

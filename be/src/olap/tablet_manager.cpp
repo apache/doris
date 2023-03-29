@@ -25,7 +25,6 @@
 #include <cstdio>
 #include <filesystem>
 
-#include "env/env.h"
 #include "gutil/strings/strcat.h"
 #include "olap/base_compaction.h"
 #include "olap/cumulative_compaction.h"
@@ -40,7 +39,6 @@
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
-#include "util/file_utils.h"
 #include "util/histogram.h"
 #include "util/path_util.h"
 #include "util/scoped_cleanup.h"
@@ -399,15 +397,18 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir_unlocked(
 
         // Because the tablet is removed asynchronously, so that the dir may still exist when BE
         // receive create-tablet request again, For example retried schema-change request
-        if (FileUtils::check_exist(schema_hash_dir)) {
+        bool exists = true;
+        res = io::global_local_filesystem()->exists(schema_hash_dir, &exists);
+        if (!res.ok()) {
+            continue;
+        }
+        if (exists) {
             LOG(WARNING) << "skip this dir because tablet path exist, path=" << schema_hash_dir;
             continue;
         } else {
             data_dir->add_pending_ids(pending_id);
-            Status st = FileUtils::create_dir(schema_hash_dir);
+            Status st = io::global_local_filesystem()->create_directory(schema_hash_dir);
             if (!st.ok()) {
-                LOG(WARNING) << "create dir fail. path=" << schema_hash_dir
-                             << " error=" << st.to_string();
                 continue;
             }
         }
@@ -770,10 +771,14 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
     // For case 2, If a tablet has just been copied to local BE,
     // it may be cleared by gc-thread(see perform_path_gc_by_tablet) because the tablet meta may not be loaded to memory.
     // So clone task should check path and then failed and retry in this case.
-    if (check_path && !Env::Default()->path_exists(tablet->tablet_path()).ok()) {
-        LOG(WARNING) << "tablet path not exists, create tablet failed, path="
-                     << tablet->tablet_path();
-        return Status::Error<TABLE_ALREADY_DELETED_ERROR>();
+    if (check_path) {
+        bool exists = true;
+        RETURN_IF_ERROR(io::global_local_filesystem()->exists(tablet->tablet_path(), &exists));
+        if (!exists) {
+            LOG(WARNING) << "tablet path not exists, create tablet failed, path="
+                         << tablet->tablet_path();
+            return Status::Error<TABLE_ALREADY_DELETED_ERROR>();
+        }
     }
 
     if (tablet_meta->tablet_state() == TABLET_SHUTDOWN) {
@@ -824,9 +829,10 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
             TabletMeta::reset_tablet_uid(header_path),
             strings::Substitute("failed to set tablet uid when copied meta file. header_path=%0",
                                 header_path));
-    ;
 
-    if (!Env::Default()->path_exists(header_path).ok()) {
+    bool exists = false;
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(header_path, &exists));
+    if (!exists) {
         LOG(WARNING) << "fail to find header file. [header_path=" << header_path << "]";
         return Status::Error<FILE_NOT_EXIST>();
     }
@@ -965,7 +971,12 @@ Status TabletManager::start_trash_sweep() {
                 }
                 // move data to trash
                 const auto& tablet_path = (*it)->tablet_path();
-                if (Env::Default()->path_exists(tablet_path).ok()) {
+                bool exists = false;
+                Status exists_st = io::global_local_filesystem()->exists(tablet_path, &exists);
+                if (!exists_st) {
+                    continue;
+                }
+                if (exists) {
                     // take snapshot of tablet meta
                     auto meta_file_path = fmt::format("{}/{}.hdr", tablet_path, (*it)->tablet_id());
                     (*it)->tablet_meta()->save(meta_file_path);
@@ -989,7 +1000,12 @@ Status TabletManager::start_trash_sweep() {
             } else {
                 // if could not find tablet info in meta store, then check if dir existed
                 const auto& tablet_path = (*it)->tablet_path();
-                if (Env::Default()->path_exists(tablet_path).ok()) {
+                bool exists = false;
+                Status exists_st = io::global_local_filesystem()->exists(tablet_path, &exists);
+                if (!exists_st) {
+                    continue;
+                }
+                if (exists) {
                     LOG(WARNING) << "errors while load meta from store, skip this tablet. "
                                  << "tablet_id=" << (*it)->tablet_id()
                                  << ", schema_hash=" << (*it)->schema_hash();
@@ -1049,7 +1065,9 @@ void TabletManager::try_delete_unused_tablet_path(DataDir* data_dir, TTabletId t
     }
 
     // TODO(ygl): may do other checks in the future
-    if (Env::Default()->path_exists(schema_hash_path).ok()) {
+    bool exists = false;
+    Status exists_st = io::global_local_filesystem()->exists(schema_hash_path, &exists);
+    if (exists_st && exists) {
         LOG(INFO) << "start to move tablet to trash. tablet_path = " << schema_hash_path;
         Status rm_st = data_dir->move_to_trash(schema_hash_path);
         if (!rm_st.ok()) {

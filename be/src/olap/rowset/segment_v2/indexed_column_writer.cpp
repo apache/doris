@@ -20,7 +20,6 @@
 #include <string>
 
 #include "common/logging.h"
-#include "env/env.h"
 #include "olap/key_coder.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
 #include "olap/rowset/segment_v2/index_page.h"

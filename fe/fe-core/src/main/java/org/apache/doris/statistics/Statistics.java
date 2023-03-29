@@ -177,4 +177,12 @@ public class Statistics {
     public int getBENumber() {
         return 1;
     }
+
+    public static Statistics zero(Statistics statistics) {
+        Statistics zero = new Statistics(0, new HashMap<>());
+        for (Map.Entry<Expression, ColumnStatistic> entry : statistics.expressionToColumnStats.entrySet()) {
+            zero.addColumnStats(entry.getKey(), ColumnStatistic.ZERO);
+        }
+        return zero;
+    }
 }

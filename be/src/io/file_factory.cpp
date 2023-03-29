@@ -49,7 +49,7 @@ Status FileFactory::create_file_writer(TFileType::type type, ExecEnv* env,
     }
     case TFileType::FILE_BROKER: {
         std::shared_ptr<io::BrokerFileSystem> fs;
-        RETURN_IF_ERROR(io::BrokerFileSystem::create(broker_addresses[0], properties, 0, &fs));
+        RETURN_IF_ERROR(io::BrokerFileSystem::create(broker_addresses[0], properties, &fs));
         RETURN_IF_ERROR(fs->create_file(path, &file_writer));
         break;
     }
@@ -90,6 +90,7 @@ Status FileFactory::create_file_reader(RuntimeProfile* /*profile*/,
     }
     io::FileBlockCachePathPolicy file_block_cache;
     io::FileReaderOptions reader_options(cache_policy, file_block_cache);
+    reader_options.file_size = file_description.file_size;
     switch (type) {
     case TFileType::FILE_LOCAL: {
         RETURN_IF_ERROR(io::global_local_filesystem()->open_file(file_description.path,
@@ -162,8 +163,7 @@ Status FileFactory::create_broker_reader(const TNetworkAddress& broker_addr,
                                          io::FileReaderSPtr* reader,
                                          const io::FileReaderOptions& reader_options) {
     std::shared_ptr<io::BrokerFileSystem> fs;
-    RETURN_IF_ERROR(
-            io::BrokerFileSystem::create(broker_addr, prop, file_description.file_size, &fs));
+    RETURN_IF_ERROR(io::BrokerFileSystem::create(broker_addr, prop, &fs));
     RETURN_IF_ERROR(fs->open_file(file_description.path, reader_options, reader));
     *broker_file_system = std::move(fs);
     return Status::OK();

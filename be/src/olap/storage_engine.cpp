@@ -34,10 +34,8 @@
 #include <random>
 #include <set>
 
-#include "agent/cgroups_mgr.h"
 #include "agent/task_worker_pool.h"
-#include "env/env.h"
-#include "env/env_util.h"
+#include "io/fs/local_file_system.h"
 #include "olap/base_compaction.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/data_dir.h"
@@ -53,7 +51,6 @@
 #include "olap/tablet_meta_manager.h"
 #include "olap/utils.h"
 #include "util/doris_metrics.h"
-#include "util/file_utils.h"
 #include "util/pretty_printer.h"
 #include "util/scoped_cleanup.h"
 #include "util/time.h"
@@ -776,7 +773,9 @@ void StorageEngine::_clean_unused_txns() {
 Status StorageEngine::_do_sweep(const std::string& scan_root, const time_t& local_now,
                                 const int32_t expire) {
     Status res = Status::OK();
-    if (!FileUtils::check_exist(scan_root)) {
+    bool exists = true;
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(scan_root, &exists));
+    if (!exists) {
         // dir not existed. no need to sweep trash.
         return res;
     }
@@ -809,11 +808,8 @@ Status StorageEngine::_do_sweep(const std::string& scan_root, const time_t& loca
 
             string path_name = sorted_path.string();
             if (difftime(local_now, mktime(&local_tm_create)) >= actual_expire) {
-                Status ret = FileUtils::remove_all(path_name);
-                if (!ret.ok()) {
-                    LOG(WARNING) << "fail to remove file or directory. path_desc: " << scan_root
-                                 << ", error=" << ret.to_string();
-                    res = Status::Error<OS_ERROR>();
+                res = io::global_local_filesystem()->delete_directory(path_name);
+                if (!res.ok()) {
                     continue;
                 }
             } else {

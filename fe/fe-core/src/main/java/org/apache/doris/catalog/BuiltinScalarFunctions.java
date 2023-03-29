@@ -263,6 +263,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByChar;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitPart;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sqrt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StAngleSphere;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StAreaSquareKm;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StAreaSquareMeters;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAstext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAswkt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StCircle;
@@ -586,6 +589,9 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(StCircle.class, "st_circle"),
             scalar(StContains.class, "st_contains"),
             scalar(StDistanceSphere.class, "st_distance_sphere"),
+            scalar(StAngleSphere.class, "st_angle_sphere"),
+            scalar(StAreaSquareMeters.class, "st_area_square_meters"),
+            scalar(StAreaSquareKm.class, "st_area_square_km"),
             scalar(StGeometryfromtext.class, "st_geometryfromtext"),
             scalar(StGeomfromtext.class, "st_geomfromtext"),
             scalar(StLinefromtext.class, "st_linefromtext"),

@@ -265,6 +265,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByChar;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitPart;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sqrt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StAngleSphere;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StAreaSquareKm;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StAreaSquareMeters;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAstext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAswkt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StCircle;
@@ -1344,6 +1347,18 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitStDistanceSphere(StDistanceSphere stDistanceSphere, C context) {
         return visitScalarFunction(stDistanceSphere, context);
+    }
+
+    default R visitStAngleSphere(StAngleSphere stAngleSphere, C context) {
+        return visitScalarFunction(stAngleSphere, context);
+    }
+
+    default R visitStAreaSquareMeters(StAreaSquareMeters stAreaSquareMeters, C context) {
+        return visitScalarFunction(stAreaSquareMeters, context);
+    }
+
+    default R visitStAreaSquareKm(StAreaSquareKm stAreaSquareKm, C context) {
+        return visitScalarFunction(stAreaSquareKm, context);
     }
 
     default R visitStGeometryfromtext(StGeometryfromtext stGeometryfromtext, C context) {

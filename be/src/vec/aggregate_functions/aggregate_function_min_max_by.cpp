@@ -28,15 +28,15 @@ namespace doris::vectorized {
 /// min_by, max_by
 template <template <typename> class AggregateFunctionTemplate,
           template <typename, typename> class Data, typename VT>
-IAggregateFunction* create_aggregate_function_min_max_by_impl(const DataTypes& argument_types,
-                                                              const bool result_is_nullable) {
+AggregateFunctionPtr create_aggregate_function_min_max_by_impl(const DataTypes& argument_types,
+                                                               const bool result_is_nullable) {
     WhichDataType which(remove_nullable(argument_types[1]));
 
 #define DISPATCH(TYPE)                                                            \
     if (which.idx == TypeIndex::TYPE)                                             \
         return creator_without_type::create<                                      \
                 AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<TYPE>>>>( \
-                result_is_nullable, argument_types);
+                argument_types, result_is_nullable);
     FOR_NUMERIC_TYPES(DISPATCH)
 #undef DISPATCH
 
@@ -44,29 +44,29 @@ IAggregateFunction* create_aggregate_function_min_max_by_impl(const DataTypes& a
     if (which.idx == TypeIndex::TYPE)                                               \
         return creator_without_type::create<                                        \
                 AggregateFunctionTemplate<Data<VT, SingleValueDataDecimal<TYPE>>>>( \
-                result_is_nullable, argument_types);
+                argument_types, result_is_nullable);
     FOR_DECIMAL_TYPES(DISPATCH)
 #undef DISPATCH
 
     if (which.idx == TypeIndex::String) {
         return creator_without_type::create<
-                AggregateFunctionTemplate<Data<VT, SingleValueDataString>>>(result_is_nullable,
-                                                                            argument_types);
+                AggregateFunctionTemplate<Data<VT, SingleValueDataString>>>(argument_types,
+                                                                            result_is_nullable);
     }
     if (which.idx == TypeIndex::DateTime || which.idx == TypeIndex::Date) {
         return creator_without_type::create<
                 AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<Int64>>>>(
-                result_is_nullable, argument_types);
+                argument_types, result_is_nullable);
     }
     if (which.idx == TypeIndex::DateV2) {
         return creator_without_type::create<
                 AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<UInt32>>>>(
-                result_is_nullable, argument_types);
+                argument_types, result_is_nullable);
     }
     if (which.idx == TypeIndex::DateTimeV2) {
         return creator_without_type::create<
                 AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<UInt64>>>>(
-                result_is_nullable, argument_types);
+                argument_types, result_is_nullable);
     }
     return nullptr;
 }
@@ -74,9 +74,9 @@ IAggregateFunction* create_aggregate_function_min_max_by_impl(const DataTypes& a
 /// min_by, max_by
 template <template <typename> class AggregateFunctionTemplate,
           template <typename, typename> class Data>
-IAggregateFunction* create_aggregate_function_min_max_by(const String& name,
-                                                         const DataTypes& argument_types,
-                                                         const bool result_is_nullable) {
+AggregateFunctionPtr create_aggregate_function_min_max_by(const String& name,
+                                                          const DataTypes& argument_types,
+                                                          const bool result_is_nullable) {
     assert_binary(name, argument_types);
 
     WhichDataType which(remove_nullable(argument_types[0]));
@@ -119,25 +119,13 @@ IAggregateFunction* create_aggregate_function_min_max_by(const String& name,
     return nullptr;
 }
 
-AggregateFunctionPtr create_aggregate_function_max_by(const std::string& name,
-                                                      const DataTypes& argument_types,
-                                                      const bool result_is_nullable) {
-    return AggregateFunctionPtr(create_aggregate_function_min_max_by<AggregateFunctionsMinMaxBy,
-                                                                     AggregateFunctionMaxByData>(
-            name, argument_types, result_is_nullable));
-}
-
-AggregateFunctionPtr create_aggregate_function_min_by(const std::string& name,
-                                                      const DataTypes& argument_types,
-                                                      const bool result_is_nullable) {
-    return AggregateFunctionPtr(create_aggregate_function_min_max_by<AggregateFunctionsMinMaxBy,
-                                                                     AggregateFunctionMinByData>(
-            name, argument_types, result_is_nullable));
-}
-
 void register_aggregate_function_min_max_by(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function_both("max_by", create_aggregate_function_max_by);
-    factory.register_function_both("min_by", create_aggregate_function_min_by);
+    factory.register_function_both(
+            "max_by", create_aggregate_function_min_max_by<AggregateFunctionsMinMaxBy,
+                                                           AggregateFunctionMaxByData>);
+    factory.register_function_both(
+            "min_by", create_aggregate_function_min_max_by<AggregateFunctionsMinMaxBy,
+                                                           AggregateFunctionMinByData>);
 }
 
 } // namespace doris::vectorized

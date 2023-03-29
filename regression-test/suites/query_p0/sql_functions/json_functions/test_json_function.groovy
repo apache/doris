@@ -59,4 +59,11 @@ suite("test_json_function") {
     qt_sql "SELECT json_unquote('Dorr\bis\tishere\n');"
     qt_sql "SELECT json_unquote('\"Dorr\\\\bis\\\\tishere\\\\n\"');"
     qt_sql "SELECT json_unquote('\"\\\\u0044\\\\u004F\\\\u0052\\\\u0049\\\\u0053\"');"
+
+    qt_sql "SELECT json_extract('[1, 2, 3]', '\$.[1]');"
+    qt_sql "SELECT json_extract('{\"id\": 123, \"name\": \"doris\"}', '\$.id', '\$.name');"
+    qt_sql "SELECT json_extract('{\"id\": 123, \"name\": \"doris\"}', null, '\$.id');"
+    qt_sql "SELECT json_extract(null, '\$.id');"
+    qt_sql "SELECT json_extract('{\"k1\": \"v1\", \"k2\": { \"k21\": 6.6, \"k22\": [1, 2, 3] } }', '\$.k1', '\$.k2');"
+    qt_sql "SELECT json_extract('{\"k1\": \"v1\", \"k2\": { \"k21\": 6.6, \"k22\": [1, 2, 3] } }', '\$.k2.k21', '\$.k2.k22', '\$.k2.k22[1]');"
 }
