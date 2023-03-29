@@ -15,7 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <algorithm>
+
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -27,10 +30,10 @@
 namespace doris::vectorized {
 
 // construct a struct
-// struct(value1, value2, value3, value4) -> {value1, value2, value3, value4}
+template <typename Impl>
 class FunctionStruct : public IFunction {
 public:
-    static constexpr auto name = "struct";
+    static constexpr auto name = Impl::name;
     static FunctionPtr create() { return std::make_shared<FunctionStruct>(); }
 
     /// Get function name.
@@ -42,10 +45,14 @@ public:
 
     size_t get_number_of_arguments() const override { return 0; }
 
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+    void check_number_of_arguments(size_t number_of_arguments) const override {
         DCHECK(arguments.size() > 0)
                 << "function: " << get_name() << ", arguments should not be empty.";
-        return std::make_shared<DataTypeStruct>(make_nullable(arguments));
+        return Impl::check_number_of_arguments(number_of_arguments);
+    }
+
+    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
+        return Impl::get_return_type_impl(arguments);
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -56,35 +63,76 @@ public:
             return Status::RuntimeError("unsupported types for function {} return {}", get_name(),
                                         block.get_by_position(result).type->get_name());
         }
-        size_t num_element = struct_column->tuple_size();
-        DCHECK(arguments.size() == num_element)
-                << "function: " << get_name()
-                << ", argument number should equal to return field number.";
-        // convert to nullable column
+        ColumnNumbers args_num;
+        std::copy_if(arguments.begin(), arguments.end(), std::back_inserter(args_num),
+                     Impl::types_index);
+        size_t num_element = args_num.size();
+        if (num_element != struct_column.tuple_size()) {
+            return Status::RuntimeError("function {} args number {} is not equal to result struct field number {}.", get_name(), num_element, struct_column.tuple_size());
+        }
         for (size_t i = 0; i < num_element; ++i) {
-            auto& col = block.get_by_position(arguments[i]).column;
-            col = col->convert_to_full_column_if_const();
             auto& nested_col = struct_column->get_column(i);
             nested_col.reserve(input_rows_count);
             bool is_nullable = nested_col.is_nullable();
-            // for now, column in struct is always nullable
+            auto& col = block.get_by_position(args_num[i]).column->convert_to_full_column_if_const();
             if (is_nullable && !col->is_nullable()) {
                 col = ColumnNullable::create(col, ColumnUInt8::create(col->size(), 0));
             }
         }
 
-        // insert value into struct
+        // insert value into struct column by column
         for (size_t i = 0; i < num_element; ++i) {
             struct_column->get_column(i).insert_range_from(
-                    *block.get_by_position(arguments[i]).column, 0, input_rows_count);
+                    *block.get_by_position(args_num[i]).column, 0, input_rows_count);
         }
         block.replace_by_position(result, std::move(result_col));
         return Status::OK();
     }
 };
 
+// struct(value1, value2, value3) -> {value1, value2, value3}
+struct StructImpl {
+    static constexpr auto name = "struct";
+    static auto types_index = [](size_t i) { return true; }
+
+    static void check_number_of_arguments(size_t number_of_arguments) {
+        return;
+    }
+
+    static DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) {
+        return std::make_shared<DataTypeStruct>(make_nullable(arguments));
+    }
+};
+
+// named_struct(name1, value1, name2, value2) -> {name1:value1, name2:value2}
+struct NamedStructImpl {
+    static constexpr auto name = "named_struct";
+    static auto types_index = [](size_t i) { return i % 2 == 0; }
+
+    static void check_number_of_arguments(size_t number_of_arguments) {
+        DCHECK(arguments.size() % 2 == 0)
+                << "function: " << get_name() << ", arguments size should be even number.";
+        return;
+    }
+
+    static DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) {
+        Strings names;
+        DataTypes dataTypes;
+        for (size_t i = 0; i < arguments.size(); i += 2) {
+            const ColumnConst* const_string =
+                    check_and_get_column_const<ColumnString>(arguments[i].column.get());
+            DCHECK(const_string)
+                    << "Only const StringType arguments are allowed at odd position.";
+            names.push_back(const_string->get_value<String>());
+            dataTypes.push_back(arguments[i + 1].type);
+        }
+        return std::make_shared<DataTypeStruct>(make_nullable(dataTypes), names);
+    }
+};
+
 void register_function_struct(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionStruct>();
+    factory.register_function<FunctionStruct<StructImpl>>();
+    factory.register_function<FunctionStruct<NamedStructImpl>>();
 }
 
 } // namespace doris::vectorized
