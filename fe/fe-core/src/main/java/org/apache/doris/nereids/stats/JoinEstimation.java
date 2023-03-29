@@ -37,30 +37,60 @@ import java.util.stream.Collectors;
  */
 public class JoinEstimation {
 
+    private static EqualTo normalizeHashJoinCondition(EqualTo equalTo, Statistics leftStats, Statistics rightStats) {
+        boolean changeOrder = equalTo.left().getInputSlots().stream().anyMatch(
+                slot -> rightStats.findColumnStatistics(slot) != null
+        );
+        if (changeOrder) {
+            return new EqualTo(equalTo.right(), equalTo.left());
+        } else {
+            return equalTo;
+        }
+    }
+
     private static Statistics estimateInnerJoin(Statistics leftStats, Statistics rightStats, Join join) {
+
+        List<EqualTo> trustableConditions = join.getHashJoinConjuncts().stream()
+                .map(expression -> (EqualTo) expression)
+                .filter(
+                    expression -> {
+                        EqualTo equal = normalizeHashJoinCondition(expression, leftStats, rightStats);
+                        ColumnStatistic eqLeftColStats = ExpressionEstimation.estimate(equal.left(), leftStats);
+                        ColumnStatistic eqRightColStats = ExpressionEstimation.estimate(equal.right(), rightStats);
+                        return eqRightColStats.ndv / rightStats.getRowCount() > 0.9
+                                || eqLeftColStats.ndv / leftStats.getRowCount() > 0.9;
+                    }
+                ).collect(Collectors.toList());
+
+        Statistics innerJoinStats;
         Statistics crossJoinStats = new StatisticsBuilder()
                 .setRowCount(leftStats.getRowCount() * rightStats.getRowCount())
                 .putColumnStatistics(leftStats.columnStatistics())
                 .putColumnStatistics(rightStats.columnStatistics())
                 .build();
-        List<Pair<Expression, Double>> sortedJoinConditions = join.getHashJoinConjuncts().stream()
-                .map(expression -> Pair.of(expression, estimateJoinConditionSel(crossJoinStats, expression)))
-                .sorted((a, b) -> {
-                    double sub = a.second - b.second;
-                    if (sub > 0) {
-                        return 1;
-                    } else if (sub < 0) {
-                        return -1;
-                    } else {
-                        return 0;
-                    }
-                }).collect(Collectors.toList());
+        if (!trustableConditions.isEmpty()) {
+            List<Pair<Expression, Double>> sortedJoinConditions = join.getHashJoinConjuncts().stream()
+                    .map(expression -> Pair.of(expression, estimateJoinConditionSel(crossJoinStats, expression)))
+                    .sorted((a, b) -> {
+                        double sub = a.second - b.second;
+                        if (sub > 0) {
+                            return 1;
+                        } else if (sub < 0) {
+                            return -1;
+                        } else {
+                            return 0;
+                        }
+                    }).collect(Collectors.toList());
 
-        double sel = 1.0;
-        for (int i = 0; i < sortedJoinConditions.size(); i++) {
-            sel *= Math.pow(sortedJoinConditions.get(i).second, 1 / Math.pow(2, i));
+            double sel = 1.0;
+            for (int i = 0; i < sortedJoinConditions.size(); i++) {
+                sel *= Math.pow(sortedJoinConditions.get(i).second, 1 / Math.pow(2, i));
+            }
+            innerJoinStats = crossJoinStats.updateRowCountOnly(crossJoinStats.getRowCount() * sel);
+        } else {
+            double outputRowCount = Math.max(leftStats.getRowCount(), rightStats.getRowCount());
+            innerJoinStats = crossJoinStats.updateRowCountOnly(outputRowCount);
         }
-        Statistics innerJoinStats = crossJoinStats.updateRowCountOnly(crossJoinStats.getRowCount() * sel);
 
         if (!join.getOtherJoinConjuncts().isEmpty()) {
             FilterEstimation filterEstimation = new FilterEstimation();

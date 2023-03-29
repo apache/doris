@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
@@ -64,7 +65,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     public static final double DEFAULT_HAVING_COEFFICIENT = 0.01;
 
     public static final double DEFAULT_EQUALITY_COMPARISON_SELECTIVITY = 0.1;
-
+    public static final double DEFAULT_LIKE_COMPARISON_SELECTIVITY = 0.2;
     private Set<Slot> aggSlots;
 
     public FilterEstimation() {
@@ -535,5 +536,10 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 .setMinValue(numVal)
                 .build();
         return context.statistics.withSel(sel).addColumnStats(leftExpr, columnStatistic);
+    }
+
+    @Override
+    public Statistics visitLike(Like like, EstimationContext context) {
+        return context.statistics.withSel(DEFAULT_LIKE_COMPARISON_SELECTIVITY);
     }
 }
