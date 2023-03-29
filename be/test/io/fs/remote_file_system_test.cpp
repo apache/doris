@@ -65,7 +65,7 @@ static std::string broker_location = "hdfs://my_nameservice/user/doris";
 #define TestS3FileSystem DISABLED_TestS3FileSystem
 #define TestBrokerFileSystem DISABLED_TestBrokerFileSystem
 
-class FileSystemTest : public testing::Test {
+class RemoteFileSystemTest : public testing::Test {
 public:
     virtual void SetUp() {
         s3_prop.emplace("AWS_ACCESS_KEY", ak);
@@ -94,9 +94,9 @@ private:
     TNetworkAddress broker_addr;
 };
 
-TEST_F(FileSystemTest, TestBrokerFileSystem) {
+TEST_F(RemoteFileSystemTest, TestBrokerFileSystem) {
     std::shared_ptr<io::BrokerFileSystem> fs;
-    CHECK_STATUS_OK(io::BrokerFileSystem::create(broker_addr, hdfs_prop, 0, &fs));
+    CHECK_STATUS_OK(io::BrokerFileSystem::create(broker_addr, hdfs_prop, &fs));
 
     // delete directory
     io::Path delete_path = broker_location + "/tmp1";
@@ -131,7 +131,7 @@ TEST_F(FileSystemTest, TestBrokerFileSystem) {
     ASSERT_TRUE(exists);
 
     // file size
-    size_t file_size = 0;
+    int64_t file_size = 0;
     CHECK_STATUS_OK(fs->file_size(file1, &file_size));
     // file size is not implemented
     ASSERT_EQ(0, file_size);
@@ -243,7 +243,7 @@ TEST_F(FileSystemTest, TestBrokerFileSystem) {
     ASSERT_EQ("abc", download_content);
 }
 
-TEST_F(FileSystemTest, TestHdfsFileSystem) {
+TEST_F(RemoteFileSystemTest, TestHdfsFileSystem) {
     THdfsParams hdfs_params = parse_properties(hdfs_prop);
     std::shared_ptr<io::HdfsFileSystem> fs;
     CHECK_STATUS_OK(io::HdfsFileSystem::create(hdfs_params, hdfs_location, &fs));
@@ -281,7 +281,7 @@ TEST_F(FileSystemTest, TestHdfsFileSystem) {
     ASSERT_TRUE(exists);
 
     // file size
-    size_t file_size = 0;
+    int64_t file_size = 0;
     CHECK_STATUS_OK(fs->file_size(file1, &file_size));
     ASSERT_EQ(7, file_size);
 
@@ -391,105 +391,7 @@ TEST_F(FileSystemTest, TestHdfsFileSystem) {
     ASSERT_EQ("abc", download_content);
 }
 
-TEST_F(FileSystemTest, TestLocalFileSystem) {
-    std::shared_ptr<io::LocalFileSystem> fs = io::LocalFileSystem::create("./");
-    // delete directory
-    io::Path delete_path = "tmp1";
-    CHECK_STATUS_OK(fs->delete_directory(delete_path));
-    io::Path delete_path2 = "tmp2";
-    CHECK_STATUS_OK(fs->delete_directory(delete_path2));
-    // create directory
-    io::Path create_path = delete_path;
-    CHECK_STATUS_OK(fs->create_directory(create_path));
-    // write file
-    std::string file1 = "tmp1/file1.txt";
-    io::FileWriterPtr writer;
-    CHECK_STATUS_OK(fs->create_file(file1, &writer));
-    CHECK_STATUS_OK(writer->append({"content"}));
-    CHECK_STATUS_OK(writer->close());
-    // read file
-    io::FileReaderSPtr reader;
-    CHECK_STATUS_OK(fs->open_file(file1, &reader));
-    char read_buf[10];
-    size_t bytes_read = 0;
-    CHECK_STATUS_OK(reader->read_at(0, {read_buf, 10}, &bytes_read));
-    ASSERT_EQ(7, bytes_read);
-
-    // exist
-    bool exists = false;
-    CHECK_STATUS_OK(fs->exists(file1, &exists));
-    ASSERT_TRUE(exists);
-    std::string file_non_exist = "non-exist";
-    CHECK_STATUS_OK(fs->exists(file_non_exist, &exists));
-    ASSERT_FALSE(exists);
-    CHECK_STATUS_OK(fs->exists(delete_path, &exists));
-    ASSERT_TRUE(exists);
-
-    // file size
-    size_t file_size = 0;
-    CHECK_STATUS_OK(fs->file_size(file1, &file_size));
-    ASSERT_EQ(7, file_size);
-
-    // write more files
-    for (int i = 0; i < 10; i++) {
-        std::string tmp_file = fmt::format("tmp1/tmp_file_{}", i);
-        io::FileWriterPtr writer;
-        CHECK_STATUS_OK(fs->create_file(tmp_file, &writer));
-        CHECK_STATUS_OK(writer->append({"content"}));
-        CHECK_STATUS_OK(writer->close());
-    }
-
-    // list files
-    std::vector<io::FileInfo> files;
-    CHECK_STATUS_OK(fs->list(delete_path, true, &files, &exists));
-    ASSERT_TRUE(exists);
-    ASSERT_EQ(11, files.size());
-    for (auto& file_info : files) {
-        std::cout << "file name: " << file_info.file_name << std::endl;
-        ASSERT_EQ(7, file_info.file_size);
-        ASSERT_TRUE(file_info.is_file);
-    }
-    std::string non_exist_path = "non_exist/";
-    files.clear();
-    CHECK_STATUS_OK(fs->list(non_exist_path, true, &files, &exists));
-    ASSERT_FALSE(exists);
-    ASSERT_EQ(0, files.size());
-
-    // rename
-    std::string src_name = file1;
-    std::string dst_name = "tmp1/new_file1.txt";
-    CHECK_STATUS_OK(fs->rename(src_name, dst_name));
-    CHECK_STATUS_OK(fs->exists(src_name, &exists));
-    ASSERT_FALSE(exists);
-    CHECK_STATUS_OK(fs->exists(dst_name, &exists));
-    ASSERT_TRUE(exists);
-
-    // rename dir
-    std::string src_dir = delete_path;
-    std::string dst_dir = "tmp2";
-    CHECK_STATUS_OK(fs->rename_dir(src_dir, dst_dir));
-    CHECK_STATUS_OK(fs->exists(dst_name, &exists));
-    ASSERT_FALSE(exists);
-    std::string new_dst_name = "tmp2/new_file1.txt";
-    CHECK_STATUS_OK(fs->exists(new_dst_name, &exists));
-    ASSERT_TRUE(exists);
-
-    // batch delete
-    std::vector<io::Path> delete_files;
-    for (int i = 0; i < 10; i++) {
-        std::string tmp_file = fmt::format("tmp2/tmp_file_{}", i);
-        delete_files.emplace_back(tmp_file);
-        CHECK_STATUS_OK(fs->batch_delete(delete_files));
-    }
-
-    // list to check
-    files.clear();
-    CHECK_STATUS_OK(fs->list(dst_dir, true, &files, &exists));
-    ASSERT_TRUE(exists);
-    ASSERT_EQ(1, files.size());
-}
-
-TEST_F(FileSystemTest, TestS3FileSystem) {
+TEST_F(RemoteFileSystemTest, TestS3FileSystem) {
     S3Conf s3_conf;
     S3URI s3_uri(s3_location);
     CHECK_STATUS_OK(s3_uri.parse());
@@ -530,7 +432,7 @@ TEST_F(FileSystemTest, TestS3FileSystem) {
     ASSERT_FALSE(exists);
 
     // file size
-    size_t file_size = 0;
+    int64_t file_size = 0;
     CHECK_STATUS_OK(fs->file_size(file1, &file_size));
     ASSERT_EQ(7, file_size);
 

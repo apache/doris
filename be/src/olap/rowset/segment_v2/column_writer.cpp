@@ -20,7 +20,6 @@
 #include <cstddef>
 
 #include "common/logging.h"
-#include "env/env.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/file_writer.h"
 #include "olap/rowset/segment_v2/bitmap_index_writer.h"

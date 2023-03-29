@@ -67,8 +67,8 @@ Status BufferedFileStreamReader::read_bytes(const uint8_t** buf, uint64_t offset
     SCOPED_RAW_TIMER(&_statistics.read_time);
     while (has_read < to_read) {
         size_t loop_read = 0;
-        Slice resutl(_buf.get() + buf_remaining + has_read, to_read - has_read);
-        RETURN_IF_ERROR(_file->read_at(_buf_end_offset + has_read, resutl, &loop_read));
+        Slice result(_buf.get() + buf_remaining + has_read, to_read - has_read);
+        RETURN_IF_ERROR(_file->read_at(_buf_end_offset + has_read, result, &loop_read));
         _statistics.read_calls++;
         if (loop_read == 0) {
             break;

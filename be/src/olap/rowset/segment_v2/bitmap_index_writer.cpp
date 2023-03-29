@@ -20,7 +20,6 @@
 #include <map>
 #include <roaring/roaring.hh>
 
-#include "env/env.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
 #include "olap/rowset/segment_v2/indexed_column_writer.h"

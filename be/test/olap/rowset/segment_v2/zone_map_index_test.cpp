@@ -23,13 +23,11 @@
 #include <string>
 
 #include "common/config.h"
-#include "env/env.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "olap/page_cache.h"
 #include "olap/tablet_schema_helper.h"
-#include "util/file_utils.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -39,15 +37,10 @@ public:
     const std::string kTestDir = "./ut_dir/zone_map_index_test";
 
     void SetUp() override {
-        if (FileUtils::check_exist(kTestDir)) {
-            EXPECT_TRUE(FileUtils::remove_all(kTestDir).ok());
-        }
-        EXPECT_TRUE(FileUtils::create_dir(kTestDir).ok());
+        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(kTestDir).ok());
     }
     void TearDown() override {
-        if (FileUtils::check_exist(kTestDir)) {
-            EXPECT_TRUE(FileUtils::remove_all(kTestDir).ok());
-        }
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
     }
 
     void test_string(std::string testname, Field* field) {

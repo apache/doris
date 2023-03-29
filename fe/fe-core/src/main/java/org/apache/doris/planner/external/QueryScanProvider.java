@@ -183,7 +183,7 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
         rangeDesc.setSize(fileSplit.getLength());
         // fileSize only be used when format is orc or parquet and TFileType is broker
         // When TFileType is other type, it is not necessary
-        rangeDesc.setFileSize(fileSplit.getLength());
+        rangeDesc.setFileSize(fileSplit.getFileLength());
         rangeDesc.setColumnsFromPath(columnsFromPath);
         rangeDesc.setColumnsFromPathKeys(columnsFromPathKeys);
 

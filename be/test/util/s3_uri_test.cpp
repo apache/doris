@@ -65,13 +65,8 @@ TEST_F(S3URITest, MissingKey) {
 TEST_F(S3URITest, RelativePathing) {
     std::string p1 = "/path/to/file";
     S3URI uri1(p1);
-    EXPECT_FALSE(uri1.parse());
-}
-
-TEST_F(S3URITest, InvalidScheme) {
-    std::string p1 = "ftp://bucket/";
-    S3URI uri1(p1);
-    EXPECT_FALSE(uri1.parse());
+    EXPECT_TRUE(uri1.parse());
+    EXPECT_EQ("/path/to/file", uri1.get_key());
 }
 
 TEST_F(S3URITest, QueryAndFragment) {

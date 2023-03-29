@@ -26,15 +26,19 @@ import org.apache.hadoop.fs.Path;
 public class FileSplit extends Split {
     protected Path path;
     protected long start;
+    // length of this split, in bytes
     protected long length;
+    // length of the file this split belongs to, in bytes
+    // -1 means unset.
+    // If the file length is not set, the file length will be fetched from the file system.
+    protected long fileLength;
     protected TableFormatType tableFormatType;
 
-    public FileSplit() {}
-
-    public FileSplit(Path path, long start, long length, String[] hosts) {
+    public FileSplit(Path path, long start, long length, long fileLength, String[] hosts) {
         this.path = path;
         this.start = start;
         this.length = length;
+        this.fileLength = fileLength;
         this.hosts = hosts;
     }
 

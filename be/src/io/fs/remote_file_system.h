@@ -71,7 +71,9 @@ protected:
     virtual Status direct_download_impl(const Path& remote_file, std::string* content) = 0;
 
     // The derived class should implement this method.
-    virtual Status open_file_internal(const Path& file, FileReaderSPtr* reader) = 0;
+    // if file_size < 0, the file size should be fetched from file system
+    virtual Status open_file_internal(const Path& file, int64_t file_size,
+                                      FileReaderSPtr* reader) = 0;
 };
 
 using RemoteFileSystemSPtr = std::shared_ptr<RemoteFileSystem>;
