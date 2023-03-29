@@ -123,8 +123,8 @@ public class JoinEstimation {
         if (Double.isInfinite(rowCount)) {
             //slotsEqual estimation failed, estimate by innerJoin
             Statistics innerJoinStats = estimateInnerJoin(leftStats, rightStats, join);
-            double baseRowCount = join.getJoinType().isLeftSemiOrAntiJoin() ?
-                    leftStats.getRowCount() : rightStats.getRowCount();
+            double baseRowCount =
+                    join.getJoinType().isLeftSemiOrAntiJoin() ? leftStats.getRowCount() : rightStats.getRowCount();
             rowCount = Math.min(innerJoinStats.getRowCount(), baseRowCount);
             return innerJoinStats.withRowCount(rowCount);
         } else {
