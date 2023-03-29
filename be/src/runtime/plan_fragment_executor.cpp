@@ -205,6 +205,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     // set up profile counters
     profile()->add_child(_plan->runtime_profile(), true, nullptr);
     _rows_produced_counter = ADD_COUNTER(profile(), "RowsProduced", TUnit::UNIT);
+    _blocks_produced_counter = ADD_COUNTER(profile(), "BlocksProduced", TUnit::UNIT);
     _fragment_cpu_timer = ADD_TIMER(profile(), "FragmentCpuTime");
 
     VLOG_NOTICE << "plan_root=\n" << _plan->debug_string();
@@ -351,6 +352,8 @@ Status PlanFragmentExecutor::get_vectorized_internal(::doris::vectorized::Block*
 
         if (block->rows() > 0) {
             COUNTER_UPDATE(_rows_produced_counter, block->rows());
+            // Not very sure, if should contain empty block
+            COUNTER_UPDATE(_blocks_produced_counter, block->rows());
             break;
         }
     }
