@@ -26,6 +26,7 @@
 #include "util/string_util.h"
 #include "util/uid_util.h"
 #include "util/url_coding.h"
+
 namespace doris {
 
 Status HDFSCommonBuilder::init_hdfs_builder() {

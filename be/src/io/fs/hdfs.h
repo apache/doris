@@ -17,7 +17,7 @@
 
 #pragma once
 
-#if defined(__x86_64__)
+#ifdef USE_HADOOP_HDFS
 #include <hadoop_hdfs/hdfs.h>
 #else
 #include <hdfs/hdfs.h>
