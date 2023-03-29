@@ -126,7 +126,6 @@ TEST_F(PrimaryKeyIndexTest, builder) {
         std::string last_key;
         int num_batch = 0;
         int batch_size = 1024;
-        MemPool pool;
         while (remaining > 0) {
             std::unique_ptr<segment_v2::IndexedColumnIterator> iter;
             EXPECT_TRUE(index_reader.new_iterator(&iter).ok());
