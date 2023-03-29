@@ -268,8 +268,8 @@ bool histogram_to_json(rapidjson::StringBuffer& buffer, const std::vector<Bucket
             lower_column->insert_data(bucket.lower.c_str(), bucket.lower.length());
             upper_column->insert_data(bucket.upper.c_str(), bucket.upper.length());
         } else {
-            lower_column->insert_data(bucket.lower, 0);
-            upper_column->insert_data(bucket.upper, 0);
+            lower_column->insert_data(&bucket.lower, 0);
+            upper_column->insert_data(&bucket.upper, 0);
         }
     }
     size_t row_num = 0;
