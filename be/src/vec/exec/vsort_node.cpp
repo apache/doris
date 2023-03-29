@@ -62,9 +62,8 @@ Status VSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
                     }
                     for (auto slot : tuple_desc->slots()) {
                         if (slot->id() == first_sort_slot.slot_id) {
-                            RETURN_IF_ERROR(
-                                    query_ctx->get_runtime_predicate().init(
-                                        slot->type().type, _nulls_first[0]));
+                            RETURN_IF_ERROR(query_ctx->get_runtime_predicate().init(
+                                    slot->type().type, _nulls_first[0]));
                             break;
                         }
                     }
