@@ -2284,5 +2284,14 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
         return false;
     }
+
+    public boolean haveFunction(String functionName) {
+        for (Expr expr : children) {
+            if (expr.haveFunction(functionName)) {
+                return true;
+            }
+        }
+        return false;
+    }
 }
 
