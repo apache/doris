@@ -31,7 +31,6 @@ set(RUNTIME_FILES
     exec_env.cpp
     exec_env_init.cpp
     user_function_cache.cpp
-    mem_pool.cpp
     plan_fragment_executor.cpp
     primitive_type.cpp
     result_buffer_mgr.cpp

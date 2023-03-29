@@ -135,7 +135,7 @@ set(RUNTIME_TEST_FILES
     # runtime/parallel_executor_test.cpp
     # runtime/dpp_sink_test.cpp
     # runtime/export_task_mgr_test.cpp
-    runtime/mem_pool_test.cpp
+    runtime/arena_test.cpp
     runtime/decimalv2_value_test.cpp
     runtime/large_int_value_test.cpp
     runtime/string_value_test.cpp

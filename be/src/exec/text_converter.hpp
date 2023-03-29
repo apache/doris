@@ -24,7 +24,6 @@
 #include "runtime/datetime_value.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/descriptors.h"
-#include "runtime/mem_pool.h"
 #include "text_converter.h"
 #include "util/binary_cast.hpp"
 #include "util/string_parser.hpp"

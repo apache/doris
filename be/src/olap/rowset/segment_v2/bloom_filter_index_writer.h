@@ -24,7 +24,7 @@
 #include "gen_cpp/segment_v2.pb.h"
 #include "gutil/macros.h"
 #include "olap/itoken_extractor.h"
-#include "runtime/mem_pool.h"
+#include "vec/common/arena.h"
 
 namespace doris {
 
@@ -78,7 +78,7 @@ private:
     BloomFilterOptions _bf_options;
     uint8_t _gram_size;
     uint16_t _bf_size;
-    MemPool _pool;
+    vectorized::Arena _arena;
     uint64_t _bf_buffer_size;
     NgramTokenExtractor _token_extractor;
     std::unique_ptr<BloomFilter> _bf;
