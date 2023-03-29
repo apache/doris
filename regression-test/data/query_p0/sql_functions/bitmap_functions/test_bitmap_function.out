@@ -433,7 +433,10 @@ true
 -- !sql_orthogonal_bitmap_intersect_count2 --
 0
 
--- !sql_orthogonal_bitmap_intersect_count3 --
+-- !sql_orthogonal_bitmap_intersect_count3_1 --
+2
+
+-- !sql_orthogonal_bitmap_intersect_count3_2 --
 2
 
 -- !sql_orthogonal_bitmap_intersect_count4 --
