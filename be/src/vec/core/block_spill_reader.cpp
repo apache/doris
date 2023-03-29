@@ -19,9 +19,9 @@
 
 #include "io/file_factory.h"
 #include "io/fs/file_system.h"
+#include "io/fs/local_file_system.h"
 #include "olap/iterators.h"
 #include "runtime/block_spill_manager.h"
-#include "util/file_utils.h"
 
 namespace doris {
 namespace vectorized {
@@ -123,7 +123,7 @@ Status BlockSpillReader::close() {
     ExecEnv::GetInstance()->block_spill_mgr()->remove(stream_id_);
     file_reader_.reset();
     if (delete_after_read_) {
-        FileUtils::remove(file_path_);
+        io::global_local_filesystem()->delete_file(file_path_);
     }
     return Status::OK();
 }

@@ -19,7 +19,6 @@
 
 #include "gutil/strings/util.h"
 #include "io/fs/local_file_system.h"
-#include "util/file_utils.h"
 #include "util/string_util.h"
 
 namespace doris {
@@ -32,10 +31,10 @@ DummyFileCache::~DummyFileCache() = default;
 
 void DummyFileCache::_add_file_cache(const Path& data_file) {
     Path cache_file = _cache_dir / data_file;
-    size_t file_size = 0;
+    int64_t file_size = -1;
     time_t m_time = 0;
     if (io::global_local_filesystem()->file_size(cache_file, &file_size).ok() &&
-        FileUtils::mtime(cache_file.native(), &m_time).ok()) {
+        io::global_local_filesystem()->mtime(cache_file, &m_time).ok()) {
         _gc_lru_queue.push({cache_file, m_time});
         _cache_file_size += file_size;
     } else {

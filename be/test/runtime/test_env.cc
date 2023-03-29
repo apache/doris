@@ -35,16 +35,6 @@ TestEnv::TestEnv() {
     // TODO may need rpc support, etc.
 }
 
-void TestEnv::init_tmp_file_mgr(const std::vector<std::string>& tmp_dirs, bool one_dir_per_device) {
-    _tmp_file_mgr = std::make_shared<TmpFileMgr>();
-    _exec_env->_tmp_file_mgr = _tmp_file_mgr.get();
-
-    DiskInfo::init();
-    // will use DiskInfo::num_disks(), DiskInfo should be initialized before
-    auto st = _tmp_file_mgr->init_custom(tmp_dirs, one_dir_per_device);
-    EXPECT_TRUE(st.ok());
-}
-
 TestEnv::~TestEnv() {
     SAFE_DELETE(_exec_env->_result_queue_mgr);
 

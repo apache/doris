@@ -20,6 +20,7 @@
 #include <memory>
 
 #include "olap/rowset/segment_v2/bloom_filter.h"
+#include "util/slice.h"
 
 namespace doris {
 namespace segment_v2 {

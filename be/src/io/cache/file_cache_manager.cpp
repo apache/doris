@@ -24,7 +24,6 @@
 #include "io/fs/local_file_system.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/storage_engine.h"
-#include "util/file_utils.h"
 #include "util/string_util.h"
 
 namespace doris {

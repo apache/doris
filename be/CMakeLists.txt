@@ -685,7 +685,6 @@ set(DORIS_LINK_LIBS
     ${WL_START_GROUP}
     Agent
     Common
-    Env
     Exec
     Exprs
     Gutil
@@ -944,7 +943,6 @@ endif()
 
 add_subdirectory(${SRC_DIR}/agent)
 add_subdirectory(${SRC_DIR}/common)
-add_subdirectory(${SRC_DIR}/env)
 add_subdirectory(${SRC_DIR}/exec)
 add_subdirectory(${SRC_DIR}/exprs)
 add_subdirectory(${SRC_DIR}/gen_cpp)

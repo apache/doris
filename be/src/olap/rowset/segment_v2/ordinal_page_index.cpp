@@ -18,7 +18,6 @@
 #include "olap/rowset/segment_v2/ordinal_page_index.h"
 
 #include "common/logging.h"
-#include "env/env.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "olap/key_coder.h"

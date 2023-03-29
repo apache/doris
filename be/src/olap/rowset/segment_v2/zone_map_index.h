@@ -22,7 +22,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "env/env.h"
 #include "gen_cpp/segment_v2.pb.h"
 #include "io/fs/file_reader.h"
 #include "olap/field.h"

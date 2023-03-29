@@ -40,7 +40,7 @@ struct FileSystemProperties {
 struct FileDescription {
     std::string path;
     int64_t start_offset;
-    size_t file_size;
+    int64_t file_size;
 };
 
 class FileFactory {

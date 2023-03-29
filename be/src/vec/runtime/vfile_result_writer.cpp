@@ -23,12 +23,12 @@
 #include "gutil/strings/substitute.h"
 #include "io/file_factory.h"
 #include "io/fs/file_writer.h"
+#include "io/fs/local_file_system.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/descriptors.h"
 #include "runtime/large_int_value.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
-#include "util/file_utils.h"
 #include "util/mysql_global.h"
 #include "util/mysql_row_buffer.h"
 #include "vec/common/string_ref.h"
@@ -97,9 +97,10 @@ Status VFileResultWriter::_get_success_file_name(std::string* file_name) {
         // Because the file path is currently arbitrarily specified by the user,
         // Doris is not responsible for ensuring the correctness of the path.
         // This is just to prevent overwriting the existing file.
-        if (FileUtils::check_exist(*file_name)) {
-            return Status::InternalError("File already exists: " + *file_name +
-                                         ". Host: " + BackendOptions::get_localhost());
+        bool exists = true;
+        RETURN_IF_ERROR(io::global_local_filesystem()->exists(*file_name, &exists));
+        if (exists) {
+            return Status::InternalError("File already exists: {}", *file_name);
         }
     }
 
@@ -155,9 +156,10 @@ Status VFileResultWriter::_get_next_file_name(std::string* file_name) {
         // Because the file path is currently arbitrarily specified by the user,
         // Doris is not responsible for ensuring the correctness of the path.
         // This is just to prevent overwriting the existing file.
-        if (FileUtils::check_exist(*file_name)) {
-            return Status::InternalError("File already exists: " + *file_name +
-                                         ". Host: " + BackendOptions::get_localhost());
+        bool exists = true;
+        RETURN_IF_ERROR(io::global_local_filesystem()->exists(*file_name, &exists));
+        if (exists) {
+            return Status::InternalError("File already exists: {}", *file_name);
         }
     }
 
