@@ -25,7 +25,7 @@ namespace io {
 class BrokerFileSystem final : public RemoteFileSystem {
 public:
     static Status create(const TNetworkAddress& broker_addr,
-                         const std::map<std::string, std::string>& broker_prop, size_t file_size,
+                         const std::map<std::string, std::string>& broker_prop,
                          std::shared_ptr<BrokerFileSystem>* fs);
 
     ~BrokerFileSystem() override = default;
@@ -35,13 +35,13 @@ public:
 protected:
     Status connect_impl() override;
     Status create_file_impl(const Path& file, FileWriterPtr* writer) override;
-    Status open_file_internal(const Path& file, FileReaderSPtr* reader) override;
-    Status create_directory_impl(const Path& dir) override;
+    Status open_file_internal(const Path& file, int64_t file_size, FileReaderSPtr* reader) override;
+    Status create_directory_impl(const Path& dir, bool failed_if_exists = false) override;
     Status delete_file_impl(const Path& file) override;
     Status delete_directory_impl(const Path& dir) override;
     Status batch_delete_impl(const std::vector<Path>& files) override;
     Status exists_impl(const Path& path, bool* res) const override;
-    Status file_size_impl(const Path& file, size_t* file_size) const override;
+    Status file_size_impl(const Path& file, int64_t* file_size) const override;
     Status list_impl(const Path& dir, bool only_file, std::vector<FileInfo>* files,
                      bool* exists) override;
     Status rename_impl(const Path& orig_name, const Path& new_name) override;
@@ -58,12 +58,11 @@ protected:
 
 private:
     BrokerFileSystem(const TNetworkAddress& broker_addr,
-                     const std::map<std::string, std::string>& broker_prop, size_t file_size);
+                     const std::map<std::string, std::string>& broker_prop);
     std::string error_msg(const std::string& err) const;
 
     const TNetworkAddress& _broker_addr;
     const std::map<std::string, std::string>& _broker_prop;
-    size_t _file_size;
 
     std::shared_ptr<BrokerServiceConnection> _client;
 };

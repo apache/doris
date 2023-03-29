@@ -25,12 +25,13 @@
 #include <string>
 
 #include "common/status.h"
-#include "env/env.h"
 #include "gen_cpp/olap_file.pb.h"
 #include "gen_cpp/segment_v2.pb.h"
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/split.h"
 #include "gutil/strings/substitute.h"
+#include "io/fs/file_reader.h"
+#include "io/fs/local_file_system.h"
 #include "json2pb/pb_to_json.h"
 #include "olap/data_dir.h"
 #include "olap/olap_define.h"
@@ -42,7 +43,6 @@
 #include "olap/utils.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
-#include "util/file_utils.h"
 
 using std::filesystem::path;
 using doris::DataDir;
@@ -50,9 +50,7 @@ using doris::OlapMeta;
 using doris::Status;
 using doris::TabletMeta;
 using doris::TabletMetaManager;
-using doris::FileUtils;
 using doris::Slice;
-using doris::RandomAccessFile;
 using strings::Substitute;
 using doris::segment_v2::SegmentFooterPB;
 using doris::segment_v2::ColumnReader;
@@ -61,6 +59,7 @@ using doris::segment_v2::PagePointer;
 using doris::segment_v2::ColumnReaderOptions;
 using doris::segment_v2::ColumnIteratorOptions;
 using doris::segment_v2::PageFooterPB;
+using doris::io::FileReaderSPtr;
 
 const std::string HEADER_PREFIX = "tabletmeta_";
 
@@ -143,12 +142,7 @@ void delete_meta(DataDir* data_dir) {
 
 Status init_data_dir(const std::string& dir, std::unique_ptr<DataDir>* ret) {
     std::string root_path;
-    Status st = FileUtils::canonicalize(dir, &root_path);
-    if (!st.ok()) {
-        std::cout << "invalid root path:" << FLAGS_root_path << ", error: " << st.to_string()
-                  << std::endl;
-        return Status::InternalError("invalid root path");
-    }
+    RETURN_IF_ERROR(io::global_local_filesystem()->canonicalize(dir, &root_path));
     doris::StorePath path;
     auto res = parse_root_path(root_path, &path);
     if (!res.ok()) {
@@ -194,7 +188,7 @@ void batch_delete_meta(const std::string& tablet_file) {
         }
         // 1. get dir
         std::string dir;
-        Status st = FileUtils::canonicalize(v[0], &dir);
+        Status st = io::global_local_filesystem()->canonicalize(v[0], &dir);
         if (!st.ok()) {
             std::cout << "invalid root dir in tablet_file: " << line << std::endl;
             err_num++;
@@ -251,19 +245,18 @@ void batch_delete_meta(const std::string& tablet_file) {
     return;
 }
 
-Status get_segment_footer(RandomAccessFile* input_file, SegmentFooterPB* footer) {
+Status get_segment_footer(doris::io::FileReader* file_reader, SegmentFooterPB* footer) {
     // Footer := SegmentFooterPB, FooterPBSize(4), FooterPBChecksum(4), MagicNumber(4)
-    std::string file_name = input_file->file_name();
-    uint64_t file_size;
-    RETURN_IF_ERROR(input_file->size(&file_size));
-
+    std::string file_name = file_reader->path();
+    uint64_t file_size = file_reader->size();
     if (file_size < 12) {
         return Status::Corruption("Bad segment file {}: file size {} < 12", file_name, file_size);
     }
 
+    size_t bytes_read = 0;
     uint8_t fixed_buf[12];
     Slice slice(fixed_buf, 12);
-    RETURN_IF_ERROR(input_file->read_at(file_size - 12, &slice));
+    RETURN_IF_ERROR(file_reader->read_at(file_size - 12, slice, &bytes_read));
 
     // validate magic number
     const char* k_segment_magic = "D0R1";
@@ -281,7 +274,7 @@ Status get_segment_footer(RandomAccessFile* input_file, SegmentFooterPB* footer)
     std::string footer_buf;
     footer_buf.resize(footer_length);
     Slice slice2(footer_buf);
-    RETURN_IF_ERROR(input_file->read_at(file_size - 12 - footer_length, &slice2));
+    RETURN_IF_ERROR(file_reader->read_at(file_size - 12 - footer_length, slice2, &bytes_read));
 
     // validate footer PB's checksum
     uint32_t expect_checksum = doris::decode_fixed32_le(fixed_buf + 4);
@@ -301,14 +294,14 @@ Status get_segment_footer(RandomAccessFile* input_file, SegmentFooterPB* footer)
 }
 
 void show_segment_footer(const std::string& file_name) {
-    std::unique_ptr<RandomAccessFile> input_file;
-    Status status = doris::Env::Default()->new_random_access_file(file_name, &input_file);
+    doris::io::FileReaderSPtr file_reader;
+    Status st = doris::io::global_local_filesystem()->open_file(file_name, &file_reader);
     if (!status.ok()) {
-        std::cout << "open file failed: " << status.to_string() << std::endl;
+        std::cout << "open file failed: " << status << std::endl;
         return;
     }
     SegmentFooterPB footer;
-    status = get_segment_footer(input_file.get(), &footer);
+    status = get_segment_footer(file_reader.get(), &footer);
     if (!status.ok()) {
         std::cout << "get footer failed: " << status.to_string() << std::endl;
         return;
@@ -334,7 +327,7 @@ int main(int argc, char** argv) {
         show_meta();
     } else if (FLAGS_operation == "batch_delete_meta") {
         std::string tablet_file;
-        Status st = FileUtils::canonicalize(FLAGS_tablet_file, &tablet_file);
+        Status st = io::global_local_filesystem()->canonicalize(FLAGS_tablet_file, &tablet_file);
         if (!st.ok()) {
             std::cout << "invalid tablet file: " << FLAGS_tablet_file
                       << ", error: " << st.to_string() << std::endl;

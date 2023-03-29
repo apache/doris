@@ -30,7 +30,6 @@
 #include "io/fs/local_file_system.h"
 #include "olap/iterators.h"
 #include "util/async_io.h"
-#include "util/file_utils.h"
 #include "util/string_util.h"
 
 namespace doris {
@@ -305,7 +304,7 @@ Status SubFileCache::_init() {
         auto str_vec = split(file.native(), "_");
         size_t offset = std::strtoul(str_vec[str_vec.size() - 1].c_str(), nullptr, 10);
 
-        size_t file_size = 0;
+        int64_t file_size = -1;
         auto path = _cache_dir / file;
         RETURN_IF_ERROR(io::global_local_filesystem()->file_size(path, &file_size));
         if (expect_file_size_map.find(offset) == expect_file_size_map.end() ||

@@ -168,6 +168,17 @@ struct TBrokerPingBrokerRequest {
     2: required string clientId;
 }
 
+struct TBrokerFileSizeRequest {
+    1: required TBrokerVersion version;
+    2: required string path;
+    3: optional map<string,string> properties;
+}
+
+struct TBrokerFileSizeResponse {
+    1: required TBrokerOperationStatus opStatus;
+    2: optional i64 fileSize;
+}
+
 service TPaloBrokerService {
     
     // return a list of files under a path
@@ -232,6 +243,9 @@ service TPaloBrokerService {
     // close file write stream
     TBrokerOperationStatus closeWriter(1: TBrokerCloseWriterRequest request);
     
-    // 
+    // ping broker service
     TBrokerOperationStatus ping(1: TBrokerPingBrokerRequest request);
+
+    // get size of specified file
+    TBrokerFileSizeResponse fileSize(1: TBrokerFileSizeRequest request);
 }

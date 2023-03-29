@@ -25,7 +25,6 @@
 #include <type_traits>
 
 #include "common/status.h"
-#include "env/env.h"
 
 namespace doris {
 
@@ -60,8 +59,4 @@ Status get_thread_stats(int64_t tid, ThreadStats* stats);
 // want to generate a core dump from an "expected" crash.
 void disable_core_dumps();
 
-// Return true if this process appears to be running under a debugger or strace.
-//
-// This may return false on unsupported (non-Linux) platforms.
-bool is_being_debugged();
 } // namespace doris

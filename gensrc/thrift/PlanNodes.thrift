@@ -340,7 +340,8 @@ struct TFileRangeDesc {
     3: optional i64 start_offset;
     // Size of this range, if size = -1, this means that will read to the end of file
     4: optional i64 size;
-    5: optional i64 file_size;
+    // total size of file this range belongs to, -1 means unset
+    5: optional i64 file_size = -1;
     // columns parsed from file path should be after the columns read from file
     6: optional list<string> columns_from_path;
     // column names from file path, in the same order with columns_from_path

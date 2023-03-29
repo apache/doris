@@ -21,11 +21,11 @@
 #include <glog/logging.h>
 #include <stdio.h>  // for remove()
 #include <unistd.h> // for link()
-#include <util/file_utils.h>
 
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
 #include "io/cache/file_cache_manager.h"
+#include "io/fs/fs_utils.h"
 #include "io/fs/s3_file_system.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset_reader.h"
@@ -117,7 +117,7 @@ Status BetaRowset::get_segments_size(std::vector<size_t>* segments_size) {
     }
     for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
         auto seg_path = segment_file_path(seg_id);
-        size_t file_size;
+        int64_t file_size;
         RETURN_IF_ERROR(fs->file_size(seg_path, &file_size));
         segments_size->push_back(file_size);
     }
@@ -223,7 +223,6 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
     io::LocalFileSystem* local_fs = (io::LocalFileSystem*)fs.get();
     for (int i = 0; i < num_segments(); ++i) {
         auto dst_path = segment_file_path(dir, new_rowset_id, i + new_rowset_start_seg_id);
-        // TODO(lingbin): use Env API? or EnvUtil?
         bool dst_path_exist = false;
         if (!fs->exists(dst_path, &dst_path_exist).ok() || dst_path_exist) {
             LOG(WARNING) << "failed to create hard link, file already exist: " << dst_path;
@@ -267,23 +266,16 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
 
 Status BetaRowset::copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) {
     DCHECK(is_local());
+    bool exists = false;
     for (int i = 0; i < num_segments(); ++i) {
         auto dst_path = segment_file_path(dir, new_rowset_id, i);
-        Status status = Env::Default()->path_exists(dst_path);
-        if (status.ok()) {
+        RETURN_IF_ERROR(io::global_local_filesystem()->exists(dst_path, &exists));
+        if (exists) {
             LOG(WARNING) << "file already exist: " << dst_path;
             return Status::Error<FILE_ALREADY_EXIST>();
         }
-        if (!status.is<NOT_FOUND>()) {
-            LOG(WARNING) << "file check exist error: " << dst_path;
-            return Status::Error<OS_ERROR>();
-        }
         auto src_path = segment_file_path(i);
-        if (!Env::Default()->copy_path(src_path, dst_path).ok()) {
-            LOG(WARNING) << "fail to copy file. from=" << src_path << ", to=" << dst_path
-                         << ", errno=" << Errno::no();
-            return Status::Error<OS_ERROR>();
-        }
+        RETURN_IF_ERROR(io::global_local_filesystem()->copy_dirs(src_path, dst_path));
         for (auto& column : _schema->columns()) {
             // if (column.has_inverted_index()) {
             const TabletIndex* index_meta = _schema->get_inverted_index(column.unique_id());
@@ -294,14 +286,8 @@ Status BetaRowset::copy_files_to(const std::string& dir, const RowsetId& new_row
                 std::string inverted_index_dst_file_path =
                         InvertedIndexDescriptor::get_index_file_name(dst_path,
                                                                      index_meta->index_id());
-                if (!Env::Default()
-                             ->copy_path(inverted_index_src_file_path, inverted_index_dst_file_path)
-                             .ok()) {
-                    LOG(WARNING) << "fail to copy file. from=" << inverted_index_src_file_path
-                                 << ", to=" << inverted_index_dst_file_path
-                                 << ", errno=" << Errno::no();
-                    return Status::Error<OS_ERROR>();
-                }
+                RETURN_IF_ERROR(io::global_local_filesystem()->copy_dirs(
+                        inverted_index_src_file_path, inverted_index_dst_file_path));
                 LOG(INFO) << "success to copy file. from=" << inverted_index_src_file_path << ", "
                           << "to=" << inverted_index_dst_file_path;
             }
