@@ -569,7 +569,7 @@ public class SessionVariable implements Serializable, Writable {
     private int runtimeFiltersMaxNum = 10;
 
     // Set runtimeFilterType to IN_OR_BLOOM filter
-    @VariableMgr.VarAttr(name = RUNTIME_FILTER_TYPE)
+    @VariableMgr.VarAttr(name = RUNTIME_FILTER_TYPE, fuzzy = true)
     private int runtimeFilterType = 8;
 
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MAX_IN_NUM)
@@ -804,6 +804,7 @@ public class SessionVariable implements Serializable, Writable {
         } else {
             this.rewriteOrToInPredicateThreshold = 2;
         }
+        this.runtimeFilterType = 1 << randomInt;
         switch (randomInt) {
             case 0:
                 this.externalSortBytesThreshold = 0;
