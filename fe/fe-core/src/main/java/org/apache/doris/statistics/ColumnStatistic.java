@@ -83,6 +83,11 @@ public class ColumnStatistic {
      */
     public final double selectivity;
 
+    /*
+    originalNdv is the ndv in stats of ScanNode. ndv may be changed after filter or join,
+    but originalNdv is not. It is used to trace the change of a column's ndv through serials
+    of sql operators.
+     */
     public final double originalNdv;
 
     // For display only.

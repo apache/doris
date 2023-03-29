@@ -71,11 +71,10 @@ public class JoinEstimation {
     }
 
     private static double adjustSemiOrAntiByOtherJoinConditions(Join join) {
-        final double non_equal_ratio = 0.5;
         int otherConditionCount = join.getOtherJoinConjuncts().size();
         double sel = 1.0;
         for (int i = 0; i < otherConditionCount; i++) {
-            sel *= Math.pow(non_equal_ratio, 1 / Math.pow(2, i));
+            sel *= Math.pow(FilterEstimation.DEFAULT_INEQUALITY_COEFFICIENT, 1 / Math.pow(2, i));
         }
         return sel;
     }
@@ -98,16 +97,15 @@ public class JoinEstimation {
 
         double rowCount;
         if (join.getJoinType().isLeftSemiOrAntiJoin()) {
-            rowCount = leftStats.getRowCount() * buildColStats.ndv / buildColStats.originalNdv;
+            rowCount = StatsMathUtil.divide(leftStats.getRowCount() * buildColStats.ndv, buildColStats.originalNdv);
         } else {
             //right semi or anti
-            rowCount = rightStats.getRowCount() * probColStats.ndv / probColStats.originalNdv;
+            rowCount = StatsMathUtil.divide(rightStats.getRowCount() * probColStats.ndv, probColStats.originalNdv);
         }
         return rowCount;
     }
 
     private static Statistics estimateSemiOrAnti(Statistics leftStats, Statistics rightStats, Join join) {
-        // primaryConjunct is the most effective conjunct.
         double rowCount = Double.POSITIVE_INFINITY;
         for (Expression conjunct : join.getHashJoinConjuncts()) {
             double eqRowCount = estimateSemiOrAntiRowCountByEqual(leftStats, rightStats, join, (EqualTo) conjunct);
@@ -115,25 +113,26 @@ public class JoinEstimation {
                 rowCount = eqRowCount;
             }
         }
-        if (rowCount == Double.POSITIVE_INFINITY) {
+        if (Double.isInfinite(rowCount)) {
             //fall back to original alg.
             return null;
         }
         rowCount = rowCount * adjustSemiOrAntiByOtherJoinConditions(join);
 
         StatisticsBuilder builder;
+        double originalRowCount = leftStats.getRowCount();
         if (join.getJoinType().isLeftSemiOrAntiJoin()) {
-            leftStats.fix(rowCount, leftStats.getRowCount());
             builder = new StatisticsBuilder(leftStats);
             builder.setRowCount(rowCount);
         } else {
             //right semi or anti
-            rightStats.fix(rowCount, rightStats.getRowCount());
             builder = new StatisticsBuilder(rightStats);
             builder.setRowCount(rowCount);
+            originalRowCount = rightStats.getRowCount();
         }
-        return builder.build();
-
+        Statistics outputStats = builder.build();
+        outputStats.fix(rowCount, originalRowCount);
+        return outputStats;
     }
 
     /**
