@@ -202,13 +202,18 @@ Total: 1296.4 MB
 #### JEMALLOC HEAP PROFILE
 
 ##### 1. runtime heap dump by http 
-无需重启BE, 使用jemalloc heap dump http接口，jemalloc根据当前内存使用情况，在对应的BE机器上生成heap dump文件。
+在`start_be.sh` 中`JEMALLOC_CONF` 增加 `,prof:true,lg_prof_sample:10` 并重启BE，然后使用jemalloc heap dump http接口，在对应的BE机器上生成heap dump文件。
 
 heap dump文件所在目录可以在 ``be.conf`` 中通过``jeprofile_dir``变量进行配置，默认为``${DORIS_HOME}/log``
 
 ```shell
 curl http://be_host:be_webport/jeheap/dump
 ```
+
+`prof`: 打开后jemalloc将根据当前内存使用情况生成heap dump文件，heap profile采样存在少量性能损耗，性能测试时可关闭。
+`lg_prof_sample`: heap profile采样间隔，默认值19，即默认采样间隔为512K(2^19 B)，这会导致heap profile记录的内存通常只有10%，`lg_prof_sample:10`可以减少采样间隔到1K (2^10 B), 更频繁的采样会使heap profile接近真实内存，但这会带来更大的性能损耗。
+
+详细参数说明参考 https://linux.die.net/man/3/jemalloc。
 
 #### 2. jemalloc heap dump profiling
 
@@ -239,10 +244,6 @@ curl http://be_host:be_webport/jeheap/dump
    ```shell
    jeprof --pdf lib/doris_be --base=heap_dump_file_1 heap_dump_file_2 > result.pdf
    ```
-
-默认heap profile采样间隔512K(2^19 B)，这会导致heap profile记录的内存通常只有10%，通过在`start_be.sh`中`JEMALLOC_CONF`增加`,lg_prof_sample:10`然后重启BE，可以减少采样间隔到1K (2^10 B), 更频繁的采样会使heap profile接近真实内存，但这会带来更大的性能损耗。详细参考 https://linux.die.net/man/3/jemalloc。
-
-如果在做性能测试，尝试删掉`JEMALLOC_CONF`中的`,prof:true`，避免heap profile采样的性能损耗。
 
 ##### 3. heap dump by JEMALLOC_CONF
 通过更改`start_be.sh` 中`JEMALLOC_CONF` 变量后重新启动BE 来进行heap dump
