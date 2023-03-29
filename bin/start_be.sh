@@ -20,6 +20,7 @@ set -eo pipefail
 
 curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
+MACHINE_OS=$(uname -s)
 if [[ "$(uname -s)" == 'Darwin' ]] && command -v brew &>/dev/null; then
     PATH="$(brew --prefix)/opt/gnu-getopt/bin:${PATH}"
     export PATH
@@ -253,22 +254,21 @@ if [[ -f "${DORIS_HOME}/conf/hdfs-site.xml" ]]; then
     export LIBHDFS3_CONF="${DORIS_HOME}/conf/hdfs-site.xml"
 fi
 
-# set jvm library for hadoop libhdfs
-if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
-    MACHINE_ARCH=$(uname -m)
-    if [[ "${MACHINE_ARCH}" == "x86_64" ]]; then
-        # TODO: for now, only support hadoop libs on x86_64
-        jvm_arch=amd64
-        export LD_LIBRARY_PATH=$JAVA_HOME/jre/lib/$jvm_arch/server:$JAVA_HOME/jre/lib/$jvm_arch:$LD_LIBRARY_PATH
-        export LD_LIBRARY_PATH=$DORIS_HOME/lib/hadoop_hdfs/native:$LD_LIBRARY_PATH
-        export LIBHDFS_OPTS="${JAVA_OPTS}"
+if [[ -z $JAVA_OPTS ]]; then
+    # set default JAVA_OPTS
+    CUR_DATE=$(date +%Y%m%d-%H%M%S)
+    JAVA_OPTS="-Xmx1024m -DlogPath=$DORIS_HOME/log/jni.log -Xloggc:$DORIS_HOME/log/be.gc.log.$CUR_DATE -Dsun.java.command=DorisBE -XX:-CriticalJNINatives"
+    if [[ "${MACHINE_OS}" == "Darwin" ]]; then
+        JAVA_OPTS="${JAVA_OPTS} -XX:-MaxFDLimit"
     fi
 fi
 
-# FIXME: for debug
-echo "CLASSPATH: ${CLASSPATH}\n"
-echo "LD_LIBRARY_PATH: ${LD_LIBRARY_PATH}\n"
-echo "LIBHDFS_OPTS: ${LIBHDFS_OPTS}\n"
+# set LIBHDFS_OPTS for hadoop libhdfs
+export LIBHDFS_OPTS="${JAVA_OPTS}"
+
+#echo "CLASSPATH: ${CLASSPATH}"
+#echo "LD_LIBRARY_PATH: ${LD_LIBRARY_PATH}"
+#echo "LIBHDFS_OPTS: ${LIBHDFS_OPTS}"
 
 # see https://github.com/apache/doris/blob/master/docs/zh-CN/community/developer-guide/debug-tool.md#jemalloc-heap-profile
 export JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:30000,dirty_decay_ms:30000,oversize_threshold:0,lg_tcache_max:16,prof_prefix:jeprof.out"

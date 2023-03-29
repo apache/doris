@@ -35,7 +35,6 @@ BrokerFileReader::BrokerFileReader(const TNetworkAddress& broker_addr, const Pat
           _fd(fd),
           _fs(std::move(fs)) {
     _fs->get_client(&_client);
-    // LOG(INFO) << "yy debug broker reader size: " << _file_size;
     DorisMetrics::instance()->broker_file_open_reading->increment(1);
     DorisMetrics::instance()->broker_file_reader_total->increment(1);
 }

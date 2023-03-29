@@ -63,7 +63,6 @@ static Status parse_thrift_footer(io::FileReaderSPtr file, FileMetaData** file_m
     RETURN_IF_ERROR(
             file->read_at(file_size - PARQUET_FOOTER_SIZE - metadata_size, res, &bytes_read));
     DCHECK_EQ(bytes_read, metadata_size);
-    LOG(INFO) << "yy debug bytes_read: " << bytes_read << ", metadata_size: " << metadata_size;
     RETURN_IF_ERROR(deserialize_thrift_msg(meta_buff.get(), &metadata_size, true, &t_metadata));
     *file_metadata = new FileMetaData(t_metadata);
     RETURN_IF_ERROR((*file_metadata)->init_schema());

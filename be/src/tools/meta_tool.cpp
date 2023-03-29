@@ -327,7 +327,8 @@ int main(int argc, char** argv) {
         show_meta();
     } else if (FLAGS_operation == "batch_delete_meta") {
         std::string tablet_file;
-        Status st = doris::io::global_local_filesystem()->canonicalize(FLAGS_tablet_file, &tablet_file);
+        Status st =
+                doris::io::global_local_filesystem()->canonicalize(FLAGS_tablet_file, &tablet_file);
         if (!st.ok()) {
             std::cout << "invalid tablet file: " << FLAGS_tablet_file
                       << ", error: " << st.to_string() << std::endl;

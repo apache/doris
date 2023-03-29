@@ -18,8 +18,8 @@
 #pragma once
 
 #include "common/status.h"
-#include "io/fs/hdfs.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "io/fs/hdfs.h"
 
 namespace doris {
 

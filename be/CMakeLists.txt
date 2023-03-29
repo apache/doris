@@ -776,14 +776,9 @@ if (ARCH_AMD64)
     add_library(hadoop_hdfs STATIC IMPORTED)
     set_target_properties(hadoop_hdfs PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/hadoop_hdfs/native/libhdfs.a)
 
-    add_library(jvm SHARED IMPORTED)
-    FILE(GLOB_RECURSE LIB_JVM $ENV{JAVA_HOME}/jre/lib/*/libjvm.so)
-    set_target_properties(jvm PROPERTIES IMPORTED_LOCATION ${LIB_JVM})
-
     set(COMMON_THIRDPARTY
         ${COMMON_THIRDPARTY}
         hadoop_hdfs
-        jvm
     )
     add_definitions(-DUSE_HADOOP_HDFS)
 else()

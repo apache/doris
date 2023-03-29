@@ -86,8 +86,7 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
         if (loop_read < 0) {
             return Status::InternalError(
                     "Read hdfs file failed. (BE: {}) namenode:{}, path:{}, err: {}",
-                    BackendOptions::get_localhost(), _name_node, _path.string(),
-                    hdfs_error());
+                    BackendOptions::get_localhost(), _name_node, _path.string(), hdfs_error());
         }
         if (loop_read == 0) {
             break;
