@@ -1590,8 +1590,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         Map<Plan, PlanFragment> childNodeToFragment = new HashMap<>();
         for (Plan plan : setOperation.children()) {
             PlanFragment planFragment = plan.accept(this, context);
+            childNodeToFragment.put(plan, planFragment);
             if (planFragment == null) {
-                childNodeToFragment.put(plan, planFragment);
                 continue;
             }
             childrenFragments.add(planFragment);

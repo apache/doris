@@ -148,7 +148,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     @Override
     public Statistics visitLogicalCache(LogicalCache cache, Void context) {
-        return groupExpression.childStatistics(0);
+        return groupExpression.childStatistics(0).withRowCount(0.0);
     }
 
     @Override
@@ -281,7 +281,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     @Override
     public Statistics visitPhysicalCache(PhysicalCache cache, Void context) {
-        return groupExpression.childStatistics(0);
+        return groupExpression.childStatistics(0).withRowCount(0.0);
     }
 
     @Override
