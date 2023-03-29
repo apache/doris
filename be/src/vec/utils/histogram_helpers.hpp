@@ -276,8 +276,8 @@ bool histogram_to_json(rapidjson::StringBuffer& buffer, const std::vector<Bucket
     for (const auto& bucket : buckets) {
         ss1.str("");
         ss2.str("");
-        ss1 << data_type->to_string(lower_column, row_num);
-        ss2 << data_type->to_string(upper_column, row_num);
+        ss1 << data_type->to_string(*lower_column, row_num);
+        ss2 << data_type->to_string(*upper_column, row_num);
         ++row_num;
         std::string lower_str = ss1.str();
         std::string upper_str = ss2.str();
