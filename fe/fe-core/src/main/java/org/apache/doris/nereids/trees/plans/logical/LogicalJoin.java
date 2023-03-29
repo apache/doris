@@ -167,12 +167,11 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
 
     @Override
     public List<Slot> computeOutput() {
-        return JoinUtils.getJoinOutput(joinType, left(), right());
-    }
-
-    @Override
-    public List<Slot> computeNonUserVisibleOutput() {
-        return markJoinSlotReference.<ImmutableList<Slot>>map(ImmutableList::of).orElseGet(ImmutableList::of);
+        return ImmutableList.<Slot>builder()
+                    .addAll(JoinUtils.getJoinOutput(joinType, left(), right()))
+                    .addAll(isMarkJoin()
+                        ? ImmutableList.of(markJoinSlotReference.get()) : ImmutableList.of())
+                    .build();
     }
 
     @Override
