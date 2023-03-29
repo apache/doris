@@ -237,12 +237,4 @@ public class FunctionBinder extends DefaultExpressionRewriter<CascadesContext> {
             inSubquery.getCorrelateSlots(), ((ListQuery) afterTypeCoercion.right()).getTypeCoercionExpr(),
             inSubquery.isNot());
     }
-
-    public boolean isBinaryArithmetic(String functionName) {
-        return FUNCTION_TO_EXPRESSION.containsKey(functionName);
-    }
-
-    public Expression bindBinaryArithmetic(String functionName, List<Expression> children) {
-        return FUNCTION_TO_EXPRESSION.get(functionName).withChildren(children);
-    }
 }
