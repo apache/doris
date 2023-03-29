@@ -42,7 +42,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>());
+        return std::make_shared<DataTypeInt64>();
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -62,14 +62,11 @@ public:
         auto& src_nested_data = array_column->get_data();
         auto& src_offset = array_column->get_offsets();
 
-        auto result_nullmap_col = ColumnUInt8::create(input_rows_count, 0);
         auto result_data_col = ColumnInt64::create(input_rows_count, 0);
-        auto& result_nullmap = result_nullmap_col->get_data();
         auto& result_data = result_data_col->get_data();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (array_null_map && array_null_map[i]) {
-                result_nullmap[i] = 1;
                 continue;
             }
 
@@ -81,14 +78,9 @@ public:
                     break;
                 }
             }
-
-            result_nullmap[i] = 0;
             result_data[i] = first_index;
         }
-
-        auto result_col =
-                ColumnNullable::create(std::move(result_data_col), std::move(result_nullmap_col));
-        block.replace_by_position(result, std::move(result_col));
+        block.replace_by_position(result, std::move(result_data_col));
         return Status::OK();
     }
 };
