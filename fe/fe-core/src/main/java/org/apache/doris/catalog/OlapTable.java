@@ -343,6 +343,8 @@ public class OlapTable extends Table {
                     nameToColumn.put(column.getDefineName(), column);
                 }
             }
+            // Column maybe renamed, rebuild the column name map
+            indexMeta.initColumnNameMap();
         }
         LOG.debug("after rebuild full schema. table {}, schema size: {}", id, fullSchema.size());
     }

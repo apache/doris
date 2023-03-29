@@ -130,6 +130,7 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
 
     public void setSchema(List<Column> newSchema) {
         this.schema = newSchema;
+        initColumnNameMap();
     }
 
     public void setSchemaHash(int newSchemaHash) {
@@ -308,8 +309,9 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
     }
 
     public void initColumnNameMap() {
-        nameToColumn = Maps.newHashMap();
-        definedNameToColumn = Maps.newHashMap();
+        // case insensitive
+        nameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        definedNameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         for (Column column : schema) {
             nameToColumn.put(normalizeName(column.getName()), column);
             definedNameToColumn.put(normalizeName(column.getDefineName()), column);
