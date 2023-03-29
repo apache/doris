@@ -841,4 +841,8 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
         toSQLWithHint = true;
         return toSql();
     }
+
+    public void setToSQLWithHint(boolean enableSqlSqlWithHint) {
+        this.toSQLWithHint = enableSqlSqlWithHint;
+    }
 }
