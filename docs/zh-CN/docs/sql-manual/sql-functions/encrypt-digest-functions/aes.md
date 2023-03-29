@@ -31,6 +31,12 @@ AES_ENCRYPT
 ### Description
 
 Aes 加密函数。该函数与 MySQL 中的 `AES_ENCRYPT` 函数行为一致。默认采用 AES_128_ECB 算法，padding 模式为 PKCS7。底层使用 OpenSSL 库进行加密。
+Reference: https://dev.mysql.com/doc/refman/8.0/en/encryption-functions.html#function_aes-decrypt
+
+### Compatibility
+
+1. aes_decrypt/aes_encrypt/sm4_decrypt/sm4_encrypt 当没有提供初始向量时，block_encryption_mode 不生效，最终都会使用 AES_128_ECB 加解密，这和 MySQL 的行为不一致。
+2. 增加 aes_decrypt_v2/aes_encrypt_v2/sm4_decrypt_v2/sm4_encrypt_v2 函数支持正确的行为，没有提供初始向量时，block_encryption_mode 可以生效，aes-192-ecb 和 aes-256-ecb 将正确加解密，其他块加密模式将报错。如果无需兼容旧数据，可直接使用v2函数。
 
 #### Syntax
 
@@ -42,7 +48,7 @@ AES_ENCRYPT(str,key_str[,init_vector])
 
 - `str`: 待加密的内容
 - `key_str`: 密钥
-- `init_vector`: 初始向量
+- `init_vector`: 初始向量。block_encryption_mode 默认值为 aes-128-ecb，它不需要初始向量，可选的块加密模式 CBC、CFB1、CFB8、CFB128 和 OFB 都需要一个初始向量。
 
 #### Return Type
 
