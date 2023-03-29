@@ -580,7 +580,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DISABLE_JOIN_REORDER)
     private boolean disableJoinReorder = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_BUSHY_TREE)
+    @VariableMgr.VarAttr(name = ENABLE_BUSHY_TREE, needForward = true)
     private boolean enableBushyTree = false;
 
     @VariableMgr.VarAttr(name = ENABLE_INFER_PREDICATE)
