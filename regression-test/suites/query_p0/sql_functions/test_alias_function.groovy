@@ -18,10 +18,10 @@
 suite('test_alias_function') {
     sql "use test_query_db"
     sql '''
-        CREATE ALIAS FUNCTION f1(DATETIMEV2(3), INT)
+        CREATE ALIAS FUNCTION IF NOT EXISTS f1(DATETIMEV2(3), INT)
             with PARAMETER (datetime1, int1) as date_trunc(days_sub(datetime1, int1), 'day')'''
     sql '''
-        CREATE ALIAS FUNCTION f2(DATETIMEV2(3), int)
+        CREATE ALIAS FUNCTION IF NOT EXISTS f2(DATETIMEV2(3), int)
             with PARAMETER (datetime1, int1) as DATE_FORMAT(HOURS_ADD(
                 date_trunc(datetime1, 'day'),
                 add(multiply(floor(divide(HOUR(datetime1), divide(24,int1))), 1), 1)
