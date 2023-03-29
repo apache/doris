@@ -32,7 +32,7 @@ import org.apache.doris.catalog.EncryptKeySearchDesc;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
-import org.apache.doris.catalog.PipelineResourceGroup;
+import org.apache.doris.resource.resourcegroup.ResourceGroup;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.Cluster;
@@ -1003,7 +1003,7 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_CREATE_RESOURCE_GROUP: {
-                    final PipelineResourceGroup resourceGroup = (PipelineResourceGroup) journal.getData();
+                    final ResourceGroup resourceGroup = (ResourceGroup) journal.getData();
                     env.getResourceGroupMgr().replayCreateResourceGroup(resourceGroup);
                     break;
                 }
@@ -1554,7 +1554,7 @@ public class EditLog {
         logEdit(OperationType.OP_ALTER_RESOURCE, resource);
     }
 
-    public void logCreateResourceGroup(PipelineResourceGroup resourceGroup) {
+    public void logCreateResourceGroup(ResourceGroup resourceGroup) {
         logEdit(OperationType.OP_CREATE_RESOURCE_GROUP, resourceGroup);
     }
 

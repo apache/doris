@@ -577,10 +577,10 @@ struct TPipelineInstanceParams {
 }
 
 struct TPipelineResourceGroup {
-  1: required i64 id
-  2: required string name
-  3: required map<string, string> properties
-  4: required i64 version
+  1: optional i64 id
+  2: optional string name
+  3: optional map<string, string> properties
+  4: optional i64 version
   5: optional string parent_name
   6: optional set<string> children_names
 }

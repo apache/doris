@@ -15,9 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog;
+package org.apache.doris.resource.resourcegroup;
 
 import org.apache.doris.analysis.CreateResourceGroupStmt;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
@@ -65,7 +66,7 @@ public class ResourceGroupMgr implements Writable {
             CPU_SCHEDULING_WEIGHT).add(CONCURRENCY_LIMIT).build();
 
     @SerializedName(value = "nameToResourceGroup")
-    private final Map<String, PipelineResourceGroup> nameToResourceGroup = Maps.newHashMap();
+    private final Map<String, ResourceGroup> nameToResourceGroup = Maps.newHashMap();
 
     private final ResourceProcNode procNode = new ResourceProcNode();
 
@@ -102,7 +103,7 @@ public class ResourceGroupMgr implements Writable {
                 throw new UserException("Resource group " + groupName + " does not exist");
             }
             // need to check resource group privs
-            PipelineResourceGroup resourceGroup;
+            ResourceGroup resourceGroup;
             do {
                 resourceGroup = nameToResourceGroup.get(groupName);
                 resourceGroups.add(resourceGroup.toThrift());
@@ -115,7 +116,7 @@ public class ResourceGroupMgr implements Writable {
     }
 
     private void checkAndCreateDefaultGroup() {
-        PipelineResourceGroup defaultResourceGroup;
+        ResourceGroup defaultResourceGroup;
         writeLock();
         try {
             if (nameToResourceGroup.containsKey(DEFAULT_GROUP_NAME)) {
@@ -123,20 +124,19 @@ public class ResourceGroupMgr implements Writable {
             }
             Map<String, String> properties = Maps.newHashMap();
             properties.put(CPU_SCHEDULING_WEIGHT, "10");
-            defaultResourceGroup = new PipelineResourceGroup(Env.getCurrentEnv().getNextId(),
+            defaultResourceGroup = new ResourceGroup(Env.getCurrentEnv().getNextId(),
                     DEFAULT_GROUP_NAME, properties, null);
             nameToResourceGroup.put(DEFAULT_GROUP_NAME, defaultResourceGroup);
+            Env.getCurrentEnv().getEditLog().logCreateResourceGroup(defaultResourceGroup);
         } finally {
             writeUnlock();
         }
-
-        Env.getCurrentEnv().getEditLog().logCreateResourceGroup(defaultResourceGroup);
         LOG.info("Create resource group success: {}", defaultResourceGroup);
     }
 
     public void createResourceGroup(CreateResourceGroupStmt stmt) throws DdlException {
         checkProperties(stmt.getProperties());
-        PipelineResourceGroup resourceGroup = new PipelineResourceGroup(Env.getCurrentEnv().getNextId(),
+        ResourceGroup resourceGroup = new ResourceGroup(Env.getCurrentEnv().getNextId(),
                 stmt.getResourceGroupName(),
                 stmt.getProperties(), null);
         String resourceGroupNameName = resourceGroup.getName();
@@ -149,11 +149,10 @@ public class ResourceGroupMgr implements Writable {
                     throw new DdlException("Resource group(" + resourceGroupNameName + ") already exist");
                 }
             }
+            Env.getCurrentEnv().getEditLog().logCreateResourceGroup(resourceGroup);
         } finally {
             writeUnlock();
         }
-
-        Env.getCurrentEnv().getEditLog().logCreateResourceGroup(resourceGroup);
         LOG.info("Create resource group success: {}", resourceGroup);
     }
 
@@ -180,10 +179,10 @@ public class ResourceGroupMgr implements Writable {
         }
     }
 
-    public void replayCreateResourceGroup(PipelineResourceGroup pipelineResourceGroup) {
+    public void replayCreateResourceGroup(ResourceGroup resourceGroup) {
         writeLock();
         try {
-            nameToResourceGroup.put(pipelineResourceGroup.getName(), pipelineResourceGroup);
+            nameToResourceGroup.put(resourceGroup.getName(), resourceGroup);
         } finally {
             writeUnlock();
         }
@@ -211,8 +210,8 @@ public class ResourceGroupMgr implements Writable {
             result.setNames(RESOURCE_GROUP_PROC_NODE_TITLE_NAMES);
             readLock();
             try {
-                for (Map.Entry<String, PipelineResourceGroup> entry : nameToResourceGroup.entrySet()) {
-                    PipelineResourceGroup resourceGroup = entry.getValue();
+                for (Map.Entry<String, ResourceGroup> entry : nameToResourceGroup.entrySet()) {
+                    ResourceGroup resourceGroup = entry.getValue();
                     // need to check resource group privs
                     resourceGroup.getProcNodeData(result);
                 }

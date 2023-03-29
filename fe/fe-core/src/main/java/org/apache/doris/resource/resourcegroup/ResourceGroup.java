@@ -15,14 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog;
+package org.apache.doris.resource.resourcegroup;
 
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.DeepCopy;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.proc.BaseProcResult;
-import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TPipelineResourceGroup;
 
@@ -38,9 +37,9 @@ import java.io.IOException;
 import java.util.Map;
 import java.util.Set;
 
-public class PipelineResourceGroup implements Writable, GsonPostProcessable {
+public class ResourceGroup implements Writable {
 
-    private static final Logger LOG = LogManager.getLogger(PipelineResourceGroup.class);
+    private static final Logger LOG = LogManager.getLogger(ResourceGroup.class);
 
     @SerializedName(value = "id")
     private long id;
@@ -61,7 +60,7 @@ public class PipelineResourceGroup implements Writable, GsonPostProcessable {
     @SerializedName(value = "childrenNames")
     private Set<String> childrenNames;
 
-    public PipelineResourceGroup(long id, String name, Map<String, String> properties, String parentName) {
+    public ResourceGroup(long id, String name, Map<String, String> properties, String parentName) {
         this.id = id;
         this.name = name;
         this.properties = properties;
@@ -98,8 +97,8 @@ public class PipelineResourceGroup implements Writable, GsonPostProcessable {
     }
 
     @Override
-    public PipelineResourceGroup clone() {
-        PipelineResourceGroup copied = DeepCopy.copy(this, PipelineResourceGroup.class, FeConstants.meta_version);
+    public ResourceGroup clone() {
+        ResourceGroup copied = DeepCopy.copy(this, ResourceGroup.class, FeConstants.meta_version);
         if (copied == null) {
             LOG.warn("failed to clone resource group: " + getName());
             return null;
@@ -108,7 +107,7 @@ public class PipelineResourceGroup implements Writable, GsonPostProcessable {
     }
 
     public TPipelineResourceGroup toThrift() {
-        return new TPipelineResourceGroup(id, name, properties, version);
+        return new TPipelineResourceGroup().setId(id).setName(name).setProperties(properties).setVersion(version);
     }
 
     @Override
@@ -117,12 +116,8 @@ public class PipelineResourceGroup implements Writable, GsonPostProcessable {
         Text.writeString(out, json);
     }
 
-    public static PipelineResourceGroup read(DataInput in) throws IOException {
+    public static ResourceGroup read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, PipelineResourceGroup.class);
-    }
-
-    @Override
-    public void gsonPostProcess() throws IOException {
+        return GsonUtils.GSON.fromJson(json, ResourceGroup.class);
     }
 }

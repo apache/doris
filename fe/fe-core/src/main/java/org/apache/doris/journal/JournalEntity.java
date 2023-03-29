@@ -30,7 +30,7 @@ import org.apache.doris.catalog.EncryptKey;
 import org.apache.doris.catalog.EncryptKeySearchDesc;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
-import org.apache.doris.catalog.PipelineResourceGroup;
+import org.apache.doris.resource.resourcegroup.ResourceGroup;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.Cluster;
@@ -804,7 +804,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_CREATE_RESOURCE_GROUP: {
-                data = PipelineResourceGroup.read(in);
+                data = ResourceGroup.read(in);
                 isRead = true;
                 break;
             }
