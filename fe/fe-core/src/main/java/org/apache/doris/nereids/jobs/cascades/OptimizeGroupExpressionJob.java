@@ -43,10 +43,7 @@ public class OptimizeGroupExpressionJob extends Job {
         countJobExecutionTimesOfGroupExpressions(groupExpression);
         List<Rule> validRules = new ArrayList<>();
         List<Rule> implementationRules = getRuleSet().getImplementationRules();
-        boolean isDisableJoinReorder = context.getCascadesContext().getConnectContext().getSessionVariable()
-                .isDisableJoinReorder();
-        List<Rule> explorationRules = isDisableJoinReorder ? getRuleSet().getExplorationRulesWithoutReorder()
-                : getRuleSet().getExplorationRules();
+        List<Rule> explorationRules = getExplorationRules();
 
         validRules.addAll(getValidRules(groupExpression, implementationRules));
         validRules.addAll(getValidRules(groupExpression, explorationRules));
@@ -54,6 +51,22 @@ public class OptimizeGroupExpressionJob extends Job {
 
         for (Rule rule : validRules) {
             pushJob(new ApplyRuleJob(groupExpression, rule, context));
+        }
+    }
+
+    private List<Rule> getExplorationRules() {
+        boolean isDisableJoinReorder = context.getCascadesContext().getConnectContext().getSessionVariable()
+                .isDisableJoinReorder();
+        boolean isEnableBushyTree = context.getCascadesContext().getConnectContext().getSessionVariable()
+                .isEnableBushyTree();
+        if (isDisableJoinReorder) {
+            return getRuleSet().getExplorationRulesWithoutReorder();
+        } else if (isEnableBushyTree) {
+            return getRuleSet().getBushyTreeJoinReorder();
+        } else if (context.getCascadesContext().getStatementContext().getMaxNAryInnerJoin() <= 5) {
+            return getRuleSet().getBushyTreeJoinReorder();
+        } else {
+            return getRuleSet().getZigZagTreeJoinReorder();
         }
     }
 }
