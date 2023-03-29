@@ -120,8 +120,7 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
                         cast.child().nullable()));
             } else if (expression instanceof Slot) {
                 Slot slot = ((Slot) expression);
-                newOutputs.add(new SlotReference(slot.toSql(), slot.getDataType(),
-                        slot.nullable(), slot.getQualifier()));
+                newOutputs.add(new SlotReference(slot.toSql(), slot.getDataType(), slot.nullable()));
             }
         }
         return newOutputs.build();
