@@ -98,7 +98,7 @@ public class RangerHiveAccessController implements CatalogAccessController {
                 throw new AuthorizationException(String.format(
                         "Permission denied: user [%s] does not have privilege for [%s] command on [%s]",
                         result.getAccessRequest().getUser(), accessType.name(),
-                        result.getAccessRequest().getResource().getAsString()));
+                        result.getAccessRequest().getResource().getAsString().replaceAll("/", ".")));
             }
         }
     }

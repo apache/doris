@@ -22,7 +22,6 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -189,17 +188,19 @@ public class AccessControllerManager {
         }
     }
 
-    public boolean checkColumnsPriv(UserIdentity currentUser, String qualifiedDb, String tbl, Set<String> cols,
-            PrivPredicate wanted) {
+    public void checkColumnsPriv(UserIdentity currentUser, String
+            ctl, String qualifiedDb, String tbl, Set<String> cols,
+            PrivPredicate wanted) throws UserException {
         boolean hasGlobal = sysAccessController.checkGlobalPriv(currentUser, wanted);
-        CatalogAccessController accessController = getAccessControllerOrDefault(Auth.DEFAULT_CATALOG);
-        try {
-            accessController
-                    .checkColsPriv(hasGlobal, currentUser, Auth.DEFAULT_CATALOG, qualifiedDb, tbl, cols, wanted);
-            return true;
-        } catch (AuthorizationException e) {
-            return false;
-        }
+        CatalogAccessController accessController = getAccessControllerOrDefault(ctl);
+        accessController.checkColsPriv(hasGlobal, currentUser, ctl, qualifiedDb,
+                tbl, cols, wanted);
+
+    }
+
+    public void checkColumnsPriv(UserIdentity currentUser, String qualifiedDb, String tbl, Set<String> cols,
+            PrivPredicate wanted) throws UserException {
+        checkColumnsPriv(currentUser, Auth.DEFAULT_CATALOG, qualifiedDb, tbl, cols, wanted);
     }
 
     // ==== Resource ====
