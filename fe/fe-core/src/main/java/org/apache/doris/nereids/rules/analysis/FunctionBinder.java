@@ -23,7 +23,6 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.BitNot;
@@ -38,10 +37,7 @@ import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.IntegralDivide;
 import org.apache.doris.nereids.trees.expressions.ListQuery;
-import org.apache.doris.nereids.trees.expressions.Mod;
-import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.Not;
-import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
@@ -52,11 +48,9 @@ import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -101,6 +95,12 @@ public class FunctionBinder extends DefaultExpressionRewriter<CascadesContext> {
                 .addAll(unboundFunction.getArguments())
                 .build()
                 : (List) unboundFunction.getArguments();
+
+        ArithmeticFunctionBinder functionBinder = new ArithmeticFunctionBinder();
+        if (functionBinder.isBinaryArithmetic(unboundFunction.getName())) {
+            return functionBinder.bindBinaryArithmetic(unboundFunction.getName(), unboundFunction.children())
+                    .accept(this, context);
+        }
 
         FunctionBuilder builder = functionRegistry.findFunctionBuilder(functionName, arguments);
         BoundFunction boundFunction = builder.build(functionName, arguments);
