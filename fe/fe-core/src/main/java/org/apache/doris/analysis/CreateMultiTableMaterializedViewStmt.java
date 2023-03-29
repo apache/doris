@@ -63,6 +63,7 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
     public void analyze(Analyzer analyzer) throws UserException {
         refreshInfo.analyze(analyzer);
         queryStmt.setNeedToSql(true);
+        queryStmt.setToSQLWithHint(true);
         queryStmt.analyze(analyzer);
         if (queryStmt instanceof SelectStmt) {
             analyzeSelectClause((SelectStmt) queryStmt);

@@ -16,11 +16,6 @@
 // under the License.
 
 suite("test_mtmv_ssb_ddl") {
-
-    // ssb_sf1_p1 is writted to test unique key table merge correctly.
-    // It creates unique key table and sets bucket num to 1 in order to make sure that
-    // many rowsets will be created during loading and then the merge process will be triggered.
-
     def ssb_tables = ["customer", "lineorder", "part", "date", "supplier"]
 
     for (String table in ssb_tables) {
@@ -33,9 +28,8 @@ suite("test_mtmv_ssb_ddl") {
 
     for (String mvName in ssb_mtmvs) {
         sql "drop MATERIALIZED VIEW IF EXISTS ${mvName}"
-        println "HZW"
         println "run mtmv ddl: ${mvName}"
-        sql new File("""${context.file.parent}/mtmv_ddl/${mvName}_create.sql""").text
+        sql new File("""${context.file.parent}/ddl/${mvName}_create.sql""").text
         waitingMTMVTaskFinished(mvName)
     }
 }
