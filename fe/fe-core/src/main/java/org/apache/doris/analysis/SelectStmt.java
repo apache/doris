@@ -776,6 +776,16 @@ public class SelectStmt extends QueryStmt {
         return result;
     }
 
+    public List<TupleId> getAllTableRefIds() {
+        List<TupleId> result = Lists.newArrayList();
+
+        for (TableRef ref : fromClause) {
+            result.addAll(ref.getAllTableRefIds());
+        }
+
+        return result;
+    }
+
     public List<TupleId> getTableRefIdsWithoutInlineView() {
         List<TupleId> result = Lists.newArrayList();
 
@@ -876,7 +886,7 @@ public class SelectStmt extends QueryStmt {
         // can also be safely evaluated below the join (picked up by getBoundPredicates()).
         // Such predicates will be marked twice and that is ok.
         List<Expr> unassigned =
-                analyzer.getUnassignedConjuncts(getTableRefIds(), true);
+                analyzer.getUnassignedConjuncts(getAllTableRefIds(), true);
         List<Expr> unassignedJoinConjuncts = Lists.newArrayList();
         for (Expr e : unassigned) {
             if (analyzer.evalAfterJoin(e)) {
