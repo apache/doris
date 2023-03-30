@@ -69,6 +69,7 @@ public class AnalyzeStmt extends DdlStmt {
 
     public boolean isWholeTbl;
     public boolean isHistogram;
+    public boolean isIncrement;
 
     private final TableName tableName;
     private final PartitionNames partitionNames;
@@ -84,13 +85,15 @@ public class AnalyzeStmt extends DdlStmt {
                        PartitionNames partitionNames,
                        Map<String, String> properties,
                        Boolean isWholeTbl,
-                       Boolean isHistogram) {
+                       Boolean isHistogram,
+                       Boolean isIncrement) {
         this.tableName = tableName;
         this.columnNames = columnNames;
         this.partitionNames = partitionNames;
         this.properties = properties;
         this.isWholeTbl = isWholeTbl;
         this.isHistogram = isHistogram;
+        this.isIncrement = isIncrement;
     }
 
     @Override
@@ -231,6 +234,11 @@ public class AnalyzeStmt extends DdlStmt {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("ANALYZE");
+
+        if (isIncrement) {
+            sb.append(" ");
+            sb.append("INCREMENTAL");
+        }
 
         if (tableName != null) {
             sb.append(" ");
