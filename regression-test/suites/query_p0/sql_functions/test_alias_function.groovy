@@ -28,7 +28,7 @@ suite('test_alias_function') {
             ), '%Y%m%d:%H');'''
 
     test {
-        sql 'select f2(f1(now(3), 2), 3)'
+        sql '''select f2(f1('2023-03-29', 2), 3)'''
         result([['20230327:01']])
     }
 }
