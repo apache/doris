@@ -82,12 +82,20 @@ CREATE CATALOG glue PROPERTIES (
 "type"="iceberg",
 "iceberg.catalog.type" = "glue",
 "glue.endpoint" = "https://glue.us-east-1.amazonaws.com",
-"glue.access_key" = "ak",
-"glue.secret_key" = "sk"
+"warehouse" = "s3://bucket/warehouse",
+"AWS_ENDPOINT" = "s3.us-east-1.amazonaws.com",
+"AWS_REGION" = "us-east-1",
+"AWS_ACCESS_KEY" = "ak",
+"AWS_SECRET_KEY" = "sk",
+"use_path_style" = "true"
 );
 ```
 
-Iceberg属性详情参见 [Iceberg Glue Catalog](https://iceberg.apache.org/docs/latest/aws/#glue-catalog)
+`glue.endpoint`: Glue Endpoint. 参阅：[AWS Glue endpoints and quotas](https://docs.aws.amazon.com/general/latest/gr/glue.html).
+
+`warehouse`: Glue Warehouse Location. Glue Catalog的根路径，用于指定数据存放位置。
+
+属性详情参见 [Iceberg Glue Catalog](https://iceberg.apache.org/docs/latest/aws/#glue-catalog)
 
 - REST Catalog作为元数据服务
 
@@ -104,10 +112,11 @@ CREATE CATALOG iceberg PROPERTIES (
 若数据存放在S3上，properties中可以使用以下参数
 
 ```
-"s3.access_key" = "ak"
-"s3.secret_key" = "sk"
-"s3.endpoing" = "http://endpoint-uri"
-"s3.credentials.provider" = "provider-class-name" // 可选，默认凭证类基于BasicAWSCredentials实现。
+"AWS_ACCESS_KEY" = "ak"
+"AWS_SECRET_KEY" = "sk"
+"AWS_REGION" = "region-name"
+"AWS_ENDPOINT" = "http://endpoint-uri"
+"AWS_CREDENTIALS_PROVIDER" = "provider-class-name" // 可选，默认凭证类基于BasicAWSCredentials实现。
 ```
 
 ## 列类型映射

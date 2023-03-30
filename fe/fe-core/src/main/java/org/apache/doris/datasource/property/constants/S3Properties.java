@@ -22,11 +22,11 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.credentials.CloudCredential;
 import org.apache.doris.datasource.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.datasource.credentials.DataLakeAWSCredentialsProvider;
+import org.apache.doris.thrift.TS3StorageParam;
 
 import com.amazonaws.auth.EnvironmentVariableCredentialsProvider;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
-import org.apache.doris.thrift.TS3StorageParam;
 import org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider;
 import org.apache.hadoop.fs.s3a.TemporaryAWSCredentialsProvider;
 import org.apache.hadoop.fs.s3a.auth.IAMInstanceCredentialsProvider;
@@ -202,13 +202,13 @@ public class S3Properties extends BaseProperties {
         s3Info.setBucket(properties.get(S3Properties.BUCKET));
         String maxConnections = properties.get(S3Properties.MAX_CONNECTIONS);
         s3Info.setMaxConn(Integer.parseInt(maxConnections == null
-            ? S3Properties.Env.DEFAULT_MAX_CONNECTIONS : maxConnections));
+                ? S3Properties.Env.DEFAULT_MAX_CONNECTIONS : maxConnections));
         String requestTimeoutMs = properties.get(S3Properties.REQUEST_TIMEOUT_MS);
         s3Info.setMaxConn(Integer.parseInt(requestTimeoutMs == null
-            ? S3Properties.Env.DEFAULT_REQUEST_TIMEOUT_MS : requestTimeoutMs));
+                ? S3Properties.Env.DEFAULT_REQUEST_TIMEOUT_MS : requestTimeoutMs));
         String connTimeoutMs = properties.get(S3Properties.CONNECTION_TIMEOUT_MS);
         s3Info.setMaxConn(Integer.parseInt(connTimeoutMs == null
-            ? S3Properties.Env.DEFAULT_CONNECTION_TIMEOUT_MS : connTimeoutMs));
+                ? S3Properties.Env.DEFAULT_CONNECTION_TIMEOUT_MS : connTimeoutMs));
         return s3Info;
     }
 }
