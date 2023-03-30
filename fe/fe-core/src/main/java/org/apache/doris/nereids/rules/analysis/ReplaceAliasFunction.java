@@ -23,7 +23,6 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.CompareMode;
-import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
