@@ -246,7 +246,9 @@ public:
         }
     }
 
-    bool can_do_bloom_filter() const override { return PT == PredicateType::EQ; }
+    bool can_do_bloom_filter() const override {
+        return PT == PredicateType::EQ;
+    }
 
     void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                      bool* flags) const override {
@@ -361,11 +363,17 @@ private:
         }
     }
 
-    constexpr bool _is_range() const { return PredicateTypeTraits::is_range(PT); }
+    constexpr bool _is_range() const {
+        return PredicateTypeTraits::is_range(PT);
+    }
 
-    constexpr bool _is_greater() const { return _operator(1, 0); }
+    constexpr bool _is_greater() const {
+        return _operator(1, 0);
+    }
 
-    constexpr bool _is_eq() const { return _operator(1, 1); }
+    constexpr bool _is_eq() const {
+        return _operator(1, 1);
+    }
 
     Status _bitmap_compare(Status status, bool exact_match, rowid_t ordinal_limit,
                            rowid_t& seeked_ordinal, BitmapIndexIterator* iterator,
@@ -506,18 +514,33 @@ private:
     uint16_t _base_loop(uint16_t* sel, uint16_t size, const uint8_t* __restrict null_map,
                         const TArray* __restrict data_array, const TValue& value) const {
         uint16_t new_size = 0;
-        for (uint16_t i = 0; i < size; ++i) {
-            uint16_t idx = sel[i];
-            if constexpr (is_nullable) {
-                if (_opposite ^ (!null_map[idx] && _operator(data_array[idx], value))) {
-                    sel[new_size++] = idx;
+        if (data_array->size() == size) {
+            for (uint16_t i = 0; i < size; ++i) {
+                if constexpr (is_nullable) {
+                    if (_opposite ^ (!null_map[i] && _operator(data_array[i], value))) {
+                        sel[new_size++] = i;
+                    }
+                } else {
+                    if (_opposite ^ _operator(data_array[i], value)) {
+                        sel[new_size++] = i;
+                    }
                 }
-            } else {
-                if (_opposite ^ _operator(data_array[idx], value)) {
-                    sel[new_size++] = idx;
+            }
+        } else {
+            for (uint16_t i = 0; i < size; ++i) {
+                uint16_t idx = sel[i];
+                if constexpr (is_nullable) {
+                    if (_opposite ^ (!null_map[idx] && _operator(data_array[idx], value))) {
+                        sel[new_size++] = idx;
+                    }
+                } else {
+                    if (_opposite ^ _operator(data_array[idx], value)) {
+                        sel[new_size++] = idx;
+                    }
                 }
             }
         }
+
         return new_size;
     }
 

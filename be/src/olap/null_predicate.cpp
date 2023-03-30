@@ -54,10 +54,17 @@ uint16_t NullPredicate::evaluate(const vectorized::IColumn& column, uint16_t* se
             return _is_null ? 0 : size;
         }
         auto& null_map = nullable->get_null_map_data();
-        for (uint16_t i = 0; i < size; ++i) {
-            uint16_t idx = sel[i];
-            sel[new_size] = idx;
-            new_size += (null_map[idx] == _is_null);
+        if (null_map.size() == size) {
+            for (uint16_t i = 0; i < size; ++i) {
+                sel[new_size] = i;
+                new_size += (null_map[i] == _is_null);
+            }
+        } else {
+            for (uint16_t i = 0; i < size; ++i) {
+                uint16_t idx = sel[i];
+                sel[new_size] = idx;
+                new_size += (null_map[idx] == _is_null);
+            }
         }
         return new_size;
     } else {

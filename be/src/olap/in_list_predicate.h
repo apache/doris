@@ -451,26 +451,51 @@ private:
                     vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>(column);
             auto& data_array = nested_col_ptr->get_data();
 
-            for (uint16_t i = 0; i < size; i++) {
-                uint16_t idx = sel[i];
-                if constexpr (is_nullable) {
-                    if ((*null_map)[idx]) {
-                        if constexpr (is_opposite) {
-                            sel[new_size++] = idx;
+            if (data_array->size() == size) {
+                for (uint16_t i = 0; i < size; i++) {
+                    if constexpr (is_nullable) {
+                        if ((*null_map)[i]) {
+                            if constexpr (is_opposite) {
+                                sel[new_size++] = i;
+                            }
+                            continue;
                         }
-                        continue;
+                    }
+
+                    if constexpr (!is_opposite) {
+                        if (_operator(_values->find(reinterpret_cast<const T*>(&data_array[i])),
+                                      false)) {
+                            sel[new_size++] = i;
+                        }
+                    } else {
+                        if (!_operator(_values->find(reinterpret_cast<const T*>(&data_array[i])),
+                                       false)) {
+                            sel[new_size++] = i;
+                        }
                     }
                 }
-
-                if constexpr (!is_opposite) {
-                    if (_operator(_values->find(reinterpret_cast<const T*>(&data_array[idx])),
-                                  false)) {
-                        sel[new_size++] = idx;
+            } else {
+                for (uint16_t i = 0; i < size; i++) {
+                    uint16_t idx = sel[i];
+                    if constexpr (is_nullable) {
+                        if ((*null_map)[idx]) {
+                            if constexpr (is_opposite) {
+                                sel[new_size++] = idx;
+                            }
+                            continue;
+                        }
                     }
-                } else {
-                    if (!_operator(_values->find(reinterpret_cast<const T*>(&data_array[idx])),
-                                   false)) {
-                        sel[new_size++] = idx;
+
+                    if constexpr (!is_opposite) {
+                        if (_operator(_values->find(reinterpret_cast<const T*>(&data_array[idx])),
+                                      false)) {
+                            sel[new_size++] = idx;
+                        }
+                    } else {
+                        if (!_operator(_values->find(reinterpret_cast<const T*>(&data_array[idx])),
+                                       false)) {
+                            sel[new_size++] = idx;
+                        }
                     }
                 }
             }
