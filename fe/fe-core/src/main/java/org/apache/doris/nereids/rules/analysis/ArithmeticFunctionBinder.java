@@ -40,27 +40,18 @@ import java.util.Map;
  */
 public class ArithmeticFunctionBinder {
     private static final NullLiteral dummyExpression = new NullLiteral();
-    private static Map<String, Expression> functionToExpression = null;
-
-    /**
-     * Ctor
-     */
-    public ArithmeticFunctionBinder() {
-        if (functionToExpression == null) {
-            functionToExpression = ImmutableMap.<String, Expression>builder()
-                    .put("add", new Add(dummyExpression, dummyExpression))
-                    .put("subtract", new Subtract(dummyExpression, dummyExpression))
-                    .put("multiply", new Multiply(dummyExpression, dummyExpression))
-                    .put("divide", new Divide(dummyExpression, dummyExpression))
-                    .put("int_divide", new IntegralDivide(dummyExpression, dummyExpression))
-                    .put("mod", new Mod(dummyExpression, dummyExpression))
-                    .put("bitand", new BitAnd(dummyExpression, dummyExpression))
-                    .put("bitor", new BitOr(dummyExpression, dummyExpression))
-                    .put("bitxor", new BitXor(dummyExpression, dummyExpression))
-                    .put("bitnot", new BitNot(dummyExpression))
-                    .build();
-        }
-    }
+    private static final Map<String, Expression> functionToExpression = ImmutableMap.<String, Expression>builder()
+            .put("add", new Add(dummyExpression, dummyExpression))
+            .put("subtract", new Subtract(dummyExpression, dummyExpression))
+            .put("multiply", new Multiply(dummyExpression, dummyExpression))
+            .put("divide", new Divide(dummyExpression, dummyExpression))
+            .put("int_divide", new IntegralDivide(dummyExpression, dummyExpression))
+            .put("mod", new Mod(dummyExpression, dummyExpression))
+            .put("bitand", new BitAnd(dummyExpression, dummyExpression))
+            .put("bitor", new BitOr(dummyExpression, dummyExpression))
+            .put("bitxor", new BitXor(dummyExpression, dummyExpression))
+            .put("bitnot", new BitNot(dummyExpression))
+            .build();
 
     public boolean isBinaryArithmetic(String functionName) {
         return functionToExpression.containsKey(functionName);
