@@ -15,20 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.jobs.batch;
+package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
-/** CheckLegalityBeforeTypeCoercion */
-public class CheckLegalityBeforeTypeCoercion extends AbstractExpressionRewriteRule {
-    public static final CheckLegalityBeforeTypeCoercion INSTANCE = new CheckLegalityBeforeTypeCoercion();
+/**
+ * Normalizes binary predicates of the form 'expr' op 'slot' so that the slot is on the left-hand side.
+ * For example:
+ * 5 > id -> id < 5
+ */
+public class NormalizeBinaryPredicatesRule extends AbstractExpressionRewriteRule {
+
+    public static NormalizeBinaryPredicatesRule INSTANCE = new NormalizeBinaryPredicatesRule();
 
     @Override
-    public Expression visit(Expression expr, ExpressionRewriteContext context) {
-        expr = super.visit(expr, context);
-        expr.checkLegalityBeforeTypeCoercion();
-        return expr;
+    public Expression visitComparisonPredicate(ComparisonPredicate expr, ExpressionRewriteContext context) {
+        return expr.left().isConstant() && !expr.right().isConstant() ? expr.commute() : expr;
     }
 }

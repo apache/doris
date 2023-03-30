@@ -249,7 +249,7 @@ public class TypeCoercionUtils {
         return Type.canCastTo(input.toCatalogDataType(), target.toCatalogDataType());
     }
 
-    private static void checkCanCastTo(DataType input, DataType target) {
+    public static void checkCanCastTo(DataType input, DataType target) {
         if (canCastTo(input, target)) {
             return;
         }
