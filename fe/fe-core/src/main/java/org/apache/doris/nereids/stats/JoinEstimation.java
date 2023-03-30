@@ -28,7 +28,10 @@ import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsBuilder;
 
+import com.google.common.collect.Lists;
+
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -49,7 +52,8 @@ public class JoinEstimation {
     }
 
     private static Statistics estimateInnerJoin(Statistics leftStats, Statistics rightStats, Join join) {
-
+        List<Double> unTrustEqualRatio = Lists.newArrayList();
+        boolean leftBigger = leftStats.getRowCount() > rightStats.getRowCount();
         List<EqualTo> trustableConditions = join.getHashJoinConjuncts().stream()
                 .map(expression -> (EqualTo) expression)
                 .filter(
@@ -57,8 +61,18 @@ public class JoinEstimation {
                         EqualTo equal = normalizeHashJoinCondition(expression, leftStats, rightStats);
                         ColumnStatistic eqLeftColStats = ExpressionEstimation.estimate(equal.left(), leftStats);
                         ColumnStatistic eqRightColStats = ExpressionEstimation.estimate(equal.right(), rightStats);
-                        return eqRightColStats.ndv / rightStats.getRowCount() > 0.9
+                        boolean trustable = eqRightColStats.ndv / rightStats.getRowCount() > 0.9
                                 || eqLeftColStats.ndv / leftStats.getRowCount() > 0.9;
+                        if (!trustable) {
+                            if (leftBigger) {
+                                unTrustEqualRatio.add((rightStats.getRowCount() / eqRightColStats.ndv)
+                                        * Math.min(eqLeftColStats.ndv, eqRightColStats.ndv) / eqLeftColStats.ndv);
+                            } else {
+                                unTrustEqualRatio.add((leftStats.getRowCount() / eqLeftColStats.ndv)
+                                        * Math.min(eqLeftColStats.ndv, eqRightColStats.ndv) / eqRightColStats.ndv);
+                            }
+                        }
+                        return trustable;
                     }
                 ).collect(Collectors.toList());
 
@@ -89,6 +103,10 @@ public class JoinEstimation {
             innerJoinStats = crossJoinStats.updateRowCountOnly(crossJoinStats.getRowCount() * sel);
         } else {
             double outputRowCount = Math.max(leftStats.getRowCount(), rightStats.getRowCount());
+            Optional<Double> ratio = unTrustEqualRatio.stream().max(Double::compareTo);
+            if (ratio.isPresent()) {
+                outputRowCount = outputRowCount * ratio.get();
+            }
             innerJoinStats = crossJoinStats.updateRowCountOnly(outputRowCount);
         }
 

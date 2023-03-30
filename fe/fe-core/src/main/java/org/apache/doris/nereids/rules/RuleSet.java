@@ -160,7 +160,7 @@ public class RuleSet {
 
     public List<Rule> getExplorationRules() {
         List<Rule> rules = new ArrayList<>();
-        rules.addAll(ZIG_ZAG_TREE_JOIN_REORDER);
+        rules.addAll(BUSHY_TREE_JOIN_REORDER);
         rules.addAll(OTHER_REORDER_RULES);
         rules.addAll(EXPLORATION_RULES);
         return rules;

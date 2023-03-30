@@ -435,6 +435,7 @@ public class Memo {
      * @param destination destination group
      * @return merged group
      */
+
     public Group mergeGroup(Group source, Group destination) {
         if (source.equals(destination)) {
             return source;
