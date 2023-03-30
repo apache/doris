@@ -107,6 +107,8 @@ public abstract class Type {
     public static final ScalarType ALL = new ScalarType(PrimitiveType.ALL);
     public static final MapType MAP = new MapType();
     public static final ArrayType ARRAY = ArrayType.create();
+    public static final StructType GENERIC_STRUCT = new StructType(Lists.newArrayList(
+            new StructField("generic_struct", new ScalarType(PrimitiveType.NULL_TYPE))));
     public static final StructType STRUCT = new StructType();
     public static final VariantType VARIANT = new VariantType();
 

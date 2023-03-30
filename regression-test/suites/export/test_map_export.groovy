@@ -75,6 +75,7 @@ suite("test_map_export", "export") {
 
     // check result
     qt_select """ SELECT * FROM ${testTable} ORDER BY id; """
+    qt_select_count """SELECT COUNT(m) FROM ${testTable}"""
 
     def outFilePath = """${context.file.parent}/test_map_export"""
     logger.info("test_map_export the outFilePath=" + outFilePath)
