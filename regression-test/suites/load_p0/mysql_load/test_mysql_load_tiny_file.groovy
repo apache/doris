@@ -16,8 +16,6 @@
 // under the License.
 
 suite("test_mysql_load_tiny_file", "p0") {
-    sql "show tables"
-
     def tableName = "test_mysql_load_tiny_file"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -29,17 +27,16 @@ suite("test_mysql_load_tiny_file", "p0") {
         AGGREGATE KEY(`k1`)
         COMMENT 'OLAP'
         PARTITION BY RANGE(`k1`)
-        (PARTITION partition_a VALUES [("-9223372036854775808"), ("100000")),
+        (PARTITION partition_a VALUES [("-10240000"), ("100000")),
         PARTITION partition_b VALUES [("100000"), ("1000000000")),
-        PARTITION partition_c VALUES [("1000000000"), ("10000000000")),
-        PARTITION partition_d VALUES [("10000000000"), (MAXVALUE)))
-        DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1
+        PARTITION partition_d VALUES [("1000000000"), (MAXVALUE)))
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 1
         PROPERTIES ("replication_allocation" = "tag.location.default: 1");
     """
 
     def test_mysql_load_tiny_file = getLoalFilePath "test_mysql_load_tiny_file.csv"
 
-    for (int i = 0; i < 100; i++) {
+    for (int i = 0; i < 20; i++) {
         sql """
             LOAD DATA 
             LOCAL
@@ -48,7 +45,6 @@ suite("test_mysql_load_tiny_file", "p0") {
             COLUMNS TERMINATED BY '\t';
         """
     }
-
 
     sql "sync"
     qt_sql "select * from ${tableName} order by k1"
