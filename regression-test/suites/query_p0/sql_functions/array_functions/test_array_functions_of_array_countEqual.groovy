@@ -22,7 +22,7 @@ suite("test_array_functions_of_array_countEqual") {
     sql """ 
             CREATE TABLE IF NOT EXISTS ${tableName} (
               `k1` int(11) NULL COMMENT "",
-              `k2` ARRAY<int(11)> NOT NULL COMMENT ""
+              `k2` ARRAY<int(11)> NULL COMMENT ""
             ) ENGINE=OLAP
             DUPLICATE KEY(`k1`)
             DISTRIBUTED BY HASH(`k1`) BUCKETS 1
