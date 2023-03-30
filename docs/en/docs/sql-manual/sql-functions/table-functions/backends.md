@@ -26,6 +26,14 @@ under the License.
 
 ## `backends`
 
+### Name
+
+<version since="dev">
+
+backends
+
+</version>
+
 ### description
 
 Table-Value-Function, generate a temporary table named `backends`. This tvf is used to view the information of BE nodes in the doris cluster.

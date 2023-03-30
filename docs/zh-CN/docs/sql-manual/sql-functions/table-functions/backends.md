@@ -26,6 +26,14 @@ under the License.
 
 ## `backends`
 
+### Name
+
+<version since="dev">
+
+backends
+
+</version>
+
 ### description
 
 表函数，生成backends临时表，可以查看当前doris集群中的 BE 节点信息。
