@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_sqlserver_jdbc_catalog", "p0") {
+suite("test_clickhouse_jdbc_catalog", "p0") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest");
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String resource_name = "clickhouse_catalog_resource";
