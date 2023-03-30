@@ -107,6 +107,22 @@ public class Memo {
         return groupExpressions;
     }
 
+    private Plan skipProject(Plan plan, Group targetGroup) {
+        if (plan instanceof LogicalProject) {
+            LogicalProject<Plan> logicalProject = (LogicalProject<Plan>) plan;
+            if (targetGroup != root) {
+                if (logicalProject.getOutputSet().equals(logicalProject.child().getOutputSet())) {
+                    return skipProject(logicalProject.child(), targetGroup);
+                }
+            } else {
+                if (logicalProject.getOutput().equals(logicalProject.child().getOutput())) {
+                    return skipProject(logicalProject.child(), targetGroup);
+                }
+            }
+        }
+        return plan;
+    }
+
     /**
      * Add plan to Memo.
      *
@@ -122,7 +138,7 @@ public class Memo {
         if (rewrite) {
             result = doRewrite(plan, target);
         } else {
-            result = doCopyIn(plan, target);
+            result = doCopyIn(skipProject(plan, target), target);
         }
         maybeAddStateId(result);
         return result;
@@ -337,6 +353,7 @@ public class Memo {
      *         and the second element is a reference of node in Memo
      */
     private CopyInResult doCopyIn(Plan plan, @Nullable Group targetGroup) {
+        Preconditions.checkArgument(!(plan instanceof GroupPlan), "plan can not be GroupPlan");
         // check logicalproperties, must same output in a Group.
         if (targetGroup != null && !plan.getLogicalProperties().equals(targetGroup.getLogicalProperties())) {
             throw new IllegalStateException("Insert a plan into targetGroup but differ in logicalproperties");
@@ -348,13 +365,13 @@ public class Memo {
         List<Group> childrenGroups = Lists.newArrayList();
         for (int i = 0; i < plan.children().size(); i++) {
             // skip useless project.
-            Plan child = skipProjectGetChild(plan.children().get(i));
+            Plan child = skipProjectGetChild(plan.child(i));
             if (child instanceof GroupPlan) {
                 childrenGroups.add(((GroupPlan) child).getGroup());
             } else if (child.getGroupExpression().isPresent()) {
                 childrenGroups.add(child.getGroupExpression().get().getOwnerGroup());
             } else {
-                childrenGroups.add(copyIn(child, null, false).correspondingExpression.getOwnerGroup());
+                childrenGroups.add(doCopyIn(child, null).correspondingExpression.getOwnerGroup());
             }
         }
         plan = replaceChildrenToGroupPlan(plan, childrenGroups);
