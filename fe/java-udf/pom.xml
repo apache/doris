@@ -86,6 +86,12 @@ under the License.
             <artifactId>druid</artifactId>
             <version>1.2.5</version>
         </dependency>
+        <dependency>
+            <groupId>com.clickhouse</groupId>
+            <artifactId>clickhouse-jdbc</artifactId>
+            <version>0.4.2</version>
+            <classifier>all</classifier>
+        </dependency>
     </dependencies>
     <build>
         <finalName>java-udf</finalName>
