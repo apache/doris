@@ -30,10 +30,7 @@ suite("test_encryption_function") {
     """
 
     sql "SET enable_nereids_planner=true"
-<<<<<<< HEAD
-=======
     sql "SET enable_fallback_to_original_planner=false" 
->>>>>>> 00cc1b8510... Delete the environment variable enable_vectorized_engine
     sql "set batch_size = 4096;"
 
     sql "set block_encryption_mode=\"AES_128_ECB\";"
