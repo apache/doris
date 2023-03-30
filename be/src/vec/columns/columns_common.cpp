@@ -191,6 +191,7 @@ void filter_arrays_impl_generic(const PaddedPODArray<T>& src_elems,
         memcpy(&res_elems[elems_size_old], &src_elems[arr_offset], arr_size * sizeof(T));
     };
 
+#ifdef __SSE2__
     static constexpr size_t SIMD_BYTES = 32;
     const auto filt_end_aligned = filt_pos + size / SIMD_BYTES * SIMD_BYTES;
 
@@ -222,6 +223,7 @@ void filter_arrays_impl_generic(const PaddedPODArray<T>& src_elems,
         filt_pos += SIMD_BYTES;
         offsets_pos += SIMD_BYTES;
     }
+#endif
 
     while (filt_pos < filt_end) {
         if (*filt_pos) {
