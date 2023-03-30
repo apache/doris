@@ -74,7 +74,7 @@ public class AnalysisTaskInfo {
     public final AnalysisType analysisType;
 
     // TODO: define constants or get them from configuration properties
-    public final double sampleRate = 0.2;
+    public final double sampleRate = 1.0;
     public final int maxBucketNum = 128;
 
     public String message;
