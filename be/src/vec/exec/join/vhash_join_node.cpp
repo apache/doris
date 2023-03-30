@@ -106,7 +106,8 @@ struct ProcessHashTableBuild {
         // the hash table build bucket, which may waste a lot of memory.
         // TODO, use the NDV expansion of the key column in the optimizer statistics
         if (!_join_node->_build_unique) {
-            RETURN_IF_CATCH_BAD_ALLOC(hash_table_ctx.hash_table.expanse_for_add_elem(_rows));
+            RETURN_IF_CATCH_BAD_ALLOC(hash_table_ctx.hash_table.expanse_for_add_elem(
+                    std::min<int>(_rows, config::hash_table_pre_expanse_max_rows)));
         }
 
         vector<int>& inserted_rows = _join_node->_inserted_rows[&_acquired_block];

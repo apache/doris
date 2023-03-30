@@ -240,15 +240,16 @@ void insert_set_mapped(MappedType* dest, const ValueType& src) {
 
 /** Determines the size of the hash table, and when and how much it should be resized.
   */
-template <size_t initial_size_degree = 10, size_t double_grow_degree = 31>
+template <size_t initial_size_degree = 10>
 struct HashTableGrower {
     /// The state of this structure is enough to get the buffer size of the hash table.
     doris::vectorized::UInt8 size_degree = initial_size_degree;
+    doris::vectorized::Int64 double_grow_degree = doris::config::hash_table_double_grow_degree;
 
     /// The size of the hash table in the cells.
     size_t buf_size() const { return 1ULL << size_degree; }
 
-    // When capacity is greater than 2^double_grow_degree(default 2G), grow when 75% of the capacity is satisfied.
+    // When capacity is greater than 2^double_grow_degree, grow when 75% of the capacity is satisfied.
     size_t max_fill() const {
         return size_degree < double_grow_degree
                        ? 1ULL << (size_degree - 1)
@@ -296,13 +297,14 @@ struct HashTableGrower {
   * This structure is aligned to cache line boundary and also occupies it all.
   * Precalculates some values to speed up lookups and insertion into the HashTable (and thus has bigger memory footprint than HashTableGrower).
   */
-template <size_t initial_size_degree = 8, size_t double_grow_degree = 31>
+template <size_t initial_size_degree = 8>
 class alignas(64) HashTableGrowerWithPrecalculation {
     /// The state of this structure is enough to get the buffer size of the hash table.
 
     doris::vectorized::UInt8 size_degree_ = initial_size_degree;
     size_t precalculated_mask = (1ULL << initial_size_degree) - 1;
     size_t precalculated_max_fill = 1ULL << (initial_size_degree - 1);
+    doris::vectorized::Int64 double_grow_degree = doris::config::hash_table_double_grow_degree;
 
 public:
     doris::vectorized::UInt8 size_degree() const { return size_degree_; }
