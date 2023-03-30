@@ -149,7 +149,6 @@ import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.journal.bdbje.Timestamp;
 import org.apache.doris.load.DeleteHandler;
-import org.apache.doris.load.ExportChecker;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.Load;
@@ -553,6 +552,7 @@ public class Env {
         this.routineLoadManager = new RoutineLoadManager();
         this.sqlBlockRuleMgr = new SqlBlockRuleMgr();
         this.exportMgr = new ExportMgr();
+        this.exportMgr.start();
         this.syncJobManager = new SyncJobManager();
         this.alter = new Alter();
         this.consistencyChecker = new ConsistencyChecker();
@@ -1402,9 +1402,6 @@ public class Env {
         loadJobScheduler.start();
         loadEtlChecker.start();
         loadLoadingChecker.start();
-        // Export checker
-        ExportChecker.init(Config.export_checker_interval_second * 1000L);
-        ExportChecker.startAll();
         // Tablet checker and scheduler
         tabletChecker.start();
         tabletScheduler.start();

@@ -176,7 +176,7 @@ EXPORT TABLE testTbl TO "file:///home/data/a" PROPERTIES ("columns" = "k1,v1");
 8. 将 testTbl 表中的所有数据导出到 s3 上，以不可见字符 "\x07" 作为列或者行分隔符。
 
 ```sql
-EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" 
+EXPORT TABLE testTbl TO "s3://hdfs_host:port/a/b/c" 
 PROPERTIES (
   "column_separator"="\\x07", 
   "line_delimiter" = "\\x07"

@@ -32,10 +32,15 @@ import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.util.ListComparator;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.load.ExportJob.JobState;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.task.ExportExportingTask;
+import org.apache.doris.task.MasterTask;
+import org.apache.doris.task.MasterTaskExecutor;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
@@ -57,7 +62,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
-public class ExportMgr {
+public class ExportMgr extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(ExportJob.class);
 
     // lock for export job
@@ -67,7 +72,12 @@ public class ExportMgr {
     private Map<Long, ExportJob> idToJob = Maps.newHashMap(); // exportJobId to exportJob
     private Map<String, Long> labelToJobId = Maps.newHashMap();
 
+    private MasterTaskExecutor exportingExecutor;
+
     public ExportMgr() {
+        int poolSize = Config.export_running_job_num_limit == 0 ? 5 : Config.export_running_job_num_limit;
+        exportingExecutor = new MasterTaskExecutor("export-exporting-job", poolSize, true);
+        exportingExecutor.start();
     }
 
     public void readLock() {
@@ -84,6 +94,44 @@ public class ExportMgr {
 
     private void writeUnlock() {
         lock.writeLock().unlock();
+    }
+
+    @Override
+    protected void runAfterCatalogReady() {
+        List<ExportJob> jobs = getExportJobs(JobState.PENDING);
+        // Because exportJob may be replayed from log
+        // we also need handle EXPORTING state exportJob.
+        jobs.addAll(getExportJobs(JobState.EXPORTING));
+        int runningJobNumLimit = Config.export_running_job_num_limit;
+        if (runningJobNumLimit > 0 && !jobs.isEmpty()) {
+            // pending executor running + exporting state
+            int runningJobNum = exportingExecutor.getTaskNum();
+            if (runningJobNum >= runningJobNumLimit) {
+                LOG.info("running export job num {} exceeds system limit {}", runningJobNum, runningJobNumLimit);
+                return;
+            }
+
+            int remain = runningJobNumLimit - runningJobNum;
+            if (jobs.size() > remain) {
+                jobs = jobs.subList(0, remain);
+            }
+        }
+
+        LOG.debug("exporting export job num: {}", jobs.size());
+
+        for (ExportJob job : jobs) {
+            try {
+                MasterTask task = new ExportExportingTask(job);
+                if (exportingExecutor.submit(task)) {
+                    LOG.info("run exporting export job. job: {}", job);
+                } else {
+                    LOG.info("fail to submit exporting job to executor. job: {}", job);
+
+                }
+            } catch (Exception e) {
+                LOG.warn("run export exporting job error", e);
+            }
+        }
     }
 
     public List<ExportJob> getJobs() {
@@ -343,9 +391,7 @@ public class ExportMgr {
         infoMap.put("broker", job.getBrokerDesc().getName());
         infoMap.put("column separator", job.getColumnSeparator());
         infoMap.put("line delimiter", job.getLineDelimiter());
-        infoMap.put("exec mem limit", job.getExecMemLimit());
         infoMap.put("columns", job.getColumns());
-        infoMap.put("coord num", job.getCoordList().size());
         infoMap.put("tablet num", job.getTabletLocations() == null ? -1 : job.getTabletLocations().size());
         jobInfo.add(new Gson().toJson(infoMap));
         // path

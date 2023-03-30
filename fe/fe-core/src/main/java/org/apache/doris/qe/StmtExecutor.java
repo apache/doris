@@ -2088,6 +2088,7 @@ public class StmtExecutor implements ProfileWriter {
 
     private void handleExportStmt() throws Exception {
         ExportStmt exportStmt = (ExportStmt) parsedStmt;
+        exportStmt.setSessionVariable(context.getSessionVariable());
         context.getEnv().getExportMgr().addExportJob(exportStmt);
     }
 

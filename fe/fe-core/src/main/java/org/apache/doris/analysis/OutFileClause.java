@@ -122,9 +122,9 @@ public class OutFileClause {
     private static final String HADOOP_PROP_PREFIX = "hadoop.";
     private static final String BROKER_PROP_PREFIX = "broker.";
     private static final String PROP_BROKER_NAME = "broker.name";
-    private static final String PROP_COLUMN_SEPARATOR = "column_separator";
-    private static final String PROP_LINE_DELIMITER = "line_delimiter";
-    private static final String PROP_MAX_FILE_SIZE = "max_file_size";
+    public static final String PROP_COLUMN_SEPARATOR = "column_separator";
+    public static final String PROP_LINE_DELIMITER = "line_delimiter";
+    public static final String PROP_MAX_FILE_SIZE = "max_file_size";
     private static final String PROP_SUCCESS_FILE_NAME = "success_file_name";
     private static final String PARQUET_PROP_PREFIX = "parquet.";
     private static final String ORC_PROP_PREFIX = "orc.";

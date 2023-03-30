@@ -366,6 +366,10 @@ public class ConnectContext {
         return sessionVariable;
     }
 
+    public void setSessionVariable(SessionVariable sessionVariable) {
+        this.sessionVariable = sessionVariable;
+    }
+
     public ConnectScheduler getConnectScheduler() {
         return connectScheduler;
     }
