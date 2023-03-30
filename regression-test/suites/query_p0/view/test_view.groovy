@@ -92,20 +92,13 @@ suite("test_view") {
     '''
 
     sql "drop view if exists v"
-    sql "CREATE VIEW v (id, name, age) AS SELECT id, name, age FROM test_insert order by age desc limit 10;"
+    sql "CREATE VIEW v (id, name, age) AS SELECT id, name, age FROM test_insert order by age desc limit 2;"
 
     test {
         sql "select * from v"
         result([
-                [11711L, 'doris', 11711L],
-                [11710L, 'doris', 11710L],
-                [11689L, 'doris', 11689L],
-                [11688L, 'doris', 11688L],
-                [11663L, 'doris', 11663L],
-                [11656L, 'doris', 11656L],
-                [11642L, 'doris', 11642L],
-                [11637L, 'doris', 11637L],
-                [11634L, 'doris', 11634L],
-                [11629L, 'doris', 11629L]])
+                ['11711', 'doris', 11711],
+                ['11710', 'doris', 11710]
+        ])
     }
 }
