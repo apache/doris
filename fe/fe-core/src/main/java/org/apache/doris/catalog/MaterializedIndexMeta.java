@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
@@ -188,7 +189,7 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
                 columnList += "]";
 
                 for (Column column : schema) {
-                    if (CreateMaterializedViewStmt.oldmvColumnBreaker(column.getName()).equals(name)) {
+                    if (CreateMaterializedViewStmt.oldmvColumnBreaker(column.getName()).equalsIgnoreCase(name)) {
                         if (matchedColumn == null) {
                             matchedColumn = column;
                         } else {
@@ -198,6 +199,7 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
                         }
                     }
                 }
+
                 if (matchedColumn != null) {
                     LOG.debug("trans old MV, MV: {},  DefineExpr:{}, DefineName:{}",
                             matchedColumn.getName(), entry.getValue().toSqlWithoutTbl(), entry.getKey());
@@ -265,14 +267,10 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
     @Override
     public void gsonPostProcess() throws IOException {
         initColumnNameMap();
-        parseStmt(true, true);
+        parseStmt(null);
     }
 
-    public void parseWhereClause() throws IOException {
-        parseStmt(true, false);
-    }
-
-    private void parseStmt(boolean parseWhereClause, boolean parseDefineExpr) throws IOException {
+    public void parseStmt(Analyzer analyzer) throws IOException {
         // analyze define stmt
         if (defineStmt == null) {
             return;
@@ -283,15 +281,16 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         CreateMaterializedViewStmt stmt;
         try {
             stmt = (CreateMaterializedViewStmt) SqlParserUtils.getStmt(parser, defineStmt.idx);
-            if (parseWhereClause) {
-                setWhereClause(stmt.getWhereClause());
+            if (analyzer != null) {
+                stmt.analyze(analyzer);
             }
-            if (parseDefineExpr) {
-                stmt.setIsReplay(true);
-                stmt.rewriteToBitmapWithCheck();
-                Map<String, Expr> columnNameToDefineExpr = stmt.parseDefineExprWithoutAnalyze();
-                setColumnsDefineExpr(columnNameToDefineExpr);
-            }
+
+            stmt.setIsReplay(true);
+            setWhereClause(stmt.getWhereClause());
+            stmt.rewriteToBitmapWithCheck();
+            Map<String, Expr> columnNameToDefineExpr = stmt.parseDefineExpr(analyzer);
+            setColumnsDefineExpr(columnNameToDefineExpr);
+
         } catch (Exception e) {
             throw new IOException("error happens when parsing create materialized view stmt: " + defineStmt, e);
         }
