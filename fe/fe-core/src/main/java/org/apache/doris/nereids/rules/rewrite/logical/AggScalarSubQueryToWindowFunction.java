@@ -20,35 +20,28 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.window.SupportWindowAnalytic;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
-import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 
@@ -57,6 +50,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import java.util.Collection;
@@ -64,10 +58,8 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -75,99 +67,185 @@ import java.util.stream.Collectors;
  * logicalFilter(logicalApply(any(), logicalAggregate()))
  * to
  * logicalProject((logicalFilter(logicalWindow(logicalFilter(any())))))
+ * <p>
  * refer paper: WinMagic - Subquery Elimination Using Window Aggregation
+ * <p>
+ * TODO: use materialized view pattern match to do outer and inner tree match.
  */
 
 public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobContext> implements CustomRewriter {
-    private static final Set<Class<? extends AggregateFunction>> SUPPORTED_FUNCTION = ImmutableSet.of(
-            Min.class, Max.class, Count.class, Sum.class, Avg.class
-    );
-    private static final Set<Class<? extends LogicalPlan>> LEFT_SUPPORTED_PLAN = ImmutableSet.of(
-            LogicalRelation.class, LogicalJoin.class, LogicalProject.class, LogicalFilter.class, LogicalLimit.class
-    );
-    private static final Set<Class<? extends LogicalPlan>> RIGHT_SUPPORTED_PLAN = ImmutableSet.of(
-            LogicalRelation.class, LogicalJoin.class, LogicalProject.class, LogicalFilter.class, LogicalAggregate.class
-    );
-    private List<LogicalPlan> outerPlans = null;
-    private List<LogicalPlan> innerPlans = null;
-    private LogicalAggregate aggOp = null;
-    private List<AggregateFunction> functions = null;
 
+    private static final Set<Class<? extends LogicalPlan>> OUTER_SUPPORTED_PLAN = ImmutableSet.of(
+            LogicalJoin.class,
+            LogicalProject.class,
+            LogicalRelation.class
+    );
+
+    private static final Set<Class<? extends LogicalPlan>> INNER_SUPPORTED_PLAN = ImmutableSet.of(
+            LogicalAggregate.class,
+            LogicalFilter.class,
+            LogicalJoin.class,
+            LogicalProject.class,
+            LogicalRelation.class
+    );
+
+    private final List<LogicalPlan> outerPlans = Lists.newArrayList();
+    private final List<LogicalPlan> innerPlans = Lists.newArrayList();
+    private final List<AggregateFunction> functions = Lists.newArrayList();
+    private final Map<Expression, Expression> innerOuterSlotMap = Maps.newHashMap();
+
+    /**
+     * the entrance of this rule. we only override one visitor: visitLogicalFilter
+     * because we need to process the filter of outer plan. It is on the top of Apply.
+     */
     @Override
     public Plan rewriteRoot(Plan plan, JobContext context) {
         return plan.accept(this, context);
     }
 
+    /**
+     * we need to process Filter and Apply, but sometimes there are project between Filter and Apply.
+     * According to {@link org.apache.doris.nereids.rules.analysis.SubqueryToApply} rule. The project
+     * is used to project apply output to original output, it is not affect this rule at all. so we ignore it.
+     */
     @Override
     public Plan visitLogicalFilter(LogicalFilter<? extends Plan> filter, JobContext context) {
-        LogicalApply<Plan, LogicalAggregate<Plan>> apply = checkPattern(filter);
-        if (apply == null) {
-            return filter;
-        }
-        if (!check(filter, apply)) {
-            return filter;
-        }
-        return trans(filter, apply);
+        return findApply(filter)
+                .filter(a -> check(filter, a))
+                .map(a -> rewrite(filter, a))
+                .orElse(filter);
     }
 
-    private LogicalApply<Plan, LogicalAggregate<Plan>> checkPattern(LogicalFilter<? extends Plan> filter) {
-        LogicalPlan plan = ((LogicalPlan) filter.child());
-        if (plan instanceof LogicalProject) {
-            plan = ((LogicalPlan) ((LogicalProject) plan).child());
-        }
-        if (!(plan instanceof LogicalApply)) {
-            return null;
-        }
-        LogicalApply apply = (LogicalApply) plan;
-        if (!checkApplyNode(apply)) {
-            return null;
-        }
-        return apply.right() instanceof LogicalAggregate ? apply : null;
+    private Optional<LogicalApply<Plan, Plan>> findApply(LogicalFilter<? extends Plan> filter) {
+        return Optional.of(filter.child())
+                .map(p -> p instanceof LogicalProject ? p.child(0) : p)
+                .filter(LogicalApply.class::isInstance)
+                .map(p -> (LogicalApply<Plan, Plan>) p);
     }
 
-    private boolean check(LogicalFilter<? extends Plan> filter, LogicalApply<Plan, LogicalAggregate<Plan>> apply) {
-        LogicalPlan outer = ((LogicalPlan) apply.child(0));
-        LogicalPlan inner = ((LogicalPlan) apply.child(1));
-        outerPlans = PlanCollector.INSTANCE.collect(outer);
-        innerPlans = PlanCollector.INSTANCE.collect(inner);
-        Optional<LogicalFilter> innerFilter = innerPlans.stream()
-                .filter(LogicalFilter.class::isInstance)
-                .map(LogicalFilter.class::cast).findFirst();
-        return innerFilter.isPresent()
-                && checkPlanType() && checkAggType()
+    private boolean check(LogicalFilter<? extends Plan> outerFilter, LogicalApply<Plan, Plan> apply) {
+        outerPlans.addAll(apply.child(0).collect(LogicalPlan.class::isInstance));
+        innerPlans.addAll(apply.child(1).collect(LogicalPlan.class::isInstance));
+
+        return checkPlanType()
+                && checkApply(apply)
+                && checkAggregate()
+                && checkJoin()
+                && checkProject()
                 && checkRelation(apply.getCorrelationSlot())
-                && checkPredicate(Sets.newHashSet(filter.getConjuncts()),
-                Sets.newHashSet(innerFilter.get().getConjuncts()));
+                && checkFilter(outerFilter);
     }
 
     // check children's nodes because query process will be changed
     private boolean checkPlanType() {
-        return outerPlans.stream().allMatch(p -> LEFT_SUPPORTED_PLAN.stream().anyMatch(c -> c.isInstance(p)))
-                && innerPlans.stream().allMatch(p -> RIGHT_SUPPORTED_PLAN.stream().anyMatch(c -> c.isInstance(p)));
+        return outerPlans.stream().allMatch(p -> OUTER_SUPPORTED_PLAN.stream().anyMatch(c -> c.isInstance(p)))
+                && innerPlans.stream().allMatch(p -> INNER_SUPPORTED_PLAN.stream().anyMatch(c -> c.isInstance(p)));
     }
 
-    private boolean checkApplyNode(LogicalApply apply) {
-        return apply.isScalar() && apply.isCorrelated() && apply.getSubCorrespondingConjunct().isPresent()
+    /**
+     * Apply should be
+     *   1. scalar
+     *   2. is not mark join
+     *   3. is correlated
+     *   4. correlated conjunct should be {@link ComparisonPredicate}
+     *   5. the top plan of Apply inner should be {@link LogicalAggregate}
+     */
+    private boolean checkApply(LogicalApply<Plan, Plan> apply) {
+        return apply.isScalar()
+                && !apply.isMarkJoin()
+                && apply.right() instanceof LogicalAggregate
+                && apply.isCorrelated()
+                && apply.getSubCorrespondingConjunct().isPresent()
                 && apply.getSubCorrespondingConjunct().get() instanceof ComparisonPredicate;
     }
 
-    // check aggregation of inner scope
-    private boolean checkAggType() {
-        List<LogicalAggregate> aggSet = innerPlans.stream().filter(LogicalAggregate.class::isInstance)
-                .map(LogicalAggregate.class::cast)
+    /**
+     * check aggregation of inner scope, it should be only one Aggregate and only one AggregateFunction in it
+     */
+    private boolean checkAggregate() {
+        List<LogicalAggregate<Plan>> aggSet = innerPlans.stream().filter(LogicalAggregate.class::isInstance)
+                .map(p -> (LogicalAggregate<Plan>) p)
                 .collect(Collectors.toList());
-        if (aggSet.size() > 1) {
+        if (aggSet.size() != 1) {
             // window functions don't support nesting.
             return false;
         }
-        aggOp = aggSet.get(0);
-        functions = ((List<AggregateFunction>) ExpressionUtils.<AggregateFunction>collectAll(
+        LogicalAggregate<Plan> aggOp = aggSet.get(0);
+        functions.addAll(ExpressionUtils.collectAll(
                 aggOp.getOutputExpressions(), AggregateFunction.class::isInstance));
-        Preconditions.checkArgument(functions.size() == 1);
-        return functions.stream().allMatch(f -> SUPPORTED_FUNCTION.contains(f.getClass()) && !f.isDistinct());
+        if (functions.size() != 1) {
+            return false;
+        }
+        return functions.stream().allMatch(f -> f instanceof SupportWindowAnalytic && !f.isDistinct());
     }
 
-    // check if the relations of the outer's includes the inner's
+    /**
+     * check inner scope only have one filter. and inner filter is a sub collection of outer filter
+     */
+    private boolean checkFilter(LogicalFilter<? extends Plan> outerFilter) {
+        List<LogicalFilter<Plan>> innerFilters = innerPlans.stream()
+                .filter(LogicalFilter.class::isInstance)
+                .map(p -> (LogicalFilter<Plan>) p).collect(Collectors.toList());
+        if (innerFilters.size() != 1) {
+            return false;
+        }
+        Set<Expression> outerConjunctSet = Sets.newHashSet(outerFilter.getConjuncts());
+        Set<Expression> innerConjunctSet = innerFilters.get(0).getConjuncts().stream()
+                .map(e -> ExpressionUtils.replace(e, innerOuterSlotMap))
+                .collect(Collectors.toSet());
+        Iterator<Expression> innerIterator = innerConjunctSet.iterator();
+        // inner predicate should be the sub-set of outer predicate.
+        while (innerIterator.hasNext()) {
+            Expression innerExpr = innerIterator.next();
+            Iterator<Expression> outerIterator = outerConjunctSet.iterator();
+            while (outerIterator.hasNext()) {
+                Expression outerExpr = outerIterator.next();
+                if (ExpressionIdenticalChecker.INSTANCE.check(innerExpr, outerExpr)) {
+                    innerIterator.remove();
+                    outerIterator.remove();
+                }
+            }
+        }
+        // now the expressions are all like 'expr op literal' or flipped, and whose expr is not correlated.
+        return innerConjunctSet.isEmpty();
+    }
+
+    /**
+     * check join to ensure no condition on it.
+     * this is because we cannot do accurate pattern match between outer scope and inner scope
+     * so, we currently forbid join with condition here.
+     */
+    private boolean checkJoin() {
+        return outerPlans.stream()
+                .filter(LogicalJoin.class::isInstance)
+                .map(p -> (LogicalJoin<Plan, Plan>) p)
+                .noneMatch(j -> j.getOnClauseCondition().isPresent())
+                && innerPlans.stream()
+                .filter(LogicalJoin.class::isInstance)
+                .map(p -> (LogicalJoin<Plan, Plan>) p)
+                .noneMatch(j -> j.getOnClauseCondition().isPresent());
+    }
+
+    /**
+     * check inner and outer project to ensure no project except column pruning
+     */
+    private boolean checkProject() {
+        return outerPlans.stream()
+                .filter(LogicalProject.class::isInstance)
+                .map(p -> (LogicalProject<Plan>) p)
+                .allMatch(p -> p.getExpressions().stream().allMatch(SlotReference.class::isInstance))
+                && innerPlans.stream()
+                .filter(LogicalProject.class::isInstance)
+                .map(p -> (LogicalProject<Plan>) p)
+                .allMatch(p -> p.getExpressions().stream().allMatch(SlotReference.class::isInstance));
+    }
+
+    /**
+     * check inner and outer relation
+     * 1. outer table size - inner table size must equal to 1
+     * 2. outer table list - inner table list should only remain 1 table
+     * 3. the remaining table in step 2 should be correlated table for inner plan
+     */
     private boolean checkRelation(List<Expression> correlatedSlots) {
         List<LogicalRelation> outerTables = outerPlans.stream().filter(LogicalRelation.class::isInstance)
                 .map(LogicalRelation.class::cast)
@@ -176,15 +254,21 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
                 .map(LogicalRelation.class::cast)
                 .collect(Collectors.toList());
 
-        Set<Long> outerIds = outerTables.stream().map(node -> node.getTable().getId()).collect(Collectors.toSet());
-        Set<Long> innerIds = innerTables.stream().map(node -> node.getTable().getId()).collect(Collectors.toSet());
-
-        Set<Long> outerCopy = Sets.newHashSet(outerIds);
-        outerIds.removeAll(innerIds);
-        innerIds.removeAll(outerCopy);
-        if (outerIds.isEmpty() || !innerIds.isEmpty()) {
+        List<Long> outerIds = outerTables.stream().map(node -> node.getTable().getId()).collect(Collectors.toList());
+        List<Long> innerIds = innerTables.stream().map(node -> node.getTable().getId()).collect(Collectors.toList());
+        if (Sets.newHashSet(outerIds).size() != outerIds.size()
+                || Sets.newHashSet(innerIds).size() != innerIds.size()) {
             return false;
         }
+        if (outerIds.size() - innerIds.size() != 1) {
+            return false;
+        }
+        innerIds.forEach(outerIds::remove);
+        if (outerIds.size() != 1) {
+            return false;
+        }
+
+        createSlotMapping(outerTables, innerTables);
 
         Set<ExprId> correlatedRelationOutput = outerTables.stream()
                 .filter(node -> outerIds.contains(node.getTable().getId()))
@@ -194,26 +278,28 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
                 .allMatch(e -> correlatedRelationOutput.contains(e.getExprId()));
     }
 
-    private boolean checkPredicate(Set<Expression> outerConjuncts, Set<Expression> innerConjuncts) {
-        Iterator<Expression> innerIter = innerConjuncts.iterator();
-        // inner predicate should be the sub-set of outer predicate.
-        while (innerIter.hasNext()) {
-            Expression innerExpr = innerIter.next();
-            Iterator<Expression> outerIter = outerConjuncts.iterator();
-            while (outerIter.hasNext()) {
-                Expression outerExpr = outerIter.next();
-                if (ExpressionIdenticalChecker.INSTANCE.check(innerExpr, outerExpr)) {
-                    innerIter.remove();
-                    outerIter.remove();
+    private void createSlotMapping(List<LogicalRelation> outerTables, List<LogicalRelation> innerTables) {
+        for (LogicalRelation outerTable : outerTables) {
+            for (LogicalRelation innerTable : innerTables) {
+                if (innerTable.getTable().getId() == outerTable.getTable().getId()) {
+                    for (Slot innerSlot : innerTable.getOutput()) {
+                        for (Slot outerSlot : outerTable.getOutput()) {
+                            if (innerSlot.getName().equals(outerSlot.getName())) {
+                                innerOuterSlotMap.put(innerSlot, outerSlot);
+                                break;
+                            }
+                        }
+                    }
+                    break;
                 }
             }
         }
-        // now the expressions are all like 'expr op literal' or flipped, and whose expr is not correlated.
-        return innerConjuncts.size() == 0;
     }
 
-    private Plan trans(LogicalFilter<? extends Plan> filter, LogicalApply<Plan, LogicalAggregate<Plan>> apply) {
-        LogicalAggregate<Plan> agg = apply.right();
+    private Plan rewrite(LogicalFilter<? extends Plan> filter, LogicalApply<Plan, Plan> apply) {
+        Preconditions.checkArgument(apply.right() instanceof LogicalAggregate,
+                "right child of Apply should be LogicalAggregate");
+        LogicalAggregate<Plan> agg = (LogicalAggregate<Plan>) apply.right();
 
         // transform algorithm
         // first: find the slot in outer scope corresponding to the slot in aggregate function in inner scope.
@@ -228,7 +314,7 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         // cast(l_quantity#id1 as decimal(27, 9)) < `0.2 * avg(l_quantity)`#id2
         // and
         // 0.2 * avg(l_quantity#id3) as `0.2 * l_quantity`#id2
-        // is agg's output expression
+        // is aggregate's output expression
         // we change it to
         // cast(l_quantity#id1 as decimal(27, 9)) < 0.2 * `avg(l_quantity#id1) over(window)`#id4
         // and
@@ -241,9 +327,6 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         windowFilterConjunct = PlanUtils.maybeCommuteComparisonPredicate(
                 (ComparisonPredicate) windowFilterConjunct, apply.left());
 
-        // build window function, replace the slot
-        List<Expression> windowAggSlots = windowFilterConjunct.child(0).collectToList(Slot.class::isInstance);
-
         AggregateFunction function = functions.get(0);
         if (function instanceof NullableAggregateFunction) {
             // adjust agg function's nullable.
@@ -251,7 +334,7 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         }
 
         WindowExpression windowFunction = createWindowFunction(apply.getCorrelationSlot(),
-                function.withChildren(windowAggSlots));
+                (AggregateFunction) ExpressionUtils.replace(function, innerOuterSlotMap));
         NamedExpression windowFunctionAlias = new Alias(windowFunction, windowFunction.toSql());
 
         // build filter conjunct, get the alias of the agg output and extract its child.
@@ -260,8 +343,8 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         NamedExpression aggOut = agg.getOutputExpressions().get(0);
         Expression aggOutExpr = aggOut.child(0);
         // change the agg function to window function alias.
-        aggOutExpr = MapReplacer.INSTANCE.replace(aggOutExpr, ImmutableMap
-                .of(AggregateFunction.class, e -> windowFunctionAlias.toSlot()));
+        aggOutExpr = ExpressionUtils.replace(aggOutExpr, ImmutableMap
+                .of(functions.get(0), windowFunctionAlias.toSlot()));
 
         // we change the child contains the original agg output to agg output expr.
         // for comparison predicate, it is always the child(1), since we ensure the window agg slot is in child(0)
@@ -269,9 +352,9 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         windowFilterConjunct = windowFilterConjunct
                 .withChildren(windowFilterConjunct.child(0), aggOutExpr);
 
-        LogicalFilter newFilter = ((LogicalFilter) filter.withChildren(apply.left()));
-        LogicalWindow newWindow = new LogicalWindow<>(ImmutableList.of(windowFunctionAlias), newFilter);
-        LogicalFilter windowFilter = new LogicalFilter<>(ImmutableSet.of(windowFilterConjunct), newWindow);
+        LogicalFilter<Plan> newFilter = (LogicalFilter<Plan>) filter.withChildren(apply.left());
+        LogicalWindow<Plan> newWindow = new LogicalWindow<>(ImmutableList.of(windowFunctionAlias), newFilter);
+        LogicalFilter<Plan> windowFilter = new LogicalFilter<>(ImmutableSet.of(windowFilterConjunct), newWindow);
         return windowFilter;
     }
 
@@ -279,24 +362,6 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         // partition by clause is set by all the correlated slots.
         Preconditions.checkArgument(correlatedSlots.stream().allMatch(Slot.class::isInstance));
         return new WindowExpression(function, correlatedSlots, Collections.emptyList());
-    }
-
-    private static class PlanCollector extends DefaultPlanVisitor<Void, List<LogicalPlan>> {
-        public static final PlanCollector INSTANCE = new PlanCollector();
-
-        public List<LogicalPlan> collect(LogicalPlan plan) {
-            List<LogicalPlan> buffer = Lists.newArrayList();
-            plan.accept(this, buffer);
-            return buffer;
-        }
-
-        @Override
-        public Void visit(Plan plan, List<LogicalPlan> buffer) {
-            Preconditions.checkArgument(plan instanceof LogicalPlan);
-            buffer.add(((LogicalPlan) plan));
-            plan.children().forEach(child -> child.accept(this, buffer));
-            return null;
-        }
     }
 
     private static class ExpressionIdenticalChecker extends DefaultExpressionVisitor<Boolean, Expression> {
@@ -322,64 +387,24 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
             return true;
         }
 
-        private boolean isSameObjects(Object... o) {
-            Preconditions.checkArgument(o.length % 2 == 0);
-            for (int i = 0; i < o.length; i += 2) {
-                if (!Objects.equals(o[i], o[i + 1])) {
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        private boolean isSameOperator(Expression expression, Expression expression1, Object... o) {
-            return isSameObjects(o) && isSameChild(expression, expression1);
-        }
-
         @Override
         public Boolean visit(Expression expression, Expression expression1) {
             return isClassMatch(expression, expression1) && isSameChild(expression, expression1);
         }
 
         @Override
-        public Boolean visitNamedExpression(NamedExpression namedExpression, Expression expr) {
-            return isClassMatch(namedExpression, expr)
-                    && isSameOperator(namedExpression, expr, namedExpression.getName(),
-                    ((NamedExpression) expr).getName());
+        public Boolean visitSlotReference(SlotReference slotReference, Expression other) {
+            return slotReference.equals(other);
         }
 
         @Override
-        public Boolean visitLiteral(Literal literal, Expression expr) {
-            return isClassMatch(literal, expr)
-                    && isSameOperator(literal, expr, literal.getValue(), ((Literal) expr).getValue());
+        public Boolean visitLiteral(Literal literal, Expression other) {
+            return literal.equals(other);
         }
 
         @Override
-        public Boolean visitEqualTo(EqualTo equalTo, Expression expr) {
-            return isSameChild(equalTo, expr) || isSameChild(equalTo.commute(), expr);
-        }
-    }
-
-    private static class MapReplacer extends DefaultExpressionRewriter<Map<Class<? extends Expression>,
-                Function<Expression, Expression>>> {
-        public static final MapReplacer INSTANCE = new MapReplacer();
-
-        public Expression replace(Expression e, Map<Class<? extends Expression>,
-                Function<Expression, Expression>> context) {
-            return e.accept(this, context);
-        }
-
-        @Override
-        public Expression visit(Expression e, Map<Class<? extends Expression>,
-                Function<Expression, Expression>> context) {
-            Expression replaced = e;
-            for (Class c : context.keySet()) {
-                if (c.isInstance(e)) {
-                    replaced = context.get(c).apply(e);
-                    break;
-                }
-            }
-            return super.visit(replaced, context);
+        public Boolean visitComparisonPredicate(ComparisonPredicate cp, Expression other) {
+            return cp.equals(other) || cp.commute().equals(other);
         }
     }
 }
