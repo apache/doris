@@ -54,6 +54,12 @@ public class S3ClientBEProperties {
         if (properties.containsKey(S3Properties.SESSION_TOKEN)) {
             beProperties.put(S3Properties.Env.TOKEN, properties.get(S3Properties.SESSION_TOKEN));
         }
+        if (properties.containsKey(S3Properties.ROOT_PATH)) {
+            beProperties.put(S3Properties.Env.ROOT_PATH, properties.get(S3Properties.ROOT_PATH));
+        }
+        if (properties.containsKey(S3Properties.BUCKET)) {
+            beProperties.put(S3Properties.Env.BUCKET, properties.get(S3Properties.BUCKET));
+        }
         return beProperties;
     }
 }

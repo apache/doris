@@ -20,12 +20,10 @@ package org.apache.doris.task;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Resource.ResourceType;
-import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.thrift.TPushStoragePolicyReq;
-import org.apache.doris.thrift.TS3StorageParam;
 import org.apache.doris.thrift.TStoragePolicy;
 import org.apache.doris.thrift.TStorageResource;
 import org.apache.doris.thrift.TTaskType;
@@ -87,25 +85,8 @@ public class PushStoragePolicyTask extends AgentTask {
             item.setId(r.getId());
             item.setName(r.getName());
             item.setVersion(r.getVersion());
-            TS3StorageParam s3Info = new TS3StorageParam();
-            S3Resource s3Resource = (S3Resource) r;
-            s3Info.setEndpoint(s3Resource.getProperty(S3Properties.ENDPOINT));
-            s3Info.setRegion(s3Resource.getProperty(S3Properties.REGION));
-            s3Info.setAk(s3Resource.getProperty(S3Properties.ACCESS_KEY));
-            s3Info.setSk(s3Resource.getProperty(S3Properties.SECRET_KEY));
-            s3Info.setRootPath(s3Resource.getProperty(S3Properties.ROOT_PATH));
-            s3Info.setBucket(s3Resource.getProperty(S3Properties.BUCKET));
-            String maxConnections = s3Resource.getProperty(S3Properties.MAX_CONNECTIONS);
-            s3Info.setMaxConn(Integer.parseInt(maxConnections == null
-                    ? S3Properties.Env.DEFAULT_MAX_CONNECTIONS : maxConnections));
-            String requestTimeoutMs = s3Resource.getProperty(S3Properties.REQUEST_TIMEOUT_MS);
-            s3Info.setMaxConn(Integer.parseInt(requestTimeoutMs == null
-                    ? S3Properties.Env.DEFAULT_REQUEST_TIMEOUT_MS : requestTimeoutMs));
-            String connTimeoutMs = s3Resource.getProperty(S3Properties.CONNECTION_TIMEOUT_MS);
-            s3Info.setMaxConn(Integer.parseInt(connTimeoutMs == null
-                    ? S3Properties.Env.DEFAULT_CONNECTION_TIMEOUT_MS : connTimeoutMs));
+            item.setS3StorageParam(S3Properties.getS3TStorageParam(r.getCopiedProperties()));
             r.readUnlock();
-            item.setS3StorageParam(s3Info);
             tStorageResources.add(item);
         });
         ret.setResource(tStorageResources);

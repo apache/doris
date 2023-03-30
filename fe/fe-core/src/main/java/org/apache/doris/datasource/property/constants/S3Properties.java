@@ -18,13 +18,15 @@
 package org.apache.doris.datasource.property.constants;
 
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.UserException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.credentials.CloudCredential;
 import org.apache.doris.datasource.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.datasource.credentials.DataLakeAWSCredentialsProvider;
 
 import com.amazonaws.auth.EnvironmentVariableCredentialsProvider;
+import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
+import org.apache.doris.thrift.TS3StorageParam;
 import org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider;
 import org.apache.hadoop.fs.s3a.TemporaryAWSCredentialsProvider;
 import org.apache.hadoop.fs.s3a.auth.IAMInstanceCredentialsProvider;
@@ -122,33 +124,6 @@ public class S3Properties extends BaseProperties {
         return endpointSplit[1];
     }
 
-    public static Map<String, String> requiredS3TVFProperties(Map<String, String> properties)
-            throws AnalysisException {
-        for (String field : S3Properties.TVF_REQUIRED_FIELDS) {
-            if (!properties.containsKey(field)) {
-                throw new AnalysisException("Missing required property: " + field);
-            }
-        }
-        return properties;
-    }
-
-    public static void requiredS3Properties(Map<String, String> properties) throws UserException {
-        if (properties.containsKey(Env.ENDPOINT)) {
-            // compatible with older versions
-            for (String field : Env.REQUIRED_FIELDS) {
-                if (!properties.containsKey(field)) {
-                    throw new UserException("Missing required property: " + field);
-                }
-            }
-        } else {
-            for (String field : S3Properties.REQUIRED_FIELDS) {
-                if (!properties.containsKey(field)) {
-                    throw new UserException("Missing required property: " + field);
-                }
-            }
-        }
-    }
-
     public static Map<String, String> prefixToS3(Map<String, String> properties) {
         Map<String, String> s3Properties = Maps.newHashMap();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
@@ -164,5 +139,76 @@ public class S3Properties extends BaseProperties {
             }
         }
         return s3Properties;
+    }
+
+    public static Map<String, String> requiredS3TVFProperties(Map<String, String> properties)
+            throws AnalysisException {
+        try {
+            for (String field : S3Properties.TVF_REQUIRED_FIELDS) {
+                checkRequiredProperty(properties, field);
+            }
+        } catch (DdlException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
+        return properties;
+    }
+
+    public static void requiredS3Properties(Map<String, String> properties) throws DdlException {
+        for (String field : S3Properties.REQUIRED_FIELDS) {
+            checkRequiredProperty(properties, field);
+        }
+    }
+
+    public static void requiredS3PingProperties(Map<String, String> properties) throws DdlException {
+        requiredS3Properties(properties);
+        checkRequiredProperty(properties, S3Properties.BUCKET);
+    }
+
+    public static void checkRequiredProperty(Map<String, String> properties, String propertyKey)
+            throws DdlException {
+        String value = properties.get(propertyKey);
+        if (Strings.isNullOrEmpty(value)) {
+            throw new DdlException("Missing [" + propertyKey + "] in properties.");
+        }
+    }
+
+    public static void optionalS3Property(Map<String, String> properties) {
+        properties.putIfAbsent(S3Properties.MAX_CONNECTIONS, S3Properties.Env.DEFAULT_MAX_CONNECTIONS);
+        properties.putIfAbsent(S3Properties.REQUEST_TIMEOUT_MS, S3Properties.Env.DEFAULT_REQUEST_TIMEOUT_MS);
+        properties.putIfAbsent(S3Properties.CONNECTION_TIMEOUT_MS, S3Properties.Env.DEFAULT_CONNECTION_TIMEOUT_MS);
+    }
+
+    public static void convertToStdProperties(Map<String, String> properties) {
+        properties.putIfAbsent(S3Properties.ENDPOINT, properties.get(S3Properties.Env.ENDPOINT));
+        properties.putIfAbsent(S3Properties.REGION, properties.get(S3Properties.Env.REGION));
+        properties.putIfAbsent(S3Properties.ACCESS_KEY, properties.get(S3Properties.Env.ACCESS_KEY));
+        properties.putIfAbsent(S3Properties.SECRET_KEY, properties.get(S3Properties.Env.SECRET_KEY));
+        properties.putIfAbsent(S3Properties.SESSION_TOKEN, properties.get(S3Properties.Env.TOKEN));
+
+        properties.putIfAbsent(S3Properties.MAX_CONNECTIONS, properties.get(S3Properties.Env.MAX_CONNECTIONS));
+        properties.putIfAbsent(S3Properties.REQUEST_TIMEOUT_MS, properties.get(S3Properties.Env.REQUEST_TIMEOUT_MS));
+        properties.putIfAbsent(S3Properties.CONNECTION_TIMEOUT_MS,
+                properties.get(S3Properties.Env.CONNECTION_TIMEOUT_MS));
+    }
+
+    public static TS3StorageParam getS3TStorageParam(Map<String, String> properties) {
+        TS3StorageParam s3Info = new TS3StorageParam();
+        s3Info.setEndpoint(properties.get(S3Properties.ENDPOINT));
+        s3Info.setRegion(properties.get(S3Properties.REGION));
+        s3Info.setAk(properties.get(S3Properties.ACCESS_KEY));
+        s3Info.setSk(properties.get(S3Properties.SECRET_KEY));
+
+        s3Info.setRootPath(properties.get(S3Properties.ROOT_PATH));
+        s3Info.setBucket(properties.get(S3Properties.BUCKET));
+        String maxConnections = properties.get(S3Properties.MAX_CONNECTIONS);
+        s3Info.setMaxConn(Integer.parseInt(maxConnections == null
+            ? S3Properties.Env.DEFAULT_MAX_CONNECTIONS : maxConnections));
+        String requestTimeoutMs = properties.get(S3Properties.REQUEST_TIMEOUT_MS);
+        s3Info.setMaxConn(Integer.parseInt(requestTimeoutMs == null
+            ? S3Properties.Env.DEFAULT_REQUEST_TIMEOUT_MS : requestTimeoutMs));
+        String connTimeoutMs = properties.get(S3Properties.CONNECTION_TIMEOUT_MS);
+        s3Info.setMaxConn(Integer.parseInt(connTimeoutMs == null
+            ? S3Properties.Env.DEFAULT_CONNECTION_TIMEOUT_MS : connTimeoutMs));
+        return s3Info;
     }
 }
