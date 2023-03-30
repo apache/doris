@@ -723,7 +723,7 @@ public class BindExpression implements AnalysisRuleFactory {
         FunctionRegistry functionRegistry = cascadesContext.getConnectContext().getEnv().getFunctionRegistry();
 
         String functionName = unboundFunction.getName();
-        FunctionBuilder functionBuilder = functionRegistry.findFunctionBuilder(functionName, boundArguments)
+        FunctionBuilder functionBuilder = functionRegistry.findFunctionBuilder(functionName, boundArguments);
         BoundFunction function = functionBuilder.build(functionName, boundArguments);
         if (!(function instanceof TableGeneratingFunction)) {
             throw new AnalysisException(function.toSql() + " is not a TableGeneratingFunction");

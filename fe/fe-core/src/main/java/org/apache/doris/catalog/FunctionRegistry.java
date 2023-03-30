@@ -21,6 +21,7 @@ import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.functions.AggStateFunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.nereids.util.Utils.Result;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
@@ -56,11 +57,21 @@ public class FunctionRegistry {
 
 
     public FunctionBuilder findFunctionBuilder(String name, Object argument) {
-        return findFunctionBuilder(name, ImmutableList.of(argument));
+        Result<FunctionBuilder> result = findFunctionBuilderRaw(name, ImmutableList.of(argument));
+        return result.getOrException(() -> {
+            throw new AnalysisException(result.getErr());
+        });
+    }
+
+    public FunctionBuilder findFunctionBuilder(String name, List<?> arguments) {
+        Result<FunctionBuilder> result = findFunctionBuilderRaw(name, arguments);
+        return result.getOrException(() -> {
+            throw new AnalysisException(result.getErr());
+        });
     }
 
     // currently we only find function by name and arity
-    public FunctionBuilder findFunctionBuilder(String name, List<?> arguments) {
+    public Result<FunctionBuilder> findFunctionBuilderRaw(String name, List<?> arguments) {
         int arity = arguments.size();
         List<FunctionBuilder> functionBuilders = name2Builders.get(name.toLowerCase());
         if (CollectionUtils.isEmpty(functionBuilders) && AggStateFunctionBuilder.isAggStateCombinator(name)) {
@@ -76,7 +87,7 @@ public class FunctionRegistry {
             }
         }
         if (functionBuilders == null || functionBuilders.isEmpty()) {
-            throw new AnalysisException("Can not found function '" + name + "'");
+            return Result.ofErr("Can not found function '" + name + "'");
         }
 
         // check the arity and type
@@ -85,16 +96,16 @@ public class FunctionRegistry {
                 .collect(Collectors.toList());
         if (candidateBuilders.isEmpty()) {
             String candidateHints = getCandidateHint(name, functionBuilders);
-            throw new AnalysisException("Can not found function '" + name
+            return Result.ofErr("Can not found function '" + name
                     + "' which has " + arity + " arity. Candidate functions are: " + candidateHints);
         }
 
         if (candidateBuilders.size() > 1) {
             String candidateHints = getCandidateHint(name, candidateBuilders);
             // NereidsPlanner not supported override function by the same arity, should we support it?
-            throw new AnalysisException("Function '" + name + "' is ambiguous: " + candidateHints);
+            return Result.ofErr("Function '" + name + "' is ambiguous: " + candidateHints);
         }
-        return candidateBuilders.get(0);
+        return Result.of(candidateBuilders.get(0));
     }
 
     private void registerBuiltinFunctions(Map<String, List<FunctionBuilder>> name2Builders) {
@@ -110,4 +121,13 @@ public class FunctionRegistry {
                 .map(builder -> name + builder.toString())
                 .collect(Collectors.joining(", ", "[", "]"));
     }
+
+    //    public Expression findUdf(UnboundFunction function, CascadesContext context) {
+    //        String dbName = context.getConnectContext().getDatabase();
+    //        Env env = context.getConnectContext().getEnv();
+    //        Database db = env.getInternalCatalog().getDbNullable(dbName);
+    //        FunctionSearchDesc desc = new FunctionSearchDesc(null, null, false);
+    //        return null;
+    //
+    //    }
 }
