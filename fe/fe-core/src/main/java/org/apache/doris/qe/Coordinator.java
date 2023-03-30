@@ -349,7 +349,7 @@ public class Coordinator {
         nextInstanceId.setHi(queryId.hi);
         nextInstanceId.setLo(queryId.lo + 1);
         this.assignedRuntimeFilters = planner.getRuntimeFilters();
-        this.tResourceGroups = analyzer.getResourceGroups();
+        this.tResourceGroups = analyzer == null ? null : analyzer.getResourceGroups();
     }
 
     // Used for broker load task/export task/update coordinator
