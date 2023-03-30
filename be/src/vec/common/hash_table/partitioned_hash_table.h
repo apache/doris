@@ -33,8 +33,9 @@
   * - in theory, resizes are cache-local in a larger range of sizes.
   */
 
-template <size_t initial_size_degree = 8>
-struct PartitionedHashTableGrower : public HashTableGrowerWithPrecalculation<initial_size_degree> {
+template <size_t initial_size_degree = 8, size_t double_grow_degree = 31>
+struct PartitionedHashTableGrower
+        : public HashTableGrowerWithPrecalculation<initial_size_degree, double_grow_degree> {
     /// Increase the size of the hash table.
     void increase_size() { this->increase_size_degree(this->size_degree() >= 15 ? 1 : 2); }
 };

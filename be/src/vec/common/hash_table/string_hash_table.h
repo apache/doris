@@ -175,8 +175,9 @@ public:
     size_t get_buffer_size_in_bytes() const { return sizeof(Cell); }
 };
 
-template <size_t initial_size_degree = 8>
-struct StringHashTableGrower : public HashTableGrowerWithPrecalculation<initial_size_degree> {
+template <size_t initial_size_degree = 8, size_t double_grow_degree = 31>
+struct StringHashTableGrower
+        : public HashTableGrowerWithPrecalculation<initial_size_degree, double_grow_degree> {
     // Smooth growing for string maps
     void increase_size() { this->increase_size_degree(1); }
 };
