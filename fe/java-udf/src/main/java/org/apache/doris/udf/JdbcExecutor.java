@@ -361,12 +361,12 @@ public class JdbcExecutor {
                 if (column[i] == null) {
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
-                    UdfUtils.UNSAFE.putByte(columnAddr + i, ((Short) column[i]).byteValue());
+                    UdfUtils.UNSAFE.putByte(columnAddr + i, (Byte) column[i]);
                 }
             }
         } else {
             for (int i = 0; i < numRows; i++) {
-                UdfUtils.UNSAFE.putByte(columnAddr + i, ((Short) column[i]).byteValue());
+                UdfUtils.UNSAFE.putByte(columnAddr + i, (Byte) column[i]);
             }
         }
     }
