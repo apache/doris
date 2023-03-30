@@ -1387,7 +1387,7 @@ public class SelectStmt extends QueryStmt {
                 for (Expr groupExpr : groupingExprs) {
                     //remove groupExpr if it is const, and it is not in select list
                     boolean removeConstGroupingKey = false;
-                    if (groupExpr.isConstant()) {
+                    if (groupExpr.isConstant() && !(groupExpr.contains(e -> e instanceof SlotRef))) {
                         if (theFirstConstantGroupingExpr == null) {
                             theFirstConstantGroupingExpr = groupExpr;
                         }
