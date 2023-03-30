@@ -333,8 +333,11 @@ public class OlapScanNode extends ScanNode {
         return selectedIndexId;
     }
 
-    public void ignoreConjuncts() {
-        vconjunct = null;
+    public void ignoreConjuncts(Expr whereExpr) throws AnalysisException {
+        if (whereExpr == null) {
+            return;
+        }
+        vconjunct = vconjunct.replaceSubPredicate(whereExpr);
     }
 
     /**
@@ -1103,8 +1106,8 @@ public class OlapScanNode extends ScanNode {
         if (useTopnOpt) {
             output.append(prefix).append("TOPN OPT\n");
         }
-        if (!conjuncts.isEmpty()) {
-            output.append(prefix).append("PREDICATES: ").append(getExplainString(conjuncts)).append("\n");
+        if (vconjunct != null) {
+            output.append(prefix).append("PREDICATES: ").append(vconjunct.toSql()).append("\n");
         }
         if (!runtimeFilters.isEmpty()) {
             output.append(prefix).append("runtime filters: ");
