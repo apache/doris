@@ -272,6 +272,7 @@ size_t filter_arrays_impl_generic_without_reserving(PaddedPODArray<T>& elems,
         result_data += arr_size;
     };
 
+#ifdef __SSE2__
     static constexpr size_t SIMD_BYTES = 32;
     const auto filter_end_aligned = filter_pos + size / SIMD_BYTES * SIMD_BYTES;
 
@@ -305,6 +306,7 @@ size_t filter_arrays_impl_generic_without_reserving(PaddedPODArray<T>& elems,
         filter_pos += SIMD_BYTES;
         offsets_pos += SIMD_BYTES;
     }
+#endif
 
     while (filter_pos < filter_end) {
         if (*filter_pos) {
