@@ -98,7 +98,7 @@ fi
 
 # the CLASSPATH and LIBHDFS_OPTS is used for hadoop libhdfs
 # and conf/ dir so that hadoop libhdfs can read .xml config file in conf/
-export CLASSPATH="${DORIS_HOME}/conf/:$DORIS_CLASSPATH"
+export CLASSPATH="${DORIS_HOME}/conf/:${DORIS_CLASSPATH}"
 # DORIS_CLASSPATH is for self-managed jni
 export DORIS_CLASSPATH="-Djava.class.path=${DORIS_CLASSPATH}"
 
@@ -256,10 +256,10 @@ if [[ -f "${DORIS_HOME}/conf/hdfs-site.xml" ]]; then
     export LIBHDFS3_CONF="${DORIS_HOME}/conf/hdfs-site.xml"
 fi
 
-if [[ -z $JAVA_OPTS ]]; then
+if [[ -z ${JAVA_OPTS} ]]; then
     # set default JAVA_OPTS
     CUR_DATE=$(date +%Y%m%d-%H%M%S)
-    JAVA_OPTS="-Xmx1024m -DlogPath=$DORIS_HOME/log/jni.log -Xloggc:$DORIS_HOME/log/be.gc.log.$CUR_DATE -Dsun.java.command=DorisBE -XX:-CriticalJNINatives"
+    JAVA_OPTS="-Xmx1024m -DlogPath=${DORIS_HOME}/log/jni.log -Xloggc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} -Dsun.java.command=DorisBE -XX:-CriticalJNINatives"
     if [[ "${MACHINE_OS}" == "Darwin" ]]; then
         JAVA_OPTS="${JAVA_OPTS} -XX:-MaxFDLimit"
     fi
