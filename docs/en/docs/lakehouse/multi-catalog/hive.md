@@ -1,3 +1,4 @@
+
 ---
 {
     "title": "Hive",
@@ -55,12 +56,12 @@ When connnecting to Hive, Doris:
 ```sql
 CREATE CATALOG hive PROPERTIES (
     'type'='hms',
-    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
+    'hive.metastore.uris' = 'thrift://172.0.0.1:9083',
     'hadoop.username' = 'hive',
     'dfs.nameservices'='your-nameservice',
     'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
-    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
-    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:8088',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:8088',
     'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
 );
 ```
@@ -77,12 +78,12 @@ For example, to specify HDFS HA:
 ```sql
 CREATE CATALOG hive PROPERTIES (
     'type'='hms',
-    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
+    'hive.metastore.uris' = 'thrift://172.0.0.1:9083',
     'hadoop.username' = 'hive',
     'dfs.nameservices'='your-nameservice',
     'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
-    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
-    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:8088',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:8088',
     'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
 );
 ```
@@ -92,12 +93,12 @@ To specify HDFS HA and Kerberos authentication information:
 ```sql
 CREATE CATALOG hive PROPERTIES (
     'type'='hms',
-    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
+    'hive.metastore.uris' = 'thrift://172.0.0.1:9083',
     'hive.metastore.sasl.enabled' = 'true',
     'hive.metastore.kerberos.principal' = 'your-hms-principal',
     'dfs.nameservices'='your-nameservice',
-    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
-    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:8088',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:8088',
     'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider',
     'hadoop.security.authentication' = 'kerberos',
     'hadoop.kerberos.keytab' = '/your-keytab-filepath/your.keytab',   
@@ -116,7 +117,7 @@ To provide Hadoop KMS encrypted transmission information:
 ```sql
 CREATE CATALOG hive PROPERTIES (
     'type'='hms',
-    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
+    'hive.metastore.uris' = 'thrift://172.0.0.1:9083',
     'dfs.encryption.key.provider.uri' = 'kms://http@kms_host:kms_port/kms'
 );
 ```
@@ -126,7 +127,7 @@ Or to connect to Hive data stored on JuiceFS:
 ```sql
 CREATE CATALOG hive PROPERTIES (
     'type'='hms',
-    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
+    'hive.metastore.uris' = 'thrift://172.0.0.1:9083',
     'hadoop.username' = 'root',
     'fs.jfs.impl' = 'io.juicefs.JuiceFileSystem',
     'fs.AbstractFileSystem.jfs.impl' = 'io.juicefs.JuiceFS',
@@ -134,20 +135,80 @@ CREATE CATALOG hive PROPERTIES (
 );
 ```
 
-Or to connect to Glue and data stored on S3:
+### Hive On S3
+
+Data stored on S3:
+
+```sql
+CREATE CATALOG hive PROPERTIES (
+    "type"="hms",
+    "hive.metastore.uris" = "thrift://172.0.0.1:9083",
+    "s3.endpoint" = "s3.us-east-1.amazonaws.com",
+    "s3.access-key" = "ak",
+    "s3.secret-key" = "sk"
+    "use_path_style" = "true"
+);
+```
+
+Optional:
+
+* s3.connection.maximum： s3最大连接数，默认50
+* s3.connection.request.timeout：s3请求超时时间，默认3000ms
+* s3.connection.timeout： s3连接超时时间，默认1000ms
+
+### Hive On OSS
+
+Data stored on OSS:
+
+```sql
+CREATE CATALOG hive PROPERTIES (
+    "type"="hms",
+    "hive.metastore.uris" = "thrift://172.0.0.1:9083",
+    "oss.endpoint" = "oss.oss-cn-beijing.aliyuncs.com",
+    "oss.access-key" = "ak",
+    "oss.secret-key" = "sk"
+);
+```
+
+### Hive On OBS
+
+Data stored on OBS:
+
+```sql
+CREATE CATALOG hive PROPERTIES (
+    "type"="hms",
+    "hive.metastore.uris" = "thrift://172.0.0.1:9083",
+    "obs.endpoint" = "obs.cn-north-4.myhuaweicloud.com",
+    "obs.access-key" = "ak",
+    "obs.secret-key" = "sk"
+);
+```
+
+### Hive On COS
+
+Data stored on COS:
+
+```sql
+CREATE CATALOG hive PROPERTIES (
+    "type"="hms",
+    "hive.metastore.uris" = "thrift://172.0.0.1:9083",
+    "cos.endpoint" = "cos.ap-beijing.myqcloud.com",
+    "cos.access-key" = "ak",
+    "cos.secret-key" = "sk"
+);
+```
+
+### Hive With Glue
+
+Connect to Glue:
 
 ```sql
 CREATE CATALOG hive PROPERTIES (
     "type"="hms",
     "hive.metastore.type" = "glue",
-    "aws.region" = "us-east-1",
-    "aws.glue.access-key" = "ak",
-    "aws.glue.secret-key" = "sk",
-    "AWS_ENDPOINT" = "s3.us-east-1.amazonaws.com",
-    "AWS_REGION" = "us-east-1",
-    "AWS_ACCESS_KEY" = "ak",
-    "AWS_SECRET_KEY" = "sk",
-    "use_path_style" = "true"
+    "glue.endpoint" = "https://glue.us-east-1.amazonaws.com",
+    "glue.access-key" = "ak",
+    "glue.secret-key" = "sk"
 );
 ```
 
@@ -157,12 +218,12 @@ In Doris 1.2.1 and newer, you can create a Resource that contains all these para
 # 1. Create Resource
 CREATE RESOURCE hms_resource PROPERTIES (
     'type'='hms',
-    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
+    'hive.metastore.uris' = 'thrift://172.0.0.1:9083',
     'hadoop.username' = 'hive',
     'dfs.nameservices'='your-nameservice',
     'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
-    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
-    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.0.0.2:8088',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.0.0.3:8088',
     'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
 );
 	
@@ -181,12 +242,12 @@ You can also set file_meta_cache_ttl_second to 0 to disable file cache.Here is a
 ```sql
 CREATE CATALOG hive PROPERTIES (
     'type'='hms',
-    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
+    'hive.metastore.uris' = 'thrift://172.0.0.1:9083',
     'hadoop.username' = 'hive',
     'dfs.nameservices'='your-nameservice',
     'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
-    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
-    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.0.0.2:8088',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.0.0.3:8088',
     'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider',
     'file.meta.cache.ttl-second' = '60'
 );
@@ -205,7 +266,7 @@ Doris can access Hive Metastore in all Hive versions. By default, Doris uses the
 ```sql 
 CREATE CATALOG hive PROPERTIES (
     'type'='hms',
-    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
+    'hive.metastore.uris' = 'thrift://172.0.0.1:9083',
     'hive.version' = '1.1.0'
 );
 ```

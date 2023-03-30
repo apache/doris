@@ -97,10 +97,10 @@ illustrate:
     hadoop.kerberos.keytab: HDFS client keytab location.
     
     For the S3 protocol, you can directly execute the S3 protocol configuration:
-    AWS_ENDPOINT
-    AWS_ACCESS_KEY
-    AWS_SECRET_KEY
-    AWS_REGION
+    s3.endpoint
+    s3.access_key
+    s3.secret_key
+    s3.region
     use_path_stype: (optional) default false . The S3 SDK uses the virtual-hosted style by default. However, some object storage systems may not be enabled or support virtual-hosted style access. At this time, we can add the use_path_style parameter to force the use of path style access method.
     ```
 
@@ -224,10 +224,10 @@ illustrate:
    format as csv
    properties
    (
-       "AWS_ENDPOINT" = "http://s3.bd.bcebos.com",
-       "AWS_ACCESS_KEY" = "xxxx",
-       "AWS_SECRET_KEY" = "xxx",
-       "AWS_REGION" = "bd"
+        "s3.endpoint" = "http://s3.bd.bcebos.com",
+        "s3.access_key" = "xxxx",
+        "s3.secret_key" = "xxx",
+        "s3.region" = "bd"
    )
    ````
 
@@ -243,10 +243,10 @@ illustrate:
    format as csv
    properties
    (
-       "AWS_ENDPOINT" = "http://s3.bd.bcebos.com",
-       "AWS_ACCESS_KEY" = "xxxx",
-       "AWS_SECRET_KEY" = "xxx",
-       "AWS_REGION" = "bd"
+        "s3.endpoint" = "http://s3.bd.bcebos.com",
+        "s3.access_key" = "xxxx",
+        "s3.secret_key" = "xxx",
+        "s3.region" = "bd"
    )
    ````
 
