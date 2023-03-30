@@ -21,6 +21,8 @@ import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.catalog.AliasFunction;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.Function.CompareMode;
 import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.CascadesContext;
@@ -65,13 +67,13 @@ public class ReplaceAliasFunction extends DefaultExpressionRewriter<CascadesCont
     }
 
     private AliasFunction getAliasFunction(UnboundFunction function, Database database) {
-        Type[] types = function.getArgumentsTypes().stream()
-                .map(AbstractDataType::toCatalogDataType).toArray(Type[]::new);
-        FunctionSearchDesc desc1 = new FunctionSearchDesc(
-                new FunctionName(database.getFullName(), function.getName()), types, false);
+        List<Type> types = function.getArgumentsTypes().stream()
+                .map(AbstractDataType::toCatalogDataType).collect(Collectors.toList());
+        Function desc = new Function(new FunctionName(database.getFullName(), function.getName()),
+                types, Type.INVALID, false);
         AliasFunction udf;
         try {
-            udf = ((AliasFunction) database.getFunction(desc1));
+            udf = ((AliasFunction) database.getFunction(desc, CompareMode.IS_NONSTRICT_SUPERTYPE_OF));
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage());
         }
