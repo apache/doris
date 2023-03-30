@@ -334,7 +334,7 @@ struct DateFindOp : public CommonFindOp<vectorized::VecDateTimeValue> {
         // expression is CAST(a.date_col AS DATETIME) = CAST(b.date_col AS DATETIME). So we build
         // this bloom filter by CAST(a.date_col AS DATETIME) and also need to probe this bloom
         // filter by a datetime value.
-        date_value.set_type(3);
+        date_value.set_type(TimeType::TIME_DATETIME);
 
         return bloom_filter.test(Slice((char*)&date_value, sizeof(vectorized::VecDateTimeValue)));
     }
