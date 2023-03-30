@@ -265,6 +265,14 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
     @Override
     public void gsonPostProcess() throws IOException {
         initColumnNameMap();
+        parseStmt(true, true);
+    }
+
+    public void parseWhereClause() throws IOException {
+        parseStmt(true, false);
+    }
+
+    private void parseStmt(boolean parseWhereClause, boolean parseDefineExpr) throws IOException {
         // analyze define stmt
         if (defineStmt == null) {
             return;
@@ -275,11 +283,15 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         CreateMaterializedViewStmt stmt;
         try {
             stmt = (CreateMaterializedViewStmt) SqlParserUtils.getStmt(parser, defineStmt.idx);
-            setWhereClause(stmt.getWhereClause());
-            stmt.setIsReplay(true);
-            stmt.rewriteToBitmapWithCheck();
-            Map<String, Expr> columnNameToDefineExpr = stmt.parseDefineExprWithoutAnalyze();
-            setColumnsDefineExpr(columnNameToDefineExpr);
+            if (parseWhereClause) {
+                setWhereClause(stmt.getWhereClause());
+            }
+            if (parseDefineExpr) {
+                stmt.setIsReplay(true);
+                stmt.rewriteToBitmapWithCheck();
+                Map<String, Expr> columnNameToDefineExpr = stmt.parseDefineExprWithoutAnalyze();
+                setColumnsDefineExpr(columnNameToDefineExpr);
+            }
         } catch (Exception e) {
             throw new IOException("error happens when parsing create materialized view stmt: " + defineStmt, e);
         }

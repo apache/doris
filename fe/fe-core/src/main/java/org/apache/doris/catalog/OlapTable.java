@@ -288,12 +288,12 @@ public class OlapTable extends Table {
 
     public void setIndexMeta(long indexId, String indexName, List<Column> schema, int schemaVersion, int schemaHash,
             short shortKeyColumnCount, TStorageType storageType, KeysType keysType) {
-        setIndexMeta(indexId, indexName, schema, null, schemaVersion, schemaHash, shortKeyColumnCount, storageType,
+        setIndexMeta(indexId, indexName, schema, schemaVersion, schemaHash, shortKeyColumnCount, storageType,
                 keysType,
                 null);
     }
 
-    public void setIndexMeta(long indexId, String indexName, List<Column> schema, Column whereColumn, int schemaVersion,
+    public void setIndexMeta(long indexId, String indexName, List<Column> schema, int schemaVersion,
             int schemaHash,
             short shortKeyColumnCount, TStorageType storageType, KeysType keysType, OriginStatement origStmt) {
         // Nullable when meta comes from schema change log replay.
@@ -319,8 +319,10 @@ public class OlapTable extends Table {
 
         MaterializedIndexMeta indexMeta = new MaterializedIndexMeta(indexId, schema, schemaVersion,
                 schemaHash, shortKeyColumnCount, storageType, keysType, origStmt);
-        if (whereColumn != null) {
-            indexMeta.setWhereClause(whereColumn.getDefineExpr());
+        try {
+            indexMeta.parseWhereClause();
+        } catch (Exception e) {
+            LOG.warn("parse meta stmt failed", e);
         }
 
         indexIdToMeta.put(indexId, indexMeta);
