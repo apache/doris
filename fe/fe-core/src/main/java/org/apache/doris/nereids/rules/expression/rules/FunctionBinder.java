@@ -87,6 +87,8 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
 
         // bind function
         FunctionRegistry functionRegistry = context.cascadesContext.getConnectContext().getFunctionRegistry();
+        // FunctionRegistry only support builtin functions.
+        FunctionRegistry functionRegistry = context.getConnectContext().getEnv().getFunctionRegistry();
         String functionName = unboundFunction.getName();
         List<Object> arguments = unboundFunction.isDistinct()
                 ? ImmutableList.builder()
