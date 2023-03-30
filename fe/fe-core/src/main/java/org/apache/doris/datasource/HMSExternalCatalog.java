@@ -54,7 +54,9 @@ public class HMSExternalCatalog extends ExternalCatalog {
     private static final int MAX_CLIENT_POOL_SIZE = 8;
     protected PooledHiveMetaStoreClient client;
     // Record the latest synced event id when processing hive events
-    private long lastSyncedEventId;
+    // Must set to -1 otherwise client.getNextNotification will throw exception
+    // Reference to https://github.com/apache/doris/issues/18251
+    private long lastSyncedEventId = -1L;
     public static final String ENABLE_SELF_SPLITTER = "enable.self.splitter";
     public static final String FILE_META_CACHE_TTL_SECOND = "file.meta.cache.ttl-second";
 
