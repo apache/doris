@@ -25,6 +25,8 @@
 #include <filesystem>
 #include <mutex>
 #include <sstream>
+#include <string>
+#include <vector>
 
 #include "common/config.h"
 #include "gutil/strings/substitute.h"
@@ -72,79 +74,38 @@ const std::string GetDorisJNIClasspath() {
     int num_vms;
     int rv = JNI_GetCreatedJavaVMs(&g_vm, 1, &num_vms);
     if (rv == 0) {
-        JavaVMOption* options = nullptr;
-        auto classpath = GetDorisJNIClasspath();
-        // The following 5 opts are default opts,
-        // they can be override by JAVA_OPTS env var.
-        std::string heap_size = fmt::format("-Xmx{}", "1g");
-        std::string log_path = fmt::format("-DlogPath={}/log/jni.log", getenv("DORIS_HOME"));
-        std::string jvm_name = fmt::format("-Dsun.java.command={}", "DorisBE");
-        std::string critical_jni = "-XX:-CriticalJNINatives";
-        std::string max_fd_limit = "-XX:-MaxFDLimit";
+        std::vector<std::string> options;
 
         char* java_opts = getenv("JAVA_OPTS");
-        Defer defer {[&]() {
-            if (java_opts != nullptr) {
-                free(java_opts);
-            }
-            if (options != nullptr) {
-                free(options);
-            }
-        }};
-
-        int no_args;
         if (java_opts == nullptr) {
-            no_args = 5; // classpath, heapsize, log path, jvm_name, critical
+            options = {
+                    GetDorisJNIClasspath(), fmt::format("-Xmx{}", "1g"),
+                    fmt::format("-DlogPath={}/log/jni.log", getenv("DORIS_HOME")),
+                    fmt::format("-Dsun.java.command={}", "DorisBE"), "-XX:-CriticalJNINatives",
 #ifdef __APPLE__
-            no_args++; // -XX:-MaxFDLimit
+                    // On macOS, we should disable MaxFDLimit, otherwise the RLIMIT_NOFILE
+                    // will be assigned the minimum of OPEN_MAX (10240) and rlim_cur (See src/hotspot/os/bsd/os_bsd.cpp)
+                    // and it can not pass the check performed by storage engine.
+                    // The newer JDK has fixed this issue.
+                    "-XX:-MaxFDLimit"
 #endif
-            options = (JavaVMOption*)calloc(no_args, sizeof(JavaVMOption));
-            options[0].optionString = const_cast<char*>(classpath.c_str());
-            options[1].optionString = const_cast<char*>(heap_size.c_str());
-            options[2].optionString = const_cast<char*>(log_path.c_str());
-            options[3].optionString = const_cast<char*>(jvm_name.c_str());
-            options[4].optionString = const_cast<char*>(critical_jni.c_str());
-#ifdef __APPLE__
-            // On macOS, we should disable MaxFDLimit, otherwise the RLIMIT_NOFILE
-            // will be assigned the minimum of OPEN_MAX (10240) and rlim_cur (See src/hotspot/os/bsd/os_bsd.cpp)
-            // and it can not pass the check performed by storage engine.
-            // The newer JDK has fixed this issue.
-            options[5].optionString = const_cast<char*>(max_fd_limit.c_str());
-#endif
+            };
         } else {
-            // user specified opts
-            // 1. find the number of args
-            java_opts = strdup(java_opts);
-            char *str, *token, *save_ptr;
-            char jvm_arg_delims[] = " ";
-            for (no_args = 1, str = java_opts;; no_args++, str = nullptr) {
-                token = strtok_r(str, jvm_arg_delims, &save_ptr);
-                if (token == nullptr) {
-                    break;
-                }
-            }
-            free(java_opts);
-            // 2. set args
-            options = (JavaVMOption*)calloc(no_args, sizeof(JavaVMOption));
-            options[0].optionString = const_cast<char*>(classpath.c_str());
-            java_opts = getenv("JAVA_OPTS");
-            if (java_opts != NULL) {
-                java_opts = strdup(java_opts);
-                for (no_args = 1, str = java_opts;; no_args++, str = nullptr) {
-                    token = strtok_r(str, jvm_arg_delims, &save_ptr);
-                    if (token == nullptr) {
-                        break;
-                    }
-                    options[no_args].optionString = token;
-                }
-            }
+            std::istringstream stream(java_opts);
+            options = std::vector<std::string>(std::istream_iterator<std::string> {stream},
+                                               std::istream_iterator<std::string>());
+            options.push_back(GetDorisJNIClasspath());
+        }
+        std::unique_ptr<JavaVMOption[]> jvm_options(new JavaVMOption[options.size()]);
+        for (int i = 0; i < options.size(); ++i) {
+            jvm_options[i] = {const_cast<char*>(options[i].c_str()), nullptr};
         }
 
         JNIEnv* env;
         JavaVMInitArgs vm_args;
         vm_args.version = JNI_VERSION_1_8;
-        vm_args.options = options;
-        vm_args.nOptions = no_args;
+        vm_args.options = jvm_options.get();
+        vm_args.nOptions = options.size();
         // Set it to JNI_FALSE because JNI_TRUE will let JVM ignore the max size config.
         vm_args.ignoreUnrecognized = JNI_FALSE;
 

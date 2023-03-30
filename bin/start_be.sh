@@ -260,9 +260,10 @@ if [[ -z ${JAVA_OPTS} ]]; then
     # set default JAVA_OPTS
     CUR_DATE=$(date +%Y%m%d-%H%M%S)
     JAVA_OPTS="-Xmx1024m -DlogPath=${DORIS_HOME}/log/jni.log -Xloggc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} -Dsun.java.command=DorisBE -XX:-CriticalJNINatives"
-    if [[ "${MACHINE_OS}" == "Darwin" ]]; then
-        JAVA_OPTS="${JAVA_OPTS} -XX:-MaxFDLimit"
-    fi
+fi
+
+if [[ "${MACHINE_OS}" == "Darwin" ]]; then
+    JAVA_OPTS="${JAVA_OPTS} -XX:-MaxFDLimit"
 fi
 
 # set LIBHDFS_OPTS for hadoop libhdfs
