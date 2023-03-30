@@ -109,6 +109,9 @@ public:
     ClientCache<TPaloBrokerServiceClient>* broker_client_cache() { return _broker_client_cache; }
 
     pipeline::TaskScheduler* pipeline_task_scheduler() { return _pipeline_task_scheduler; }
+    pipeline::TaskScheduler* pipeline_task_group_scheduler() {
+        return _pipeline_task_group_scheduler;
+    }
 
     // using template to simplify client cache management
     template <typename T>
@@ -222,6 +225,8 @@ private:
     std::unordered_map<ThreadPoolToken*, std::unique_ptr<char[]>> _download_cache_buf_map;
     FragmentMgr* _fragment_mgr = nullptr;
     pipeline::TaskScheduler* _pipeline_task_scheduler = nullptr;
+    pipeline::TaskScheduler* _pipeline_task_group_scheduler = nullptr;
+
     ResultCache* _result_cache = nullptr;
     TMasterInfo* _master_info = nullptr;
     LoadPathMgr* _load_path_mgr = nullptr;

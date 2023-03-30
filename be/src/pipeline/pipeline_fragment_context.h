@@ -110,6 +110,8 @@ public:
         return _exec_status;
     }
 
+    taskgroup::TaskGroup* get_task_group() const { return _query_ctx->get_task_group(); }
+
 private:
     Status _create_sink(const TDataSink& t_data_sink);
     Status _build_pipelines(ExecNode*, PipelinePtr);
