@@ -70,8 +70,8 @@ public:
     bool is_null_literal() const override { return _is_null_literal; }
     void set_null_literal(bool flag) { _is_null_literal = flag; }
 
- private:
-     bool _is_null_literal = false;
+private:
+    bool _is_null_literal = false;
 };
 
 } // namespace doris::vectorized
