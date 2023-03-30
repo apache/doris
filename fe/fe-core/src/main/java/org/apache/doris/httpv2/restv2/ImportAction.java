@@ -78,7 +78,7 @@ public class ImportAction extends RestBaseController {
     @RequestMapping(path = "/api/import/file_review", method = RequestMethod.POST)
     public Object fileReview(@RequestBody FileReviewRequestVo body,
             HttpServletRequest request, HttpServletResponse response) {
-        if (Config.enable_https && request.getServerPort() == Config.http_port) {
+        if (needRedirect(request.getServerPort())) {
             RedirectView redirectView = new RedirectView("https://" + request.getServerName() + ":"
                     + Config.https_port + "/rest/v2/api/import/file_review");
             redirectView.setStatusCode(HttpStatus.TEMPORARY_REDIRECT);

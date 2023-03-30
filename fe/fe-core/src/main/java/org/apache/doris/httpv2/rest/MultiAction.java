@@ -54,7 +54,7 @@ public class MultiAction extends RestBaseController {
     public Object multi_desc(
             @PathVariable(value = DB_KEY) final String dbName,
             HttpServletRequest request, HttpServletResponse response) {
-        if (Config.enable_https && request.getServerPort() == Config.http_port) {
+        if (needRedirect(request.getServerPort())) {
             String query = request.getQueryString();
             RedirectView redirectView = new RedirectView("https://" + request.getServerName() + ":"
                     + Config.https_port + "/api/" + dbName + "/_multi_desc?" + query);
@@ -94,7 +94,7 @@ public class MultiAction extends RestBaseController {
             @PathVariable(value = DB_KEY) final String dbName,
             HttpServletRequest request, HttpServletResponse response)
             throws DdlException {
-        if (Config.enable_https && request.getServerPort() == Config.http_port) {
+        if (needRedirect(request.getServerPort())) {
             String query = request.getQueryString();
             RedirectView redirectView = new RedirectView("https://" + request.getServerName() + ":"
                     + Config.https_port + "/api/" + dbName + "/_multi_list?" + query);
@@ -128,7 +128,7 @@ public class MultiAction extends RestBaseController {
             @PathVariable(value = DB_KEY) final String dbName,
             HttpServletRequest request, HttpServletResponse response)
             throws DdlException {
-        if (Config.enable_https && request.getServerPort() == Config.http_port) {
+        if (needRedirect(request.getServerPort())) {
             String query = request.getQueryString();
             RedirectView redirectView = new RedirectView("https://" + request.getServerName() + ":"
                     + Config.https_port + "/api/" + dbName + "/_multi_start?" + query);
@@ -180,7 +180,7 @@ public class MultiAction extends RestBaseController {
     public Object multi_unload(
             @PathVariable(value = DB_KEY) final String dbName,
             HttpServletRequest request, HttpServletResponse response) {
-        if (Config.enable_https && request.getServerPort() == Config.http_port) {
+        if (needRedirect(request.getServerPort())) {
             String query = request.getQueryString();
             RedirectView redirectView = new RedirectView("https://" + request.getServerName() + ":"
                     + Config.https_port + "/api/" + dbName + "/_multi_unload?" + query);
@@ -222,7 +222,7 @@ public class MultiAction extends RestBaseController {
             @PathVariable(value = DB_KEY) final String dbName,
             HttpServletRequest request, HttpServletResponse response)
             throws DdlException {
-        if (Config.enable_https && request.getServerPort() == Config.http_port) {
+        if (needRedirect(request.getServerPort())) {
             String query = request.getQueryString();
             RedirectView redirectView = new RedirectView("https://" + request.getServerName() + ":"
                     + Config.https_port + "/api/" + dbName + "/_multi_commit?" + query);
@@ -264,7 +264,7 @@ public class MultiAction extends RestBaseController {
             @PathVariable(value = DB_KEY) final String dbName,
             HttpServletRequest request, HttpServletResponse response)
             throws DdlException {
-        if (Config.enable_https && request.getServerPort() == Config.http_port) {
+        if (needRedirect(request.getServerPort())) {
             String query = request.getQueryString();
             RedirectView redirectView = new RedirectView("https://" + request.getServerName() + ":"
                     + Config.https_port + "/api/" + dbName + "/_multi_abort?" + query);

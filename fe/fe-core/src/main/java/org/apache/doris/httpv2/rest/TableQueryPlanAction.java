@@ -87,7 +87,7 @@ public class TableQueryPlanAction extends RestBaseController {
             @PathVariable(value = DB_KEY) final String dbName,
             @PathVariable(value = TABLE_KEY) final String tblName,
             HttpServletRequest request, HttpServletResponse response) {
-        if (Config.enable_https && request.getServerPort() == Config.http_port) {
+        if (needRedirect(request.getServerPort())) {
             RedirectView redirectView = new RedirectView("https://" + request.getServerName() + ":"
                     + Config.https_port + "/api/" + dbName + "/" + tblName + "/_query_plan");
             redirectView.setStatusCode(HttpStatus.TEMPORARY_REDIRECT);

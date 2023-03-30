@@ -85,7 +85,7 @@ public class StmtExecutionAction extends RestBaseController {
     @RequestMapping(path = "/api/query/{" + NS_KEY + "}/{" + DB_KEY + "}", method = {RequestMethod.POST})
     public Object executeSQL(@PathVariable(value = NS_KEY) String ns, @PathVariable(value = DB_KEY) String dbName,
             HttpServletRequest request, HttpServletResponse response, @RequestBody String body) {
-        if (Config.enable_https && request.getServerPort() == Config.http_port) {
+        if (needRedirect(request.getServerPort())) {
             RedirectView redirectView = new RedirectView("https://" + request.getServerName() + ":"
                     + Config.https_port + "/api/query/" + ns + "/" + dbName);
             redirectView.setStatusCode(org.springframework.http.HttpStatus.TEMPORARY_REDIRECT);
@@ -135,7 +135,7 @@ public class StmtExecutionAction extends RestBaseController {
     @RequestMapping(path = "/api/query_schema/{" + NS_KEY + "}/{" + DB_KEY + "}", method = {RequestMethod.POST})
     public Object querySchema(@PathVariable(value = NS_KEY) String ns, @PathVariable(value = DB_KEY) String dbName,
             HttpServletRequest request, HttpServletResponse response, @RequestBody String sql) {
-        if (Config.enable_https && request.getServerPort() == Config.http_port) {
+        if (needRedirect(request.getServerPort())) {
             RedirectView redirectView = new RedirectView("https://" + request.getServerName() + ":"
                     + Config.https_port + "/api/query_schema/" + ns + "/" + dbName);
             redirectView.setStatusCode(org.springframework.http.HttpStatus.TEMPORARY_REDIRECT);

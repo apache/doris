@@ -60,7 +60,7 @@ public class LoadAction extends RestBaseController {
     @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_load", method = RequestMethod.PUT)
     public Object load(HttpServletRequest request, HttpServletResponse response,
                        @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
-        if (Config.enable_https && request.getServerPort() == Config.http_port) {
+        if (needRedirect(request.getServerPort())) {
             String query = request.getQueryString();
             RedirectView redirectView = new RedirectView("https://" + request.getServerName() + ":"
                     + Config.https_port + "/api/" + db + "/" + table + "/_load?" + query);
@@ -82,7 +82,7 @@ public class LoadAction extends RestBaseController {
     public Object streamLoad(HttpServletRequest request,
                              HttpServletResponse response,
                              @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
-        if (Config.enable_https && request.getServerPort() == Config.http_port) {
+        if (needRedirect(request.getServerPort())) {
             RedirectView redirectView = new RedirectView("https://" + request.getServerName() + ":"
                     + Config.https_port + "/api/" + db + "/" + table + "/_stream_load");
             redirectView.setStatusCode(HttpStatus.TEMPORARY_REDIRECT);
@@ -97,7 +97,7 @@ public class LoadAction extends RestBaseController {
     public Object streamLoad2PC(HttpServletRequest request,
                                    HttpServletResponse response,
                                    @PathVariable(value = DB_KEY) String db) {
-        if (Config.enable_https && request.getServerPort() == Config.http_port) {
+        if (needRedirect(request.getServerPort())) {
             RedirectView redirectView = new RedirectView("https://" + request.getServerName() + ":"
                     + Config.https_port + "/api/" + db + "/_stream_load_2pc");
             redirectView.setStatusCode(HttpStatus.TEMPORARY_REDIRECT);
@@ -113,7 +113,7 @@ public class LoadAction extends RestBaseController {
                                       HttpServletResponse response,
                                       @PathVariable(value = DB_KEY) String db,
                                       @PathVariable(value = TABLE_KEY) String table) {
-        if (Config.enable_https && request.getServerPort() == Config.http_port) {
+        if (needRedirect(request.getServerPort())) {
             RedirectView redirectView = new RedirectView("https://" + request.getServerName() + ":"
                     + Config.https_port + "/api/" + db + "/" + table + "/_stream_load_2pc");
             redirectView.setStatusCode(HttpStatus.TEMPORARY_REDIRECT);

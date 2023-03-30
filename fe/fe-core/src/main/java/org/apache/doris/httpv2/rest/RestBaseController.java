@@ -20,6 +20,7 @@ package org.apache.doris.httpv2.rest;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.Config;
 import org.apache.doris.httpv2.controller.BaseController;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
 import org.apache.doris.qe.ConnectContext;
@@ -171,5 +172,9 @@ public class RestBaseController extends BaseController {
             fullDbName = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName);
         }
         return fullDbName;
+    }
+
+    public boolean needRedirect(int serverPort) {
+        return Config.enable_https && serverPort == Config.http_port;
     }
 }

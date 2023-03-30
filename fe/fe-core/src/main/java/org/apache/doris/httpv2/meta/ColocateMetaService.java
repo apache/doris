@@ -105,7 +105,7 @@ public class ColocateMetaService extends RestBaseController {
     @RequestMapping(path = "/api/colocate/group_stable", method = {RequestMethod.POST, RequestMethod.DELETE})
     public Object group_stable(HttpServletRequest request, HttpServletResponse response)
             throws DdlException {
-        if (Config.enable_https && request.getServerPort() == Config.http_port) {
+        if (needRedirect(request.getServerPort())) {
             String query = request.getQueryString();
             RedirectView redirectView = new RedirectView("https://" + request.getServerName() + ":"
                     + Config.https_port + "/api/colocate/group_stable?" + query);
@@ -128,7 +128,7 @@ public class ColocateMetaService extends RestBaseController {
     @RequestMapping(path = "/api/colocate/bucketseq", method = RequestMethod.POST)
     public Object bucketseq(HttpServletRequest request, HttpServletResponse response, @RequestBody String meta)
             throws DdlException {
-        if (Config.enable_https && request.getServerPort() == Config.http_port) {
+        if (needRedirect(request.getServerPort())) {
             String query = request.getQueryString();
             RedirectView redirectView = new RedirectView("https://" + request.getServerName() + ":"
                     + Config.https_port + "/api/colocate/bucketseq?" + query);

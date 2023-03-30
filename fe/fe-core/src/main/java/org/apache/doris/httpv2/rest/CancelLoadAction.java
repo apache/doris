@@ -47,7 +47,7 @@ public class CancelLoadAction extends RestBaseController {
     @RequestMapping(path = "/api/{" + DB_KEY + "}/_cancel", method = RequestMethod.POST)
     public Object execute(@PathVariable(value = DB_KEY) final String dbName,
                           HttpServletRequest request, HttpServletResponse response) {
-        if (Config.enable_https && request.getServerPort() == Config.http_port) {
+        if (needRedirect(request.getServerPort())) {
             String query = request.getQueryString();
             RedirectView redirectView = new RedirectView("https://" + request.getServerName() + ":"
                     + Config.https_port + "/api/" + dbName + "/_cancel?" + query);

@@ -77,7 +77,7 @@ public class UploadAction extends RestBaseController {
             @PathVariable(value = TABLE_KEY) String tblName,
             @RequestParam("file") MultipartFile file,
             HttpServletRequest request, HttpServletResponse response) {
-        if (Config.enable_https && request.getServerPort() == Config.http_port) {
+        if (needRedirect(request.getServerPort())) {
             String query = request.getQueryString();
             RedirectView redirectView = new RedirectView("https://" + request.getServerName() + ":"
                     + Config.https_port + "/api/" + ns + "/" + dbName + "/" + tblName + "/upload?" + query);
