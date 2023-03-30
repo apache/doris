@@ -27,6 +27,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 
 public class LambdaFunctionExpr extends Expr {
@@ -69,9 +70,17 @@ public class LambdaFunctionExpr extends Expr {
         if (this.children.size() == 0) {
             this.children.add(slotExpr.get(0));
         }
+        HashSet<String> nameSet = new HashSet<>();
         // the first is lambda
         int size = slotExpr.size();
         for (int i = size - 1; i < names.size(); ++i) {
+            if (nameSet.contains(names.get(i))) {
+                throw new AnalysisException(
+                        "The lambda function of params " + names.get(i) + " has already been repeated, "
+                                + "you should give a unique name for every param.");
+            } else {
+                nameSet.add(names.get(i));
+            }
             Expr param = params.get(i);
             Type paramType = param.getType();
             if (!paramType.isArrayType()) {
