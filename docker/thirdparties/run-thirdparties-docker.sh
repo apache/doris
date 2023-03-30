@@ -220,7 +220,7 @@ if [[ "${RUN_SQLSERVER}" -eq 1 ]]; then
 fi
 
 if [[ "${RUN_CLICKHOUSE}" -eq 1 ]]; then
-    # sqlserver
+    # clickhouse
     cp "${ROOT}"/docker-compose/clickhouse/clickhouse.yaml.tpl "${ROOT}"/docker-compose/clickhouse/clickhouse.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/clickhouse/clickhouse.yaml
     sudo docker compose -f "${ROOT}"/docker-compose/clickhouse/clickhouse.yaml --env-file "${ROOT}"/docker-compose/clickhouse/clickhouse.env down
