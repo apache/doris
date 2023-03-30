@@ -46,7 +46,7 @@ public class HistogramTask extends BaseAnalysisTask {
             + "    ${idxId} AS idx_id, "
             + "    '${colId}' AS col_id, "
             + "    ${sampleRate} AS sample_rate, "
-            + "    HISTOGRAM(`${colName}`, 1, ${maxBucketNum}) AS buckets, "
+            + "    HISTOGRAM(`${colName}`, ${maxBucketNum}) AS buckets, "
             + "    NOW() AS create_time "
             + "FROM "
             + "    `${dbName}`.`${tblName}`";
@@ -89,8 +89,9 @@ public class HistogramTask extends BaseAnalysisTask {
         } else {
             try {
                 tbl.readLock();
-                String partNames = info.partitionNames.stream()
+                String partNames = partitionNames.stream()
                         .filter(x -> tbl.getPartition(x) != null)
+                        .map(partName ->  "`" + partName + "`")
                         .collect(Collectors.joining(","));
                 params.put("partName", partNames);
                 StringSubstitutor stringSubstitutor = new StringSubstitutor(params);

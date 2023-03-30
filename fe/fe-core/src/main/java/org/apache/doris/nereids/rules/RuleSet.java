@@ -158,9 +158,17 @@ public class RuleSet {
             .add(JoinExchangeBothProject.INSTANCE)
             .build();
 
-    public List<Rule> getExplorationRules() {
+    public List<Rule> getZigZagTreeJoinReorder() {
         List<Rule> rules = new ArrayList<>();
         rules.addAll(ZIG_ZAG_TREE_JOIN_REORDER);
+        rules.addAll(OTHER_REORDER_RULES);
+        rules.addAll(EXPLORATION_RULES);
+        return rules;
+    }
+
+    public List<Rule> getBushyTreeJoinReorder() {
+        List<Rule> rules = new ArrayList<>();
+        rules.addAll(BUSHY_TREE_JOIN_REORDER);
         rules.addAll(OTHER_REORDER_RULES);
         rules.addAll(EXPLORATION_RULES);
         return rules;

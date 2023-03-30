@@ -256,6 +256,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("if", new Integer(SqlParserSymbols.KW_IF));
         keywordMap.put("immediate", new Integer(SqlParserSymbols.KW_IMMEDIATE));
         keywordMap.put("in", new Integer(SqlParserSymbols.KW_IN));
+        keywordMap.put("incremental", new Integer(SqlParserSymbols.KW_INCREMENTAL));
         keywordMap.put("index", new Integer(SqlParserSymbols.KW_INDEX));
         keywordMap.put("indexes", new Integer(SqlParserSymbols.KW_INDEXES));
         keywordMap.put("infile", new Integer(SqlParserSymbols.KW_INFILE));

@@ -18,8 +18,7 @@
 #include "olap/rowset/segment_v2/binary_dict_page.h"
 
 #include "gutil/strings/substitute.h" // for Substitute
-#include "runtime/mem_pool.h"
-#include "util/slice.h" // for Slice
+#include "util/slice.h"               // for Slice
 #include "vec/columns/column.h"
 
 namespace doris {
@@ -81,7 +80,7 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
             } else {
                 Slice dict_item(src->data, src->size);
                 if (src->size > 0) {
-                    char* item_mem = (char*)_pool.allocate(src->size);
+                    char* item_mem = _arena.alloc(src->size);
                     if (item_mem == nullptr) {
                         return Status::MemoryAllocFailed("memory allocate failed, size:{}",
                                                          src->size);
@@ -152,7 +151,7 @@ size_t BinaryDictPageBuilder::count() const {
 }
 
 uint64_t BinaryDictPageBuilder::size() const {
-    return _pool.total_allocated_bytes() + _data_page_builder->size();
+    return _arena.used_size() + _data_page_builder->size();
 }
 
 Status BinaryDictPageBuilder::get_dictionary_page(OwnedSlice* dictionary_page) {

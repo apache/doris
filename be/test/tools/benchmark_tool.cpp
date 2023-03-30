@@ -50,7 +50,6 @@
 #include "olap/tablet_schema.h"
 #include "olap/tablet_schema_helper.h"
 #include "olap/types.h"
-#include "runtime/mem_pool.h"
 #include "testutil/test_util.h"
 #include "util/debug_util.h"
 
@@ -360,7 +359,7 @@ private:
     }
 
 private:
-    MemPool _pool;
+    vectorized::Arena _pool;
     TabletSchema _tablet_schema;
     std::shared_ptr<Schema> _schema;
 }; // namespace doris

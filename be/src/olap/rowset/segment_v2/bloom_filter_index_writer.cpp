@@ -25,7 +25,6 @@
 #include "olap/rowset/segment_v2/encoding_info.h"
 #include "olap/rowset/segment_v2/indexed_column_writer.h"
 #include "olap/types.h"
-#include "runtime/mem_pool.h"
 #include "util/faststring.h"
 #include "util/slice.h"
 
@@ -69,7 +68,6 @@ public:
                                         const TypeInfo* type_info)
             : _bf_options(bf_options),
               _type_info(type_info),
-              _pool(),
               _has_null(false),
               _bf_buffer_size(0) {}
 
@@ -81,7 +79,7 @@ public:
             if (_values.find(*v) == _values.end()) {
                 if constexpr (_is_slice_type()) {
                     CppType new_value;
-                    _type_info->deep_copy(&new_value, v, &_pool);
+                    _type_info->deep_copy(&new_value, v, &_arena);
                     _values.insert(new_value);
                 } else if constexpr (_is_int128()) {
                     int128_t new_value;
@@ -144,7 +142,7 @@ public:
 
     uint64_t size() override {
         uint64_t total_size = _bf_buffer_size;
-        total_size += _pool.total_allocated_bytes();
+        total_size += _arena.used_size();
         return total_size;
     }
 
@@ -160,7 +158,7 @@ private:
 private:
     BloomFilterOptions _bf_options;
     const TypeInfo* _type_info;
-    MemPool _pool;
+    vectorized::Arena _arena;
     bool _has_null;
     uint64_t _bf_buffer_size;
     // distinct values
@@ -223,7 +221,7 @@ Status NGramBloomFilterIndexWriterImpl::finish(io::FileWriter* file_writer,
 
 uint64_t NGramBloomFilterIndexWriterImpl::size() {
     uint64_t total_size = _bf_buffer_size;
-    total_size += _pool.total_allocated_bytes();
+    total_size += _arena.size();
     return total_size;
 }
 

@@ -24,7 +24,6 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -63,6 +62,8 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         refreshInfo.analyze(analyzer);
+        queryStmt.setNeedToSql(true);
+        queryStmt.setToSQLWithHint(true);
         queryStmt.analyze(analyzer);
         if (queryStmt instanceof SelectStmt) {
             analyzeSelectClause((SelectStmt) queryStmt);
@@ -74,7 +75,7 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
         super.analyze(analyzer);
     }
 
-    private void analyzeSelectClause(SelectStmt selectStmt) throws AnalysisException, DdlException {
+    private void analyzeSelectClause(SelectStmt selectStmt) throws AnalysisException {
         for (TableRef tableRef : selectStmt.getTableRefs()) {
             Table table = null;
             if (tableRef instanceof BaseTableRef) {
@@ -98,9 +99,8 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
         columnDefs = generateColumnDefinitions(selectStmt.getSelectList());
     }
 
-    private List<ColumnDef> generateColumnDefinitions(SelectList selectList) throws AnalysisException, DdlException {
-        List<MVColumnItem> mvColumnItems = generateMVColumnItems(selectList);
-        List<Column> schema = generateSchema(mvColumnItems);
+    private List<ColumnDef> generateColumnDefinitions(SelectList selectList) throws AnalysisException {
+        List<Column> schema = generateSchema(selectList);
         return schema.stream()
                 .map(column -> new ColumnDef(
                         column.getName(),
@@ -113,45 +113,47 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
                 ).collect(Collectors.toList());
     }
 
-    private List<Column> generateSchema(List<MVColumnItem> mvColumnItems) throws DdlException {
-        List<Column> columns = Lists.newArrayList();
-        for (MVColumnItem mvColumnItem : mvColumnItems) {
-            Table table = tables.get(mvColumnItem.getBaseTableName());
-            columns.add(mvColumnItem.toMVColumn(table));
-        }
-        return columns;
-    }
-
-    private List<MVColumnItem> generateMVColumnItems(SelectList selectList)
-            throws AnalysisException {
-        Map<String, MVColumnItem> uniqueMVColumnItems = Maps.newLinkedHashMap();
+    private List<Column> generateSchema(SelectList selectList) throws AnalysisException {
+        Map<String, Column> uniqueMVColumnItems = Maps.newLinkedHashMap();
         for (SelectListItem item : selectList.getItems()) {
-            MVColumnItem mvColumnItem = generateMVColumnItem(item);
-            if (uniqueMVColumnItems.put(mvColumnItem.getName(), mvColumnItem) != null) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, mvColumnItem.getName());
+            Column column  = generateMTMVColumn(item);
+            if (uniqueMVColumnItems.put(column.getName(), column) != null) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, column.getName());
             }
         }
-        return Lists.newArrayList(uniqueMVColumnItems.values().iterator());
+
+        return Lists.newArrayList(uniqueMVColumnItems.values());
     }
 
-    private MVColumnItem generateMVColumnItem(SelectListItem item) {
+    private Column generateMTMVColumn(SelectListItem item) throws AnalysisException {
         Expr itemExpr = item.getExpr();
-        MVColumnItem mvColumnItem = null;
+        String alias = item.getAlias();
+        Column mtmvColumn = null;
         if (itemExpr instanceof SlotRef) {
             SlotRef slotRef = (SlotRef) itemExpr;
-            String alias = item.getAlias();
             String name = (alias != null) ? alias.toLowerCase() : slotRef.getColumnName().toLowerCase();
-            mvColumnItem = new MVColumnItem(
-                    name,
-                    slotRef.getType(),
-                    slotRef.getColumn().getAggregationType(),
-                    slotRef.getColumn().isAggregationTypeImplicit(),
-                    null,
-                    slotRef.getColumnName(),
-                    slotRef.getDesc().getParent().getTable().getName()
-            );
+            mtmvColumn = new Column(name, slotRef.getType(), true);
+        } else if (itemExpr instanceof FunctionCallExpr && ((FunctionCallExpr) itemExpr).isAggregateFunction()) {
+            FunctionCallExpr functionCallExpr = (FunctionCallExpr) itemExpr;
+            String functionName = functionCallExpr.getFnName().getFunction();
+            MVColumnPattern mvColumnPattern = CreateMaterializedViewStmt.FN_NAME_TO_PATTERN
+                    .get(functionName.toLowerCase());
+            if (mvColumnPattern == null) {
+                throw new AnalysisException(
+                        "Materialized view does not support this function:" + functionCallExpr.toSqlImpl());
+            }
+            if (!mvColumnPattern.match(functionCallExpr)) {
+                throw new AnalysisException("The function " + functionName + " must match pattern:" + mvColumnPattern);
+            }
+            String name;
+            if (alias != null) {
+                name = alias.toLowerCase();
+                mtmvColumn = new Column(name, functionCallExpr.getType(), true);
+            } else {
+                throw new AnalysisException("Function expr: " + functionName + " must have a alias name for MTMV.");
+            }
         }
-        return mvColumnItem;
+        return mtmvColumn;
     }
 
     @Override

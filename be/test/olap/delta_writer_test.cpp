@@ -37,7 +37,6 @@
 #include "olap/utils.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
-#include "runtime/mem_pool.h"
 
 namespace doris {
 
@@ -428,8 +427,6 @@ TEST_F(TestDeltaWriter, vec_write) {
     DeltaWriter::open(&write_req, &delta_writer, TUniqueId());
     ASSERT_NE(delta_writer, nullptr);
 
-    MemPool pool;
-
     vectorized::Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {
         block.insert(vectorized::ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
@@ -574,8 +571,6 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     DeltaWriter* delta_writer = nullptr;
     DeltaWriter::open(&write_req, &delta_writer, TUniqueId());
     ASSERT_NE(delta_writer, nullptr);
-
-    MemPool pool;
 
     vectorized::Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {

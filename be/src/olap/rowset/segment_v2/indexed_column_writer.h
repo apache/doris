@@ -26,8 +26,8 @@
 #include "gutil/macros.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
-#include "runtime/mem_pool.h"
 #include "util/slice.h"
+#include "vec/common/arena.h"
 
 namespace doris {
 
@@ -90,7 +90,7 @@ private:
     const TypeInfo* _type_info;
     io::FileWriter* _file_writer;
     // only used for `_first_value`
-    MemPool _mem_pool;
+    vectorized::Arena _arena;
 
     ordinal_t _num_values;
     uint32_t _num_data_pages;
