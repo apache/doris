@@ -40,7 +40,6 @@ import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
@@ -55,6 +54,7 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.context.Context;
@@ -261,11 +261,12 @@ public class NereidsPlanner extends Planner {
         if (root.isJoinGroup()) {
             // If the root group is join group, DPHyp can change the root group.
             // To keep the root group is not changed, we add a project operator above join
-            List<Slot> outputs = root.getLogicalExpression().getPlan().getOutput();
-            LogicalPlan plan = new LogicalProject(outputs, root.getLogicalExpression().getPlan());
+            List<NamedExpression> outputs = ImmutableList.copyOf(root.getLogicalExpression().getPlan().getOutput());
+            LogicalPlan plan = new LogicalProject<>(outputs, root.getLogicalExpression().getPlan());
             CopyInResult copyInResult = cascadesContext.getMemo().copyIn(plan, null, false);
             root = copyInResult.correspondingExpression.getOwnerGroup();
         }
+        cascadesContext.getStatementContext().setDpHyp(true);
         cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
     }

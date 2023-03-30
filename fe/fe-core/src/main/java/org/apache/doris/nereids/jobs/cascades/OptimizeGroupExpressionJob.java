@@ -24,6 +24,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.rules.Rule;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 
@@ -57,10 +58,13 @@ public class OptimizeGroupExpressionJob extends Job {
     private List<Rule> getExplorationRules() {
         boolean isDisableJoinReorder = context.getCascadesContext().getConnectContext().getSessionVariable()
                 .isDisableJoinReorder();
+        boolean isDpHyp = context.getCascadesContext().getStatementContext().isDpHyp();
         boolean isEnableBushyTree = context.getCascadesContext().getConnectContext().getSessionVariable()
                 .isEnableBushyTree();
         if (isDisableJoinReorder) {
-            return getRuleSet().getExplorationRulesWithoutReorder();
+            return Collections.emptyList();
+        } else if (isDpHyp) {
+            return getRuleSet().getOtherReorderRules();
         } else if (isEnableBushyTree) {
             return getRuleSet().getBushyTreeJoinReorder();
         } else if (context.getCascadesContext().getStatementContext().getMaxNAryInnerJoin() <= 5) {
