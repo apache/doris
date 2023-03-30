@@ -67,8 +67,6 @@ CONF_String(mem_limit, "auto");
 // Soft memory limit as a fraction of hard memory limit.
 CONF_Double(soft_mem_limit_frac, "0.9");
 
-CONF_mInt32(hash_table_double_grow_degree, "31");
-
 // The maximum low water mark of the system `/proc/meminfo/MemAvailable`, Unit byte, default 1.6G,
 // actual low water mark=min(1.6G, MemTotal * 10%), avoid wasting too much memory on machines
 // with large memory larger than 16G.
