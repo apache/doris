@@ -31,9 +31,7 @@ public:
                       const std::list<vectorized::VScanner*>& scanners, int64_t limit,
                       int64_t max_bytes_in_blocks_queue)
             : vectorized::ScannerContext(state, parent, input_tuple_desc, output_tuple_desc,
-                                         scanners, limit, max_bytes_in_blocks_queue) {
-        _should_resche_after_scanner_finished = false;
-    }
+                                         scanners, limit, max_bytes_in_blocks_queue) {}
 
     Status get_block_from_queue(RuntimeState* state, vectorized::BlockUPtr* block, bool* eos,
                                 int id, bool wait = false) override {
@@ -52,13 +50,13 @@ public:
             std::unique_lock<std::mutex> l(*_queue_mutexs[id]);
             if (!_blocks_queues[id].empty()) {
                 *block = std::move(_blocks_queues[id].front());
-                _current_used_bytes -= (*block)->allocated_bytes();
                 _blocks_queues[id].pop_front();
-                return Status::OK();
             } else {
                 *eos = _is_finished || _should_stop;
+                return Status::OK();
             }
         }
+        _current_used_bytes -= (*block)->allocated_bytes();
         return Status::OK();
     }
 
@@ -69,12 +67,15 @@ public:
         const int queue_size = _queue_mutexs.size();
         const int block_size = blocks.size();
         int64_t local_bytes = 0;
+        for (const auto& block : blocks) {
+            local_bytes += block->allocated_bytes();
+        }
+
         for (int i = 0; i < queue_size && i < block_size; ++i) {
             int queue = _next_queue_to_feed;
             {
                 std::lock_guard<std::mutex> l(*_queue_mutexs[queue]);
                 for (int j = i; j < block_size; j += queue_size) {
-                    local_bytes += blocks[j]->allocated_bytes();
                     _blocks_queues[queue].emplace_back(std::move(blocks[j]));
                 }
             }
@@ -88,7 +89,8 @@ public:
         return _blocks_queues[id].empty();
     }
 
-    void set_max_queue_size(int max_queue_size) override {
+    void set_max_queue_size(const int max_queue_size) override {
+        _max_queue_size = max_queue_size;
         for (int i = 0; i < max_queue_size; ++i) {
             _queue_mutexs.emplace_back(new std::mutex);
             _blocks_queues.emplace_back(std::list<vectorized::BlockUPtr>());
@@ -96,10 +98,11 @@ public:
     }
 
     bool has_enough_space_in_blocks_queue() const override {
-        return _current_used_bytes < _max_bytes_in_queue / 2;
+        return _current_used_bytes < _max_bytes_in_queue / 2 * _max_queue_size;
     }
 
 private:
+    int _max_queue_size = 1;
     int _next_queue_to_feed = 0;
     std::vector<std::unique_ptr<std::mutex>> _queue_mutexs;
     std::vector<std::list<vectorized::BlockUPtr>> _blocks_queues;

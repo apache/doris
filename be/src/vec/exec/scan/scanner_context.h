@@ -188,7 +188,6 @@ protected:
     int _batch_size;
     // The limit from SQL's limit clause
     int64_t limit;
-    bool _should_resche_after_scanner_finished = true;
 
     // Current number of running scanners.
     std::atomic_int32_t _num_running_scanners = 0;
