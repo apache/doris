@@ -451,7 +451,6 @@ public class Memo {
         }
         GROUP_MERGE_TRACER.log(GroupMergeEvent.of(source, destination, needReplaceChild));
 
-        Map<Group, Group> needMergeGroupPairs = Maps.newHashMap();
         for (GroupExpression reinsertGroupExpr : needReplaceChild) {
             // After change GroupExpression children, hashcode will change, so need to reinsert into map.
             groupExpressions.remove(reinsertGroupExpr);
@@ -472,7 +471,7 @@ public class Memo {
                     reinsertGroupExpr.mergeTo(existGroupExpr);
                 } else {
                     // reinsertGroupExpr & existGroupExpr aren't in same group, need to merge their OwnerGroup.
-                    needMergeGroupPairs.put(reinsertGroupExpr.getOwnerGroup(), existGroupExpr.getOwnerGroup());
+                    mergeGroup(reinsertGroupExpr.getOwnerGroup(), existGroupExpr.getOwnerGroup());
                 }
             } else {
                 groupExpressions.put(reinsertGroupExpr, reinsertGroupExpr);
@@ -483,7 +482,6 @@ public class Memo {
             groups.remove(source.getGroupId());
         }
 
-        needMergeGroupPairs.forEach(this::mergeGroup);
         return destination;
     }
 
