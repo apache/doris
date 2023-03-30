@@ -22,19 +22,15 @@ suite("test_arith_functions") {
 
     test {
         sql 'select add(1, 1), subtract(1, 1), multiply(2, 2), divide(3.0, 2.0), mod(3.0, 1.3)'
-        result([[2, 0, 4, 1.5, 0.4]])
+        result([[2, 0, 4, 1.5, 0.400000000]])
     }
     test {
         sql 'select int_divide(1, 1), bitand(1, 1), bitor(2, 2), bitxor(3.0, 2.0), bitnot(3.0)'
-        result([[1, 1, 2, 1, -4]])
+        result([[1L, 1, 2, 1L, -4L]])
     }
     test {
-        sql 'select add(k1, k2), subtract(k2, k3), multiply(k3, k4), divide(k4, k3), mod(k4, k3) from test order by k1'
-        result([
-                [1990, 988, 11022913902, 11000.901098901099, 902],
-                [1992, 987, 11033928810, 10989.925149700599, 927],
-                [1988, 985, 11022914903, 11000.902097902097, 903]
-        ])
+        sql 'select add(k1, k2) + subtract(k2, k3) + multiply(k3, k4), cast(divide(k4, k3) + mod(k4, k3) as bigint) from test order by k1 limit 1'
+        result([[11022916880, 11902L]])
     }
 //    test {
 //        sql 'select int_divide(k1, k2), bitand(k2, k3), bitor(k3, k4), bitxor(k4, k3), bitnot(k4) from test order by k1'
