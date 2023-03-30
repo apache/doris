@@ -36,9 +36,7 @@ import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.task.PushTask;
 import org.apache.doris.thrift.TPriority;
-import org.apache.doris.thrift.TResourceInfo;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -857,8 +855,8 @@ public class LoadJob implements Writable {
         }
 
         if (in.readBoolean()) {
-            String user = Text.readString(in);
-            String group = Text.readString(in);
+            Text.readString(in);
+            Text.readString(in);
         }
 
         this.priority = TPriority.valueOf(Text.readString(in));

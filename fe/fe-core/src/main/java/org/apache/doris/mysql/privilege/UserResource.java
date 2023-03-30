@@ -18,6 +18,7 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.common.io.Text;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
