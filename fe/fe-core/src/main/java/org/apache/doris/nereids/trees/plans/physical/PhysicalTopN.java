@@ -39,7 +39,7 @@ import java.util.Optional;
  * Physical top-N plan.
  */
 public class PhysicalTopN<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<CHILD_TYPE> implements TopN {
-
+    public static String TOPN_RUNTIME_FILTER = "topn_runtime_filter";
     private final long limit;
     private final long offset;
 
@@ -54,10 +54,8 @@ public class PhysicalTopN<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<
     public PhysicalTopN(List<OrderKey> orderKeys, long limit, long offset,
             SortPhase phase, Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_TOP_N, orderKeys, phase, groupExpression, logicalProperties, child);
-        Objects.requireNonNull(orderKeys, "orderKeys should not be null in PhysicalTopN.");
-        this.limit = limit;
-        this.offset = offset;
+        this(orderKeys, limit, offset, phase, groupExpression, logicalProperties,
+                null, null, child);
     }
 
     /**

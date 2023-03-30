@@ -36,9 +36,9 @@
 #include "http/http_headers.h"
 #include "http/http_request.h"
 #include "http/http_response.h"
+#include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "util/bfd_parser.h"
-#include "util/file_utils.h"
 #include "util/pprof_utils.h"
 
 namespace doris {
@@ -293,7 +293,7 @@ void SymbolAction::handle(HttpRequest* req) {
 
 Status PprofActions::setup(ExecEnv* exec_env, EvHttpServer* http_server, ObjectPool& pool) {
     if (!config::pprof_profile_dir.empty()) {
-        FileUtils::create_dir(config::pprof_profile_dir);
+        RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(config::pprof_profile_dir));
     }
 
     http_server->register_handler(HttpMethod::GET, "/pprof/heap", pool.add(new HeapAction()));

@@ -398,20 +398,33 @@ Status Compaction::construct_input_rowset_readers() {
 Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
     std::vector<RowsetSharedPtr> output_rowsets;
     output_rowsets.push_back(_output_rowset);
-    uint64_t missed_rows = 0;
 
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
         Version version = _tablet->max_version();
         DeleteBitmap output_rowset_delete_bitmap(_tablet->tablet_id());
+        std::set<RowLocation> missed_rows;
         std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>> location_map;
         // Convert the delete bitmap of the input rowsets to output rowset.
         // New loads are not blocked, so some keys of input rowsets might
         // be deleted during the time. We need to deal with delete bitmap
         // of incremental data later.
-        missed_rows += _tablet->calc_compaction_output_rowset_delete_bitmap(
-                _input_rowsets, _rowid_conversion, 0, version.second + 1, &location_map,
-                &output_rowset_delete_bitmap);
+        _tablet->calc_compaction_output_rowset_delete_bitmap(
+                _input_rowsets, _rowid_conversion, 0, version.second + 1, &missed_rows,
+                &location_map, &output_rowset_delete_bitmap);
+        std::size_t missed_rows_size = missed_rows.size();
+        if (compaction_type() == READER_CUMULATIVE_COMPACTION) {
+            std::string err_msg = fmt::format(
+                    "cumulative compaction: the merged rows({}) is not equal to missed "
+                    "rows({}) in rowid conversion, tablet_id: {}, table_id:{}",
+                    stats->merged_rows, missed_rows_size, _tablet->tablet_id(),
+                    _tablet->table_id());
+            DCHECK(stats == nullptr || stats->merged_rows == missed_rows_size) << err_msg;
+            if (stats != nullptr && stats->merged_rows != missed_rows_size) {
+                LOG(WARNING) << err_msg;
+            }
+        }
+
         RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
         location_map.clear();
         {
@@ -420,21 +433,16 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
 
             // Convert the delete bitmap of the input rowsets to output rowset for
             // incremental data.
-            missed_rows += _tablet->calc_compaction_output_rowset_delete_bitmap(
-                    _input_rowsets, _rowid_conversion, version.second, UINT64_MAX, &location_map,
-                    &output_rowset_delete_bitmap);
-            RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
-
-            if (compaction_type() == READER_CUMULATIVE_COMPACTION) {
-                std::string err_msg = fmt::format(
-                        "cumulative compaction: the merged rows({}) is not equal to missed "
-                        "rows({}) in rowid conversion, tablet_id: {}, table_id:{}",
-                        stats->merged_rows, missed_rows, _tablet->tablet_id(), _tablet->table_id());
-                DCHECK(stats == nullptr || stats->merged_rows == missed_rows) << err_msg;
-                if (stats != nullptr && stats->merged_rows != missed_rows) {
-                    LOG(WARNING) << err_msg;
-                }
+            _tablet->calc_compaction_output_rowset_delete_bitmap(
+                    _input_rowsets, _rowid_conversion, version.second, UINT64_MAX, &missed_rows,
+                    &location_map, &output_rowset_delete_bitmap);
+            DCHECK_EQ(missed_rows.size(), missed_rows_size);
+            if (missed_rows.size() != missed_rows_size) {
+                LOG(WARNING) << "missed rows don't match, before: " << missed_rows_size
+                             << " after: " << missed_rows.size();
             }
+
+            RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
 
             _tablet->merge_delete_bitmap(output_rowset_delete_bitmap);
             RETURN_NOT_OK(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));

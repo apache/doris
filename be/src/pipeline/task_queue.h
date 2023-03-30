@@ -21,10 +21,39 @@
 #include "pipeline_task.h"
 
 namespace doris {
+namespace taskgroup {
+class TaskGroup;
+}
+
 namespace pipeline {
+
+class TaskQueue {
+public:
+    TaskQueue(size_t core_size) : _core_size(core_size) {}
+    virtual ~TaskQueue();
+    virtual void close() = 0;
+    // Get the task by core id.
+    // TODO: To think the logic is useful?
+    virtual PipelineTask* take(size_t core_id) = 0;
+
+    // push from scheduler
+    virtual Status push_back(PipelineTask* task) = 0;
+
+    // push from worker
+    virtual Status push_back(PipelineTask* task, size_t core_id) = 0;
+
+    virtual void update_statistics(PipelineTask* task, int64_t time_spent) {}
+
+    int cores() const { return _core_size; }
+
+protected:
+    size_t _core_size;
+    static constexpr auto WAIT_CORE_TASK_TIMEOUT_MS = 100;
+};
 
 class SubWorkTaskQueue {
     friend class WorkTaskQueue;
+    friend class NormalWorkTaskQueue;
 
 public:
     void push_back(PipelineTask* task) { _queue.emplace(task); }
@@ -47,9 +76,9 @@ private:
 };
 
 // Each thread have private MLFQ
-class WorkTaskQueue {
+class NormalWorkTaskQueue {
 public:
-    explicit WorkTaskQueue();
+    explicit NormalWorkTaskQueue();
 
     void close();
 
@@ -60,9 +89,6 @@ public:
     PipelineTask* take(uint32_t timeout_ms = 0);
 
     Status push(PipelineTask* task);
-
-    // Get the each thread task size to do
-    size_t size() { return _total_task_size; }
 
 private:
     static constexpr auto LEVEL_QUEUE_TIME_FACTOR = 1.5;
@@ -80,35 +106,73 @@ private:
 };
 
 // Need consider NUMA architecture
-class TaskQueue {
+class NormalTaskQueue : public TaskQueue {
 public:
-    explicit TaskQueue(size_t core_size) : _core_size(core_size), _closed(false) {
-        _async_queue.reset(new WorkTaskQueue[core_size]);
-    }
+    explicit NormalTaskQueue(size_t core_size);
 
-    ~TaskQueue() = default;
+    ~NormalTaskQueue() override;
 
-    void close();
+    void close() override;
 
     // Get the task by core id.
     // TODO: To think the logic is useful?
-    PipelineTask* try_take(size_t core_id);
-
-    PipelineTask* steal_take(size_t core_id);
+    PipelineTask* take(size_t core_id) override;
 
     // TODO combine these methods to `push_back(task, core_id = -1)`
-    Status push_back(PipelineTask* task);
+    Status push_back(PipelineTask* task) override;
 
-    Status push_back(PipelineTask* task, size_t core_id);
+    Status push_back(PipelineTask* task, size_t core_id) override;
 
-    int cores() const { return _core_size; }
+    // TODO pipeline update NormalWorkTaskQueue by time_spent.
+    // void update_statistics(PipelineTask* task, int64_t time_spent) override;
 
 private:
-    std::unique_ptr<WorkTaskQueue[]> _async_queue;
-    size_t _core_size;
+    PipelineTask* _steal_take(size_t core_id);
+
+    std::unique_ptr<NormalWorkTaskQueue[]> _async_queue;
     std::atomic<size_t> _next_core = 0;
     std::atomic<bool> _closed;
-    static constexpr auto WAIT_CORE_TASK_TIMEOUT_MS = 100;
+};
+
+class TaskGroupTaskQueue : public TaskQueue {
+public:
+    explicit TaskGroupTaskQueue(size_t);
+    ~TaskGroupTaskQueue() override;
+
+    void close() override;
+
+    PipelineTask* take(size_t core_id) override;
+
+    // from TaskScheduler or BlockedTaskScheduler
+    Status push_back(PipelineTask* task) override;
+
+    // from worker
+    Status push_back(PipelineTask* task, size_t core_id) override;
+
+    void update_statistics(PipelineTask* task, int64_t time_spent) override;
+
+private:
+    template <bool from_executor>
+    Status _push_back(PipelineTask* task);
+    template <bool from_worker>
+    void _enqueue_task_group(taskgroup::TGEntityPtr);
+    void _dequeue_task_group(taskgroup::TGEntityPtr);
+    taskgroup::TGEntityPtr _next_tg_entity();
+    int64_t _ideal_runtime_ns(taskgroup::TGEntityPtr tg_entity) const;
+    void _update_min_tg();
+
+    // Like cfs rb tree in sched_entity
+    struct TaskGroupSchedEntityComparator {
+        bool operator()(const taskgroup::TGEntityPtr&, const taskgroup::TGEntityPtr&) const;
+    };
+    using ResouceGroupSet = std::set<taskgroup::TGEntityPtr, TaskGroupSchedEntityComparator>;
+    ResouceGroupSet _group_entities;
+    std::condition_variable _wait_task;
+    std::mutex _rs_mutex;
+    bool _closed = false;
+    int _total_cpu_share = 0;
+    std::atomic<taskgroup::TGEntityPtr> _min_tg_entity = nullptr;
+    uint64_t _min_tg_v_runtime_ns = 0;
 };
 
 } // namespace pipeline

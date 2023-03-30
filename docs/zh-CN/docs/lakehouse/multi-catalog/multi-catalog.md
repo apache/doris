@@ -62,7 +62,7 @@ under the License.
     用户可以通过 [SWITCH](../../sql-manual/sql-reference/Utility-Statements/SWITCH.md) 命令切换 Catalog。如：
     
     ```
-    SWiTCH internal;
+    SWITCH internal;
     SWITCH hive_catalog;
     ```
     

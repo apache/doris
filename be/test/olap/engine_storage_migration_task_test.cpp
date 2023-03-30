@@ -27,6 +27,7 @@
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
+#include "io/fs/local_file_system.h"
 #include "olap/delta_writer.h"
 #include "olap/field.h"
 #include "olap/options.h"
@@ -36,8 +37,6 @@
 #include "olap/utils.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
-#include "runtime/mem_pool.h"
-#include "util/file_utils.h"
 
 namespace doris {
 
@@ -54,11 +53,8 @@ static void set_up() {
     path2 = std::string(buffer) + "/data_test_2";
     config::storage_root_path = path1 + ";" + path2;
     config::min_file_descriptor_number = 1000;
-    FileUtils::remove_all(path1);
-    FileUtils::create_dir(path1);
-
-    FileUtils::remove_all(path2);
-    FileUtils::create_dir(path2);
+    EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(path1).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(path2).ok());
     std::vector<StorePath> paths;
     paths.emplace_back(path1, -1);
     paths.emplace_back(path2, -1);
@@ -80,7 +76,9 @@ static void tear_down() {
     }
     EXPECT_EQ(system("rm -rf ./data_test_1"), 0);
     EXPECT_EQ(system("rm -rf ./data_test_2"), 0);
-    FileUtils::remove_all(std::string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX);
+    EXPECT_TRUE(io::global_local_filesystem()
+                        ->delete_directory(std::string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX)
+                        .ok());
 }
 
 static void create_tablet_request_with_sequence_col(int64_t tablet_id, int32_t schema_hash,
@@ -173,8 +171,6 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     DeltaWriter* delta_writer = nullptr;
     DeltaWriter::open(&write_req, &delta_writer);
     EXPECT_NE(delta_writer, nullptr);
-
-    MemPool pool;
 
     res = delta_writer->close();
     EXPECT_EQ(Status::OK(), res);

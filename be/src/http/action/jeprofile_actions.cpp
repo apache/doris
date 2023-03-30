@@ -31,7 +31,7 @@
 #include "http/http_handler.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
-#include "util/file_utils.h"
+#include "io/fs/local_file_system.h"
 
 namespace doris {
 
@@ -72,7 +72,7 @@ void JeHeapAction::handle(HttpRequest* req) {
 Status JeprofileActions::setup(doris::ExecEnv* exec_env, doris::EvHttpServer* http_server,
                                doris::ObjectPool& pool) {
     if (!config::jeprofile_dir.empty()) {
-        FileUtils::create_dir(config::jeprofile_dir);
+        RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(config::jeprofile_dir));
     }
     http_server->register_handler(HttpMethod::GET, "/jeheap/dump", pool.add(new JeHeapAction()));
     return Status::OK();

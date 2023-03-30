@@ -34,10 +34,13 @@ import java.util.List;
 
 public class LambdaFunctionCallExpr extends FunctionCallExpr {
     public static final ImmutableSet<String> LAMBDA_FUNCTION_SET = new ImmutableSortedSet.Builder(
-            String.CASE_INSENSITIVE_ORDER).add("array_map").add("array_filter").add("array_exists").build();
-
+            String.CASE_INSENSITIVE_ORDER).add("array_map").add("array_filter").add("array_exists").add("array_sortby")
+            .build();
+    // The functions in this set are all normal array functions when implemented initially.
+    // and then wants add lambda expr as the input param, so we rewrite it to contains an array_map lambda function
+    // rather than reimplementing a lambda function, this will be reused the implementation of normal array function
     public static final ImmutableSet<String> LAMBDA_MAPPED_FUNCTION_SET = new ImmutableSortedSet.Builder(
-            String.CASE_INSENSITIVE_ORDER).add("array_exists").build();
+            String.CASE_INSENSITIVE_ORDER).add("array_exists").add("array_sortby").build();
 
     private static final Logger LOG = LogManager.getLogger(LambdaFunctionCallExpr.class);
 
@@ -79,8 +82,10 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
             if (fnParams.exprs() == null || fnParams.exprs().size() < 2) {
                 throw new AnalysisException("The " + fnName.getFunction() + " function must have at least two params");
             }
-
-            // change the lambda expr to the first args position
+            // we always put the lambda expr at last position during the parser to get param type first,
+            // so here need change the lambda expr to the first args position for BE.
+            // array_map(x->x>1,[1,2,3]) ---> array_map([1,2,3], x->x>1) --->
+            // array_map(x->x>1, [1,2,3])
             if (getChild(childSize - 1) instanceof LambdaFunctionExpr) {
                 Type lastType = argTypes[childSize - 1];
                 Expr lastChild = getChild(childSize - 1);
@@ -138,8 +143,11 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
             if (fnParams.exprs() == null || fnParams.exprs().size() != 2) {
                 throw new AnalysisException("The " + fnName.getFunction() + " function must have two params");
             }
-            // array_filter(x->x>3, [1,2,3,6,34,3,11])
-            // ---> array_filter([1,2,3,6,34,3,11], array_map(x->x>3, [1,2,3,6,34,3,11]))
+            /*
+             * array_filter(x->x>3, [1,2,3,6,34,3,11]) --->
+             * array_filter([1,2,3,6,34,3,11],x->x>3)
+             * ---> array_filter([1,2,3,6,34,3,11], array_map(x->x>3, [1,2,3,6,34,3,11]))
+             */
             if (getChild(1) instanceof LambdaFunctionExpr) {
                 List<Expr> params = new ArrayList<>();
                 params.add(getChild(1));
@@ -157,6 +165,38 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
                 argTypes[1] = castExpr.getType();
             }
 
+            fn = getBuiltinFunction(fnName.getFunction(), argTypes,
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+            if (fn == null) {
+                LOG.warn("fn {} not exists", this.toSqlImpl());
+                throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
+            }
+            fn.setReturnType(getChild(0).getType());
+        } else if (fnName.getFunction().equalsIgnoreCase("array_sortby")) {
+            if (fnParams.exprs() == null || fnParams.exprs().size() < 2) {
+                throw new AnalysisException("The " + fnName.getFunction() + " function must have at least two params");
+            }
+            /*
+             * array_sortby((x,y)->(x+y), [1,-2,3], [10,11,12]) --->
+             * array_sortby([1,-2,3],[10,11,12], (x,y)->(x+y))
+             * ---> array_sortby([1,-2,3], array_map((x,y)->(x+y), [1,-2,3], [10,11,12]))
+             */
+            if (getChild(childSize - 1) instanceof LambdaFunctionExpr) {
+                List<Expr> params = new ArrayList<>();
+                for (int i = 0; i <= childSize - 1; ++i) {
+                    params.add(getChild(i));
+                }
+                LambdaFunctionCallExpr arrayMapFunc = new LambdaFunctionCallExpr("array_map",
+                        params);
+                arrayMapFunc.analyzeImpl(analyzer);
+                Expr firstExpr = getChild(0);
+                this.clearChildren();
+                this.addChild(firstExpr);
+                this.addChild(arrayMapFunc);
+                argTypes = new Type[2];
+                argTypes[0] = getChild(0).getType();
+                argTypes[1] = getChild(1).getType();
+            }
             fn = getBuiltinFunction(fnName.getFunction(), argTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             if (fn == null) {

@@ -398,6 +398,7 @@ terminal String
     KW_IF,
     KW_IMMEDIATE,
     KW_IN,
+    KW_INCREMENTAL,
     KW_INDEX,
     KW_INDEXES,
     KW_INFILE,
@@ -794,7 +795,7 @@ nonterminal SetVar option_value, option_value_follow_option_type, option_value_n
 nonterminal List<SetVar> option_value_list, option_value_list_continued, start_option_value_list,
         start_option_value_list_following_option_type, user_property_list;
 
-nonterminal Map<String, String> key_value_map, opt_key_value_map, opt_properties,
+nonterminal Map<String, String> key_value_map, opt_key_value_map, opt_key_value_map_in_paren, opt_properties,
             opt_ext_properties, opt_enable_feature_properties, properties;
 nonterminal ColumnDef column_definition;
 nonterminal IndexDef index_definition;
@@ -2791,17 +2792,26 @@ analyze_stmt ::=
     {:
         boolean is_whole_tbl = (cols == null);
         boolean is_histogram = false;
-        RESULT = new AnalyzeStmt(tbl, cols, partitionNames, properties, is_whole_tbl, is_histogram);
+        boolean is_increment = false;
+        RESULT = new AnalyzeStmt(tbl, cols, partitionNames, properties, is_whole_tbl, is_histogram, is_increment);
+    :}
+    | KW_ANALYZE KW_INCREMENTAL KW_TABLE table_name:tbl opt_col_list:cols opt_partition_names:partitionNames opt_properties:properties
+    {:
+        boolean is_whole_tbl = (cols == null);
+        boolean is_histogram = false;
+        boolean is_increment = true;
+        RESULT = new AnalyzeStmt(tbl, cols, partitionNames, properties, is_whole_tbl, is_histogram, is_increment);
     :}
     | KW_ANALYZE KW_TABLE table_name:tbl KW_UPDATE KW_HISTOGRAM KW_ON ident_list:cols opt_partition_names:partitionNames opt_properties:properties
     {:
-        boolean is_whole_tbl = (cols == null);
+        boolean is_whole_tbl = false;
         boolean is_histogram = true;
-        RESULT = new AnalyzeStmt(tbl, cols, partitionNames, properties, is_whole_tbl, is_histogram);
+        boolean is_increment = false;
+        RESULT = new AnalyzeStmt(tbl, cols, partitionNames, properties, is_whole_tbl, is_histogram, is_increment);
     :}
     | KW_ANALYZE KW_TABLE table_name:tbl KW_UPDATE KW_HISTOGRAM
     {:
-        RESULT = new AnalyzeStmt(tbl, null, null, new HashMap<>(), true, true);
+        RESULT = new AnalyzeStmt(tbl, null, null, new HashMap<>(), true, true, false);
     :}
     ;
 
@@ -2980,9 +2990,9 @@ drop_stmt ::=
         RESULT = new DropPolicyStmt(PolicyTypeEnum.STORAGE, ifExists, policyName, null, null);
     :}
     /* statistics */
-    | KW_DROP KW_STATS opt_table_name:tbl opt_partition_names:partitionNames
+    | KW_DROP KW_STATS opt_table_name:tbl opt_col_list:cols opt_partition_names:partitionNames
     {:
-        RESULT = new DropTableStatsStmt(tbl, partitionNames);
+        RESULT = new DropTableStatsStmt(tbl, partitionNames, cols);
     :}
     ;
 
@@ -3315,6 +3325,23 @@ opt_key_value_map ::=
     :}
     | LPAREN key_value_map:map RPAREN
     {:
+    RESULT = map;
+    :}
+    ;
+
+opt_key_value_map_in_paren ::=
+    /* empty */
+    {:
+    RESULT = Maps.newHashMap();
+    :}
+    | STRING_LITERAL:name EQUAL STRING_LITERAL:value
+    {:
+    RESULT = Maps.newHashMap();
+    RESULT.put(name, value);
+    :}
+    | opt_key_value_map_in_paren:map COMMA STRING_LITERAL:name EQUAL STRING_LITERAL:value
+    {:
+    map.put(name, value);
     RESULT = map;
     :}
     ;
@@ -5362,7 +5389,7 @@ table_ref ::=
   ;
 
 table_valued_function_ref ::=
-  ident:func_name LPAREN key_value_map:properties RPAREN opt_table_alias:alias
+  ident:func_name LPAREN opt_key_value_map_in_paren:properties RPAREN opt_table_alias:alias
   {:
     RESULT = new TableValuedFunctionRef(func_name, alias, properties);
   :}

@@ -284,6 +284,7 @@
                                 "sql-manual/sql-functions/array-functions/array_slice",
                                 "sql-manual/sql-functions/array-functions/array_sort",
                                 "sql-manual/sql-functions/array-functions/array_reverse_sort",
+                                "sql-manual/sql-functions/array-functions/array_sortby",
                                 "sql-manual/sql-functions/array-functions/array_position",
                                 "sql-manual/sql-functions/array-functions/array_contains",
                                 "sql-manual/sql-functions/array-functions/array_except",
@@ -388,6 +389,7 @@
                                 "sql-manual/sql-functions/spatial-functions/st_circle",
                                 "sql-manual/sql-functions/spatial-functions/st_distance_sphere",
                                 "sql-manual/sql-functions/spatial-functions/st_angle_sphere",
+                                "sql-manual/sql-functions/spatial-functions/st_area",
                                 "sql-manual/sql-functions/spatial-functions/st_point",
                                 "sql-manual/sql-functions/spatial-functions/st_polygon",
                                 "sql-manual/sql-functions/spatial-functions/st_astext",
@@ -592,7 +594,8 @@
                                 "sql-manual/sql-functions/json-functions/json_array",
                                 "sql-manual/sql-functions/json-functions/json_object",
                                 "sql-manual/sql-functions/json-functions/json_quote",
-                                "sql-manual/sql-functions/json-functions/json_valid"
+                                "sql-manual/sql-functions/json-functions/json_valid",
+                                "sql-manual/sql-functions/json-functions/json_extract"
                             ]
                         },
                         {

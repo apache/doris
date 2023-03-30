@@ -42,6 +42,8 @@ import java.util.Map;
 public class MasterOpExecutor {
     private static final Logger LOG = LogManager.getLogger(MasterOpExecutor.class);
 
+    private static final float RPC_TIMEOUT_COEFFICIENT = 1.2f;
+
     private final OriginStatement originStmt;
     private final ConnectContext ctx;
     private TMasterOpResult result;
@@ -56,11 +58,11 @@ public class MasterOpExecutor {
         this.originStmt = originStmt;
         this.ctx = ctx;
         if (status.isNeedToWaitJournalSync()) {
-            this.waitTimeoutMs = ctx.getExecTimeout() * 1000;
+            this.waitTimeoutMs = (int) (ctx.getExecTimeout() * 1000 * RPC_TIMEOUT_COEFFICIENT);
         } else {
             this.waitTimeoutMs = 0;
         }
-        this.thriftTimeoutMs = ctx.getExecTimeout() * 1000;
+        this.thriftTimeoutMs = (int) (ctx.getExecTimeout() * 1000 * RPC_TIMEOUT_COEFFICIENT);
         // if isQuery=false, we shouldn't retry twice when catch exception because of Idempotency
         this.shouldNotRetry = !isQuery;
     }

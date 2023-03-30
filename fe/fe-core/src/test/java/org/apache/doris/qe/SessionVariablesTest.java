@@ -50,7 +50,7 @@ public class SessionVariablesTest extends TestWithFeService {
                 + "properties(\"replication_num\" = \"1\");");
 
         sessionVariable = new SessionVariable();
-        Field[] fields = SessionVariable.class.getFields();
+        Field[] fields = SessionVariable.class.getDeclaredFields();
         for (Field f : fields) {
             VariableMgr.VarAttr varAttr = f.getAnnotation(VariableMgr.VarAttr.class);
             if (varAttr == null || !varAttr.needForward()) {

@@ -21,7 +21,6 @@
 
 #include "runtime/decimalv2_value.h"
 #include "runtime/descriptors.h"
-#include "runtime/mem_pool.h"
 #include "util/string_parser.hpp"
 #include "util/types.h"
 #include "vec/columns/column_complex.h"

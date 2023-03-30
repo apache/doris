@@ -22,7 +22,6 @@
 #include "common/object_pool.h"
 #include "olap/schema.h"
 #include "olap/tablet_schema.h"
-#include "runtime/mem_pool.h"
 #include "util/types.h"
 
 namespace doris {
@@ -259,13 +258,13 @@ void set_tablet_schema_for_cmp_and_aggregate(TabletSchemaSPtr tablet_schema) {
 
 class TestRowCursor : public testing::Test {
 public:
-    TestRowCursor() { _mem_pool.reset(new MemPool()); }
+    TestRowCursor() { _arena.reset(new vectorized::Arena()); }
 
     virtual void SetUp() {}
 
     virtual void TearDown() {}
 
-    std::unique_ptr<MemPool> _mem_pool;
+    std::unique_ptr<vectorized::Arena> _arena;
 };
 
 TEST_F(TestRowCursor, InitRowCursor) {
@@ -342,31 +341,31 @@ TEST_F(TestRowCursor, FullKeyCmp) {
 
     Slice l_char("well");
     int32_t l_int = 10;
-    left.set_field_content(0, reinterpret_cast<char*>(&l_char), _mem_pool.get());
-    left.set_field_content(1, reinterpret_cast<char*>(&l_int), _mem_pool.get());
+    left.set_field_content(0, reinterpret_cast<char*>(&l_char), _arena.get());
+    left.set_field_content(1, reinterpret_cast<char*>(&l_int), _arena.get());
 
     RowCursor right_eq;
     res = right_eq.init(tablet_schema);
     Slice r_char_eq("well");
     int32_t r_int_eq = 10;
-    right_eq.set_field_content(0, reinterpret_cast<char*>(&r_char_eq), _mem_pool.get());
-    right_eq.set_field_content(1, reinterpret_cast<char*>(&r_int_eq), _mem_pool.get());
+    right_eq.set_field_content(0, reinterpret_cast<char*>(&r_char_eq), _arena.get());
+    right_eq.set_field_content(1, reinterpret_cast<char*>(&r_int_eq), _arena.get());
     EXPECT_EQ(compare_row(left, right_eq), 0);
 
     RowCursor right_lt;
     res = right_lt.init(tablet_schema);
     Slice r_char_lt("well");
     int32_t r_int_lt = 11;
-    right_lt.set_field_content(0, reinterpret_cast<char*>(&r_char_lt), _mem_pool.get());
-    right_lt.set_field_content(1, reinterpret_cast<char*>(&r_int_lt), _mem_pool.get());
+    right_lt.set_field_content(0, reinterpret_cast<char*>(&r_char_lt), _arena.get());
+    right_lt.set_field_content(1, reinterpret_cast<char*>(&r_int_lt), _arena.get());
     EXPECT_LT(compare_row(left, right_lt), 0);
 
     RowCursor right_gt;
     res = right_gt.init(tablet_schema);
     Slice r_char_gt("good");
     int32_t r_int_gt = 10;
-    right_gt.set_field_content(0, reinterpret_cast<char*>(&r_char_gt), _mem_pool.get());
-    right_gt.set_field_content(1, reinterpret_cast<char*>(&r_int_gt), _mem_pool.get());
+    right_gt.set_field_content(0, reinterpret_cast<char*>(&r_char_gt), _arena.get());
+    right_gt.set_field_content(1, reinterpret_cast<char*>(&r_int_gt), _arena.get());
     EXPECT_GT(compare_row(left, right_gt), 0);
 }
 

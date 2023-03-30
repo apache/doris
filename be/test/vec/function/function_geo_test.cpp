@@ -303,4 +303,38 @@ TEST(VGeoFunctionsTest, function_geo_st_polygonfromtext) {
     }
 }
 
+TEST(VGeoFunctionsTest, function_geo_st_area_square_meters) {
+    std::string func_name = "st_area_square_meters";
+    {
+        InputTypeSet input_types = {TypeIndex::String};
+
+        GeoCircle circle;
+        auto cur_res = circle.init(0, 0, 1);
+        EXPECT_TRUE(cur_res == GEO_PARSE_OK);
+        std::string buf;
+        circle.encode_to(&buf);
+        DataSet data_set = {{{buf}, (double)3.1415926535897869}, {{Null()}, Null()}};
+
+        check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    }
+}
+
+TEST(VGeoFunctionsTest, function_geo_st_area_square_km) {
+    std::string func_name = "st_area_square_km";
+    {
+        InputTypeSet input_types = {TypeIndex::String};
+
+        GeoParseStatus status;
+        std::string buf;
+        std::string input = "POLYGON ((0 0, 1 0, 1 1, 0 1, 0 0))";
+        std::unique_ptr<GeoShape> shape(GeoShape::from_wkt(input.data(), input.size(), &status));
+        EXPECT_TRUE(shape != nullptr);
+        EXPECT_TRUE(status == GEO_PARSE_OK);
+        shape->encode_to(&buf);
+        DataSet data_set = {{{buf}, (double)12364.036567076409}, {{Null()}, Null()}};
+
+        check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    }
+}
+
 } // namespace doris::vectorized

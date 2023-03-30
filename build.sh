@@ -323,7 +323,7 @@ if [[ "${BUILD_JAVA_UDF}" -eq 1 && "$(uname -s)" == 'Darwin' ]]; then
     if [[ -z "${JAVA_HOME}" ]]; then
         CAUSE='the environment variable JAVA_HOME is not set'
     else
-        LIBJVM="$(find "${JAVA_HOME}/" -name 'libjvm.dylib')"
+        LIBJVM="$(find -L "${JAVA_HOME}/" -name 'libjvm.dylib')"
         if [[ -z "${LIBJVM}" ]]; then
             CAUSE="the library libjvm.dylib is missing"
         elif [[ "$(file "${LIBJVM}" | awk '{print $NF}')" != "$(uname -m)" ]]; then

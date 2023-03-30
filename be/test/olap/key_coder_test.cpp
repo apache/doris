@@ -22,18 +22,14 @@
 
 #include <limits>
 
-#include "runtime/mem_pool.h"
 #include "util/debug_util.h"
 
 namespace doris {
 
 class KeyCoderTest : public testing::Test {
 public:
-    KeyCoderTest() : _pool() {}
-    virtual ~KeyCoderTest() {}
-
-private:
-    MemPool _pool;
+    KeyCoderTest() = default;
+    virtual ~KeyCoderTest() = default;
 };
 
 template <FieldType type>

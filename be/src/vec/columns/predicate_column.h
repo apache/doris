@@ -17,14 +17,16 @@
 
 #pragma once
 
+#include <optional>
+
 #include "olap/decimal12.h"
 #include "olap/uint24.h"
-#include "runtime/mem_pool.h"
 #include "runtime/primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
+#include "vec/common/arena.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 
@@ -276,11 +278,11 @@ public:
             return;
         }
         if constexpr (std::is_same_v<T, StringRef>) {
-            if (_pool == nullptr) {
-                _pool.reset(new MemPool());
+            if (_arena == nullptr) {
+                _arena.reset(new Arena());
             }
             const auto total_mem_size = offsets[num] - offsets[0];
-            char* destination = (char*)_pool->allocate(total_mem_size);
+            char* destination = _arena->alloc(total_mem_size);
             memcpy(destination, data_ + offsets[0], total_mem_size);
             size_t org_elem_num = data.size();
             data.resize(org_elem_num + num);
@@ -300,8 +302,8 @@ public:
             return;
         }
         if constexpr (std::is_same_v<T, StringRef>) {
-            if (_pool == nullptr) {
-                _pool.reset(new MemPool());
+            if (_arena == nullptr) {
+                _arena.reset(new Arena());
             }
 
             size_t total_mem_size = 0;
@@ -309,7 +311,7 @@ public:
                 total_mem_size += len_array[i];
             }
 
-            char* destination = (char*)_pool->allocate(total_mem_size);
+            char* destination = _arena->alloc(total_mem_size);
             char* org_dst = destination;
             size_t org_elem_num = data.size();
             data.resize(org_elem_num + num);
@@ -340,8 +342,8 @@ public:
 
     void clear() override {
         data.clear();
-        if (_pool != nullptr) {
-            _pool->clear();
+        if (_arena != nullptr) {
+            _arena.reset(new Arena());
         }
     }
 
@@ -547,7 +549,7 @@ public:
 private:
     Container data;
     // manages the memory for slice's data(For string type)
-    std::unique_ptr<MemPool> _pool;
+    std::unique_ptr<Arena> _arena;
 };
 
 } // namespace doris::vectorized

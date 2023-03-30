@@ -28,6 +28,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -42,10 +43,14 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
+import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.commons.lang.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -55,6 +60,7 @@ import java.util.Map;
 import java.util.Set;
 
 public class DescribeStmt extends ShowStmt {
+    private static final Logger LOG = LogManager.getLogger(DescribeStmt.class);
     private static final ShowResultSetMetaData DESC_OLAP_TABLE_ALL_META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("IndexName", ScalarType.createVarchar(20)))
@@ -277,7 +283,20 @@ public class DescribeStmt extends ShowStmt {
                 return totalRows;
             }
             Preconditions.checkNotNull(node);
-            return node.fetchResult().getRows();
+            List<List<String>> rows = node.fetchResult().getRows();
+            List<List<String>> res = new ArrayList<>();
+            for (List<String> row : rows) {
+                try {
+                    Env.getCurrentEnv().getAccessManager()
+                            .checkColumnsPriv(ConnectContext.get().getCurrentUserIdentity(), dbTableName.getCtl(),
+                                    ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, getDb()),
+                                    getTableName(), Sets.newHashSet(row.get(0)), PrivPredicate.SHOW);
+                    res.add(row);
+                } catch (UserException e) {
+                    LOG.debug(e.getMessage());
+                }
+            }
+            return res;
         }
     }
 

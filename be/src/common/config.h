@@ -77,10 +77,6 @@ CONF_Int64(max_sys_mem_available_low_water_mark_bytes, "1717986918");
 // The size of the memory that gc wants to release each time, as a percentage of the mem limit.
 CONF_mString(process_minor_gc_size, "10%");
 CONF_mString(process_full_gc_size, "20%");
-// Some caches have their own gc threads, such as segment cache.
-// For caches that do not have a separate gc thread, perform regular gc in the memory maintenance thread.
-// Currently only storage page cache, chunk allocator, more in the future.
-CONF_mInt32(cache_gc_interval_s, "60");
 
 // If true, when the process does not exceed the soft mem limit, the query memory will not be limited;
 // when the process memory exceeds the soft mem limit, the query with the largest ratio between the currently
@@ -164,9 +160,6 @@ CONF_String(log_buffer_level, "");
 
 // number of threads available to serve backend execution requests
 CONF_Int32(be_service_threads, "64");
-
-// cgroups allocated for doris
-CONF_String(doris_cgroups, "");
 
 // Controls the number of threads to run work per core.  It's common to pick 2x
 // or 3x the number of cores.  This keeps the cores busy without causing excessive
@@ -886,6 +879,7 @@ CONF_Bool(enable_java_support, "true");
 CONF_Bool(enable_fuzzy_mode, "false");
 
 CONF_Int32(pipeline_executor_size, "0");
+CONF_mInt16(pipeline_short_query_timeout_s, "20");
 
 // Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
 // Will remove after fully test.

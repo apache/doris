@@ -30,7 +30,6 @@
 #include "olap/storage_policy.h"
 #include "olap/tablet.h"
 #include "runtime/descriptor_helper.h"
-#include "util/file_utils.h"
 #include "util/s3_util.h"
 
 namespace doris {
@@ -70,8 +69,9 @@ public:
         config::storage_root_path = std::string(buffer) + "/" + kTestDir;
         config::min_file_descriptor_number = 1000;
 
-        FileUtils::remove_all(config::storage_root_path);
-        FileUtils::create_dir(config::storage_root_path);
+        EXPECT_TRUE(io::global_local_filesystem()
+                            ->delete_and_create_directory(config::storage_root_path)
+                            .ok());
 
         std::vector<StorePath> paths {{config::storage_root_path, -1}};
 
@@ -168,9 +168,6 @@ TEST_F(RemoteRowsetGcTest, normal) {
     DeltaWriter* delta_writer = nullptr;
     DeltaWriter::open(&write_req, &delta_writer);
     ASSERT_NE(delta_writer, nullptr);
-
-    MemTracker tracker;
-    MemPool pool(&tracker);
 
     st = delta_writer->close();
     ASSERT_EQ(Status::OK(), st);

@@ -26,6 +26,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TBackendsMetadataParams;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
 import org.apache.doris.thrift.TFetchSchemaTableDataResult;
@@ -65,12 +66,15 @@ public class MetadataGenerator {
         switch (request.getMetadaTableParams().getMetadataType()) {
             case ICEBERG:
                 return icebergMetadataResult(request.getMetadaTableParams());
+            case BACKENDS:
+                return backendsMetadataResult(request.getMetadaTableParams());
             default:
                 break;
         }
         return errorResult("Metadata table params is not set. ");
     }
 
+    // deprecated
     public static TFetchSchemaTableDataResult getBackendsSchemaTable(TFetchSchemaTableDataRequest request) {
         final SystemInfoService clusterInfoService = Env.getCurrentSystemInfo();
         List<Long> backendIds = null;
@@ -220,6 +224,115 @@ public class MetadataGenerator {
             default:
                 return errorResult("Unsupported iceberg inspect type: " + icebergQueryType);
         }
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult backendsMetadataResult(TMetadataTableRequestParams params) {
+        if (!params.isSetBackendsMetadataParams()) {
+            return errorResult("backends metadata param is  not set. ");
+        }
+        TBackendsMetadataParams backendsParam = params.getBackendsMetadataParams();
+        final SystemInfoService clusterInfoService = Env.getCurrentSystemInfo();
+        List<Long> backendIds = null;
+        if (!Strings.isNullOrEmpty(backendsParam.cluster_name)) {
+            final Cluster cluster = Env.getCurrentEnv().getCluster(backendsParam.cluster_name);
+            // root not in any cluster
+            if (null == cluster) {
+                return errorResult("Cluster is not existed.");
+            }
+            backendIds = cluster.getBackendIdList();
+        } else {
+            backendIds = clusterInfoService.getBackendIds(false);
+        }
+
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        long start = System.currentTimeMillis();
+        Stopwatch watch = Stopwatch.createUnstarted();
+
+        List<TRow> dataBatch = Lists.newArrayList();
+        for (long backendId : backendIds) {
+            Backend backend = clusterInfoService.getBackend(backendId);
+            if (backend == null) {
+                continue;
+            }
+
+            watch.start();
+            Integer tabletNum = Env.getCurrentInvertedIndex().getTabletNumByBackendId(backendId);
+            watch.stop();
+
+            TRow trow = new TRow();
+            trow.addToColumnValue(new TCell().setLongVal(backendId));
+            trow.addToColumnValue(new TCell().setStringVal(backend.getOwnerClusterName()));
+            trow.addToColumnValue(new TCell().setStringVal(backend.getIp()));
+            if (Strings.isNullOrEmpty(backendsParam.cluster_name)) {
+                trow.addToColumnValue(new TCell().setIntVal(backend.getHeartbeatPort()));
+                trow.addToColumnValue(new TCell().setIntVal(backend.getBePort()));
+                trow.addToColumnValue(new TCell().setIntVal(backend.getHttpPort()));
+                trow.addToColumnValue(new TCell().setIntVal(backend.getBrpcPort()));
+            }
+            trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(backend.getLastStartTime())));
+            trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(backend.getLastUpdateMs())));
+            trow.addToColumnValue(new TCell().setStringVal(String.valueOf(backend.isAlive())));
+            if (backend.isDecommissioned() && backend.getDecommissionType() == DecommissionType.ClusterDecommission) {
+                trow.addToColumnValue(new TCell().setStringVal("false"));
+                trow.addToColumnValue(new TCell().setStringVal("true"));
+            } else if (backend.isDecommissioned()
+                    && backend.getDecommissionType() == DecommissionType.SystemDecommission) {
+                trow.addToColumnValue(new TCell().setStringVal("true"));
+                trow.addToColumnValue(new TCell().setStringVal("false"));
+            } else {
+                trow.addToColumnValue(new TCell().setStringVal("false"));
+                trow.addToColumnValue(new TCell().setStringVal("false"));
+            }
+            trow.addToColumnValue(new TCell().setLongVal(tabletNum));
+
+            // capacity
+            // data used
+            trow.addToColumnValue(new TCell().setLongVal(backend.getDataUsedCapacityB()));
+
+            // available
+            long availB = backend.getAvailableCapacityB();
+            trow.addToColumnValue(new TCell().setLongVal(availB));
+
+            // total
+            long totalB = backend.getTotalCapacityB();
+            trow.addToColumnValue(new TCell().setLongVal(totalB));
+
+            // used percent
+            double used = 0.0;
+            if (totalB <= 0) {
+                used = 0.0;
+            } else {
+                used = (double) (totalB - availB) * 100 / totalB;
+            }
+            trow.addToColumnValue(new TCell().setDoubleVal(used));
+            trow.addToColumnValue(new TCell().setDoubleVal(backend.getMaxDiskUsedPct() * 100));
+
+            // remote used capacity
+            trow.addToColumnValue(new TCell().setLongVal(backend.getRemoteUsedCapacityB()));
+
+            // tags
+            trow.addToColumnValue(new TCell().setStringVal(backend.getTagMapString()));
+            // err msg
+            trow.addToColumnValue(new TCell().setStringVal(backend.getHeartbeatErrMsg()));
+            // version
+            trow.addToColumnValue(new TCell().setStringVal(backend.getVersion()));
+            // status
+            trow.addToColumnValue(new TCell().setStringVal(new Gson().toJson(backend.getBackendStatus())));
+            // heartbeat failure counter
+            trow.addToColumnValue(new TCell().setIntVal(backend.getHeartbeatFailureCounter()));
+
+            // node role, show the value only when backend is alive.
+            trow.addToColumnValue(new TCell().setStringVal(backend.isAlive() ? backend.getNodeRoleTag().value : ""));
+            dataBatch.add(trow);
+        }
+
+        // backends proc node get result too slow, add log to observer.
+        LOG.debug("backends proc get tablet num cost: {}, total cost: {}",
+                watch.elapsed(TimeUnit.MILLISECONDS), (System.currentTimeMillis() - start));
+
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));
         return result;

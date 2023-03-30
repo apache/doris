@@ -29,7 +29,6 @@
 #include "runtime/client_cache.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
-#include "runtime/mem_pool.h"
 #include "runtime/runtime_state.h"
 #include "util/string_util.h"
 #include "util/thrift_util.h"

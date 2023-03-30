@@ -504,9 +504,9 @@ if (COMPILER_CLANG)
                         -Wno-c++20-designator
                         -Wno-embedded-directive)
     if (USE_LIBCPP)
-        add_compile_options(-stdlib=libc++)
+        add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
         if (NOT OS_MACOSX)
-            add_compile_options(-lstdc++)
+            add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-lstdc++>)
         endif()
         add_definitions(-DUSE_LIBCPP)
     else()
@@ -685,7 +685,6 @@ set(DORIS_LINK_LIBS
     ${WL_START_GROUP}
     Agent
     Common
-    Env
     Exec
     Exprs
     Gutil
@@ -944,7 +943,6 @@ endif()
 
 add_subdirectory(${SRC_DIR}/agent)
 add_subdirectory(${SRC_DIR}/common)
-add_subdirectory(${SRC_DIR}/env)
 add_subdirectory(${SRC_DIR}/exec)
 add_subdirectory(${SRC_DIR}/exprs)
 add_subdirectory(${SRC_DIR}/gen_cpp)

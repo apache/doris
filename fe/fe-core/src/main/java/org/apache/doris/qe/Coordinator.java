@@ -309,7 +309,7 @@ public class Coordinator {
                                                 planRoot.getDescTable(), fragment.getOutputExprs());
             }
         }
-        PrepareStmt prepareStmt = analyzer.getPrepareStmt();
+        PrepareStmt prepareStmt = analyzer == null ? null : analyzer.getPrepareStmt();
         if (prepareStmt != null) {
             // Used cached or better performance
             this.descTable = prepareStmt.getDescTable();
@@ -328,7 +328,7 @@ public class Coordinator {
         this.enablePipelineEngine = context.getSessionVariable().enablePipelineEngine;
         initQueryOptions(context);
 
-        setFromUserProperty(analyzer);
+        setFromUserProperty(context);
 
         this.queryGlobals.setNowString(DATE_FORMAT.format(new Date()));
         this.queryGlobals.setTimestampMs(System.currentTimeMillis());
@@ -371,8 +371,8 @@ public class Coordinator {
         nextInstanceId.setLo(queryId.lo + 1);
     }
 
-    private void setFromUserProperty(Analyzer analyzer) {
-        String qualifiedUser = analyzer.getQualifiedUser();
+    private void setFromUserProperty(ConnectContext connectContext) {
+        String qualifiedUser = connectContext.getQualifiedUser();
         // set cpu resource limit
         int cpuLimit = Env.getCurrentEnv().getAuth().getCpuResourceLimit(qualifiedUser);
         if (cpuLimit > 0) {

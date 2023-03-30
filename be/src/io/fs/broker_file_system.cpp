@@ -59,18 +59,16 @@ inline const std::string& client_id(const TNetworkAddress& addr) {
 
 Status BrokerFileSystem::create(const TNetworkAddress& broker_addr,
                                 const std::map<std::string, std::string>& broker_prop,
-                                size_t file_size, std::shared_ptr<BrokerFileSystem>* fs) {
-    (*fs).reset(new BrokerFileSystem(broker_addr, broker_prop, file_size));
+                                std::shared_ptr<BrokerFileSystem>* fs) {
+    (*fs).reset(new BrokerFileSystem(broker_addr, broker_prop));
     return (*fs)->connect();
 }
 
 BrokerFileSystem::BrokerFileSystem(const TNetworkAddress& broker_addr,
-                                   const std::map<std::string, std::string>& broker_prop,
-                                   size_t file_size)
+                                   const std::map<std::string, std::string>& broker_prop)
         : RemoteFileSystem("", "", FileSystemType::BROKER),
           _broker_addr(broker_addr),
-          _broker_prop(broker_prop),
-          _file_size(file_size) {}
+          _broker_prop(broker_prop) {}
 
 Status BrokerFileSystem::connect_impl() {
     Status status = Status::OK();
@@ -85,7 +83,13 @@ Status BrokerFileSystem::create_file_impl(const Path& path, FileWriterPtr* write
     return Status::OK();
 }
 
-Status BrokerFileSystem::open_file_internal(const Path& file, FileReaderSPtr* reader) {
+Status BrokerFileSystem::open_file_internal(const Path& file, int64_t file_size,
+                                            FileReaderSPtr* reader) {
+    int64_t fsize = file_size;
+    if (fsize < 0) {
+        RETURN_IF_ERROR(file_size_impl(file, &fsize));
+    }
+
     CHECK_BROKER_CLIENT(_client);
     TBrokerOpenReaderRequest request;
     request.__set_version(TBrokerVersion::VERSION_ONE);
@@ -113,12 +117,12 @@ Status BrokerFileSystem::open_file_internal(const Path& file, FileReaderSPtr* re
                                error_msg(response->opStatus.message));
     }
     *reader = std::make_shared<BrokerFileReader>(
-            _broker_addr, file, _file_size, response->fd,
+            _broker_addr, file, fsize, response->fd,
             std::static_pointer_cast<BrokerFileSystem>(shared_from_this()));
     return Status::OK();
 }
 
-Status BrokerFileSystem::create_directory_impl(const Path& /*path*/) {
+Status BrokerFileSystem::create_directory_impl(const Path& /*path*/, bool /*failed_if_exists*/) {
     return Status::NotSupported("create directory not implemented!");
 }
 
@@ -195,9 +199,36 @@ Status BrokerFileSystem::exists_impl(const Path& path, bool* res) const {
     }
 }
 
-Status BrokerFileSystem::file_size_impl(const Path& path, size_t* file_size) const {
-    *file_size = _file_size;
-    return Status::OK();
+Status BrokerFileSystem::file_size_impl(const Path& path, int64_t* file_size) const {
+    CHECK_BROKER_CLIENT(_client);
+    try {
+        TBrokerFileSizeRequest req;
+        req.__set_version(TBrokerVersion::VERSION_ONE);
+        req.__set_path(path);
+        req.__set_properties(_broker_prop);
+
+        TBrokerFileSizeResponse resp;
+        try {
+            (*_client)->fileSize(resp, req);
+        } catch (apache::thrift::transport::TTransportException& e) {
+            RETURN_IF_ERROR((*_client).reopen());
+            (*_client)->fileSize(resp, req);
+        }
+
+        if (resp.opStatus.statusCode != TBrokerOperationStatusCode::OK) {
+            return Status::IOError("failed to get file size of path {}: {}", path.native(),
+                                   error_msg(resp.opStatus.message));
+        }
+        if (resp.fileSize < 0) {
+            return Status::IOError("failed to get file size of path {}: size is negtive: {}",
+                                   path.native(), resp.fileSize);
+        }
+        *file_size = resp.fileSize;
+        return Status::OK();
+    } catch (apache::thrift::TException& e) {
+        return Status::RpcError("failed to get file size of path {}: {}", path.native(),
+                                error_msg(e.what()));
+    }
 }
 
 Status BrokerFileSystem::list_impl(const Path& dir, bool only_file, std::vector<FileInfo>* files,
@@ -298,7 +329,7 @@ Status BrokerFileSystem::upload_impl(const Path& local_file, const Path& remote_
     FileReaderSPtr local_reader = nullptr;
     RETURN_IF_ERROR(local_fs->open_file(local_file, &local_reader));
 
-    size_t file_len = local_reader->size();
+    int64_t file_len = local_reader->size();
     if (file_len == -1) {
         return Status::IOError("failed to get length of file: {}: {}", local_file.native(),
                                error_msg(""));
@@ -357,7 +388,7 @@ Status BrokerFileSystem::upload_with_checksum_impl(const Path& local_file, const
 Status BrokerFileSystem::download_impl(const Path& remote_file, const Path& local_file) {
     // 1. open remote file for read
     FileReaderSPtr broker_reader = nullptr;
-    RETURN_IF_ERROR(open_file_internal(remote_file, &broker_reader));
+    RETURN_IF_ERROR(open_file_internal(remote_file, -1, &broker_reader));
 
     // 2. remove the existing local file if exist
     if (std::filesystem::remove(local_file)) {
@@ -394,7 +425,7 @@ Status BrokerFileSystem::download_impl(const Path& remote_file, const Path& loca
 Status BrokerFileSystem::direct_download_impl(const Path& remote_impl, std::string* content) {
     // 1. open remote file for read
     FileReaderSPtr broker_reader = nullptr;
-    RETURN_IF_ERROR(open_file_internal(remote_impl, &broker_reader));
+    RETURN_IF_ERROR(open_file_internal(remote_impl, -1, &broker_reader));
 
     constexpr size_t buf_sz = 1024 * 1024;
     std::unique_ptr<char[]> read_buf(new char[buf_sz]);

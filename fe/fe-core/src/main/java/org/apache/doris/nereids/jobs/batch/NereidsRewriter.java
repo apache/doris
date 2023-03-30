@@ -32,6 +32,7 @@ import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewrite;
 import org.apache.doris.nereids.rules.mv.SelectMaterializedIndexWithAggregate;
 import org.apache.doris.nereids.rules.mv.SelectMaterializedIndexWithoutAggregate;
 import org.apache.doris.nereids.rules.rewrite.logical.AdjustNullable;
+import org.apache.doris.nereids.rules.rewrite.logical.AggScalarSubQueryToWindowFunction;
 import org.apache.doris.nereids.rules.rewrite.logical.BuildAggForUnion;
 import org.apache.doris.nereids.rules.rewrite.logical.CheckAndStandardizeWindowFunctionAndFrame;
 import org.apache.doris.nereids.rules.rewrite.logical.ColumnPruning;
@@ -63,6 +64,8 @@ import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanTablet;
 import org.apache.doris.nereids.rules.rewrite.logical.PushFilterInsideJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownLimit;
 import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
+import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinAggTranspose;
+import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinAggTransposeProject;
 import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinLogicalJoinTranspose;
 import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinLogicalJoinTransposeProject;
 import org.apache.doris.nereids.rules.rewrite.logical.SplitLimit;
@@ -102,6 +105,8 @@ public class NereidsRewriter extends BatchRewriteJob {
             ),
 
             topic("Subquery unnesting",
+                custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION, AggScalarSubQueryToWindowFunction::new),
+
                 bottomUp(
                     new EliminateUselessPlanUnderApply(),
 
@@ -121,6 +126,11 @@ public class NereidsRewriter extends BatchRewriteJob {
                 )
             ),
 
+            // please note: this rule must run before NormalizeAggregate
+            topDown(
+                new AdjustAggregateNullableForEmptySet()
+            ),
+
             // The rule modification needs to be done after the subquery is unnested,
             // because for scalarSubQuery, the connection condition is stored in apply in the analyzer phase,
             // but when normalizeAggregate/normalizeSort is performed, the members in apply cannot be obtained,
@@ -128,10 +138,6 @@ public class NereidsRewriter extends BatchRewriteJob {
             topDown(
                 new NormalizeAggregate(),
                 new NormalizeSort()
-            ),
-
-            topDown(
-                new AdjustAggregateNullableForEmptySet()
             ),
 
             topic("Window analysis",
@@ -157,13 +163,6 @@ public class NereidsRewriter extends BatchRewriteJob {
                 // efficient because it can find the new plans and apply transform wherever it is
                 bottomUp(RuleSet.PUSH_DOWN_FILTERS),
 
-                // pushdown SEMI Join
-                topDown(
-                    // new SemiJoinCommute(),
-                    new SemiJoinLogicalJoinTranspose(),
-                    new SemiJoinLogicalJoinTransposeProject()
-                ),
-
                 topDown(
                     new MergeFilters(),
                     new ReorderJoin(),
@@ -172,6 +171,16 @@ public class NereidsRewriter extends BatchRewriteJob {
                     new ConvertInnerOrCrossJoin(),
                     new EliminateNullAwareLeftAntiJoin()
                 ),
+
+                // pushdown SEMI Join
+                topDown(
+                        // new SemiJoinCommute(),
+                        new SemiJoinLogicalJoinTranspose(),
+                        new SemiJoinLogicalJoinTransposeProject(),
+                        new SemiJoinAggTranspose(),
+                        new SemiJoinAggTransposeProject()
+                ),
+
                 topDown(
                     new EliminateDedupJoinCondition()
                 )

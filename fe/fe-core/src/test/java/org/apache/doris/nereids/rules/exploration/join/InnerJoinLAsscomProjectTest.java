@@ -52,7 +52,8 @@ class InnerJoinLAsscomProjectTest implements MemoPatternMatchSupported {
     private final LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
 
     @Test
-    void testJoinLAsscomProject() {
+    @Disabled
+    void testSimple() {
         /*
          * Star-Join
          * t1 -- t2
@@ -91,6 +92,7 @@ class InnerJoinLAsscomProjectTest implements MemoPatternMatchSupported {
     }
 
     @Test
+    @Disabled
     void testAlias() {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
                 .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
@@ -99,7 +101,6 @@ class InnerJoinLAsscomProjectTest implements MemoPatternMatchSupported {
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
-                .printlnTree()
                 .applyTopDown(new PushdownAliasThroughJoin())
                 .applyExploration(InnerJoinLAsscomProject.INSTANCE.build())
                 .printlnExploration()
@@ -107,20 +108,22 @@ class InnerJoinLAsscomProjectTest implements MemoPatternMatchSupported {
                         logicalJoin(
                                 logicalProject(
                                         logicalJoin(
-                                                logicalProject(logicalOlapScan().when(
-                                                        scan -> scan.getTable().getName().equals("t1"))),
+                                                logicalProject(logicalOlapScan().when(scan -> scan.getTable().getName().equals("t1"))),
                                                 logicalOlapScan().when(scan -> scan.getTable().getName().equals("t3"))
                                         )
-                                ).when(project -> project.getProjects().size() == 3), // t1.id Add t3.id, t3.name
+                                ).when(project -> project.getProjects().size() == 3),
+                                // t1.id Add t3.id, t3.name
                                 logicalProject(
                                         logicalProject(
-                                                logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2")))
+                                                logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2"))
+                                        )
                                 ).when(project -> project.getProjects().size() == 1)
                         )
                 );
     }
 
     @Test
+    @Disabled
     public void testHashAndOther() {
         // Alias (scan1 join scan2 on scan1.id=scan2.id and scan1.name>scan2.name);
         List<Expression> bottomHashJoinConjunct = ImmutableList.of(

@@ -23,6 +23,7 @@
 
 #include "gen_cpp/olap_file.pb.h"
 #include "gtest/gtest.h"
+#include "io/fs/local_file_system.h"
 #include "io/fs/s3_file_system.h"
 #include "olap/comparison_predicate.h"
 #include "olap/data_dir.h"
@@ -36,9 +37,7 @@
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
 #include "runtime/exec_env.h"
-#include "runtime/mem_pool.h"
 #include "runtime/memory/mem_tracker.h"
-#include "util/file_utils.h"
 #include "util/slice.h"
 
 using std::string;
@@ -65,8 +64,9 @@ public:
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         config::storage_root_path = std::string(buffer) + "/data_test";
 
-        EXPECT_TRUE(FileUtils::remove_all(config::storage_root_path).ok());
-        EXPECT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
+        EXPECT_TRUE(io::global_local_filesystem()
+                            ->delete_and_create_directory(config::storage_root_path)
+                            .ok());
 
         std::vector<StorePath> paths;
         paths.emplace_back(config::storage_root_path, -1);
@@ -79,7 +79,7 @@ public:
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
         exec_env->set_storage_engine(k_engine);
 
-        EXPECT_TRUE(FileUtils::create_dir(kTestDir).ok());
+        EXPECT_TRUE(io::global_local_filesystem()->create_directory(kTestDir).ok());
     }
 
     static void TearDownTestSuite() {

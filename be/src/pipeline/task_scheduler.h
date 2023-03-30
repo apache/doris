@@ -84,6 +84,7 @@ private:
     std::atomic<bool> _shutdown;
 
     void _do_work(size_t index);
+    // after _try_close_task, task maybe destructed.
     void _try_close_task(PipelineTask* task, PipelineTaskState state);
 };
 } // namespace doris::pipeline

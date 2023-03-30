@@ -596,11 +596,30 @@ suite("test_bitmap_function") {
     // ARTHOGONAL_BITMAP_****
     def arthogonalBitmapTable = "test_arthogonal_bitmap"
     sql """ DROP TABLE IF EXISTS ${arthogonalBitmapTable} """
-    sql """ CREATE TABLE IF NOT EXISTS ${arthogonalBitmapTable} ( tag_group bigint(20) NULL COMMENT "标签组", tag_value_id varchar(64) NULL COMMENT "标签值", tag_range int(11) NOT NULL DEFAULT "0" COMMENT "", partition_sign varchar(32) NOT NULL COMMENT "分区标识", bucket int(11) NOT NULL COMMENT "分桶字段", confidence tinyint(4) NULL DEFAULT "100" COMMENT "置信度", members bitmap BITMAP_UNION NULL COMMENT "人群") ENGINE=OLAP AGGREGATE KEY(tag_group, tag_value_id, tag_range, partition_sign, bucket, confidence) COMMENT "dmp_tag_map" PARTITION BY LIST(partition_sign) (PARTITION p202203231 VALUES IN ("2022-03-23-1"), PARTITION p202203251 VALUES IN ("2022-03-25-1"), PARTITION p202203261 VALUES IN ("2022-03-26-1"), PARTITION p202203271 VALUES IN ("2022-03-27-1"), PARTITION p202203281 VALUES IN ("2022-03-28-1"), PARTITION p202203291 VALUES IN ("2022-03-29-1"), PARTITION p202203301 VALUES IN ("2022-03-30-1"), PARTITION p202203311 VALUES IN ("2022-03-31-1"), PARTITION p202204011 VALUES IN ("2022-04-01-1"), PARTITION crowd VALUES IN ("crowd"), PARTITION crowd_tmp VALUES IN ("crowd_tmp"), PARTITION extend_crowd VALUES IN ("extend_crowd"), PARTITION partition_sign VALUES IN ("online_crowd")) DISTRIBUTED BY HASH(bucket) BUCKETS 64 PROPERTIES ("replication_allocation" = "tag.location.default: 1", "in_memory" = "false", "storage_format" = "V2");"""
+    sql """ CREATE TABLE IF NOT EXISTS ${arthogonalBitmapTable} (
+        tag_group bigint(20) NULL COMMENT "标签组",
+        bucket int(11) NOT NULL COMMENT "分桶字段",
+        members bitmap BITMAP_UNION NULL COMMENT "人群") ENGINE=OLAP
+        AGGREGATE KEY(tag_group,
+                      bucket)
+        DISTRIBUTED BY HASH(bucket) BUCKETS 64
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "storage_format" = "V2");
+    """
+
+    sql """ insert into ${arthogonalBitmapTable} values (1, 1, bitmap_from_string("1,11,111")), (2, 2, to_bitmap(2)); """
+    sql """ insert into ${arthogonalBitmapTable} values (11, 1, bitmap_from_string("1,11")), (12, 2, to_bitmap(2)); """
 
     qt_sql """ select orthogonal_bitmap_intersect(members, tag_group, 1150000, 1150001, 390006) from ${arthogonalBitmapTable} where  tag_group in ( 1150000, 1150001, 390006); """
     qt_sql """ select orthogonal_bitmap_intersect_count(members, tag_group, 1150000, 1150001, 390006) from ${arthogonalBitmapTable} where  tag_group in ( 1150000, 1150001, 390006); """
     qt_sql """ select orthogonal_bitmap_union_count(members) from ${arthogonalBitmapTable} where  tag_group in ( 1150000, 1150001, 390006);  """
+    qt_sql_orthogonal_bitmap_intersect_count2 """ select orthogonal_bitmap_intersect_count(members, tag_group, 1,2) from test_arthogonal_bitmap; """
+    qt_sql_orthogonal_bitmap_intersect_count3_1 """ select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/orthogonal_bitmap_intersect_count(members, tag_group, 1,11) from test_arthogonal_bitmap; """
+    qt_sql_orthogonal_bitmap_intersect_count3_2 """ select /*+SET_VAR(parallel_fragment_exec_instance_num=2)*/orthogonal_bitmap_intersect_count(members, tag_group, 1,11) from test_arthogonal_bitmap; """
+    qt_sql_orthogonal_bitmap_intersect_count4 """ select orthogonal_bitmap_intersect_count(members, tag_group, 2,12) from test_arthogonal_bitmap; """
+    qt_sql_orthogonal_bitmap_union_count2 """ select orthogonal_bitmap_union_count( cast(null as bitmap)) from test_arthogonal_bitmap; """
+    qt_sql_orthogonal_bitmap_union_count3 """ select orthogonal_bitmap_union_count(members) from test_arthogonal_bitmap; """
 
     qt_sql """ select bitmap_to_array(user_id) from ${intersectCountTable} order by dt desc; """
     qt_sql """ select bitmap_to_array(bitmap_empty()); """

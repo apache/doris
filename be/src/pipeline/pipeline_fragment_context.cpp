@@ -778,8 +778,12 @@ Status PipelineFragmentContext::submit() {
 
     int submit_tasks = 0;
     Status st;
+    auto* scheduler = _exec_env->pipeline_task_scheduler();
+    if (get_task_group()) {
+        scheduler = _exec_env->pipeline_task_group_scheduler();
+    }
     for (auto& task : _tasks) {
-        st = _exec_env->pipeline_task_scheduler()->schedule_task(task.get());
+        st = scheduler->schedule_task(task.get());
         if (!st) {
             cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "submit context fail");
             _total_tasks = submit_tasks;

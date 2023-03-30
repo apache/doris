@@ -111,7 +111,7 @@ suite ("test_varchar_schema_change") {
         logger.info(res[2][1])
         assertEquals(res[2][1].toLowerCase(),"varchar(30)")
 
-        qt_sc " select * from ${tableName} order by 1; "
+        qt_sc " select * from ${tableName} order by 1,2; "
 
         // test { //没捕获到异常
         //     sql """ insert into ${tableName} values(92,'2017-12-01',483647,'sdafdsaf') """
@@ -140,7 +140,7 @@ suite ("test_varchar_schema_change") {
         logger.info(res[2][1])
         assertEquals(res[2][1].toLowerCase(),"varchar(30)")
 
-        qt_sc " select * from ${tableName} where c2 like '%1%' order by 1; "
+        qt_sc " select * from ${tableName} where c2 like '%1%' order by 1,2; "
 
         sql """ insert into ${tableName} values(22,'2011-12-01','12f2','fdsaf') """
         sql """ insert into ${tableName} values(55,'2009-11-21','12d1d113','123aa') """
@@ -196,9 +196,9 @@ suite ("test_varchar_schema_change") {
                 } while (running)
         }
 
-        qt_sc " select * from ${tableName} order by 1; "
-        qt_sc " select min(c2),max(c2) from ${tableName} order by 1; "
-        qt_sc " select min(c2),max(c2) from ${tableName} group by c0 order by 1; "
+        qt_sc " select * from ${tableName} order by 1,2; "
+        qt_sc " select min(c2),max(c2) from ${tableName} order by 1,2; "
+        qt_sc " select min(c2),max(c2) from ${tableName} group by c0 order by 1,2; "
 
         sleep(5000)
         sql """ alter table ${tableName} 
@@ -222,7 +222,7 @@ suite ("test_varchar_schema_change") {
         logger.info(res[2][1])
         assertEquals(res[2][1].toLowerCase(),"varchar(40)")
 
-        qt_sc " select * from ${tableName} order by 1; "
+        qt_sc " select * from ${tableName} order by 1,2; "
 
         // test{
         //     sql """ alter table t0 modify column c1 varchar(20) NOT NULL """

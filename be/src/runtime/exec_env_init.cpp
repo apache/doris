@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "agent/cgroups_mgr.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "gen_cpp/BackendService.h"
@@ -44,7 +43,6 @@
 #include "runtime/small_file_mgr.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
-#include "runtime/tmp_file_mgr.h"
 #include "service/point_query_executor.h"
 #include "util/bfd_parser.h"
 #include "util/brpc_client_cache.h"
@@ -119,14 +117,11 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
 
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
     _scanner_scheduler = new doris::vectorized::ScannerScheduler();
-
-    _cgroups_mgr = new CgroupsMgr(this, config::doris_cgroups);
     _fragment_mgr = new FragmentMgr(this);
     _result_cache = new ResultCache(config::query_cache_max_size_mb,
                                     config::query_cache_elasticity_size_mb);
     _master_info = new TMasterInfo();
     _load_path_mgr = new LoadPathMgr(this);
-    _tmp_file_mgr = new TmpFileMgr(this);
     _bfd_parser = BfdParser::create();
     _broker_mgr = new BrokerMgr(this);
     _load_channel_mgr = new LoadChannelMgr();
@@ -142,7 +137,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _frontend_client_cache->init_metrics("frontend");
     _broker_client_cache->init_metrics("broker");
     _result_mgr->init();
-    _cgroups_mgr->init_cgroups();
     Status status = _load_path_mgr->init();
     if (!status.ok()) {
         LOG(ERROR) << "load path mgr init failed." << status;
@@ -166,10 +160,18 @@ Status ExecEnv::init_pipeline_task_scheduler() {
     if (executors_size <= 0) {
         executors_size = CpuInfo::num_cores();
     }
-    auto t_queue = std::make_shared<pipeline::TaskQueue>(executors_size);
+
+    // TODO pipeline task group combie two blocked schedulers.
+    auto t_queue = std::make_shared<pipeline::NormalTaskQueue>(executors_size);
     auto b_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>(t_queue);
     _pipeline_task_scheduler = new pipeline::TaskScheduler(this, b_scheduler, t_queue);
     RETURN_IF_ERROR(_pipeline_task_scheduler->start());
+
+    auto tg_queue = std::make_shared<pipeline::TaskGroupTaskQueue>(executors_size);
+    auto tg_b_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>(tg_queue);
+    _pipeline_task_group_scheduler = new pipeline::TaskScheduler(this, tg_b_scheduler, tg_queue);
+    RETURN_IF_ERROR(_pipeline_task_group_scheduler->start());
+
     return Status::OK();
 }
 
@@ -262,7 +264,6 @@ Status ExecEnv::_init_mem_env() {
               << ", origin config value: " << config::inverted_index_query_cache_limit;
 
     // 4. init other managers
-    RETURN_IF_ERROR(_tmp_file_mgr->init());
     RETURN_IF_ERROR(_block_spill_mgr->init());
 
     // 5. init chunk allocator
@@ -342,12 +343,11 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_load_channel_mgr);
     SAFE_DELETE(_broker_mgr);
     SAFE_DELETE(_bfd_parser);
-    SAFE_DELETE(_tmp_file_mgr);
     SAFE_DELETE(_load_path_mgr);
     SAFE_DELETE(_master_info);
     SAFE_DELETE(_pipeline_task_scheduler);
+    SAFE_DELETE(_pipeline_task_group_scheduler);
     SAFE_DELETE(_fragment_mgr);
-    SAFE_DELETE(_cgroups_mgr);
     SAFE_DELETE(_broker_client_cache);
     SAFE_DELETE(_frontend_client_cache);
     SAFE_DELETE(_backend_client_cache);

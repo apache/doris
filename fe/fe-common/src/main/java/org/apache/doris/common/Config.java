@@ -1905,6 +1905,13 @@ public class Config extends ConfigBase {
     public static long max_hive_partition_cache_num = 100000;
 
     /**
+     * Max cache loader thread-pool size.
+     * Max thread pool size for loading external meta cache
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static int max_external_cache_loader_thread_pool_size = 10;
+
+    /**
      * Max cache num of external catalog's file
      * Decrease this value if FE's memory is small
      */

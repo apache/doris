@@ -2072,6 +2072,15 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return false;
     }
 
+    public boolean hasAggregateSlot() {
+        for (Expr expr : children) {
+            if (expr.hasAggregateSlot()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * For excute expr the result is nullable
      * TODO: Now only SlotRef and LiteralExpr overwrite the method, each child of Expr should
@@ -2151,6 +2160,9 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             }
             return false;
         }
+        if (fn.functionName().equalsIgnoreCase("array_sortby")) {
+            return children.get(0).isNullable();
+        }
         return true;
     }
 
@@ -2214,6 +2226,20 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return true;
     }
 
+    public boolean containsSubPredicate(Expr subExpr) throws AnalysisException {
+        if (toSqlWithoutTbl().equals(subExpr.toSqlWithoutTbl())) {
+            return true;
+        }
+        return false;
+    }
+
+    public Expr replaceSubPredicate(Expr subExpr) throws AnalysisException {
+        if (toSqlWithoutTbl().equals(subExpr.toSqlWithoutTbl())) {
+            return null;
+        }
+        return this;
+    }
+
     protected Type[] getActualArgTypes(Type[] originType) {
         return Arrays.stream(originType).map(
                 (Type type) -> {
@@ -2270,6 +2296,15 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
         for (Expr expr : children) {
             if (expr.refToCountStar()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public boolean haveFunction(String functionName) {
+        for (Expr expr : children) {
+            if (expr.haveFunction(functionName)) {
                 return true;
             }
         }

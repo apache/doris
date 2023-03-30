@@ -508,17 +508,17 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("json_object")) {
             len = len - 1;
         }
-        if (fnName.getFunction().equalsIgnoreCase("aes_decrypt")
-                || fnName.getFunction().equalsIgnoreCase("aes_encrypt")
-                || fnName.getFunction().equalsIgnoreCase("sm4_decrypt")
-                || fnName.getFunction().equalsIgnoreCase("sm4_encrypt")) {
-            len = len - 1;
-        }
+
         for (int i = 0; i < len; ++i) {
-            if (i == 1 && (fnName.getFunction().equalsIgnoreCase("aes_decrypt")
-                    || fnName.getFunction().equalsIgnoreCase("aes_encrypt")
-                    || fnName.getFunction().equalsIgnoreCase("sm4_decrypt")
-                    || fnName.getFunction().equalsIgnoreCase("sm4_encrypt"))) {
+            if (ConnectContext.get() != null && ConnectContext.get().getState().isQuery() && i == 1
+                    && (fnName.getFunction().equalsIgnoreCase("aes_decrypt")
+                            || fnName.getFunction().equalsIgnoreCase("aes_encrypt")
+                            || fnName.getFunction().equalsIgnoreCase("sm4_decrypt")
+                            || fnName.getFunction().equalsIgnoreCase("sm4_encrypt")
+                            || fnName.getFunction().equalsIgnoreCase("aes_decrypt_v2")
+                            || fnName.getFunction().equalsIgnoreCase("aes_encrypt_v2")
+                            || fnName.getFunction().equalsIgnoreCase("sm4_decrypt_v2")
+                            || fnName.getFunction().equalsIgnoreCase("sm4_encrypt_v2"))) {
                 result.add("\'***\'");
             } else if (orderByElements.size() > 0 && i == len - orderByElements.size()) {
                 result.add("ORDER BY " + children.get(i).toSql());
@@ -568,14 +568,22 @@ public class FunctionCallExpr extends Expr {
         if (fnName.getFunction().equalsIgnoreCase("aes_decrypt")
                 || fnName.getFunction().equalsIgnoreCase("aes_encrypt")
                 || fnName.getFunction().equalsIgnoreCase("sm4_decrypt")
-                || fnName.getFunction().equalsIgnoreCase("sm4_encrypt")) {
+                || fnName.getFunction().equalsIgnoreCase("sm4_encrypt")
+                || fnName.getFunction().equalsIgnoreCase("aes_decrypt_v2")
+                || fnName.getFunction().equalsIgnoreCase("aes_encrypt_v2")
+                || fnName.getFunction().equalsIgnoreCase("sm4_decrypt_v2")
+                || fnName.getFunction().equalsIgnoreCase("sm4_encrypt_v2")) {
             len = len - 1;
         }
         for (int i = 0; i < len; ++i) {
             if (i == 1 && (fnName.getFunction().equalsIgnoreCase("aes_decrypt")
                     || fnName.getFunction().equalsIgnoreCase("aes_encrypt")
                     || fnName.getFunction().equalsIgnoreCase("sm4_decrypt")
-                    || fnName.getFunction().equalsIgnoreCase("sm4_encrypt"))) {
+                    || fnName.getFunction().equalsIgnoreCase("sm4_encrypt")
+                    || fnName.getFunction().equalsIgnoreCase("aes_decrypt_v2")
+                    || fnName.getFunction().equalsIgnoreCase("aes_encrypt_v2")
+                    || fnName.getFunction().equalsIgnoreCase("sm4_decrypt_v2")
+                    || fnName.getFunction().equalsIgnoreCase("sm4_encrypt_v2"))) {
                 result.add("\'***\'");
             } else {
                 result.add(children.get(i).toDigest());
@@ -691,7 +699,7 @@ public class FunctionCallExpr extends Expr {
             }
 
             for (Expr child : children) {
-                if (child.type.isOnlyMetricType()) {
+                if (child.type.isOnlyMetricType() && !child.type.isComplexType()) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
             }
@@ -957,8 +965,12 @@ public class FunctionCallExpr extends Expr {
         if ((fnName.getFunction().equalsIgnoreCase("aes_decrypt")
                 || fnName.getFunction().equalsIgnoreCase("aes_encrypt")
                 || fnName.getFunction().equalsIgnoreCase("sm4_decrypt")
-                || fnName.getFunction().equalsIgnoreCase("sm4_encrypt"))
-                && children.size() == 3) {
+                || fnName.getFunction().equalsIgnoreCase("sm4_encrypt")
+                || fnName.getFunction().equalsIgnoreCase("aes_decrypt_v2")
+                || fnName.getFunction().equalsIgnoreCase("aes_encrypt_v2")
+                || fnName.getFunction().equalsIgnoreCase("sm4_decrypt_v2")
+                || fnName.getFunction().equalsIgnoreCase("sm4_encrypt_v2"))
+                && (children.size() == 2 || children.size() == 3)) {
             String blockEncryptionMode = "";
             Set<String> aesModes = new HashSet<>(Arrays.asList(
                     "AES_128_ECB",
@@ -996,7 +1008,9 @@ public class FunctionCallExpr extends Expr {
             if (ConnectContext.get() != null) {
                 blockEncryptionMode = ConnectContext.get().getSessionVariable().getBlockEncryptionMode();
                 if (fnName.getFunction().equalsIgnoreCase("aes_decrypt")
-                        || fnName.getFunction().equalsIgnoreCase("aes_encrypt")) {
+                        || fnName.getFunction().equalsIgnoreCase("aes_encrypt")
+                        || fnName.getFunction().equalsIgnoreCase("aes_decrypt_v2")
+                        || fnName.getFunction().equalsIgnoreCase("aes_encrypt_v2")) {
                     if (StringUtils.isAllBlank(blockEncryptionMode)) {
                         blockEncryptionMode = "AES_128_ECB";
                     }
@@ -1004,23 +1018,66 @@ public class FunctionCallExpr extends Expr {
                         throw new AnalysisException("session variable block_encryption_mode is invalid with aes");
 
                     }
+                    if (children.size() == 2) {
+                        if (!blockEncryptionMode.toUpperCase().equals("AES_128_ECB")
+                                && !blockEncryptionMode.toUpperCase().equals("AES_192_ECB")
+                                && !blockEncryptionMode.toUpperCase().equals("AES_256_ECB")) {
+                            if (fnName.getFunction().equalsIgnoreCase("aes_decrypt_v2")) {
+                                throw new AnalysisException(
+                                        "Incorrect parameter count in the call to native function 'aes_decrypt'");
+                            } else if (fnName.getFunction().equalsIgnoreCase("aes_encrypt_v2")) {
+                                throw new AnalysisException(
+                                        "Incorrect parameter count in the call to native function 'aes_encrypt'");
+                            } else {
+                                blockEncryptionMode = "AES_128_ECB";
+                            }
+                        } else if ((blockEncryptionMode.toUpperCase().equals("AES_192_ECB")
+                                || blockEncryptionMode.toUpperCase().equals("AES_256_ECB"))
+                                && !fnName.getFunction().equalsIgnoreCase("aes_decrypt_v2")
+                                && !fnName.getFunction().equalsIgnoreCase("aes_encrypt_v2")) {
+                            blockEncryptionMode = "AES_128_ECB";
+                        }
+                    }
                 }
                 if (fnName.getFunction().equalsIgnoreCase("sm4_decrypt")
-                        || fnName.getFunction().equalsIgnoreCase("sm4_encrypt")) {
+                        || fnName.getFunction().equalsIgnoreCase("sm4_encrypt")
+                        || fnName.getFunction().equalsIgnoreCase("sm4_decrypt_v2")
+                        || fnName.getFunction().equalsIgnoreCase("sm4_encrypt_v2")) {
                     if (StringUtils.isAllBlank(blockEncryptionMode)) {
                         blockEncryptionMode = "SM4_128_ECB";
                     }
                     if (!sm4Modes.contains(blockEncryptionMode.toUpperCase())) {
-                        throw new AnalysisException("session variable block_encryption_mode is invalid with sm4");
+                        throw new AnalysisException(
+                                "session variable block_encryption_mode is invalid with sm4");
 
+                    }
+                    if (children.size() == 2) {
+                        if (fnName.getFunction().equalsIgnoreCase("sm4_decrypt_v2")) {
+                            throw new AnalysisException(
+                                    "Incorrect parameter count in the call to native function 'sm4_decrypt'");
+                        } else if (fnName.getFunction().equalsIgnoreCase("sm4_encrypt_v2")) {
+                            throw new AnalysisException(
+                                    "Incorrect parameter count in the call to native function 'sm4_encrypt'");
+                        } else {
+                            blockEncryptionMode = "AES_128_ECB";
+                        }
                     }
                 }
             }
             if (!blockEncryptionMode.equals(children.get(children.size() - 1).toString())) {
                 children.add(new StringLiteral(blockEncryptionMode));
             }
-        }
 
+            if (fnName.getFunction().equalsIgnoreCase("aes_decrypt_v2")) {
+                fnName = FunctionName.createBuiltinName("aes_decrypt");
+            } else if (fnName.getFunction().equalsIgnoreCase("aes_encrypt_v2")) {
+                fnName = FunctionName.createBuiltinName("aes_encrypt");
+            } else if (fnName.getFunction().equalsIgnoreCase("sm4_decrypt_v2")) {
+                fnName = FunctionName.createBuiltinName("sm4_decrypt");
+            } else if (fnName.getFunction().equalsIgnoreCase("sm4_encrypt_v2")) {
+                fnName = FunctionName.createBuiltinName("sm4_encrypt");
+            }
+        }
     }
 
     private void analyzeArrayFunction(Analyzer analyzer) throws AnalysisException {
@@ -1708,6 +1765,9 @@ public class FunctionCallExpr extends Expr {
 
         retExpr.fnParams = new FunctionParams(oriExpr.fnParams.isDistinct(), oriParamsExprs);
 
+        // retExpr changed to original function, so the fn should be null.
+        retExpr.fn = null;
+
         // reset children
         retExpr.children.clear();
         retExpr.children.addAll(oriExpr.getChildren());
@@ -1873,5 +1933,13 @@ public class FunctionCallExpr extends Expr {
 
     private void setChildren() {
         orderByElements.forEach(o -> addChild(o.getExpr()));
+    }
+
+    @Override
+    public boolean haveFunction(String functionName) {
+        if (fnName.toString().equalsIgnoreCase(functionName)) {
+            return true;
+        }
+        return super.haveFunction(functionName);
     }
 }
