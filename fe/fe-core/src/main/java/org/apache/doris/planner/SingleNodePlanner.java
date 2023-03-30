@@ -1363,12 +1363,9 @@ public class SingleNodePlanner {
                 } else {
                     try {
                         // mv index have where clause, so where expr on scan node is unused.
-                        Expr whereExpr = olapScanNode.getOlapTable()
+                        olapScanNode.ignoreConjuncts(olapScanNode.getOlapTable()
                                 .getIndexMetaByIndexId(bestIndexInfo.getBestIndexId())
-                                .getWhereClause();
-                        if (whereExpr != null) {
-                            olapScanNode.ignoreConjuncts();
-                        }
+                                .getWhereClause());
 
                         // if the new selected index id is different from the old one, scan node will be
                         // updated.
