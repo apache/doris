@@ -17,8 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.functions.AggStateFunctionBuilder;
@@ -122,14 +120,5 @@ public class FunctionRegistry {
         return candidateBuilders.stream()
                 .map(builder -> name + builder.toString())
                 .collect(Collectors.joining(", ", "[", "]"));
-    }
-
-    public Expression findUdf(UnboundFunction function, CascadesContext context) {
-        String dbName = context.getConnectContext().getDatabase();
-        Env env = context.getConnectContext().getEnv();
-        Database db = env.getInternalCatalog().getDbNullable(dbName);
-        FunctionSearchDesc desc = new FunctionSearchDesc(null, null, false);
-        return null;
-
     }
 }
