@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_clickhouse_jdbc_catalog", "p0") {
-    String enabled = context.config.otherConfigs.get("enableJdbcTest");
+    String enabled = context.config.otherConfigs.get("enableJdbcTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String resource_name = "clickhouse_catalog_resource";
         String catalog_name = "clickhouse_catalog";
