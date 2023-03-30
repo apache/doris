@@ -262,7 +262,8 @@ Status JdbcConnector::_check_type(SlotDescriptor* slot_desc, const std::string& 
     case TYPE_INT: {
         if (type_str != "java.lang.Short" && type_str != "java.lang.Integer" &&
             type_str != "java.math.BigDecimal" && type_str != "java.lang.Byte" &&
-            type_str != "com.clickhouse.data.value.UnsignedByte" && type_str != "com.clickhouse.data.value.UnsignedShort") {
+            type_str != "com.clickhouse.data.value.UnsignedByte" &&
+            type_str != "com.clickhouse.data.value.UnsignedShort") {
             return Status::InternalError(error_msg);
         }
         break;
@@ -270,7 +271,8 @@ Status JdbcConnector::_check_type(SlotDescriptor* slot_desc, const std::string& 
     case TYPE_BIGINT:
     case TYPE_LARGEINT: {
         if (type_str != "java.lang.Long" && type_str != "java.math.BigDecimal" &&
-            type_str != "java.math.BigInteger" && type_str != "com.clickhouse.data.value.UnsignedInteger" &&
+            type_str != "java.math.BigInteger" &&
+            type_str != "com.clickhouse.data.value.UnsignedInteger" &&
             type_str != "com.clickhouse.data.value.UnsignedLong") {
             return Status::InternalError(error_msg);
         }
