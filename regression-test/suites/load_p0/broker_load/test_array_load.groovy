@@ -191,7 +191,8 @@ suite("test_array_load", "load_p0") {
     def check_data_correct = {table_name ->
         sql "sync"
         // select the table and check whether the data is correct
-        qt_select "select * from ${table_name} order by k1" 
+        qt_select "select * from ${table_name} order by k1"
+        qt_select_count "select count(3), count(k6) from ${table_name}"
     }
 
     try {
