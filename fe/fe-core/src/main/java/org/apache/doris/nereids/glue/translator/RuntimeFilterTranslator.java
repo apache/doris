@@ -35,6 +35,7 @@ import org.apache.doris.planner.HashJoinNode.DistributionMode;
 import org.apache.doris.planner.JoinNodeBase;
 import org.apache.doris.planner.RuntimeFilter.RuntimeFilterTarget;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.collect.ImmutableList;
@@ -149,6 +150,12 @@ public class RuntimeFilterTranslator {
         origFilter.markFinalized();
         origFilter.assignToPlanNodes();
         origFilter.extractTargetsPosition();
+        // Number of parallel instances are large for pipeline engine, so we prefer bloom filter.
+        if (!origFilter.hasRemoteTargets() && origFilter.getType() == TRuntimeFilterType.IN_OR_BLOOM
+                && ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().enablePipelineEngine()) {
+            origFilter.setType(TRuntimeFilterType.BLOOM);
+        }
         return origFilter;
     }
 }
