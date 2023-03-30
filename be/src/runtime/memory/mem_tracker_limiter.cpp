@@ -305,9 +305,6 @@ int64_t MemTrackerLimiter::free_top_memory_query(int64_t min_free_mem,
         std::lock_guard<std::mutex> l(mem_tracker_limiter_pool[i].group_lock);
         for (auto tracker : mem_tracker_limiter_pool[i].trackers) {
             if (tracker->type() == type) {
-                if (tracker->consumption() <= 104857600) { // 100M small query does not cancel
-                    continue;
-                }
                 if (ExecEnv::GetInstance()->fragment_mgr()->query_is_canceled(
                             label_to_queryid(tracker->label()))) {
                     continue;
@@ -351,7 +348,7 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(int64_t min_free_mem,
         std::lock_guard<std::mutex> l(mem_tracker_limiter_pool[i].group_lock);
         for (auto tracker : mem_tracker_limiter_pool[i].trackers) {
             if (tracker->type() == type) {
-                if (tracker->consumption() <= 104857600) { // 100M small query does not cancel
+                if (tracker->consumption() <= 33554432) { // 32M small query does not cancel
                     continue;
                 }
                 if (ExecEnv::GetInstance()->fragment_mgr()->query_is_canceled(
