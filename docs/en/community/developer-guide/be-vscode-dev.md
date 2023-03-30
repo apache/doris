@@ -207,6 +207,8 @@ In the configuration **"request": "attach", "processId": PID**, these two config
 ps -ef | grep palo*
 ```
 
+Or write **"processId": "${command:pickProcess}"** to specify the pid when starting attach.
+
 As shown in the figure:
 
 ![](/images/image-20210618095240216.png)
