@@ -54,29 +54,6 @@ public class UserPropertyMgr implements Writable {
     public UserPropertyMgr() {
     }
 
-    public void addUserResource(String qualifiedUser, boolean isSystemUser) {
-        UserProperty property = propertyMap.get(qualifiedUser);
-        if (property != null) {
-            return;
-        }
-
-        property = new UserProperty(qualifiedUser);
-
-        // set user properties
-        try {
-            if (isSystemUser) {
-                setSystemUserDefaultResource(property);
-            } else {
-                setNormalUserDefaultResource(property);
-            }
-        } catch (DdlException e) {
-            // this should not happen, because the value is set by us!!
-        }
-
-        propertyMap.put(qualifiedUser, property);
-        resourceVersion.incrementAndGet();
-    }
-
     public void dropUser(UserIdentity userIdent) {
         if (propertyMap.remove(userIdent.getQualifiedUser()) != null) {
             LOG.info("drop user {} from user property manager", userIdent.getQualifiedUser());

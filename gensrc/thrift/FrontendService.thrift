@@ -440,6 +440,7 @@ struct TMasterOpRequest {
     1: required string user
     2: required string db
     3: required string sql 
+    // Deprecated
     4: optional Types.TResourceInfo resourceInfo
     5: optional string cluster
     6: optional i64 execMemLimit // deprecated, move into query_options

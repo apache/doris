@@ -19,8 +19,6 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.SetUserPropertyVar;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.ResourceGroup;
-import org.apache.doris.catalog.ResourceType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;

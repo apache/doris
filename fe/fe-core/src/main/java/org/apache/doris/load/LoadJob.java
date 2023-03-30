@@ -120,8 +120,6 @@ public class LoadJob implements Writable {
     private List<Predicate> conditions = null;
     private DeleteInfo deleteInfo;
 
-    private TResourceInfo resourceInfo;
-
     private TPriority priority;
 
     private long execMemLimit;
@@ -167,7 +165,6 @@ public class LoadJob implements Writable {
         this.unfinishedTablets = new ArrayList<>();
         this.pushTasks = new HashSet<PushTask>();
         this.replicaPersistInfos = Maps.newHashMap();
-        this.resourceInfo = null;
         this.priority = TPriority.NORMAL;
         this.execMemLimit = DEFAULT_EXEC_MEM_LIMIT;
         this.finishedReplicas = Maps.newHashMap();
@@ -563,14 +560,6 @@ public class LoadJob implements Writable {
         }
     }
 
-    public void setResourceInfo(TResourceInfo resourceInfo) {
-        this.resourceInfo = resourceInfo;
-    }
-
-    public TResourceInfo getResourceInfo() {
-        return resourceInfo;
-    }
-
     public boolean addFinishedReplica(Replica replica) {
         finishedReplicas.put(replica.getId(), replica);
         return true;
@@ -657,8 +646,6 @@ public class LoadJob implements Writable {
             pushTasks.clear();
             pushTasks = null;
         }
-
-        resourceInfo = null;
     }
 
     public void write(DataOutput out) throws IOException {
@@ -728,14 +715,7 @@ public class LoadJob implements Writable {
         }
 
         // resourceInfo
-        if (resourceInfo == null || Strings.isNullOrEmpty(resourceInfo.getGroup())
-                || Strings.isNullOrEmpty(resourceInfo.getUser())) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            Text.writeString(out, resourceInfo.getUser());
-            Text.writeString(out, resourceInfo.getGroup());
-        }
+        out.writeBoolean(false);
 
         Text.writeString(out, priority.name());
 
@@ -879,7 +859,6 @@ public class LoadJob implements Writable {
         if (in.readBoolean()) {
             String user = Text.readString(in);
             String group = Text.readString(in);
-            resourceInfo = new TResourceInfo(user, group);
         }
 
         this.priority = TPriority.valueOf(Text.readString(in));

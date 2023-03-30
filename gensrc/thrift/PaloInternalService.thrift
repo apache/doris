@@ -377,6 +377,7 @@ struct TExecPlanFragmentParams {
 
   // required in V1
   // @Common components
+  // Deprecated
   10: optional Types.TResourceInfo resource_info
 
   // load job related
@@ -583,6 +584,7 @@ struct TPipelineFragmentParams {
   3: optional i32 fragment_id
   4: required map<Types.TPlanNodeId, i32> per_exch_num_senders
   5: optional Descriptors.TDescriptorTable desc_tbl
+  // Deprecated
   6: optional Types.TResourceInfo resource_info
   7: list<TPlanFragmentDestination> destinations
   8: optional i32 num_senders
