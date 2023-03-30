@@ -193,13 +193,15 @@ std::string PointQueryExecutor::print_profile() {
             ""
             ""
             ", is_binary_row:{}, output_columns:{}, total_keys:{}, row_cache_hits:{}"
-            ", hit_cached_pages:{}, total_pages_read:{}, compressed_bytes_read:{}, io_latency:{}ns, "
+            ", hit_cached_pages:{}, total_pages_read:{}, compressed_bytes_read:{}, "
+            "io_latency:{}ns, "
             "uncompressed_bytes_read:{}"
             "",
             total_us, init_us, init_key_us, lookup_key_us, lookup_data_us, output_data_us,
             _hit_lookup_cache, _binary_row_format, _reusable->output_exprs().size(),
-            _row_read_ctxs.size(), _row_cache_hits, read_stats.cached_pages_num, read_stats.total_pages_num,
-            read_stats.compressed_bytes_read, read_stats.io_ns, read_stats.uncompressed_bytes_read);
+            _row_read_ctxs.size(), _row_cache_hits, read_stats.cached_pages_num,
+            read_stats.total_pages_num, read_stats.compressed_bytes_read, read_stats.io_ns,
+            read_stats.uncompressed_bytes_read);
 }
 
 Status PointQueryExecutor::_init_keys(const PTabletKeyLookupRequest* request) {
