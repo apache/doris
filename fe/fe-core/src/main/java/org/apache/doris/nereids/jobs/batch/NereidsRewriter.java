@@ -29,7 +29,6 @@ import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProj
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionOptimization;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewrite;
-import org.apache.doris.nereids.rules.mv.SelectMaterializedIndexWithAggregate;
 import org.apache.doris.nereids.rules.mv.SelectMaterializedIndexWithoutAggregate;
 import org.apache.doris.nereids.rules.rewrite.logical.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.logical.AggScalarSubQueryToWindowFunction;
@@ -235,7 +234,8 @@ public class NereidsRewriter extends BatchRewriteJob {
                     //       PhysicalLimits with gather exchange
                     new SplitLimit(),
 
-                    new SelectMaterializedIndexWithAggregate(),
+                    // TODO: enable this rule after fix https://github.com/apache/doris/issues/18263
+                    // new SelectMaterializedIndexWithAggregate(),
                     new SelectMaterializedIndexWithoutAggregate(),
                     new PruneOlapScanTablet(),
                     new PruneOlapScanPartition()

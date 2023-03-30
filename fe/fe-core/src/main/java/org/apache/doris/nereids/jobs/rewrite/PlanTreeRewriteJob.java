@@ -48,7 +48,7 @@ public abstract class PlanTreeRewriteJob extends Job {
                 Preconditions.checkState(newPlans.size() == 1,
                         "Rewrite rule should generate one plan: " + rule.getRuleType());
                 Plan newPlan = newPlans.get(0);
-                if (!newPlan.deepEquals(plan)) {
+                if (!newPlan.deepEquals(plan) || !newPlan.getLogicalProperties().equals(plan.getLogicalProperties())) {
                     // don't remove this comment, it can help us to trace some bug when developing.
 
                     // String traceBefore = null;
