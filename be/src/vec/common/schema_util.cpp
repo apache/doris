@@ -183,7 +183,7 @@ static void get_column_def(const vectorized::DataTypePtr& data_type, const std::
         get_column_def(real_type.get_nested_type(), "", column);
         return;
     }
-    column->columnDesc.__set_columnType(to_thrift(get_primitive_type(data_type->get_type_id())));
+    column->columnDesc.__set_columnType(data_type->get_type_as_tprimitive_type());
     if (data_type->get_type_id() == TypeIndex::Array) {
         TColumnDef child;
         column->columnDesc.__set_children({});
