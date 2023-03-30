@@ -28,8 +28,9 @@
 
 #include "common/config.h"
 #include "gutil/strings/substitute.h"
-#include "jni_native_method.h"
-#include "libjvm_loader.h"
+#include "util/defer_op.h"
+#include "util/jni_native_method.h"
+#include "util/libjvm_loader.h"
 
 using std::string;
 
@@ -71,7 +72,7 @@ const std::string GetDorisJNIClasspath() {
     int num_vms;
     int rv = JNI_GetCreatedJavaVMs(&g_vm, 1, &num_vms);
     if (rv == 0) {
-        JavaVMOption* options;
+        JavaVMOption* options = nullptr;
         auto classpath = GetDorisJNIClasspath();
         // The following 5 opts are default opts,
         // they can be override by JAVA_OPTS env var.
@@ -82,6 +83,14 @@ const std::string GetDorisJNIClasspath() {
         std::string max_fd_limit = "-XX:-MaxFDLimit";
 
         char* java_opts = getenv("JAVA_OPTS");
+        Defer defer {[&]() {
+            if (java_opts != nullptr) {
+                free(java_opts);
+            }
+            if (options != nullptr) {
+                free(options);
+            }
+        }};
 
         int no_args;
         if (java_opts == nullptr) {
@@ -143,11 +152,6 @@ const std::string GetDorisJNIClasspath() {
         if (JNI_OK != res) {
             DCHECK(false) << "Failed to create JVM, code= " << res;
         }
-
-        if (java_opts != nullptr) {
-            free(java_opts);
-        }
-        free(options);
     } else {
         CHECK_EQ(rv, 0) << "Could not find any created Java VM";
         CHECK_EQ(num_vms, 1) << "No VMs returned";
