@@ -38,10 +38,10 @@ static const RE2 STARTS_WITH_RE("\\^([^\\.\\^\\{\\[\\(\\|\\)\\]\\}\\+\\*\\?\\$\\
 static const RE2 EQUALS_RE("\\^([^\\.\\^\\{\\[\\(\\|\\)\\]\\}\\+\\*\\?\\$\\\\]*)\\$");
 
 // Like patterns
-static const re2::RE2 LIKE_SUBSTRING_RE("(?:%+)(((\\\\%)|(\\\\_)|([^%_]))+)(?:%+)");
-static const re2::RE2 LIKE_ENDS_WITH_RE("(?:%+)(((\\\\%)|(\\\\_)|([^%_]))+)");
-static const re2::RE2 LIKE_STARTS_WITH_RE("(((\\\\%)|(\\\\_)|([^%_]))+)(?:%+)");
-static const re2::RE2 LIKE_EQUALS_RE("(((\\\\%)|(\\\\_)|([^%_]))+)");
+static const re2::RE2 LIKE_SUBSTRING_RE("(?:%+)(((\\\\_)|([^%_\\\\]))+)(?:%+)");
+static const re2::RE2 LIKE_ENDS_WITH_RE("(?:%+)(((\\\\_)|([^%_]))+)");
+static const re2::RE2 LIKE_STARTS_WITH_RE("(((\\\\%)|(\\\\_)|([^%_\\\\]))+)(?:%+)");
+static const re2::RE2 LIKE_EQUALS_RE("(((\\\\_)|([^%_]))+)");
 
 Status LikeSearchState::clone(LikeSearchState& cloned) {
     cloned.escape_char = escape_char;
@@ -513,7 +513,7 @@ void FunctionLike::convert_like_pattern(LikeSearchState* state, const std::strin
     }
 
     // add $ to pattern tail to match line tail
-    if (pattern.size() > 0 && pattern[pattern.size() - 1] != '%') {
+    if (pattern.size() > 0 && re_pattern->back() != '*') {
         re_pattern->append("$");
     }
 }
@@ -524,13 +524,46 @@ void FunctionLike::remove_escape_character(std::string* search_string) {
     int len = tmp_search_string.length();
     for (int i = 0; i < len;) {
         if (tmp_search_string[i] == '\\' && i + 1 < len &&
-            (tmp_search_string[i + 1] == '%' || tmp_search_string[i + 1] == '_')) {
+            (tmp_search_string[i + 1] == '%' || tmp_search_string[i + 1] == '_' ||
+             tmp_search_string[i + 1] == '\\')) {
             search_string->append(1, tmp_search_string[i + 1]);
             i += 2;
         } else {
             search_string->append(1, tmp_search_string[i]);
             i++;
         }
+    }
+}
+
+bool re2_full_match(const std::string& str, const RE2& re, std::vector<std::string>& results) {
+    if (!re.ok()) {
+        return false;
+    }
+
+    std::vector<RE2::Arg> arguments;
+    std::vector<RE2::Arg*> arguments_ptrs;
+    std::size_t args_count = re.NumberOfCapturingGroups();
+    arguments.resize(args_count);
+    arguments_ptrs.resize(args_count);
+    results.resize(args_count);
+    for (std::size_t i = 0; i < args_count; ++i) {
+        arguments[i] = &results[i];
+        arguments_ptrs[i] = &arguments[i];
+    }
+
+    return RE2::FullMatchN(str, re, arguments_ptrs.data(), args_count);
+}
+
+void verbose_log_match(const std::string& str, const std::string& pattern_name, const RE2& re) {
+    std::vector<std::string> results;
+    VLOG_DEBUG << "arg str: " << str << ", size: " << str.size() << ", pattern " << pattern_name
+               << ": " << re.pattern() << ", size: " << re.pattern().size();
+    if (re2_full_match(str, re, results)) {
+        for (int i = 0; i < results.size(); ++i) {
+            VLOG_DEBUG << "match " << i << ": " << results[i] << ", size: " << results[i].size();
+        }
+    } else {
+        VLOG_DEBUG << "no match";
     }
 }
 
@@ -550,26 +583,63 @@ Status FunctionLike::open(FunctionContext* context, FunctionContext::FunctionSta
         std::string pattern_str = pattern.to_string();
         state->search_state.pattern_str = pattern_str;
         std::string search_string;
+
         if (pattern_str.empty() || RE2::FullMatch(pattern_str, LIKE_EQUALS_RE, &search_string)) {
+            if (VLOG_DEBUG_IS_ON) {
+                verbose_log_match(pattern_str, "LIKE_EQUALS_RE", LIKE_EQUALS_RE);
+                VLOG_DEBUG << "search_string : " << search_string
+                           << ", size: " << search_string.size();
+            }
             remove_escape_character(&search_string);
+            if (VLOG_DEBUG_IS_ON) {
+                VLOG_DEBUG << "search_string escape removed: " << search_string
+                           << ", size: " << search_string.size();
+            }
             state->search_state.set_search_string(search_string);
             state->function = constant_equals_fn;
             state->predicate_like_function = constant_equals_fn_predicate;
             state->scalar_function = constant_equals_fn_scalar;
         } else if (RE2::FullMatch(pattern_str, LIKE_STARTS_WITH_RE, &search_string)) {
+            if (VLOG_DEBUG_IS_ON) {
+                verbose_log_match(pattern_str, "LIKE_STARTS_WITH_RE", LIKE_STARTS_WITH_RE);
+                VLOG_DEBUG << "search_string : " << search_string
+                           << ", size: " << search_string.size();
+            }
             remove_escape_character(&search_string);
+            if (VLOG_DEBUG_IS_ON) {
+                VLOG_DEBUG << "search_string escape removed: " << search_string
+                           << ", size: " << search_string.size();
+            }
             state->search_state.set_search_string(search_string);
             state->function = constant_starts_with_fn;
             state->predicate_like_function = constant_starts_with_fn_predicate;
             state->scalar_function = constant_starts_with_fn_scalar;
         } else if (RE2::FullMatch(pattern_str, LIKE_ENDS_WITH_RE, &search_string)) {
+            if (VLOG_DEBUG_IS_ON) {
+                verbose_log_match(pattern_str, "LIKE_ENDS_WITH_RE", LIKE_ENDS_WITH_RE);
+                VLOG_DEBUG << "search_string : " << search_string
+                           << ", size: " << search_string.size();
+            }
             remove_escape_character(&search_string);
+            if (VLOG_DEBUG_IS_ON) {
+                VLOG_DEBUG << "search_string escape removed: " << search_string
+                           << ", size: " << search_string.size();
+            }
             state->search_state.set_search_string(search_string);
             state->function = constant_ends_with_fn;
             state->predicate_like_function = constant_ends_with_fn_predicate;
             state->scalar_function = constant_ends_with_fn_scalar;
         } else if (RE2::FullMatch(pattern_str, LIKE_SUBSTRING_RE, &search_string)) {
+            if (VLOG_DEBUG_IS_ON) {
+                verbose_log_match(pattern_str, "LIKE_SUBSTRING_RE", LIKE_SUBSTRING_RE);
+                VLOG_DEBUG << "search_string : " << search_string
+                           << ", size: " << search_string.size();
+            }
             remove_escape_character(&search_string);
+            if (VLOG_DEBUG_IS_ON) {
+                VLOG_DEBUG << "search_string escape removed: " << search_string
+                           << ", size: " << search_string.size();
+            }
             state->search_state.set_search_string(search_string);
             state->function = constant_substring_fn;
             state->predicate_like_function = constant_substring_fn_predicate;
@@ -577,6 +647,11 @@ Status FunctionLike::open(FunctionContext* context, FunctionContext::FunctionSta
         } else {
             std::string re_pattern;
             convert_like_pattern(&state->search_state, pattern_str, &re_pattern);
+            if (VLOG_DEBUG_IS_ON) {
+                VLOG_DEBUG << "hyperscan, pattern str: " << pattern_str
+                           << ", size: " << pattern_str.size() << ", re pattern: " << re_pattern
+                           << ", size: " << re_pattern.size();
+            }
 
             hs_database_t* database = nullptr;
             hs_scratch_t* scratch = nullptr;
