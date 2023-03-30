@@ -182,9 +182,6 @@ inline int string_compare(const char* s1, int64_t n1, const char* s2, int64_t n2
         if (u1 != u2) {
             return u1 - u2;
         }
-        if (u1 == '\0') {
-            return n1 - n2;
-        }
     }
 
     return n1 - n2;
