@@ -244,21 +244,17 @@ template <size_t initial_size_degree = 10>
 struct HashTableGrower {
     /// The state of this structure is enough to get the buffer size of the hash table.
     doris::vectorized::UInt8 size_degree = initial_size_degree;
-    doris::vectorized::Int64 double_grow_degree = 31; // 2GB
+    doris::vectorized::Int64 double_grow_degree = doris::config::hash_table_double_grow_degree;
 
     /// The size of the hash table in the cells.
     size_t buf_size() const { return 1ULL << size_degree; }
 
-#ifndef STRICT_MEMORY_USE
-    size_t max_fill() const { return 1ULL << (size_degree - 1); }
-#else
-    // When capacity is greater than 2G, grow when 75% of the capacity is satisfied.
+    // When capacity is greater than 2^double_grow_degree, grow when 75% of the capacity is satisfied.
     size_t max_fill() const {
         return size_degree < double_grow_degree
                        ? 1ULL << (size_degree - 1)
                        : (1ULL << size_degree) - (1ULL << (size_degree - 2));
     }
-#endif
 
     size_t mask() const { return buf_size() - 1; }
 
@@ -279,9 +275,6 @@ struct HashTableGrower {
 
     /// Set the buffer size by the number of elements in the hash table. Used when deserializing a hash table.
     void set(size_t num_elems) {
-#ifndef STRICT_MEMORY_USE
-        size_t fill_capacity = static_cast<size_t>(log2(num_elems - 1)) + 2;
-#else
         size_t fill_capacity = static_cast<size_t>(log2(num_elems - 1)) + 1;
         fill_capacity =
                 fill_capacity < double_grow_degree
@@ -289,7 +282,7 @@ struct HashTableGrower {
                         : (num_elems < (1ULL << fill_capacity) - (1ULL << (fill_capacity - 2))
                                    ? fill_capacity
                                    : fill_capacity + 1);
-#endif
+
         size_degree = num_elems <= 1 ? initial_size_degree
                                      : (initial_size_degree > fill_capacity ? initial_size_degree
                                                                             : fill_capacity);
@@ -311,6 +304,7 @@ class alignas(64) HashTableGrowerWithPrecalculation {
     doris::vectorized::UInt8 size_degree_ = initial_size_degree;
     size_t precalculated_mask = (1ULL << initial_size_degree) - 1;
     size_t precalculated_max_fill = 1ULL << (initial_size_degree - 1);
+    doris::vectorized::Int64 double_grow_degree = doris::config::hash_table_double_grow_degree;
 
 public:
     doris::vectorized::UInt8 size_degree() const { return size_degree_; }
@@ -319,7 +313,9 @@ public:
         size_degree_ += delta;
         DCHECK(size_degree_ <= 64);
         precalculated_mask = (1ULL << size_degree_) - 1;
-        precalculated_max_fill = 1ULL << (size_degree_ - 1);
+        precalculated_max_fill = size_degree_ < double_grow_degree
+                                         ? 1ULL << (size_degree_ - 1)
+                                         : (1ULL << size_degree_) - (1ULL << (size_degree_ - 2));
     }
 
     static constexpr auto initial_count = 1ULL << initial_size_degree;
@@ -344,12 +340,17 @@ public:
 
     /// Set the buffer size by the number of elements in the hash table. Used when deserializing a hash table.
     void set(size_t num_elems) {
-        size_degree_ =
-                num_elems <= 1
-                        ? initial_size_degree
-                        : ((initial_size_degree > static_cast<size_t>(log2(num_elems - 1)) + 2)
-                                   ? initial_size_degree
-                                   : (static_cast<size_t>(log2(num_elems - 1)) + 2));
+        size_t fill_capacity = static_cast<size_t>(log2(num_elems - 1)) + 1;
+        fill_capacity =
+                fill_capacity < double_grow_degree
+                        ? fill_capacity + 1
+                        : (num_elems < (1ULL << fill_capacity) - (1ULL << (fill_capacity - 2))
+                                   ? fill_capacity
+                                   : fill_capacity + 1);
+
+        size_degree_ = num_elems <= 1 ? initial_size_degree
+                                      : (initial_size_degree > fill_capacity ? initial_size_degree
+                                                                             : fill_capacity);
         increase_size_degree(0);
     }
 
