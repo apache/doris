@@ -510,7 +510,7 @@ void PlanFragmentExecutor::close() {
             }
         }
 
-        if (_is_report_success) {
+        if (_is_report_success || config::enable_stream_load_profile_log) {
             std::stringstream ss;
             // Compute the _local_time_percent before pretty_print the runtime_profile
             // Before add this operation, the print out like that:
