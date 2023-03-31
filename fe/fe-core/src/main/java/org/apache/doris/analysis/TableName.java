@@ -122,6 +122,10 @@ public class TableName implements Writable {
         return tbl;
     }
 
+    public void setTbl(String tbl) {
+        this.tbl = tbl;
+    }
+
     public boolean isEmpty() {
         return tbl.isEmpty();
     }
