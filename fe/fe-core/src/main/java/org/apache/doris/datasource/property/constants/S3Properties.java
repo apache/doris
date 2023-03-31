@@ -183,12 +183,21 @@ public class S3Properties extends BaseProperties {
         properties.putIfAbsent(S3Properties.REGION, properties.get(S3Properties.Env.REGION));
         properties.putIfAbsent(S3Properties.ACCESS_KEY, properties.get(S3Properties.Env.ACCESS_KEY));
         properties.putIfAbsent(S3Properties.SECRET_KEY, properties.get(S3Properties.Env.SECRET_KEY));
-        properties.putIfAbsent(S3Properties.SESSION_TOKEN, properties.get(S3Properties.Env.TOKEN));
+        if (properties.containsKey(S3Properties.Env.TOKEN)) {
+            properties.putIfAbsent(S3Properties.SESSION_TOKEN, properties.get(S3Properties.Env.TOKEN));
+        }
+        if (properties.containsKey(S3Properties.Env.MAX_CONNECTIONS)) {
+            properties.putIfAbsent(S3Properties.MAX_CONNECTIONS, properties.get(S3Properties.Env.MAX_CONNECTIONS));
+        }
+        if (properties.containsKey(S3Properties.Env.REQUEST_TIMEOUT_MS)) {
+            properties.putIfAbsent(S3Properties.REQUEST_TIMEOUT_MS,
+                    properties.get(S3Properties.Env.REQUEST_TIMEOUT_MS));
 
-        properties.putIfAbsent(S3Properties.MAX_CONNECTIONS, properties.get(S3Properties.Env.MAX_CONNECTIONS));
-        properties.putIfAbsent(S3Properties.REQUEST_TIMEOUT_MS, properties.get(S3Properties.Env.REQUEST_TIMEOUT_MS));
-        properties.putIfAbsent(S3Properties.CONNECTION_TIMEOUT_MS,
-                properties.get(S3Properties.Env.CONNECTION_TIMEOUT_MS));
+        }
+        if (properties.containsKey(S3Properties.Env.CONNECTION_TIMEOUT_MS)) {
+            properties.putIfAbsent(S3Properties.CONNECTION_TIMEOUT_MS,
+                    properties.get(S3Properties.Env.CONNECTION_TIMEOUT_MS));
+        }
     }
 
     public static TS3StorageParam getS3TStorageParam(Map<String, String> properties) {

@@ -97,6 +97,11 @@ public class S3Storage extends BlobStorage {
     public void setProperties(Map<String, String> properties) {
         super.setProperties(properties);
         caseInsensitiveProperties.putAll(properties);
+        if (!caseInsensitiveProperties.containsKey(S3Properties.ENDPOINT)) {
+            // try to get new properties from old version
+            // compatible with old version
+            S3Properties.convertToStdProperties(caseInsensitiveProperties);
+        }
         try {
             S3Properties.requiredS3Properties(properties);
         } catch (DdlException e) {
