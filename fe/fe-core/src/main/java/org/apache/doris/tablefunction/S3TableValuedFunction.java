@@ -24,7 +24,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.datasource.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.datasource.property.PropertyConverter;
-import org.apache.doris.datasource.property.S3ClientBEProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.thrift.TFileType;
 
@@ -161,8 +160,7 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
 
     @Override
     public BrokerDesc getBrokerDesc() {
-        return new BrokerDesc("S3TvfBroker", StorageType.S3,
-                S3ClientBEProperties.getBeFSProperties(locationProperties));
+        return new BrokerDesc("S3TvfBroker", StorageType.S3, locationProperties);
     }
 
     // =========== implement abstract methods of TableValuedFunctionIf =================
