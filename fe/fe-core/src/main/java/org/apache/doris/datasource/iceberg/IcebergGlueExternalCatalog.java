@@ -28,6 +28,7 @@ import org.apache.iceberg.aws.AwsProperties;
 import org.apache.iceberg.aws.glue.GlueCatalog;
 import org.apache.iceberg.catalog.Namespace;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -47,20 +48,18 @@ public class IcebergGlueExternalCatalog extends IcebergExternalCatalog {
     protected void initLocalObjectsImpl() {
         icebergCatalogType = ICEBERG_GLUE;
         GlueCatalog glueCatalog = new GlueCatalog();
-        Configuration conf = setGlueProperties(getConfiguration());
-        glueCatalog.setConf(conf);
+        glueCatalog.setConf(getConfiguration());
         // initialize glue catalog
         Map<String, String> catalogProperties = catalogProperty.getHadoopProperties();
         String warehouse = catalogProperty.getOrDefault(CatalogProperties.WAREHOUSE_LOCATION, CHECKED_WAREHOUSE);
         catalogProperties.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
-        catalogProperties.put(AwsProperties.S3FILEIO_ENDPOINT,
-                catalogProperties.getOrDefault(Constants.ENDPOINT, conf.get(S3Properties.Env.ENDPOINT)));
+        // read from converted s3 endpoint or default by BE s3 endpoint
+        String endpoint = catalogProperties.getOrDefault(Constants.ENDPOINT,
+                catalogProperties.get(S3Properties.Env.ENDPOINT));
+        catalogProperties.putIfAbsent(AwsProperties.S3FILEIO_ENDPOINT, endpoint);
+
         glueCatalog.initialize(icebergCatalogType, catalogProperties);
         catalog = glueCatalog;
-    }
-
-    private Configuration setGlueProperties(Configuration configuration) {
-        return configuration;
     }
 
     @Override
