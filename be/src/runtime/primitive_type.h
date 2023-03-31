@@ -97,8 +97,6 @@ constexpr bool has_variable_type(PrimitiveType type) {
 
 bool is_type_compatible(PrimitiveType lhs, PrimitiveType rhs);
 
-PrimitiveType get_primitive_type(vectorized::TypeIndex v_type);
-
 TExprOpcode::type to_in_opcode(PrimitiveType t);
 PrimitiveType thrift_to_type(TPrimitiveType::type ttype);
 TPrimitiveType::type to_thrift(PrimitiveType ptype);
