@@ -167,7 +167,7 @@ services:
        doris_net:
          ipv4_address: 172.20.80.2
    docker-be:
-     image: "apache/doris:1.2.1-be-x86_64"
+     image: "apache/doris:1.2.1-be-x86_64"  # use apache/doris:1.2.1-be-x86_64-noavx2, if CPU does not support AVX2
      container_name: "doris-be"
      hostname: "be"
      depends_on:
