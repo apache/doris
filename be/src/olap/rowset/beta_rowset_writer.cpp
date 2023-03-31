@@ -402,7 +402,7 @@ Status BetaRowsetWriter::_add_block(const vectorized::Block* block,
     do {
         auto max_row_add = (*segment_writer)->max_row_to_add(row_avg_size_in_bytes);
         if (UNLIKELY(max_row_add < 1)) {
-            // no space for another signle row, need flush now
+            // no space for another single row, need flush now
             RETURN_NOT_OK(_flush_segment_writer(segment_writer));
             RETURN_NOT_OK(_create_segment_writer(segment_writer, block));
             max_row_add = (*segment_writer)->max_row_to_add(row_avg_size_in_bytes);
