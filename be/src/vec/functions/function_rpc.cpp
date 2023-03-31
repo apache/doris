@@ -511,11 +511,11 @@ void RPCFnImpl::_convert_block_to_proto(Block& block, const ColumnNumbers& argum
             auto data_col = nullable->get_nested_column_ptr();
             auto& null_col = nullable->get_null_map_column();
             auto data_type = std::reinterpret_pointer_cast<const DataTypeNullable>(column.type);
-            _convert_nullable_col_to_pvalue(data_col->convert_to_full_column_if_const(),
-                                            data_type->get_nested_type(), null_col, arg, 0,
-                                            row_count);
+            convert_nullable_col_to_pvalue(data_col->convert_to_full_column_if_const(),
+                                           data_type->get_nested_type(), null_col, arg, 0,
+                                           row_count);
         } else {
-            _convert_col_to_pvalue<false>(col, column.type, arg, 0, row_count);
+            convert_col_to_pvalue<false>(col, column.type, arg, 0, row_count);
         }
     }
 }
