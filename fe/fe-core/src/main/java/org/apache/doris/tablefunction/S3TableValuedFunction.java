@@ -49,12 +49,13 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
     public static final String S3_URI = "uri";
 
     private static final ImmutableSet<String> DEPRECATED_KEYS =
-            ImmutableSet.of("access_key", "secret_key", "session_token");
+            ImmutableSet.of("access_key", "secret_key", "session_token", "region", S3Properties.REGION);
 
     private static final ImmutableSet<String> OPTIONAL_KEYS =
             ImmutableSet.of(S3Properties.SESSION_TOKEN, PropertyConverter.USE_PATH_STYLE);
 
     private static final ImmutableSet<String> PROPERTIES_SET = ImmutableSet.<String>builder()
+            .add(S3_URI)
             .addAll(DEPRECATED_KEYS)
             .addAll(S3Properties.TVF_REQUIRED_FIELDS)
             .addAll(OPTIONAL_KEYS)
