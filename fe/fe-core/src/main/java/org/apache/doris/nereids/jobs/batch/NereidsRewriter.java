@@ -62,6 +62,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.NormalizeSort;
 import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanTablet;
 import org.apache.doris.nereids.rules.rewrite.logical.PushFilterInsideJoin;
+import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownLimit;
 import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinAggTranspose;
@@ -237,6 +238,8 @@ public class NereidsRewriter extends BatchRewriteJob {
 
                     new SelectMaterializedIndexWithAggregate(),
                     new SelectMaterializedIndexWithoutAggregate(),
+                    new PushdownFilterThroughProject(),
+                    new MergeProjects(),
                     new PruneOlapScanTablet(),
                     new PruneOlapScanPartition()
                 )

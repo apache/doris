@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.mv;
 
-import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -150,15 +149,8 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                 return createProjectForMv(scan.withMaterializedIndexSelected(PreAggStatus.on(), bestIndex));
             }
         } else {
-            final PreAggStatus preAggStatus;
-            if (preAggEnabledByHint(scan)) {
-                // PreAggStatus could be enabled by pre-aggregation hint for agg-keys and unique-keys.
-                preAggStatus = PreAggStatus.on();
-            } else {
-                preAggStatus = PreAggStatus.off("No aggregate on scan.");
-            }
             if (table.getIndexIdToMeta().size() == 1) {
-                return scan.withMaterializedIndexSelected(preAggStatus, baseIndexId);
+                return scan.withMaterializedIndexSelected(PreAggStatus.off("No aggregate on scan."), baseIndexId);
             }
             int baseIndexKeySize = table.getKeyColumnsByIndexId(table.getBaseIndexId()).size();
             // No aggregate on scan.
@@ -171,9 +163,9 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
 
             if (candidates.size() == 1) {
                 // `candidates` only have base index.
-                return scan.withMaterializedIndexSelected(preAggStatus, baseIndexId);
+                return scan.withMaterializedIndexSelected(PreAggStatus.off("No aggregate on scan."), baseIndexId);
             } else {
-                return createProjectForMv(scan.withMaterializedIndexSelected(preAggStatus,
+                return createProjectForMv(scan.withMaterializedIndexSelected(PreAggStatus.on(),
                         selectBestIndex(candidates, scan, predicatesSupplier.get())));
             }
         }
@@ -191,8 +183,8 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
         List<Slot> baseSlots = scan.getOutputByMvIndex(scan.getTable().getBaseIndexId());
         List<Alias> aliases = Lists.newArrayList();
         List<String> baseColumnNames = mvSlots.stream()
-                .map(slot -> ((SlotRef) (((SlotReference) slot).getColumn().get().getDefineExpr()))
-                        .getColumnName())
+                .map(slot -> org.apache.doris.analysis.CreateMaterializedViewStmt
+                        .mvColumnBreaker(((SlotReference) slot).getColumn().get().getName()))
                 .collect(Collectors.toList());
         for (int i = 0; i < baseColumnNames.size(); ++i) {
             for (Slot slot : baseSlots) {
