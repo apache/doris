@@ -647,7 +647,6 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
     }
 
     // Find the number of truncated digits before adjusting the precision for an exponent.
-    int truncated_digit_count = precision - type_precision;
     if (exponent > scale) {
         // Ex: 0.1e3 (which at this point would have precision == 1 and scale == 1), the
         //     scale must be set to 0 and the value set to 100 which means a precision of 3.
@@ -679,9 +678,6 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
     } else if (UNLIKELY(scale > type_scale)) {
         *result = StringParser::PARSE_UNDERFLOW;
         int shift = scale - type_scale;
-        if (UNLIKELY(truncated_digit_count > 0)) {
-            shift -= truncated_digit_count;
-        }
         if (shift > 0) {
             T divisor;
             if constexpr (std::is_same_v<T, vectorized::Int128I>) {
@@ -689,14 +685,14 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
             } else {
                 divisor = get_scale_multiplier<T>(shift);
             }
-            if (LIKELY(divisor >= 0)) {
+            if (LIKELY(divisor > 0)) {
                 T remainder = value % divisor;
                 value /= divisor;
                 if ((remainder > 0 ? T(remainder) : T(-remainder)) >= (divisor >> 1)) {
                     value += 1;
                 }
             } else {
-                DCHECK(divisor == -1); // //DCHECK_EQ doesn't work with __int128.
+                DCHECK(divisor == -1 || divisor == 0); // //DCHECK_EQ doesn't work with __int128.
                 value = 0;
             }
         }
