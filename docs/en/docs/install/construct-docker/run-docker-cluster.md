@@ -132,8 +132,13 @@ docker run -itd \
 -v /data/be/log:/opt/apache-doris/be/log \
 --network=doris-network \
 --ip=172.20.80.3\
-apache/doris:1.2.1-be-x86_64
+apache/doris:1.2.1-be-x86_64  # if CPU does not support AVX2, use
+                              # apache/doris:1.2.1-be-x86_64-noavx2
 ```
+
+> Note: if you CPU does not support AVX2, the backend will fail to start. 
+> If this is the case, use the `apache/doris:X.X.X-be-x86_64-noavx2` backend image.
+> Use `docker logs -f be` to check the backend for error messages.
 
 3FE & 3BE run command template can be downloaded [here](https://github.com/apache/doris/tree/master/docker/runtime/docker-compose-demo/build-cluster/rum-command/3fe_3be.sh).
 
