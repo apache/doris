@@ -592,7 +592,7 @@ public class JdbcClient {
                 || ckType.startsWith("FixedString")) {
             return ScalarType.createStringType();
         } else if (ckType.startsWith("DateTime")) {
-            return ScalarType.createDatetimeV2Type(0);
+            return ScalarType.createDatetimeV2Type(6);
         } else if (ckType.startsWith("Array")) {
             String cktype = ckType.substring(6, ckType.length() - 1);
             fieldSchema.setDataTypeName(cktype);
@@ -630,7 +630,6 @@ public class JdbcClient {
             default:
                 return Type.UNSUPPORTED;
         }
-        // Todo(zyk): Wait the JDBC external table support the array type then supported clickhouse array type
     }
 
     public Type oracleTypeToDoris(JdbcFieldSchema fieldSchema) {
