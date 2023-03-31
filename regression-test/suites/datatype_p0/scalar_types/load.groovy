@@ -68,6 +68,11 @@ suite("test_scalar_types_load", "p0") {
         }
     }
 
+    // insert two NULL rows
+    sql """INSERT INTO ${testTable} VALUES (NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+                                            NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)"""
+    sql """INSERT INTO ${testTable} VALUES (NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+                                            NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)"""
 
     // define dup key table1 with 3 keys
     testTable = "tbl_scalar_types_dup_3keys"
