@@ -29,6 +29,15 @@ suite("test_outfile_parquet") {
     strBuilder.append("curl --location-trusted -u " + context.config.jdbcUser + ":" + context.config.jdbcPassword)
     strBuilder.append(" http://" + context.config.feHttpAddress + "/rest/v1/config/fe")
 
+    def get_outfile_path = { prefix, suffix ->
+        def file_prefix = prefix;
+        def index = file_prefix.indexOf("/tmp/");
+        file_prefix = file_prefix.substring(index);
+        def file_path = file_prefix + "0." + suffix;
+        logger.info("output file: " + file_path);
+        return file_path;
+    }
+
     String command = strBuilder.toString()
     def process = command.toString().execute()
     def code = process.waitFor()
@@ -53,8 +62,7 @@ suite("test_outfile_parquet") {
     }
     def tableName = "outfile_parquet_test"
     def tableName2 = "outfile_parquet_test2"
-    def uuid = UUID.randomUUID().toString()
-    def outFilePath = """/tmp/test_outfile_parquet_${uuid}"""
+    def outFilePath = """/tmp/"""
     try {
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
@@ -95,19 +103,14 @@ suite("test_outfile_parquet") {
             """
         qt_select_default """ SELECT * FROM ${tableName} t ORDER BY user_id; """
 
-        // check outfile
-        File path = new File(outFilePath)
-        if (!path.exists()) {
-            assert path.mkdirs()
-        } else {
-            throw new IllegalStateException("""${outFilePath} already exists! """)
-        }
-        sql """
+        def result = sql """
             SELECT * FROM ${tableName} t ORDER BY user_id INTO OUTFILE "file://${outFilePath}/" FORMAT AS PARQUET;
         """
-
-        File[] files = path.listFiles()
-        assert files.length == 1
+        assertTrue(result.size() == 1)
+        assertTrue(result[0][0] == 1)
+        def file_path = get_outfile_path(result[0][3], "parquet");
+        def path = new File(file_path)
+        assert path.exists()
 
         sql """ DROP TABLE IF EXISTS ${tableName2} """
         sql """
@@ -136,7 +139,7 @@ suite("test_outfile_parquet") {
 
         StringBuilder commandBuilder = new StringBuilder()
         commandBuilder.append("""curl -v --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword}""")
-        commandBuilder.append(""" -H format:parquet -T """ + files[0].getAbsolutePath() + """ http://${context.config.feHttpAddress}/api/""" + dbName + "/" + tableName2 + "/_stream_load")
+        commandBuilder.append(""" -H format:parquet -T """ + path.getAbsolutePath() + """ http://${context.config.feHttpAddress}/api/""" + dbName + "/" + tableName2 + "/_stream_load")
         command = commandBuilder.toString()
         process = command.execute()
         code = process.waitFor()
@@ -146,14 +149,5 @@ suite("test_outfile_parquet") {
         assertEquals(code, 0)
         qt_select_default """ SELECT * FROM ${tableName2} t ORDER BY user_id; """
     } finally {
-        try_sql("DROP TABLE IF EXISTS ${tableName}")
-        try_sql("DROP TABLE IF EXISTS ${tableName2}")
-        File path = new File(outFilePath)
-        if (path.exists()) {
-            for (File f: path.listFiles()) {
-                f.delete();
-            }
-            path.delete();
-        }
     }
 }

@@ -27,7 +27,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ParseUtil;
@@ -588,7 +587,6 @@ public class OutFileClause {
 
         if (properties.containsKey(PROP_SUCCESS_FILE_NAME)) {
             successFileName = properties.get(PROP_SUCCESS_FILE_NAME);
-            FeNameFormat.checkCommonName("file name", successFileName);
             processedPropKeys.add(PROP_SUCCESS_FILE_NAME);
         }
 
