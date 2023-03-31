@@ -51,11 +51,12 @@ public:
             if (!_blocks_queues[id].empty()) {
                 *block = std::move(_blocks_queues[id].front());
                 _blocks_queues[id].pop_front();
-                return Status::OK();
             } else {
                 *eos = _is_finished || _should_stop;
+                return Status::OK();
             }
         }
+        _current_used_bytes -= (*block)->allocated_bytes();
         return Status::OK();
     }
 
@@ -65,6 +66,11 @@ public:
     void append_blocks_to_queue(std::vector<vectorized::BlockUPtr>& blocks) override {
         const int queue_size = _queue_mutexs.size();
         const int block_size = blocks.size();
+        int64_t local_bytes = 0;
+        for (const auto& block : blocks) {
+            local_bytes += block->allocated_bytes();
+        }
+
         for (int i = 0; i < queue_size && i < block_size; ++i) {
             int queue = _next_queue_to_feed;
             {
@@ -75,6 +81,7 @@ public:
             }
             _next_queue_to_feed = queue + 1 < queue_size ? queue + 1 : 0;
         }
+        _current_used_bytes += local_bytes;
     }
 
     bool empty_in_queue(int id) override {
@@ -82,17 +89,24 @@ public:
         return _blocks_queues[id].empty();
     }
 
-    void set_max_queue_size(int max_queue_size) override {
+    void set_max_queue_size(const int max_queue_size) override {
+        _max_queue_size = max_queue_size;
         for (int i = 0; i < max_queue_size; ++i) {
             _queue_mutexs.emplace_back(new std::mutex);
             _blocks_queues.emplace_back(std::list<vectorized::BlockUPtr>());
         }
     }
 
+    bool has_enough_space_in_blocks_queue() const override {
+        return _current_used_bytes < _max_bytes_in_queue / 2 * _max_queue_size;
+    }
+
 private:
+    int _max_queue_size = 1;
     int _next_queue_to_feed = 0;
     std::vector<std::unique_ptr<std::mutex>> _queue_mutexs;
     std::vector<std::list<vectorized::BlockUPtr>> _blocks_queues;
+    std::atomic_int64_t _current_used_bytes = 0;
 };
 } // namespace pipeline
 } // namespace doris
