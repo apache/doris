@@ -225,6 +225,12 @@ struct StringRef {
 
     StringRef substring(int start_pos) const { return substring(start_pos, size - start_pos); }
 
+    const char* begin() const { return data; }
+    const char* end() const { return data + size; }
+    // there's no border check in functions below. That's same with STL.
+    char front() const { return *data; }
+    char back() const { return *(data + size - 1); }
+
     // Trims leading and trailing spaces.
     StringRef trim() const;
 
@@ -237,6 +243,8 @@ struct StringRef {
     static StringRef min_string_val();
     static StringRef max_string_val();
 
+    bool start_with(char) const;
+    bool end_with(char) const;
     bool start_with(const StringRef& search_string) const;
     bool end_with(const StringRef& search_string) const;
 
