@@ -35,6 +35,10 @@ public:
     const char* get_family_name() const override { return "HLL"; }
 
     TypeIndex get_type_id() const override { return TypeIndex::HLL; }
+    PrimitiveType get_type_as_primitive_type() const override { return TYPE_HLL; }
+    TPrimitiveType::type get_type_as_tprimitive_type() const override {
+        return TPrimitiveType::HLL;
+    }
 
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int be_exec_version) const override;
