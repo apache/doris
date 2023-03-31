@@ -265,7 +265,8 @@ public class MysqlSerializer {
             case DECIMAL32:
             case DECIMAL64:
             case DECIMAL128: {
-                //f.getDecimals() > 0 ? clampedGetLength(f) - 1 + f.getPrecisionAdjustFactor() : clampedGetLength(f) + f.getPrecisionAdjustFactor();
+                // f.getDecimals() > 0 ? clampedGetLength(f) - 1 + f.getPrecisionAdjustFactor() :
+                // clampedGetLength(f) + f.getPrecisionAdjustFactor();
                 ScalarType decimalType = (ScalarType) type;
                 int precision = decimalType.decimalPrecision();
                 int scale = decimalType.decimalScale();
@@ -287,6 +288,7 @@ public class MysqlSerializer {
                 return 255;
         }
     }
+
     // this is used for decimal scale
     public int getMysqlDecimals(Type type) {
         switch (type.getPrimitiveType()) {
