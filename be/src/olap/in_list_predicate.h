@@ -244,6 +244,17 @@ public:
             indices |= index;
             iter->next();
         }
+
+        // mask out null_bitmap, since NULL cmp VALUE will produce NULL
+        //  and be treated as false in WHERE
+        // keep it after query, since query will try to read null_bitmap and put it to cache
+        InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+        RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap_cache_handle));
+        roaring::Roaring* null_bitmap = null_bitmap_cache_handle.get_bitmap();
+        if (null_bitmap) {
+            *result -= *null_bitmap;
+        }
+        
         if constexpr (PT == PredicateType::IN_LIST) {
             *result &= indices;
         } else {
