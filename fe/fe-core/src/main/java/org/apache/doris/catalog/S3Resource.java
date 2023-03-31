@@ -104,7 +104,7 @@ public class S3Resource extends Resource {
         if (needCheck) {
             String bucketName = properties.get(S3Properties.BUCKET);
             String rootPath = properties.get(S3Properties.ROOT_PATH);
-            boolean available = pingS3(credential, bucketName, rootPath);
+            boolean available = pingS3(credential, bucketName, rootPath, properties);
             if (!available) {
                 throw new DdlException("S3 can't use, please check your properties");
             }
@@ -114,7 +114,8 @@ public class S3Resource extends Resource {
         this.properties = properties;
     }
 
-    private static boolean pingS3(CloudCredentialWithEndpoint credential, String bucketName, String rootPath) {
+    private static boolean pingS3(CloudCredentialWithEndpoint credential, String bucketName, String rootPath,
+                                  Map<String, String> properties) {
         String bucket = "s3://" + bucketName + "/";
         Map<String, String> propertiesPing = new HashMap<>();
         propertiesPing.put(S3Properties.Env.ACCESS_KEY, credential.getAccessKey());
@@ -122,7 +123,8 @@ public class S3Resource extends Resource {
         propertiesPing.put(S3Properties.Env.ENDPOINT, "http://" + credential.getEndpoint());
         propertiesPing.put(S3Properties.Env.REGION, credential.getRegion());
         propertiesPing.put(PropertyConverter.USE_PATH_STYLE, "false");
-        S3Storage storage = new S3Storage(PropertyConverter.convertToHadoopFSProperties(propertiesPing));
+        properties.putAll(propertiesPing);
+        S3Storage storage = new S3Storage(properties);
         String testFile = bucket + rootPath + "/test-object-valid.txt";
         String content = "doris will be better";
         try {
@@ -166,7 +168,7 @@ public class S3Resource extends Resource {
             String rootPath = properties.getOrDefault(S3Properties.ROOT_PATH,
                     this.properties.get(S3Properties.ROOT_PATH));
 
-            boolean available = pingS3(getS3PingCredentials(properties), bucketName, rootPath);
+            boolean available = pingS3(getS3PingCredentials(properties), bucketName, rootPath, properties);
             if (!available) {
                 throw new DdlException("S3 can't use, please check your properties");
             }

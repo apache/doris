@@ -290,6 +290,11 @@ public class PropertyConverter {
         if (!HMSProperties.GLUE_TYPE.equalsIgnoreCase(metastoreType) && !isGlueIceberg) {
             return props;
         }
+        if (isGlueIceberg) {
+            // glue ak sk for iceberg
+            props.putIfAbsent(GlueProperties.ACCESS_KEY, credential.getAccessKey());
+            props.putIfAbsent(GlueProperties.SECRET_KEY, credential.getSecretKey());
+        }
         // set glue client metadata
         if (props.containsKey(GlueProperties.ENDPOINT)) {
             String endpoint = props.get(GlueProperties.ENDPOINT);
@@ -326,8 +331,8 @@ public class PropertyConverter {
         // Convert:
         // (
         //  "glue.region" = "us-east-1",
-        //  "glue.access-key" = "xx",
-        //  "glue.secret-key" = "yy"
+        //  "glue.access_key" = "xx",
+        //  "glue.secret_key" = "yy"
         // )
         // To:
         // (
