@@ -246,9 +246,7 @@ public:
         }
     }
 
-    bool can_do_bloom_filter() const override {
-        return PT == PredicateType::EQ;
-    }
+    bool can_do_bloom_filter() const override { return PT == PredicateType::EQ; }
 
     void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                      bool* flags) const override {
@@ -363,17 +361,11 @@ private:
         }
     }
 
-    constexpr bool _is_range() const {
-        return PredicateTypeTraits::is_range(PT);
-    }
+    constexpr bool _is_range() const { return PredicateTypeTraits::is_range(PT); }
 
-    constexpr bool _is_greater() const {
-        return _operator(1, 0);
-    }
+    constexpr bool _is_greater() const { return _operator(1, 0); }
 
-    constexpr bool _is_eq() const {
-        return _operator(1, 1);
-    }
+    constexpr bool _is_eq() const { return _operator(1, 1); }
 
     Status _bitmap_compare(Status status, bool exact_match, rowid_t ordinal_limit,
                            rowid_t& seeked_ordinal, BitmapIndexIterator* iterator,
