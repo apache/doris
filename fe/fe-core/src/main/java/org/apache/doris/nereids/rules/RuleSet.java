@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.rules;
 
+import org.apache.doris.nereids.rules.exploration.MergeProjectsCBO;
+import org.apache.doris.nereids.rules.exploration.PushdownFilterThroughProjectCBO;
 import org.apache.doris.nereids.rules.exploration.join.InnerJoinLAsscom;
 import org.apache.doris.nereids.rules.exploration.join.InnerJoinLAsscomProject;
 import org.apache.doris.nereids.rules.exploration.join.InnerJoinLeftAssociate;
@@ -83,8 +85,8 @@ import java.util.List;
  */
 public class RuleSet {
     public static final List<Rule> EXPLORATION_RULES = planRuleFactories()
-            .add(new PushdownFilterThroughProject())
-            .add(new MergeProjects())
+            .add(new PushdownFilterThroughProjectCBO())
+            .add(new MergeProjectsCBO())
             .build();
 
     public static final List<Rule> OTHER_REORDER_RULES = planRuleFactories()
@@ -158,6 +160,13 @@ public class RuleSet {
             .add(JoinExchangeBothProject.INSTANCE)
             .build();
 
+    public List<Rule> getOtherReorderRules() {
+        List<Rule> rules = new ArrayList<>();
+        rules.addAll(OTHER_REORDER_RULES);
+        rules.addAll(EXPLORATION_RULES);
+        return rules;
+    }
+
     public List<Rule> getZigZagTreeJoinReorder() {
         List<Rule> rules = new ArrayList<>();
         rules.addAll(ZIG_ZAG_TREE_JOIN_REORDER);
@@ -172,14 +181,6 @@ public class RuleSet {
         rules.addAll(OTHER_REORDER_RULES);
         rules.addAll(EXPLORATION_RULES);
         return rules;
-    }
-
-    public List<Rule> getExplorationRulesWithoutReorder() {
-        return new ArrayList<>(EXPLORATION_RULES);
-    }
-
-    public List<Rule> getJoinOrderRule() {
-        return BUSHY_TREE_JOIN_REORDER;
     }
 
     public List<Rule> getImplementationRules() {

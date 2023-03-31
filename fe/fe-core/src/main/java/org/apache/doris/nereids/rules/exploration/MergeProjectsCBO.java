@@ -15,40 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.rewrite.logical;
+package org.apache.doris.nereids.rules.exploration;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-
-import java.util.List;
+import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
 
 /**
- * this rule aims to merge consecutive project. For example:
- * <pre>
- *   project(a)
- *       |
- *   project(a,b)    ->    project(a)
- *       |
- *   project(a, b, c)
- * </pre>
+ * this rule aims to merge projects.
  */
-public class MergeProjects extends OneRewriteRuleFactory {
-
+public class MergeProjectsCBO extends OneExplorationRuleFactory {
     @Override
     public Rule build() {
         return logicalProject(logicalProject())
-                .then(project -> mergeProjects(project))
+                .then(project -> MergeProjects.mergeProjects(project))
                 .toRule(RuleType.MERGE_PROJECTS);
-    }
-
-    public static Plan mergeProjects(LogicalProject project) {
-        LogicalProject childProject = (LogicalProject) project.child();
-        List<NamedExpression> projectExpressions = project.mergeProjections(childProject);
-        LogicalProject newProject = childProject.canEliminate() ? project : childProject;
-        return newProject.withProjectsAndChild(projectExpressions, childProject.child(0));
     }
 }
