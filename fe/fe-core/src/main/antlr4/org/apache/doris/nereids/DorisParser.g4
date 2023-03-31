@@ -64,6 +64,7 @@ planType
     | ANALYZED
     | REWRITTEN | LOGICAL  // same type
     | OPTIMIZED | PHYSICAL   // same type
+    | SHAPE
     | ALL // default type
     ;
 
