@@ -198,6 +198,12 @@ public class S3Properties extends BaseProperties {
             properties.putIfAbsent(S3Properties.CONNECTION_TIMEOUT_MS,
                     properties.get(S3Properties.Env.CONNECTION_TIMEOUT_MS));
         }
+        if (properties.containsKey(S3Properties.Env.ROOT_PATH)) {
+            properties.putIfAbsent(S3Properties.ROOT_PATH, properties.get(S3Properties.Env.ROOT_PATH));
+        }
+        if (properties.containsKey(S3Properties.Env.BUCKET)) {
+            properties.putIfAbsent(S3Properties.BUCKET, properties.get(S3Properties.Env.BUCKET));
+        }
     }
 
     public static TS3StorageParam getS3TStorageParam(Map<String, String> properties) {

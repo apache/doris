@@ -32,7 +32,6 @@ import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.PropertyConverter;
-import org.apache.doris.datasource.property.S3ClientBEProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileFormatType;
@@ -630,13 +629,12 @@ public class OutFileClause {
         }
 
         Map<String, String> brokerProps = Maps.newHashMap();
-        // convert to s3 fs properties for BE
-        properties.putAll(S3ClientBEProperties.getBeFSProperties(properties));
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             if (entry.getKey().startsWith(BROKER_PROP_PREFIX) && !entry.getKey().equals(PROP_BROKER_NAME)) {
                 brokerProps.put(entry.getKey().substring(BROKER_PROP_PREFIX.length()), entry.getValue());
                 processedPropKeys.add(entry.getKey());
-            } else if (entry.getKey().toUpperCase().startsWith(S3Properties.Env.PROPERTIES_PREFIX)) {
+            } else if (entry.getKey().toLowerCase().startsWith(S3Properties.S3_PREFIX)
+                    || entry.getKey().toUpperCase().startsWith(S3Properties.Env.PROPERTIES_PREFIX)) {
                 brokerProps.put(entry.getKey(), entry.getValue());
                 processedPropKeys.add(entry.getKey());
             } else if (entry.getKey().contains(HdfsResource.HADOOP_FS_NAME)
