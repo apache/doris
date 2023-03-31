@@ -24,6 +24,7 @@
 #include <memory>
 
 #include "gen_cpp/data.pb.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/common/cow.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/core/types.h"
@@ -66,6 +67,9 @@ public:
 
     /// Data type id. It's used for runtime type checks.
     virtual TypeIndex get_type_id() const = 0;
+
+    virtual PrimitiveType get_type_as_primitive_type() const = 0;
+    virtual TPrimitiveType::type get_type_as_tprimitive_type() const = 0;
 
     virtual void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const;
     virtual std::string to_string(const IColumn& column, size_t row_num) const;
