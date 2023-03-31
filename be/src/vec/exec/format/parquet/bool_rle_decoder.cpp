@@ -62,6 +62,8 @@ Status BoolRLEDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr
         case ColumnSelectVector::CONTENT: {
             bool value; // Can't use uint8_t directly, we should correct it.
             for (size_t i = 0; i < run_length; ++i) {
+                DCHECK(_current_value_idx < max_values)
+                        << _current_value_idx << " vs. " << max_values;
                 value = _values[_current_value_idx++];
                 column_data[data_index++] = (UInt8)value;
             }

@@ -15,8 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "vec/columns/column_const.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
 #include "vec/core/accurate_comparison.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number.h"
@@ -34,60 +36,33 @@ struct CompareMultiImpl {
 
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) { return arguments[0]; }
 
-    template <typename ColumnType>
-    static void insert_result_data(MutableColumnPtr& result_column, ColumnPtr& argument_column,
-                                   const size_t input_rows_count) {
-        auto* __restrict result_raw_data =
-                reinterpret_cast<ColumnType*>(result_column.get())->get_data().data();
-        auto* __restrict column_raw_data =
-                reinterpret_cast<const ColumnType*>(argument_column.get())->get_data().data();
-
-        if constexpr (std::is_same_v<ColumnType, ColumnDecimal128>) {
-            for (size_t i = 0; i < input_rows_count; ++i) {
-                result_raw_data[i] = Op<DecimalV2Value, DecimalV2Value>::apply(column_raw_data[i],
-                                                                               result_raw_data[i])
-                                             ? column_raw_data[i]
-                                             : result_raw_data[i];
-            }
-        } else {
-            for (size_t i = 0; i < input_rows_count; ++i) {
-                using type = std::decay_t<decltype(result_raw_data[0])>;
-                result_raw_data[i] = Op<type, type>::apply(column_raw_data[i], result_raw_data[i])
-                                             ? column_raw_data[i]
-                                             : result_raw_data[i];
-            }
-        }
-    }
-
     static ColumnPtr execute(Block& block, const ColumnNumbers& arguments,
                              size_t input_rows_count) {
-        if (arguments.size() == 1) return block.get_by_position(arguments.back()).column;
+        if (arguments.size() == 1) {
+            return block.get_by_position(arguments.back()).column;
+        }
 
         const auto& data_type = block.get_by_position(arguments.back()).type;
         MutableColumnPtr result_column = data_type->create_column();
 
-        Columns args;
+        Columns cols(arguments.size());
+        std::unique_ptr<bool[]> col_const = std::make_unique<bool[]>(arguments.size());
         for (int i = 0; i < arguments.size(); ++i) {
-            args.emplace_back(
-                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const());
+            std::tie(cols[i], col_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
         }
         // because now the string types does not support random position writing,
         // so insert into result data have two methods, one is for string types, one is for others type remaining
-        bool is_string_result = result_column->is_column_string();
-        if (is_string_result) {
+        if (result_column->is_column_string()) {
             result_column->reserve(input_rows_count);
-        } else {
-            result_column->insert_range_from(*(args[0]), 0, input_rows_count);
-        }
-
-        if (is_string_result) {
-            const auto& column_string = reinterpret_cast<const ColumnString&>(*args[0]);
+            const auto& column_string = reinterpret_cast<const ColumnString&>(*cols[0]);
             auto& column_res = reinterpret_cast<ColumnString&>(*result_column);
 
             for (int i = 0; i < input_rows_count; ++i) {
                 auto str_data = column_string.get_data_at(i);
-                for (int j = 1; j < arguments.size(); ++j) {
-                    auto temp_data = reinterpret_cast<const ColumnString&>(*args[j]).get_data_at(i);
+                for (int cmp_col = 1; cmp_col < arguments.size(); ++cmp_col) {
+                    auto temp_data = assert_cast<const ColumnString&>(*cols[cmp_col])
+                                             .get_data_at(index_check_const(i, col_const[i]));
                     str_data = Op<StringRef, StringRef>::apply(temp_data, str_data) ? temp_data
                                                                                     : str_data;
                 }
@@ -95,12 +70,15 @@ struct CompareMultiImpl {
             }
 
         } else {
+            result_column->insert_range_from(*(cols[0]), 0, input_rows_count);
             WhichDataType which(data_type);
-#define DISPATCH(TYPE, COLUMN_TYPE)                                                    \
-    if (which.idx == TypeIndex::TYPE) {                                                \
-        for (int i = 1; i < arguments.size(); ++i) {                                   \
-            insert_result_data<COLUMN_TYPE>(result_column, args[i], input_rows_count); \
-        }                                                                              \
+
+#define DISPATCH(TYPE, COLUMN_TYPE)                                                   \
+    if (which.idx == TypeIndex::TYPE) {                                               \
+        for (int i = 1; i < arguments.size(); ++i) {                                  \
+            insert_result_data<COLUMN_TYPE>(result_column, cols[i], input_rows_count, \
+                                            col_const[i]);                            \
+        }                                                                             \
     }
             NUMERIC_TYPE_TO_COLUMN_TYPE(DISPATCH)
             DISPATCH(Decimal128, ColumnDecimal<Decimal128>)
@@ -109,6 +87,36 @@ struct CompareMultiImpl {
         }
 
         return result_column;
+    }
+
+private:
+    template <typename ColumnType>
+    static void insert_result_data(const MutableColumnPtr& result_column,
+                                   const ColumnPtr& argument_column, const size_t input_rows_count,
+                                   const bool arg_const) {
+        auto* __restrict result_raw_data =
+                reinterpret_cast<ColumnType*>(result_column.get())->get_data().data();
+        auto* __restrict column_raw_data =
+                reinterpret_cast<const ColumnType*>(argument_column.get())->get_data().data();
+
+        if constexpr (std::is_same_v<ColumnType, ColumnDecimal128>) {
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                result_raw_data[i] = Op<DecimalV2Value, DecimalV2Value>::apply(
+                                             column_raw_data[index_check_const(i, arg_const)],
+                                             result_raw_data[i])
+                                             ? column_raw_data[index_check_const(i, arg_const)]
+                                             : result_raw_data[i];
+            }
+        } else {
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                using type = std::decay_t<decltype(result_raw_data[0])>;
+                result_raw_data[i] =
+                        Op<type, type>::apply(column_raw_data[index_check_const(i, arg_const)],
+                                              result_raw_data[i])
+                                ? column_raw_data[index_check_const(i, arg_const)]
+                                : result_raw_data[i];
+            }
+        }
     }
 };
 

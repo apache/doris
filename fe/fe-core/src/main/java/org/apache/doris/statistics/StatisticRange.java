@@ -110,6 +110,18 @@ public class StatisticRange {
         return empty();
     }
 
+    public StatisticRange cover(StatisticRange other) {
+        double newLow = Math.max(low, other.low);
+        double newHigh = Math.min(high, other.high);
+        if (newLow <= newHigh) {
+            double overlapPercentOfLeft = overlapPercentWith(other);
+            double overlapDistinctValuesLeft = overlapPercentOfLeft * distinctValues;
+            double coveredDistinctValues = minExcludeNaN(distinctValues, overlapDistinctValuesLeft);
+            return new StatisticRange(newLow, newHigh, coveredDistinctValues);
+        }
+        return empty();
+    }
+
     public StatisticRange union(StatisticRange other) {
         double overlapPercentThis = this.overlapPercentWith(other);
         double overlapPercentOther = other.overlapPercentWith(this);

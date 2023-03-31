@@ -21,7 +21,6 @@
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/rowset/segment_v2/indexed_column_writer.h"
 #include "olap/types.h"
-#include "runtime/mem_pool.h"
 
 namespace doris {
 
@@ -29,11 +28,11 @@ namespace segment_v2 {
 
 template <PrimitiveType Type>
 TypedZoneMapIndexWriter<Type>::TypedZoneMapIndexWriter(Field* field) : _field(field) {
-    _page_zone_map.min_value = _field->allocate_zone_map_value(&_pool);
-    _page_zone_map.max_value = _field->allocate_zone_map_value(&_pool);
+    _page_zone_map.min_value = _field->allocate_zone_map_value(&_arena);
+    _page_zone_map.max_value = _field->allocate_zone_map_value(&_arena);
     _reset_zone_map(&_page_zone_map);
-    _segment_zone_map.min_value = _field->allocate_zone_map_value(&_pool);
-    _segment_zone_map.max_value = _field->allocate_zone_map_value(&_pool);
+    _segment_zone_map.min_value = _field->allocate_zone_map_value(&_arena);
+    _segment_zone_map.max_value = _field->allocate_zone_map_value(&_arena);
     _reset_zone_map(&_segment_zone_map);
 }
 
@@ -136,7 +135,6 @@ Status ZoneMapIndexReader::load(bool use_page_cache, bool kept_in_memory) {
     RETURN_IF_ERROR(reader.load(use_page_cache, kept_in_memory));
     IndexedColumnIterator iter(&reader);
 
-    MemPool pool;
     _page_zone_maps.resize(reader.num_values());
 
     // read and cache all page zone maps
@@ -156,7 +154,6 @@ Status ZoneMapIndexReader::load(bool use_page_cache, bool kept_in_memory) {
                                                column->get_data_at(0).size)) {
             return Status::Corruption("Failed to parse zone map");
         }
-        pool.clear();
     }
     return Status::OK();
 }

@@ -18,6 +18,7 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.AlterColumnStatsStmt;
+import org.apache.doris.analysis.DropTableStatsStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -76,6 +77,12 @@ public class StatisticsRepository {
             + FULL_QUALIFIED_COLUMN_STATISTICS_NAME + " VALUES('${id}', ${catalogId}, ${dbId}, ${tblId}, '${idxId}',"
             + "'${colId}', ${partId}, ${count}, ${ndv}, ${nullCount}, '${min}', '${max}', ${dataSize}, NOW())";
 
+    private static final String DROP_TABLE_STATISTICS_TEMPLATE = "DELETE FROM " + FeConstants.INTERNAL_DB_NAME
+            + "." + StatisticConstants.STATISTIC_TBL_NAME + " WHERE ${condition}";
+
+    private static final String DROP_TABLE_HISTOGRAM_TEMPLATE = "DELETE FROM " + FeConstants.INTERNAL_DB_NAME
+            + "." + StatisticConstants.HISTOGRAM_TBL_NAME + " WHERE ${condition}";
+
     public static ColumnStatistic queryColumnStatisticsByName(long tableId, String colName) {
         ResultRow resultRow = queryColumnStatisticById(tableId, colName);
         if (resultRow == null) {
@@ -129,6 +136,59 @@ public class StatisticsRepository {
             stringJoiner.add(param.toString());
         }
         return stringJoiner.toString();
+    }
+
+    public static void dropStatistics(Long dbId,
+            Set<Long> tblIds, Set<String> colNames, Set<Long> partIds) {
+        dropStatistics(dbId, tblIds, colNames, partIds, false);
+    }
+
+    public static void dropHistogram(Long dbId,
+            Set<Long> tblIds, Set<String> colNames, Set<Long> partIds) {
+        dropStatistics(dbId, tblIds, colNames, partIds, true);
+    }
+
+    private static void dropStatistics(Long dbId,
+            Set<Long> tblIds, Set<String> colNames, Set<Long> partIds, boolean isHistogram) {
+        if (dbId <= 0) {
+            throw new IllegalArgumentException("Database id is not specified.");
+        }
+
+        StringBuilder predicate = new StringBuilder();
+        predicate.append(String.format("db_id = '%d'", dbId));
+
+        if (!tblIds.isEmpty()) {
+            buildPredicate("tbl_id", tblIds, predicate);
+        }
+
+        if (!colNames.isEmpty()) {
+            buildPredicate("col_id", colNames, predicate);
+        }
+
+        if (!partIds.isEmpty() && !isHistogram) {
+            // Histogram is not collected and deleted by partition
+            buildPredicate("part_id", partIds, predicate);
+        }
+
+        Map<String, String> params = new HashMap<>();
+        params.put("condition", predicate.toString());
+        StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
+
+        try {
+            String statement = isHistogram ? stringSubstitutor.replace(DROP_TABLE_HISTOGRAM_TEMPLATE) :
+                    stringSubstitutor.replace(DROP_TABLE_STATISTICS_TEMPLATE);
+            StatisticsUtil.execUpdate(statement);
+        } catch (Exception e) {
+            LOG.warn("Drop statistics failed", e);
+        }
+    }
+
+    private static <T> void buildPredicate(String fieldName, Set<T> fieldValues, StringBuilder predicate) {
+        StringJoiner predicateBuilder = new StringJoiner(",", "(", ")");
+        fieldValues.stream().map(value -> String.format("'%s'", value))
+                .forEach(predicateBuilder::add);
+        String partPredicate = String.format(" AND %s IN %s", fieldName, predicateBuilder);
+        predicate.append(partPredicate);
     }
 
     public static void createAnalysisTask(AnalysisTaskInfo analysisTaskInfo) throws Exception {
@@ -209,5 +269,14 @@ public class StatisticsRepository {
 
         Env.getCurrentEnv().getStatisticsCache()
                 .updateCache(objects.table.getId(), -1, colName, statistic);
+    }
+
+    public static void dropTableStatistics(DropTableStatsStmt dropTableStatsStmt) {
+        Long dbId = dropTableStatsStmt.getDbId();
+        Set<Long> tbIds = dropTableStatsStmt.getTbIds();
+        Set<String> cols = dropTableStatsStmt.getColumnNames();
+        Set<Long> partIds = dropTableStatsStmt.getPartitionIds();
+        dropHistogram(dbId, tbIds, cols, partIds);
+        dropStatistics(dbId, tbIds, cols, partIds);
     }
 }

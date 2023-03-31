@@ -160,6 +160,8 @@ public class SessionVariable implements Serializable, Writable {
     // turn off all automatic join reorder algorithms
     public static final String DISABLE_JOIN_REORDER = "disable_join_reorder";
 
+    public static final String ENABLE_BUSHY_TREE = "enable_bushy_tree";
+
     public static final String ENABLE_INFER_PREDICATE = "enable_infer_predicate";
 
     public static final long DEFAULT_INSERT_VISIBLE_TIMEOUT_MS = 10_000;
@@ -338,7 +340,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PROFILE, needForward = true)
     public boolean enableProfile = false;
 
-    // using hashset intead of group by + count can improve performance
+    // using hashset instead of group by + count can improve performance
     //        but may cause rpc failed when cluster has less BE
     // Whether this switch is turned on depends on the BE number
     @VariableMgr.VarAttr(name = ENABLE_SINGLE_DISTINCT_COLUMN_OPT)
@@ -569,7 +571,7 @@ public class SessionVariable implements Serializable, Writable {
     private int runtimeFiltersMaxNum = 10;
 
     // Set runtimeFilterType to IN_OR_BLOOM filter
-    @VariableMgr.VarAttr(name = RUNTIME_FILTER_TYPE)
+    @VariableMgr.VarAttr(name = RUNTIME_FILTER_TYPE, fuzzy = true)
     private int runtimeFilterType = 8;
 
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MAX_IN_NUM)
@@ -577,6 +579,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = DISABLE_JOIN_REORDER)
     private boolean disableJoinReorder = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_BUSHY_TREE, needForward = true)
+    private boolean enableBushyTree = false;
 
     @VariableMgr.VarAttr(name = ENABLE_INFER_PREDICATE)
     private boolean enableInferPredicate = true;
@@ -586,7 +591,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = BLOCK_ENCRYPTION_MODE)
     private String blockEncryptionMode = "";
-
 
     @VariableMgr.VarAttr(name = ENABLE_PROJECTION)
     private boolean enableProjection = true;
@@ -805,6 +809,7 @@ public class SessionVariable implements Serializable, Writable {
         } else {
             this.rewriteOrToInPredicateThreshold = 2;
         }
+        this.runtimeFilterType = 1 << randomInt;
         switch (randomInt) {
             case 0:
                 this.externalSortBytesThreshold = 0;
@@ -1426,6 +1431,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isDisableJoinReorder() {
         return disableJoinReorder;
+    }
+
+    public boolean isEnableBushyTree() {
+        return enableBushyTree;
+    }
+
+    public void setEnableBushyTree(boolean enableBushyTree) {
+        this.enableBushyTree = enableBushyTree;
     }
 
     public boolean isReturnObjectDataAsBinary() {

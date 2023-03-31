@@ -206,6 +206,8 @@ mkdir -p /soft/be/storage
 ps -ef | grep palo*
 ```
 
+或者写作 **"processId": "${command:pickProcess}"**，可在启动attach时指定pid.
+
 如图：
 
 ![](/images/image-20210618095240216.png)

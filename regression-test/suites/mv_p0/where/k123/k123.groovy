@@ -80,4 +80,10 @@ suite ("k123p") {
         contains "(d_table)"
     }
     qt_select_mv "select k1,k2+k3 from d_table where k4 = 'a' order by k1;"
+
+    explain {
+        sql("""select k1,k2+k3 from d_table where k1 = 2 and k4 = "b";""")
+        contains "(k123p4w)"
+    }
+    qt_select_mv """select k1,k2+k3 from d_table where k1 = 2 and k4 = "b" order by k1;"""
 }

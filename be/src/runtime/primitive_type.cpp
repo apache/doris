@@ -491,45 +491,4 @@ TTypeDesc gen_type_desc(const TPrimitiveType::type val, const std::string& name)
     return type_desc;
 }
 
-PrimitiveType get_primitive_type(vectorized::TypeIndex v_type) {
-    switch (v_type) {
-    case vectorized::TypeIndex::Int8:
-        return PrimitiveType::TYPE_TINYINT;
-    case vectorized::TypeIndex::Int16:
-        return PrimitiveType::TYPE_SMALLINT;
-    case vectorized::TypeIndex::Int32:
-        return PrimitiveType::TYPE_INT;
-    case vectorized::TypeIndex::Int64:
-        return PrimitiveType::TYPE_BIGINT;
-    case vectorized::TypeIndex::Float32:
-        return PrimitiveType::TYPE_FLOAT;
-    case vectorized::TypeIndex::Float64:
-        return PrimitiveType::TYPE_DOUBLE;
-    case vectorized::TypeIndex::Decimal32:
-        return PrimitiveType::TYPE_DECIMALV2;
-    case vectorized::TypeIndex::Array:
-        return PrimitiveType::TYPE_ARRAY;
-    case vectorized::TypeIndex::String:
-        return PrimitiveType::TYPE_STRING;
-    case vectorized::TypeIndex::Date:
-        return PrimitiveType::TYPE_DATE;
-    case vectorized::TypeIndex::DateTime:
-        return PrimitiveType::TYPE_DATETIME;
-    case vectorized::TypeIndex::Tuple:
-        return PrimitiveType::TYPE_STRUCT;
-    case vectorized::TypeIndex::Decimal128:
-        return PrimitiveType::TYPE_DECIMAL128I;
-    case vectorized::TypeIndex::JSONB:
-        return PrimitiveType::TYPE_JSONB;
-    case vectorized::TypeIndex::DateTimeV2:
-        return PrimitiveType::TYPE_DATETIMEV2;
-    case vectorized::TypeIndex::DateV2:
-        return PrimitiveType::TYPE_DATEV2;
-    // TODO add vectorized::more types
-    default:
-        LOG(FATAL) << "unknow data_type: " << getTypeName(v_type);
-        return PrimitiveType::INVALID_TYPE;
-    }
-}
-
 } // namespace doris

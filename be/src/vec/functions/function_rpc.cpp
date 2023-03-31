@@ -35,10 +35,10 @@ RPCFnImpl::RPCFnImpl(const TFunction& fn) : _fn(fn) {
                              _fn.scalar_fn.symbol);
 }
 
-void RPCFnImpl::_convert_nullable_col_to_pvalue(const ColumnPtr& column,
-                                                const DataTypePtr& data_type,
-                                                const ColumnUInt8& null_col, PValues* arg,
-                                                int start, int end) {
+void RPCFnImpl::convert_nullable_col_to_pvalue(const ColumnPtr& column,
+                                               const DataTypePtr& data_type,
+                                               const ColumnUInt8& null_col, PValues* arg, int start,
+                                               int end) {
     int row_count = end - start;
     if (column->has_null(row_count)) {
         auto* null_map = arg->mutable_null_map();
@@ -46,15 +46,15 @@ void RPCFnImpl::_convert_nullable_col_to_pvalue(const ColumnPtr& column,
         const auto* col = check_and_get_column<ColumnUInt8>(null_col);
         auto& data = col->get_data();
         null_map->Add(data.begin() + start, data.begin() + end);
-        this->_convert_col_to_pvalue<true>(column, data_type, arg, start, end);
+        RPCFnImpl::convert_col_to_pvalue<true>(column, data_type, arg, start, end);
     } else {
-        this->_convert_col_to_pvalue<false>(column, data_type, arg, start, end);
+        RPCFnImpl::convert_col_to_pvalue<false>(column, data_type, arg, start, end);
     }
 }
 
 template <bool nullable>
-void RPCFnImpl::_convert_col_to_pvalue(const ColumnPtr& column, const DataTypePtr& data_type,
-                                       PValues* arg, int start, int end) {
+void RPCFnImpl::convert_col_to_pvalue(const ColumnPtr& column, const DataTypePtr& data_type,
+                                      PValues* arg, int start, int end) {
     int row_count = end - start;
     PGenericType* ptype = arg->mutable_type();
     switch (data_type->get_type_id()) {
@@ -511,11 +511,11 @@ void RPCFnImpl::_convert_block_to_proto(Block& block, const ColumnNumbers& argum
             auto data_col = nullable->get_nested_column_ptr();
             auto& null_col = nullable->get_null_map_column();
             auto data_type = std::reinterpret_pointer_cast<const DataTypeNullable>(column.type);
-            _convert_nullable_col_to_pvalue(data_col->convert_to_full_column_if_const(),
-                                            data_type->get_nested_type(), null_col, arg, 0,
-                                            row_count);
+            convert_nullable_col_to_pvalue(data_col->convert_to_full_column_if_const(),
+                                           data_type->get_nested_type(), null_col, arg, 0,
+                                           row_count);
         } else {
-            _convert_col_to_pvalue<false>(col, column.type, arg, 0, row_count);
+            convert_col_to_pvalue<false>(col, column.type, arg, 0, row_count);
         }
     }
 }

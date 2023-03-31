@@ -420,9 +420,6 @@ set_target_properties(k5crypto PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/li
 add_library(gssapi_krb5 STATIC IMPORTED)
 set_target_properties(gssapi_krb5 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libgssapi_krb5.a)
 
-add_library(hdfs3 STATIC IMPORTED)
-set_target_properties(hdfs3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libhdfs3.a)
-
 find_program(THRIFT_COMPILER thrift ${CMAKE_SOURCE_DIR}/bin)
 
 if (OS_MACOSX)
@@ -504,9 +501,9 @@ if (COMPILER_CLANG)
                         -Wno-c++20-designator
                         -Wno-embedded-directive)
     if (USE_LIBCPP)
-        add_compile_options(-stdlib=libc++)
+        add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
         if (NOT OS_MACOSX)
-            add_compile_options(-lstdc++)
+            add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-lstdc++>)
         endif()
         add_definitions(-DUSE_LIBCPP)
     else()
@@ -564,14 +561,6 @@ if (USE_BTHREAD_SCANNER)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DUSE_BTHREAD_SCANNER")
 endif()
 
-# STRICT_MEMORY_USE=ON` expects BE to use less memory, and gives priority to ensuring stability
-# when the cluster memory is limited.
-# TODO In the future, expect a dynamic soft memory limit, combined with real-time memory usage of the cluster,
-# to control the main memory consumers, including HashTable, LRU Cache elimination strategy,
-# ChunkAllocator cache strategy, Disk IO buffer cache strategy, etc.
-if (STRICT_MEMORY_USE)
-    add_compile_options(-DSTRICT_MEMORY_USE)
-endif()
 if (ENABLE_STACKTRACE)
     add_compile_options(-DENABLE_STACKTRACE)
 endif()
@@ -770,11 +759,31 @@ set(COMMON_THIRDPARTY
     # put this after lz4 to avoid using lz4 lib in librdkafka
     librdkafka_cpp
     librdkafka
-    hdfs3
     xml2
     lzma
     simdjson
 )
+
+if (ARCH_AMD64 AND OS_LINUX)
+    add_library(hadoop_hdfs STATIC IMPORTED)
+    set_target_properties(hadoop_hdfs PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/hadoop_hdfs/native/libhdfs.a)
+
+    set(COMMON_THIRDPARTY
+        ${COMMON_THIRDPARTY}
+        hadoop_hdfs
+    )
+    add_definitions(-DUSE_HADOOP_HDFS)
+else()
+    add_library(hdfs3 STATIC IMPORTED)
+    set_target_properties(hdfs3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libhdfs3.a)
+
+    # TODO: use arm hadoop hdfs to replace this
+    set(COMMON_THIRDPARTY
+        ${COMMON_THIRDPARTY}
+        hdfs3
+    )
+    add_definitions(-DUSE_LIBHDFS3)
+endif()
 
 if (absl_FOUND)
     set(COMMON_THIRDPARTY

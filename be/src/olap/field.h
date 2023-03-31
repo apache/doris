@@ -29,9 +29,9 @@
 #include "olap/utils.h"
 #include "runtime/collection_value.h"
 #include "runtime/map_value.h"
-#include "runtime/mem_pool.h"
 #include "util/hash_util.hpp"
 #include "util/slice.h"
+#include "vec/common/arena.h"
 
 namespace doris {
 
@@ -66,13 +66,15 @@ public:
 
     void set_long_text_buf(char** buf) { _long_text_buf = buf; }
 
-    // This function allocate memory from pool, other than allocate_memory
+    // This function allocate memory from arena, other than allocate_memory
     // reserve memory from continuous memory.
-    virtual char* allocate_value(MemPool* pool) const {
-        return (char*)pool->allocate(_type_info->size());
+    virtual char* allocate_value(vectorized::Arena* arena) const {
+        return arena->alloc(_type_info->size());
     }
 
-    virtual char* allocate_zone_map_value(MemPool* pool) const { return allocate_value(pool); }
+    virtual char* allocate_zone_map_value(vectorized::Arena* arena) const {
+        return allocate_value(arena);
+    }
 
     virtual char* allocate_memory(char* cell_ptr, char* variable_ptr) const { return variable_ptr; }
 
@@ -136,16 +138,16 @@ public:
     }
 
     // deep copy source cell' content to destination cell.
-    // For string type, this will allocate data form pool,
+    // For string type, this will allocate data form arena,
     // and copy source's content.
     template <typename DstCellType, typename SrcCellType>
-    void deep_copy(DstCellType* dst, const SrcCellType& src, MemPool* pool) const {
+    void deep_copy(DstCellType* dst, const SrcCellType& src, vectorized::Arena* arena) const {
         bool is_null = src.is_null();
         dst->set_is_null(is_null);
         if (is_null) {
             return;
         }
-        _type_info->deep_copy(dst->mutable_cell_ptr(), src.cell_ptr(), pool);
+        _type_info->deep_copy(dst->mutable_cell_ptr(), src.cell_ptr(), arena);
     }
 
     // used by init scan key stored in string format
@@ -212,17 +214,17 @@ protected:
     // a struct field is not fixed.
     uint32_t _length;
     // Since the length of the STRING type cannot be determined,
-    // only dynamic memory can be used. Mempool cannot realize realloc.
+    // only dynamic memory can be used. Arena cannot realize realloc.
     // The schema information is shared globally. Therefore,
     // dynamic memory can only be managed in thread local mode.
     // The memory will be created and released in rowcursor.
     char** _long_text_buf = nullptr;
 
-    char* allocate_string_value(MemPool* pool) const {
-        char* type_value = (char*)pool->allocate(sizeof(Slice));
+    char* allocate_string_value(vectorized::Arena* arena) const {
+        char* type_value = arena->alloc(sizeof(Slice));
         auto slice = reinterpret_cast<Slice*>(type_value);
         slice->size = _length;
-        slice->data = (char*)pool->allocate(slice->size);
+        slice->data = arena->alloc(slice->size);
         return type_value;
     }
 
@@ -323,8 +325,8 @@ public:
         return local;
     }
 
-    char* allocate_value(MemPool* pool) const override {
-        return Field::allocate_string_value(pool);
+    char* allocate_value(vectorized::Arena* arena) const override {
+        return Field::allocate_string_value(arena);
     }
 
     void set_to_max(char* ch) const override {
@@ -336,11 +338,11 @@ public:
     // To prevent zone map cost too many memory, if varchar length
     // longer than `MAX_ZONE_MAP_INDEX_SIZE`. we just allocate
     // `MAX_ZONE_MAP_INDEX_SIZE` of memory
-    char* allocate_zone_map_value(MemPool* pool) const override {
-        char* type_value = (char*)pool->allocate(sizeof(Slice));
+    char* allocate_zone_map_value(vectorized::Arena* arena) const override {
+        char* type_value = arena->alloc(sizeof(Slice));
         auto slice = reinterpret_cast<Slice*>(type_value);
         slice->size = MAX_ZONE_MAP_INDEX_SIZE > _length ? _length : MAX_ZONE_MAP_INDEX_SIZE;
-        slice->data = (char*)pool->allocate(slice->size);
+        slice->data = arena->alloc(slice->size);
         return type_value;
     }
 
@@ -385,18 +387,18 @@ public:
         return local;
     }
 
-    char* allocate_value(MemPool* pool) const override {
-        return Field::allocate_string_value(pool);
+    char* allocate_value(vectorized::Arena* arena) const override {
+        return Field::allocate_string_value(arena);
     }
 
     // To prevent zone map cost too many memory, if varchar length
     // longer than `MAX_ZONE_MAP_INDEX_SIZE`. we just allocate
     // `MAX_ZONE_MAP_INDEX_SIZE` of memory
-    char* allocate_zone_map_value(MemPool* pool) const override {
-        char* type_value = (char*)pool->allocate(sizeof(Slice));
+    char* allocate_zone_map_value(vectorized::Arena* arena) const override {
+        char* type_value = arena->alloc(sizeof(Slice));
         auto slice = reinterpret_cast<Slice*>(type_value);
         slice->size = MAX_ZONE_MAP_INDEX_SIZE > _length ? _length : MAX_ZONE_MAP_INDEX_SIZE;
-        slice->data = (char*)pool->allocate(slice->size);
+        slice->data = arena->alloc(slice->size);
         return type_value;
     }
 
@@ -440,15 +442,15 @@ public:
         return local;
     }
 
-    char* allocate_value(MemPool* pool) const override {
-        return Field::allocate_string_value(pool);
+    char* allocate_value(vectorized::Arena* arena) const override {
+        return Field::allocate_string_value(arena);
     }
 
-    char* allocate_zone_map_value(MemPool* pool) const override {
-        char* type_value = (char*)pool->allocate(sizeof(Slice));
+    char* allocate_zone_map_value(vectorized::Arena* arena) const override {
+        char* type_value = arena->alloc(sizeof(Slice));
         auto slice = reinterpret_cast<Slice*>(type_value);
         slice->size = MAX_ZONE_MAP_INDEX_SIZE;
-        slice->data = (char*)pool->allocate(slice->size);
+        slice->data = arena->alloc(slice->size);
         return type_value;
     }
     void set_to_max(char* ch) const override {

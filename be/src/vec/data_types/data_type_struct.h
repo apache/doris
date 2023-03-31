@@ -56,6 +56,10 @@ public:
     DataTypeStruct(const DataTypes& elems, const Strings& names);
 
     TypeIndex get_type_id() const override { return TypeIndex::Struct; }
+    PrimitiveType get_type_as_primitive_type() const override { return TYPE_STRUCT; }
+    TPrimitiveType::type get_type_as_tprimitive_type() const override {
+        return TPrimitiveType::STRUCT;
+    }
     std::string do_get_name() const override;
     const char* get_family_name() const override { return "Struct"; }
 

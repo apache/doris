@@ -270,10 +270,11 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
 
             int result_column_id = -1;
             RETURN_IF_ERROR(ctx->execute(ref_block, &result_column_id));
-            CHECK(ref_block->get_by_position(result_column_id).column->size() == row_size)
-                    << new_block->get_by_position(idx).name << " size invalid"
-                    << ", expect=" << row_size
-                    << ", real=" << ref_block->get_by_position(result_column_id).column->size();
+            if (ref_block->get_by_position(result_column_id).column->size() != row_size) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                        "{} size invalid, expect={}, real={}", new_block->get_by_position(idx).name,
+                        row_size, ref_block->get_by_position(result_column_id).column->size());
+            }
 
             if (_type != ROLLUP) {
                 RETURN_IF_ERROR(

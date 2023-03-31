@@ -142,7 +142,7 @@ void delete_meta(DataDir* data_dir) {
 
 Status init_data_dir(const std::string& dir, std::unique_ptr<DataDir>* ret) {
     std::string root_path;
-    RETURN_IF_ERROR(io::global_local_filesystem()->canonicalize(dir, &root_path));
+    RETURN_IF_ERROR(doris::io::global_local_filesystem()->canonicalize(dir, &root_path));
     doris::StorePath path;
     auto res = parse_root_path(root_path, &path);
     if (!res.ok()) {
@@ -156,8 +156,8 @@ Status init_data_dir(const std::string& dir, std::unique_ptr<DataDir>* ret) {
         std::cout << "new data dir failed" << std::endl;
         return Status::InternalError("new data dir failed");
     }
-    st = p->init();
-    if (!st.ok()) {
+    res = p->init();
+    if (!res.ok()) {
         std::cout << "data_dir load failed" << std::endl;
         return Status::InternalError("data_dir load failed");
     }
@@ -188,7 +188,7 @@ void batch_delete_meta(const std::string& tablet_file) {
         }
         // 1. get dir
         std::string dir;
-        Status st = io::global_local_filesystem()->canonicalize(v[0], &dir);
+        Status st = doris::io::global_local_filesystem()->canonicalize(v[0], &dir);
         if (!st.ok()) {
             std::cout << "invalid root dir in tablet_file: " << line << std::endl;
             err_num++;
@@ -295,7 +295,7 @@ Status get_segment_footer(doris::io::FileReader* file_reader, SegmentFooterPB* f
 
 void show_segment_footer(const std::string& file_name) {
     doris::io::FileReaderSPtr file_reader;
-    Status st = doris::io::global_local_filesystem()->open_file(file_name, &file_reader);
+    Status status = doris::io::global_local_filesystem()->open_file(file_name, &file_reader);
     if (!status.ok()) {
         std::cout << "open file failed: " << status << std::endl;
         return;
@@ -327,7 +327,8 @@ int main(int argc, char** argv) {
         show_meta();
     } else if (FLAGS_operation == "batch_delete_meta") {
         std::string tablet_file;
-        Status st = io::global_local_filesystem()->canonicalize(FLAGS_tablet_file, &tablet_file);
+        Status st =
+                doris::io::global_local_filesystem()->canonicalize(FLAGS_tablet_file, &tablet_file);
         if (!st.ok()) {
             std::cout << "invalid tablet file: " << FLAGS_tablet_file
                       << ", error: " << st.to_string() << std::endl;

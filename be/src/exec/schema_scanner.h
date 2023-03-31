@@ -23,7 +23,6 @@
 #include "common/status.h"
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/Types_types.h"
-#include "runtime/mem_pool.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 

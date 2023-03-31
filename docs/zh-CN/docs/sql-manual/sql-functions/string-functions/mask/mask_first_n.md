@@ -52,6 +52,7 @@ mysql> select mask_first_n(name, 5) from test;
 | NULL                    |
 | nnnXxCdEf               |
 +-------------------------+
+```
 
 ### keywords
     mask_first_n

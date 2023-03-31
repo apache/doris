@@ -31,7 +31,6 @@ set(RUNTIME_FILES
     exec_env.cpp
     exec_env_init.cpp
     user_function_cache.cpp
-    mem_pool.cpp
     plan_fragment_executor.cpp
     primitive_type.cpp
     result_buffer_mgr.cpp
@@ -77,6 +76,8 @@ set(RUNTIME_FILES
     cache/result_node.cpp
     cache/result_cache.cpp
     block_spill_manager.cpp
+    task_group/task_group.cpp
+    task_group/task_group_manager.cpp
 )
 
 if (USE_JEMALLOC AND USE_MEM_TRACKER)

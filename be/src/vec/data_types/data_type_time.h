@@ -32,6 +32,10 @@ public:
     bool equals(const IDataType& rhs) const override;
 
     std::string to_string(const IColumn& column, size_t row_num) const override;
+    PrimitiveType get_type_as_primitive_type() const override { return TYPE_TIME; }
+    TPrimitiveType::type get_type_as_tprimitive_type() const override {
+        return TPrimitiveType::TIME;
+    }
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
 
