@@ -259,7 +259,7 @@ public class NereidsPlanner extends Planner {
 
     private void dpHypOptimize() {
         Group root = getRoot();
-        if (root.isJoinGroup()) {
+        if (root.isInnerJoinGroup()) {
             // If the root group is join group, DPHyp can change the root group.
             // To keep the root group is not changed, we add a project operator above join
             List<NamedExpression> outputs = ImmutableList.copyOf(root.getLogicalExpression().getPlan().getOutput());

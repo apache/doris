@@ -300,6 +300,7 @@ public class Group {
         parentExpressions.keySet().forEach(target::addParentExpression);
         // PhysicalEnforcer isn't in groupExpressions, so mergeGroup() can't replace its children.
         // So we need to manually replace the children of PhysicalEnforcer in here.
+        // TODO: SortEnforcer?
         parentExpressions.keySet().stream().filter(ge -> ge.getPlan() instanceof PhysicalDistribute)
                 .forEach(ge -> ge.children().set(0, target));
         parentExpressions.clear();
@@ -364,7 +365,7 @@ public class Group {
     /**
      * This function used to check whether the group is an end node in DPHyp
      */
-    public boolean isJoinGroup() {
+    public boolean isInnerJoinGroup() {
         Plan plan = getLogicalExpression().getPlan();
         if (plan instanceof LogicalJoin) {
             // Right now, we only support inner join
