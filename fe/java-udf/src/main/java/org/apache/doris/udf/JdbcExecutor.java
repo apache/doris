@@ -220,6 +220,7 @@ public class JdbcExecutor {
 
     static {
         CK_ARRAY_CONVERTERS.put(String[].class, res -> Arrays.toString((String[]) res));
+        CK_ARRAY_CONVERTERS.put(boolean[].class, res -> Arrays.toString((boolean[]) res));
         CK_ARRAY_CONVERTERS.put(byte[].class, res -> Arrays.toString((byte[]) res));
         CK_ARRAY_CONVERTERS.put(Byte[].class, res -> Arrays.toString((Byte[]) res));
         CK_ARRAY_CONVERTERS.put(LocalDate[].class, res -> Arrays.toString((LocalDate[]) res));

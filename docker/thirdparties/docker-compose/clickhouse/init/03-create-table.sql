@@ -49,3 +49,48 @@ CREATE TABLE doris_test.type
 )
 ENGINE = MergeTree
 ORDER BY k1;
+
+
+
+CREATE TABLE doris_test.student
+(
+    id Int16,
+    name String, 
+    age Int16
+)
+ENGINE = MergeTree
+ORDER BY id;
+
+CREATE TABLE doris_test.arr
+(
+    `id`   String,
+    `arr1` Array(Bool),
+    `arr2` Array(Date),
+    `arr3` Array(Date32),
+    `arr4` Array(Float32),
+    `arr5` Array(Float64),
+    `arr6` Array(Int8),
+    `arr7` Array(Int16),
+    `arr8` Array(Int32),
+    `arr9` Array(Int64),
+    `arr10` Array(Int128),
+    `arr11` Array(Int256),
+    `arr12` Array(UInt8),
+    `arr13` Array(UInt16),
+    `arr14` Array(UInt32),
+    `arr15` Array(UInt64),
+    `arr16` Array(UInt128),
+    `arr17` Array(UInt256),
+    `arr18` Array(Decimal(9,2)),
+    `arr19` Array(Enum('hello' = 1, 'world' = 2)),
+    `arr20` Array(IPv4),
+    `arr21` Array(IPv6),
+    `arr22` Array(UUID),
+    `arr23` Array(Nullable(Int8)),
+    `arr24` Array(String), 
+    `arr25` Array(LowCardinality(String)),
+    `arr26` Array(Datetime),
+    `arr27` Array(Datetime64)
+)
+ENGINE = MergeTree
+ORDER BY id
