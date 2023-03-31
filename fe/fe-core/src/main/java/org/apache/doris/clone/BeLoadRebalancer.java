@@ -271,7 +271,7 @@ public class BeLoadRebalancer extends Rebalancer {
                 if (lowBackend == null) {
                     continue;
                 }
-                if (hosts.contains(lowBackend.getIp())) {
+                if (!Config.allow_replica_on_same_host && hosts.contains(lowBackend.getIp())) {
                     continue;
                 }
 

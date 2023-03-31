@@ -187,6 +187,8 @@ public:
     }
     uint32_t column_id() const { return _column_id; }
 
+    bool opposite() const { return _opposite; }
+
     virtual std::string debug_string() const {
         return _debug_string() + ", column_id=" + std::to_string(_column_id) +
                ", opposite=" + (_opposite ? "true" : "false");

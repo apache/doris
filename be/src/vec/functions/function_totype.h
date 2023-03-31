@@ -19,6 +19,8 @@
 #include <fmt/format.h>
 
 #include "vec/columns/column_complex.h"
+#include "vec/columns/column_const.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/data_types/data_type.h"
@@ -143,10 +145,10 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t /*input_rows_count*/) override {
         DCHECK_EQ(arguments.size(), 2);
-        const auto& left = block.get_by_position(arguments[0]);
-        auto lcol = left.column->convert_to_full_column_if_const();
-        const auto& right = block.get_by_position(arguments[1]);
-        auto rcol = right.column->convert_to_full_column_if_const();
+        const auto& [lcol, left_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+        const auto& [rcol, right_const] =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
 
         using ResultDataType = typename Impl<LeftDataType, RightDataType>::ResultDataType;
 
@@ -171,8 +173,17 @@ public:
 
         if (auto col_left = check_and_get_column<ColVecLeft>(lcol.get())) {
             if (auto col_right = check_and_get_column<ColVecRight>(rcol.get())) {
-                Impl<LeftDataType, RightDataType>::vector_vector(col_left->get_data(),
-                                                                 col_right->get_data(), vec_res);
+                if (left_const) {
+                    Impl<LeftDataType, RightDataType>::scalar_vector(
+                            col_left->get_data()[0], col_right->get_data(), vec_res);
+                } else if (right_const) {
+                    Impl<LeftDataType, RightDataType>::vector_scalar(
+                            col_left->get_data(), col_right->get_data()[0], vec_res);
+                } else {
+                    Impl<LeftDataType, RightDataType>::vector_vector(
+                            col_left->get_data(), col_right->get_data(), vec_res);
+                }
+
                 block.replace_by_position(result, std::move(col_res));
                 return Status::OK();
             }

@@ -78,12 +78,7 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
         this(projects, excepts, canEliminate, Optional.empty(), Optional.empty(), child, isDistinct);
     }
 
-    /**
-     * Constructor for LogicalProject.
-     *
-     * @param projects project list
-     */
-    public LogicalProject(List<NamedExpression> projects, List<NamedExpression> excepts, boolean canEliminate,
+    private LogicalProject(List<NamedExpression> projects, List<NamedExpression> excepts, boolean canEliminate,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             CHILD_TYPE child, boolean isDistinct) {
         super(PlanType.LOGICAL_PROJECT, groupExpression, logicalProperties, child);

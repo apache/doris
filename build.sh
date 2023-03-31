@@ -295,9 +295,6 @@ fi
 if [[ -z "${ENABLE_STACKTRACE}" ]]; then
     ENABLE_STACKTRACE='ON'
 fi
-if [[ -z "${STRICT_MEMORY_USE}" ]]; then
-    STRICT_MEMORY_USE='OFF'
-fi
 
 if [[ -z "${USE_DWARF}" ]]; then
     USE_DWARF='OFF'
@@ -323,7 +320,7 @@ if [[ "${BUILD_JAVA_UDF}" -eq 1 && "$(uname -s)" == 'Darwin' ]]; then
     if [[ -z "${JAVA_HOME}" ]]; then
         CAUSE='the environment variable JAVA_HOME is not set'
     else
-        LIBJVM="$(find "${JAVA_HOME}/" -name 'libjvm.dylib')"
+        LIBJVM="$(find -L "${JAVA_HOME}/" -name 'libjvm.dylib')"
         if [[ -z "${LIBJVM}" ]]; then
             CAUSE="the library libjvm.dylib is missing"
         elif [[ "$(file "${LIBJVM}" | awk '{print $NF}')" != "$(uname -m)" ]]; then
@@ -363,7 +360,6 @@ echo "Get params:
     USE_MEM_TRACKER     -- ${USE_MEM_TRACKER}
     USE_JEMALLOC        -- ${USE_JEMALLOC}
     USE_BTHREAD_SCANNER -- ${USE_BTHREAD_SCANNER}
-    STRICT_MEMORY_USE   -- ${STRICT_MEMORY_USE}
     ENABLE_STACKTRACE   -- ${ENABLE_STACKTRACE}
     DENABLE_CLANG_COVERAGE -- ${DENABLE_CLANG_COVERAGE}
 "
@@ -436,7 +432,6 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DUSE_MEM_TRACKER="${USE_MEM_TRACKER}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
         -DUSE_BTHREAD_SCANNER="${USE_BTHREAD_SCANNER}" \
-        -DSTRICT_MEMORY_USE="${STRICT_MEMORY_USE}" \
         -DENABLE_STACKTRACE="${ENABLE_STACKTRACE}" \
         -DUSE_AVX2="${USE_AVX2}" \
         -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
@@ -551,6 +546,10 @@ if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
 
     cp -r -p "${DORIS_HOME}/be/output/bin"/* "${DORIS_OUTPUT}/be/bin"/
     cp -r -p "${DORIS_HOME}/be/output/conf"/* "${DORIS_OUTPUT}/be/conf"/
+
+    if [[ -d "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" ]]; then
+        cp -r -p "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" "${DORIS_OUTPUT}/be/lib/"
+    fi
 
     if [[ "${DISABLE_JAVA_UDF_IN_CONF}" -eq 1 ]]; then
         echo -e "\033[33;1mWARNNING: \033[37;1mDisable Java UDF support in be.conf due to the BE was built without Java UDF.\033[0m"

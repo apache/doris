@@ -114,12 +114,13 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
         ImmutableList.Builder<NamedExpression> newOutputs = new Builder<>();
         for (Expression expression : leftCastExpressions) {
             if (expression instanceof Cast) {
+                Cast cast = ((Cast) expression);
                 newOutputs.add(new SlotReference(
-                        ((Cast) expression).child().toSql(), expression.getDataType(),
-                        ((Cast) expression).child().nullable()));
+                        cast.child().toSql(), expression.getDataType(),
+                        cast.child().nullable()));
             } else if (expression instanceof Slot) {
-                newOutputs.add(new SlotReference(
-                        expression.toSql(), expression.getDataType(), expression.nullable()));
+                Slot slot = ((Slot) expression);
+                newOutputs.add(new SlotReference(slot.toSql(), slot.getDataType(), slot.nullable()));
             }
         }
         return newOutputs.build();

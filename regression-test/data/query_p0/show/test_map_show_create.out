@@ -2,3 +2,6 @@
 -- !select --
 test_map_show_create	CREATE TABLE `test_map_show_create` (\n  `k1` int(11) NULL,\n  `k2` MAP<smallint(6),text> NULL,\n  `k3` MAP<int(11),text> NULL,\n  `k4` MAP<date,int(11)> NULL,\n  `k5` MAP<datetime,text> NULL,\n  `k6` MAP<float,int(11)> NULL\n) ENGINE=OLAP\nDUPLICATE KEY(`k1`)\nCOMMENT 'OLAP'\nDISTRIBUTED BY HASH(`k1`) BUCKETS 1\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"light_schema_change" = "true",\n"disable_auto_compaction" = "false"\n);
 
+-- !select --
+1	1	1	1	1
+

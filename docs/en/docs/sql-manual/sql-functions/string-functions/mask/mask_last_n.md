@@ -52,6 +52,7 @@ mysql> select mask_last_n(name, 5) from test;
 | NULL                   |
 | 456AxXxXx              |
 +------------------------+
+```
 
 ### keywords
     mask_last_n

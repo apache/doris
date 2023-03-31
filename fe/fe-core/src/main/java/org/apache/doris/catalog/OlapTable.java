@@ -343,6 +343,8 @@ public class OlapTable extends Table {
                     nameToColumn.put(column.getDefineName(), column);
                 }
             }
+            // Column maybe renamed, rebuild the column name map
+            indexMeta.initColumnNameMap();
         }
         LOG.debug("after rebuild full schema. table {}, schema size: {}", id, fullSchema.size());
     }
@@ -407,10 +409,9 @@ public class OlapTable extends Table {
 
     public Column getVisibleColumn(String columnName) {
         for (MaterializedIndexMeta meta : getVisibleIndexIdToMeta().values()) {
-            for (Column column : meta.getSchema()) {
-                if (MaterializedIndexMeta.matchColumnName(column.getDefineName(), columnName)) {
-                    return column;
-                }
+            Column target = meta.getColumnByDefineName(columnName);
+            if (target != null) {
+                return target;
             }
         }
         return null;

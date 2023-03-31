@@ -36,6 +36,11 @@ public:
 
     TypeIndex get_type_id() const override { return TypeIndex::String; }
 
+    PrimitiveType get_type_as_primitive_type() const override { return TYPE_STRING; }
+    TPrimitiveType::type get_type_as_tprimitive_type() const override {
+        return TPrimitiveType::STRING;
+    }
+
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int be_exec_version) const override;
     char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;

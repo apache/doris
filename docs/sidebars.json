@@ -284,6 +284,7 @@
                                 "sql-manual/sql-functions/array-functions/array_slice",
                                 "sql-manual/sql-functions/array-functions/array_sort",
                                 "sql-manual/sql-functions/array-functions/array_reverse_sort",
+                                "sql-manual/sql-functions/array-functions/array_sortby",
                                 "sql-manual/sql-functions/array-functions/array_position",
                                 "sql-manual/sql-functions/array-functions/array_contains",
                                 "sql-manual/sql-functions/array-functions/array_except",
@@ -304,6 +305,7 @@
                                 "sql-manual/sql-functions/array-functions/array_concat",
                                 "sql-manual/sql-functions/array-functions/array_zip",
                                 "sql-manual/sql-functions/array-functions/array_exists",
+                                "sql-manual/sql-functions/array-functions/array_first_index",
                                 "sql-manual/sql-functions/array-functions/arrays_overlap",
                                 "sql-manual/sql-functions/array-functions/countequal",
                                 "sql-manual/sql-functions/array-functions/element_at"

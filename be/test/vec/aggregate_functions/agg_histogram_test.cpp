@@ -186,7 +186,7 @@ public:
     }
 
 private:
-    Arena _agg_arena_pool;
+    vectorized::Arena _agg_arena_pool;
 };
 
 TEST_F(VAggHistogramTest, test_empty) {

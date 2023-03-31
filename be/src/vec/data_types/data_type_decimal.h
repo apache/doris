@@ -20,11 +20,14 @@
 
 #pragma once
 #include <cmath>
+#include <type_traits>
 
 #include "common/config.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/common/arithmetic_overflow.h"
 #include "vec/common/typeid_cast.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number.h"
 
@@ -138,6 +141,31 @@ public:
     const char* get_family_name() const override { return "Decimal"; }
     std::string do_get_name() const override;
     TypeIndex get_type_id() const override { return TypeId<T>::value; }
+    PrimitiveType get_type_as_primitive_type() const override {
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal32>>) {
+            return TYPE_DECIMAL32;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal64>>) {
+            return TYPE_DECIMAL64;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128I>>) {
+            return TYPE_DECIMAL128I;
+        }
+        __builtin_unreachable();
+    }
+
+    TPrimitiveType::type get_type_as_tprimitive_type() const override {
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal32>>) {
+            return TPrimitiveType::DECIMAL32;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal64>>) {
+            return TPrimitiveType::DECIMAL64;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128I>>) {
+            return TPrimitiveType::DECIMAL128I;
+        }
+        __builtin_unreachable();
+    }
 
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int be_exec_version) const override;

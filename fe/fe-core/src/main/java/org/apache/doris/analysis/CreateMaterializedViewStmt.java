@@ -165,6 +165,11 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         analyzeSelectClause(analyzer);
         analyzeFromClause();
         if (selectStmt.getWhereClause() != null) {
+            if (!isReplay && selectStmt.getWhereClause().hasAggregateSlot()) {
+                throw new AnalysisException(
+                        "The where clause contained aggregate column is not supported, expr:"
+                                + selectStmt.getWhereClause().toSql());
+            }
             whereClauseItem = new MVColumnItem(selectStmt.getWhereClause());
         }
         if (selectStmt.getHavingPred() != null) {
@@ -202,6 +207,18 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 throw new AnalysisException("The materialized view only support the single column or function expr. "
                         + "Error column: " + selectListItemExpr.toSql());
             }
+            List<SlotRef> slots = new ArrayList<>();
+            selectListItemExpr.collect(SlotRef.class, slots);
+            if (!isReplay && slots.size() == 0) {
+                throw new AnalysisException(
+                        "The materialized view contain constant expr is disallowed, expr: "
+                                + selectListItemExpr.toSql());
+            }
+
+            if (!isReplay && selectListItemExpr.haveFunction("curdate")) {
+                throw new AnalysisException(
+                        "The materialized view contain curdate is disallowed");
+            }
 
             if (selectListItemExpr instanceof FunctionCallExpr
                     && ((FunctionCallExpr) selectListItemExpr).isAggregateFunction()) {
@@ -220,9 +237,6 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                                 "The function " + functionName + " must match pattern:" + mvColumnPattern.toString());
                     }
                 }
-                // check duplicate column
-                List<SlotRef> slots = new ArrayList<>();
-                functionCallExpr.collect(SlotRef.class, slots);
 
                 if (beginIndexOfAggregation == -1) {
                     beginIndexOfAggregation = i;

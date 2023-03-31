@@ -175,9 +175,11 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         if (statsForLeft.histogram != null) {
             return estimateLessThanLiteralWithHistogram(leftExpr, statsForLeft, val, context, contains);
         }
+        //rightRange.distinctValues should not be used
+        StatisticRange rightRange = new StatisticRange(statsForLeft.minValue, val, statsForLeft.ndv);
         return estimateBinaryComparisonFilter(leftExpr,
                 statsForLeft,
-                new StatisticRange(Double.NEGATIVE_INFINITY, val, statsForLeft.ndv), context);
+                rightRange, context);
     }
 
     private Statistics updateGreaterThanLiteral(Expression leftExpr, ColumnStatistic statsForLeft,
@@ -185,7 +187,8 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         if (statsForLeft.histogram != null) {
             return estimateGreaterThanLiteralWithHistogram(leftExpr, statsForLeft, val, context, contains);
         }
-        StatisticRange rightRange = new StatisticRange(val, Double.POSITIVE_INFINITY,
+        //rightRange.distinctValues should not be used
+        StatisticRange rightRange = new StatisticRange(val, statsForLeft.maxValue,
                 statsForLeft.ndv);
         return estimateBinaryComparisonFilter(leftExpr, statsForLeft, rightRange, context);
     }
@@ -319,10 +322,8 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     @Override
     public Statistics visitNot(Not not, EstimationContext context) {
         Statistics childStats = new FilterEstimation().estimate(not.child(), context.statistics);
-        double rowCount = Math.max(context.statistics.getRowCount() - childStats.getRowCount(), 0);
-        if (rowCount == 0.0) {
-            return Statistics.zero(context.statistics);
-        }
+        //if estimated rowCount is 0, adjust to 1 to make upper join reorder reasonable.
+        double rowCount = Math.max(context.statistics.getRowCount() - childStats.getRowCount(), 1);
         StatisticsBuilder statisticsBuilder = new StatisticsBuilder(context.statistics).setRowCount(rowCount);
         for (Entry<Expression, ColumnStatistic> entry : context.statistics.columnStatistics().entrySet()) {
             Expression expr = entry.getKey();
@@ -360,7 +361,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             StatisticRange rightRange, EstimationContext context) {
         StatisticRange leftRange =
                 new StatisticRange(leftStats.minValue, leftStats.maxValue, leftStats.ndv);
-        StatisticRange intersectRange = leftRange.intersect(rightRange);
+        StatisticRange intersectRange = leftRange.cover(rightRange);
         ColumnStatisticBuilder leftColumnStatisticBuilder = new ColumnStatisticBuilder(leftStats)
                 .setMinValue(intersectRange.getLow())
                 .setMaxValue(intersectRange.getHigh())
@@ -368,6 +369,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         double sel = leftRange.overlapPercentWith(rightRange);
         Statistics updatedStatistics = context.statistics.withSel(sel);
         updatedStatistics.addColumnStats(leftExpr, leftColumnStatisticBuilder.build());
+        leftExpr.accept(new ColumnStatsAdjustVisitor(), updatedStatistics);
         return updatedStatistics;
     }
 
