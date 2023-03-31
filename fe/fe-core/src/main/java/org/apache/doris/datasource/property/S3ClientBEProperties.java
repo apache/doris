@@ -27,6 +27,10 @@ import java.util.Map;
 
 public class S3ClientBEProperties {
 
+    /**
+     *  convert FE properties to BE S3 client properties
+     *  On BE, should use properties like AWS_XXX.
+     */
     public static Map<String, String> getBeFSProperties(Map<String, String> properties) {
         if (properties.containsKey(S3Properties.ENDPOINT)) {
             // s3,oss,cos,obs use this.

@@ -48,6 +48,12 @@ public class PropertyConverter {
     private static final Logger LOG = LogManager.getLogger(PropertyConverter.class);
     public static final String USE_PATH_STYLE = "use_path_style";
 
+    /**
+     * Convert properties defined at doris to metadata properties on Cloud
+     *       Step 1: convert and set cloud metadata properties
+     *       Step 2: convert props to BE properties, put them all to metaProperties
+     * These properties will be used for catalog/resource, and persisted to catalog/resource properties.
+     */
     public static Map<String, String> convertToMetaProperties(Map<String, String> props) {
         Map<String, String> metaProperties = new HashMap<>();
         CloudCredential credential = GlueProperties.getCredential(props);
@@ -67,7 +73,8 @@ public class PropertyConverter {
     }
 
     /**
-     * Convert properties defined at doris to FE S3 client properties and BE S3 client properties
+     * Convert properties defined at doris to FE S3 client properties
+     * Support other cloud client here.
      */
     public static Map<String, String> convertToHadoopFSProperties(Map<String, String> props) {
         if (props.containsKey(S3Properties.ENDPOINT)) {
