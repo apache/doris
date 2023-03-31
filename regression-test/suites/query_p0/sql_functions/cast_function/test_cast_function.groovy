@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_cast_function") {
-    qt_sql """ select cast (1 as BIGINT) """
-    qt_sql """ select cast(cast ("11.2" as double) as bigint) """
-    qt_sql """ select cast ("0.0101031417" as datetime) """
-    qt_sql """ select cast ("0.0000031417" as datetime) """
-    qt_sql """ select cast (NULL AS CHAR(1)); """
-    qt_sql """ select cast ('20190101' AS CHAR(2)); """
+suite("test_cast_function2") {
+    qt_sql1 """ select cast (1 as BIGINT) """
+    qt_sql2 """ select cast(cast ("11.2" as double) as bigint) """
+    qt_sql3 """ select cast ("0.0101031417" as datetime) """
+    qt_sql4 """ select cast ("0.0000031417" as datetime) """
+    qt_sql5 """ select cast (NULL AS CHAR(1)); """
+    qt_sql6 """ select cast ('20190101' AS CHAR(2)); """
 
     def tableName = "test_cast_function_nullable"
     sql "DROP TABLE IF EXISTS ${tableName}"
