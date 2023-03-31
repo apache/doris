@@ -95,11 +95,13 @@ public class S3Resource extends Resource {
         boolean needCheck = isNeedCheck(null);
         LOG.debug("s3 info need check validity : {}", needCheck);
 
-        String endpoint = properties.get(S3Properties.ENDPOINT);
-        String region = S3Properties.getRegionOfEndpoint(endpoint);
+        // the endpoint for ping need add uri scheme.
+        String pingEndpoint = "http://" + properties.get(S3Properties.ENDPOINT);
+        String region = S3Properties.getRegionOfEndpoint(pingEndpoint);
+        properties.putIfAbsent(S3Properties.REGION, region);
         String ak = properties.get(S3Properties.ACCESS_KEY);
         String sk = properties.get(S3Properties.SECRET_KEY);
-        CloudCredentialWithEndpoint credential = new CloudCredentialWithEndpoint(endpoint, region, ak, sk);
+        CloudCredentialWithEndpoint credential = new CloudCredentialWithEndpoint(pingEndpoint, region, ak, sk);
 
         if (needCheck) {
             String bucketName = properties.get(S3Properties.BUCKET);
@@ -120,7 +122,7 @@ public class S3Resource extends Resource {
         Map<String, String> propertiesPing = new HashMap<>();
         propertiesPing.put(S3Properties.Env.ACCESS_KEY, credential.getAccessKey());
         propertiesPing.put(S3Properties.Env.SECRET_KEY, credential.getSecretKey());
-        propertiesPing.put(S3Properties.Env.ENDPOINT, "http://" + credential.getEndpoint());
+        propertiesPing.put(S3Properties.Env.ENDPOINT, credential.getEndpoint());
         propertiesPing.put(S3Properties.Env.REGION, credential.getRegion());
         propertiesPing.put(PropertyConverter.USE_PATH_STYLE, "false");
         properties.putAll(propertiesPing);
@@ -187,10 +189,11 @@ public class S3Resource extends Resource {
     private CloudCredentialWithEndpoint getS3PingCredentials(Map<String, String> properties) {
         String ak = properties.getOrDefault(S3Properties.ACCESS_KEY, this.properties.get(S3Properties.ACCESS_KEY));
         String sk = properties.getOrDefault(S3Properties.SECRET_KEY, this.properties.get(S3Properties.SECRET_KEY));
-
         String endpoint = properties.getOrDefault(S3Properties.ENDPOINT, this.properties.get(S3Properties.ENDPOINT));
-        String region = S3Properties.getRegionOfEndpoint(endpoint);
-        return new CloudCredentialWithEndpoint(endpoint, region, ak, sk);
+        String pingEndpoint = "http://" + endpoint;
+        String region = S3Properties.getRegionOfEndpoint(pingEndpoint);
+        properties.putIfAbsent(S3Properties.REGION, region);
+        return new CloudCredentialWithEndpoint(pingEndpoint, region, ak, sk);
     }
 
     private boolean isNeedCheck(Map<String, String> modifiedProperties) {
