@@ -51,7 +51,7 @@ Status BoolRLEDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr
     auto& column_data = static_cast<ColumnVector<UInt8>&>(*doris_column).get_data();
     size_t data_index = column_data.size();
     column_data.resize(data_index + select_vector.num_values() - select_vector.num_filtered());
-    size_t max_values = select_vector.num_values() - select_vector.num_nulls(); 
+    size_t max_values = select_vector.num_values() - select_vector.num_nulls();
     _values.resize(max_values);
     if (!_decoder.get_values(_values.data(), max_values)) {
         return Status::IOError("Can't read enough booleans in rle decoder");
