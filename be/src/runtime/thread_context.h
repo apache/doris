@@ -191,7 +191,11 @@ private:
     TUniqueId _fragment_instance_id;
 };
 
-#if !defined(UNDEFINED_BEHAVIOR_SANITIZER)
+#if defined(UNDEFINED_BEHAVIOR_SANITIZER)
+static ThreadContext* thread_context() {
+    return thread_context_ptr._ptr;
+}
+#else
 // Cache the pointer of bthread local in pthead local,
 // Avoid calling bthread_getspecific frequently to get bthread local, which has performance problems.
 static void pthread_attach_bthread() {
@@ -225,10 +229,6 @@ static ThreadContext* thread_context() {
     } else {
         return thread_context_ptr._ptr;
     }
-}
-#else
-static ThreadContext* thread_context() {
-    return thread_context_ptr._ptr;
 }
 #endif
 
