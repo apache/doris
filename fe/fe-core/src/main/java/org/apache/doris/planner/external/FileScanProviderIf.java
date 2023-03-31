@@ -22,7 +22,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.planner.external.ExternalFileScanNode.ParamCreateContext;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -42,10 +41,10 @@ public interface FileScanProviderIf {
 
     List<String> getPathPartitionKeys() throws DdlException, MetaNotFoundException;
 
-    ParamCreateContext createContext(Analyzer analyzer) throws UserException;
+    FileScanNode.ParamCreateContext createContext(Analyzer analyzer) throws UserException;
 
-    void createScanRangeLocations(ParamCreateContext context, FederationBackendPolicy backendPolicy,
-            List<TScanRangeLocations> scanRangeLocations) throws UserException;
+    void createScanRangeLocations(FileScanNode.ParamCreateContext context, FederationBackendPolicy backendPolicy,
+                                  List<TScanRangeLocations> scanRangeLocations) throws UserException;
 
     int getInputSplitNum();
 

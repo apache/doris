@@ -139,7 +139,7 @@ import org.apache.doris.planner.SetOperationNode;
 import org.apache.doris.planner.SortNode;
 import org.apache.doris.planner.TableFunctionNode;
 import org.apache.doris.planner.UnionNode;
-import org.apache.doris.planner.external.ExternalFileScanNode;
+import org.apache.doris.planner.external.FileQueryScanNode;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPushAggOp;
@@ -592,7 +592,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, table, context);
         tupleDescriptor.setTable(table);
         // TODO(cmy): determine the needCheckColumnPriv param
-        ExternalFileScanNode fileScanNode = new ExternalFileScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
+        FileQueryScanNode fileScanNode = new FileQueryScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
         TableName tableName = new TableName(null, "", "");
         TableRef ref = new TableRef(tableName, null, null);
         BaseTableRef tableRef = new BaseTableRef(ref, table, tableName);

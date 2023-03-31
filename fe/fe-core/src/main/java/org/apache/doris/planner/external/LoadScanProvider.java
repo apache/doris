@@ -35,7 +35,6 @@ import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.loadv2.LoadTask;
-import org.apache.doris.planner.external.ExternalFileScanNode.ParamCreateContext;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileAttributes;
@@ -85,8 +84,8 @@ public class LoadScanProvider implements FileScanProviderIf {
     }
 
     @Override
-    public ParamCreateContext createContext(Analyzer analyzer) throws UserException {
-        ParamCreateContext ctx = new ParamCreateContext();
+    public FileScanNode.ParamCreateContext createContext(Analyzer analyzer) throws UserException {
+        FileScanNode.ParamCreateContext ctx = new FileScanNode.ParamCreateContext();
         ctx.destTupleDescriptor = destTupleDesc;
         ctx.fileGroup = fileGroupInfo.getFileGroup();
         ctx.timezone = analyzer.getTimezone();
@@ -138,8 +137,9 @@ public class LoadScanProvider implements FileScanProviderIf {
     }
 
     @Override
-    public void createScanRangeLocations(ParamCreateContext context, FederationBackendPolicy backendPolicy,
-            List<TScanRangeLocations> scanRangeLocations) throws UserException {
+    public void createScanRangeLocations(FileScanNode.ParamCreateContext context,
+                                         FederationBackendPolicy backendPolicy,
+                                         List<TScanRangeLocations> scanRangeLocations) throws UserException {
         Preconditions.checkNotNull(fileGroupInfo);
         fileGroupInfo.getFileStatusAndCalcInstance(backendPolicy);
         fileGroupInfo.createScanRangeLocations(context, backendPolicy, scanRangeLocations);
@@ -169,7 +169,7 @@ public class LoadScanProvider implements FileScanProviderIf {
      * @param context
      * @throws UserException
      */
-    private void initColumns(ParamCreateContext context, Analyzer analyzer) throws UserException {
+    private void initColumns(FileScanNode.ParamCreateContext context, Analyzer analyzer) throws UserException {
         context.srcTupleDescriptor = analyzer.getDescTbl().createTupleDescriptor();
         context.srcSlotDescByName = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         context.exprMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);

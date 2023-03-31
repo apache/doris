@@ -415,8 +415,6 @@ public class Coordinator {
         this.queryOptions.setQueryType(type);
     }
 
-    public void setExecVecEngine(boolean vec) {}
-
     public void setExecPipEngine(boolean vec) {
         this.queryOptions.setEnablePipelineEngine(vec);
     }
