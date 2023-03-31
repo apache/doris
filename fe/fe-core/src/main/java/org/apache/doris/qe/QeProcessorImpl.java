@@ -169,6 +169,7 @@ public final class QeProcessorImpl implements QeProcessor {
                     .user(context.getQualifiedUser())
                     .connId(String.valueOf(context.getConnectionId()))
                     .db(context.getDatabase())
+                    .catalog(context.getDefaultCatalog())
                     .fragmentInstanceInfos(info.getCoord().getFragmentInstanceInfos())
                     .profile(info.getCoord().getQueryProfile())
                     .isReportSucc(context.getSessionVariable().enableProfile()).build();
