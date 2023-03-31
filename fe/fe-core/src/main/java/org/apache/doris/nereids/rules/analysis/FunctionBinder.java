@@ -96,6 +96,8 @@ public class FunctionBinder extends DefaultExpressionRewriter<CascadesContext> {
                 .build()
                 : (List) unboundFunction.getArguments();
 
+        // we will change arithmetic function like add(), subtract(), bitnot() to the corresponding objects but not
+        // BoundFunction.
         ArithmeticFunctionBinder functionBinder = new ArithmeticFunctionBinder();
         if (functionBinder.isBinaryArithmetic(unboundFunction.getName())) {
             return functionBinder.bindBinaryArithmetic(unboundFunction.getName(), unboundFunction.children())
