@@ -1647,7 +1647,7 @@ private:
         const auto& from_nested = from_type;
         const auto& to_nested = to_type;
 
-        if (from_type->only_null()) {
+        if (from_type->only_null() || from_type->is_null_literal()) {
             if (!to_nested->is_nullable()) {
                 return create_unsupport_wrapper("Cannot convert NULL to a non-nullable type");
             }
