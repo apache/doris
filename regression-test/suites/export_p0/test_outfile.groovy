@@ -26,6 +26,15 @@ suite("test_outfile") {
     strBuilder.append("curl --location-trusted -u " + context.config.jdbcUser + ":" + context.config.jdbcPassword)
     strBuilder.append(" http://" + context.config.feHttpAddress + "/rest/v1/config/fe")
 
+    def get_outfile_path = { prefix, suffix ->
+        def file_prefix = prefix;
+        def index = file_prefix.indexOf("/tmp/");
+        file_prefix = file_prefix.substring(index);
+        def file_path = file_prefix + "0." + suffix;
+        logger.info("output file: " + file_path);
+        return file_path;
+    }
+
     String command = strBuilder.toString()
     def process = command.toString().execute()
     def code = process.waitFor()
@@ -49,8 +58,7 @@ suite("test_outfile") {
         return
     }
     def tableName = "outfile_test"
-    def uuid = UUID.randomUUID().toString()
-    def outFilePath = """/tmp/test_outfile_${uuid}"""
+    def outFilePath = """/tmp/"""
     try {
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
@@ -91,19 +99,16 @@ suite("test_outfile") {
             """
         qt_select_default """ SELECT * FROM ${tableName} t ORDER BY user_id; """
 
-        // check outfile
-        File path = new File(outFilePath)
-        if (!path.exists()) {
-            assert path.mkdirs()
-        } else {
-            throw new IllegalStateException("""${outFilePath} already exists! """)
-        }
-        sql """
+        def result = sql """
             SELECT * FROM ${tableName} t ORDER BY user_id INTO OUTFILE "file://${outFilePath}/";
         """
-        File[] files = path.listFiles()
-        assert files.length == 1
-        List<String> outLines = Files.readAllLines(Paths.get(files[0].getAbsolutePath()), StandardCharsets.UTF_8);
+        assertTrue(result.size() == 1)
+        assertTrue(result[0][0] == 1)
+        def file_path = get_outfile_path(result[0][3], "csv");
+        def path = new File(file_path)
+        assert path.exists()
+
+        List<String> outLines = Files.readAllLines(Paths.get(path.getAbsolutePath()), StandardCharsets.UTF_8);
         List<String> baseLines = Files.readAllLines(Paths.get("""${context.config.dataPath}/export_p0/test_outfile.out"""), StandardCharsets.UTF_8)
         for (int j = 0; j < outLines.size(); j ++) {
             String[] outLine = outLines.get(j).split("\t")
@@ -123,17 +128,10 @@ suite("test_outfile") {
             }
         }
     } finally {
-        try_sql("DROP TABLE IF EXISTS ${tableName}")
-        File path = new File(outFilePath)
-        if (path.exists()) {
-            for (File f: path.listFiles()) {
-                f.delete();
-            }
-            path.delete();
-        }
     }
 
     // test hll column outfile
+    def uuid = UUID.randomUUID().toString()
     try {
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
@@ -155,46 +153,28 @@ suite("test_outfile") {
             (706432 , hll_hash(706432 ), 1), (706432 , hll_hash(706432 ), 1)
         """
 
-        File path = new File(outFilePath)
-        if (!path.exists()) {
-            assert path.mkdirs()
-        } else {
-            throw new IllegalStateException("""${outFilePath} already exists! """)
-        }
-
         sql "set return_object_data_as_binary = false"
-        sql """
-            SELECT * FROM ${tableName} t ORDER BY k1, v2 INTO OUTFILE "file://${outFilePath}/" properties("success_file_name" = "SUCCESS")
+        def result = sql """
+            SELECT * FROM ${tableName} t ORDER BY k1, v2 INTO OUTFILE "file://${outFilePath}/" properties("success_file_name" = "SUCCESS_${uuid}")
         """
+        assertTrue(result.size() == 1)
+        assertTrue(result[0][0] == 1)
+        def file_path = get_outfile_path(result[0][3], "csv");
+        def path = new File(file_path)
+        assert path.exists()
 
-        File[] files = path.listFiles()
-        assert files.length == 2 // one is outfile, the other is SUCCESS file
-        File dataFile = files[0].getName().contains("SUCCESS") ? files[1] : files[0];
-        List<String> outLines = Files.readAllLines(Paths.get(dataFile.getAbsolutePath()), StandardCharsets.UTF_8);
+        List<String> outLines = Files.readAllLines(Paths.get(path.getAbsolutePath()), StandardCharsets.UTF_8);
         assertEquals(2, outLines.size())
         String[] outLine1 = outLines.get(0).split("\t")
         assertEquals(3, outLine1.size())
         assert outLine1[1] == "\\N"
         assert outLines.get(1).split("\t")[1] == "\\N"
     } finally {
-        try_sql("DROP TABLE IF EXISTS ${tableName}")
-        File path = new File(outFilePath)
-        if (path.exists()) {
-            for (File f: path.listFiles()) {
-                f.delete();
-            }
-            path.delete();
-        }
     }
 
     // test parallel output
+    uuid = UUID.randomUUID().toString()
     try {
-        File path = new File(outFilePath)
-        if (!path.exists()) {
-            assert path.mkdirs()
-        } else {
-            throw new IllegalStateException("""${outFilePath} already exists! """)
-        }
         sql """drop table if exists select_into_file"""
         sql """CREATE TABLE `select_into_file` (
                     `id` int,
@@ -209,15 +189,7 @@ suite("test_outfile") {
                     (4, "c"), (5, "睿"), (6, "多"), (7, "丝"), (8, "test"),
                     (100, "aa"), (111, "bb"), (123, "cc"), (222, "dd");"""
         sql "set enable_parallel_outfile = true;"
-        sql """select * from select_into_file into outfile "file://${outFilePath}/" properties("success_file_name" = "SUCCESS");"""
+        sql """select * from select_into_file into outfile "file://${outFilePath}/" properties("success_file_name" = "SUCCESS_${uuid}");"""
     } finally {
-        try_sql("DROP TABLE IF EXISTS select_into_file")
-        File path = new File(outFilePath)
-        if (path.exists()) {
-            for (File f: path.listFiles()) {
-                f.delete();
-            }
-            path.delete();
-        }
     }
 }

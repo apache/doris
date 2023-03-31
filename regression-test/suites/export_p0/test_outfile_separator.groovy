@@ -22,6 +22,17 @@ import java.nio.file.Files
 import java.nio.file.Paths
 
 suite("test_outfile_separator") {
+
+    def get_outfile_path = { prefix, suffix ->
+        def file_prefix = prefix;
+        def index = file_prefix.indexOf("/tmp/");
+        file_prefix = file_prefix.substring(index);
+        def file_path = file_prefix + "0." + suffix;
+        logger.info("output file: " + file_path);
+        return file_path;
+    }
+
+
     StringBuilder strBuilder = new StringBuilder()
     strBuilder.append("curl --location-trusted -u " + context.config.jdbcUser + ":" + context.config.jdbcPassword)
     strBuilder.append(" http://" + context.config.feHttpAddress + "/rest/v1/config/fe")
@@ -50,8 +61,7 @@ suite("test_outfile_separator") {
     }
     def dbName = context.config.getDbNameByFile(context.file)
     def tableName = "outfile_test_separator"
-    def uuid = UUID.randomUUID().toString()
-    def outFilePath = """/tmp/test_outfile_separator_${uuid}"""
+    def outFilePath = """/tmp/"""
     try {
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
@@ -65,40 +75,30 @@ suite("test_outfile_separator") {
             """
         qt_select_1 """ SELECT * FROM ${tableName} t ORDER BY k1; """
 
-        // check outfile
-        File path = new File(outFilePath)
-        if (!path.exists()) {
-            assert path.mkdirs()
-        } else {
-            throw new IllegalStateException("""${outFilePath} already exists! """)
-        }
-        sql """
+        def result = sql """
             SELECT * FROM ${tableName} t INTO OUTFILE "file://${outFilePath}/" properties("column_separator" = "\\\\x01");
         """
-        File[] files = path.listFiles()
-        assert files.length == 1
-        List<String> outLines = Files.readAllLines(Paths.get(files[0].getAbsolutePath()), StandardCharsets.UTF_8);
+        assertTrue(result.size() == 1)
+        assertTrue(result[0][0] == 1)
+        def file_path = get_outfile_path(result[0][3], "csv");
+        def path = new File(file_path)
+        assert path.exists()
+
+        List<String> outLines = Files.readAllLines(Paths.get(path.getAbsolutePath()), StandardCharsets.UTF_8);
         assert outLines.size() == 2
 
         streamLoad {
             db """${dbName}"""
             table 'outfile_test_separator'
             set 'column_separator', '\\x01'
-            file files[0].getAbsolutePath()
+            file path.getAbsolutePath()
             time 10000 // limit inflight 10s
         }
 
         qt_select_2 """ SELECT * FROM ${tableName} t ORDER BY k1; """
 
     } finally {
-        try_sql("DROP TABLE IF EXISTS ${tableName}")
-        File path = new File(outFilePath)
-        if (path.exists()) {
-            for (File f: path.listFiles()) {
-                f.delete();
-            }
-            path.delete();
-        }
+        // try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
 
 }

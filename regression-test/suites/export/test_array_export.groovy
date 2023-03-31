@@ -27,6 +27,15 @@ suite("test_array_export", "export") {
     strBuilder.append("curl --location-trusted -u " + context.config.jdbcUser + ":" + context.config.jdbcPassword)
     strBuilder.append(" http://" + context.config.feHttpAddress + "/rest/v1/config/fe")
 
+    def get_outfile_path = { prefix, suffix ->
+        def file_prefix = prefix;
+        def index = file_prefix.indexOf("/tmp/");
+        file_prefix = file_prefix.substring(index);
+        def file_path = file_prefix + "0." + suffix;
+        logger.info("output file: " + file_path);
+        return file_path;
+    }
+
     String command = strBuilder.toString()
     def process = command.toString().execute()
     def code = process.waitFor()
