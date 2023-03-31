@@ -937,6 +937,9 @@ CONF_Int32(max_depth_of_expr_tree, "600");
 // Report a tablet as bad when io errors occurs more than this value.
 CONF_mInt64(max_tablet_io_errors, "-1");
 
+// Page size of row column, default 4KB
+CONF_mInt64(row_column_page_size, "4096");
+
 #ifdef BE_TEST
 // test s3
 CONF_String(test_s3_resource, "resource");
