@@ -246,7 +246,9 @@ public:
         }
     }
 
-    bool can_do_bloom_filter() const override { return PT == PredicateType::EQ; }
+    bool can_do_bloom_filter() const override {
+        return PT == PredicateType::EQ;
+    }
 
     void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                      bool* flags) const override {
@@ -361,11 +363,17 @@ private:
         }
     }
 
-    constexpr bool _is_range() const { return PredicateTypeTraits::is_range(PT); }
+    constexpr bool _is_range() const {
+        return PredicateTypeTraits::is_range(PT);
+    }
 
-    constexpr bool _is_greater() const { return _operator(1, 0); }
+    constexpr bool _is_greater() const {
+        return _operator(1, 0);
+    }
 
-    constexpr bool _is_eq() const { return _operator(1, 1); }
+    constexpr bool _is_eq() const {
+        return _operator(1, 1);
+    }
 
     Status _bitmap_compare(Status status, bool exact_match, rowid_t ordinal_limit,
                            rowid_t& seeked_ordinal, BitmapIndexIterator* iterator,
@@ -504,9 +512,10 @@ private:
 
     template <bool is_nullable, typename TArray, typename TValue>
     uint16_t _base_loop(uint16_t* sel, uint16_t size, const uint8_t* __restrict null_map,
-                        const TArray* __restrict data_array, const TValue& value) const {
+                        const TArray* __restrict data_array, const TValue& value,
+                        bool is_dense) const {
         uint16_t new_size = 0;
-        if (data_array->size() == size) {
+        if (is_dense) {
             for (uint16_t i = 0; i < size; ++i) {
                 if constexpr (is_nullable) {
                     if (_opposite ^ (!null_map[i] && _operator(data_array[i], value))) {
@@ -543,7 +552,7 @@ private:
             if constexpr (std::is_same_v<T, StringRef>) {
                 auto* dict_column_ptr =
                         vectorized::check_and_get_column<vectorized::ColumnDictI32>(column);
-                auto* data_array = dict_column_ptr->get_data().data();
+                auto& data_array = dict_column_ptr->get_data();
                 auto dict_code = _find_code_from_dictionary_column(*dict_column_ptr);
 
                 if constexpr (PT == PredicateType::EQ) {
@@ -552,19 +561,20 @@ private:
                     }
                 }
 
-                return _base_loop<is_nullable>(sel, size, null_map, data_array, dict_code);
+                return _base_loop<is_nullable>(sel, size, null_map, data_array.data(), dict_code,
+                                               data_array.size() == size);
             } else {
                 LOG(FATAL) << "column_dictionary must use StringRef predicate.";
                 return 0;
             }
         } else {
-            auto* data_array =
+            auto& data_array =
                     vectorized::check_and_get_column<
                             vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>(column)
-                            ->get_data()
-                            .data();
+                            ->get_data();
 
-            return _base_loop<is_nullable>(sel, size, null_map, data_array, _value);
+            return _base_loop<is_nullable>(sel, size, null_map, data_array.data(), _value,
+                                           data_array.size() == size);
         }
     }
 

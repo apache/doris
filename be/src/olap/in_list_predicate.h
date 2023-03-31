@@ -451,7 +451,7 @@ private:
                     vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>(column);
             auto& data_array = nested_col_ptr->get_data();
 
-            if (data_array->size() == size) {
+            if (data_array.size() == size) {
                 for (uint16_t i = 0; i < size; i++) {
                     if constexpr (is_nullable) {
                         if ((*null_map)[i]) {

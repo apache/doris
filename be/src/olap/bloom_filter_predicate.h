@@ -95,13 +95,14 @@ private:
                 }
             };
 
-            auto pred_col_data =
+            auto& pred_col =
                     reinterpret_cast<
                             const vectorized::PredicateColumnType<PredicateEvaluateType<T>>*>(
                             &column)
-                            ->get_data()
-                            .data();
-            if (pred_col_data.size() != size) {
+                            ->get_data();
+
+            auto pred_col_data = pred_col.data();
+            if (pred_col.size() != size) {
                 for (uint16_t i = 0; i < size; i++) {
                     uint16_t idx = sel[i];
                     sel[new_size] = idx;
