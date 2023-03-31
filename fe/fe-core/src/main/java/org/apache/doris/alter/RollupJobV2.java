@@ -353,7 +353,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
         tbl.setIndexMeta(rollupIndexId, rollupIndexName, rollupSchema, 0 /* init schema version */,
                 rollupSchemaHash, rollupShortKeyColumnCount, TStorageType.COLUMN,
-                rollupKeysType, origStmt, new Analyzer(analyzer));
+                rollupKeysType, origStmt, analyzer != null ? new Analyzer(analyzer) : analyzer);
         tbl.rebuildFullSchema();
     }
 
