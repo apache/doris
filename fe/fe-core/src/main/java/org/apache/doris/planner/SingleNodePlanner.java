@@ -1327,6 +1327,7 @@ public class SingleNodePlanner {
         String errorMsg = "select fail reason: ";
         if (queryStmt instanceof SelectStmt) {
             SelectStmt selectStmt = (SelectStmt) queryStmt;
+            Set<TupleId> disableTuplesMVRewriter = Sets.newHashSet();
             for (TableRef tableRef : selectStmt.getTableRefs()) {
                 if (tableRef instanceof InlineViewRef) {
                     selectFailed |= selectMaterializedView(((InlineViewRef) tableRef).getViewStmt(),
@@ -1386,9 +1387,10 @@ public class SingleNodePlanner {
                 }
                 if (tupleSelectFailed) {
                     selectFailed = true;
-                    selectStmt.updateDisableTuplesMVRewriter(olapScanNode.getTupleId());
+                    disableTuplesMVRewriter.add(olapScanNode.getTupleId());
                 }
             }
+            selectStmt.updateDisableTuplesMVRewriter(disableTuplesMVRewriter);
         } else {
             Preconditions.checkState(queryStmt instanceof SetOperationStmt);
             SetOperationStmt unionStmt = (SetOperationStmt) queryStmt;
