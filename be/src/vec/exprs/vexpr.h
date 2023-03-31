@@ -130,7 +130,7 @@ public:
     static Status create_tree_from_thrift(doris::ObjectPool* pool,
                                           const std::vector<doris::TExprNode>& nodes, int* node_idx,
                                           VExpr** root_expr, VExprContext** ctx);
-    const std::vector<VExpr*>& children() const { return _children; }
+    virtual const std::vector<VExpr*>& children() const { return _children; }
     void set_children(std::vector<VExpr*> children) { _children = children; }
     virtual std::string debug_string() const;
     static std::string debug_string(const std::vector<VExpr*>& exprs);
