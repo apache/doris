@@ -67,6 +67,15 @@ CONF_String(mem_limit, "auto");
 // Soft memory limit as a fraction of hard memory limit.
 CONF_Double(soft_mem_limit_frac, "0.9");
 
+// When hash table capacity is greater than 2^double_grow_degree(default 2G), grow when 75% of the capacity is satisfied.
+// Increase can reduce the number of hash table resize, but may waste more memory.
+CONF_mInt32(hash_table_double_grow_degree, "31");
+
+// Expand the hash table before inserting data, the maximum expansion size.
+// There are fewer duplicate keys, reducing the number of resize hash tables
+// There are many duplicate keys, and the hash table filled bucket is far less than the hash table build bucket.
+CONF_mInt64(hash_table_pre_expanse_max_rows, "65535");
+
 // The maximum low water mark of the system `/proc/meminfo/MemAvailable`, Unit byte, default 1.6G,
 // actual low water mark=min(1.6G, MemTotal * 10%), avoid wasting too much memory on machines
 // with large memory larger than 16G.
