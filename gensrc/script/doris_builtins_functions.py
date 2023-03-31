@@ -676,6 +676,7 @@ visible_functions = [
     [['array_exists'], 'ARRAY_BOOLEAN', ['ARRAY_STRING'], ''],
 
     [['array_first_index'], 'BIGINT', ['ARRAY_BOOLEAN'], 'ALWAYS_NOT_NULLABLE'],
+
     [['array_shuffle', 'shuffle'], 'ARRAY_BOOLEAN',   ['ARRAY_BOOLEAN'], ''],
     [['array_shuffle', 'shuffle'], 'ARRAY_TINYINT',   ['ARRAY_TINYINT'], ''],
     [['array_shuffle', 'shuffle'], 'ARRAY_SMALLINT',  ['ARRAY_SMALLINT'], ''],
@@ -713,25 +714,6 @@ visible_functions = [
     [['array_shuffle', 'shuffle'], 'ARRAY_DECIMAL128', ['ARRAY_DECIMAL128', 'BIGINT'], ''],
     [['array_shuffle', 'shuffle'], 'ARRAY_VARCHAR',   ['ARRAY_VARCHAR', 'BIGINT'], ''],
     [['array_shuffle', 'shuffle'], 'ARRAY_STRING',    ['ARRAY_STRING', 'BIGINT'], ''],
-
-    [['array_shuffle', 'shuffle'], 'ARRAY_BOOLEAN',   ['ARRAY_BOOLEAN'], ''],
-    [['array_shuffle', 'shuffle'], 'ARRAY_TINYINT',   ['ARRAY_TINYINT'], ''],
-    [['array_shuffle', 'shuffle'], 'ARRAY_SMALLINT',  ['ARRAY_SMALLINT'], ''],
-    [['array_shuffle', 'shuffle'], 'ARRAY_INT',       ['ARRAY_INT'], ''],
-    [['array_shuffle', 'shuffle'], 'ARRAY_BIGINT',    ['ARRAY_BIGINT'], ''],
-    [['array_shuffle', 'shuffle'], 'ARRAY_LARGEINT',  ['ARRAY_LARGEINT'], ''],
-    [['array_shuffle', 'shuffle'], 'ARRAY_DATETIME',  ['ARRAY_DATETIME'], ''],
-    [['array_shuffle', 'shuffle'], 'ARRAY_DATE',      ['ARRAY_DATE'], ''],
-    [['array_shuffle', 'shuffle'], 'ARRAY_DATETIMEV2',  ['ARRAY_DATETIMEV2'], ''],
-    [['array_shuffle', 'shuffle'], 'ARRAY_DATEV2',      ['ARRAY_DATEV2'], ''],
-    [['array_shuffle', 'shuffle'], 'ARRAY_FLOAT',     ['ARRAY_FLOAT'], ''],
-    [['array_shuffle', 'shuffle'], 'ARRAY_DOUBLE',    ['ARRAY_DOUBLE'], ''],
-    [['array_shuffle', 'shuffle'], 'ARRAY_DECIMALV2', ['ARRAY_DECIMALV2'], ''],
-    [['array_shuffle', 'shuffle'], 'ARRAY_DECIMAL32', ['ARRAY_DECIMAL32'], ''],
-    [['array_shuffle', 'shuffle'], 'ARRAY_DECIMAL64', ['ARRAY_DECIMAL64'], ''],
-    [['array_shuffle', 'shuffle'], 'ARRAY_DECIMAL128', ['ARRAY_DECIMAL128'], ''],
-    [['array_shuffle', 'shuffle'], 'ARRAY_VARCHAR',   ['ARRAY_VARCHAR'], ''],
-    [['array_shuffle', 'shuffle'], 'ARRAY_STRING',    ['ARRAY_STRING'], ''],
 
     [['array_pushfront'], 'ARRAY_BOOLEAN',    ['ARRAY_BOOLEAN', 'BOOLEAN'], 'ALWAYS_NULLABLE'],
     [['array_pushfront'], 'ARRAY_TINYINT',    ['ARRAY_TINYINT', 'TINYINT'], 'ALWAYS_NULLABLE'],
