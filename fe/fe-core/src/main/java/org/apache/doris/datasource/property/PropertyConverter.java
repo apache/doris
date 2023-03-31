@@ -50,8 +50,16 @@ public class PropertyConverter {
 
     /**
      * Convert properties defined at doris to metadata properties on Cloud
-     *       Step 1: convert and set cloud metadata properties
+     *       Step 1: convert and set cloud metadata properties and s3 properties
+     *          example:
+     *                 glue.endpoint -> aws.glue.endpoint for Glue
+     *                               -> s3.endpoint for S3
+     *                 glue.access_key -> aws.glue.access-key for Glue
+     *                                  > s3.access_key for S3
      *       Step 2: convert props to BE properties, put them all to metaProperties
+     *           example:
+     *                 s3.endpoint -> AWS_ENDPOINT
+     *                 s3.access_key -> AWS_ACCESS_KEY
      * These properties will be used for catalog/resource, and persisted to catalog/resource properties.
      */
     public static Map<String, String> convertToMetaProperties(Map<String, String> props) {
