@@ -135,7 +135,7 @@ docker run -itd \
 apache/doris:1.2.1-be-x86_64
 ```
 
-3FE & 3BE Run command template if needed [click here](https://github.com/apache/doris/tree/master/docker/runtime/docker-compose-demo/build-cluster/rum-command/3fe_3be.sh ) to access Downloads.
+3FE & 3BE run command template can be downloaded [here](https://github.com/apache/doris/tree/master/docker/runtime/docker-compose-demo/build-cluster/rum-command/3fe_3be.sh).
 
 #### Docker Compose script
 
@@ -187,7 +187,7 @@ networks:
          - subnet: 172.20.80.0/16
 ```
 
-3FE & 3BE Docker Compose script template if needed [click here](https://github.com/apache/doris/tree/master/docker/runtime/docker-compose-demo/build-cluster/docker-compose/ 3fe_3be/docker-compose.yaml) access to download.
+3FE & 3BE Docker Compose file can be downloaded [here](https://github.com/apache/doris/tree/master/docker/runtime/docker-compose-demo/build-cluster/docker-compose/3fe_3be/docker-compose.yaml).
 
 ## Deploy Doris Docker
 
