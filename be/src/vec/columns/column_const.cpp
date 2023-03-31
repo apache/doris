@@ -20,6 +20,8 @@
 
 #include "vec/columns/column_const.h"
 
+#include <algorithm>
+#include <cstddef>
 #include <utility>
 
 #include "gutil/port.h"
@@ -208,5 +210,38 @@ std::pair<ColumnPtr, size_t> check_column_const_set_readability(const IColumn& c
         result.second = row_num;
     }
     return result;
+}
+
+std::pair<const ColumnPtr&, bool> unpack_if_const(const ColumnPtr& ptr) noexcept {
+    if (is_column_const(*ptr)) {
+        return std::make_pair(
+                std::cref(static_cast<const ColumnConst&>(*ptr).get_data_column_ptr()), true);
+    }
+    return std::make_pair(std::cref(ptr), false);
+}
+
+void default_preprocess_parameter_columns(ColumnPtr* columns, const bool* col_const,
+                                          const std::initializer_list<size_t>& parameters,
+                                          Block& block, const ColumnNumbers& arg_indexes) noexcept {
+    if (std::all_of(parameters.begin(), parameters.end(),
+                    [&](size_t const_index) -> bool { return col_const[const_index]; })) {
+        // only need to avoid expanding when all parameters are const
+        for (auto index : parameters) {
+            columns[index] = static_cast<const ColumnConst&>(
+                                     *block.get_by_position(arg_indexes[index]).column)
+                                     .get_data_column_ptr();
+        }
+    } else {
+        // no need to avoid expanding for this rare situation
+        for (auto index : parameters) {
+            if (col_const[index]) {
+                columns[index] = static_cast<const ColumnConst&>(
+                                         *block.get_by_position(arg_indexes[index]).column)
+                                         .convert_to_full_column();
+            } else {
+                columns[index] = block.get_by_position(arg_indexes[index]).column;
+            }
+        }
+    }
 }
 } // namespace doris::vectorized
