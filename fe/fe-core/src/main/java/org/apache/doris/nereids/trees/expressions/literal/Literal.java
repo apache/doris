@@ -237,7 +237,7 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
         } else if (targetType.isIntegerType()) {
             return Literal.of(Double.valueOf(desc).intValue());
         } else if (targetType.isBigIntType()) {
-            return Literal.of(Double.valueOf(desc).longValue());
+            return Literal.of(Long.valueOf(desc));
         } else if (targetType.isLargeIntType()) {
             return Literal.of(new BigDecimal(desc).toBigInteger());
         } else if (targetType.isFloatType()) {
