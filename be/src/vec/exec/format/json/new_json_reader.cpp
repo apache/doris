@@ -20,6 +20,7 @@
 #include "common/compiler_util.h"
 #include "exprs/json_functions.h"
 #include "io/file_factory.h"
+#include "io/fs/buffered_reader.h"
 #include "io/fs/stream_load_pipe.h"
 #include "olap/iterators.h"
 #include "runtime/descriptors.h"
@@ -332,12 +333,14 @@ Status NewJsonReader::_open_file_reader() {
     _current_offset = start_offset;
     _file_description.start_offset = start_offset;
 
+    io::FileReaderSPtr json_file_reader;
     if (_params.file_type == TFileType::FILE_STREAM) {
-        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader));
+        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &json_file_reader));
     } else {
         RETURN_IF_ERROR(FileFactory::create_file_reader(
-                _profile, _system_properties, _file_description, &_file_system, &_file_reader));
+                _profile, _system_properties, _file_description, &_file_system, &json_file_reader));
     }
+    _file_reader.reset(new io::BufferedReader(json_file_reader, _range.start_offset, _range.size));
     return Status::OK();
 }
 

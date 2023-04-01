@@ -26,6 +26,7 @@
 #include "exec/text_converter.h"
 #include "exec/text_converter.hpp"
 #include "io/file_factory.h"
+#include "io/fs/buffered_reader.h"
 #include "olap/iterators.h"
 #include "olap/olap_common.h"
 #include "util/string_util.h"
@@ -135,12 +136,14 @@ Status CsvReader::init_reader(bool is_load) {
 
     _file_description.start_offset = start_offset;
 
+    io::FileReaderSPtr csv_file_reader;
     if (_params.file_type == TFileType::FILE_STREAM) {
-        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader));
+        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &csv_file_reader));
     } else {
         RETURN_IF_ERROR(FileFactory::create_file_reader(
-                _profile, _system_properties, _file_description, &_file_system, &_file_reader));
+                _profile, _system_properties, _file_description, &_file_system, &csv_file_reader));
     }
+    _file_reader.reset(new io::BufferedReader(csv_file_reader, _range.start_offset, _range.size));
     if (_file_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM &&
         _params.file_type != TFileType::FILE_BROKER) {
         return Status::EndOfFile("init reader failed, empty csv file: " + _range.path);

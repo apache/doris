@@ -45,6 +45,7 @@ protected:
                         const IOContext* io_ctx) override;
 
 private:
+    std::mutex _lock;
     Path _path;
     size_t _file_size;
     const std::string& _name_node;
