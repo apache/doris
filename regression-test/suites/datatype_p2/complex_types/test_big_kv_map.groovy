@@ -36,8 +36,7 @@ suite("test_big_kv_map", "p2") {
                 );
         """
 
-    //def dataFile = """${getS3Url() + '/regression/datatypes/' + testTable}.csv.gz"""
-    def dataFile = """https://justtmp-bj-1308700295.cos.ap-beijing.myqcloud.com/tmp/test_big_kv_map.csv.gz"""
+    def dataFile = """${getS3Url() + '/regression/datatypes/' + testTable}.csv.gz"""
 
     try {
         // load data
