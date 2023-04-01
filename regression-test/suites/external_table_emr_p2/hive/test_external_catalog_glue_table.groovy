@@ -47,6 +47,7 @@ suite("test_external_catalog_glue_table", "p2") {
             qt_q14 """ select glue_string from iceberg_glue_types where glue_string>'040abff1da4748e4b' order by glue_int limit 5 """
             qt_q15 """ select count(1) from iceberg_glue_types """
             qt_q16 """ select glue_timstamp from iceberg_glue_types where glue_timstamp > '2023-03-07 20:35:59' order by glue_timstamp limit 5 """
+            qt_q17 """ select * from iceberg_glue_types order by glue_decimal limit 5 """
         }
         sql """ use `iceberg_catalog`; """
         q01()
