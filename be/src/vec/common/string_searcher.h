@@ -162,39 +162,6 @@ public:
 
         const auto needle_size = needle_end - needle;
 
-#ifdef __SSE4_1__
-        /// Here is the quick path when needle_size is 1. Compare the first and second characters if the needle_size >= 2.
-        if (needle_size == 1) {
-            while (haystack < haystack_end) {
-                if (haystack + n <= haystack_end && page_safe(haystack)) {
-                    const auto v_haystack =
-                            _mm_loadu_si128(reinterpret_cast<const __m128i*>(haystack));
-                    const auto v_against_pattern = _mm_cmpeq_epi8(v_haystack, first_pattern);
-                    const auto mask = _mm_movemask_epi8(v_against_pattern);
-                    if (mask == 0) {
-                        haystack += n;
-                        continue;
-                    }
-
-                    const auto offset = __builtin_ctz(mask);
-                    haystack += offset;
-
-                    return haystack;
-                }
-
-                if (haystack == haystack_end) {
-                    return haystack_end;
-                }
-
-                if (*haystack == first) {
-                    return haystack;
-                }
-                ++haystack;
-            }
-            return haystack_end;
-        }
-#endif
-
         while (haystack < haystack_end && haystack_end - haystack >= needle_size) {
 #ifdef __SSE4_1__
             if ((haystack + 1 + n) <= haystack_end && page_safe(haystack)) {
