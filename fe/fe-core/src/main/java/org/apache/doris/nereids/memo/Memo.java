@@ -393,7 +393,7 @@ public class Memo {
                 validateRewriteChildGroup(childGroup, targetGroup);
                 childrenGroups.add(childGroup);
             } else {
-                childrenGroups.add(copyIn(child, null, true).correspondingExpression.getOwnerGroup());
+                childrenGroups.add(doRewrite(child, null).correspondingExpression.getOwnerGroup());
             }
         }
         return childrenGroups;
