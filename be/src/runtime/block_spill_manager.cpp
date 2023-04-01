@@ -128,7 +128,7 @@ Status BlockSpillManager::get_reader(int64_t stream_id, vectorized::BlockSpillRe
     std::string path;
     {
         std::lock_guard<std::mutex> l(lock_);
-        DCHECK(id_to_file_paths_.end() != id_to_file_paths_.find(stream_id));
+        CHECK(id_to_file_paths_.end() != id_to_file_paths_.find(stream_id));
         path = id_to_file_paths_[stream_id];
     }
     reader.reset(new vectorized::BlockSpillReader(stream_id, path, profile, delete_after_read));
