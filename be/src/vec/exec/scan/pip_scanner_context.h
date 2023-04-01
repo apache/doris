@@ -56,6 +56,15 @@ public:
                 return Status::OK();
             }
         }
+        {
+            std::unique_lock<std::mutex> l(_transfer_lock);
+            if (has_enough_space_in_blocks_queue()) {
+                auto submit_st = _scanner_scheduler->submit(this);
+                if (submit_st.ok()) {
+                    _num_scheduling_ctx++;
+                }
+            }
+        }
         _current_used_bytes -= (*block)->allocated_bytes();
         return Status::OK();
     }

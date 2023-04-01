@@ -128,8 +128,6 @@ public:
         return _cur_bytes_in_queue < _max_bytes_in_queue / 2;
     }
 
-    void reschedule_scanner_ctx();
-
     // the unique id of this context
     std::string ctx_id;
     int32_t queue_idx = -1;
