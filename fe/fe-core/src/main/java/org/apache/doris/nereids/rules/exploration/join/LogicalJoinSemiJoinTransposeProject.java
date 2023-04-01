@@ -53,8 +53,8 @@ public class LogicalJoinSemiJoinTransposeProject implements ExplorationRuleFacto
                             GroupPlan c = topJoin.right();
 
                             // Discard this project, because it is useless.
-                            Plan newBottomJoin = topJoin.withChildren(a, c);
-                            Plan newTopJoin = bottomJoin.withChildren(newBottomJoin, b);
+                            Plan newBottomJoin = topJoin.withChildrenNoContext(a, c);
+                            Plan newTopJoin = bottomJoin.withChildrenNoContext(newBottomJoin, b);
                             return JoinReorderUtils.projectOrSelf(new ArrayList<>(topJoin.getOutput()),
                                     newTopJoin);
                         }).toRule(RuleType.LOGICAL_JOIN_LOGICAL_SEMI_JOIN_TRANSPOSE_PROJECT),
@@ -71,8 +71,8 @@ public class LogicalJoinSemiJoinTransposeProject implements ExplorationRuleFacto
                             GroupPlan c = bottomJoin.right();
 
                             // Discard this project, because it is useless.
-                            Plan newBottomJoin = topJoin.withChildren(a, b);
-                            Plan newTopJoin = bottomJoin.withChildren(newBottomJoin, c);
+                            Plan newBottomJoin = topJoin.withChildrenNoContext(a, b);
+                            Plan newTopJoin = bottomJoin.withChildrenNoContext(newBottomJoin, c);
                             return JoinReorderUtils.projectOrSelf(new ArrayList<>(topJoin.getOutput()),
                                     newTopJoin);
                         }).toRule(RuleType.LOGICAL_JOIN_LOGICAL_SEMI_JOIN_TRANSPOSE_PROJECT)
