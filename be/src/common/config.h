@@ -892,9 +892,6 @@ CONF_mInt16(pipeline_short_query_timeout_s, "20");
 // Will remove after fully test.
 CONF_Bool(enable_index_apply_preds_except_leafnode_of_andnode, "true");
 
-// buffered prefetch
-CONF_mInt32(prefetch_single_buffer_size_mb, "4");
-
 // block file cache
 CONF_Bool(enable_file_cache, "false");
 // format: [{"path":"/path/to/file_cache","normal":21474836480,"persistent":10737418240,"query_limit":10737418240}]

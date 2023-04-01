@@ -112,7 +112,7 @@ private:
     size_t get_buffer_offset(int64_t position) const {
         return (position / s_max_pre_buffer_size) * s_max_pre_buffer_size;
     }
-    void resetAllBuffer(size_t position) {
+    void reset_all_buffer(size_t position) {
         for (int64_t i = 0; i < _pre_buffers.size(); i++) {
             int64_t cur_pos = position + i * s_max_pre_buffer_size;
             int cur_buf_pos = get_buffer_pos(cur_pos);
@@ -124,7 +124,7 @@ private:
     io::FileReaderSPtr _reader;
     int64_t _start_offset;
     int64_t _end_offset;
-    int64_t s_max_pre_buffer_size = config::prefetch_single_buffer_size_mb * 1024 * 1024;
+    int64_t s_max_pre_buffer_size = 4 * 1024 * 1024; // 4MB
     std::vector<std::shared_ptr<PrefetchBuffer>> _pre_buffers;
     int64_t _whole_pre_buffer_size;
     bool _initialized = false;

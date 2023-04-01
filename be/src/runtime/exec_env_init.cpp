@@ -101,8 +101,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     init_download_cache_required_components();
 
     ThreadPoolBuilder("BufferedReaderPrefetchThreadPool")
-            .set_min_threads(1024)
-            .set_max_threads(1024)
+            .set_min_threads(16)
+            .set_max_threads(64)
             .build(&_buffered_reader_prefetch_thread_pool);
 
     // min num equal to fragment pool's min num

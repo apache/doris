@@ -1707,8 +1707,11 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = false)
     public static long file_scan_node_split_num = 128;
 
+    // 0 means use the block size in HDFS/S3 as split size.
+    // HDFS block size is 128MB, while S3 block size is 32MB.
+    // 32MB is too small for a S3 file split, so set 128MB as default split size.
     @ConfField(mutable = true, masterOnly = false)
-    public static long file_split_size = 0; // 0 means use the block size in HDFS/S3 as split size
+    public static long file_split_size = 134217728;
 
     /**
      * If set to TRUE, FE will:

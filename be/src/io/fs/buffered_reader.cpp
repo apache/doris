@@ -67,10 +67,9 @@ void PrefetchBuffer::prefetch_buffer() {
     }
     _len = 0;
     Status s;
-    IOContext io_context;
 
     size_t buf_size = _end_offset - _offset > _size ? _size : _end_offset - _offset;
-    s = _reader->read_at(_offset, Slice {_buf.data(), buf_size}, &_len, &io_context);
+    s = _reader->read_at(_offset, Slice {_buf.data(), buf_size}, &_len);
     std::unique_lock lck {_lock};
     _prefetched.wait(lck, [this]() { return _buffer_status == BufferStatus::PENDING; });
     if (!s.ok() && _offset < _reader->size()) {
@@ -85,8 +84,7 @@ Status PrefetchBuffer::read_buffer(size_t off, const char* out, size_t buf_len,
                                    size_t* bytes_read) {
     if (UNLIKELY(off >= _end_offset)) {
         // Reader can read out of [_start_offset, _end_offset) by synchronous method.
-        IOContext io_context;
-        return _reader->read_at(off, Slice {out, buf_len}, bytes_read, &io_context);
+        return _reader->read_at(off, Slice {out, buf_len}, bytes_read);
     }
     {
         std::unique_lock lck {_lock};
@@ -136,9 +134,6 @@ BufferedReader::BufferedReader(io::FileReaderSPtr reader, int64_t offset, int64_
     }
     _size = _reader->size();
     _whole_pre_buffer_size = buffer_size;
-#ifdef BE_TEST
-    s_max_pre_buffer_size = config::prefetch_single_buffer_size_mb;
-#endif
     int buffer_num = buffer_size > s_max_pre_buffer_size ? buffer_size / s_max_pre_buffer_size : 1;
     // set the _cur_offset of this reader as same as the inner reader's,
     // to make sure the buffer reader will start to read at right position.
@@ -157,7 +152,7 @@ BufferedReader::~BufferedReader() {
 Status BufferedReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                     const IOContext* io_ctx) {
     if (!_initialized) {
-        resetAllBuffer(offset);
+        reset_all_buffer(offset);
         _initialized = true;
     }
     if (UNLIKELY(result.get_size() == 0 || offset >= size())) {
