@@ -37,14 +37,14 @@
 #include "vec/common/string_ref.h"
 
 #define FINALIZE_INPUT(x) \
-    if (x != nullptr) {    \
-        x->close();        \
-        _CLDELETE(x);      \
+    if (x != nullptr) {   \
+        x->close();       \
+        _CLDELETE(x);     \
     }
 #define FINALLY_FINALIZE_INPUT(x) \
-    try {                          \
+    try {                         \
         FINALIZE_INPUT(x)         \
-    } catch (...) {                \
+    } catch (...) {               \
     }
 
 namespace doris {
@@ -70,21 +70,21 @@ Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cach
         // try to get query bitmap result from cache and return immediately on cache hit
         io::Path path(_path);
         auto index_dir = path.parent_path();
-        auto index_file_name = InvertedIndexDescriptor::get_index_file_name(path.filename(), _index_id);
+        auto index_file_name =
+                InvertedIndexDescriptor::get_index_file_name(path.filename(), _index_id);
         auto index_file_path = index_dir / index_file_name;
-        InvertedIndexQueryCache::CacheKey cache_key
-            {index_file_path, "", InvertedIndexQueryType::UNKNOWN_QUERY, L"null_bitmap"};
+        InvertedIndexQueryCache::CacheKey cache_key {
+                index_file_path, "", InvertedIndexQueryType::UNKNOWN_QUERY, L"null_bitmap"};
         auto cache = InvertedIndexQueryCache::instance();
         if (cache->lookup(cache_key, cache_handle)) {
             return Status::OK();
         }
 
-        auto null_bitmap_file_name =
-            InvertedIndexDescriptor::get_temporary_null_bitmap_file_name();
+        auto null_bitmap_file_name = InvertedIndexDescriptor::get_temporary_null_bitmap_file_name();
         if (!dir) {
             dir = new DorisCompoundReader(
-                DorisCompoundDirectory::getDirectory(_fs, index_dir.c_str()),
-                null_bitmap_file_name.c_str(), config::inverted_index_read_buffer_size);
+                    DorisCompoundDirectory::getDirectory(_fs, index_dir.c_str()),
+                    null_bitmap_file_name.c_str(), config::inverted_index_read_buffer_size);
             owned_dir = true;
         }
 
@@ -110,8 +110,8 @@ Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cach
             FINALLY_FINALIZE_INPUT(dir);
         }
         LOG(WARNING) << "Inverted index read null bitmap error occurred: " << e.what();
-            return Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                    "Inverted index read null bitmap error occurred");
+        return Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                "Inverted index read null bitmap error occurred");
     }
 
     return Status::OK();
@@ -234,7 +234,8 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string
                 // to avoid open directory additionally for null_bitmap
                 if (!null_bitmap_already_read) {
                     InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
-                    read_null_bitmap(&null_bitmap_cache_handle, index_searcher->getReader()->directory());
+                    read_null_bitmap(&null_bitmap_cache_handle,
+                                     index_searcher->getReader()->directory());
                     null_bitmap_already_read = true;
                 }
 

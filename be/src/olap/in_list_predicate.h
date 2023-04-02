@@ -254,7 +254,7 @@ public:
         if (null_bitmap) {
             *result -= *null_bitmap;
         }
-        
+
         if constexpr (PT == PredicateType::IN_LIST) {
             *result &= indices;
         } else {

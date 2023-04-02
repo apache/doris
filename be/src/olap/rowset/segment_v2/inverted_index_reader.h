@@ -77,7 +77,7 @@ public:
     virtual Status try_query(OlapReaderStatistics* stats, const std::string& column_name,
                              const void* query_value, InvertedIndexQueryType query_type,
                              InvertedIndexParserType analyser_type, uint32_t* count) = 0;
-    
+
     Status read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle,
                             lucene::store::Directory* dir = nullptr);
 

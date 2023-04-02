@@ -325,7 +325,8 @@ public:
     Status finish() override {
         auto index_path = InvertedIndexDescriptor::get_temporary_index_path(
                 _directory + "/" + _segment_file_name, _index_meta->index_id());
-        lucene::store::Directory* dir = DorisCompoundDirectory::getDirectory(_fs, index_path.c_str(), true);
+        lucene::store::Directory* dir =
+                DorisCompoundDirectory::getDirectory(_fs, index_path.c_str(), true);
         lucene::store::IndexOutput* null_bitmap_out = nullptr;
         lucene::store::IndexOutput* data_out = nullptr;
         lucene::store::IndexOutput* index_out = nullptr;
@@ -333,7 +334,7 @@ public:
         try {
             // write null_bitmap file
             null_bitmap_out = dir->createOutput(
-                            InvertedIndexDescriptor::get_temporary_null_bitmap_file_name().c_str());
+                    InvertedIndexDescriptor::get_temporary_null_bitmap_file_name().c_str());
             _null_bitmap.runOptimize();
             size_t size = _null_bitmap.getSizeInBytes(false);
             if (size > 0) {
@@ -343,7 +344,7 @@ public:
                 null_bitmap_out->writeBytes(reinterpret_cast<uint8_t*>(buf.data()), size);
             }
             FINALIZE_OUTPUT(null_bitmap_out)
-            
+
             // write bkd file
             if constexpr (field_is_numeric_type(field_type)) {
                 _bkd_writer->max_doc_ = _rid;
