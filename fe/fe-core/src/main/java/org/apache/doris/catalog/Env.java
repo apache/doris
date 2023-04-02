@@ -4978,6 +4978,7 @@ public class Env {
             if (tbl.getKeysType() == KeysType.AGG_KEYS) {
                 for (Column column : tbl.getBaseSchema()) {
                     if (column.getAggregationType() == AggregateType.REPLACE
+                            || column.getAggregationType() == AggregateType.REPLACE_IF_NULL
                             || column.getAggregationType() == AggregateType.REPLACE_IF_NOT_NULL) {
                         throw new DdlException("Cannot change distribution type of aggregate keys table which has value"
                                 + " columns with " + column.getAggregationType() + " type.");

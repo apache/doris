@@ -32,14 +32,15 @@ suite("test_aggregate_table") {
                 int_value_max int max,
                 int_value_min int min,
                 int_value_replace int replace,
+                int_value_replace_if_null int replace_if_null,
                 int_value_replace_if_not_null int replace_if_not_null
             )
             AGGREGATE KEY(k)
             DISTRIBUTED BY HASH(k) BUCKETS 5 properties("replication_num" = "1");
         """
-    sql """insert into int_agg values(0, 1, 1, 1, 1, 1)"""
-    sql """insert into int_agg values(0, 2, 2, 2, 2, 2)"""
-    sql """insert into int_agg values(0, null, null, null, null, null)"""
+    sql """insert into int_agg values(0, 1, 1, 1, 1, null, 1)"""
+    sql """insert into int_agg values(0, 2, 2, 2, 2, 2, 2)"""
+    sql """insert into int_agg values(0, null, null, null, null, 3, null)"""
     qt_int_agg_table """select * from int_agg"""
     qt_desc_date_table """desc int_agg"""
     sql """DROP TABLE int_agg"""

@@ -30,6 +30,7 @@ public enum AggregateType {
     MIN("MIN"),
     MAX("MAX"),
     REPLACE("REPLACE"),
+    REPLACE_IF_NULL("REPLACE_IF_NULL"),
     REPLACE_IF_NOT_NULL("REPLACE_IF_NOT_NULL"),
     HLL_UNION("HLL_UNION"),
     NONE("NONE"),
@@ -104,8 +105,9 @@ public enum AggregateType {
         excObjectStored.remove(PrimitiveType.BITMAP);
         excObjectStored.remove(PrimitiveType.HLL);
         excObjectStored.remove(PrimitiveType.QUANTILE_STATE);
-        compatibilityMap.put(REPLACE, EnumSet.copyOf(excObjectStored));
 
+        compatibilityMap.put(REPLACE, EnumSet.copyOf(excObjectStored));
+        compatibilityMap.put(REPLACE_IF_NULL, EnumSet.copyOf(excObjectStored));
         compatibilityMap.put(REPLACE_IF_NOT_NULL, EnumSet.copyOf(excObjectStored));
 
         primitiveTypeList.clear();
@@ -149,6 +151,7 @@ public enum AggregateType {
     public boolean isReplaceFamily() {
         switch (this) {
             case REPLACE:
+            case REPLACE_IF_NULL:
             case REPLACE_IF_NOT_NULL:
                 return true;
             default:
@@ -166,6 +169,8 @@ public enum AggregateType {
                 return TAggregationType.MIN;
             case REPLACE:
                 return TAggregationType.REPLACE;
+            case REPLACE_IF_NULL:
+                return TAggregationType.REPLACE_IF_NULL;
             case REPLACE_IF_NOT_NULL:
                 return TAggregationType.REPLACE_IF_NOT_NULL;
             case NONE:

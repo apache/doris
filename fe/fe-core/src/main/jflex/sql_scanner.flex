@@ -378,6 +378,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("repair", new Integer(SqlParserSymbols.KW_REPAIR));
         keywordMap.put("repeatable", new Integer(SqlParserSymbols.KW_REPEATABLE));
         keywordMap.put("replace", new Integer(SqlParserSymbols.KW_REPLACE));
+        keywordMap.put("replace_if_null", new Integer(SqlParserSymbols.KW_REPLACE_IF_NULL));
         keywordMap.put("replace_if_not_null", new Integer(SqlParserSymbols.KW_REPLACE_IF_NOT_NULL));
         keywordMap.put("replica", new Integer(SqlParserSymbols.KW_REPLICA));
         keywordMap.put("repositories", new Integer(SqlParserSymbols.KW_REPOSITORIES));
@@ -487,7 +488,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("lines", new Integer(SqlParserSymbols.KW_LINES));
         keywordMap.put("ignore", new Integer(SqlParserSymbols.KW_IGNORE));
    }
-    
+
   // map from token id to token description
   public static final Map<Integer, String> tokenIdMap =
       new HashMap<Integer, String>();

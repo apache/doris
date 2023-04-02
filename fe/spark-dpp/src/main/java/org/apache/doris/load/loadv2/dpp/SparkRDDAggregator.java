@@ -143,10 +143,12 @@ public abstract class SparkRDDAggregator<T> implements Serializable {
                         throw new SparkDppException(
                                 String.format("unsupported sum aggregator for column type:%s", columnType));
                 }
-            case "replace_if_not_null":
-                return new ReplaceIfNotNullAggregator();
             case "replace":
                 return new ReplaceAggregator();
+            case "replace_if_null":
+                return new ReplaceIfNullAggregator();
+            case "replace_if_not_null":
+                return new ReplaceIfNotNullAggregator();
             default:
                 throw new SparkDppException(String.format("unsupported aggregate type %s", aggType));
         }
@@ -240,11 +242,19 @@ class ReplaceAggregator extends SparkRDDAggregator<Object> {
     }
 }
 
+class ReplaceIfNullAggregator extends SparkRDDAggregator<Object> {
+
+    @Override
+    Object update(Object dst, Object src) {
+        return dst == null ? src : dst;
+    }
+}
+
 class ReplaceIfNotNullAggregator extends SparkRDDAggregator<Object> {
 
     @Override
     Object update(Object dst, Object src) {
-        return src == null ? dst : src;
+        return dst != null ? src : dst;
     }
 }
 

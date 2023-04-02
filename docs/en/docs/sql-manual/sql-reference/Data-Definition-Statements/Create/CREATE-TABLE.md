@@ -109,6 +109,7 @@ distribution_desc
             MAX: Find the maximum value. Suitable for numeric types.
             REPLACE: Replace. For rows with the same dimension column, the index column will be imported in the order of import, and the last imported will replace the first imported.
             REPLACE_IF_NOT_NULL: non-null value replacement. The difference with REPLACE is that there is no replacement for null values. It should be noted here that the default value should be NULL, not an empty string. If it is an empty string, you should replace it with an empty string.
+            REPLACE_IF_NULL: Null value replacement. The opposite of REPLACE_IF_NOT_NULL, only replace if the previous value is NULL.
             HLL_UNION: The aggregation method of HLL type columns, aggregated by HyperLogLog algorithm.
             BITMAP_UNION: The aggregation mode of BIMTAP type columns, which performs the union aggregation of bitmaps.
             ```
@@ -116,9 +117,9 @@ distribution_desc
         * `default_value`
 
             Default value of the column. If the load data does not specify a value for this column, the system will assign a default value to this column.
-            
+
             The syntax is: `default default_value`。
-            
+
             Currently, the default value supports two forms:
 
             1. The user specifies a fixed value, such as:
@@ -127,8 +128,8 @@ distribution_desc
             	k1 INT DEFAULT '1',
                 k2 CHAR(10) DEFAULT 'aaaa'
             ```
-            2. Keywords are provided by the system. Currently, the following keywords are supported: 
-            
+            2. Keywords are provided by the system. Currently, the following keywords are supported:
+
             ```SQL
                 // This keyword is used only for DATETIME type. If the value is missing, the system assigns the current timestamp.
                 dt DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -225,9 +226,9 @@ distribution_desc
             PARTITION partition_name2 VALUES [("k1-lower1-2", "k2-lower1-2", ...), ("k1-upper1-2", MAXVALUE, ))
         )
         ```
-           
+
 <version since="1.2.0">
-    
+
     3. MULTI RANGE：Multi build RANGE partitions,Define the left closed and right open interval of the zone, Set the time unit and step size, the time unit supports year, month, day, week and hour.
 
         ```
@@ -239,9 +240,9 @@ distribution_desc
            FROM ("2023-01-03") TO ("2023-01-14") INTERVAL 1 DAY
         )
         ```
-    
+
 </version>
-    
+
 * `distribution_desc`
 
     Define the data bucketing method.
@@ -283,7 +284,7 @@ distribution_desc
     * `replication_num`
 
         Number of copies. The default number of copies is 3. If the number of BE nodes is less than 3, you need to specify that the number of copies is less than or equal to the number of BE nodes.
-        
+
         After version 0.15, this attribute will be automatically converted to the `replication_allocation` attribute, such as:
 
         `"replication_num" = "3"` will be automatically converted to `"replication_allocation" = "tag.location.default:3"`
@@ -342,19 +343,19 @@ distribution_desc
     * `compression`
 
         The default compression method for Doris tables is LZ4. After version 1.1, it is supported to specify the compression method as ZSTD to obtain a higher compression ratio.
-    
+
         `"compression"="zstd"`
 
     * `light_schema_change`
 
         Whether to use the Light Schema Change optimization.
-        
+
         If set to true, the addition and deletion of value columns can be done more quickly and synchronously.
-    
+
         `"light_schema_change"="true"`
 
         This feature is enabled by default after v1.2.1.
-    
+
     * `disable_auto_compaction`
 
         Whether to disable automatic compaction for this table.
@@ -362,11 +363,11 @@ distribution_desc
         If this property is set to 'true', the background automatic compaction process will skip all the tables of this table.
 
         `"disable_auto_compaction" = "false"`
-    
+
     * Dynamic partition related
-    
+
         The relevant parameters of dynamic partition are as follows:
-    
+
         * `dynamic_partition.enable`: Used to specify whether the dynamic partition function at the table level is enabled. The default is true.
         * `dynamic_partition.time_unit:` is used to specify the time unit for dynamically adding partitions, which can be selected as DAY (day), WEEK (week), MONTH (month), HOUR (hour).
         * `dynamic_partition.start`: Used to specify how many partitions to delete forward. The value must be less than 0. The default is Integer.MIN_VALUE.
@@ -376,11 +377,11 @@ distribution_desc
         * `dynamic_partition.create_history_partition`: Whether to create a history partition.
         * `dynamic_partition.history_partition_num`: Specify the number of historical partitions to be created.
         * `dynamic_partition.reserved_history_periods`: Used to specify the range of reserved history periods.
-    
+
     * Data Sort Info
-    
+
         The relevant parameters of data sort info are as follows:
-    
+
         * `data_sort.sort_type`: the method of data sorting, options: z-order/lexical, default is lexical
         * `data_sort.col_num`:  the first few columns to sort, col_num muster less than total key counts
 ### Example
@@ -609,7 +610,7 @@ distribution_desc
 
 11. Set the table hot and cold separation policy through the `storage_policy` property.
 ```
-        CREATE TABLE IF NOT EXISTS create_table_use_created_policy 
+        CREATE TABLE IF NOT EXISTS create_table_use_created_policy
         (
             k1 BIGINT,
             k2 LARGEINT,
@@ -622,7 +623,7 @@ distribution_desc
             "replication_num" = "1"
         );
 ```
-NOTE: Need to create the s3 resource and storage policy before the table can be successfully associated with the migration policy 
+NOTE: Need to create the s3 resource and storage policy before the table can be successfully associated with the migration policy
 
 12. Add a hot and cold data migration strategy for the table partition
 ```
@@ -636,7 +637,7 @@ NOTE: Need to create the s3 resource and storage policy before the table can be 
             PARTITION p2 VALUES LESS THAN ("2022-02-01") ("storage_policy" = "test_create_table_partition_use_policy_2" ,"replication_num"="1")
         ) DISTRIBUTED BY HASH(k2) BUCKETS 1;
 ```
-NOTE: Need to create the s3 resource and storage policy before the table can be successfully associated with the migration policy 
+NOTE: Need to create the s3 resource and storage policy before the table can be successfully associated with the migration policy
 
 <version since="1.2.0">
 

@@ -314,6 +314,7 @@ public class SchemaChangeHandler extends AlterHandler {
                         isKey = true;
                         lightSchemaChange = false;
                     } else if (AggregateType.REPLACE == column.getAggregationType()
+                            || AggregateType.REPLACE_IF_NULL == column.getAggregationType()
                             || AggregateType.REPLACE_IF_NOT_NULL == column.getAggregationType()) {
                         hasReplaceColumn = true;
                     }
@@ -333,6 +334,7 @@ public class SchemaChangeHandler extends AlterHandler {
                         isKey = true;
                         lightSchemaChange = false;
                     } else if (AggregateType.REPLACE == column.getAggregationType()
+                            || AggregateType.REPLACE_IF_NULL == column.getAggregationType()
                             || AggregateType.REPLACE_IF_NOT_NULL == column.getAggregationType()) {
                         hasReplaceColumn = true;
                     }
@@ -874,6 +876,7 @@ public class SchemaChangeHandler extends AlterHandler {
                         "The default value of '" + newColName + "' with SUM aggregation function must be zero");
             } else if (olapTable.getDefaultDistributionInfo() instanceof RandomDistributionInfo) {
                 if (newColumn.getAggregationType() == AggregateType.REPLACE
+                        || newColumn.getAggregationType() == AggregateType.REPLACE_IF_NULL
                         || newColumn.getAggregationType() == AggregateType.REPLACE_IF_NOT_NULL) {
                     throw new DdlException(
                             "Can not add value column with aggregation type " + newColumn.getAggregationType()

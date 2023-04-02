@@ -56,13 +56,22 @@ void register_aggregate_function_replace_reader_load(AggregateFunctionSimpleFact
     register_function("replace", AGG_LOAD_SUFFIX, create_aggregate_function_last<false>, true);
 
     register_function("replace_if_not_null", AGG_READER_SUFFIX,
-                      create_aggregate_function_first_non_null_value<true>, false);
+                      create_aggregate_function_first_if_non_null_value<true>, false);
     register_function("replace_if_not_null", AGG_READER_SUFFIX,
-                      create_aggregate_function_first_non_null_value<true>, true);
+                      create_aggregate_function_first_if_non_null_value<true>, true);
     register_function("replace_if_not_null", AGG_LOAD_SUFFIX,
-                      create_aggregate_function_last_non_null_value<false>, false);
+                      create_aggregate_function_last_if_non_null_value<false>, false);
     register_function("replace_if_not_null", AGG_LOAD_SUFFIX,
-                      create_aggregate_function_last_non_null_value<false>, true);
+                      create_aggregate_function_last_if_non_null_value<false>, true);
+
+    register_function("replace_if_null", AGG_READER_SUFFIX,
+                      create_aggregate_function_first_if_null_value<true>, false);
+    register_function("replace_if_null", AGG_READER_SUFFIX,
+                      create_aggregate_function_first_if_null_value<true>, true);
+    register_function("replace_if_null", AGG_LOAD_SUFFIX,
+                      create_aggregate_function_last_if_null_value<false>, false);
+    register_function("replace_if_null", AGG_LOAD_SUFFIX,
+                      create_aggregate_function_last_if_null_value<false>, true);
 }
 
 } // namespace doris::vectorized

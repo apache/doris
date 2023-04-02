@@ -100,6 +100,24 @@ public class ColumnDefTest {
         } // CHECKSTYLE IGNORE THIS LINE
     }
 
+    @Test
+    public void testReplaceIfNull() throws AnalysisException {
+        { // CHECKSTYLE IGNORE THIS LINE
+            // not allow null
+            ColumnDef column = new ColumnDef("col", intCol, false, AggregateType.REPLACE_IF_NULL, false, DefaultValue.NOT_SET, "");
+            column.analyze(true);
+            Assert.assertEquals(AggregateType.REPLACE_IF_NULL, column.getAggregateType());
+            Assert.assertEquals("`col` int(11) REPLACE_IF_NULL NULL DEFAULT \"null\" COMMENT \"\"", column.toSql());
+        } // CHECKSTYLE IGNORE THIS LINE
+        { // CHECKSTYLE IGNORE THIS LINE
+            // not allow null
+            ColumnDef column = new ColumnDef("col", intCol, false, AggregateType.REPLACE_IF_NULL, false, new DefaultValue(true, "10"), "");
+            column.analyze(true);
+            Assert.assertEquals(AggregateType.REPLACE_IF_NULL, column.getAggregateType());
+            Assert.assertEquals("`col` int(11) REPLACE_IF_NULL NULL DEFAULT \"10\" COMMENT \"\"", column.toSql());
+        } // CHECKSTYLE IGNORE THIS LINE
+    }
+
     @Test(expected = AnalysisException.class)
     public void testFloatKey() throws AnalysisException {
         ColumnDef column = new ColumnDef("col", floatCol);

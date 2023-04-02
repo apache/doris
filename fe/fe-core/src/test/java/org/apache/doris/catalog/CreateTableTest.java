@@ -554,6 +554,21 @@ public class CreateTableTest {
                     + "PROPERTIES (\n"
                     + "\"replication_allocation\" = \"tag.location.default: 1\"\n"
                     + ");"));
+
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "Create aggregate keys table with value columns of which aggregate type"
+                    + " is REPLACE_IF_NULL should not contain random distribution desc",
+                () -> createTable("CREATE TABLE test.tbl22\n"
+                    + "(\n"
+                    + "  `k1` bigint(20) NULL COMMENT \"\",\n"
+                    + "  `k2` largeint(40) NULL COMMENT \"\",\n"
+                    + "  `v1` smallint(6) REPLACE_IF_NULL NULL DEFAULT \"10\" COMMENT \"\"\n"
+                    + ") ENGINE=OLAP\n"
+                    + "AGGREGATE KEY(`k1`, `k2`)\n"
+                    + "DISTRIBUTED BY RANDOM BUCKETS 32\n"
+                    + "PROPERTIES (\n"
+                    + "\"replication_allocation\" = \"tag.location.default: 1\"\n"
+                    + ");"));
     }
 
     @Test

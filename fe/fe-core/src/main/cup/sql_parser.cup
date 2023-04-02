@@ -518,6 +518,7 @@ terminal String
     KW_REPAIR,
     KW_REPEATABLE,
     KW_REPLACE,
+    KW_REPLACE_IF_NULL,
     KW_REPLACE_IF_NOT_NULL,
     KW_REPLICA,
     KW_REPOSITORIES,
@@ -2599,16 +2600,16 @@ opt_broker ::=
     :}
     ;
 
-resource_desc ::=                                                               
-    KW_WITH KW_RESOURCE ident_or_text:resourceName                                 
-    {:                                                                               
-        RESULT = new ResourceDesc(resourceName, null);                               
-    :}                                                                               
+resource_desc ::=
+    KW_WITH KW_RESOURCE ident_or_text:resourceName
+    {:
+        RESULT = new ResourceDesc(resourceName, null);
+    :}
     | KW_WITH KW_RESOURCE ident_or_text:resourceName LPAREN key_value_map:properties RPAREN
-    {:                                                                               
-        RESULT = new ResourceDesc(resourceName, properties);                         
-    :}                                                                               
-    ; 
+    {:
+        RESULT = new ResourceDesc(resourceName, properties);
+    :}
+    ;
 
 // Routine load statement
 create_routine_load_stmt ::=
@@ -3030,6 +3031,10 @@ opt_agg_type ::=
     | KW_REPLACE
     {:
     RESULT = AggregateType.REPLACE;
+    :}
+    | KW_REPLACE_IF_NULL
+    {:
+    RESULT = AggregateType.REPLACE_IF_NULL;
     :}
     | KW_REPLACE_IF_NOT_NULL
     {:
@@ -3860,7 +3865,7 @@ show_param ::=
     {:
         RESULT = new ShowTrashDiskStmt(backend);
     :}
-    | KW_TRASH 
+    | KW_TRASH
     {:
         RESULT = new ShowTrashStmt();
     :}
@@ -4171,7 +4176,7 @@ describe_stmt ::=
     {:
         query.setIsExplain(options);
         RESULT = query;
-    :}   
+    :}
     | describe_command opt_explain_options:options insert_stmt:stmt
     {:
         stmt.getQueryStmt().setIsExplain(options);
@@ -5069,9 +5074,9 @@ literal_values ::=
 
 args_list ::=
     {:
-        RESULT = Lists.newArrayList();     
+        RESULT = Lists.newArrayList();
     :}
-    | KW_USING LPAREN literal_values:values RPAREN 
+    | KW_USING LPAREN literal_values:values RPAREN
     {:
         RESULT = values;
     :}
@@ -5522,19 +5527,19 @@ tablet_list ::=
 partition_names ::=
     KW_PARTITION LPAREN ident_list:partitions RPAREN
     {:
-        RESULT = new PartitionNames(false, partitions);  
+        RESULT = new PartitionNames(false, partitions);
     :}
     | KW_TEMPORARY KW_PARTITION LPAREN ident_list:partitions RPAREN
     {:
-        RESULT = new PartitionNames(true, partitions);  
+        RESULT = new PartitionNames(true, partitions);
     :}
     | KW_PARTITIONS LPAREN ident_list:partitions RPAREN
     {:
-        RESULT = new PartitionNames(false, partitions);  
+        RESULT = new PartitionNames(false, partitions);
     :}
     | KW_TEMPORARY KW_PARTITIONS LPAREN ident_list:partitions RPAREN
     {:
-        RESULT = new PartitionNames(true, partitions);  
+        RESULT = new PartitionNames(true, partitions);
     :}
     | KW_PARTITION ident:partName
     {:
@@ -6102,11 +6107,11 @@ function_call_expr ::=
     }
   :}
   | function_name:fn_name LPAREN ident:id ARROW expr:e COMMA function_params:params RPAREN
-  {: 
+  {:
     List<Expr> exprs = params.exprs();
     LambdaFunctionExpr lambda = new LambdaFunctionExpr(e, id, exprs);
     exprs.add(lambda);
-    RESULT = new LambdaFunctionCallExpr(fn_name, exprs); 
+    RESULT = new LambdaFunctionCallExpr(fn_name, exprs);
   :}
   | function_name:fn_name LPAREN LPAREN ident:id COMMA ident_list:idList RPAREN ARROW expr:e COMMA function_params:params RPAREN
   {:
@@ -6288,11 +6293,11 @@ non_pred_expr ::=
   | KW_KEY encryptkey_name:name
   {: RESULT = new EncryptKeyRef(name); :}
   | KW_CONVERT LPAREN expr:e KW_USING ident:character RPAREN
-  {: 
+  {:
     ArrayList<Expr> exprs = new ArrayList<>();
     exprs.add(e);
     exprs.add(new StringLiteral(character));
-    RESULT = new FunctionCallExpr("convert_to", new FunctionParams(exprs)); 
+    RESULT = new FunctionCallExpr("convert_to", new FunctionParams(exprs));
   :}
   ;
 
@@ -6469,7 +6474,7 @@ literal ::=
   {: RESULT = new NullLiteral(); :}
   | PLACEHOLDER
   {: RESULT = new PlaceHolderExpr(); :}
-  | MOD 
+  | MOD
   {: RESULT = new PlaceHolderExpr(); :}
   | UNMATCHED_STRING_LITERAL:l expr:e
   {:
@@ -7162,6 +7167,8 @@ keyword ::=
     | KW_REPEATABLE:id
     {: RESULT = id; :}
     | KW_REPLACE:id
+    {: RESULT = id; :}
+    | KW_REPLACE_IF_NULL:id
     {: RESULT = id; :}
     | KW_REPLACE_IF_NOT_NULL:id
     {: RESULT = id; :}

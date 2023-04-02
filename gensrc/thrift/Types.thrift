@@ -168,7 +168,8 @@ enum TAggregationType {
     NONE,
     BITMAP_UNION,
     REPLACE_IF_NOT_NULL,
-    QUANTILE_UNION
+    QUANTILE_UNION,
+    REPLACE_IF_NULL
 }
 
 enum TPushType {
@@ -218,7 +219,7 @@ enum TStmtType {
   QUERY,
   DDL,  // Data definition, e.g. CREATE TABLE (includes read-only functions e.g. SHOW)
   DML,  // Data modification e.g. INSERT
-  EXPLAIN   // EXPLAIN 
+  EXPLAIN   // EXPLAIN
 }
 
 // level of verboseness for "explain" output
@@ -437,7 +438,7 @@ struct TJavaUdfExecutorCtorParams {
   9: optional i64 output_intermediate_state_ptr
 
   10: optional i64 batch_size_ptr
-  
+
   // this is used to pass place or places to FE, which could help us call jni
   // only once and can process a batch size data in JAVA-Udaf
   11: optional i64 input_places_ptr
@@ -562,7 +563,7 @@ enum TLoadJobState {
     LOADING,
     FINISHED,
     CANCELLED
-}   
+}
 
 enum TEtlState {
 	RUNNING,
@@ -629,7 +630,7 @@ struct TTabletCommitInfo {
     2: required i64 backendId
     // Every load job should check if the global dict is valid, if the global dict
     // is invalid then should sent the invalid column names to FE
-    3: optional list<string> invalid_dict_cols  
+    3: optional list<string> invalid_dict_cols
 }
 
 struct TErrorTabletInfo {
@@ -656,7 +657,7 @@ enum TMergeType {
 
 enum TSortType {
     LEXICAL,
-    ZORDER, 
+    ZORDER,
 }
 
 enum TMetadataType {
@@ -679,4 +680,3 @@ const i32 TSNAPSHOT_REQ_VERSION1 = 3; // corresponding to alpha rowset
 const i32 TSNAPSHOT_REQ_VERSION2 = 4; // corresponding to beta rowset
 // the snapshot request should always set prefer snapshot version to TPREFER_SNAPSHOT_REQ_VERSION
 const i32 TPREFER_SNAPSHOT_REQ_VERSION = TSNAPSHOT_REQ_VERSION2;
-

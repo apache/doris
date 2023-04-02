@@ -517,6 +517,7 @@ public class CreateTableStmt extends DdlStmt {
                 } else if (keysDesc.getKeysType() == KeysType.AGG_KEYS) {
                     for (ColumnDef columnDef : columnDefs) {
                         if (columnDef.getAggregateType() == AggregateType.REPLACE
+                                || columnDef.getAggregateType() == AggregateType.REPLACE_IF_NULL
                                 || columnDef.getAggregateType() == AggregateType.REPLACE_IF_NOT_NULL) {
                             throw new AnalysisException("Create aggregate keys table with value columns of which"
                                     + " aggregate type is " + columnDef.getAggregateType()

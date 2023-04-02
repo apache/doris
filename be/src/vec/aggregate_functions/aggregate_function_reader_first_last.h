@@ -151,7 +151,7 @@ struct ReaderFunctionFirstData : Data {
 };
 
 template <typename Data>
-struct ReaderFunctionFirstNonNullData : Data {
+struct ReaderFunctionFirstIfNonNullData : Data {
     void add(int64_t row, const IColumn** columns) {
         if (this->has_set_value()) {
             return;
@@ -164,7 +164,24 @@ struct ReaderFunctionFirstNonNullData : Data {
         }
         this->set_value(columns, row);
     }
-    static const char* name() { return "first_non_null_value"; }
+    static const char* name() { return "first_if_non_null_value"; }
+};
+
+template <typename Data>
+struct ReaderFunctionFirstIfNullData : Data {
+    void add(int64_t row, const IColumn** columns) {
+        if (this->has_set_value()) {
+            return;
+        }
+        if constexpr (Data::nullable) {
+            const auto* nullable_column = assert_cast<const ColumnNullable*>(columns[0]);
+            if (!nullable_column->is_null_at(row)) {
+                return;
+            }
+        }
+        this->set_value(columns, row);
+    }
+    static const char* name() { return "first_if_null_value"; }
 };
 
 template <typename Data>
@@ -174,7 +191,7 @@ struct ReaderFunctionLastData : Data {
 };
 
 template <typename Data>
-struct ReaderFunctionLastNonNullData : Data {
+struct ReaderFunctionLastIfNonNullData : Data {
     void add(int64_t row, const IColumn** columns) {
         if constexpr (Data::nullable) {
             const auto* nullable_column = assert_cast<const ColumnNullable*>(columns[0]);
@@ -185,7 +202,22 @@ struct ReaderFunctionLastNonNullData : Data {
         this->set_value(columns, row);
     }
 
-    static const char* name() { return "last_non_null_value"; }
+    static const char* name() { return "last_if_non_null_value"; }
+};
+
+template <typename Data>
+struct ReaderFunctionLastIfNullData : Data {
+    void add(int64_t row, const IColumn** columns) {
+        if constexpr (Data::nullable) {
+            const auto* nullable_column = assert_cast<const ColumnNullable*>(columns[0]);
+            if (!nullable_column->is_null_at(row)) {
+                return;
+            }
+        }
+        this->set_value(columns, row);
+    }
+
+    static const char* name() { return "last_if_null_value"; }
 };
 
 template <typename Data>
@@ -271,9 +303,13 @@ IAggregateFunction* create_function_single_value(const String& name,
     }
 
 CREATE_READER_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_first, ReaderFunctionFirstData);
-CREATE_READER_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_first_non_null_value,
-                                          ReaderFunctionFirstNonNullData);
+CREATE_READER_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_first_if_non_null_value,
+                                          ReaderFunctionFirstIfNonNullData);
+CREATE_READER_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_first_if_null_value,
+                                          ReaderFunctionFirstIfNullData);
 CREATE_READER_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_last, ReaderFunctionLastData);
-CREATE_READER_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_last_non_null_value,
-                                          ReaderFunctionLastNonNullData);
+CREATE_READER_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_last_if_non_null_value,
+                                          ReaderFunctionLastIfNonNullData);
+CREATE_READER_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_last_if_null_value,
+                                          ReaderFunctionLastIfNullData);
 } // namespace doris::vectorized
