@@ -148,7 +148,7 @@ class StreamLoadAction implements SuiteAction {
             ex = t
         }
         long endTime = System.currentTimeMillis()
-        log.info("Stream load elapsed ${endTime - startTime} ms".toString())
+        log.info("Stream load elapsed ${endTime - startTime} ms, response: ${responseText}".toString())
         checkResult(responseText, ex, startTime, endTime)
     }
 
