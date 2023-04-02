@@ -162,7 +162,7 @@ public:
 
         const auto needle_size = needle_end - needle;
 
-        while (haystack < haystack_end && haystack_end - haystack >= needle_size) {
+        while (haystack_end - haystack >= needle_size) {
 #ifdef __SSE4_1__
             if ((haystack + 1 + n) <= haystack_end && page_safe(haystack)) {
                 /// find first and second characters
