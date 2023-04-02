@@ -801,7 +801,8 @@ public class LoadManager implements Writable {
             long scannedBytes, long readBytes, boolean isSetReadBytes, boolean isDone) {
         LoadJob job = idToLoadJob.get(jobId);
         if (job != null) {
-            job.updateProgress(beId, loadId, fragmentId, scannedRows, scannedBytes, readBytes, isSetReadBytes, isDone);
+            job.setIsSupportReadBytes(isSetReadBytes);
+            job.updateProgress(beId, loadId, fragmentId, scannedRows, scannedBytes, readBytes, isDone);
         }
     }
 

@@ -2141,13 +2141,6 @@ public class Coordinator {
                 }
                 profileDoneSignal.markedCountDown(params.getFragmentInstanceId(), -1L);
             }
-
-            if (params.isSetLoadedRows()) {
-                Env.getCurrentEnv().getLoadManager().updateJobProgress(
-                        jobId, params.getBackendId(), params.getQueryId(), params.getFragmentInstanceId(),
-                        params.getLoadedRows(), params.getLoadedBytes(), params.getBytesRead(),
-                        params.isSetBytesRead(), params.isDone());
-            }
         } else {
             if (params.backend_num >= backendExecStates.size()) {
                 LOG.warn("unknown backend number: {}, expected less than: {}",
@@ -2200,13 +2193,12 @@ public class Coordinator {
                 }
                 profileDoneSignal.markedCountDown(params.getFragmentInstanceId(), -1L);
             }
-
-            if (params.isSetLoadedRows()) {
-                Env.getCurrentEnv().getLoadManager().updateJobProgress(
-                        jobId, params.getBackendId(), params.getQueryId(), params.getFragmentInstanceId(),
-                        params.getLoadedRows(), params.getLoadedBytes(), params.getBytesRead(),
-                        params.isSetBytesRead(), params.isDone());
-            }
+        }
+        if (params.isSetLoadedRows()) {
+            Env.getCurrentEnv().getLoadManager().updateJobProgress(
+                    jobId, params.getBackendId(), params.getQueryId(), params.getFragmentInstanceId(),
+                    params.getLoadedRows(), params.getLoadedBytes(), params.getBytesRead(),
+                    params.isSetBytesRead(), params.isDone());
         }
     }
 

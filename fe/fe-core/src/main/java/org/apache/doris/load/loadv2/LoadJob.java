@@ -129,6 +129,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     // only for persistence param. see readFields() for usage
     private boolean isJobTypeRead = false;
+    // only true when load job supports for read bytes field in Thrift
+    protected boolean isSupportReadBytes = false;
 
     protected List<ErrorTabletInfo> errorTabletInfos = Lists.newArrayList();
 
@@ -342,11 +344,31 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     }
 
     public void updateProgress(Long beId, TUniqueId loadId, TUniqueId fragmentId, long scannedRows,
-                               long scannedBytes, long readBytes, boolean isSupportReadBytes, boolean isDone) {
+                               long scannedBytes, long readBytes, boolean isDone) {
         loadStatistic.updateLoadProgress(beId, loadId, fragmentId, scannedRows, scannedBytes, isDone);
         if (isSupportReadBytes) {
             loadStatistic.updateReadProgress(beId, loadId, fragmentId, readBytes);
         }
+    }
+
+    public boolean getIsSupportReadBytes() {
+        return isSupportReadBytes;
+    }
+
+    public void setIsSupportReadBytes(boolean isSupportReadBytes) {
+        this.isSupportReadBytes = isSupportReadBytes;
+    }
+
+    public long getReadBytesInfo() {
+        if (isSupportReadBytes) {
+            return loadStatistic.getReadBytes();
+        } else {
+            return -1;
+        }
+    }
+
+    public long getLoadBytesInfo() {
+        return loadStatistic.getLoadBytes();
     }
 
     public void setLoadFileInfo(int fileNum, long fileSize) {
@@ -800,6 +822,15 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
                     break;
                 default:
                     jobInfo.add("ETL:100%; LOAD:" + progress + "%");
+                    //add read and load bytes
+                    if (isSupportReadBytes) {
+                        jobInfo.add("read bytes:" + getReadBytesInfo()
+                                + "; load bytes:" + getLoadBytesInfo()
+                                + "; total bytes:" +  loadStatistic.totalFileSizeB);
+                    } else {
+                        jobInfo.add("load bytes:" + getLoadBytesInfo() + "; read bytes: N/A"
+                                + "; total bytes:" +  loadStatistic.totalFileSizeB);
+                    }
                     break;
             }
 
