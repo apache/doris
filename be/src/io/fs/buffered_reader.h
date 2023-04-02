@@ -53,6 +53,8 @@ public:
     virtual Status read_bytes(Slice& slice, uint64_t offset) = 0;
     Statistics& statistics() { return _statistics; }
     virtual ~BufferedStreamReader() = default;
+    // return the file path
+    virtual std::string path() = 0;
 
 protected:
     Statistics _statistics;
@@ -66,6 +68,7 @@ public:
 
     Status read_bytes(const uint8_t** buf, uint64_t offset, const size_t bytes_to_read) override;
     Status read_bytes(Slice& slice, uint64_t offset) override;
+    std::string path() override { return _file->path(); }
 
 private:
     std::unique_ptr<uint8_t[]> _buf;

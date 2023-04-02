@@ -189,6 +189,7 @@ CREATE CATALOG hana_catalog PROPERTIES (
 `driver_class` | 是 |  | JDBC Driver Class 名称 |
 `only_specified_database` | 否 | "false" | 指定是否只同步指定的 database  |
 `lower_case_table_names` | 否 | "false" | 是否以小写的形式同步jdbc外部数据源的表名 |
+`specified_database_list` | 否 | "" | 当only_specified_database=true时，指定同步多个database，以','分隔。db名称是大小写敏感的。 |
 
 > `driver_url` 可以通过以下三种方式指定：
 > 
@@ -200,7 +201,7 @@ CREATE CATALOG hana_catalog PROPERTIES (
 
 > `only_specified_database`:
 > 
-> 在jdbc连接时可以指定链接到哪个database/schema, 如：mysql中jdbc_url中可以指定database, pg的jdbc_url中可以指定currentSchema。`only_specified_database=true` 可以只同步指定的 database。
+> 在jdbc连接时可以指定链接到哪个database/schema, 如：mysql中jdbc_url中可以指定database, pg的jdbc_url中可以指定currentSchema。`only_specified_database=true` 且`specified_database_list`为空时，可以只同步指定的 database。当`only_specified_database=true`且`specified_database_list`指定了database列表时，则会同步指定的多个database。
 > 
 > 如果使用该参数时连接oracle数据库，要求使用ojdbc8.jar以上版本jar包。
 
@@ -480,3 +481,14 @@ set enable_odbc_transcation = true;
 7. 在使用JDBC查询过程中时，如果出现"CAUSED BY: SQLException OutOfMemoryError" 类似的错误
 
     如果MYSQL已经主动设置useCursorFetch，可以在be.conf中修改jvm_max_heap_size的值，尝试增大JVM的内存，目前默认值为1024M。
+
+8. 使用JDBC查询MYSQL大数据量时，如果查询偶尔能够成功，偶尔会报如下错误，且出现该错误时MYSQL的连接被全部断开，无法连接到MYSQL SERVER，过段时间后mysql又恢复正常，但是之前的连接都没了：
+
+    ```
+    ERROR 1105 (HY000): errCode = 2, detailMessage = [INTERNAL_ERROR]UdfRuntimeException: JDBC executor sql has error:
+    CAUSED BY: CommunicationsException: Communications link failure
+    The last packet successfully received from the server was 4,446 milliseconds ago. The last packet sent successfully to the server was 4,446 milliseconds ago.
+    ```
+
+    出现上述现象时，可能是Mysql Server自身的内存或CPU资源被耗尽导致Mysql服务不可用，可以尝试增大Mysql Server的内存或CPU配置。
+ 

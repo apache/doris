@@ -414,6 +414,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fileRangeDesc.setPath(firstFile.getPath());
         fileRangeDesc.setStartOffset(0);
         fileRangeDesc.setSize(firstFile.getSize());
+        fileRangeDesc.setFileSize(firstFile.getSize());
         // set TFileScanRange
         TFileScanRange fileScanRange = new TFileScanRange();
         fileScanRange.addToRanges(fileRangeDesc);

@@ -33,7 +33,6 @@
 namespace doris {
 class TPlanNode;
 class DescriptorTbl;
-class MemPool;
 
 namespace pipeline {
 class AggSinkOperator;
@@ -63,9 +62,7 @@ struct AggregationMethodSerialized {
     std::vector<StringRef> keys;
     size_t keys_memory_usage = 0;
     AggregationMethodSerialized()
-            : _serialized_key_buffer_size(0),
-              _serialized_key_buffer(nullptr),
-              _mem_pool(new MemPool) {}
+            : _serialized_key_buffer_size(0), _serialized_key_buffer(nullptr) {}
 
     using State = ColumnsHashing::HashMethodSerialized<typename Data::value_type, Mapped, true>;
 
@@ -96,8 +93,9 @@ struct AggregationMethodSerialized {
             _arena.reset();
             if (total_bytes > _serialized_key_buffer_size) {
                 _serialized_key_buffer_size = total_bytes;
-                _mem_pool->clear();
-                _serialized_key_buffer = _mem_pool->allocate(_serialized_key_buffer_size, true);
+                _serialize_key_arena.reset(new Arena());
+                _serialized_key_buffer = reinterpret_cast<uint8_t*>(
+                        _serialize_key_arena->alloc(_serialized_key_buffer_size));
             }
 
             for (size_t i = 0; i < num_rows; ++i) {
@@ -139,7 +137,7 @@ struct AggregationMethodSerialized {
 private:
     size_t _serialized_key_buffer_size;
     uint8_t* _serialized_key_buffer;
-    std::unique_ptr<MemPool> _mem_pool;
+    std::unique_ptr<Arena> _serialize_key_arena;
     std::unique_ptr<Arena> _arena;
     static constexpr size_t SERIALIZE_KEYS_MEM_LIMIT_IN_BYTES = 16 * 1024 * 1024; // 16M
 };
@@ -1022,7 +1020,7 @@ private:
     bool _is_first_phase;
     bool _use_fixed_length_serialization_opt;
     bool _partitioned_hash_table_enabled;
-    std::unique_ptr<MemPool> _mem_pool;
+    std::unique_ptr<Arena> _agg_profile_arena;
 
     size_t _align_aggregate_states = 1;
     /// The offset to the n-th aggregate function in a row of aggregate functions.

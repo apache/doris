@@ -372,6 +372,17 @@ enum TJdbcOperation {
     WRITE
 }
 
+enum TOdbcTableType {
+    MYSQL,
+    ORACLE,
+    POSTGRESQL,
+    SQLSERVER,
+    REDIS,
+    MONGODB,
+    CLICKHOUSE,
+    SAP_HANA
+}
+
 struct TJdbcExecutorCtorParams {
   1: optional string statement
 
@@ -393,6 +404,8 @@ struct TJdbcExecutorCtorParams {
 
   // "/home/user/mysql-connector-java-5.1.47.jar"
   8: optional string driver_path
+
+  9: optional TOdbcTableType table_type
 }
 
 struct TJavaUdfExecutorCtorParams {
@@ -573,17 +586,6 @@ enum TTableType {
     TEST_EXTERNAL_TABLE,
 }
 
-enum TOdbcTableType {
-    MYSQL,
-    ORACLE,
-    POSTGRESQL,
-    SQLSERVER,
-    REDIS,
-    MONGODB,
-    CLICKHOUSE,
-    SAP_HANA
-}
-
 enum TKeysType {
     PRIMARY_KEYS,
     DUP_KEYS,
@@ -658,7 +660,8 @@ enum TSortType {
 }
 
 enum TMetadataType {
-  ICEBERG
+  ICEBERG,
+  BACKENDS
 }
 
 enum TIcebergQueryType {

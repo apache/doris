@@ -20,7 +20,6 @@
 #include <sstream>
 #include <string>
 
-#include "agent/cgroups_mgr.h"
 #include "boost/lexical_cast.hpp"
 #include "common/logging.h"
 #include "http/http_channel.h"
@@ -45,9 +44,6 @@ ChecksumAction::ChecksumAction() {}
 
 void ChecksumAction::handle(HttpRequest* req) {
     LOG(INFO) << "accept one request " << req->debug_string();
-
-    // add tid to cgroup in order to limit read bandwidth
-    CgroupsMgr::apply_system_cgroup();
     // Get tablet id
     const std::string& tablet_id_str = req->param(TABLET_ID);
     if (tablet_id_str.empty()) {

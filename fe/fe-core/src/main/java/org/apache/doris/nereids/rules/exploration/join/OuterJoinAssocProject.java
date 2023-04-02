@@ -96,13 +96,13 @@ public class OuterJoinAssocProject extends OneExplorationRuleFactory {
 
                     bProjects.addAll(OuterJoinLAsscomProject.forceToNullable(c.getOutputSet()));
                     /* ********** new Plan ********** */
-                    LogicalJoin newBottomJoin = (LogicalJoin) topJoin.withChildren(b, c);
+                    LogicalJoin newBottomJoin = topJoin.withChildrenNoContext(b, c);
                     newBottomJoin.getJoinReorderContext().copyFrom(bottomJoin.getJoinReorderContext());
 
                     Plan left = JoinReorderUtils.projectOrSelf(aProjects, a);
                     Plan right = JoinReorderUtils.projectOrSelf(bProjects, newBottomJoin);
 
-                    LogicalJoin newTopJoin = (LogicalJoin) bottomJoin.withChildren(left, right);
+                    LogicalJoin newTopJoin = bottomJoin.withChildrenNoContext(left, right);
                     newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());
                     OuterJoinAssoc.setReorderContext(newTopJoin, newBottomJoin);
 

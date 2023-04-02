@@ -46,6 +46,11 @@ public class ColumnStatistic {
             .setSelectivity(1.0).setIsUnknown(true)
             .build();
 
+    public static ColumnStatistic ZERO = new ColumnStatisticBuilder().setAvgSizeByte(0).setNdv(0)
+            .setNumNulls(0).setCount(0).setMaxValue(Double.NaN).setMinValue(Double.NaN)
+            .setSelectivity(0)
+            .build();
+
     public static final Set<Type> MAX_MIN_UNSUPPORTED_TYPE = new HashSet<>();
 
     static {

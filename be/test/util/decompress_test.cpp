@@ -49,10 +49,10 @@ protected:
     void RunTest(THdfsCompression::type format) {
         std::unique_ptr<Codec> compressor;
         std::unique_ptr<Codec> decompressor;
-        MemPool* mem_pool = new MemPool;
+        vectorized::Arena* arena = new vectorized::Arena;
 
-        EXPECT_TRUE(Codec::create_compressor(nullptr, mem_pool, true, format, &compressor).ok());
-        EXPECT_TRUE(Codec::create_compressor(nullptr, mem_pool, true, format, &decompressor).ok());
+        EXPECT_TRUE(Codec::create_compressor(nullptr, arena, true, format, &compressor).ok());
+        EXPECT_TRUE(Codec::create_compressor(nullptr, arena, true, format, &decompressor).ok());
 
         uint8_t* compressed = nullptr;
         int compressed_length = 0;
@@ -68,7 +68,7 @@ protected:
 
         // Try again specifying the output buffer and length.
         out_len = sizeof(_input);
-        output = mem_pool->allocate(out_len);
+        output = arena->alloc(out_len);
         EXPECT_TRUE(
                 decompressor->process_block(compressed_length, compressed, &out_len, &output).ok());
 

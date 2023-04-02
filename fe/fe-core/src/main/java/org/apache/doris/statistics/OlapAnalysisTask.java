@@ -80,7 +80,8 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
                     continue;
                 }
                 params.put("partId", String.valueOf(tbl.getPartition(partName).getId()));
-                params.put("partName", String.valueOf(partName));
+                // Avoid error when get the default partition
+                params.put("partName", "`" + partName + "`");
                 StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
                 partitionAnalysisSQLs.add(stringSubstitutor.replace(ANALYZE_PARTITION_SQL_TEMPLATE));
             }

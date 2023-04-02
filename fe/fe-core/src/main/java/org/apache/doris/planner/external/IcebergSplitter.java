@@ -92,10 +92,11 @@ public class IcebergSplitter implements Splitter {
         List<Split> splits = new ArrayList<>();
         int formatVersion = ((BaseTable) table).operations().current().formatVersion();
         for (FileScanTask task : scan.planFiles()) {
+            long fileSize = task.file().fileSizeInBytes();
             for (FileScanTask splitTask : task.split(128 * 1024 * 1024)) {
                 String dataFilePath = splitTask.file().path().toString();
                 IcebergSplit split = new IcebergSplit(new Path(dataFilePath), splitTask.start(),
-                        splitTask.length(), new String[0]);
+                        splitTask.length(), fileSize, new String[0]);
                 split.setFormatVersion(formatVersion);
                 if (formatVersion >= IcebergScanProvider.MIN_DELETE_FILE_SUPPORT_VERSION) {
                     split.setDeleteFileFilters(getDeleteFileFilters(splitTask));

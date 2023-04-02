@@ -25,6 +25,7 @@
 
 #include "gen_cpp/olap_file.pb.h"
 #include "gtest/gtest.h"
+#include "io/fs/local_file_system.h"
 #include "io/fs/s3_common.h"
 #include "io/fs/s3_file_system.h"
 #include "olap/comparison_predicate.h"
@@ -42,9 +43,7 @@
 #include "olap/tablet_schema_helper.h"
 #include "olap/utils.h"
 #include "runtime/exec_env.h"
-#include "runtime/mem_pool.h"
 #include "runtime/memory/mem_tracker.h"
-#include "util/file_utils.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -67,10 +66,7 @@ static std::string resource_id = "10000";
 class RemoteFileCacheTest : public ::testing::Test {
 protected:
     static void SetUpTestSuite() {
-        if (FileUtils::check_exist(kSegmentDir)) {
-            EXPECT_TRUE(FileUtils::remove_all(kSegmentDir).ok());
-        }
-        EXPECT_TRUE(FileUtils::create_dir(kSegmentDir).ok());
+        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(kSegmentDir).ok());
 
         doris::ExecEnv::GetInstance()->init_download_cache_required_components();
 
@@ -80,9 +76,7 @@ protected:
     }
 
     static void TearDownTestSuite() {
-        if (FileUtils::check_exist(kSegmentDir)) {
-            EXPECT_TRUE(FileUtils::remove_all(kSegmentDir).ok());
-        }
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kSegmentDir).ok());
         if (k_engine != nullptr) {
             k_engine->stop();
             delete k_engine;

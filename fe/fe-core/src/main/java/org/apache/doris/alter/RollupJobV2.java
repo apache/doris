@@ -85,6 +85,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -384,7 +385,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
                     DescriptorTable descTable = new DescriptorTable();
                     TupleDescriptor destTupleDesc = descTable.createTupleDescriptor();
-                    Map<String, SlotDescriptor> descMap = Maps.newHashMap();
+                    Map<String, SlotDescriptor> descMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
 
                     List<Column> rollupColumns = new ArrayList<Column>();
                     Set<String> columnNames = new HashSet<String>();

@@ -39,4 +39,24 @@ suite("test_data_type_marks") {
     qt_select_one_marks "select * from org where id in ('639215401565159424') ;"
     qt_select_two_marks "select * from org where id in ('639215401565159424') and  id='639237839376089088';"
     sql "DROP TABLE ${tbName}"
+
+    sql "DROP TABLE IF EXISTS a_table"
+    sql """
+        create table a_table(
+            k1 int null,
+            k2 int not null,
+            k3 bigint null,
+            k4 bigint sum null,
+            k5 bitmap bitmap_union null,
+            k6 hll hll_union null
+        )
+        aggregate key (k1,k2,k3)
+        distributed BY hash(k1) buckets 3
+        properties("replication_num" = "1");
+        """
+    sql """insert into a_table select 1,1,1,1,to_bitmap(1),hll_hash(1);"""
+    sql """insert into a_table select 2,2,1,2,to_bitmap(2),hll_hash(2);"""
+    sql """insert into a_table select 3,-3,-3,-3,to_bitmap(3),hll_hash(3);"""
+
+    qt_sql """select bitmap_count(k5) from a_table where abs(k1)=1;"""
 }

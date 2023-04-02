@@ -183,9 +183,13 @@ Status EnginePublishVersionTask::finish() {
         }
     }
 
-    LOG(INFO) << "finish to publish version on transaction."
-              << "transaction_id=" << transaction_id << ", cost(us): " << watch.get_elapse_time_us()
-              << ", error_tablet_size=" << _error_tablet_ids->size() << ", res=" << res.to_string();
+    if (!res.is<PUBLISH_VERSION_NOT_CONTINUOUS>()) {
+        LOG(INFO) << "finish to publish version on transaction."
+                  << "transaction_id=" << transaction_id
+                  << ", cost(us): " << watch.get_elapse_time_us()
+                  << ", error_tablet_size=" << _error_tablet_ids->size()
+                  << ", res=" << res.to_string();
+    }
     return res;
 }
 
@@ -213,7 +217,8 @@ void TabletPublishTxnTask::handle() {
             _partition_id, _tablet, _transaction_id, _version);
     if (publish_status != Status::OK()) {
         LOG(WARNING) << "failed to publish version. rowset_id=" << _rowset->rowset_id()
-                     << ", tablet_id=" << _tablet_info.tablet_id << ", txn_id=" << _transaction_id;
+                     << ", tablet_id=" << _tablet_info.tablet_id << ", txn_id=" << _transaction_id
+                     << ", res=" << publish_status;
         _engine_publish_version_task->add_error_tablet_id(_tablet_info.tablet_id);
         return;
     }

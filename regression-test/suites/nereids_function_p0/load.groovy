@@ -68,7 +68,14 @@ suite("load") {
             `kastr` array<string> null,
             `kadcml` array<decimal(27, 9)> null,
             `st_point_str` string null,
-            `st_point_vc` varchar(50) null
+            `st_point_vc` varchar(50) null,
+            `x_lng` double null,
+            `x_lat` double null,
+            `y_lng` double null,
+            `y_lat` double null,
+            `radius` double null,
+            `linestring_wkt` varchar(50) null,
+            `polygon_wkt` varchar(50) null
         ) engine=olap
         DISTRIBUTED BY HASH(`id`) BUCKETS 4
         properties("replication_num" = "1")
@@ -121,7 +128,14 @@ suite("load") {
             `kastr` array<string> not null,
             `kadcml` array<decimal(27, 9)> not null,
             `st_point_str` string not null,
-            `st_point_vc` varchar(50) not null
+            `st_point_vc` varchar(50) not null,
+            `x_lng` double null,
+            `x_lat` double null,
+            `y_lng` double null,
+            `y_lat` double null,
+            `radius` double null,
+            `linestring_wkt` varchar(50) null,
+            `polygon_wkt` varchar(50) null
         ) engine=olap
         DISTRIBUTED BY HASH(`id`) BUCKETS 4
         properties("replication_num" = "1")
@@ -137,7 +151,7 @@ suite("load") {
             kdcmlv3s1, kdcmlv3s2, kdcmlv3s3, kchrs1, kchrs2, kchrs3, kvchrs1, kvchrs2, kvchrs3, kstr,
             kdt, kdtv2, kdtm, kdtmv2s1, kdtmv2s2, kdtmv2s3, kabool, katint, kasint, kaint,
             kabint, kalint, kafloat, kadbl, kadt, kadtm, kadtv2, kadtmv2, kachr, kavchr, kastr, kadcml,
-            st_point_str, st_point_vc
+            st_point_str, st_point_vc, x_lng, x_lat, y_lng, y_lat, radius, linestring_wkt, polygon_wkt
             '''
         file "fn_test.dat"
     }

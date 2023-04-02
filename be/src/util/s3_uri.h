@@ -24,6 +24,13 @@
 
 namespace doris {
 
+// S3URI can handle following input:
+// 1. s3://bucket_name/path/to/file.txt
+//      bucket: bucket_num
+//      key: path/to/file.txt
+// 2. path/to/file.txt
+//      bucket: ""
+//      key: path/to/file.txt
 class S3URI {
 public:
     S3URI(const std::string& location) : _location(location) {}
@@ -31,7 +38,6 @@ public:
     const std::string& get_bucket() const { return _bucket; }
     const std::string& get_key() const { return _key; }
     const std::string& get_location() const { return _location; }
-    const std::string& get_scheme() const { return _scheme; }
     std::string to_string() const;
 
 private:
@@ -44,6 +50,5 @@ private:
     std::string _location;
     std::string _bucket;
     std::string _key;
-    std::string _scheme;
 };
 } // end namespace doris

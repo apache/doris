@@ -33,6 +33,7 @@ import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -68,6 +69,8 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
     private int maxColUniqueId = Column.COLUMN_UNIQUE_ID_INIT_VALUE;
 
     private Expr whereClause;
+    private Map<String, Column> nameToColumn;
+    private Map<String, Column> definedNameToColumn;
 
     private static final Logger LOG = LogManager.getLogger(MaterializedIndexMeta.class);
 
@@ -86,6 +89,7 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         Preconditions.checkState(keysType != null);
         this.keysType = keysType;
         this.defineStmt = defineStmt;
+        initColumnNameMap();
     }
 
     public void setWhereClause(Expr whereClause) {
@@ -126,6 +130,7 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
 
     public void setSchema(List<Column> newSchema) {
         this.schema = newSchema;
+        initColumnNameMap();
     }
 
     public void setSchemaHash(int newSchemaHash) {
@@ -215,13 +220,14 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         return normalizeName(lhs).equalsIgnoreCase(normalizeName(rhs));
     }
 
+    public Column getColumnByDefineName(String colDefineName) {
+        String normalizedName = normalizeName(colDefineName);
+        return definedNameToColumn.getOrDefault(normalizedName, null);
+    }
+
     public Column getColumnByName(String columnName) {
-        for (Column column : schema) {
-            if (matchColumnName(column.getName(), columnName)) {
-                return column;
-            }
-        }
-        return null;
+        String normalizedName = normalizeName(columnName);
+        return nameToColumn.getOrDefault(normalizedName, null);
     }
 
     public OriginStatement getDefineStmt() {
@@ -258,6 +264,7 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
 
     @Override
     public void gsonPostProcess() throws IOException {
+        initColumnNameMap();
         // analyze define stmt
         if (defineStmt == null) {
             return;
@@ -299,5 +306,15 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
             LOG.debug("indexId: {},  column:{}, uniqueId:{}",
                     indexId, column, column.getUniqueId());
         });
+    }
+
+    public void initColumnNameMap() {
+        // case insensitive
+        nameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        definedNameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        for (Column column : schema) {
+            nameToColumn.put(normalizeName(column.getName()), column);
+            definedNameToColumn.put(normalizeName(column.getDefineName()), column);
+        }
     }
 }

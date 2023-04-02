@@ -40,8 +40,8 @@
 #include <sstream>
 #include <string>
 
-#include "env/env_util.h"
 #include "gutil/strings/substitute.h"
+#include "io/fs/fs_utils.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
 #include "olap/olap_define.h"
@@ -52,7 +52,6 @@
 #include "olap/utils.h" // for check_dir_existed
 #include "service/backend_options.h"
 #include "util/errno.h"
-#include "util/file_utils.h"
 #include "util/string_util.h"
 
 using strings::Substitute;
@@ -75,7 +74,6 @@ DataDir::DataDir(const std::string& path, int64_t capacity_bytes,
                  TxnManager* txn_manager)
         : _path(path),
           _fs(io::LocalFileSystem::create(path)),
-          _capacity_bytes(capacity_bytes),
           _available_bytes(0),
           _disk_capacity_bytes(0),
           _storage_medium(storage_medium),
@@ -105,14 +103,17 @@ DataDir::~DataDir() {
 }
 
 Status DataDir::init() {
-    if (!Env::Default()->path_exists(_path).ok()) {
+    bool exists = false;
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(_path, &exists));
+    if (!exists) {
         RETURN_NOT_OK_STATUS_WITH_WARN(Status::IOError("opendir failed, path={}", _path),
                                        "check file exist failed");
     }
 
     RETURN_NOT_OK_STATUS_WITH_WARN(update_capacity(), "update_capacity failed");
     RETURN_NOT_OK_STATUS_WITH_WARN(_init_cluster_id(), "_init_cluster_id failed");
-    RETURN_NOT_OK_STATUS_WITH_WARN(_init_capacity(), "_init_capacity failed");
+    RETURN_NOT_OK_STATUS_WITH_WARN(_init_capacity_and_create_shards(),
+                                   "_init_capacity_and_create_shards failed");
     RETURN_NOT_OK_STATUS_WITH_WARN(_init_meta(), "_init_meta failed");
 
     _is_used = true;
@@ -127,61 +128,46 @@ void DataDir::stop_bg_worker() {
 
 Status DataDir::_init_cluster_id() {
     auto cluster_id_path = fmt::format("{}/{}", _path, CLUSTER_ID_PREFIX);
-    RETURN_IF_ERROR(read_cluster_id(Env::Default(), cluster_id_path, &_cluster_id));
+    RETURN_IF_ERROR(read_cluster_id(cluster_id_path, &_cluster_id));
     if (_cluster_id == -1) {
         _cluster_id_incomplete = true;
     }
     return Status::OK();
 }
 
-Status DataDir::read_cluster_id(Env* env, const std::string& cluster_id_path, int32_t* cluster_id) {
-    std::unique_ptr<RandomAccessFile> input_file;
-    Status exist_status = env->path_exists(cluster_id_path);
-    if (exist_status.ok()) {
-        Status status = env->new_random_access_file(cluster_id_path, &input_file);
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                status, strings::Substitute("open file failed: $0, err=$1", cluster_id_path,
-                                            status.to_string()));
+Status DataDir::read_cluster_id(const std::string& cluster_id_path, int32_t* cluster_id) {
+    bool exists = false;
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(cluster_id_path, &exists));
+    if (exists) {
         std::string content;
-        RETURN_IF_ERROR(input_file->read_all(&content));
+        RETURN_IF_ERROR(
+                io::read_file_to_string(io::global_local_filesystem(), cluster_id_path, &content));
         if (content.size() > 0) {
             *cluster_id = std::stoi(content);
         } else {
             *cluster_id = -1;
         }
-    } else if (exist_status.is<NOT_FOUND>()) {
-        *cluster_id = -1;
     } else {
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                exist_status, strings::Substitute("check exist failed: $0, err=$1", cluster_id_path,
-                                                  exist_status.to_string()));
+        *cluster_id = -1;
     }
     return Status::OK();
 }
 
-Status DataDir::_init_capacity() {
-    int64_t disk_capacity = -1;
-    int64_t available = -1;
-    RETURN_NOT_OK_STATUS_WITH_WARN(
-            Env::Default()->get_space_info(_path, &disk_capacity, &available),
-            strings::Substitute("get_space_info failed: $0", _path));
-    if (_capacity_bytes == -1) {
-        _capacity_bytes = disk_capacity;
-    } else if (_capacity_bytes > disk_capacity) {
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                Status::InvalidArgument(
-                        "root path {}'s capacity {} should not larger than disk capacity {}", _path,
-                        _capacity_bytes, disk_capacity),
-                "init capacity failed");
-    }
-
+Status DataDir::_init_capacity_and_create_shards() {
+    RETURN_IF_ERROR(io::global_local_filesystem()->get_space_info(_path, &_disk_capacity_bytes,
+                                                                  &_available_bytes));
     auto data_path = fmt::format("{}/{}", _path, DATA_PREFIX);
-    Status exist_status = Env::Default()->path_exists(data_path);
-    if (!exist_status.ok() &&
-        (!exist_status.is<NOT_FOUND>() || !Env::Default()->create_dirs(data_path).ok())) {
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                Status::IOError("failed to create data root path {}", data_path),
-                "create_dirs failed");
+    bool exists = false;
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(data_path, &exists));
+    if (!exists) {
+        RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(data_path));
+    }
+    for (int i = 0; i < MAX_SHARD_NUM; ++i) {
+        auto shard_path = fmt::format("{}/{}", data_path, i);
+        RETURN_IF_ERROR(io::global_local_filesystem()->exists(shard_path, &exists));
+        if (!exists) {
+            RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(shard_path));
+        }
     }
 
     return Status::OK();
@@ -223,10 +209,13 @@ Status DataDir::set_cluster_id(int32_t cluster_id) {
 Status DataDir::_write_cluster_id_to_path(const std::string& path, int32_t cluster_id) {
     std::stringstream cluster_id_ss;
     cluster_id_ss << cluster_id;
-    std::unique_ptr<WritableFile> wfile;
-    if (!Env::Default()->path_exists(path).ok()) {
-        RETURN_IF_ERROR(env_util::write_string_to_file_sync(Env::Default(),
-                                                            Slice(cluster_id_ss.str()), path));
+    bool exists = false;
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(path, &exists));
+    if (!exists) {
+        io::FileWriterPtr file_writer;
+        RETURN_IF_ERROR(io::global_local_filesystem()->create_file(path, &file_writer));
+        RETURN_IF_ERROR(file_writer->append(cluster_id_ss.str()));
+        RETURN_IF_ERROR(file_writer->close());
     }
     return Status::OK();
 }
@@ -257,11 +246,6 @@ Status DataDir::get_shard(uint64_t* shard) {
         next_shard = _current_shard;
         _current_shard = (_current_shard + 1) % MAX_SHARD_NUM;
     }
-    auto shard_path = fmt::format("{}/{}/{}", _path, DATA_PREFIX, next_shard);
-    RETURN_WITH_WARN_IF_ERROR(Env::Default()->create_dirs(shard_path),
-                              Status::Error<CANNOT_CREATE_DIR>(),
-                              "fail to create path. path=" + shard_path);
-
     *shard = next_shard;
     return Status::OK();
 }
@@ -299,17 +283,22 @@ std::string DataDir::get_absolute_tablet_path(int64_t shard_id, int64_t tablet_i
 void DataDir::find_tablet_in_trash(int64_t tablet_id, std::vector<std::string>* paths) {
     // path: /root_path/trash/time_label/tablet_id/schema_hash
     auto trash_path = fmt::format("{}/{}", _path, TRASH_PREFIX);
-    std::vector<std::string> sub_dirs;
-    FileUtils::list_files(Env::Default(), trash_path, &sub_dirs);
+    bool exists = true;
+    std::vector<io::FileInfo> sub_dirs;
+    Status st = io::global_local_filesystem()->list(trash_path, false, &sub_dirs, &exists);
+    if (!st) {
+        return;
+    }
+
     for (auto& sub_dir : sub_dirs) {
         // sub dir is time_label
-        auto sub_path = fmt::format("{}/{}", trash_path, sub_dir);
-        if (!FileUtils::is_dir(sub_path, Env::Default())) {
+        if (sub_dir.is_file) {
             continue;
         }
+        auto sub_path = fmt::format("{}/{}", trash_path, sub_dir.file_name);
         auto tablet_path = fmt::format("{}/{}", sub_path, tablet_id);
-        Status exist_status = Env::Default()->path_exists(tablet_path);
-        if (exist_status.ok()) {
+        st = io::global_local_filesystem()->exists(tablet_path, &exists);
+        if (st && exists) {
             paths->emplace_back(std::move(tablet_path));
         }
     }
@@ -641,27 +630,26 @@ void DataDir::perform_path_gc_by_rowsetid() {
 }
 
 // path producer
-void DataDir::perform_path_scan() {
+Status DataDir::perform_path_scan() {
     std::unique_lock<std::mutex> lck(_check_path_mutex);
     if (!_all_check_paths.empty()) {
         LOG(INFO) << "_all_check_paths is not empty when path scan.";
-        return;
+        return Status::OK();
     }
     LOG(INFO) << "start to scan data dir path:" << _path;
-    std::set<std::string> shards;
     auto data_path = fmt::format("{}/{}", _path, DATA_PREFIX);
+    std::vector<io::FileInfo> shards;
+    bool exists = true;
+    RETURN_IF_ERROR(io::global_local_filesystem()->list(data_path, false, &shards, &exists));
 
-    Status ret = FileUtils::list_dirs_files(data_path, &shards, nullptr, Env::Default());
-    if (!ret.ok()) {
-        LOG(WARNING) << "fail to walk dir. path=[" << data_path << "] error[" << ret.to_string()
-                     << "]";
-        return;
-    }
-
+    Status ret;
     for (const auto& shard : shards) {
-        auto shard_path = fmt::format("{}/{}", data_path, shard);
-        std::set<std::string> tablet_ids;
-        ret = FileUtils::list_dirs_files(shard_path, &tablet_ids, nullptr, Env::Default());
+        if (shard.is_file) {
+            continue;
+        }
+        auto shard_path = fmt::format("{}/{}", data_path, shard.file_name);
+        std::vector<io::FileInfo> tablet_ids;
+        ret = io::global_local_filesystem()->list(shard_path, false, &tablet_ids, &exists);
         if (!ret.ok()) {
             LOG(WARNING) << "fail to walk dir. [path=" << shard_path << "] error["
                          << ret.to_string() << "]";
@@ -671,11 +659,14 @@ void DataDir::perform_path_scan() {
             if (_stop_bg_worker) {
                 break;
             }
+            if (tablet_id.is_file) {
+                continue;
+            }
 
-            auto tablet_id_path = fmt::format("{}/{}", shard_path, tablet_id);
-            std::set<std::string> schema_hashes;
-            ret = FileUtils::list_dirs_files(tablet_id_path, &schema_hashes, nullptr,
-                                             Env::Default());
+            auto tablet_id_path = fmt::format("{}/{}", shard_path, tablet_id.file_name);
+            std::vector<io::FileInfo> schema_hashes;
+            ret = io::global_local_filesystem()->list(tablet_id_path, false, &schema_hashes,
+                                                      &exists);
             if (!ret.ok()) {
                 LOG(WARNING) << "fail to walk dir. [path=" << tablet_id_path << "]"
                              << " error[" << ret.to_string() << "]";
@@ -683,6 +674,9 @@ void DataDir::perform_path_scan() {
             }
 
             for (const auto& schema_hash : schema_hashes) {
+                if (schema_hash.is_file) {
+                    continue;
+                }
                 int32_t interval_ms = config::path_scan_step_interval_ms;
                 if (_stop_bg_worker) {
                     break;
@@ -690,20 +684,24 @@ void DataDir::perform_path_scan() {
                 if (interval_ms > 0) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(interval_ms));
                 }
-                auto tablet_schema_hash_path = fmt::format("{}/{}", tablet_id_path, schema_hash);
+                auto tablet_schema_hash_path =
+                        fmt::format("{}/{}", tablet_id_path, schema_hash.file_name);
                 _all_tablet_schemahash_paths.insert(tablet_schema_hash_path);
 
-                std::set<std::string> rowset_files;
-                ret = FileUtils::list_dirs_files(tablet_schema_hash_path, nullptr, &rowset_files,
-                                                 Env::Default());
+                std::vector<io::FileInfo> rowset_files;
+                ret = io::global_local_filesystem()->list(tablet_schema_hash_path, true,
+                                                          &rowset_files, &exists);
                 if (!ret.ok()) {
                     LOG(WARNING) << "fail to walk dir. [path=" << tablet_schema_hash_path
                                  << "] error[" << ret.to_string() << "]";
                     continue;
                 }
                 for (const auto& rowset_file : rowset_files) {
+                    if (!rowset_file.is_file) {
+                        continue;
+                    }
                     auto rowset_file_path =
-                            fmt::format("{}/{}", tablet_schema_hash_path, rowset_file);
+                            fmt::format("{}/{}", tablet_schema_hash_path, rowset_file.file_name);
                     _all_check_paths.insert(rowset_file_path);
                 }
             }
@@ -712,15 +710,22 @@ void DataDir::perform_path_scan() {
     LOG(INFO) << "scan data dir path: " << _path << " finished. path size: "
               << _all_check_paths.size() + _all_tablet_schemahash_paths.size();
     _check_path_cv.notify_one();
+    return Status::OK();
 }
 
 // This function is called for rowset_id path, only local rowset_id_path can be garbage.
 // remote path is uploaded, moved or deleted by tablet_id,
 // if local path has no remote path params, remote path doesn't exist.
 void DataDir::_process_garbage_path(const std::string& path) {
-    if (Env::Default()->path_exists(path).ok()) {
+    bool exists = false;
+    Status st = io::global_local_filesystem()->exists(path, &exists);
+    if (!st) {
+        return;
+    }
+    if (exists) {
         LOG(INFO) << "collect garbage dir path: " << path;
-        WARN_IF_ERROR(FileUtils::remove_all(path), "remove garbage dir failed. path: " + path);
+        WARN_IF_ERROR(io::global_local_filesystem()->delete_directory(path),
+                      "remove garbage dir failed");
     }
 }
 
@@ -730,16 +735,8 @@ bool DataDir::_check_pending_ids(const std::string& id) {
 }
 
 Status DataDir::update_capacity() {
-    RETURN_NOT_OK_STATUS_WITH_WARN(
-            Env::Default()->get_space_info(_path, &_disk_capacity_bytes, &_available_bytes),
-            strings::Substitute("get_space_info failed: $0", _path));
-    if (_disk_capacity_bytes < 0) {
-        _disk_capacity_bytes = _capacity_bytes;
-    }
-    if (_available_bytes < 0) {
-        _available_bytes = _capacity_bytes;
-    }
-
+    RETURN_IF_ERROR(io::global_local_filesystem()->get_space_info(_path, &_disk_capacity_bytes,
+                                                                  &_available_bytes));
     disks_total_capacity->set_value(_disk_capacity_bytes);
     disks_avail_capacity->set_value(_available_bytes);
     LOG(INFO) << "path: " << _path << " total capacity: " << _disk_capacity_bytes
@@ -804,11 +801,11 @@ Status DataDir::move_to_trash(const std::string& tablet_path) {
 
     // 3. create target dir, or the rename() function will fail.
     auto trash_tablet_parent = trash_tablet_path.parent_path();
-    if (!FileUtils::check_exist(trash_tablet_parent) &&
-        !FileUtils::create_dir(trash_tablet_parent).ok()) {
-        LOG(WARNING) << "delete file failed. due to mkdir failed. [file=" << tablet_path
-                     << " new_dir=" << trash_tablet_parent << "]";
-        return Status::Error<OS_ERROR>();
+    // create dir if not exists
+    bool exists = true;
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(trash_tablet_parent, &exists));
+    if (!exists) {
+        RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(trash_tablet_parent));
     }
 
     // 4. move tablet to trash
@@ -821,16 +818,13 @@ Status DataDir::move_to_trash(const std::string& tablet_path) {
 
     // 5. check parent dir of source file, delete it when empty
     std::string source_parent_dir = fs_tablet_path.parent_path(); // tablet_id level
-    std::set<std::string> sub_dirs, sub_files;
-
-    RETURN_WITH_WARN_IF_ERROR(
-            FileUtils::list_dirs_files(source_parent_dir, &sub_dirs, &sub_files, Env::Default()),
-            Status::OK(), "access dir failed. [dir=" + source_parent_dir);
-
-    if (sub_dirs.empty() && sub_files.empty()) {
+    std::vector<io::FileInfo> sub_files;
+    RETURN_IF_ERROR(
+            io::global_local_filesystem()->list(source_parent_dir, false, &sub_files, &exists));
+    if (sub_files.empty()) {
         LOG(INFO) << "remove empty dir " << source_parent_dir;
         // no need to exam return status
-        Env::Default()->delete_dir(source_parent_dir);
+        io::global_local_filesystem()->delete_directory(source_parent_dir);
     }
 
     return Status::OK();

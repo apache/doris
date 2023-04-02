@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
@@ -28,7 +29,9 @@ import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
@@ -132,7 +135,7 @@ class FilterEstimationTest {
         Statistics stat = new Statistics(1000, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics expected = filterEstimation.estimate(notIn, stat);
-        Assertions.assertTrue(Precision.equals(333.33, expected.getRowCount(), 0.01));
+        Assertions.assertTrue(Precision.equals(666.666, expected.getRowCount(), 0.01));
     }
 
     /**
@@ -837,5 +840,31 @@ class FilterEstimationTest {
         Assertions.assertEquals(30, statsC.ndv);
         Assertions.assertEquals(10, statsC.minValue);
         Assertions.assertEquals(40, statsC.maxValue);
+    }
+
+    @Test
+    public void testBetweenCastFilter() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+                .setNdv(100)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setMaxValue(100)
+                .setMinValue(0)
+                .setSelectivity(1.0)
+                .setCount(100);
+        DoubleLiteral begin = new DoubleLiteral(40.0);
+        DoubleLiteral end = new DoubleLiteral(50.0);
+        LessThan less = new LessThan(new Cast(a, DoubleType.INSTANCE), end);
+        GreaterThan greater = new GreaterThan(new Cast(a, DoubleType.INSTANCE), begin);
+        And and = new And(less, greater);
+        Statistics stats = new Statistics(100, new HashMap<>());
+        stats.addColumnStats(a, builder.build());
+        FilterEstimation filterEstimation = new FilterEstimation();
+        Statistics result = filterEstimation.estimate(and, stats);
+        Assertions.assertEquals(result.getRowCount(), 10, 0.01);
+        ColumnStatistic colStats = result.findColumnStatistics(a);
+        Assertions.assertTrue(colStats != null);
+        Assertions.assertEquals(10, colStats.ndv, 0.1);
     }
 }

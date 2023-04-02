@@ -68,6 +68,8 @@ public:
 
     void add_block(Block* block, int sender_id, bool use_move);
 
+    bool sender_queue_empty(int sender_id);
+
     bool ready_to_read();
 
     Status get_next(Block* block, bool* eos);
@@ -173,6 +175,8 @@ public:
     void cancel();
 
     void close();
+
+    bool queue_empty() { return _block_queue_empty; }
 
 protected:
     virtual void _update_block_queue_empty() {}

@@ -306,6 +306,19 @@ bool GeoPoint::ComputeDistance(double x_lng, double x_lat, double y_lng, double 
     return true;
 }
 
+bool GeoPoint::ComputeAngle(double x_lng, double x_lat, double y_lng, double y_lat, double* angle) {
+    S2LatLng x = S2LatLng::FromDegrees(x_lat, x_lng);
+    if (!x.is_valid()) {
+        return false;
+    }
+    S2LatLng y = S2LatLng::FromDegrees(y_lat, y_lng);
+    if (!y.is_valid()) {
+        return false;
+    }
+    *angle = (x.GetDistance(y)).degrees();
+    return true;
+}
+
 GeoParseStatus GeoLine::from_coords(const GeoCoordinateList& list) {
     return to_s2polyline(list, &_polyline);
 }
@@ -394,6 +407,10 @@ bool GeoPolygon::contains(const GeoShape* rhs) const {
     }
 }
 
+std::double_t GeoPolygon::getArea() const {
+    return _polygon->GetArea();
+}
+
 GeoParseStatus GeoCircle::init(double lng, double lat, double radius_meter) {
     S2Point center;
     auto status = to_s2point(lng, lat, &center);
@@ -437,6 +454,38 @@ std::string GeoCircle::as_wkt() const {
     print_s2point(ss, _cap->center());
     ss << "), " << S2Earth::ToMeters(_cap->radius()) << ")";
     return ss.str();
+}
+
+double GeoCircle::getArea() const {
+    return _cap->GetArea();
+}
+
+bool GeoShape::ComputeArea(GeoShape* rhs, double* area, std::string square_unit) {
+    double steradians;
+    switch (rhs->type()) {
+    case GEO_SHAPE_CIRCLE: {
+        const GeoCircle* circle = (const GeoCircle*)rhs;
+        steradians = circle->getArea();
+        break;
+    }
+    case GEO_SHAPE_POLYGON: {
+        const GeoPolygon* polygon = (const GeoPolygon*)rhs;
+        steradians = polygon->getArea();
+        break;
+    }
+    default:
+        return false;
+    }
+
+    if (square_unit.compare("square_meters") == 0) {
+        *area = S2Earth::SteradiansToSquareMeters(steradians);
+        return true;
+    } else if (square_unit.compare("square_km") == 0) {
+        *area = S2Earth::SteradiansToSquareKm(steradians);
+        return true;
+    } else {
+        return false;
+    }
 }
 
 } // namespace doris

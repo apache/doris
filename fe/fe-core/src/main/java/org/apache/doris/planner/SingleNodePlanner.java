@@ -1327,6 +1327,7 @@ public class SingleNodePlanner {
         String errorMsg = "select fail reason: ";
         if (queryStmt instanceof SelectStmt) {
             SelectStmt selectStmt = (SelectStmt) queryStmt;
+            Set<TupleId> disableTuplesMVRewriter = Sets.newHashSet();
             for (TableRef tableRef : selectStmt.getTableRefs()) {
                 if (tableRef instanceof InlineViewRef) {
                     selectFailed |= selectMaterializedView(((InlineViewRef) tableRef).getViewStmt(),
@@ -1363,12 +1364,9 @@ public class SingleNodePlanner {
                 } else {
                     try {
                         // mv index have where clause, so where expr on scan node is unused.
-                        Expr whereExpr = olapScanNode.getOlapTable()
+                        olapScanNode.ignoreConjuncts(olapScanNode.getOlapTable()
                                 .getIndexMetaByIndexId(bestIndexInfo.getBestIndexId())
-                                .getWhereClause();
-                        if (whereExpr != null) {
-                            olapScanNode.ignoreConjuncts();
-                        }
+                                .getWhereClause());
 
                         // if the new selected index id is different from the old one, scan node will be
                         // updated.
@@ -1389,9 +1387,10 @@ public class SingleNodePlanner {
                 }
                 if (tupleSelectFailed) {
                     selectFailed = true;
-                    selectStmt.updateDisableTuplesMVRewriter(olapScanNode.getTupleId());
+                    disableTuplesMVRewriter.add(olapScanNode.getTupleId());
                 }
             }
+            selectStmt.updateDisableTuplesMVRewriter(disableTuplesMVRewriter);
         } else {
             Preconditions.checkState(queryStmt instanceof SetOperationStmt);
             SetOperationStmt unionStmt = (SetOperationStmt) queryStmt;

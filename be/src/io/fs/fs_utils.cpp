@@ -17,29 +17,24 @@
 
 #include "io/fs/fs_utils.h"
 
-#include <fmt/format.h>
-#include <hdfs/hdfs.h>
-
-#include <sstream>
+#include "io/fs/file_reader.h"
+#include "io/fs/file_system.h"
 
 namespace doris {
 namespace io {
 
-std::string errno_to_str() {
-    char buf[1024];
-    return fmt::format("({}), {}", errno, strerror_r(errno, buf, 1024));
-}
-
-std::string errcode_to_str(const std::error_code& ec) {
-    return fmt::format("({}), {}", ec.value(), ec.message());
-}
-
-std::string hdfs_error() {
-    std::stringstream ss;
-    char buf[1024];
-    ss << "(" << errno << "), " << strerror_r(errno, buf, 1024);
-    ss << ", reason: " << hdfsGetLastError();
-    return ss.str();
+Status read_file_to_string(FileSystemSPtr fs, const Path& file, std::string* content) {
+    FileReaderSPtr file_reader;
+    RETURN_IF_ERROR(fs->open_file(file, &file_reader));
+    size_t file_size = file_reader->size();
+    content->resize(file_size);
+    size_t bytes_read = 0;
+    RETURN_IF_ERROR(file_reader->read_at(0, {*content}, &bytes_read));
+    if (bytes_read != file_size) {
+        return Status::IOError("failed to read file {} to string. bytes read: {}, file size: {}",
+                               file.native(), bytes_read, file_size);
+    }
+    return file_reader->close();
 }
 
 } // namespace io

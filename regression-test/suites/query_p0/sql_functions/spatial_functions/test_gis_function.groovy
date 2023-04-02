@@ -27,6 +27,9 @@ suite("test_gis_function") {
 
     qt_sql "SELECT ST_DISTANCE_SPHERE(116.35620117, 39.939093, 116.4274406433, 39.9020987219);"
 
+    qt_sql "SELECT ST_ANGLE_SPHERE(116.35620117, 39.939093, 116.4274406433, 39.9020987219);"
+    qt_sql "SELECT ST_ANGLE_SPHERE(0, 0, 45, 0);"
+
     qt_sql "SELECT ST_AsText(ST_GeometryFromText(\"LINESTRING (1 1, 2 2)\"));"
     qt_sql "SELECT ST_AsText(ST_GeomFromText(\"LINESTRING (1 1, 2 2)\"));"
 
@@ -41,4 +44,9 @@ suite("test_gis_function") {
 
     qt_sql "SELECT ST_X(ST_Point(24.7, 56.7));"
     qt_sql "SELECT ST_Y(ST_Point(24.7, 56.7));"
+
+    qt_sql "SELECT ST_Area_Square_Meters(ST_Circle(0, 0, 1));"
+    qt_sql "SELECT ST_Area_Square_Km(ST_Circle(0, 0, 1));"
+    qt_sql "SELECT ST_Area_Square_Meters(ST_Polygon(\"POLYGON ((0 0, 1 0, 1 1, 0 1, 0 0))\"));"
+    qt_sql "SELECT ST_Area_Square_Km(ST_Polygon(\"POLYGON ((0 0, 1 0, 1 1, 0 1, 0 0))\"));"
 }

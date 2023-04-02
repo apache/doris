@@ -30,7 +30,7 @@ namespace doris {
 class MinmaxFunctionTraits {
 public:
     using BasePtr = MinMaxFuncBase*;
-    template <PrimitiveType type>
+    template <PrimitiveType type, size_t N>
     static BasePtr get_function() {
         return new MinMaxNumFunc<typename PrimitiveTypeTraits<type>::CppType>();
     }
@@ -39,19 +39,29 @@ public:
 class HybridSetTraits {
 public:
     using BasePtr = HybridSetBase*;
-    template <PrimitiveType type>
+    template <PrimitiveType type, size_t N>
     static BasePtr get_function() {
         using CppType = typename PrimitiveTypeTraits<type>::CppType;
-        using Set =
-                std::conditional_t<std::is_same_v<CppType, StringRef>, StringSet, HybridSet<type>>;
-        return new Set();
+        if constexpr (N >= 1 && N <= 12) {
+            using Set = std::conditional_t<
+                    std::is_same_v<CppType, StringRef>, StringSet<>,
+                    HybridSet<type,
+                              FixedContainer<typename VecPrimitiveTypeTraits<type>::CppType, N>>>;
+            return new Set();
+        } else {
+            using Set = std::conditional_t<
+                    std::is_same_v<CppType, StringRef>, StringSet<>,
+                    HybridSet<type,
+                              DynamicContainer<typename VecPrimitiveTypeTraits<type>::CppType>>>;
+            return new Set();
+        }
     }
 };
 
 class BloomFilterTraits {
 public:
     using BasePtr = BloomFilterFuncBase*;
-    template <PrimitiveType type>
+    template <PrimitiveType type, size_t N>
     static BasePtr get_function() {
         return new BloomFilterFunc<type>();
     }
@@ -60,7 +70,7 @@ public:
 class BitmapFilterTraits {
 public:
     using BasePtr = BitmapFilterFuncBase*;
-    template <PrimitiveType type>
+    template <PrimitiveType type, size_t N>
     static BasePtr get_function() {
         return new BitmapFilterFunc<type>();
     }
@@ -69,9 +79,9 @@ public:
 template <class Traits>
 class PredicateFunctionCreator {
 public:
-    template <PrimitiveType type>
+    template <PrimitiveType type, size_t N = 0>
     static typename Traits::BasePtr create() {
-        return Traits::template get_function<type>();
+        return Traits::template get_function<type, N>();
     }
 };
 
@@ -94,20 +104,20 @@ public:
     M(TYPE_DECIMAL64)         \
     M(TYPE_DECIMAL128I)
 
-template <class Traits>
+template <class Traits, size_t N = 0>
 typename Traits::BasePtr create_predicate_function(PrimitiveType type) {
     using Creator = PredicateFunctionCreator<Traits>;
 
     switch (type) {
     case TYPE_BOOLEAN: {
-        return Creator::template create<TYPE_BOOLEAN>();
+        return Creator::template create<TYPE_BOOLEAN, N>();
     }
     case TYPE_DECIMALV2: {
-        return Creator::template create<TYPE_DECIMALV2>();
+        return Creator::template create<TYPE_DECIMALV2, N>();
     }
-#define M(NAME)                                  \
-    case NAME: {                                 \
-        return Creator::template create<NAME>(); \
+#define M(NAME)                                     \
+    case NAME: {                                    \
+        return Creator::template create<NAME, N>(); \
     }
         APPLY_FOR_PRIMTYPE(M)
 #undef M
@@ -142,8 +152,78 @@ inline auto create_minmax_filter(PrimitiveType type) {
     return create_predicate_function<MinmaxFunctionTraits>(type);
 }
 
+template <size_t N = 0>
 inline auto create_set(PrimitiveType type) {
-    return create_predicate_function<HybridSetTraits>(type);
+    return create_predicate_function<HybridSetTraits, N>(type);
+}
+
+inline auto create_set(PrimitiveType type, size_t size) {
+    if (size == 1) {
+        return create_set<1>(type);
+    } else if (size == 2) {
+        return create_set<2>(type);
+    } else if (size == 3) {
+        return create_set<3>(type);
+    } else if (size == 4) {
+        return create_set<4>(type);
+    } else if (size == 5) {
+        return create_set<5>(type);
+    } else if (size == 6) {
+        return create_set<6>(type);
+    } else if (size == 7) {
+        return create_set<7>(type);
+    } else if (size == 8) {
+        return create_set<8>(type);
+    } else if (size == 9) {
+        return create_set<9>(type);
+    } else if (size == 10) {
+        return create_set<10>(type);
+    } else if (size == 11) {
+        return create_set<11>(type);
+    } else if (size == 12) {
+        return create_set<12>(type);
+    } else {
+        return create_set(type);
+    }
+}
+
+template <size_t N = 0>
+inline HybridSetBase* create_string_value_set() {
+    if constexpr (N >= 1 && N <= 12) {
+        return new StringValueSet<FixedContainer<StringRef, N>>();
+    } else {
+        return new StringValueSet();
+    }
+}
+
+inline HybridSetBase* create_string_value_set(size_t size) {
+    if (size == 1) {
+        return create_string_value_set<1>();
+    } else if (size == 2) {
+        return create_string_value_set<2>();
+    } else if (size == 3) {
+        return create_string_value_set<3>();
+    } else if (size == 4) {
+        return create_string_value_set<4>();
+    } else if (size == 5) {
+        return create_string_value_set<5>();
+    } else if (size == 6) {
+        return create_string_value_set<6>();
+    } else if (size == 7) {
+        return create_string_value_set<7>();
+    } else if (size == 8) {
+        return create_string_value_set<8>();
+    } else if (size == 9) {
+        return create_string_value_set<9>();
+    } else if (size == 10) {
+        return create_string_value_set<10>();
+    } else if (size == 11) {
+        return create_string_value_set<11>();
+    } else if (size == 12) {
+        return create_string_value_set<12>();
+    } else {
+        return create_string_value_set();
+    }
 }
 
 inline auto create_bloom_filter(PrimitiveType type) {
@@ -183,7 +263,8 @@ template <PrimitiveType PT>
 ColumnPredicate* create_olap_column_predicate(uint32_t column_id,
                                               const std::shared_ptr<HybridSetBase>& filter, int,
                                               const TabletColumn* column = nullptr) {
-    return new InListPredicateBase<PT, PredicateType::IN_LIST>(column_id, filter, column->length());
+    return create_in_list_predicate<PT, PredicateType::IN_LIST>(column_id, filter,
+                                                                column->length());
 }
 
 template <typename T>

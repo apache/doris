@@ -20,7 +20,6 @@
 #include <functional>
 
 #include "common/config.h"
-#include "env/env.h"
 #include "gutil/stl_util.h"
 #include "gutil/strings/substitute.h"
 #include "http/ev_http_server.h"
@@ -30,6 +29,7 @@
 #include "http/http_response.h"
 #include "http/http_status.h"
 #include "http/utils.h"
+#include "io/fs/local_file_system.h"
 #include "util/cpu_info.h"
 #include "util/debug_util.h"
 #include "util/disk_info.h"
@@ -173,14 +173,18 @@ std::string WebPageHandler::mustache_partial_tag(const std::string& path) const 
 
 bool WebPageHandler::static_pages_available() const {
     bool is_dir = false;
-    return Env::Default()->is_directory(_www_path, &is_dir).ok() && is_dir;
+    return io::global_local_filesystem()->is_directory(_www_path, &is_dir).ok() && is_dir;
 }
 
 bool WebPageHandler::mustache_template_available(const std::string& path) const {
     if (!static_pages_available()) {
         return false;
     }
-    return Env::Default()->path_exists(strings::Substitute("$0/$1.mustache", _www_path, path)).ok();
+    bool exists;
+    return io::global_local_filesystem()
+                   ->exists(strings::Substitute("$0/$1.mustache", _www_path, path), &exists)
+                   .ok() &&
+           exists;
 }
 
 void WebPageHandler::render_main_template(const std::string& content, std::stringstream* output) {

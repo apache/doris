@@ -305,7 +305,7 @@ public class InsertStmt extends DdlStmt {
 
         db = analyzer.getEnv().getCatalogMgr().getCatalog(tblName.getCtl()).getDbOrAnalysisException(tblName.getDb());
         // create label and begin transaction
-        long timeoutSecond = ConnectContext.get().resetExecTimeoutByInsert();
+        long timeoutSecond = ConnectContext.get().getExecTimeout();
         if (Strings.isNullOrEmpty(label)) {
             label = "insert_" + DebugUtil.printId(analyzer.getContext().queryId()).replace("-", "_");
         }
@@ -505,7 +505,7 @@ public class InsertStmt extends DdlStmt {
         // Check if all columns mentioned is enough
         checkColumnCoverage(mentionedColumns, targetTable.getBaseSchema());
 
-        Map<String, Expr> slotToIndex = Maps.newTreeMap();
+        Map<String, Expr> slotToIndex = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         List<Column> baseColumns = targetTable.getBaseSchema();
         int size = Math.min(baseColumns.size(), queryStmt.getResultExprs().size());
         for (int i = 0; i < size; i++) {

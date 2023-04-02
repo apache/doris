@@ -107,6 +107,8 @@ public abstract class Type {
     public static final ScalarType ALL = new ScalarType(PrimitiveType.ALL);
     public static final MapType MAP = new MapType();
     public static final ArrayType ARRAY = ArrayType.create();
+    public static final StructType GENERIC_STRUCT = new StructType(Lists.newArrayList(
+            new StructField("generic_struct", new ScalarType(PrimitiveType.NULL_TYPE))));
     public static final StructType STRUCT = new StructType();
     public static final VariantType VARIANT = new VariantType();
 
@@ -372,6 +374,11 @@ public abstract class Type {
                 || isScalarType(PrimitiveType.STRING);
     }
 
+    public boolean isVarcharOrStringType() {
+        return isScalarType(PrimitiveType.VARCHAR)
+                || isScalarType(PrimitiveType.STRING);
+    }
+
     public boolean isVarchar() {
         return isScalarType(PrimitiveType.VARCHAR);
     }
@@ -524,7 +531,12 @@ public abstract class Type {
         return false;
     }
 
-    // return a new type without template type, by specialize tempalte type in this type
+    // only used for struct type and variadic template type
+    public boolean needExpandTemplateType() {
+        return false;
+    }
+
+    // return a new type without template type, by specialize template type in this type
     public Type specializeTemplateType(Type specificType, Map<String, Type> specializedTypeMap,
                                        boolean useSpecializedType) throws TypeException {
         if (hasTemplateType()) {
@@ -533,6 +545,22 @@ public abstract class Type {
         } else {
             return this;
         }
+    }
+
+    /**
+     * Only used for struct type and variadic template type,
+     * collect variadic template's expand size based on the input arguments
+     */
+    public void collectTemplateExpandSize(Type[] args, Map<String, Integer> expandSizeMap)
+            throws TypeException {
+    }
+
+    /**
+     * Only used for struct type and variadic template type,
+     * Do expand variadic template type
+     */
+    public List<Type> expandVariadicTemplateType(Map<String, Integer> expandSizeMap) {
+        return Lists.newArrayList(this);
     }
 
     /**
@@ -1811,6 +1839,10 @@ public abstract class Type {
 
     // Whether `type1` matches the exact type of `type2`.
     public static boolean matchExactType(Type type1, Type type2) {
+        return matchExactType(type1, type2, false);
+    }
+
+    public static boolean matchExactType(Type type1, Type type2, boolean ignorePrecision) {
         if (type1.matchesType(type2)) {
             if (PrimitiveType.typeWithPrecision.contains(type2.getPrimitiveType())) {
                 // For types which has precision and scale, we also need to check quality between precisions and scales
@@ -1818,6 +1850,10 @@ public abstract class Type {
                         == ((ScalarType) type1).decimalPrecision()) && (((ScalarType) type2).decimalScale()
                         == ((ScalarType) type1).decimalScale())) {
                     return true;
+                } else if (((ScalarType) type2).decimalScale() == ((ScalarType) type1).decimalScale()
+                        && ignorePrecision) {
+                    return isSameDecimalTypeWithDifferentPrecision(((ScalarType) type2).decimalPrecision(),
+                            ((ScalarType) type1).decimalPrecision());
                 }
             } else if (type2.isArrayType()) {
                 // For types array, we also need to check contains null for case like
@@ -1828,6 +1864,21 @@ public abstract class Type {
             } else {
                 return true;
             }
+        }
+        return false;
+    }
+
+    public static boolean isSameDecimalTypeWithDifferentPrecision(int precision1, int precision2) {
+        if (precision1 <= ScalarType.MAX_DECIMAL32_PRECISION && precision2 <= ScalarType.MAX_DECIMAL32_PRECISION) {
+            return true;
+        } else if (precision1 > ScalarType.MAX_DECIMAL32_PRECISION && precision2 > ScalarType.MAX_DECIMAL32_PRECISION
+                && precision1 <= ScalarType.MAX_DECIMAL64_PRECISION
+                && precision2 <= ScalarType.MAX_DECIMAL64_PRECISION) {
+            return true;
+        } else if (precision1 > ScalarType.MAX_DECIMAL64_PRECISION && precision2 > ScalarType.MAX_DECIMAL64_PRECISION
+                && precision1 <= ScalarType.MAX_DECIMAL128_PRECISION
+                && precision2 <= ScalarType.MAX_DECIMAL128_PRECISION) {
+            return true;
         }
         return false;
     }

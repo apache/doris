@@ -22,7 +22,6 @@
 
 namespace doris {
 
-class MemPool;
 class RuntimeState;
 
 class FunctionUtils {

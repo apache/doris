@@ -29,6 +29,7 @@
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
+#include "vec/common/string_ref.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -82,7 +83,10 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
                 expr_result.set_success(false);
             } else {
                 expr_result.set_success(true);
-                auto string_ref = column_ptr->get_data_at(0);
+                StringRef string_ref;
+                if (!ctx->root()->type().is_complex_type()) {
+                    string_ref = column_ptr->get_data_at(0);
+                }
                 result = _get_result((void*)string_ref.data, string_ref.size, ctx->root()->type(),
                                      column_ptr, column_type);
             }
@@ -208,7 +212,7 @@ string FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescr
         return std::string(buf, pos - buf - 1);
     }
     case TYPE_DECIMALV2: {
-        return reinterpret_cast<DecimalV2Value*>(src)->to_string();
+        return reinterpret_cast<DecimalV2Value*>(src)->to_string(type.scale);
     }
     case TYPE_DECIMAL32:
     case TYPE_DECIMAL64:

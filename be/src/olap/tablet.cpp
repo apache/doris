@@ -128,6 +128,13 @@ void WriteCooldownMetaExecutors::WriteCooldownMetaExecutors::submit(TabletShared
     auto tablet_id = tablet->tablet_id();
 
     {
+        std::shared_lock rdlock(tablet->get_header_lock());
+        if (!tablet->tablet_meta()->cooldown_meta_id().initialized()) {
+            VLOG_NOTICE << "tablet " << tablet_id << " is not cooldown replica";
+            return;
+        }
+    }
+    {
         // one tablet could at most have one cooldown task to be done
         std::unique_lock<std::mutex> lck {_latch};
         if (_pengding_tablets.count(tablet_id) > 0) {
@@ -145,11 +152,13 @@ void WriteCooldownMetaExecutors::WriteCooldownMetaExecutors::submit(TabletShared
         if (s.ok()) {
             return;
         }
-        LOG_WARNING("write tablet {} cooldown meta failed because: {}", t->tablet_id(),
-                    s.to_string());
         if (!s.is<ABORTED>()) {
+            LOG_EVERY_SECOND(WARNING)
+                    << "write tablet " << t->tablet_id() << " cooldown meta failed because: " << s;
             submit(t);
+            return;
         }
+        VLOG_DEBUG << "tablet " << t->tablet_id() << " is not cooldown replica";
     };
 
     _executors[_get_executor_pos(tablet_id)]->submit_func(
@@ -2320,7 +2329,8 @@ TabletSchemaSPtr Tablet::get_max_version_schema(std::lock_guard<std::shared_mute
 
 Status Tablet::lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
                                RowsetSharedPtr input_rowset, const TupleDescriptor* desc,
-                               vectorized::Block* block, bool write_to_cache) {
+                               OlapReaderStatistics& stats, vectorized::Block* block,
+                               bool write_to_cache) {
     // read row data
     BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(input_rowset);
     if (!rowset) {
@@ -2357,7 +2367,6 @@ Status Tablet::lookup_row_data(const Slice& encoded_key, const RowLocation& row_
                                                      &column_iterator));
         std::unique_ptr<segment_v2::ColumnIterator> ptr_guard(column_iterator);
         segment_v2::ColumnIteratorOptions opt;
-        OlapReaderStatistics stats;
         opt.file_reader = segment->file_reader().get();
         opt.stats = &stats;
         opt.use_page_cache = !config::disable_storage_page_cache;
@@ -2665,12 +2674,11 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset, const TabletT
     return Status::OK();
 }
 
-uint64_t Tablet::calc_compaction_output_rowset_delete_bitmap(
+void Tablet::calc_compaction_output_rowset_delete_bitmap(
         const std::vector<RowsetSharedPtr>& input_rowsets, const RowIdConversion& rowid_conversion,
-        uint64_t start_version, uint64_t end_version,
+        uint64_t start_version, uint64_t end_version, std::set<RowLocation>* missed_rows,
         std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>* location_map,
         DeleteBitmap* output_rowset_delete_bitmap) {
-    std::set<RowLocation> missed_rows;
     RowLocation src;
     RowLocation dst;
     for (auto& rowset : input_rowsets) {
@@ -2692,7 +2700,7 @@ uint64_t Tablet::calc_compaction_output_rowset_delete_bitmap(
                                       << " src loaction: |" << src.rowset_id << "|"
                                       << src.segment_id << "|" << src.row_id
                                       << " version: " << cur_version;
-                        missed_rows.insert(src);
+                        missed_rows->insert(src);
                         continue;
                     }
                     VLOG_DEBUG << "calc_compaction_output_rowset_delete_bitmap dst location: |"
@@ -2707,7 +2715,6 @@ uint64_t Tablet::calc_compaction_output_rowset_delete_bitmap(
             }
         }
     }
-    return missed_rows.size();
 }
 
 void Tablet::merge_delete_bitmap(const DeleteBitmap& delete_bitmap) {

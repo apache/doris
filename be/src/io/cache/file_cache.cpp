@@ -92,7 +92,7 @@ Status FileCache::_remove_file(const Path& file, size_t* cleaned_size) {
     bool cache_file_exist = false;
     RETURN_NOT_OK_STATUS_WITH_WARN(io::global_local_filesystem()->exists(file, &cache_file_exist),
                                    "Check local cache file exist failed.");
-    size_t file_size = 0;
+    int64_t file_size = -1;
     if (cache_file_exist) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
                 io::global_local_filesystem()->file_size(file, &file_size),

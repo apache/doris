@@ -20,7 +20,6 @@
 #include "agent/be_exec_version_manager.h"
 #include "io/file_factory.h"
 #include "runtime/runtime_state.h"
-#include "util/file_utils.h"
 
 namespace doris {
 namespace vectorized {
@@ -88,9 +87,13 @@ Status BlockSpillWriter::write(const Block& block) {
             auto& dst_data = tmp_block_.get_columns_with_type_and_name();
 
             size_t block_rows = std::min(rows - row_idx, batch_size_);
-            for (size_t col_idx = 0; col_idx < block.columns(); ++col_idx) {
-                dst_data[col_idx].column->assume_mutable()->insert_range_from(
-                        *src_data[col_idx].column, row_idx, block_rows);
+            try {
+                for (size_t col_idx = 0; col_idx < block.columns(); ++col_idx) {
+                    dst_data[col_idx].column->assume_mutable()->insert_range_from(
+                            *src_data[col_idx].column, row_idx, block_rows);
+                }
+            } catch (const doris::Exception& e) {
+                return Status::Error(e.code(), e.to_string());
             }
 
             RETURN_IF_ERROR(_write_internal(tmp_block_));

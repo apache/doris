@@ -28,13 +28,7 @@ namespace io {
 
 Status RemoteFileSystem::upload(const Path& local_file, const Path& dest_file) {
     auto dest_path = absolute_path(dest_file);
-    if (bthread_self() == 0) {
-        return upload_impl(local_file, dest_path);
-    }
-    Status s;
-    auto task = [&] { s = upload_impl(local_file, dest_path); };
-    AsyncIO::run_task(task, _type);
-    return s;
+    FILESYSTEM_M(upload_impl(local_file, dest_path));
 }
 
 Status RemoteFileSystem::batch_upload(const std::vector<Path>& local_files,
@@ -43,74 +37,38 @@ Status RemoteFileSystem::batch_upload(const std::vector<Path>& local_files,
     for (auto& path : remote_files) {
         remote_paths.push_back(absolute_path(path));
     }
-    if (bthread_self() == 0) {
-        return batch_upload_impl(local_files, remote_paths);
-    }
-    Status s;
-    auto task = [&] { s = batch_upload_impl(local_files, remote_paths); };
-    AsyncIO::run_task(task, _type);
-    return s;
+    FILESYSTEM_M(batch_upload_impl(local_files, remote_paths));
 }
 
 Status RemoteFileSystem::direct_upload(const Path& remote_file, const std::string& content) {
     auto remote_path = absolute_path(remote_file);
-    if (bthread_self() == 0) {
-        return direct_upload_impl(remote_path, content);
-    }
-    Status s;
-    auto task = [&] { s = direct_upload_impl(remote_path, content); };
-    AsyncIO::run_task(task, _type);
-    return s;
+    FILESYSTEM_M(direct_upload_impl(remote_path, content));
 }
 
 Status RemoteFileSystem::upload_with_checksum(const Path& local_file, const Path& remote,
                                               const std::string& checksum) {
     auto remote_path = absolute_path(remote);
-    if (bthread_self() == 0) {
-        return upload_with_checksum_impl(local_file, remote_path, checksum);
-    }
-    Status s;
-    auto task = [&] { s = upload_with_checksum_impl(local_file, remote_path, checksum); };
-    AsyncIO::run_task(task, _type);
-    return s;
+    FILESYSTEM_M(upload_with_checksum_impl(local_file, remote_path, checksum));
 }
 
 Status RemoteFileSystem::download(const Path& remote_file, const Path& local) {
     auto remote_path = absolute_path(remote_file);
-    if (bthread_self() == 0) {
-        return download_impl(remote_path, local);
-    }
-    Status s;
-    auto task = [&] { s = download_impl(remote_path, local); };
-    AsyncIO::run_task(task, _type);
-    return s;
+    FILESYSTEM_M(download_impl(remote_path, local));
 }
 
 Status RemoteFileSystem::direct_download(const Path& remote_file, std::string* content) {
     auto remote_path = absolute_path(remote_file);
-    if (bthread_self() == 0) {
-        return direct_download_impl(remote_path, content);
-    }
-    Status s;
-    auto task = [&] { s = direct_download_impl(remote_path, content); };
-    AsyncIO::run_task(task, _type);
-    return s;
+    FILESYSTEM_M(direct_download_impl(remote_path, content));
 }
 
 Status RemoteFileSystem::connect() {
-    if (bthread_self() == 0) {
-        return connect_impl();
-    }
-    Status s;
-    auto task = [&] { s = connect_impl(); };
-    AsyncIO::run_task(task, _type);
-    return s;
+    FILESYSTEM_M(connect_impl());
 }
 
 Status RemoteFileSystem::open_file_impl(const Path& path, const FileReaderOptions& reader_options,
                                         FileReaderSPtr* reader) {
     FileReaderSPtr raw_reader;
-    RETURN_IF_ERROR(open_file_internal(path, &raw_reader));
+    RETURN_IF_ERROR(open_file_internal(path, reader_options.file_size, &raw_reader));
     switch (reader_options.cache_type) {
     case io::FileCachePolicy::NO_CACHE: {
         *reader = raw_reader;

@@ -141,6 +141,10 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     }
 
     public ColumnStatistic visitCast(Cast cast, Statistics context) {
+        ColumnStatistic stats = context.findColumnStatistics(cast);
+        if (stats != null) {
+            return stats;
+        }
         return cast.child().accept(this, context);
     }
 

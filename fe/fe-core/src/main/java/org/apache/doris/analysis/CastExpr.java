@@ -288,7 +288,7 @@ public class CastExpr extends Expr {
         Type childType = getChild(0).getType();
 
         // this cast may result in loss of precision, but the user requested it
-        noOp = Type.matchExactType(childType, type);
+        noOp = Type.matchExactType(childType, type, true);
 
         if (noOp) {
             // For decimalv2, we do not perform an actual cast between different precision/scale. Instead, we just
@@ -438,7 +438,11 @@ public class CastExpr extends Expr {
 
     private Expr castTo(LiteralExpr value) throws AnalysisException {
         if (value instanceof NullLiteral) {
-            return NullLiteral.create(targetTypeDef.getType());
+            if (targetTypeDef != null) {
+                return NullLiteral.create(targetTypeDef.getType());
+            } else {
+                return NullLiteral.create(type);
+            }
         } else if (type.isIntegerType()) {
             return new IntLiteral(value.getLongValue(), type);
         } else if (type.isLargeIntType()) {

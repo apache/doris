@@ -31,19 +31,20 @@ public:
                     const std::vector<size_t>& arguments, size_t result, size_t input_rows_count);
     bool available() { return _client != nullptr; }
 
+    static void convert_nullable_col_to_pvalue(const vectorized::ColumnPtr& column,
+                                               const vectorized::DataTypePtr& data_type,
+                                               const vectorized::ColumnUInt8& null_col,
+                                               PValues* arg, int start, int end);
+    template <bool nullable>
+    static void convert_col_to_pvalue(const vectorized::ColumnPtr& column,
+                                      const vectorized::DataTypePtr& data_type, PValues* arg,
+                                      int start, int end);
+
 private:
     void _convert_block_to_proto(vectorized::Block& block,
                                  const vectorized::ColumnNumbers& arguments,
                                  size_t input_rows_count, PFunctionCallRequest* request);
     void _convert_to_block(vectorized::Block& block, const PValues& result, size_t pos);
-    void _convert_nullable_col_to_pvalue(const vectorized::ColumnPtr& column,
-                                         const vectorized::DataTypePtr& data_type,
-                                         const vectorized::ColumnUInt8& null_col, PValues* arg,
-                                         int start, int end);
-    template <bool nullable>
-    void _convert_col_to_pvalue(const vectorized::ColumnPtr& column,
-                                const vectorized::DataTypePtr& data_type, PValues* arg, int start,
-                                int end);
     template <bool nullable>
     void _convert_to_column(vectorized::MutableColumnPtr& column, const PValues& result);
 

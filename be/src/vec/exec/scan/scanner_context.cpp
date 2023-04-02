@@ -164,7 +164,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
     // (if the scheduler continues to schedule, it will cause a lot of busy running).
     // At this point, consumers are required to trigger new scheduling to ensure that
     // data can be continuously fetched.
-    if (_has_enough_space_in_blocks_queue() && _num_running_scanners == 0) {
+    if (has_enough_space_in_blocks_queue() && _num_running_scanners == 0) {
         _num_scheduling_ctx++;
         _scanner_scheduler->submit(this);
     }
@@ -288,6 +288,15 @@ std::string ScannerContext::debug_string() {
             _max_thread_num, _block_per_scanner, _cur_bytes_in_queue, _max_bytes_in_queue);
 }
 
+void ScannerContext::reschedule_scanner_ctx() {
+    std::lock_guard l(_transfer_lock);
+    auto submit_st = _scanner_scheduler->submit(this);
+    //todo(wb) rethinking is it better to mark current scan_context failed when submit failed many times?
+    if (submit_st.ok()) {
+        _num_scheduling_ctx++;
+    }
+}
+
 void ScannerContext::push_back_scanner_and_reschedule(VScanner* scanner) {
     {
         std::unique_lock l(_scanners_lock);
@@ -295,10 +304,12 @@ void ScannerContext::push_back_scanner_and_reschedule(VScanner* scanner) {
     }
 
     std::lock_guard l(_transfer_lock);
-    _num_scheduling_ctx++;
-    auto submit_st = _scanner_scheduler->submit(this);
-    if (!submit_st.ok()) {
-        _num_scheduling_ctx--;
+    if (has_enough_space_in_blocks_queue()) {
+        _num_scheduling_ctx++;
+        auto submit_st = _scanner_scheduler->submit(this);
+        if (!submit_st.ok()) {
+            _num_scheduling_ctx--;
+        }
     }
 
     // Notice that after calling "_scanners.push_front(scanner)", there may be other ctx in scheduler
@@ -320,24 +331,14 @@ void ScannerContext::get_next_batch_of_scanners(std::list<VScanner*>* current_ru
     // 1. Calculate how many scanners should be scheduled at this run.
     int thread_slot_num = 0;
     {
-        std::unique_lock l(_transfer_lock);
-        if (_has_enough_space_in_blocks_queue()) {
-            // If there are enough space in blocks queue,
-            // the scanner number depends on the _free_blocks numbers
-            std::lock_guard f(_free_blocks_lock);
-            thread_slot_num = _free_blocks.size() / _block_per_scanner;
-            thread_slot_num += (_free_blocks.size() % _block_per_scanner != 0);
-            thread_slot_num = std::min(thread_slot_num, _max_thread_num - _num_running_scanners);
-            if (thread_slot_num <= 0) {
-                thread_slot_num = 1;
-            }
-        } else {
-            // The blocks queue reaches limit, just return to stop scheduling
-            // There will be two cases:
-            // 1. There are running scanners, these scanner will continue scheduler the ctx.
-            // 2. No running scanners, the consumer(ScanNode.get_next()) will continue scheduling the ctx.
-            // In both cases, we do not need to continue to schedule ctx here. So just return
-            return;
+        // If there are enough space in blocks queue,
+        // the scanner number depends on the _free_blocks numbers
+        std::lock_guard f(_free_blocks_lock);
+        thread_slot_num = _free_blocks.size() / _block_per_scanner;
+        thread_slot_num += (_free_blocks.size() % _block_per_scanner != 0);
+        thread_slot_num = std::min(thread_slot_num, _max_thread_num - _num_running_scanners);
+        if (thread_slot_num <= 0) {
+            thread_slot_num = 1;
         }
     }
 
