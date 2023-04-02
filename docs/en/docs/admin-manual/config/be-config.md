@@ -683,12 +683,6 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * Description: The thread pool size of the routine load task. This should be greater than the FE configuration'max_concurrent_task_num_per_be'
 * Default value: 10
 
-#### `single_replica_load_download_num_workers`
-
-* Type: int32
-* Description:This configuration is mainly used to modify the number of http threads for segment download, used for single replica load. When the load concurrency increases, you can adjust this parameter to ensure that the Slave replica synchronizes data files from the Master replica timely.
-* Default value: 64
-
 #### `slave_replica_writer_rpc_timeout_sec`
 
 * Type: int32

@@ -55,7 +55,6 @@
 #include "service/backend_service.h"
 #include "service/brpc_service.h"
 #include "service/http_service.h"
-#include "service/single_replica_load_download_service.h"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
 #include "util/perf_counters.h"
@@ -488,18 +487,6 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
-    doris::SingleReplicaLoadDownloadService download_service(
-            exec_env, doris::config::single_replica_load_download_port,
-            doris::config::single_replica_load_download_num_workers);
-    if (doris::config::enable_single_replica_load) {
-        status = download_service.start();
-        if (!status.ok()) {
-            LOG(ERROR) << "Doris Be download service did not start correctly, exiting";
-            doris::shutdown_logging();
-            exit(1);
-        }
-    }
-
     // 4. heart beat server
     doris::TMasterInfo* master_info = exec_env->master_info();
     doris::ThriftServer* heartbeat_thrift_server;
@@ -529,9 +516,6 @@ int main(int argc, char** argv) {
 
     http_service.stop();
     brpc_service.join();
-    if (doris::config::enable_single_replica_load) {
-        download_service.stop();
-    }
     daemon.stop();
     heartbeat_thrift_server->stop();
     heartbeat_thrift_server->join();

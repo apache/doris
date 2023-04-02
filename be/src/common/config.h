@@ -377,11 +377,6 @@ CONF_mInt32(periodic_counter_update_period_ms, "500");
 
 CONF_Bool(enable_single_replica_load, "false");
 
-// Port to download server for single replica load
-CONF_Int32(single_replica_load_download_port, "8050");
-// Number of download workers for single replica load
-CONF_Int32(single_replica_load_download_num_workers, "64");
-
 // Used for mini Load. mini load data file will be removed after this time.
 CONF_Int64(load_data_reserve_hours, "4");
 // log error log will be removed after this time
