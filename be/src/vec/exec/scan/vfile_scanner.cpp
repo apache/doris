@@ -589,6 +589,8 @@ Status VFileScanner::_get_next_reader() {
                                                 _file_slot_descs, &_scanner_eof, _io_ctx.get(),
                                                 _is_dynamic_schema));
             init_status = ((NewJsonReader*)(_cur_reader.get()))->init_reader();
+            _state->set_support_read_bytes(
+                    ((NewJsonReader*)(_cur_reader.get()))->is_support_read_bytes());
             break;
         }
         default:

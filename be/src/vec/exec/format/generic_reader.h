@@ -59,6 +59,8 @@ public:
         return Status::OK();
     }
 
+    virtual bool is_support_read_bytes() { return false; }
+
 protected:
     const size_t _MIN_BATCH_SIZE = 4064; // 4094 - 32(padding)
 

@@ -290,6 +290,10 @@ Status NewJsonReader::get_parsed_schema(std::vector<std::string>* col_names,
     return Status::OK();
 }
 
+bool NewJsonReader::is_support_read_bytes() {
+    return true;
+}
+
 Status NewJsonReader::_get_range_params() {
     if (!_params.__isset.file_attributes) {
         return Status::InternalError("BE cat get file_attributes");
@@ -414,6 +418,7 @@ Status NewJsonReader::_parse_dynamic_json(bool* is_empty_row, bool* eof, Block& 
     }
 
     _bytes_read_counter += size;
+    _state->update_num_bytes_load_total(size);
     auto& dynamic_column = block.get_columns().back()->assume_mutable_ref();
     auto& column_object = assert_cast<vectorized::ColumnObject&>(dynamic_column);
     Defer __finalize_clousure([&] {
@@ -648,6 +653,7 @@ Status NewJsonReader::_parse_json_doc(size_t* size, bool* eof) {
     }
 
     _bytes_read_counter += *size;
+    _state->update_num_bytes_load_total(*size);
     if (*eof) {
         return Status::OK();
     }
@@ -1526,6 +1532,7 @@ Status NewJsonReader::_simdjson_parse_json_doc(size_t* size, bool* eof) {
     }
 
     _bytes_read_counter += *size;
+    _state->update_num_bytes_load_total(*size);
     if (*eof) {
         return Status::OK();
     }

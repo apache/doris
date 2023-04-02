@@ -60,6 +60,7 @@ public:
                        std::unordered_set<std::string>* missing_cols) override;
     Status get_parsed_schema(std::vector<std::string>* col_names,
                              std::vector<TypeDescriptor>* col_types) override;
+    bool is_support_read_bytes() override;
 
 private:
     Status _get_range_params();
@@ -141,9 +142,9 @@ private:
 
     size_t _column_index(const StringRef& name, size_t key_index);
 
-    Status (NewJsonReader::*_vhandle_json_callback)(Block& block,
-                                                    const std::vector<SlotDescriptor*>& slot_descs,
-                                                    bool* is_empty_row, bool* eof);
+    Status (NewJsonReader::*_vhandle_json _callback)(Block& block,
+                                                     const std::vector<SlotDescriptor*>& slot_descs,
+                                                     bool* is_empty_row, bool* eof);
     RuntimeState* _state;
     RuntimeProfile* _profile;
     ScannerCounter* _counter;
