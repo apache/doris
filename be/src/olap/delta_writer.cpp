@@ -17,6 +17,7 @@
 
 #include "olap/delta_writer.h"
 
+#include "common/config.h"
 #include "common/status.h"
 #include "exec/tablet_info.h"
 #include "olap/data_dir.h"
@@ -512,7 +513,7 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
     string tablet_path = _tablet->tablet_path();
     request.set_rowset_path(tablet_path);
     request.set_token(ExecEnv::GetInstance()->token());
-    request.set_brpc_port(config::single_replica_load_brpc_port);
+    request.set_brpc_port(config::brpc_port);
     request.set_node_id(node_info.id());
     for (int segment_id = 0; segment_id < _cur_rowset->rowset_meta()->num_segments();
          segment_id++) {

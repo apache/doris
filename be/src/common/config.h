@@ -39,11 +39,6 @@ CONF_Int32(brpc_port, "8060");
 // which means the number of bthreads is #cpu-cores
 CONF_Int32(brpc_num_threads, "-1");
 
-// port to brpc server for single replica load
-CONF_Int32(single_replica_load_brpc_port, "8070");
-// the number of bthreads to brpc server for single replica load
-CONF_Int32(single_replica_load_brpc_num_threads, "64");
-
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
 // this is a list in semicolon-delimited format, in CIDR notation, e.g. 10.10.10.0/24

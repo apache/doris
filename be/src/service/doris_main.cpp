@@ -478,18 +478,6 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
-    doris::BRpcService single_replica_load_brpc_service(exec_env);
-    if (doris::config::enable_single_replica_load) {
-        status = single_replica_load_brpc_service.start(
-                doris::config::single_replica_load_brpc_port,
-                doris::config::single_replica_load_brpc_num_threads);
-        if (!status.ok()) {
-            LOG(ERROR) << "single replica load BRPC service did not start correctly, exiting";
-            doris::shutdown_logging();
-            exit(1);
-        }
-    }
-
     // 3. http service
     doris::HttpService http_service(exec_env, doris::config::webserver_port,
                                     doris::config::webserver_num_workers);
@@ -543,7 +531,6 @@ int main(int argc, char** argv) {
     brpc_service.join();
     if (doris::config::enable_single_replica_load) {
         download_service.stop();
-        single_replica_load_brpc_service.join();
     }
     daemon.stop();
     heartbeat_thrift_server->stop();
