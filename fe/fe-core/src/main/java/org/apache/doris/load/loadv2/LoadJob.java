@@ -828,7 +828,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
                                 + "; load bytes:" + getLoadBytesInfo()
                                 + "; total bytes:" +  loadStatistic.totalFileSizeB);
                     } else {
-                        jobInfo.add("load bytes:" + getLoadBytesInfo() + "; read bytes: N/A"
+                        jobInfo.add("read bytes: N/A" + "; load bytes:" + getLoadBytesInfo() 
                                 + "; total bytes:" +  loadStatistic.totalFileSizeB);
                     }
                     break;
