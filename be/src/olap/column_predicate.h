@@ -122,29 +122,16 @@ struct PredicateTypeTraits {
 };
 
 #define EVALUATE_BY_SELECTOR(EVALUATE_IMPL_WITH_NULL_MAP, EVALUATE_IMPL_WITHOUT_NULL_MAP) \
-    if (pred_col.size() != size) {                                                        \
-        for (uint16_t i = 0; i < size; i++) {                                             \
-            uint16_t idx = sel[i];                                                        \
-            if constexpr (is_nullable) {                                                  \
-                if (EVALUATE_IMPL_WITH_NULL_MAP(idx)) {                                   \
-                    sel[new_size++] = idx;                                                \
-                }                                                                         \
-            } else {                                                                      \
-                if (EVALUATE_IMPL_WITHOUT_NULL_MAP(idx)) {                                \
-                    sel[new_size++] = idx;                                                \
-                }                                                                         \
+    const bool is_dense_column = pred_col.size() == size;                                 \
+    for (uint16_t i = 0; i < size; i++) {                                                 \
+        uint16_t idx = is_dense_column ? i : sel[i];                                      \
+        if constexpr (is_nullable) {                                                      \
+            if (EVALUATE_IMPL_WITH_NULL_MAP(idx)) {                                       \
+                sel[new_size++] = idx;                                                    \
             }                                                                             \
-        }                                                                                 \
-    } else {                                                                              \
-        for (uint16_t i = 0; i < size; i++) {                                             \
-            if constexpr (is_nullable) {                                                  \
-                if (EVALUATE_IMPL_WITH_NULL_MAP(i)) {                                     \
-                    sel[new_size++] = i;                                                  \
-                }                                                                         \
-            } else {                                                                      \
-                if (EVALUATE_IMPL_WITHOUT_NULL_MAP(i)) {                                  \
-                    sel[new_size++] = i;                                                  \
-                }                                                                         \
+        } else {                                                                          \
+            if (EVALUATE_IMPL_WITHOUT_NULL_MAP(idx)) {                                    \
+                sel[new_size++] = idx;                                                    \
             }                                                                             \
         }                                                                                 \
     }

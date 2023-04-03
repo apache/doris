@@ -102,8 +102,10 @@ private:
                             ->get_data();
 
             auto pred_col_data = pred_col.data();
-#define EVALUATE_WITH_NULL_IMPL(IDX) !null_map[IDX] && _specific_filter->find_olap_engine(get_cell_value(pred_col_data[IDX]))
-#define EVALUATE_WITHOUT_NULL_IMPL(IDX) _specific_filter->find_olap_engine(get_cell_value(pred_col_data[IDX]))
+#define EVALUATE_WITH_NULL_IMPL(IDX) \
+    !null_map[IDX] && _specific_filter->find_olap_engine(get_cell_value(pred_col_data[IDX]))
+#define EVALUATE_WITHOUT_NULL_IMPL(IDX) \
+    _specific_filter->find_olap_engine(get_cell_value(pred_col_data[IDX]))
             EVALUATE_BY_SELECTOR(EVALUATE_WITH_NULL_IMPL, EVALUATE_WITHOUT_NULL_IMPL)
 #undef EVALUATE_WITH_NULL_IMPL
 #undef EVALUATE_WITHOUT_NULL_IMPL

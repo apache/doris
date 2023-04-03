@@ -246,9 +246,7 @@ public:
         }
     }
 
-    bool can_do_bloom_filter() const override {
-        return PT == PredicateType::EQ;
-    }
+    bool can_do_bloom_filter() const override { return PT == PredicateType::EQ; }
 
     void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                      bool* flags) const override {
@@ -363,17 +361,11 @@ private:
         }
     }
 
-    constexpr bool _is_range() const {
-        return PredicateTypeTraits::is_range(PT);
-    }
+    constexpr bool _is_range() const { return PredicateTypeTraits::is_range(PT); }
 
-    constexpr bool _is_greater() const {
-        return _operator(1, 0);
-    }
+    constexpr bool _is_greater() const { return _operator(1, 0); }
 
-    constexpr bool _is_eq() const {
-        return _operator(1, 1);
-    }
+    constexpr bool _is_eq() const { return _operator(1, 1); }
 
     Status _bitmap_compare(Status status, bool exact_match, rowid_t ordinal_limit,
                            rowid_t& seeked_ordinal, BitmapIndexIterator* iterator,
@@ -508,41 +500,6 @@ private:
 
             _base_loop_bit<is_nullable, is_and>(sel, size, flags, null_map, data_array, _value);
         }
-    }
-
-    template <bool is_nullable, typename TArray, typename TValue>
-    uint16_t _base_loop(uint16_t* sel, uint16_t size, const uint8_t* __restrict null_map,
-                        const TArray* __restrict data_array, const TValue& value,
-                        const bool is_dense) const {
-        uint16_t new_size = 0;
-        if (is_dense) {
-            for (uint16_t i = 0; i < size; ++i) {
-                if constexpr (is_nullable) {
-                    if (_opposite ^ (!null_map[i] && _operator(data_array[i], value))) {
-                        sel[new_size++] = i;
-                    }
-                } else {
-                    if (_opposite ^ _operator(data_array[i], value)) {
-                        sel[new_size++] = i;
-                    }
-                }
-            }
-        } else {
-            for (uint16_t i = 0; i < size; ++i) {
-                uint16_t idx = sel[i];
-                if constexpr (is_nullable) {
-                    if () {
-                        sel[new_size++] = idx;
-                    }
-                } else {
-                    if () {
-                        sel[new_size++] = idx;
-                    }
-                }
-            }
-        }
-
-        return new_size;
     }
 
     template <bool is_nullable>
