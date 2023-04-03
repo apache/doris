@@ -153,7 +153,7 @@ GET /rest/v2/manager/query/query_info
 
 在执行一个 Query 前，先设置一个唯一的 trace id:
 
-`set set session_context="trace_id:your_trace_id";`
+`set session_context="trace_id:your_trace_id";`
 
 在同一个 Session 链接内执行 Query 后，可以通过 trace id 获取 query id。
     
