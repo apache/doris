@@ -214,14 +214,9 @@ struct StringEqualsImpl {
         if (b_size == 0) {
             auto* __restrict data = c.data();
             auto* __restrict offsets = a_offsets.data();
-            if (positive) {
-                for (size_t i = 0; i < size; ++i) {
-                    data[i] = (offsets[i] == offsets[i - 1]);
-                }
-            } else {
-                for (size_t i = 0; i < size; ++i) {
-                    data[i] = (offsets[i] != offsets[i - 1]);
-                }
+            for (size_t i = 0; i < size; ++i) {
+                data[i] =
+                        positive ? (offsets[i] == offsets[i - 1]) : (offsets[i] != offsets[i - 1]);
             }
         } else {
             ColumnString::Offset prev_a_offset = 0;
