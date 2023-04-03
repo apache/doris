@@ -158,10 +158,16 @@ public class DorisFE {
             if (options.enableHttpServer) {
                 HttpServer httpServer = new HttpServer();
                 httpServer.setPort(Config.http_port);
+                httpServer.setHttpsPort(Config.https_port);
                 httpServer.setMaxHttpPostSize(Config.jetty_server_max_http_post_size);
                 httpServer.setAcceptors(Config.jetty_server_acceptors);
                 httpServer.setSelectors(Config.jetty_server_selectors);
                 httpServer.setWorkers(Config.jetty_server_workers);
+                httpServer.setKeyStorePath(Config.key_store_path);
+                httpServer.setKeyStorePassword(Config.key_store_password);
+                httpServer.setKeyStoreType(Config.key_store_type);
+                httpServer.setKeyStoreAlias(Config.key_store_alias);
+                httpServer.setEnableHttps(Config.enable_https);
                 httpServer.setMaxThreads(Config.jetty_threadPool_maxThreads);
                 httpServer.setMinThreads(Config.jetty_threadPool_minThreads);
                 httpServer.setMaxHttpHeaderSize(Config.jetty_server_max_http_header_size);
@@ -191,6 +197,10 @@ public class DorisFE {
         if (!NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.http_port,
                 "Http port", NetUtils.HTTP_PORT_SUGGESTION)) {
             throw new IOException("port " + Config.http_port + " already in use");
+        }
+        if (Config.enable_https && !NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(),
+                Config.https_port, "Https port", NetUtils.HTTPS_PORT_SUGGESTION)) {
+            throw new IOException("port " + Config.https_port + " already in use");
         }
         if (!NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.query_port,
                 "Query port", NetUtils.QUERY_PORT_SUGGESTION)) {

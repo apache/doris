@@ -52,6 +52,10 @@ public class MultiAction extends RestBaseController {
     public Object multi_desc(
             @PathVariable(value = DB_KEY) final String dbName,
             HttpServletRequest request, HttpServletResponse response) {
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
+
         try {
             executeCheckPassword(request, response);
 
@@ -84,6 +88,10 @@ public class MultiAction extends RestBaseController {
             @PathVariable(value = DB_KEY) final String dbName,
             HttpServletRequest request, HttpServletResponse response)
             throws DdlException {
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
+
         try {
             executeCheckPassword(request, response);
             execEnv = ExecuteEnv.getInstance();
@@ -110,6 +118,10 @@ public class MultiAction extends RestBaseController {
             @PathVariable(value = DB_KEY) final String dbName,
             HttpServletRequest request, HttpServletResponse response)
             throws DdlException {
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
+
         try {
             executeCheckPassword(request, response);
             execEnv = ExecuteEnv.getInstance();
@@ -154,6 +166,10 @@ public class MultiAction extends RestBaseController {
     public Object multi_unload(
             @PathVariable(value = DB_KEY) final String dbName,
             HttpServletRequest request, HttpServletResponse response) {
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
+
         try {
             executeCheckPassword(request, response);
             execEnv = ExecuteEnv.getInstance();
@@ -188,6 +204,10 @@ public class MultiAction extends RestBaseController {
             @PathVariable(value = DB_KEY) final String dbName,
             HttpServletRequest request, HttpServletResponse response)
             throws DdlException {
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
+
         try {
             executeCheckPassword(request, response);
             execEnv = ExecuteEnv.getInstance();
@@ -222,6 +242,10 @@ public class MultiAction extends RestBaseController {
             @PathVariable(value = DB_KEY) final String dbName,
             HttpServletRequest request, HttpServletResponse response)
             throws DdlException {
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
+
         try {
             executeCheckPassword(request, response);
             execEnv = ExecuteEnv.getInstance();

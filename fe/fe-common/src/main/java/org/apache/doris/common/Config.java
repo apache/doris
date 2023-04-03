@@ -339,15 +339,50 @@ public class Config extends ConfigBase {
     @ConfField public static long max_bdbje_clock_delta_ms = 5000; // 5s
 
     /**
+     * Whether to enable all http interface authentication
+     */
+    @ConfField public static boolean enable_all_http_auth = false;
+
+    /**
      * Fe http port
      * Currently, all FEs' http port must be same.
      */
     @ConfField public static int http_port = 8030;
 
     /**
-     * Whether to enable all http interface authentication
+     * Fe https port
+     * Currently, all FEs' https port must be same.
      */
-    @ConfField public static boolean enable_all_http_auth = false;
+    @ConfField public static int https_port = 8050;
+
+    /**
+     * ssl key store path.
+     * If you want to change the path, you need to create corresponding directory.
+     */
+    @ConfField public static String key_store_path = System.getenv("DORIS_HOME")
+        + "/conf/ssl/doris_ssl_certificate.keystore";
+
+    /**
+     * ssl key store password. Null by default.
+     */
+    @ConfField public static String key_store_password = "";
+
+    /**
+     * ssl key store type. "JKS" by default.
+     */
+    @ConfField public static String key_store_type = "JKS";
+
+    /**
+     * ssl key store alias. "doris_ssl_certificate" by default.
+     */
+    @ConfField public static String key_store_alias = "doris_ssl_certificate";
+
+    /**
+     * https enable flag. false by default.
+     * If the value is false, http is supported. Otherwise, https is supported.
+     * Currently doris uses many ports, so http and https are not supported at the same time.
+     */
+    @ConfField public static boolean enable_https = false;
 
     /**
      * Jetty container default configuration
