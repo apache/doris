@@ -288,15 +288,6 @@ std::string ScannerContext::debug_string() {
             _max_thread_num, _block_per_scanner, _cur_bytes_in_queue, _max_bytes_in_queue);
 }
 
-void ScannerContext::reschedule_scanner_ctx() {
-    std::lock_guard l(_transfer_lock);
-    auto submit_st = _scanner_scheduler->submit(this);
-    //todo(wb) rethinking is it better to mark current scan_context failed when submit failed many times?
-    if (submit_st.ok()) {
-        _num_scheduling_ctx++;
-    }
-}
-
 void ScannerContext::push_back_scanner_and_reschedule(VScanner* scanner) {
     {
         std::unique_lock l(_scanners_lock);
