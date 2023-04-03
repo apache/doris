@@ -194,8 +194,9 @@ void Daemon::memory_maintenance_thread() {
                 DorisMetrics::instance()->system_metrics()->update_allocator_metrics();
             }
 #endif
+            LOG(INFO) << MemTrackerLimiter::
+                            process_mem_log_str(); // print mem log when memory state by 100M
             if (doris::config::memory_debug) {
-                LOG(INFO) << MemTrackerLimiter::process_mem_log_str();
                 LOG_EVERY_N(INFO, 10)
                         << doris::MemTrackerLimiter::log_process_usage_str("memory debug", false);
             }
