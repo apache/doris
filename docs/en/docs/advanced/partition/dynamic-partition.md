@@ -185,7 +185,7 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 
 - `dynamic_partition.storage_medium`
 
-   <version since="dev"></version>
+   <version since="1.2.3"></version>
 
    Specifies the default storage medium for the created dynamic partition. HDD is the default, SSD can be selected.
 

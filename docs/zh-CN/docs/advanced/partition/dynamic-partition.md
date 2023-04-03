@@ -177,7 +177,7 @@ under the License.
 
 - `dynamic_partition.storage_medium`
 
-  <version since="dev"></version>
+  <version since="1.2.3"></version>
 
   指定创建的动态分区的默认存储介质。默认是 HDD，可选择 SSD。
 
