@@ -50,13 +50,15 @@ public class ResourceGroup implements Writable {
     @SerializedName(value = "properties")
     private Map<String, String> properties;
 
-    // version update required after alter resource group
+    // Version update required after alter resource group
     @SerializedName(value = "version")
     private long version;
 
+    // Not used yet, for future expansion
     @SerializedName(value = "parentId")
     private long parentId;
 
+    // Not used yet, for future expansion
     @SerializedName(value = "childrenIds")
     private Set<Long> childrenIds;
 

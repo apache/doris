@@ -52,17 +52,17 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
 
     public static final String DEFAULT_GROUP_NAME = "normal";
 
-    private static final String CPU_SCHEDULING_WEIGHT = "cpu_scheduling_weight";
+    private static final String CPU_SHARE = "cpu_share";
 
     public static final ImmutableList<String> RESOURCE_GROUP_PROC_NODE_TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("Id").add("Name").add("Item").add("Value")
             .build();
 
     private static final ImmutableSet<String> REQUIRED_PROPERTIES_NAME = new ImmutableSet.Builder<String>().add(
-            CPU_SCHEDULING_WEIGHT).build();
+            CPU_SHARE).build();
 
     private static final ImmutableSet<String> ALL_PROPERTIES_NAME = new ImmutableSet.Builder<String>().add(
-            CPU_SCHEDULING_WEIGHT).build();
+            CPU_SHARE).build();
 
     @SerializedName(value = "idToResourceGroup")
     private final Map<Long, ResourceGroup> idToResourceGroup = Maps.newHashMap();
@@ -120,7 +120,7 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
                 return;
             }
             Map<String, String> properties = Maps.newHashMap();
-            properties.put(CPU_SCHEDULING_WEIGHT, "10");
+            properties.put(CPU_SHARE, "10");
             defaultResourceGroup = new ResourceGroup(Env.getCurrentEnv().getNextId(),
                     DEFAULT_GROUP_NAME, properties, -1);
             nameToResourceGroup.put(DEFAULT_GROUP_NAME, defaultResourceGroup);
@@ -166,7 +166,7 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
             }
         }
 
-        String cpuSchedulingWeight = properties.get(CPU_SCHEDULING_WEIGHT);
+        String cpuSchedulingWeight = properties.get(CPU_SHARE);
         if (!StringUtils.isNumeric(cpuSchedulingWeight) || Long.parseLong(cpuSchedulingWeight) <= 0) {
             throw new DdlException("cpu_scheduling_weight requires a positive integer.");
         }
