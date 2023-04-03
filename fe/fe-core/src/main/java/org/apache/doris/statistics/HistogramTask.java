@@ -109,6 +109,6 @@ public class HistogramTask extends BaseAnalysisTask {
             this.stmtExecutor.execute();
         }
 
-        Env.getCurrentEnv().getStatisticsCache().refreshSync(tbl.getId(), -1, col.getName());
+        Env.getCurrentEnv().getStatisticsCache().refreshHistogramSync(tbl.getId(), -1, col.getName());
     }
 }

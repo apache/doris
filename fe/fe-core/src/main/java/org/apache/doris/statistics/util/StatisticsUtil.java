@@ -126,7 +126,6 @@ public class StatisticsUtil {
         sessionVariable.parallelExecInstanceNum = StatisticConstants.STATISTIC_PARALLEL_EXEC_INSTANCE_NUM;
         sessionVariable.setEnableNereidsPlanner(false);
         sessionVariable.enableProfile = false;
-        sessionVariable.setEnableNereidsPlanner(false);
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
         connectContext.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
@@ -283,6 +282,23 @@ public class StatisticsUtil {
             }
         }
         return tblIf.getColumn(columnName);
+    }
+
+    @SuppressWarnings({"unchecked"})
+    public static Column findColumn(String catalogName, String dbName, String tblName, String columnName)
+            throws Throwable {
+        TableIf tableIf = findTable(catalogName, dbName, tblName);
+        return tableIf.getColumn(columnName);
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public static TableIf findTable(String catalogName, String dbName, String tblName) throws Throwable {
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr()
+                .getCatalogOrException(catalogName, c -> new RuntimeException("Catalog: " + c + " not exists"));
+        DatabaseIf db = catalog.getDbOrException(dbName,
+                d -> new RuntimeException("DB: " + d + " not exists"));
+        return db.getTableOrException(tblName,
+                t -> new RuntimeException("Table: " + t + " not exists"));
     }
 
     public static boolean isNullOrEmpty(String str) {

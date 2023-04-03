@@ -20,8 +20,8 @@ package org.apache.doris.statistics;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisType;
@@ -37,6 +37,11 @@ public abstract class BaseAnalysisTask {
 
     public static final Logger LOG = LogManager.getLogger(BaseAnalysisTask.class);
 
+    /**
+     * Stats stored in the column_statistics table basically has two types, `part_id` is null which means it is
+     * aggregate from partition level stats, `part_id` is not null which means it is partition level stats.
+     * For latter, it's id field contains part id, for previous doesn't.
+     */
     protected static final String INSERT_PART_STATISTICS = "INSERT INTO "
             + "${internalDB}.${columnStatTbl}"
             + " SELECT "
@@ -97,7 +102,7 @@ public abstract class BaseAnalysisTask {
 
     protected AnalysisState analysisState;
 
-    protected Set<Type> unsupportedType = new HashSet<>();
+    protected Set<PrimitiveType> unsupportedType = new HashSet<>();
 
     @VisibleForTesting
     public BaseAnalysisTask() {
@@ -111,11 +116,12 @@ public abstract class BaseAnalysisTask {
     }
 
     protected void initUnsupportedType() {
-        unsupportedType.add(Type.HLL);
-        unsupportedType.add(Type.BITMAP);
-        unsupportedType.add(Type.ARRAY);
-        unsupportedType.add(Type.MAP);
-        unsupportedType.add(Type.JSONB);
+        unsupportedType.add(PrimitiveType.HLL);
+        unsupportedType.add(PrimitiveType.BITMAP);
+        unsupportedType.add(PrimitiveType.ARRAY);
+        unsupportedType.add(PrimitiveType.MAP);
+        unsupportedType.add(PrimitiveType.JSONB);
+        unsupportedType.add(PrimitiveType.STRUCT);
     }
 
     private void init(AnalysisTaskInfo info) {
@@ -144,7 +150,7 @@ public abstract class BaseAnalysisTask {
             if (col == null) {
                 throw new RuntimeException(String.format("Column with name %s not exists", info.tblName));
             }
-            if (isUnsupportedType(col.getType())) {
+            if (isUnsupportedType(col.getType().getPrimitiveType())) {
                 throw new RuntimeException(String.format("Column with type %s is not supported",
                         col.getType().toString()));
             }
@@ -182,7 +188,7 @@ public abstract class BaseAnalysisTask {
         return "COUNT(1) * " + column.getType().getSlotSize();
     }
 
-    private boolean isUnsupportedType(Type type) {
+    private boolean isUnsupportedType(PrimitiveType type) {
         return unsupportedType.contains(type);
     }
 

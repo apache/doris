@@ -17,18 +17,21 @@
 
 package org.apache.doris.statistics;
 
-//import org.apache.doris.common.ThreadPoolManager;
-
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 
 import com.github.benmanes.caffeine.cache.AsyncLoadingCache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.time.Duration;
+import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
@@ -44,85 +47,159 @@ public class StatisticsCache {
             = ThreadPoolManager.newDaemonFixedThreadPool(
             10, Integer.MAX_VALUE, "STATS_FETCH", true);
 
-    private final StatisticsCacheLoader cacheLoader = new StatisticsCacheLoader();
+    private final ColumnStatisticsCacheLoader columnStatisticsCacheLoader = new ColumnStatisticsCacheLoader();
+    private final HistogramCacheLoader histogramCacheLoader = new HistogramCacheLoader();
 
-    private final AsyncLoadingCache<StatisticsCacheKey, ColumnLevelStatisticCache> cache = Caffeine.newBuilder()
-            .maximumSize(StatisticConstants.STATISTICS_RECORDS_CACHE_SIZE)
-            .expireAfterAccess(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_VALID_DURATION_IN_HOURS))
-            .refreshAfterWrite(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_REFRESH_INTERVAL))
-            .executor(threadPool)
-            .buildAsync(cacheLoader);
+    private final AsyncLoadingCache<StatisticsCacheKey, Optional<ColumnStatistic>> columnStatisticsCache =
+            Caffeine.newBuilder()
+                    .maximumSize(StatisticConstants.STATISTICS_RECORDS_CACHE_SIZE)
+                    .expireAfterAccess(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_VALID_DURATION_IN_HOURS))
+                    .refreshAfterWrite(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_REFRESH_INTERVAL))
+                    .executor(threadPool)
+                    .buildAsync(columnStatisticsCacheLoader);
+
+    private final AsyncLoadingCache<StatisticsCacheKey, Optional<Histogram>> histogramCache =
+            Caffeine.newBuilder()
+                    .maximumSize(StatisticConstants.STATISTICS_RECORDS_CACHE_SIZE)
+                    .expireAfterAccess(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_VALID_DURATION_IN_HOURS))
+                    .refreshAfterWrite(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_REFRESH_INTERVAL))
+                    .executor(threadPool)
+                    .buildAsync(histogramCacheLoader);
 
     {
         threadPool.submit(() -> {
             while (true) {
                 try {
-                    cacheLoader.removeExpiredInProgressing();
-                    Thread.sleep(TimeUnit.MINUTES.toMillis(15));
+                    columnStatisticsCacheLoader.removeExpiredInProgressing();
+                    histogramCacheLoader.removeExpiredInProgressing();
                 } catch (Throwable t) {
                     // IGNORE
                 }
+                Thread.sleep(TimeUnit.MINUTES.toMillis(15));
             }
 
         });
     }
 
     public ColumnStatistic getColumnStatistics(long tblId, String colName) {
-        ColumnLevelStatisticCache columnLevelStatisticCache = getColumnStatistics(tblId, -1, colName);
-        if (columnLevelStatisticCache == null) {
-            return ColumnStatistic.UNKNOWN;
-        }
-        return columnLevelStatisticCache.columnStatistic;
+        return getColumnStatistics(tblId, -1, colName).orElse(ColumnStatistic.UNKNOWN);
     }
 
-    public ColumnLevelStatisticCache getColumnStatistics(long tblId, long idxId, String colName) {
+    public Optional<ColumnStatistic> getColumnStatistics(long tblId, long idxId, String colName) {
         ConnectContext ctx = ConnectContext.get();
         if (ctx != null && ctx.getSessionVariable().internalSession) {
-            return null;
+            return Optional.empty();
         }
         StatisticsCacheKey k = new StatisticsCacheKey(tblId, idxId, colName);
         try {
-            CompletableFuture<ColumnLevelStatisticCache> f = cache.get(k);
+            CompletableFuture<Optional<ColumnStatistic>> f = columnStatisticsCache.get(k);
             if (f.isDone() && f.get() != null) {
                 return f.get();
             }
         } catch (Exception e) {
             LOG.warn("Unexpected exception while returning ColumnStatistic", e);
         }
-        return null;
+        return Optional.empty();
     }
 
     public Histogram getHistogram(long tblId, String colName) {
-        return getHistogram(tblId, -1, colName);
+        return getHistogram(tblId, -1, colName).orElse(null);
     }
 
-    public Histogram getHistogram(long tblId, long idxId, String colName) {
+    public Optional<Histogram> getHistogram(long tblId, long idxId, String colName) {
         ConnectContext ctx = ConnectContext.get();
         if (ctx != null && ctx.getSessionVariable().internalSession) {
-            return null;
+            return Optional.empty();
         }
         StatisticsCacheKey k = new StatisticsCacheKey(tblId, idxId, colName);
         try {
-            CompletableFuture<ColumnLevelStatisticCache> f = cache.get(k);
+            CompletableFuture<Optional<Histogram>> f = histogramCache.get(k);
             if (f.isDone() && f.get() != null) {
-                return f.get().getHistogram();
+                return f.get();
             }
         } catch (Exception e) {
             LOG.warn("Unexpected exception while returning Histogram", e);
         }
-        return null;
+        return Optional.empty();
     }
 
     // TODO: finish this method.
     public void eraseExpiredCache(long tblId, long idxId, String colName) {
-        cache.synchronous().invalidate(new StatisticsCacheKey(tblId, idxId, colName));
+        columnStatisticsCache.synchronous().invalidate(new StatisticsCacheKey(tblId, idxId, colName));
     }
 
-    public void updateCache(long tblId, long idxId, String colName, ColumnLevelStatisticCache statistic) {
-        cache.synchronous().put(new StatisticsCacheKey(tblId, idxId, colName), statistic);
+    public void updateColStatsCache(long tblId, long idxId, String colName, ColumnStatistic statistic) {
+        columnStatisticsCache.synchronous().put(new StatisticsCacheKey(tblId, idxId, colName), Optional.of(statistic));
     }
 
-    public void refreshSync(long tblId, long idxId, String colName) {
-        cache.synchronous().refresh(new StatisticsCacheKey(tblId, idxId, colName));
+    public void refreshColStatsSync(long tblId, long idxId, String colName) {
+        columnStatisticsCache.synchronous().refresh(new StatisticsCacheKey(tblId, idxId, colName));
     }
+
+    public void refreshHistogramSync(long tblId, long idxId, String colName) {
+        histogramCache.synchronous().refresh(new StatisticsCacheKey(tblId, idxId, colName));
+    }
+
+    public void preHeat() {
+        threadPool.submit(this::doPreHeat);
+    }
+
+    private void doPreHeat() {
+        List<ResultRow> recentStatsUpdatedCols = null;
+        long retryTimes = 0;
+        while (retryTimes < StatisticConstants.PRELOAD_RETRY_TIMES) {
+            try {
+                recentStatsUpdatedCols = StatisticsRepository.fetchRecentStatsUpdatedCol();
+                break;
+            } catch (Throwable t) {
+                // IGNORE
+            }
+            retryTimes++;
+            try {
+                Thread.sleep(StatisticConstants.PRELOAD_RETRY_INTERVAL_IN_SECONDS);
+            } catch (Throwable t) {
+                // IGNORE
+            }
+        }
+
+        if (CollectionUtils.isEmpty(recentStatsUpdatedCols)) {
+            return;
+        }
+        for (ResultRow r : recentStatsUpdatedCols) {
+            try {
+                String tblId = r.getColumnValue("tbl_id");
+                String idxId = r.getColumnValue("idx_id");
+                String colId = r.getColumnValue("col_id");
+                final StatisticsCacheKey k =
+                        new StatisticsCacheKey(Long.parseLong(tblId), Long.parseLong(idxId), colId);
+                final ColumnStatistic c = ColumnStatistic.fromResultRow(r);
+                CompletableFuture<Optional<ColumnStatistic>> f = new CompletableFuture<Optional<ColumnStatistic>>() {
+
+                    @Override
+                    public Optional<ColumnStatistic> get() throws InterruptedException, ExecutionException {
+                        return Optional.of(c);
+                    }
+
+                    @Override
+                    public boolean isDone() {
+                        return true;
+                    }
+
+                    @Override
+                    public boolean complete(Optional<ColumnStatistic> value) {
+                        return true;
+                    }
+
+                    @Override
+                    public Optional<ColumnStatistic> join() {
+                        return Optional.of(c);
+                    }
+                };
+                columnStatisticsCache.put(k, f);
+            } catch (Throwable t) {
+                LOG.warn("Error when preheating stats cache", t);
+            }
+        }
+    }
+
 }
