@@ -485,8 +485,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_MODIFY_TABLE_COLOCATE: {
-                data = new TablePropertyInfo();
-                ((TablePropertyInfo) data).readFields(in);
+                data = TablePropertyInfo.read(in);
                 isRead = true;
                 break;
             }

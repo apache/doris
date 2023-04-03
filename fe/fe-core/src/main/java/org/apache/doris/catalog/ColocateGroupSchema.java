@@ -98,7 +98,7 @@ public class ColocateGroupSchema implements Writable {
         }
     }
 
-    public void checkReplicaAllocation(PartitionInfo partitionInfo) throws DdlException {
+    private void checkReplicaAllocation(PartitionInfo partitionInfo) throws DdlException {
         for (ReplicaAllocation replicaAlloc : partitionInfo.idToReplicaAllocation.values()) {
             if (!replicaAlloc.equals(this.replicaAlloc)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_HAS_SAME_REPLICATION_ALLOCATION,
