@@ -196,6 +196,39 @@ Status FunctionLikeBase::constant_substring_fn_scalar(LikeSearchState* state, co
     return Status::OK();
 }
 
+Status FunctionLikeBase::constant_re2_regex_fn(LikeSearchState* state, const ColumnString& val,
+                                           const StringRef& pattern,
+                                           ColumnUInt8::Container& result) {
+    auto sz = val.size();
+    for (size_t i = 0; i < sz; i++) {
+        const auto& str_ref = val.get_data_at(i);
+        *(result.data() + i) = RE2::FullMatch(
+            re2::StringPiece(str_ref.data, str_ref.size), *state->regex.get());
+    }
+
+    return Status::OK();
+}
+
+Status FunctionLikeBase::constant_re2_regex_fn_predicate(LikeSearchState* state,
+                                                     const PredicateColumnType<TYPE_STRING>& val,
+                                                     const StringRef& pattern,
+                                                     ColumnUInt8::Container& result,
+                                                     const uint16_t* sel, size_t sz) {
+    auto data_ptr = reinterpret_cast<const StringRef*>(val.get_data().data());
+    for (size_t i = 0; i < sz; i++) {
+        *(result.data() + i) = RE2::FullMatch(
+            re2::StringPiece(data_ptr[sel[i]].data, data_ptr[sel[i]].size), *state->regex.get());
+    }
+
+    return Status::OK();
+}
+
+Status FunctionLikeBase::constant_re2_regex_fn_scalar(LikeSearchState* state, const StringRef& val,
+                                            const StringRef& pattern, unsigned char* result) {
+    *result = RE2::FullMatch(re2::StringPiece(val.data, val.size), *state->regex.get());
+    return Status::OK();
+}
+
 Status FunctionLikeBase::constant_regex_fn_scalar(LikeSearchState* state, const StringRef& val,
                                                   const StringRef& pattern, unsigned char* result) {
     auto ret = hs_scan(state->hs_database.get(), val.data, val.size, 0, state->hs_scratch.get(),
@@ -655,14 +688,25 @@ Status FunctionLike::open(FunctionContext* context, FunctionContext::FunctionSta
 
             hs_database_t* database = nullptr;
             hs_scratch_t* scratch = nullptr;
-            RETURN_IF_ERROR(hs_prepare(context, re_pattern.c_str(), &database, &scratch));
+            if (hs_prepare(context, re_pattern.c_str(), &database, &scratch).ok()) {
+                state->search_state.hs_database.reset(database);
+                state->search_state.hs_scratch.reset(scratch);
 
-            state->search_state.hs_database.reset(database);
-            state->search_state.hs_scratch.reset(scratch);
-
-            state->function = constant_regex_fn;
-            state->predicate_like_function = constant_regex_fn_predicate;
-            state->scalar_function = constant_regex_fn_scalar;
+                state->function = constant_regex_fn;
+                state->predicate_like_function = constant_regex_fn_predicate;
+                state->scalar_function = constant_regex_fn_scalar;
+            } else {
+                RE2::Options opts;
+                opts.set_never_nl(false);
+                opts.set_dot_nl(true);
+                state->search_state.regex = std::make_unique<RE2>(re_pattern, opts);
+                if (!state->search_state.regex->ok()) {
+                    return Status::InternalError("Invalid regex expression: {}", pattern_str);
+                }
+                state->function = constant_re2_regex_fn;
+                state->predicate_like_function = constant_re2_regex_fn_predicate;
+                state->scalar_function = constant_re2_regex_fn_scalar;
+            }
         }
     }
     return Status::OK();

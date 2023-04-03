@@ -154,11 +154,20 @@ protected:
     static Status constant_regex_fn(LikeSearchState* state, const ColumnString& val,
                                     const StringRef& pattern, ColumnUInt8::Container& result);
 
+    static Status constant_re2_regex_fn(LikeSearchState* state, const ColumnString& val,
+                                    const StringRef& pattern, ColumnUInt8::Container& result);
+
     static Status regexp_fn(LikeSearchState* state, const ColumnString& val,
                             const StringRef& pattern, ColumnUInt8::Container& result);
 
     // These functions below are used only for predicate.
     static Status constant_regex_fn_predicate(LikeSearchState* state,
+                                              const PredicateColumnType<TYPE_STRING>& val,
+                                              const StringRef& pattern,
+                                              ColumnUInt8::Container& result, const uint16_t* sel,
+                                              size_t sz);
+
+    static Status constant_re2_regex_fn_predicate(LikeSearchState* state,
                                               const PredicateColumnType<TYPE_STRING>& val,
                                               const StringRef& pattern,
                                               ColumnUInt8::Container& result, const uint16_t* sel,
@@ -206,6 +215,9 @@ protected:
                                                const StringRef& pattern, unsigned char* result);
 
     static Status constant_regex_fn_scalar(LikeSearchState* state, const StringRef& val,
+                                           const StringRef& pattern, unsigned char* result);
+
+    static Status constant_re2_regex_fn_scalar(LikeSearchState* state, const StringRef& val,
                                            const StringRef& pattern, unsigned char* result);
 
     static Status regexp_fn_scalar(LikeSearchState* state, const StringRef& val,
