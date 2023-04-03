@@ -22,7 +22,6 @@
 #include <mutex>
 #include <vector>
 
-#include "env/env.h"
 #include "gen_cpp/olap_file.pb.h"
 #include "gutil/macros.h"
 #include "io/fs/remote_file_system.h"

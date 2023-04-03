@@ -33,7 +33,6 @@
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/bit_cast.h"
-#include "vec/common/exception.h"
 #include "vec/common/nan_utils.h"
 #include "vec/common/sip_hash.h"
 #include "vec/common/unaligned.h"
@@ -177,7 +176,7 @@ void ColumnVector<T>::update_crcs_with_value(std::vector<uint64_t>& hashes, Prim
         if (type == TYPE_DATE || type == TYPE_DATETIME) {
             char buf[64];
             auto date_convert_do_crc = [&](size_t i) {
-                const DateTimeValue& date_val = (const DateTimeValue&)data[i];
+                const VecDateTimeValue& date_val = (const VecDateTimeValue&)data[i];
                 auto len = date_val.to_buffer(buf);
                 hashes[i] = HashUtil::zlib_crc_hash(buf, len, hashes[i]);
             };

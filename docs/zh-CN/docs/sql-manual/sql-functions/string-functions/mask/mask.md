@@ -61,6 +61,7 @@ mysql> select mask(name, '*', '#', '$') from test;
 | NULL                        |
 | $$$*#*#*#                   |
 +-----------------------------+
+```
 
 ### keywords
     mask

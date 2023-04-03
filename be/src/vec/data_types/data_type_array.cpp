@@ -137,11 +137,6 @@ void DataTypeArray::to_string(const IColumn& column, size_t row_num, BufferWrita
             ostr.write("'", 1);
             nested->to_string(nested_column, i, ostr);
             ostr.write("'", 1);
-        } else if (which.is_decimal()) {
-            DecimalV2Value decimal_value;
-            get_decimal_value(nested_column, decimal_value, i);
-            std::string decimal_str = decimal_value.to_string();
-            ostr.write(decimal_str.c_str(), decimal_str.size());
         } else {
             nested->to_string(nested_column, i, ostr);
         }
@@ -171,10 +166,6 @@ std::string DataTypeArray::to_string(const IColumn& column, size_t row_num) cons
             str += "'";
             str += nested->to_string(nested_column, i);
             str += "'";
-        } else if (which.is_decimal()) {
-            DecimalV2Value decimal_value;
-            get_decimal_value(nested_column, decimal_value, i);
-            str += decimal_value.to_string();
         } else {
             str += nested->to_string(nested_column, i);
         }

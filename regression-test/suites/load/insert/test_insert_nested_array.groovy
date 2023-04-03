@@ -44,6 +44,7 @@ suite("test_insert_nested_array", "load") {
                 (6, [[1, 2, null], null, [4, null, 6], null, [null, 8, 9]])
         """
         qt_select "select * from ${tableName} order by `key`"
+        qt_select "select count(value) from ${tableName}"
     }
 
     def test_nested_array_3_depths = {
@@ -74,6 +75,7 @@ suite("test_insert_nested_array", "load") {
                 (6, [[[null]], [[1], [2, 3]], [[4, 5, 6], null, null]])
         """
         qt_select "select * from ${tableName} order by `key`"
+        qt_select "select count(value) from ${tableName}"
         qt_select "select * from ${tableName} as t1 right join ${tableName} as t2 on t1.`key` = t2.`key` order by t1.`key`"
     }
 

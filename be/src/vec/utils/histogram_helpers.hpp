@@ -259,15 +259,24 @@ bool histogram_to_json(rapidjson::StringBuffer& buffer, const std::vector<Bucket
     rapidjson::Value lower_val;
     rapidjson::Value upper_val;
 
+    // Convert bucket's lower and upper to 2 columns
+    MutableColumnPtr lower_column = data_type->create_column();
+    MutableColumnPtr upper_column = data_type->create_column();
     for (const auto& bucket : buckets) {
-        ss1.str("");
-        ss2.str("");
-
-        value_to_string(ss1, bucket.lower, data_type);
-        value_to_string(ss2, bucket.upper, data_type);
-        std::string lower_str = ss1.str();
-        std::string upper_str = ss2.str();
-
+        // String type is different, it has to pass in length
+        if constexpr (std::is_same_v<T, std::string>) {
+            lower_column->insert_data(bucket.lower.c_str(), bucket.lower.length());
+            upper_column->insert_data(bucket.upper.c_str(), bucket.upper.length());
+        } else {
+            lower_column->insert_data(reinterpret_cast<const char*>(&bucket.lower), 0);
+            upper_column->insert_data(reinterpret_cast<const char*>(&bucket.upper), 0);
+        }
+    }
+    size_t row_num = 0;
+    for (const auto& bucket : buckets) {
+        std::string lower_str = data_type->to_string(*lower_column, row_num);
+        std::string upper_str = data_type->to_string(*upper_column, row_num);
+        ++row_num;
         lower_val.SetString(lower_str.data(), static_cast<rapidjson::SizeType>(lower_str.size()),
                             allocator);
         upper_val.SetString(upper_str.data(), static_cast<rapidjson::SizeType>(upper_str.size()),
@@ -288,62 +297,6 @@ bool histogram_to_json(rapidjson::StringBuffer& buffer, const std::vector<Bucket
     doc.Accept(writer);
 
     return !buckets.empty() && buffer.GetSize() > 0;
-}
-
-template <typename T>
-bool value_to_string(std::stringstream& ss, T input, const DataTypePtr& data_type) {
-    if constexpr (std::is_same_v<T, Decimal32> || std::is_same_v<T, Decimal64> ||
-                  std::is_same_v<T, Decimal128> || std::is_same_v<T, Decimal128I>) {
-        auto scale = get_decimal_scale(*data_type);
-        ss << input.to_string(scale);
-        return true;
-    }
-
-    switch (data_type->get_type_id()) {
-    case TypeIndex::Int8:
-    case TypeIndex::UInt8:
-    case TypeIndex::Int16:
-    case TypeIndex::UInt16:
-    case TypeIndex::Int32:
-    case TypeIndex::UInt32:
-    case TypeIndex::Int64:
-    case TypeIndex::UInt64:
-    case TypeIndex::Int128:
-    case TypeIndex::UInt128:
-    case TypeIndex::Float32:
-    case TypeIndex::Float64:
-    case TypeIndex::String: {
-        fmt::memory_buffer buffer;
-        fmt::format_to(buffer, "{}", input);
-        ss << std::string(buffer.data(), buffer.size());
-        break;
-    }
-    case TypeIndex::Date:
-    case TypeIndex::DateTime: {
-        auto* date_int = reinterpret_cast<Int64*>(&input);
-        auto date_value = binary_cast<Int64, VecDateTimeValue>(*date_int);
-        char buf[32] = {};
-        date_value.to_string(buf);
-        ss << std::string(buf, strlen(buf));
-        break;
-    }
-    case TypeIndex::DateV2: {
-        auto* value = (DateV2Value<DateV2ValueType>*)(&input);
-        ss << *value;
-        break;
-    }
-    case TypeIndex::DateTimeV2: {
-        auto* value = (DateV2Value<DateTimeV2ValueType>*)(&input);
-        ss << *value;
-        break;
-    }
-    default:
-        LOG(WARNING) << fmt::format("unable to convert histogram data of type {}",
-                                    data_type->get_name());
-        return false;
-    }
-
-    return true;
 }
 
 } // namespace  doris::vectorized

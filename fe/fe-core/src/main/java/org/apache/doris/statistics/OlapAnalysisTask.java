@@ -42,6 +42,8 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             + "FROM `${dbName}`.`${tblName}` "
             + "PARTITION ${partName}";
 
+    // TODO Currently, NDV is computed for the full table; in fact,
+    //  NDV should only be computed for the relevant partition.
     private static final String ANALYZE_COLUMN_SQL_TEMPLATE = INSERT_COL_STATISTICS
             + "     (SELECT NDV(`${colName}`) AS ndv "
             + "     FROM `${dbName}`.`${tblName}`) t2\n";
@@ -71,14 +73,15 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         List<String> partitionAnalysisSQLs = new ArrayList<>();
         try {
             tbl.readLock();
-            Set<String> partNames = tbl.getPartitionNames();
+            Set<String> partNames = info.partitionNames;
             for (String partName : partNames) {
                 Partition part = tbl.getPartition(partName);
                 if (part == null) {
                     continue;
                 }
                 params.put("partId", String.valueOf(tbl.getPartition(partName).getId()));
-                params.put("partName", String.valueOf(partName));
+                // Avoid error when get the default partition
+                params.put("partName", "`" + partName + "`");
                 StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
                 partitionAnalysisSQLs.add(stringSubstitutor.replace(ANALYZE_PARTITION_SQL_TEMPLATE));
             }

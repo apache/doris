@@ -8,6 +8,7 @@
 #include <rapidjson/stringbuffer.h>
 
 #include "gen_cpp/types.pb.h" // for PStatus
+#include "service/backend_options.h"
 
 namespace doris {
 
@@ -52,8 +53,8 @@ void Status::to_thrift(TStatus* s) const {
         return;
     }
     s->status_code = (int16_t)_code > 0 ? (TStatusCode::type)_code : TStatusCode::INTERNAL_ERROR;
-    s->error_msgs.push_back(
-            fmt::format("[{}]{}", code_as_string(), _err_msg ? _err_msg->_msg : ""));
+    s->error_msgs.push_back(fmt::format("({})[{}]{}", BackendOptions::get_localhost(),
+                                        code_as_string(), _err_msg ? _err_msg->_msg : ""));
     s->__isset.error_msgs = true;
 }
 
@@ -67,7 +68,8 @@ void Status::to_protobuf(PStatus* s) const {
     s->clear_error_msgs();
     s->set_status_code((int)_code);
     if (!ok() && _err_msg) {
-        s->add_error_msgs(_err_msg->_msg);
+        s->add_error_msgs(fmt::format("({})[{}]{}", BackendOptions::get_localhost(),
+                                      code_as_string(), _err_msg ? _err_msg->_msg : ""));
     }
 }
 

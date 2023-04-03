@@ -20,6 +20,8 @@ package org.apache.doris.load.loadv2;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LoadStmt;
+import org.apache.doris.analysis.SetVar;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
@@ -30,6 +32,8 @@ import org.apache.doris.common.io.ByteBufferNetworkInputStream;
 import org.apache.doris.load.LoadJobRowResult;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.system.SystemInfoService;
@@ -120,8 +124,11 @@ public class MysqlLoadManager {
         int oldTimeout = context.getExecTimeout();
         int newTimeOut = extractTimeOut(dataDesc);
         if (newTimeOut > oldTimeout) {
-            // set exec timeout avoid by killed TimeoutChecker
-            context.setExecTimeout(newTimeOut);
+            // set query timeout avoid by killed TimeoutChecker
+            SessionVariable sessionVariable = context.getSessionVariable();
+            sessionVariable.setIsSingleSetVar(true);
+            VariableMgr.setVar(sessionVariable,
+                    new SetVar(SessionVariable.QUERY_TIMEOUT, new StringLiteral(String.valueOf(newTimeOut))));
         }
         String token = tokenManager.acquireToken();
         LOG.info("execute MySqlLoadJob for id: {}.", loadId);
@@ -163,10 +170,6 @@ public class MysqlLoadManager {
             }
         } finally {
             loadContextMap.remove(loadId);
-            // revert the exec timeout
-            if (newTimeOut > oldTimeout) {
-                context.setExecTimeout(oldTimeout);
-            }
         }
         return loadResult;
     }
@@ -299,6 +302,12 @@ public class MysqlLoadManager {
             if (props.containsKey(LoadStmt.TIMEZONE)) {
                 String timezone = props.get(LoadStmt.TIMEZONE);
                 httpPut.addHeader(LoadStmt.TIMEZONE, timezone);
+            }
+
+            // trim quotes
+            if (props.containsKey(LoadStmt.KEY_TRIM_DOUBLE_QUOTES)) {
+                String trimQuotes = props.get(LoadStmt.KEY_TRIM_DOUBLE_QUOTES);
+                httpPut.addHeader(LoadStmt.KEY_TRIM_DOUBLE_QUOTES, trimQuotes);
             }
         }
 

@@ -21,11 +21,11 @@
 
 #include <iostream>
 
+#include "common/exception.h"
 #include "gen_cpp/data.pb.h"
 #include "util/binary_cast.hpp"
 #include "util/string_parser.hpp"
 #include "vec/common/arena.h"
-#include "vec/common/exception.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
 #include "vec/common/uint128.h"
@@ -169,7 +169,7 @@ inline void read_string_binary(std::string& s, BufferReadable& buf,
     read_var_uint(size, buf);
 
     if (size > MAX_STRING_SIZE) {
-        throw Exception("Too large string size.", TStatusCode::VEC_EXCEPTION);
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Too large string size.");
     }
 
     s.resize(size);
@@ -182,7 +182,7 @@ inline void read_string_binary(StringRef& s, BufferReadable& buf,
     read_var_uint(size, buf);
 
     if (size > MAX_STRING_SIZE) {
-        throw Exception("Too large string size.", TStatusCode::VEC_EXCEPTION);
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Too large string size.");
     }
 
     s = buf.read(size);
@@ -211,7 +211,7 @@ void read_vector_binary(std::vector<Type>& v, BufferReadable& buf,
     read_var_uint(size, buf);
 
     if (size > MAX_VECTOR_SIZE) {
-        throw Exception("Too large vector size.", TStatusCode::VEC_EXCEPTION);
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Too large vector size.");
     }
 
     v.resize(size);

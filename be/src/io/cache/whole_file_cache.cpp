@@ -36,28 +36,18 @@ WholeFileCache::WholeFileCache(const Path& cache_dir, int64_t alive_time_sec,
 
 WholeFileCache::~WholeFileCache() {}
 
-Status WholeFileCache::read_at(size_t offset, Slice result, const IOContext& io_ctx,
-                               size_t* bytes_read) {
-    if (bthread_self() == 0) {
-        return read_at_impl(offset, result, io_ctx, bytes_read);
-    }
-    Status s;
-    auto task = [&] { s = read_at_impl(offset, result, io_ctx, bytes_read); };
-    AsyncIO::run_task(task, io::FileSystemType::S3);
-    return s;
-}
-
-Status WholeFileCache::read_at_impl(size_t offset, Slice result, const IOContext& io_ctx,
-                                    size_t* bytes_read) {
-    if (io_ctx.reader_type != READER_QUERY) {
-        return _remote_file_reader->read_at(offset, result, io_ctx, bytes_read);
+Status WholeFileCache::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                                    const IOContext* io_ctx) {
+    DCHECK(io_ctx);
+    if (io_ctx->reader_type != READER_QUERY) {
+        return _remote_file_reader->read_at(offset, result, bytes_read, io_ctx);
     }
     if (_cache_file_reader == nullptr) {
         RETURN_IF_ERROR(_generate_cache_reader(offset, result.size));
     }
     std::shared_lock<std::shared_mutex> rlock(_cache_lock);
     RETURN_NOT_OK_STATUS_WITH_WARN(
-            _cache_file_reader->read_at(offset, result, io_ctx, bytes_read),
+            _cache_file_reader->read_at(offset, result, bytes_read, io_ctx),
             fmt::format("Read local cache file failed: {}", _cache_file_reader->path().native()));
     if (*bytes_read != result.size) {
         LOG(ERROR) << "read cache file failed: " << _cache_file_reader->path().native()
@@ -137,8 +127,7 @@ Status WholeFileCache::_generate_cache_reader(size_t offset, size_t req_size) {
             return st;
         }
     }
-    RETURN_IF_ERROR(
-            io::global_local_filesystem()->open_file(cache_file, &_cache_file_reader, nullptr));
+    RETURN_IF_ERROR(io::global_local_filesystem()->open_file(cache_file, &_cache_file_reader));
     _cache_file_size = _cache_file_reader->size();
     LOG(INFO) << "Create cache file from remote file successfully: "
               << _remote_file_reader->path().native() << " -> " << cache_file.native();

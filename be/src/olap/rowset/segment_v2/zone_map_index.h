@@ -22,13 +22,12 @@
 #include <vector>
 
 #include "common/status.h"
-#include "env/env.h"
 #include "gen_cpp/segment_v2.pb.h"
 #include "io/fs/file_reader.h"
 #include "olap/field.h"
 #include "olap/rowset/segment_v2/binary_plain_page.h"
-#include "runtime/mem_pool.h"
 #include "util/slice.h"
+#include "vec/common/arena.h"
 
 namespace doris {
 
@@ -130,12 +129,12 @@ private:
     }
 
     Field* _field;
-    // memory will be managed by MemPool
+    // memory will be managed by Arena
     ZoneMap _page_zone_map;
     ZoneMap _segment_zone_map;
-    // TODO(zc): we should replace this memory pool later, we only allocate min/max
-    // for field. But MemPool allocate 4KB least, it will a waste for most cases.
-    MemPool _pool;
+    // TODO(zc): we should replace this arena later, we only allocate min/max
+    // for field. But Arena allocate 4KB least, it will a waste for most cases.
+    vectorized::Arena _arena;
 
     // serialized ZoneMapPB for each data page
     std::vector<std::string> _values;

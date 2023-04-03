@@ -17,6 +17,8 @@
 
 #include "testutil/desc_tbl_builder.h"
 
+#include <gtest/gtest.h>
+
 #include <vector>
 
 #include "runtime/descriptors.h"
@@ -75,7 +77,7 @@ DescriptorTbl* DescriptorTblBuilder::build() {
     }
 
     Status status = DescriptorTbl::create(_obj_pool, thrift_desc_tbl, &desc_tbl);
-    DCHECK(status.ok());
+    EXPECT_TRUE(status.ok());
     return desc_tbl;
 }
 

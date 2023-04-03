@@ -24,6 +24,7 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LiteralExpr;
@@ -33,6 +34,7 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.UserException;
@@ -54,6 +56,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Representation of the common elements of all scan nodes.
@@ -137,8 +140,8 @@ public abstract class ScanNode extends PlanNode {
     }
 
     // TODO(ML): move it into PrunerOptimizer
-    public void computeColumnFilter() {
-        for (Column column : desc.getTable().getBaseSchema()) {
+    public void computeColumnFilter(List<Column> columns) {
+        for (Column column : columns) {
             SlotDescriptor slotDesc = desc.getColumnSlot(column.getName());
             if (null == slotDesc) {
                 continue;
@@ -156,6 +159,10 @@ public abstract class ScanNode extends PlanNode {
                 columnNameToRange.put(column.getName(), columnRange);
             }
         }
+    }
+
+    public void computeColumnFilter() {
+        computeColumnFilter(desc.getTable().getBaseSchema());
     }
 
     public static ColumnRange createColumnRange(SlotDescriptor desc,
@@ -493,5 +500,57 @@ public abstract class ScanNode extends PlanNode {
     // Subclass may override this method.
     public boolean needToCheckColumnPriv() {
         return true;
+    }
+
+    public void setOutputSmap(ExprSubstitutionMap smap, Analyzer analyzer) {
+        outputSmap = smap;
+        if (smap.getRhs().stream().anyMatch(expr -> !(expr instanceof SlotRef))) {
+            if (outputTupleDesc == null) {
+                outputTupleDesc = analyzer.getDescTbl().createTupleDescriptor("OlapScanNode");
+            }
+            if (projectList == null) {
+                projectList = Lists.newArrayList();
+            }
+            // setOutputSmap may be called multiple times
+            // this happens if the olap table is in the most inner sub-query block in the cascades sub-queries
+            // create a tmpSmap for the later setOutputSmap call
+            ExprSubstitutionMap tmpSmap = new ExprSubstitutionMap(
+                    Lists.newArrayList(outputTupleDesc.getSlots().stream().map(slot -> new SlotRef(slot)).collect(
+                            Collectors.toList())), Lists.newArrayList(projectList));
+            Set<SlotId> allOutputSlotIds = outputTupleDesc.getSlots().stream().map(slot -> slot.getId())
+                    .collect(Collectors.toSet());
+            List<Expr> newRhs = Lists.newArrayList();
+            List<Expr> rhs = smap.getRhs();
+            for (int i = 0; i < smap.size(); ++i) {
+                Expr rhsExpr = rhs.get(i);
+                if (!(rhsExpr instanceof SlotRef) || !(allOutputSlotIds.contains(((SlotRef) rhsExpr).getSlotId()))) {
+                    rhsExpr = rhsExpr.substitute(tmpSmap);
+                    if (rhsExpr.isBound(desc.getId())) {
+                        SlotDescriptor slotDesc = analyzer.addSlotDescriptor(outputTupleDesc);
+                        slotDesc.initFromExpr(rhsExpr);
+                        if (rhsExpr instanceof SlotRef) {
+                            slotDesc.setSrcColumn(((SlotRef) rhsExpr).getColumn());
+                        }
+                        slotDesc.setIsMaterialized(true);
+                        slotDesc.materializeSrcExpr();
+                        projectList.add(rhsExpr);
+                        newRhs.add(new SlotRef(slotDesc));
+                        allOutputSlotIds.add(slotDesc.getId());
+                    } else {
+                        newRhs.add(rhs.get(i));
+                    }
+                } else {
+                    newRhs.add(rhsExpr);
+                }
+            }
+            outputSmap.updateRhsExprs(newRhs);
+        }
+    }
+
+    public List<TupleId> getOutputTupleIds() {
+        if (outputTupleDesc != null) {
+            return Lists.newArrayList(outputTupleDesc.getId());
+        }
+        return tupleIds;
     }
 }

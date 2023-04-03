@@ -75,6 +75,7 @@ import org.apache.doris.analysis.RefreshMaterializedViewStmt;
 import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.RollupRenameClause;
+import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.ShowAlterStmt.AlterType;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableRenameClause;
@@ -306,6 +307,7 @@ public class Env {
     private QueryableReentrantLock lock;
 
     private CatalogMgr catalogMgr;
+    private GlobalFunctionMgr globalFunctionMgr;
     private Load load;
     private LoadManager loadManager;
     private StreamLoadRecordMgr streamLoadRecordMgr;
@@ -646,6 +648,7 @@ public class Env {
         if (!isCheckpointCatalog) {
             this.analysisManager = new AnalysisManager();
         }
+        this.globalFunctionMgr = new GlobalFunctionMgr();
     }
 
     public static void destroyCheckpoint() {
@@ -1400,6 +1403,7 @@ public class Env {
         if (!Config.enable_deploy_manager.equalsIgnoreCase("disable")) {
             LOG.info("deploy manager {} start", deployManager.getName());
             deployManager.start();
+            deployManager.startListener();
         }
         // start routine load scheduler
         routineLoadScheduler.start();
@@ -1921,6 +1925,15 @@ public class Env {
         return checksum;
     }
 
+    /**
+     * Load global function.
+     **/
+    public long loadGlobalFunction(DataInputStream in, long checksum) throws IOException {
+        this.globalFunctionMgr = GlobalFunctionMgr.read(in);
+        LOG.info("finished replay global function from image");
+        return checksum;
+    }
+
     // Only called by checkpoint thread
     // return the latest image file's absolute path
     public String saveImage() throws IOException {
@@ -2155,6 +2168,12 @@ public class Env {
             Env.getCurrentEnv().getMTMVJobManager().write(out, checksum);
             LOG.info("Save mtmv job and tasks to image");
         }
+        return checksum;
+    }
+
+    public long saveGlobalFunction(CountingDataOutputStream out, long checksum) throws IOException {
+        this.globalFunctionMgr.write(out);
+        LOG.info("Save global function to image");
         return checksum;
     }
 
@@ -3866,23 +3885,23 @@ public class Env {
     }
 
     // the invoker should keep table's write lock
-    public void modifyTableColocate(Database db, OlapTable table, String colocateGroup, boolean isReplay,
+    public void modifyTableColocate(Database db, OlapTable table, String assignedGroup, boolean isReplay,
             GroupId assignedGroupId)
             throws DdlException {
 
         String oldGroup = table.getColocateGroup();
         GroupId groupId = null;
-        if (!Strings.isNullOrEmpty(colocateGroup)) {
-            String fullGroupName = db.getId() + "_" + colocateGroup;
+        if (!Strings.isNullOrEmpty(assignedGroup)) {
+            String fullAssignedGroupName = GroupId.getFullGroupName(db.getId(), assignedGroup);
             //When the new name is the same as the old name, we return it to prevent npe
             if (!Strings.isNullOrEmpty(oldGroup)) {
-                String oldFullGroupName = db.getId() + "_" + oldGroup;
-                if (oldFullGroupName.equals(fullGroupName)) {
+                String oldFullGroupName = GroupId.getFullGroupName(db.getId(), oldGroup);
+                if (oldFullGroupName.equals(fullAssignedGroupName)) {
                     LOG.warn("modify table[{}] group name same as old group name,skip.", table.getName());
                     return;
                 }
             }
-            ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(fullGroupName);
+            ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(fullAssignedGroupName);
             if (groupSchema == null) {
                 // user set a new colocate group,
                 // check if all partitions all this table has same buckets num and same replication number
@@ -3919,7 +3938,7 @@ public class Env {
                 backendsPerBucketSeq = table.getArbitraryTabletBucketsSeq();
             }
             // change group after getting backends sequence(if has), in case 'getArbitraryTabletBucketsSeq' failed
-            groupId = colocateTableIndex.changeGroup(db.getId(), table, oldGroup, colocateGroup, assignedGroupId);
+            groupId = colocateTableIndex.changeGroup(db.getId(), table, oldGroup, assignedGroup, assignedGroupId);
 
             if (groupSchema == null) {
                 Preconditions.checkNotNull(backendsPerBucketSeq);
@@ -3929,7 +3948,7 @@ public class Env {
             // set this group as unstable
             colocateTableIndex.markGroupUnstable(groupId, "Colocation group modified by user",
                     false /* edit log is along with modify table log */);
-            table.setColocateGroup(colocateGroup);
+            table.setColocateGroup(assignedGroup);
         } else {
             // unset colocation group
             if (Strings.isNullOrEmpty(oldGroup)) {
@@ -3938,17 +3957,16 @@ public class Env {
             }
 
             // when replayModifyTableColocate, we need the groupId info
-            String fullGroupName = db.getId() + "_" + oldGroup;
+            String fullGroupName = GroupId.getFullGroupName(db.getId(), oldGroup);
             groupId = colocateTableIndex.getGroupSchema(fullGroupName).getGroupId();
-
             colocateTableIndex.removeTable(table.getId());
             table.setColocateGroup(null);
         }
 
         if (!isReplay) {
             Map<String, String> properties = Maps.newHashMapWithExpectedSize(1);
-            properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, colocateGroup);
-            TablePropertyInfo info = new TablePropertyInfo(table.getId(), groupId, properties);
+            properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, assignedGroup);
+            TablePropertyInfo info = new TablePropertyInfo(db.getId(), table.getId(), groupId, properties);
             editLog.logModifyTableColocate(info);
         }
         LOG.info("finished modify table's colocation property. table: {}, is replay: {}", table.getName(), isReplay);
@@ -3956,6 +3974,10 @@ public class Env {
 
     public void replayModifyTableColocate(TablePropertyInfo info) throws MetaNotFoundException {
         long dbId = info.getGroupId().dbId;
+        if (dbId == 0) {
+            dbId = info.getDbId();
+        }
+        Preconditions.checkState(dbId != 0, "replay modify table colocate failed, table id: " + info.getTableId());
         long tableId = info.getTableId();
         Map<String, String> properties = info.getPropertyMap();
 
@@ -4807,9 +4829,12 @@ public class Env {
     }
 
     public void createFunction(CreateFunctionStmt stmt) throws UserException {
-        FunctionName name = stmt.getFunctionName();
-        Database db = getInternalCatalog().getDbOrDdlException(name.getDb());
-        db.addFunction(stmt.getFunction(), stmt.isIfNotExists());
+        if (SetType.GLOBAL.equals(stmt.getType())) {
+            globalFunctionMgr.addFunction(stmt.getFunction(), stmt.isIfNotExists());
+        } else {
+            Database db = getInternalCatalog().getDbOrDdlException(stmt.getFunctionName().getDb());
+            db.addFunction(stmt.getFunction(), stmt.isIfNotExists());
+        }
     }
 
     public void replayCreateFunction(Function function) throws MetaNotFoundException {
@@ -4818,16 +4843,28 @@ public class Env {
         db.replayAddFunction(function);
     }
 
+    public void replayCreateGlobalFunction(Function function) {
+        globalFunctionMgr.replayAddFunction(function);
+    }
+
     public void dropFunction(DropFunctionStmt stmt) throws UserException {
         FunctionName name = stmt.getFunctionName();
-        Database db = getInternalCatalog().getDbOrDdlException(name.getDb());
-        db.dropFunction(stmt.getFunction(), stmt.isIfExists());
+        if (SetType.GLOBAL.equals(stmt.getType())) {
+            globalFunctionMgr.dropFunction(stmt.getFunction(), stmt.isIfExists());
+        } else {
+            Database db = getInternalCatalog().getDbOrDdlException(name.getDb());
+            db.dropFunction(stmt.getFunction(), stmt.isIfExists());
+        }
     }
 
     public void replayDropFunction(FunctionSearchDesc functionSearchDesc) throws MetaNotFoundException {
         String dbName = functionSearchDesc.getName().getDb();
         Database db = getInternalCatalog().getDbOrMetaException(dbName);
         db.replayDropFunction(functionSearchDesc);
+    }
+
+    public void replayDropGlobalFunction(FunctionSearchDesc functionSearchDesc) {
+        globalFunctionMgr.replayDropFunction(functionSearchDesc);
     }
 
     public void setConfig(AdminSetConfigStmt stmt) throws DdlException {
@@ -5287,4 +5324,8 @@ public class Env {
         return analysisManager;
     }
 
+
+    public GlobalFunctionMgr getGlobalFunctionMgr() {
+        return globalFunctionMgr;
+    }
 }

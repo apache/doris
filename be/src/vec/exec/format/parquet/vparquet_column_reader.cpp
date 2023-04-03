@@ -171,8 +171,8 @@ Status ScalarColumnReader::init(io::FileReaderSPtr file, FieldSchema* field, siz
                                   ? chunk_meta.dictionary_page_offset
                                   : chunk_meta.data_page_offset;
     size_t chunk_len = chunk_meta.total_compressed_size;
-    _stream_reader = std::make_unique<BufferedFileStreamReader>(file, chunk_start, chunk_len,
-                                                                std::min(chunk_len, max_buf_size));
+    _stream_reader = std::make_unique<io::BufferedFileStreamReader>(
+            file, chunk_start, chunk_len, std::min(chunk_len, max_buf_size));
     _chunk_reader =
             std::make_unique<ColumnChunkReader>(_stream_reader.get(), &_chunk_meta, field, _ctz);
     RETURN_IF_ERROR(_chunk_reader->init());
@@ -580,10 +580,8 @@ Status MapColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& t
             reinterpret_cast<const DataTypeMap*>(remove_nullable(type).get())->get_key_type());
     DataTypePtr& value_type = const_cast<DataTypePtr&>(
             reinterpret_cast<const DataTypeMap*>(remove_nullable(type).get())->get_value_type());
-    ColumnPtr& key_column =
-            typeid_cast<ColumnArray*>(map.get_keys_ptr()->assume_mutable().get())->get_data_ptr();
-    ColumnPtr& value_column =
-            typeid_cast<ColumnArray*>(map.get_values_ptr()->assume_mutable().get())->get_data_ptr();
+    ColumnPtr& key_column = map.get_keys_ptr();
+    ColumnPtr& value_column = map.get_values_ptr();
 
     size_t key_rows = 0;
     size_t value_rows = 0;

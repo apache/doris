@@ -45,8 +45,11 @@ public class CancelLoadAction extends RestBaseController {
     @RequestMapping(path = "/api/{" + DB_KEY + "}/_cancel", method = RequestMethod.POST)
     public Object execute(@PathVariable(value = DB_KEY) final String dbName,
                           HttpServletRequest request, HttpServletResponse response) {
-        executeCheckPassword(request, response);
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
 
+        executeCheckPassword(request, response);
         RedirectView redirectView = redirectToMaster(request, response);
         if (redirectView != null) {
             return redirectView;

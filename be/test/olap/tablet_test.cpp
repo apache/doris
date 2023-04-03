@@ -22,6 +22,7 @@
 #include <sstream>
 
 #include "http/action/pad_rowset_action.h"
+#include "io/fs/local_file_system.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/storage_engine.h"
@@ -29,7 +30,6 @@
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema_cache.h"
 #include "testutil/mock_rowset.h"
-#include "util/file_utils.h"
 #include "util/time.h"
 
 using namespace std;
@@ -73,11 +73,10 @@ public:
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         absolute_dir = std::string(buffer) + kTestDir;
 
-        if (FileUtils::check_exist(absolute_dir)) {
-            EXPECT_TRUE(FileUtils::remove_all(absolute_dir).ok());
-        }
-        EXPECT_TRUE(FileUtils::create_dir(absolute_dir).ok());
-        EXPECT_TRUE(FileUtils::create_dir(absolute_dir + "/tablet_path").ok());
+        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(absolute_dir).ok());
+        EXPECT_TRUE(io::global_local_filesystem()
+                            ->create_directory(absolute_dir + "/tablet_path")
+                            .ok());
         _data_dir = std::make_unique<DataDir>(absolute_dir);
         _data_dir->update_capacity();
 
@@ -87,9 +86,7 @@ public:
     }
 
     void TearDown() override {
-        if (FileUtils::check_exist(absolute_dir)) {
-            EXPECT_TRUE(FileUtils::remove_all(absolute_dir).ok());
-        }
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(absolute_dir).ok());
         if (k_engine != nullptr) {
             k_engine->stop();
             delete k_engine;

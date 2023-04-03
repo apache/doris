@@ -134,6 +134,11 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
         return outputExpressions;
     }
 
+    @Override
+    public List<NamedExpression> getOutputs() {
+        return outputExpressions;
+    }
+
     public Optional<List<Expression>> getPartitionExpressions() {
         return partitionExpressions;
     }
@@ -257,7 +262,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
     @Override
     public PhysicalHashAggregate<CHILD_TYPE> withAggOutput(List<NamedExpression> newOutput) {
         return new PhysicalHashAggregate<>(groupByExpressions, newOutput, partitionExpressions,
-                aggregateParam, maybeUsingStream, groupExpression, getLogicalProperties(),
+                aggregateParam, maybeUsingStream, Optional.empty(), getLogicalProperties(),
                 requireProperties, physicalProperties, statistics, child());
     }
 

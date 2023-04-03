@@ -38,11 +38,10 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 
-#define TRY_LOCK true
-
 namespace doris {
 void write_log_info(char* buf, size_t buf_len, const char* fmt, ...);
 static const std::string DELETE_SIGN = "__DORIS_DELETE_SIGN__";
+static const std::string WHERE_SIGN = "__DORIS_WHERE_SIGN__";
 static const std::string VERSION_COL = "__DORIS_VERSION_COL__";
 
 // 用来加速运算
@@ -155,7 +154,7 @@ int operator-(const BinarySearchIterator& left, const BinarySearchIterator& righ
 // 不用sse4指令的crc32c的计算函数
 unsigned int crc32c_lut(char const* b, unsigned int off, unsigned int len, unsigned int crc);
 
-bool check_datapath_rw(const std::string& path);
+Status check_datapath_rw(const std::string& path);
 
 Status read_write_test_file(const std::string& test_file_path);
 

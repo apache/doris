@@ -156,23 +156,11 @@ Status VCollectIterator::build_heap(std::vector<RowsetReaderSharedPtr>& rs_reade
                     new Level1Iterator(_children, _reader, _merge, _is_reverse, _skip_same));
         }
     } else {
-        bool have_multiple_child = false;
-        bool is_first_child = true;
-        for (auto iter = _children.begin(); iter != _children.end();) {
-            auto s = (*iter)->init_for_union(is_first_child, have_multiple_child);
-            if (!s.ok()) {
-                delete (*iter);
-                iter = _children.erase(iter);
-                if (!s.is<END_OF_FILE>()) {
-                    return s;
-                }
-            } else {
-                have_multiple_child = true;
-                is_first_child = false;
-                ++iter;
-            }
-        }
-        _inner_iter.reset(new Level1Iterator(_children, _reader, _merge, _is_reverse, _skip_same));
+        auto level1_iter = std::make_unique<Level1Iterator>(_children, _reader, _merge, _is_reverse,
+                                                            _skip_same);
+        _children.clear();
+        RETURN_IF_ERROR(level1_iter->init_level0_iterators_for_union());
+        _inner_iter.reset(level1_iter.release());
     }
     RETURN_IF_NOT_EOF_AND_OK(_inner_iter->init());
     // Clear _children earlier to release any related references
@@ -636,6 +624,27 @@ Status VCollectIterator::Level1Iterator::init(bool get_data_by_ref) {
         _cur_child = *_children.begin();
     }
     _ref = *_cur_child->current_row_ref();
+    return Status::OK();
+}
+
+Status VCollectIterator::Level1Iterator::init_level0_iterators_for_union() {
+    bool have_multiple_child = false;
+    bool is_first_child = true;
+    for (auto iter = _children.begin(); iter != _children.end();) {
+        auto s = (*iter)->init_for_union(is_first_child, have_multiple_child);
+        if (!s.ok()) {
+            delete (*iter);
+            iter = _children.erase(iter);
+            if (!s.is<END_OF_FILE>()) {
+                return s;
+            }
+        } else {
+            have_multiple_child = true;
+            is_first_child = false;
+            ++iter;
+        }
+    }
+
     return Status::OK();
 }
 

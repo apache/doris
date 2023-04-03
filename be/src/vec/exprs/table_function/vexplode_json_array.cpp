@@ -127,7 +127,7 @@ VExplodeJsonArrayTableFunction::VExplodeJsonArrayTableFunction(ExplodeJsonArrayT
     _fn_name = "vexplode_json_array";
 }
 
-Status VExplodeJsonArrayTableFunction::process_init(vectorized::Block* block) {
+Status VExplodeJsonArrayTableFunction::process_init(Block* block) {
     CHECK(_vexpr_context->root()->children().size() == 1)
             << _vexpr_context->root()->children().size();
 
@@ -139,28 +139,15 @@ Status VExplodeJsonArrayTableFunction::process_init(vectorized::Block* block) {
     return Status::OK();
 }
 
-Status VExplodeJsonArrayTableFunction::reset() {
-    _eos = false;
-    _cur_offset = 0;
-    return Status::OK();
-}
-
 Status VExplodeJsonArrayTableFunction::process_row(size_t row_idx) {
-    _is_current_empty = false;
-    _eos = false;
+    RETURN_IF_ERROR(TableFunction::process_row(row_idx));
 
     StringRef text = _text_column->get_data_at(row_idx);
-    if (text.data == nullptr) {
-        _is_current_empty = true;
-    } else {
+    if (text.data != nullptr) {
         rapidjson::Document document;
         document.Parse(text.data, text.size);
-        if (UNLIKELY(document.HasParseError()) || !document.IsArray() ||
-            document.GetArray().Size() == 0) {
-            _is_current_empty = true;
-        } else {
+        if (!document.HasParseError() && document.IsArray() && document.GetArray().Size()) {
             _cur_size = _parsed_data.set_output(_type, document);
-            _cur_offset = 0;
         }
     }
     return Status::OK();
@@ -171,22 +158,13 @@ Status VExplodeJsonArrayTableFunction::process_close() {
     return Status::OK();
 }
 
-Status VExplodeJsonArrayTableFunction::get_value_length(int64_t* length) {
-    if (_is_current_empty) {
-        *length = -1;
+void VExplodeJsonArrayTableFunction::get_value(MutableColumnPtr& column) {
+    if (current_empty()) {
+        column->insert_default();
     } else {
-        _parsed_data.get_value_length(_type, _cur_offset, length);
+        column->insert_data((char*)_parsed_data.get_value(_type, _cur_offset, true),
+                            _parsed_data.get_value_length(_type, _cur_offset));
     }
-    return Status::OK();
-}
-
-Status VExplodeJsonArrayTableFunction::get_value(void** output) {
-    if (_is_current_empty) {
-        *output = nullptr;
-    } else {
-        _parsed_data.get_value(_type, _cur_offset, output, true);
-    }
-    return Status::OK();
 }
 
 } // namespace doris::vectorized

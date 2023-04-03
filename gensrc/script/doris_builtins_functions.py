@@ -37,6 +37,11 @@
 # eg. [['element_at', '%element_extract%'], 'V', ['MAP<K, V>', 'K'], 'ALWAYS_NULLABLE', ['K', 'V']],
 #     'K' and 'V' is type template and will be specialized at runtime in FE to match specific args.
 #
+# 'template_types' support variadic template is now support variadic template.
+# eg. [['struct'], 'STRUCT<TYPES>', ['TYPES'], 'ALWAYS_NOT_NULLABLE', ['TYPES...']],
+#     Inspired by C++ std::vector::emplace_back() function. 'TYPES...' is variadic template and will
+#     be expanded to normal templates at runtime in FE to match variadic args. Please ensure that the
+#     variadic template is placed at the last position of all templates.
 visible_functions = [
     # Bit and Byte functions
     # For functions corresponding to builtin operators, we can reuse the implementations
@@ -63,6 +68,19 @@ visible_functions = [
     [['bitnot'], 'INT', ['INT'], ''],
     [['bitnot'], 'BIGINT', ['BIGINT'], ''],
     [['bitnot'], 'LARGEINT', ['LARGEINT'], ''],
+
+    # map functions
+    [['map'], 'MAP<K, V>', ['K', 'V', '...'], 'ALWAYS_NOT_NULLABLE', ['K', 'V']],
+    [['element_at', '%element_extract%'], 'V', ['MAP<K, V>', 'K'], 'ALWAYS_NULLABLE', ['K', 'V']],
+    [['size', 'map_size'], 'BIGINT', ['MAP<K, V>'], '', ['K', 'V']],
+    [['map_contains_key'], 'BOOLEAN', ['MAP<K, V>', 'K'], 'ALWAYS_NULLABLE', ['K', 'V']],
+    [['map_contains_value'], 'BOOLEAN', ['MAP<K, V>', 'V'], 'ALWAYS_NULLABLE', ['K', 'V']],
+    #[['map_contains_key_like'], 'BOOLEAN', ['MAP<K, V>', 'K'], '', ['K', 'V']],
+    [['map_keys'], 'ARRAY<K>', ['MAP<K, V>'], '', ['K', 'V']],
+    [['map_values'], 'ARRAY<V>', ['MAP<K, V>'], '', ['K', 'V']],
+
+    # struct functions
+    [['struct'], 'STRUCT<TYPES>', ['TYPES'], 'ALWAYS_NOT_NULLABLE', ['TYPES...']],
 
     # array functions
     [['array'], 'ARRAY', ['BOOLEAN', '...'], 'ALWAYS_NOT_NULLABLE'],
@@ -102,9 +120,6 @@ visible_functions = [
     [['element_at', '%element_extract%'], 'DECIMAL128', ['ARRAY_DECIMAL128', 'BIGINT'], 'ALWAYS_NULLABLE'],
     [['element_at', '%element_extract%'], 'VARCHAR', ['ARRAY_VARCHAR', 'BIGINT'], 'ALWAYS_NULLABLE'],
     [['element_at', '%element_extract%'], 'STRING', ['ARRAY_STRING', 'BIGINT'], 'ALWAYS_NULLABLE'],
-
-    # map element
-    [['element_at', '%element_extract%'], 'V', ['MAP<K, V>', 'K'], 'ALWAYS_NULLABLE', ['K', 'V']],
 
     [['arrays_overlap'], 'BOOLEAN', ['ARRAY_BOOLEAN', 'ARRAY_BOOLEAN'], 'ALWAYS_NULLABLE'],
     [['arrays_overlap'], 'BOOLEAN', ['ARRAY_TINYINT', 'ARRAY_TINYINT'], 'ALWAYS_NULLABLE'],
@@ -270,6 +285,25 @@ visible_functions = [
     [['array_sort'], 'ARRAY_DECIMAL128', ['ARRAY_DECIMAL128'], ''],
     [['array_sort'], 'ARRAY_VARCHAR',   ['ARRAY_VARCHAR'], ''],
     [['array_sort'], 'ARRAY_STRING',    ['ARRAY_STRING'], ''],
+
+    [['array_reverse_sort'], 'ARRAY_BOOLEAN',   ['ARRAY_BOOLEAN'], ''],
+    [['array_reverse_sort'], 'ARRAY_TINYINT',   ['ARRAY_TINYINT'], ''],
+    [['array_reverse_sort'], 'ARRAY_SMALLINT',  ['ARRAY_SMALLINT'], ''],
+    [['array_reverse_sort'], 'ARRAY_INT',       ['ARRAY_INT'], ''],
+    [['array_reverse_sort'], 'ARRAY_BIGINT',    ['ARRAY_BIGINT'], ''],
+    [['array_reverse_sort'], 'ARRAY_LARGEINT',  ['ARRAY_LARGEINT'], ''],
+    [['array_reverse_sort'], 'ARRAY_DATETIME',  ['ARRAY_DATETIME'], ''],
+    [['array_reverse_sort'], 'ARRAY_DATE',      ['ARRAY_DATE'], ''],
+    [['array_reverse_sort'], 'ARRAY_DATETIMEV2',  ['ARRAY_DATETIMEV2'], ''],
+    [['array_reverse_sort'], 'ARRAY_DATEV2',      ['ARRAY_DATEV2'], ''],
+    [['array_reverse_sort'], 'ARRAY_FLOAT',     ['ARRAY_FLOAT'], ''],
+    [['array_reverse_sort'], 'ARRAY_DOUBLE',    ['ARRAY_DOUBLE'], ''],
+    [['array_reverse_sort'], 'ARRAY_DECIMALV2', ['ARRAY_DECIMALV2'], ''],
+    [['array_reverse_sort'], 'ARRAY_DECIMAL32', ['ARRAY_DECIMAL32'], ''],
+    [['array_reverse_sort'], 'ARRAY_DECIMAL64', ['ARRAY_DECIMAL64'], ''],
+    [['array_reverse_sort'], 'ARRAY_DECIMAL128', ['ARRAY_DECIMAL128'], ''],
+    [['array_reverse_sort'], 'ARRAY_VARCHAR',   ['ARRAY_VARCHAR'], ''],
+    [['array_reverse_sort'], 'ARRAY_STRING',    ['ARRAY_STRING'], ''],
 
     # array_join takes two params
     [['array_join'], 'STRING',   ['ARRAY_BOOLEAN','VARCHAR'], ''],
@@ -585,6 +619,63 @@ visible_functions = [
     [['array_popfront'], 'ARRAY_VARCHAR', ['ARRAY_VARCHAR'], ''],
     [['array_popfront'], 'ARRAY_STRING', ['ARRAY_STRING'], ''],
     [['array_map'], 'ARRAY',   ['LAMBDA_FUNCTION', 'ARRAY', '...'], ''],
+    [['array_filter'], 'ARRAY_BOOLEAN',['ARRAY_BOOLEAN', 'ARRAY_BOOLEAN'], ''],
+    [['array_filter'], 'ARRAY_TINYINT',['ARRAY_TINYINT', 'ARRAY_BOOLEAN'], ''],
+    [['array_filter'], 'ARRAY_SMALLINT',['ARRAY_SMALLINT', 'ARRAY_BOOLEAN'], ''],
+    [['array_filter'], 'ARRAY_INT',['ARRAY_INT', 'ARRAY_BOOLEAN'], ''],
+    [['array_filter'], 'ARRAY_BIGINT',['ARRAY_BIGINT', 'ARRAY_BOOLEAN'], ''],
+    [['array_filter'], 'ARRAY_LARGEINT',['ARRAY_LARGEINT', 'ARRAY_BOOLEAN'], ''],
+    [['array_filter'], 'ARRAY_FLOAT',['ARRAY_FLOAT', 'ARRAY_BOOLEAN'], ''],
+    [['array_filter'], 'ARRAY_DOUBLE',['ARRAY_DOUBLE', 'ARRAY_BOOLEAN'], ''],
+    [['array_filter'], 'ARRAY_VARCHAR',['ARRAY_VARCHAR', 'ARRAY_BOOLEAN'], ''],
+    [['array_filter'], 'ARRAY_STRING',['ARRAY_STRING', 'ARRAY_BOOLEAN'], ''],
+    [['array_filter'], 'ARRAY_DECIMALV2',['ARRAY_DECIMALV2', 'ARRAY_BOOLEAN'], ''],
+    [['array_filter'], 'ARRAY_DECIMAL32',['ARRAY_DECIMAL32', 'ARRAY_BOOLEAN'], ''],
+    [['array_filter'], 'ARRAY_DECIMAL64',['ARRAY_DECIMAL64', 'ARRAY_BOOLEAN'], ''],
+    [['array_filter'], 'ARRAY_DECIMAL128',['ARRAY_DECIMAL128', 'ARRAY_BOOLEAN'], ''],
+    [['array_filter'], 'ARRAY_DATETIME',['ARRAY_DATETIME', 'ARRAY_BOOLEAN'], ''],
+    [['array_filter'], 'ARRAY_DATE',['ARRAY_DATE', 'ARRAY_BOOLEAN'], ''],
+    [['array_filter'], 'ARRAY_DATETIMEV2',['ARRAY_DATETIMEV2', 'ARRAY_BOOLEAN'], ''],
+    [['array_filter'], 'ARRAY_DATEV2',['ARRAY_DATEV2', 'ARRAY_BOOLEAN'], ''],
+    [['array_sortby'], 'ARRAY<K>',['ARRAY<K>', 'ARRAY_BOOLEAN'], 'CUSTOM', ['K']],
+    [['array_sortby'], 'ARRAY<K>',['ARRAY<K>', 'ARRAY_TINYINT'], 'CUSTOM', ['K']],
+    [['array_sortby'], 'ARRAY<K>',['ARRAY<K>', 'ARRAY_SMALLINT'], 'CUSTOM', ['K']],
+    [['array_sortby'], 'ARRAY<K>',['ARRAY<K>', 'ARRAY_INT'], 'CUSTOM', ['K']],
+    [['array_sortby'], 'ARRAY<K>',['ARRAY<K>', 'ARRAY_BIGINT'], 'CUSTOM', ['K']],
+    [['array_sortby'], 'ARRAY<K>',['ARRAY<K>', 'ARRAY_LARGEINT'], 'CUSTOM', ['K']],
+    [['array_sortby'], 'ARRAY<K>',['ARRAY<K>', 'ARRAY_FLOAT'], 'CUSTOM', ['K']],
+    [['array_sortby'], 'ARRAY<K>',['ARRAY<K>', 'ARRAY_DOUBLE'], 'CUSTOM', ['K']],
+    [['array_sortby'], 'ARRAY<K>',['ARRAY<K>', 'ARRAY_VARCHAR'], 'CUSTOM', ['K']],
+    [['array_sortby'], 'ARRAY<K>',['ARRAY<K>', 'ARRAY_STRING'], 'CUSTOM', ['K']],
+    [['array_sortby'], 'ARRAY<K>',['ARRAY<K>', 'ARRAY_DECIMALV2'], 'CUSTOM', ['K']],
+    [['array_sortby'], 'ARRAY<K>',['ARRAY<K>', 'ARRAY_DECIMAL32'], 'CUSTOM', ['K']],
+    [['array_sortby'], 'ARRAY<K>',['ARRAY<K>', 'ARRAY_DECIMAL64'], 'CUSTOM', ['K']],
+    [['array_sortby'], 'ARRAY<K>',['ARRAY<K>', 'ARRAY_DECIMAL128'], 'CUSTOM', ['K']],
+    [['array_sortby'], 'ARRAY<K>',['ARRAY<K>', 'ARRAY_DATETIME'], 'CUSTOM', ['K']],
+    [['array_sortby'], 'ARRAY<K>',['ARRAY<K>', 'ARRAY_DATE'], 'CUSTOM', ['K']],
+    [['array_sortby'], 'ARRAY<K>',['ARRAY<K>', 'ARRAY_DATETIMEV2'], 'CUSTOM', ['K']],
+    [['array_sortby'], 'ARRAY<K>',['ARRAY<K>', 'ARRAY_DATEV2'], 'CUSTOM', ['K']],
+
+    [['array_exists'], 'ARRAY_BOOLEAN', ['ARRAY_BOOLEAN'], ''],
+    [['array_exists'], 'ARRAY_BOOLEAN', ['ARRAY_TINYINT'], ''],
+    [['array_exists'], 'ARRAY_BOOLEAN', ['ARRAY_SMALLINT'], ''],
+    [['array_exists'], 'ARRAY_BOOLEAN', ['ARRAY_INT'], ''],
+    [['array_exists'], 'ARRAY_BOOLEAN', ['ARRAY_BIGINT'], ''],
+    [['array_exists'], 'ARRAY_BOOLEAN', ['ARRAY_LARGEINT'], ''],
+    [['array_exists'], 'ARRAY_BOOLEAN', ['ARRAY_DATETIME'], ''],
+    [['array_exists'], 'ARRAY_BOOLEAN', ['ARRAY_DATE'], ''],
+    [['array_exists'], 'ARRAY_BOOLEAN', ['ARRAY_DATETIMEV2'], ''],
+    [['array_exists'], 'ARRAY_BOOLEAN', ['ARRAY_DATEV2'], ''],
+    [['array_exists'], 'ARRAY_BOOLEAN', ['ARRAY_FLOAT'], ''],
+    [['array_exists'], 'ARRAY_BOOLEAN', ['ARRAY_DOUBLE'], ''],
+    [['array_exists'], 'ARRAY_BOOLEAN', ['ARRAY_DECIMALV2'], ''],
+    [['array_exists'], 'ARRAY_BOOLEAN', ['ARRAY_DECIMAL32'], ''],
+    [['array_exists'], 'ARRAY_BOOLEAN', ['ARRAY_DECIMAL64'], ''],
+    [['array_exists'], 'ARRAY_BOOLEAN', ['ARRAY_DECIMAL128'], ''],
+    [['array_exists'], 'ARRAY_BOOLEAN', ['ARRAY_VARCHAR'], ''],
+    [['array_exists'], 'ARRAY_BOOLEAN', ['ARRAY_STRING'], ''],
+
+    [['array_first_index'], 'BIGINT', ['ARRAY_BOOLEAN'], 'ALWAYS_NOT_NULLABLE'],
 
     [['array_pushfront'], 'ARRAY_BOOLEAN',    ['ARRAY_BOOLEAN', 'BOOLEAN'], 'ALWAYS_NULLABLE'],
     [['array_pushfront'], 'ARRAY_TINYINT',    ['ARRAY_TINYINT', 'TINYINT'], 'ALWAYS_NULLABLE'],
@@ -627,6 +718,9 @@ visible_functions = [
     [['array_range'], 'ARRAY_INT', ['INT'], 'ALWAYS_NULLABLE'],
     [['array_range'], 'ARRAY_INT', ['INT', 'INT'], 'ALWAYS_NULLABLE'],
     [['array_range'], 'ARRAY_INT', ['INT', 'INT', 'INT'], 'ALWAYS_NULLABLE'],
+    
+    [['array_zip'], 'ARRAY', ['ARRAY', '...'], ''],
+
     # reverse function for string builtin
     [['reverse'], 'VARCHAR', ['VARCHAR'], ''],
     # reverse function support the longtext
@@ -1487,11 +1581,14 @@ visible_functions = [
     [['get_json_int'], 'INT', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
     [['get_json_double'], 'DOUBLE', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
     [['get_json_string'], 'STRING', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
+    [['get_json_bigint'], 'BIGINT', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['get_json_bigint'], 'BIGINT', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
 
     [['json_array'], 'VARCHAR', ['VARCHAR', '...'], 'ALWAYS_NOT_NULLABLE'],
     [['json_object'], 'VARCHAR', ['VARCHAR', '...'], 'ALWAYS_NOT_NULLABLE'],
     [['json_quote'], 'VARCHAR', ['VARCHAR'], ''],
     [['json_valid'], 'INT', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['json_extract'], 'VARCHAR', ['VARCHAR', 'VARCHAR', '...'], ''],
 
     #hll function
     [['hll_cardinality'], 'BIGINT', ['HLL'], 'ALWAYS_NOT_NULLABLE'],
@@ -1599,6 +1696,17 @@ visible_functions = [
     [['ST_Y'], 'DOUBLE', ['STRING'], 'ALWAYS_NULLABLE'],
 
     [['ST_Distance_Sphere'], 'DOUBLE', ['DOUBLE', 'DOUBLE', 'DOUBLE', 'DOUBLE'], 'ALWAYS_NULLABLE'],
+    [['ST_Angle_Sphere'], 'DOUBLE', ['DOUBLE', 'DOUBLE', 'DOUBLE', 'DOUBLE'], 'ALWAYS_NULLABLE'],
+
+    [['ST_Angle'], 'DOUBLE', ['VARCHAR','VARCHAR','VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['ST_Angle'], 'DOUBLE', ['STRING','STRING','STRING'], 'ALWAYS_NULLABLE'],
+    [['ST_Azimuth'], 'DOUBLE', ['VARCHAR','VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['ST_Azimuth'], 'DOUBLE', ['STRING','STRING'], 'ALWAYS_NULLABLE'],
+
+    [['ST_Area_Square_Meters'], 'DOUBLE', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['ST_Area_Square_Meters'], 'DOUBLE', ['STRING'], 'ALWAYS_NULLABLE'],
+    [['ST_Area_Square_Km'], 'DOUBLE', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['ST_Area_Square_Km'], 'DOUBLE', ['STRING'], 'ALWAYS_NULLABLE'],
 
     [['ST_AsText', 'ST_AsWKT'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
     [['ST_AsText', 'ST_AsWKT'], 'VARCHAR', ['STRING'], 'ALWAYS_NULLABLE'],

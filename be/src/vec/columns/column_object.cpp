@@ -825,7 +825,6 @@ bool ColumnObject::is_finalized() const {
 }
 
 void ColumnObject::finalize() {
-    size_t old_size = size();
     Subcolumns new_subcolumns;
     for (auto&& entry : subcolumns) {
         const auto& least_common_type = entry->data.get_least_common_type();
@@ -838,12 +837,12 @@ void ColumnObject::finalize() {
     }
     /// If all subcolumns were skipped add a dummy subcolumn,
     /// because Tuple type must have at least one element.
-    if (new_subcolumns.empty()) {
-        new_subcolumns.add(
-                PathInData {COLUMN_NAME_DUMMY},
-                Subcolumn {static_cast<MutableColumnPtr&&>(ColumnUInt8::create(old_size, 0)),
-                           is_nullable});
-    }
+    // if (new_subcolumns.empty()) {
+    //     new_subcolumns.add(
+    //             PathInData {COLUMN_NAME_DUMMY},
+    //             Subcolumn {static_cast<MutableColumnPtr&&>(ColumnUInt8::create(old_size, 0)),
+    //                        is_nullable});
+    // }
     std::swap(subcolumns, new_subcolumns);
 }
 
@@ -860,7 +859,6 @@ ColumnPtr get_base_column_of_array(const ColumnPtr& column) {
 
 void ColumnObject::strip_outer_array() {
     assert(is_finalized());
-    size_t old_size = size();
     Subcolumns new_subcolumns;
     for (auto&& entry : subcolumns) {
         auto base_column = get_base_column_of_array(entry->data.get_finalized_column_ptr());
@@ -869,20 +867,43 @@ void ColumnObject::strip_outer_array() {
     }
     /// If all subcolumns were skipped add a dummy subcolumn,
     /// because Tuple type must have at least one element.
-    if (new_subcolumns.empty()) {
-        new_subcolumns.add(
-                PathInData {COLUMN_NAME_DUMMY},
-                Subcolumn {static_cast<MutableColumnPtr&&>(ColumnUInt8::create(old_size, 0)),
-                           is_nullable});
-    }
+    // if (new_subcolumns.empty()) {
+    //     new_subcolumns.add(
+    //             PathInData {COLUMN_NAME_DUMMY},
+    //             Subcolumn {static_cast<MutableColumnPtr&&>(ColumnUInt8::create(old_size, 0)),
+    //                        is_nullable});
+    // }
     std::swap(subcolumns, new_subcolumns);
+}
+
+ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
+    DCHECK(is_finalized());
+    auto new_column = ColumnObject::create(true);
+    for (auto& entry : subcolumns) {
+        auto subcolumn = entry->data.get_finalized_column().filter(filter, count);
+        new_column->add_sub_column(entry->path, std::move(subcolumn));
+    }
+    return new_column;
+}
+
+size_t ColumnObject::filter(const Filter& filter) {
+    DCHECK(is_finalized());
+    for (auto& entry : subcolumns) {
+        num_rows = entry->data.get_finalized_column().filter(filter);
+    }
+    return num_rows;
 }
 
 template <typename ColumnInserterFn>
 void align_variant_by_name_and_type(ColumnObject& dst, const ColumnObject& src, size_t row_cnt,
                                     ColumnInserterFn inserter) {
     CHECK(dst.is_finalized() && src.is_finalized());
-    size_t num_rows = dst.size();
+    // Use rows() here instead of size(), since size() will check_consistency
+    // but we could not check_consistency since num_rows will be upgraded even
+    // if src and dst is empty, we just increase the num_rows of dst and fill
+    // num_rows of default values when meet new data
+    size_t num_rows = dst.rows();
+    bool need_inc_row_num = true;
     for (auto& entry : dst.get_subcolumns()) {
         const auto* src_subcol = src.get_subcolumn(entry->path);
         if (src_subcol == nullptr) {
@@ -903,12 +924,19 @@ void align_variant_by_name_and_type(ColumnObject& dst, const ColumnObject& src, 
             auto new_column = type->create_column();
             new_column->insert_many_defaults(num_rows);
             inserter(entry->data.get_finalized_column(), new_column.get());
+            if (dst.empty()) {
+                // add_sub_column updated num_rows of dst object
+                need_inc_row_num = false;
+            }
             dst.add_sub_column(entry->path, std::move(new_column));
         }
     }
+    num_rows += row_cnt;
+    if (need_inc_row_num) {
+        dst.incr_num_rows(row_cnt);
+    }
 #ifndef NDEBUG
     // Check all columns rows matched
-    num_rows += row_cnt;
     for (const auto& entry : dst.get_subcolumns()) {
         DCHECK_EQ(entry->data.get_finalized_column().size(), num_rows);
     }

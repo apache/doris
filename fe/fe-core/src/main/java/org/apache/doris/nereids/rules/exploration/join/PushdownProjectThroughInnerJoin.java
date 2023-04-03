@@ -32,7 +32,6 @@ import com.google.common.collect.ImmutableList.Builder;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -52,6 +51,7 @@ public class PushdownProjectThroughInnerJoin extends OneExplorationRuleFactory {
     @Override
     public Rule build() {
         return logicalProject(logicalJoin())
+            .whenNot(JoinReorderUtils::isAllSlotProject)
             .when(project -> project.child().getJoinType().isInnerJoin())
             .whenNot(project -> project.child().hasJoinHint())
             .then(project -> {
@@ -68,10 +68,16 @@ public class PushdownProjectThroughInnerJoin extends OneExplorationRuleFactory {
                     return null;
                 }
 
-                Map<Boolean, List<NamedExpression>> map = JoinReorderUtils.splitProjection(project.getProjects(),
-                        join.left());
-                List<NamedExpression> aProjects = map.get(true);
-                List<NamedExpression> bProjects = map.get(false);
+                List<NamedExpression> aProjects = new ArrayList<>();
+                List<NamedExpression> bProjects = new ArrayList<>();
+                for (NamedExpression namedExpression : project.getProjects()) {
+                    Set<ExprId> usedExprIds = namedExpression.getInputSlotExprIds();
+                    if (aOutputExprIdSet.containsAll(usedExprIds)) {
+                        aProjects.add(namedExpression);
+                    } else {
+                        bProjects.add(namedExpression);
+                    }
+                }
 
                 boolean leftContains = aProjects.stream().anyMatch(e -> !(e instanceof Slot));
                 boolean rightContains = bProjects.stream().anyMatch(e -> !(e instanceof Slot));
@@ -87,7 +93,7 @@ public class PushdownProjectThroughInnerJoin extends OneExplorationRuleFactory {
                 Plan newLeft = JoinReorderUtils.projectOrSelf(newAProject.build(), join.left());
 
                 if (!rightContains) {
-                    Plan newJoin = join.withChildren(newLeft, join.right());
+                    Plan newJoin = join.withChildrenNoContext(newLeft, join.right());
                     return JoinReorderUtils.projectOrSelf(new ArrayList<>(project.getOutput()), newJoin);
                 }
 
@@ -97,7 +103,7 @@ public class PushdownProjectThroughInnerJoin extends OneExplorationRuleFactory {
                 bConditionSlots.stream().filter(slot -> !bProjectSlots.contains(slot)).forEach(newBProject::add);
                 Plan newRight = JoinReorderUtils.projectOrSelf(newBProject.build(), join.right());
 
-                Plan newJoin = join.withChildren(newLeft, newRight);
+                Plan newJoin = join.withChildrenNoContext(newLeft, newRight);
                 return JoinReorderUtils.projectOrSelfInOrder(new ArrayList<>(project.getOutput()), newJoin);
             }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_INNER_JOIN);
     }

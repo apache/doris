@@ -64,10 +64,10 @@ MemTable::MemTable(TabletSharedPtr tablet, Schema* schema, const TabletSchema* t
     _insert_mem_tracker_use_hook = std::make_unique<MemTracker>(
             fmt::format("MemTableHookInsert:TabletId={}", std::to_string(tablet_id())));
 #endif
-    _table_mem_pool = std::make_unique<MemPool>(_insert_mem_tracker.get());
+    _arena = std::make_unique<vectorized::Arena>();
     _vec_row_comparator = std::make_shared<RowInBlockComparator>(_schema);
     // TODO: Support ZOrderComparator in the future
-    _vec_skip_list = std::make_unique<VecTable>(_vec_row_comparator.get(), _table_mem_pool.get(),
+    _vec_skip_list = std::make_unique<VecTable>(_vec_row_comparator.get(), _arena.get(),
                                                 _keys_type == KeysType::DUP_KEYS);
     _init_columns_offset_by_slot_descs(slot_descs, tuple_desc);
 }
@@ -135,7 +135,6 @@ MemTable::~MemTable() {
     }
     std::for_each(_row_in_blocks.begin(), _row_in_blocks.end(), std::default_delete<RowInBlock>());
     _insert_mem_tracker->release(_mem_usage);
-    _table_mem_pool->free_all();
     _flush_mem_tracker->set_consumption(0);
     DCHECK_EQ(_insert_mem_tracker->consumption(), 0)
             << std::endl
@@ -203,9 +202,8 @@ void MemTable::_insert_one_row_from_block(RowInBlock* row_in_block) {
         _merged_rows++;
         _aggregate_two_row_in_block(row_in_block, _vec_hint.curr->key);
     } else {
-        row_in_block->init_agg_places(
-                (char*)_table_mem_pool->allocate_aligned(_total_size_of_aggregate_states, 16),
-                _offsets_of_aggregate_states.data());
+        row_in_block->init_agg_places(_arena->aligned_alloc(_total_size_of_aggregate_states, 16),
+                                      _offsets_of_aggregate_states.data());
         for (auto cid = _schema->num_key_columns(); cid < _schema->num_columns(); cid++) {
             auto col_ptr = _input_mutable_block.mutable_columns()[cid].get();
             auto data = row_in_block->agg_places(cid);

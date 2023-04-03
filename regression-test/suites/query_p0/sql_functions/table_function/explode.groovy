@@ -30,4 +30,23 @@ suite("explode") {
     // array with null elements
     qt_explode """ select e1 from (select 1 k1) as t lateral view explode([null,1,null]) tmp1 as e1; """
     qt_explode_outer """ select e1 from (select 1 k1) as t lateral view explode_outer([null,1,null]) tmp1 as e1; """
+
+    sql """ DROP TABLE IF EXISTS d_table; """
+    sql """
+            create table d_table(
+                k1 int null,
+                k2 int not null,
+                k3 bigint null,
+                k4 varchar(100) null
+            )
+            duplicate key (k1,k2,k3)
+            distributed BY hash(k1) buckets 3
+            properties("replication_num" = "1");
+        """
+
+    sql "insert into d_table select 1,1,1,'a';"
+
+    qt_test1 """select e1 from (select k1 from d_table) as t lateral view explode_numbers(5) tmp1 as e1;"""
+    qt_test2 """select e1 from (select k1 from d_table) as t lateral view explode_numbers(5) tmp1 as e1 where e1=k1;"""
+    qt_test3 """select e1,k1 from (select k1 from d_table) as t lateral view explode_numbers(5) tmp1 as e1;"""
 }

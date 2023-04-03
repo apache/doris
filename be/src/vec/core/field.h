@@ -26,7 +26,6 @@
 #include <type_traits>
 #include <vector>
 
-#include "vec/common/exception.h"
 #include "vec/common/int_exp.h"
 #include "vec/common/strong_typedef.h"
 #include "vec/common/uint128.h"
@@ -162,6 +161,9 @@ public:
     }
 
     JsonbField& operator=(JsonbField&& x) {
+        if (data) {
+            delete[] data;
+        }
         data = x.data;
         size = x.size;
         x.data = nullptr;

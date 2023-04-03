@@ -53,6 +53,11 @@ CREATE CATALOG iceberg PROPERTIES (
 );
 ```
 
+> `specified_database_list`:
+> 
+> only synchronize the specified databases, split with ','. Default values is '' will synchronize all databases. db name is case sensitive.
+> 
+
 ### Iceberg Native Catalog
 
 <version since="dev">
@@ -127,7 +132,7 @@ Same as that in Hive Catalogs. See the relevant section in [Hive](./hive.md).
 
 ## Time Travel
 
-<version since="dev">
+<version since="1.2.2">
 
 Doris supports reading the specified Snapshot of Iceberg tables.
 

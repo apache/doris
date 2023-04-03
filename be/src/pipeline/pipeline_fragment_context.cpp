@@ -559,10 +559,15 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         break;
     }
     case TPlanNodeType::MYSQL_SCAN_NODE: {
+#ifdef DORIS_WITH_MYSQL
         OperatorBuilderPtr operator_t =
                 std::make_shared<MysqlScanOperatorBuilder>(next_operator_builder_id(), node);
         RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
         break;
+#else
+        return Status::InternalError(
+                "Don't support MySQL table, you should rebuild Doris with WITH_MYSQL option ON");
+#endif
     }
     case TPlanNodeType::SCHEMA_SCAN_NODE: {
         OperatorBuilderPtr operator_t =
@@ -773,8 +778,12 @@ Status PipelineFragmentContext::submit() {
 
     int submit_tasks = 0;
     Status st;
+    auto* scheduler = _exec_env->pipeline_task_scheduler();
+    if (get_task_group()) {
+        scheduler = _exec_env->pipeline_task_group_scheduler();
+    }
     for (auto& task : _tasks) {
-        st = _exec_env->pipeline_task_scheduler()->schedule_task(task.get());
+        st = scheduler->schedule_task(task.get());
         if (!st) {
             cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "submit context fail");
             _total_tasks = submit_tasks;

@@ -23,12 +23,11 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "common/utils.h"
-#include "env/env.h"
 #include "http/http_channel.h"
 #include "http/http_common.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
-#include "util/file_utils.h"
+#include "io/fs/local_file_system.h"
 #include "util/path_util.h"
 #include "util/url_coding.h"
 
@@ -158,18 +157,19 @@ void do_file_response(const std::string& file_path, HttpRequest* req) {
 }
 
 void do_dir_response(const std::string& dir_path, HttpRequest* req) {
-    std::vector<std::string> files;
-    Status status = FileUtils::list_files(Env::Default(), dir_path, &files);
-    if (!status.ok()) {
-        LOG(WARNING) << "Failed to scan dir. dir=" << dir_path;
+    bool exists = true;
+    std::vector<io::FileInfo> files;
+    Status st = io::global_local_filesystem()->list(dir_path, true, &files, &exists);
+    if (!st.ok()) {
+        LOG(WARNING) << "Failed to scan dir. " << st;
         HttpChannel::send_error(req, HttpStatus::INTERNAL_SERVER_ERROR);
     }
 
     const std::string FILE_DELIMITER_IN_DIR_RESPONSE = "\n";
 
     std::stringstream result;
-    for (const std::string& file_name : files) {
-        result << file_name << FILE_DELIMITER_IN_DIR_RESPONSE;
+    for (auto& file : files) {
+        result << file.file_name << FILE_DELIMITER_IN_DIR_RESPONSE;
     }
 
     std::string result_str = result.str();

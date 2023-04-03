@@ -33,7 +33,6 @@ public class PublishVersionTask extends AgentTask {
     private long transactionId;
     private List<TPartitionVersionInfo> partitionVersionInfos;
     private List<Long> errorTablets;
-    private boolean isFinished;
 
     public PublishVersionTask(long backendId, long transactionId, long dbId,
             List<TPartitionVersionInfo> partitionVersionInfos, long createTime) {
@@ -68,13 +67,5 @@ public class PublishVersionTask extends AgentTask {
             return;
         }
         this.errorTablets.addAll(errorTablets);
-    }
-
-    public void setIsFinished(boolean isFinished) {
-        this.isFinished = isFinished;
-    }
-
-    public boolean isFinished() {
-        return isFinished;
     }
 }

@@ -23,7 +23,7 @@ import java.nio.file.Paths
 
 suite("test_map_load_and_compaction", "p0") {
     // define a sql table
-    def testTable = "tbl_test_map"
+    def testTable = "tbl_test_map_compaction"
     def dataFile = "map_2_rows.json";
     def dataFile1 = "map_4093_rows.json"
 
@@ -97,6 +97,7 @@ suite("test_map_load_and_compaction", "p0") {
 
         // check result
         qt_select "SELECT count(*) FROM ${testTable};"
+        qt_select "SELECT count(actor) FROM ${testTable};"
 
         // check here 2 rowsets
         //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus

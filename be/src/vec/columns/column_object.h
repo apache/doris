@@ -190,6 +190,8 @@ public:
 
     void incr_num_rows(size_t n) { num_rows += n; }
 
+    size_t rows() const { return num_rows; }
+
     /// Adds a subcolumn from existing IColumn.
     bool add_sub_column(const PathInData& key, MutableColumnPtr&& subcolumn);
 
@@ -307,15 +309,9 @@ public:
         LOG(FATAL) << "should not call the method in column object";
     }
 
-    ColumnPtr filter(const Filter&, ssize_t) const override {
-        LOG(FATAL) << "should not call the method in column object";
-        return nullptr;
-    }
+    ColumnPtr filter(const Filter&, ssize_t) const override;
 
-    size_t filter(const Filter&) override {
-        LOG(FATAL) << "should not call the method in column object";
-        return 0;
-    }
+    size_t filter(const Filter&) override;
 
     ColumnPtr permute(const Permutation&, size_t) const override {
         LOG(FATAL) << "should not call the method in column object";

@@ -24,7 +24,6 @@
 #include "io/fs/local_file_system.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/storage_engine.h"
-#include "util/file_utils.h"
 #include "util/string_util.h"
 
 namespace doris {
@@ -120,11 +119,14 @@ void FileCacheManager::_add_file_cache_for_gc_by_disk(std::vector<GCContextPerDi
 void FileCacheManager::_gc_unused_file_caches(std::list<FileCachePtr>& result) {
     std::vector<TabletSharedPtr> tablets =
             StorageEngine::instance()->tablet_manager()->get_all_tablet();
+    bool exists = true;
     for (const auto& tablet : tablets) {
-        std::vector<Path> seg_file_paths;
-        if (io::global_local_filesystem()->list(tablet->tablet_path(), &seg_file_paths).ok()) {
-            for (Path seg_file : seg_file_paths) {
-                std::string seg_filename = seg_file.native();
+        std::vector<FileInfo> seg_files;
+        if (io::global_local_filesystem()
+                    ->list(tablet->tablet_path(), true, &seg_files, &exists)
+                    .ok()) {
+            for (auto& seg_file : seg_files) {
+                std::string seg_filename = seg_file.file_name;
                 // check if it is a dir name
                 if (!BetaRowset::is_segment_cache_dir(seg_filename)) {
                     continue;

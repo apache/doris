@@ -75,6 +75,10 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
     SCOPED_TIMER(_convert_tuple_timer);
 
     const auto row_size = column_ptr->size();
+    if (rows_buffer.size() != row_size) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR>("row_size({}) != rows_buffer.size({})",
+                                                        row_size, rows_buffer.size());
+    }
 
     doris::vectorized::ColumnPtr column;
     if constexpr (is_nullable) {
@@ -500,6 +504,42 @@ int VMysqlResultWriter<is_binary_format>::_add_one_cell(const ColumnPtr& column_
         }
         buf_ret = buffer.push_string("]", strlen("]"));
         return buf_ret;
+    } else if (which.is_struct()) {
+        auto& column_struct = assert_cast<const ColumnStruct&>(*column);
+
+        DataTypePtr nested_type = type;
+        if (type->is_nullable()) {
+            nested_type = assert_cast<const DataTypeNullable&>(*type).get_nested_type();
+        }
+
+        size_t tuple_size = column_struct.tuple_size();
+
+        int buf_ret = buffer.push_string("{", strlen("{"));
+        bool begin = true;
+        for (int i = 0; i < tuple_size; ++i) {
+            const auto& data = column_struct.get_column_ptr(i);
+            const auto& sub_type = assert_cast<const DataTypeStruct&>(*nested_type).get_element(i);
+
+            if (begin) {
+                begin = false;
+            } else {
+                buf_ret = buffer.push_string(", ", strlen(", "));
+            }
+
+            if (data->is_null_at(row_idx)) {
+                buf_ret = buffer.push_string("NULL", strlen("NULL"));
+            } else {
+                if (WhichDataType(remove_nullable(sub_type)).is_string()) {
+                    buf_ret = buffer.push_string("'", 1);
+                    buf_ret = _add_one_cell(data, row_idx, sub_type, buffer, scale);
+                    buf_ret = buffer.push_string("'", 1);
+                } else {
+                    buf_ret = _add_one_cell(data, row_idx, sub_type, buffer, scale);
+                }
+            }
+        }
+        buf_ret = buffer.push_string("}", strlen("}"));
+        return buf_ret;
     } else {
         LOG(WARNING) << "sub TypeIndex(" << (int)which.idx << "not supported yet";
         return -1;
@@ -801,7 +841,8 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
         }
 
         if (!status) {
-            LOG(WARNING) << "convert row to mysql result failed.";
+            LOG(WARNING) << "convert row to mysql result failed. block_struct="
+                         << block.dump_structure();
             break;
         }
     }

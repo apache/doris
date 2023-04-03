@@ -20,7 +20,6 @@
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "runtime/exec_env.h"
-#include "runtime/raw_value.h"
 #include "runtime/thread_context.h"
 #include "service/brpc.h"
 #include "util/thrift_util.h"
@@ -112,7 +111,7 @@ Status BufferControlBlock::add_batch(std::unique_ptr<TFetchDataResult>& result) 
     int num_rows = result->result_batch.rows.size();
 
     while ((!_batch_queue.empty() && _buffer_rows > _buffer_limit) && !_is_cancelled) {
-        _data_removal.wait_for(l, std::chrono::seconds(1), [&]() { return _is_cancelled.load(); });
+        _data_removal.wait_for(l, std::chrono::seconds(1));
     }
 
     if (_is_cancelled) {

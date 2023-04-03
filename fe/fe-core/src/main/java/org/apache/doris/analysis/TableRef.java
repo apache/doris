@@ -681,6 +681,12 @@ public class TableRef implements ParseNode, Writable {
             // Indicate that this table ref has an empty ON-clause.
             analyzer.registerOnClauseConjuncts(Collections.<Expr>emptyList(), this);
         }
+
+        if (lateralViewRefs != null) {
+            for (LateralViewRef lateralViewRef : lateralViewRefs) {
+                allTableRefIds.add(lateralViewRef.getId());
+            }
+        }
     }
 
     public void rewriteExprs(ExprRewriter rewriter, Analyzer analyzer)

@@ -19,6 +19,7 @@
 
 #include "io/fs/file_reader.h"
 #include "io/fs/hdfs_file_system.h"
+
 namespace doris {
 namespace io {
 
@@ -31,9 +32,6 @@ public:
 
     Status close() override;
 
-    Status read_at(size_t offset, Slice result, const IOContext& io_ctx,
-                   size_t* bytes_read) override;
-
     const Path& path() const override { return _path; }
 
     size_t size() const override { return _file_size; }
@@ -41,6 +39,10 @@ public:
     bool closed() const override { return _closed.load(std::memory_order_acquire); }
 
     FileSystemSPtr fs() const override { return _fs; }
+
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const IOContext* io_ctx) override;
 
 private:
     Path _path;

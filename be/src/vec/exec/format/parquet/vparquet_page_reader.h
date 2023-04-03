@@ -19,7 +19,7 @@
 
 #include "common/status.h"
 #include "gen_cpp/parquet_types.h"
-#include "io/buffered_reader.h"
+#include "io/fs/buffered_reader.h"
 
 namespace doris::vectorized {
 
@@ -32,7 +32,7 @@ public:
         int64_t decode_header_time = 0;
     };
 
-    PageReader(BufferedStreamReader* reader, uint64_t offset, uint64_t length);
+    PageReader(io::BufferedStreamReader* reader, uint64_t offset, uint64_t length);
     ~PageReader() = default;
 
     bool has_next_page() const { return _offset < _end_offset; }
@@ -56,7 +56,7 @@ public:
 private:
     enum PageReaderState { INITIALIZED, HEADER_PARSED };
 
-    BufferedStreamReader* _reader;
+    io::BufferedStreamReader* _reader;
     tparquet::PageHeader _cur_page_header;
     Statistics _statistics;
     PageReaderState _state = INITIALIZED;

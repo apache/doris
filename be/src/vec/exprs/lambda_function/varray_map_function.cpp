@@ -66,20 +66,17 @@ public:
         Block lambda_block;
         for (int i = 0; i < arguments.size(); ++i) {
             const auto& array_column_type_name = block->get_by_position(arguments[i]);
-            auto column_array = array_column_type_name.column;
-            column_array = column_array->convert_to_full_column_if_const();
+            auto column_array = array_column_type_name.column->convert_to_full_column_if_const();
             auto type_array = array_column_type_name.type;
 
             if (type_array->is_nullable()) {
                 // get the nullmap of nullable column
                 const auto& column_array_nullmap =
-                        assert_cast<const ColumnNullable&>(*array_column_type_name.column)
-                                .get_null_map_column();
+                        assert_cast<const ColumnNullable&>(*column_array).get_null_map_column();
 
                 // get the array column from nullable column
-                column_array =
-                        assert_cast<const ColumnNullable*>(array_column_type_name.column.get())
-                                ->get_nested_column_ptr();
+                column_array = assert_cast<const ColumnNullable*>(column_array.get())
+                                       ->get_nested_column_ptr();
 
                 // get the nested type from nullable type
                 type_array = assert_cast<const DataTypeNullable*>(array_column_type_name.type.get())

@@ -29,7 +29,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.expressions.ExprId;
-import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
@@ -81,8 +80,6 @@ public class PlanTranslatorContext {
 
     private final Map<ExprId, SlotRef> bufferedSlotRefForWindow = Maps.newHashMap();
     private TupleDescriptor bufferedTupleForWindow = null;
-
-    private List<MarkJoinSlotReference> outputMarkJoinSlot = Lists.newArrayList();
 
     public PlanTranslatorContext(CascadesContext ctx) {
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
@@ -173,10 +170,8 @@ public class PlanTranslatorContext {
             @Nullable TableIf table) {
         SlotDescriptor slotDescriptor = this.addSlotDesc(tupleDesc);
         // Only the SlotDesc that in the tuple generated for scan node would have corresponding column.
-        if (table != null) {
-            Optional<Column> column = slotReference.getColumn();
-            column.ifPresent(slotDescriptor::setColumn);
-        }
+        Optional<Column> column = slotReference.getColumn();
+        column.ifPresent(slotDescriptor::setColumn);
         slotDescriptor.setType(slotReference.getDataType().toCatalogDataType());
         slotDescriptor.setIsMaterialized(true);
         SlotRef slotRef;
@@ -212,13 +207,5 @@ public class PlanTranslatorContext {
 
     public DescriptorTable getDescTable() {
         return descTable;
-    }
-
-    public void setOutputMarkJoinSlot(MarkJoinSlotReference markJoinSlotReference) {
-        outputMarkJoinSlot.add(markJoinSlotReference);
-    }
-
-    public List<MarkJoinSlotReference> getOutputMarkJoinSlot() {
-        return outputMarkJoinSlot;
     }
 }

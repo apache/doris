@@ -26,6 +26,7 @@
 #include "exec/schema_scanner.h"
 #include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/Types_types.h"
+#include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/large_int_value.h"
 #include "runtime/memory/chunk_allocator.h"
@@ -63,15 +64,80 @@ TEST(TEST_VEXPR, ABSTEST) {
     context->close(&runtime_stat);
 }
 
+// Only the unit test depend on this, but it is wrong, should not use TTupleDesc to create tuple desc, not
+// use columndesc
+static doris::TupleDescriptor* create_tuple_desc(
+        doris::ObjectPool* pool, std::vector<doris::SchemaScanner::ColumnDesc>& column_descs) {
+    using namespace doris;
+    int null_column = 0;
+    for (int i = 0; i < column_descs.size(); ++i) {
+        if (column_descs[i].is_null) {
+            null_column++;
+        }
+    }
+
+    int offset = (null_column + 7) / 8;
+    std::vector<SlotDescriptor*> slots;
+    int null_byte = 0;
+    int null_bit = 0;
+
+    for (int i = 0; i < column_descs.size(); ++i) {
+        TSlotDescriptor t_slot_desc;
+        if (column_descs[i].type == TYPE_DECIMALV2) {
+            t_slot_desc.__set_slotType(TypeDescriptor::create_decimalv2_type(27, 9).to_thrift());
+        } else {
+            TypeDescriptor descriptor(column_descs[i].type);
+            if (column_descs[i].precision >= 0 && column_descs[i].scale >= 0) {
+                descriptor.precision = column_descs[i].precision;
+                descriptor.scale = column_descs[i].scale;
+            }
+            t_slot_desc.__set_slotType(descriptor.to_thrift());
+        }
+        t_slot_desc.__set_colName(column_descs[i].name);
+        t_slot_desc.__set_columnPos(i);
+        t_slot_desc.__set_byteOffset(offset);
+
+        if (column_descs[i].is_null) {
+            t_slot_desc.__set_nullIndicatorByte(null_byte);
+            t_slot_desc.__set_nullIndicatorBit(null_bit);
+            null_bit = (null_bit + 1) % 8;
+
+            if (0 == null_bit) {
+                null_byte++;
+            }
+        } else {
+            t_slot_desc.__set_nullIndicatorByte(0);
+            t_slot_desc.__set_nullIndicatorBit(-1);
+        }
+
+        t_slot_desc.id = i;
+        t_slot_desc.__set_slotIdx(i);
+        t_slot_desc.__set_isMaterialized(true);
+
+        SlotDescriptor* slot = pool->add(new (std::nothrow) SlotDescriptor(t_slot_desc));
+        slots.push_back(slot);
+        offset += column_descs[i].size;
+    }
+
+    TTupleDescriptor t_tuple_desc;
+    t_tuple_desc.__set_byteSize(offset);
+    t_tuple_desc.__set_numNullBytes((null_byte * 8 + null_bit + 7) / 8);
+    doris::TupleDescriptor* tuple_desc =
+            pool->add(new (std::nothrow) doris::TupleDescriptor(t_tuple_desc));
+
+    for (int i = 0; i < slots.size(); ++i) {
+        tuple_desc->add_slot(slots[i]);
+    }
+
+    return tuple_desc;
+}
+
 TEST(TEST_VEXPR, ABSTEST2) {
     using namespace doris;
-    std::vector<SchemaScanner::ColumnDesc> column_descs = {
+    std::vector<doris::SchemaScanner::ColumnDesc> column_descs = {
             {"k1", TYPE_INT, sizeof(int32_t), false}};
-    SchemaScanner schema_scanner(column_descs);
     ObjectPool object_pool;
-    SchemaScannerParam param;
-    schema_scanner.init(&param, &object_pool);
-    auto tuple_desc = const_cast<TupleDescriptor*>(schema_scanner.tuple_desc());
+    doris::TupleDescriptor* tuple_desc = create_tuple_desc(&object_pool, column_descs);
     RowDescriptor row_desc(tuple_desc, false);
     std::string expr_json =
             R"|({"1":{"lst":["rec",2,{"1":{"i32":20},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]}}},"4":{"i32":1},"20":{"i32":-1},"26":{"rec":{"1":{"rec":{"2":{"str":"abs"}}},"2":{"i32":0},"3":{"lst":["rec",1,{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5}}}}]}}]},"4":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]}}},"5":{"tf":0},"7":{"str":"abs(INT)"},"9":{"rec":{"1":{"str":"_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_6IntValE"}}},"11":{"i64":0}}}},{"1":{"i32":16},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5}}}}]}}},"4":{"i32":0},"15":{"rec":{"1":{"i32":0},"2":{"i32":0}}},"20":{"i32":-1},"23":{"i32":-1}}]}})|";

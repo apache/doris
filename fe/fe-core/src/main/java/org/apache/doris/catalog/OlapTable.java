@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.analysis.AggregateInfo;
+import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DataSortInfo;
@@ -288,12 +289,15 @@ public class OlapTable extends Table {
 
     public void setIndexMeta(long indexId, String indexName, List<Column> schema, int schemaVersion, int schemaHash,
             short shortKeyColumnCount, TStorageType storageType, KeysType keysType) {
-        setIndexMeta(indexId, indexName, schema, schemaVersion, schemaHash, shortKeyColumnCount, storageType, keysType,
-                null);
+        setIndexMeta(indexId, indexName, schema, schemaVersion, schemaHash, shortKeyColumnCount, storageType,
+                keysType,
+                null, null);
     }
 
-    public void setIndexMeta(long indexId, String indexName, List<Column> schema, int schemaVersion, int schemaHash,
-            short shortKeyColumnCount, TStorageType storageType, KeysType keysType, OriginStatement origStmt) {
+    public void setIndexMeta(long indexId, String indexName, List<Column> schema, int schemaVersion,
+            int schemaHash,
+            short shortKeyColumnCount, TStorageType storageType, KeysType keysType, OriginStatement origStmt,
+            Analyzer analyzer) {
         // Nullable when meta comes from schema change log replay.
         // The replay log only save the index id, so we need to get name by id.
         if (indexName == null) {
@@ -317,6 +321,11 @@ public class OlapTable extends Table {
 
         MaterializedIndexMeta indexMeta = new MaterializedIndexMeta(indexId, schema, schemaVersion,
                 schemaHash, shortKeyColumnCount, storageType, keysType, origStmt);
+        try {
+            indexMeta.parseStmt(analyzer);
+        } catch (Exception e) {
+            LOG.warn("parse meta stmt failed", e);
+        }
 
         indexIdToMeta.put(indexId, indexMeta);
         indexNameToId.put(indexName, indexId);
@@ -338,6 +347,8 @@ public class OlapTable extends Table {
                     nameToColumn.put(column.getDefineName(), column);
                 }
             }
+            // Column maybe renamed, rebuild the column name map
+            indexMeta.initColumnNameMap();
         }
         LOG.debug("after rebuild full schema. table {}, schema size: {}", id, fullSchema.size());
     }
@@ -402,13 +413,24 @@ public class OlapTable extends Table {
 
     public Column getVisibleColumn(String columnName) {
         for (MaterializedIndexMeta meta : getVisibleIndexIdToMeta().values()) {
-            for (Column column : meta.getSchema()) {
-                if (MaterializedIndexMeta.matchColumnName(column.getDefineName(), columnName)) {
-                    return column;
-                }
+            Column target = meta.getColumnByDefineName(columnName);
+            if (target != null) {
+                return target;
             }
         }
         return null;
+    }
+
+    public boolean findWhereClause(Expr whereClause) {
+        for (MaterializedIndexMeta meta : getVisibleIndexIdToMeta().values()) {
+            if (meta.getWhereClause() != null) {
+                if (MaterializedIndexMeta.matchColumnName(meta.getWhereClause().toSqlWithoutTbl(),
+                        whereClause.toSqlWithoutTbl())) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     @Override
