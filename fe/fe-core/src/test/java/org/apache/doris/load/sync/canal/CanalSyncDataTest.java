@@ -263,11 +263,11 @@ public class CanalSyncDataTest {
                 minTimes = 0;
                 result = execFuture;
 
-                backendServiceProxy.commit((TNetworkAddress) any, (Types.PUniqueId) any);
+                backendServiceProxy.commit((TNetworkAddress) any, (Types.PUniqueId) any, (Types.PUniqueId) any);
                 minTimes = 0;
                 result = commitFuture;
 
-                backendServiceProxy.sendData((TNetworkAddress) any, (Types.PUniqueId) any,
+                backendServiceProxy.sendData((TNetworkAddress) any, (Types.PUniqueId) any, (Types.PUniqueId) any,
                         (List<InternalService.PDataRow>) any);
                 minTimes = 0;
                 result = sendDataFuture;
@@ -336,7 +336,7 @@ public class CanalSyncDataTest {
                 minTimes = 0;
                 result = execFuture;
 
-                backendServiceProxy.rollback((TNetworkAddress) any, (Types.PUniqueId) any);
+                backendServiceProxy.rollback((TNetworkAddress) any, (Types.PUniqueId) any, (Types.PUniqueId) any);
                 minTimes = 0;
                 result = abortFuture;
 
@@ -403,15 +403,16 @@ public class CanalSyncDataTest {
                 minTimes = 0;
                 result = execFuture;
 
-                backendServiceProxy.commit((TNetworkAddress) any, (Types.PUniqueId) any);
+                backendServiceProxy.commit((TNetworkAddress) any, (Types.PUniqueId) any, (Types.PUniqueId) any);
                 minTimes = 0;
                 result = commitFuture;
 
-                backendServiceProxy.rollback((TNetworkAddress) any, (Types.PUniqueId) any);
+                backendServiceProxy.rollback((TNetworkAddress) any, (Types.PUniqueId) any, (Types.PUniqueId) any);
                 minTimes = 0;
                 result = abortFuture;
 
-                backendServiceProxy.sendData((TNetworkAddress) any, (Types.PUniqueId) any, (List<InternalService.PDataRow>) any);
+                backendServiceProxy.sendData((TNetworkAddress) any, (Types.PUniqueId) any,
+                        (Types.PUniqueId) any, (List<InternalService.PDataRow>) any);
                 minTimes = 0;
                 result = sendDataFuture;
 

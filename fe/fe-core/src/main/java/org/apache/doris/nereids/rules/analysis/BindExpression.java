@@ -66,6 +66,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.UsingJoin;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -76,6 +77,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -141,7 +143,7 @@ public class BindExpression implements AnalysisRuleFactory {
                     Set<Expression> boundConjuncts = filter.getConjuncts().stream()
                             .map(expr -> bindSlot(expr, filter.children(), ctx.cascadesContext))
                             .map(expr -> bindFunction(expr, ctx.cascadesContext))
-                            .collect(Collectors.toSet());
+                            .collect(Collectors.toCollection(LinkedHashSet::new));
                     return new LogicalFilter<>(boundConjuncts, filter.child());
                 })
             ),
@@ -152,8 +154,8 @@ public class BindExpression implements AnalysisRuleFactory {
                     LogicalJoin<Plan, Plan> lj = new LogicalJoin<>(using.getJoinType() == JoinType.CROSS_JOIN
                             ? JoinType.INNER_JOIN : using.getJoinType(),
                             using.getHashJoinConjuncts(),
-                            using.getOtherJoinConjuncts(), using.getHint(), using.left(),
-                            using.right());
+                            using.getOtherJoinConjuncts(), using.getHint(), using.getMarkJoinSlotReference(),
+                            using.left(), using.right());
                     List<Expression> unboundSlots = lj.getHashJoinConjuncts();
                     Set<String> slotNames = new HashSet<>();
                     List<Slot> leftOutput = new ArrayList<>(lj.left().getOutput());
@@ -200,7 +202,8 @@ public class BindExpression implements AnalysisRuleFactory {
                             .map(expr -> bindFunction(expr, ctx.cascadesContext))
                             .collect(Collectors.toList());
                     return new LogicalJoin<>(join.getJoinType(),
-                            hashJoinConjuncts, cond, join.getHint(), join.left(), join.right());
+                            hashJoinConjuncts, cond, join.getHint(), join.getMarkJoinSlotReference(),
+                            join.left(), join.right());
                 })
             ),
             RuleType.BINDING_AGGREGATE_SLOT.build(
@@ -331,6 +334,7 @@ public class BindExpression implements AnalysisRuleFactory {
                     groupBy = groupBy.stream()
                             .map(expr -> bindFunction(expr, ctx.cascadesContext))
                             .collect(ImmutableList.toImmutableList());
+                    checkIfOutputAliasNameDuplicatedForGroupBy(groupBy, output);
                     return agg.withGroupByAndOutput(groupBy, output);
                 })
             ),
@@ -376,6 +380,7 @@ public class BindExpression implements AnalysisRuleFactory {
                                     .collect(ImmutableList.toImmutableList()))
                             .collect(ImmutableList.toImmutableList());
                     List<NamedExpression> newOutput = adjustNullableForRepeat(groupingSets, output);
+                    groupingSets.forEach(list -> checkIfOutputAliasNameDuplicatedForGroupBy(list, newOutput));
                     return repeat.withGroupSetsAndOutput(groupingSets, newOutput);
                 })
             ),
@@ -421,9 +426,9 @@ public class BindExpression implements AnalysisRuleFactory {
                 })
             ),
             RuleType.BINDING_HAVING_SLOT.build(
-                logicalHaving(aggregate()).thenApply(ctx -> {
+                logicalHaving(aggregate()).when(Plan::canBind).thenApply(ctx -> {
                     LogicalHaving<Aggregate<Plan>> having = ctx.root;
-                    Plan childPlan = having.child();
+                    Aggregate<Plan> childPlan = having.child();
                     Set<Expression> boundConjuncts = having.getConjuncts().stream()
                             .map(expr -> {
                                 expr = bindSlot(expr, childPlan.children(), ctx.cascadesContext, false);
@@ -431,6 +436,8 @@ public class BindExpression implements AnalysisRuleFactory {
                             })
                             .map(expr -> bindFunction(expr, ctx.cascadesContext))
                             .collect(Collectors.toSet());
+                    checkIfOutputAliasNameDuplicatedForGroupBy(ImmutableList.copyOf(boundConjuncts),
+                            childPlan.getOutputExpressions());
                     return new LogicalHaving<>(boundConjuncts, having.child());
                 })
             ),
@@ -445,6 +452,9 @@ public class BindExpression implements AnalysisRuleFactory {
                             })
                             .map(expr -> bindFunction(expr, ctx.cascadesContext))
                             .collect(Collectors.toSet());
+                    checkIfOutputAliasNameDuplicatedForGroupBy(ImmutableList.copyOf(boundConjuncts),
+                            childPlan.getOutput().stream().map(NamedExpression.class::cast)
+                                    .collect(Collectors.toList()));
                     return new LogicalHaving<>(boundConjuncts, having.child());
                 })
             ),
@@ -667,5 +677,31 @@ public class BindExpression implements AnalysisRuleFactory {
 
     public boolean canBind(Plan plan) {
         return !plan.hasUnboundExpression() || plan.canBind();
+    }
+
+    private void checkIfOutputAliasNameDuplicatedForGroupBy(List<Expression> expressions,
+            List<NamedExpression> output) {
+        // if group_by_and_having_use_alias_first=true, we should fall back to original planner until we
+        // support the session variable.
+        if (output.stream().noneMatch(Alias.class::isInstance)) {
+            return;
+        }
+        List<Alias> aliasList = output.stream().filter(Alias.class::isInstance)
+                .map(Alias.class::cast).collect(Collectors.toList());
+
+        List<NamedExpression> exprAliasList = expressions.stream()
+                .map(expr -> (Set<NamedExpression>) expr.collect(NamedExpression.class::isInstance))
+                .flatMap(Collection::stream)
+                .collect(Collectors.toList());
+
+        boolean isGroupByContainAlias = exprAliasList.stream().anyMatch(ne ->
+                aliasList.stream().anyMatch(alias -> !alias.getExprId().equals(ne.getExprId())
+                        && alias.getName().equals(ne.getName())));
+
+        if (isGroupByContainAlias
+                && ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().isGroupByAndHavingUseAliasFirst()) {
+            throw new AnalysisException("group_by_and_having_use_alias=true is unsupported for Nereids");
+        }
     }
 }

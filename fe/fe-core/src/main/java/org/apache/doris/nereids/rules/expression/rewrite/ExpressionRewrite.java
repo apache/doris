@@ -130,7 +130,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 if (projects.equals(newProjects)) {
                     return project;
                 }
-                return new LogicalProject<>(newProjects, project.child());
+                return project.withProjectsAndChild(newProjects, project.child());
             }).toRule(RuleType.REWRITE_PROJECT_EXPRESSION);
         }
     }
@@ -204,7 +204,8 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                     return join;
                 }
                 return new LogicalJoin<>(join.getJoinType(), rewriteHashJoinConjuncts,
-                        rewriteOtherJoinConjuncts, join.getHint(), join.left(), join.right());
+                        rewriteOtherJoinConjuncts, join.getHint(), join.getMarkJoinSlotReference(),
+                        join.left(), join.right());
             }).toRule(RuleType.REWRITE_JOIN_EXPRESSION);
         }
     }

@@ -34,7 +34,7 @@ under the License.
 
 ## 创建 Catalog
 
-和 Hive Catalog 基本一致，这里仅给出简单示例。其他示例可参阅 [Hive Catalog](./hive)。
+和 Hive Catalog 基本一致，这里仅给出简单示例。其他示例可参阅 [Hive Catalog](./hive.md)。
 
 ```sql
 CREATE CATALOG hudi PROPERTIES (
@@ -51,4 +51,4 @@ CREATE CATALOG hudi PROPERTIES (
 
 ## 列类型映射
 
-和 Hive Catalog 一致，可参阅 [Hive Catalog](./hive) 中 **列类型映射** 一节。
+和 Hive Catalog 一致，可参阅 [Hive Catalog](./hive.md) 中 **列类型映射** 一节。

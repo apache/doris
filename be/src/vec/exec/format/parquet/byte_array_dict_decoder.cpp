@@ -38,6 +38,7 @@ Status ByteArrayDictDecoder::set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t 
         total_length += l;
     }
 
+    _dict_value_to_code.reserve(num_values);
     // For insert_many_strings_overflow
     _dict_data.resize(total_length + MAX_STRINGS_OVERFLOW_SIZE);
     _max_value_length = 0;
@@ -48,6 +49,7 @@ Status ByteArrayDictDecoder::set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t 
         offset_cursor += 4;
         memcpy(&_dict_data[offset], dict_item_address + offset_cursor, l);
         _dict_items.emplace_back(&_dict_data[offset], l);
+        _dict_value_to_code[StringRef(&_dict_data[offset], l)] = i;
         offset_cursor += l;
         offset += l;
         if (offset_cursor > length) {
@@ -63,19 +65,47 @@ Status ByteArrayDictDecoder::set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t 
     return Status::OK();
 }
 
+Status ByteArrayDictDecoder::read_dict_values_to_column(MutableColumnPtr& doris_column) {
+    doris_column->insert_many_strings_overflow(&_dict_items[0], _dict_items.size(),
+                                               _max_value_length);
+    return Status::OK();
+}
+
+Status ByteArrayDictDecoder::get_dict_codes(const ColumnString* string_column,
+                                            std::vector<int32_t>* dict_codes) {
+    for (int i = 0; i < string_column->size(); ++i) {
+        StringRef dict_value = string_column->get_data_at(i);
+        dict_codes->emplace_back(_dict_value_to_code[dict_value]);
+    }
+    return Status::OK();
+}
+
+MutableColumnPtr ByteArrayDictDecoder::convert_dict_column_to_string_column(
+        const ColumnInt32* dict_column) {
+    auto res = ColumnString::create();
+    std::vector<StringRef> dict_values(dict_column->size());
+    const auto& data = dict_column->get_data();
+    for (size_t i = 0; i < dict_column->size(); ++i) {
+        dict_values[i] = _dict_items[data[i]];
+    }
+    res->insert_many_strings_overflow(&dict_values[0], dict_values.size(), _max_value_length);
+    return res;
+}
+
 Status ByteArrayDictDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                                           ColumnSelectVector& select_vector) {
+                                           ColumnSelectVector& select_vector, bool is_dict_filter) {
     size_t non_null_size = select_vector.num_values() - select_vector.num_nulls();
-    if (doris_column->is_column_dictionary() &&
-        assert_cast<ColumnDictI32&>(*doris_column).dict_size() == 0) {
-        assert_cast<ColumnDictI32&>(*doris_column)
-                .insert_many_dict_data(&_dict_items[0], _dict_items.size());
+    if (doris_column->is_column_dictionary()) {
+        ColumnDictI32& dict_column = assert_cast<ColumnDictI32&>(*doris_column);
+        if (dict_column.dict_size() == 0) {
+            dict_column.insert_many_dict_data(&_dict_items[0], _dict_items.size());
+        }
     }
     _indexes.resize(non_null_size);
     _index_batch_decoder->GetBatch(&_indexes[0], non_null_size);
 
-    if (doris_column->is_column_dictionary()) {
-        return _decode_dict_values(doris_column, select_vector);
+    if (doris_column->is_column_dictionary() || is_dict_filter) {
+        return _decode_dict_values(doris_column, select_vector, is_dict_filter);
     }
 
     TypeIndex logical_type = remove_nullable(data_type)->get_type_id();

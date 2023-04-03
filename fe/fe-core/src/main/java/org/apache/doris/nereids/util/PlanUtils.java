@@ -17,9 +17,13 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+
+import com.google.common.collect.Sets;
 
 import java.util.Optional;
 import java.util.Set;
@@ -38,4 +42,16 @@ public class PlanUtils {
     public static Plan filterOrSelf(Set<Expression> predicates, Plan plan) {
         return filter(predicates, plan).map(Plan.class::cast).orElse(plan);
     }
+
+    /**
+     * normalize comparison predicate on a binary plan to its two sides are corresponding to the child's output.
+     */
+    public static ComparisonPredicate maybeCommuteComparisonPredicate(ComparisonPredicate expression, Plan left) {
+        Set<Slot> slots = expression.left().collect(Slot.class::isInstance);
+        Set<Slot> leftSlots = left.getOutputSet();
+        Set<Slot> buffer = Sets.newHashSet(slots);
+        buffer.removeAll(leftSlots);
+        return buffer.isEmpty() ? expression : expression.commute();
+    }
+
 }

@@ -26,7 +26,7 @@ VExplodeTableFunction::VExplodeTableFunction() {
     _fn_name = "vexplode";
 }
 
-Status VExplodeTableFunction::process_init(vectorized::Block* block) {
+Status VExplodeTableFunction::process_init(Block* block) {
     CHECK(_vexpr_context->root()->children().size() == 1)
             << "VExplodeTableFunction only support 1 child but has "
             << _vexpr_context->root()->children().size();
@@ -48,17 +48,12 @@ Status VExplodeTableFunction::process_init(vectorized::Block* block) {
 
 Status VExplodeTableFunction::process_row(size_t row_idx) {
     DCHECK(row_idx < _array_column->size());
-    _is_current_empty = false;
-    _eos = false;
-    _cur_offset = 0;
-    _array_offset = (*_detail.offsets_ptr)[row_idx - 1];
-    _cur_size = (*_detail.offsets_ptr)[row_idx] - _array_offset;
+    RETURN_IF_ERROR(TableFunction::process_row(row_idx));
 
-    // array is NULL, or array is empty
-    if (_cur_size == 0 || (_detail.array_nullmap_data && _detail.array_nullmap_data[row_idx])) {
-        _is_current_empty = true;
+    if (!_detail.array_nullmap_data || !_detail.array_nullmap_data[row_idx]) {
+        _array_offset = (*_detail.offsets_ptr)[row_idx - 1];
+        _cur_size = (*_detail.offsets_ptr)[row_idx] - _array_offset;
     }
-
     return Status::OK();
 }
 
@@ -69,42 +64,14 @@ Status VExplodeTableFunction::process_close() {
     return Status::OK();
 }
 
-Status VExplodeTableFunction::reset() {
-    _eos = false;
-    _cur_offset = 0;
-    return Status::OK();
-}
-
-Status VExplodeTableFunction::get_value(void** output) {
-    if (_is_current_empty) {
-        *output = nullptr;
-        return Status::OK();
-    }
-
+void VExplodeTableFunction::get_value(MutableColumnPtr& column) {
     size_t pos = _array_offset + _cur_offset;
-    if (_detail.nested_nullmap_data && _detail.nested_nullmap_data[pos]) {
-        *output = nullptr;
+    if (current_empty() || (_detail.nested_nullmap_data && _detail.nested_nullmap_data[pos])) {
+        column->insert_default();
     } else {
-        *output = const_cast<char*>(_detail.nested_col->get_data_at(pos).data);
+        column->insert_data(const_cast<char*>(_detail.nested_col->get_data_at(pos).data),
+                            _detail.nested_col->get_data_at(pos).size);
     }
-
-    return Status::OK();
-}
-
-Status VExplodeTableFunction::get_value_length(int64_t* length) {
-    if (_is_current_empty) {
-        *length = -1;
-        return Status::OK();
-    }
-
-    size_t pos = _array_offset + _cur_offset;
-    if (_detail.nested_nullmap_data && _detail.nested_nullmap_data[pos]) {
-        *length = 0;
-    } else {
-        *length = _detail.nested_col->get_data_at(pos).size;
-    }
-
-    return Status::OK();
 }
 
 } // namespace doris::vectorized

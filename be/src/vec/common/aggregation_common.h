@@ -72,10 +72,9 @@ using KeysNullMap = std::array<UInt8, get_bitmap_size<T>()>;
 /// Pack into a binary blob of type T a set of fixed-size keys. Granted that all the keys fit into the
 /// binary blob, they are disposed in it consecutively.
 template <typename T, bool has_low_cardinality = false>
-static inline T ALWAYS_INLINE
-pack_fixed(size_t i, size_t keys_size, const ColumnRawPtrs& key_columns, const Sizes& key_sizes,
-           const ColumnRawPtrs* low_cardinality_positions [[maybe_unused]] = nullptr,
-           const Sizes* low_cardinality_sizes [[maybe_unused]] = nullptr) {
+T pack_fixed(size_t i, size_t keys_size, const ColumnRawPtrs& key_columns, const Sizes& key_sizes,
+             const ColumnRawPtrs* low_cardinality_positions [[maybe_unused]] = nullptr,
+             const Sizes* low_cardinality_sizes [[maybe_unused]] = nullptr) {
     union {
         T key;
         char bytes[sizeof(key)] = {};
@@ -149,9 +148,8 @@ pack_fixed(size_t i, size_t keys_size, const ColumnRawPtrs& key_columns, const S
 
 /// Similar as above but supports nullable values.
 template <typename T>
-static inline T ALWAYS_INLINE pack_fixed(size_t i, size_t keys_size,
-                                         const ColumnRawPtrs& key_columns, const Sizes& key_sizes,
-                                         const KeysNullMap<T>& bitmap) {
+T pack_fixed(size_t i, size_t keys_size, const ColumnRawPtrs& key_columns, const Sizes& key_sizes,
+             const KeysNullMap<T>& bitmap) {
     union {
         T key;
         char bytes[sizeof(key)] = {};
@@ -222,8 +220,7 @@ static inline T ALWAYS_INLINE pack_fixed(size_t i, size_t keys_size,
 }
 
 /// Hash a set of keys into a UInt128 value.
-static inline UInt128 ALWAYS_INLINE hash128(size_t i, size_t keys_size,
-                                            const ColumnRawPtrs& key_columns) {
+inline UInt128 hash128(size_t i, size_t keys_size, const ColumnRawPtrs& key_columns) {
     UInt128 key;
     SipHash hash;
 
@@ -235,8 +232,7 @@ static inline UInt128 ALWAYS_INLINE hash128(size_t i, size_t keys_size,
 }
 
 /// Copy keys to the pool. Then put into pool StringRefs to them and return the pointer to the first.
-static inline StringRef* ALWAYS_INLINE place_keys_in_pool(size_t keys_size, StringRefs& keys,
-                                                          Arena& pool) {
+inline StringRef* place_keys_in_pool(size_t keys_size, StringRefs& keys, Arena& pool) {
     for (size_t j = 0; j < keys_size; ++j) {
         char* place = pool.alloc(keys[j].size);
         memcpy_small_allow_read_write_overflow15(place, keys[j].data, keys[j].size);
@@ -252,8 +248,8 @@ static inline StringRef* ALWAYS_INLINE place_keys_in_pool(size_t keys_size, Stri
 
 /** Serialize keys into a continuous chunk of memory.
   */
-static inline StringRef ALWAYS_INLINE serialize_keys_to_pool_contiguous(
-        size_t i, size_t keys_size, const ColumnRawPtrs& key_columns, Arena& pool) {
+inline StringRef serialize_keys_to_pool_contiguous(size_t i, size_t keys_size,
+                                                   const ColumnRawPtrs& key_columns, Arena& pool) {
     const char* begin = nullptr;
 
     size_t sum_size = 0;

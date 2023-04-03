@@ -22,7 +22,6 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.telemetry.Telemetry;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.CatalogIf;
@@ -32,7 +31,9 @@ import org.apache.doris.mysql.DummyMysqlChannel;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.mysql.MysqlSslContext;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TResourceInfo;
@@ -62,6 +63,8 @@ import java.util.Set;
 public class ConnectContext {
     private static final Logger LOG = LogManager.getLogger(ConnectContext.class);
     protected static ThreadLocal<ConnectContext> threadLocalInfo = new ThreadLocal<>();
+
+    private static final String SSL_PROTOCOL = "TLS";
 
     // set this id before analyze
     protected volatile long stmtId;
@@ -149,19 +152,21 @@ public class ConnectContext {
 
     private SessionContext sessionContext;
 
-    private long userQueryTimeout;
+    // This context is used for SSL connection between server and mysql client.
+    private final MysqlSslContext mysqlSslContext = new MysqlSslContext(SSL_PROTOCOL);
 
-    /**
-     * the global execution timeout in seconds, currently set according to query_timeout and insert_timeout.
-     * <p>
-     * when a connection is established, exec_timeout is set by query_timeout, when the statement is an insert stmt,
-     * then it is set to max(query_timeout, insert_timeout) with {@link #resetExecTimeout()} in
-     * after the StmtExecutor is specified.
-     */
-    private int executionTimeoutS;
+    private StatsErrorEstimator statsErrorEstimator;
 
-    public void setUserQueryTimeout(long queryTimeout) {
-        this.userQueryTimeout = queryTimeout;
+    public void setUserQueryTimeout(int queryTimeout) {
+        if (queryTimeout > 0) {
+            sessionVariable.setQueryTimeoutS(queryTimeout);
+        }
+    }
+
+    public void setUserInsertTimeout(int insertTimeout) {
+        if (insertTimeout > 0) {
+            sessionVariable.setInsertTimeoutS(insertTimeout);
+        }
     }
 
     private StatementContext statementContext;
@@ -169,6 +174,10 @@ public class ConnectContext {
 
     public SessionContext getSessionContext() {
         return sessionContext;
+    }
+
+    public MysqlSslContext getMysqlSslContext() {
+        return mysqlSslContext;
     }
 
     public void setOrUpdateInsertResult(long txnId, String label, String db, String tbl,
@@ -227,8 +236,6 @@ public class ConnectContext {
         if (Config.use_fuzzy_session_variable) {
             sessionVariable.initFuzzyModeVariables();
         }
-        // initialize executionTimeoutS to default to queryTimeout
-        executionTimeoutS = sessionVariable.getQueryTimeoutS();
     }
 
     public boolean isTxnModel() {
@@ -255,9 +262,9 @@ public class ConnectContext {
         if (isTxnModel()) {
             if (isTxnBegin()) {
                 try {
-                    Env.getCurrentGlobalTransactionMgr().abortTransaction(
-                            currentDbId, txnEntry.getTxnConf().getTxnId(), "timeout");
-                } catch (UserException e) {
+                    InsertStreamTxnExecutor executor = new InsertStreamTxnExecutor(getTxnEntry());
+                    executor.abortTransaction();
+                } catch (Exception e) {
                     LOG.error("db: {}, txnId: {}, rollback error.", currentDb,
                             txnEntry.getTxnConf().getTxnId(), e);
                 }
@@ -584,20 +591,13 @@ public class ConnectContext {
                 killConnection = true;
             }
         } else {
-            long timeout;
             String timeoutTag = "query";
-            if (userQueryTimeout > 0) {
-                // user set query_timeout property
-                timeout = userQueryTimeout * 1000L;
-            } else {
-                //to ms
-                timeout = executionTimeoutS * 1000L;
-            }
-            //deal with insert stmt particularly
+            // insert stmt particularly
             if (executor != null && executor.isInsertStmt()) {
                 timeoutTag = "insert";
             }
-
+            //to ms
+            long timeout = getExecTimeout() * 1000L;
             if (delta > timeout) {
                 LOG.warn("kill {} timeout, remote: {}, query timeout: {}",
                         timeoutTag, getMysqlChannel().getRemoteHostPortString(), timeout);
@@ -640,16 +640,20 @@ public class ConnectContext {
         return currentConnectedFEIp;
     }
 
-    public void resetExecTimeout() {
-        if (executor != null && executor.isInsertStmt()) {
-            // particular timeout for insert stmt, we can make other particular timeout in the same way.
-            // set the execution timeout as max(insert_timeout,query_timeout) to be compatible with older versions
-            executionTimeoutS = Math.max(sessionVariable.getInsertTimeoutS(), executionTimeoutS);
-        }
-    }
-
+    /**
+     * We calculate and get the exact execution timeout here, rather than setting
+     * execution timeout in many other places.
+     *
+     * @return exact execution timeout
+     */
     public int getExecTimeout() {
-        return executionTimeoutS;
+        if (executor != null && executor.isInsertStmt()) {
+            // particular for insert stmt, we can expand other type of timeout in the same way
+            return Math.max(sessionVariable.getInsertTimeoutS(), sessionVariable.getQueryTimeoutS());
+        } else {
+            // normal query stmt
+            return sessionVariable.getQueryTimeoutS();
+        }
     }
 
     public class ThreadInfo {
@@ -699,5 +703,12 @@ public class ConnectContext {
         return "stmt[" + stmtId + ", " + DebugUtil.printId(queryId) + "]";
     }
 
+    public StatsErrorEstimator getStatsErrorEstimator() {
+        return statsErrorEstimator;
+    }
+
+    public void setStatsErrorEstimator(StatsErrorEstimator statsErrorEstimator) {
+        this.statsErrorEstimator = statsErrorEstimator;
+    }
 }
 

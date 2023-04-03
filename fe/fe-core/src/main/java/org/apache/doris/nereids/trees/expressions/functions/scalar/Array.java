@@ -31,6 +31,7 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -66,6 +67,7 @@ public class Array extends ScalarFunction
             FunctionSignature.ret(ArrayType.of(FloatType.INSTANCE)).varArgs(FloatType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE)).varArgs(DoubleType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT)).varArgs(DecimalV2Type.SYSTEM_DEFAULT),
+            FunctionSignature.ret(ArrayType.of(DecimalV3Type.WILDCARD)).varArgs(DecimalV3Type.WILDCARD),
             FunctionSignature.ret(ArrayType.of(VarcharType.SYSTEM_DEFAULT)).varArgs(VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(ArrayType.of(StringType.INSTANCE)).varArgs(StringType.INSTANCE)
     );

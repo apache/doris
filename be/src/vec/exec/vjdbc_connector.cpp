@@ -140,6 +140,7 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
                     std::abs((int64_t)hash_str(_conn_param.resource_name)), _conn_param.driver_path,
                     _conn_param.driver_checksum, &local_location));
         }
+        VLOG_QUERY << "driver local path = " << local_location;
 
         TJdbcExecutorCtorParams ctor_params;
         ctor_params.__set_statement(_sql_str);
@@ -150,6 +151,7 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
         ctor_params.__set_driver_path(local_location);
         ctor_params.__set_batch_size(read ? state->batch_size() : 0);
         ctor_params.__set_op(read ? TJdbcOperation::READ : TJdbcOperation::WRITE);
+        ctor_params.__set_table_type(_conn_param.table_type);
 
         jbyteArray ctor_params_bytes;
         // Pushed frame will be popped when jni_frame goes out-of-scope.
@@ -259,7 +261,9 @@ Status JdbcConnector::_check_type(SlotDescriptor* slot_desc, const std::string& 
     case TYPE_SMALLINT:
     case TYPE_INT: {
         if (type_str != "java.lang.Short" && type_str != "java.lang.Integer" &&
-            type_str != "java.math.BigDecimal" && type_str != "java.lang.Byte") {
+            type_str != "java.math.BigDecimal" && type_str != "java.lang.Byte" &&
+            type_str != "com.clickhouse.data.value.UnsignedByte" &&
+            type_str != "com.clickhouse.data.value.UnsignedShort") {
             return Status::InternalError(error_msg);
         }
         break;
@@ -267,7 +271,9 @@ Status JdbcConnector::_check_type(SlotDescriptor* slot_desc, const std::string& 
     case TYPE_BIGINT:
     case TYPE_LARGEINT: {
         if (type_str != "java.lang.Long" && type_str != "java.math.BigDecimal" &&
-            type_str != "java.math.BigInteger") {
+            type_str != "java.math.BigInteger" &&
+            type_str != "com.clickhouse.data.value.UnsignedInteger" &&
+            type_str != "com.clickhouse.data.value.UnsignedLong") {
             return Status::InternalError(error_msg);
         }
         break;
@@ -312,7 +318,8 @@ Status JdbcConnector::_check_type(SlotDescriptor* slot_desc, const std::string& 
         break;
     }
     case TYPE_ARRAY: {
-        if (type_str != "java.sql.Array" && type_str != "java.lang.String") {
+        if (type_str != "java.sql.Array" && type_str != "java.lang.String" &&
+            type_str != "java.lang.Object") {
             return Status::InternalError(error_msg);
         }
         if (!slot_desc->type().children[0].children.empty()) {

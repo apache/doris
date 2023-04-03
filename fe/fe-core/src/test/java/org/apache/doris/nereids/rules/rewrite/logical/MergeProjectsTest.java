@@ -87,7 +87,8 @@ public class MergeProjectsTest implements MemoPatternMatchSupported {
 
     @Test
     void testAlias() {
-        // project(a+1 as b) -> project(b+1 as c)
+        // project(b+1 as c)
+        // -> project(a+1 as b)
         LogicalProject<LogicalOlapScan> bottomProject = new LogicalProject<>(
                 ImmutableList.of(new Alias(new Add(score.getOutput().get(0), Literal.of(1)), "b")), score);
         LogicalProject<LogicalProject<LogicalOlapScan>> topProject = new LogicalProject<>(

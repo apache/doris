@@ -44,7 +44,7 @@ public class Alias extends NamedExpression implements UnaryExpression {
      * @param name alias name
      */
     public Alias(Expression child, String name) {
-        this(NamedExpressionUtil.newExprId(), child, name);
+        this(StatementScopeIdGenerator.newExprId(), child, name);
     }
 
     public Alias(ExprId exprId, Expression child, String name) {

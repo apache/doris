@@ -29,7 +29,7 @@ class CIDR;
 class BackendOptions {
 public:
     static bool init();
-    static std::string get_localhost();
+    static const std::string& get_localhost();
     static bool is_bind_ipv6();
     static const char* get_service_bind_address();
 

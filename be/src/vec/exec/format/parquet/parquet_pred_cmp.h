@@ -224,7 +224,7 @@ private:
                         static_cast<int64_t>(*reinterpret_cast<const int32_t*>(encoded_min.data()));
                 int64_t max_date_value =
                         static_cast<int64_t>(*reinterpret_cast<const int32_t*>(encoded_max.data()));
-                if constexpr (std::is_same_v<CppType, DateTimeValue> ||
+                if constexpr (std::is_same_v<CppType, VecDateTimeValue> ||
                               std::is_same_v<CppType, DateV2Value<DateV2ValueType>>) {
                     min_value.from_unixtime(min_date_value * 24 * 60 * 60, ctz);
                     max_value.from_unixtime(max_date_value * 24 * 60 * 60, ctz);
@@ -245,7 +245,7 @@ private:
                 ParquetInt96 datetime96_max =
                         *reinterpret_cast<const ParquetInt96*>(encoded_max.data());
                 int64_t micros_max = datetime96_max.to_timestamp_micros();
-                if constexpr (std::is_same_v<CppType, DateTimeValue> ||
+                if constexpr (std::is_same_v<CppType, VecDateTimeValue> ||
                               std::is_same_v<CppType, DateV2Value<DateTimeV2ValueType>>) {
                     min_value.from_unixtime(micros_min / 1000000, ctz);
                     max_value.from_unixtime(micros_max / 1000000, ctz);
@@ -292,7 +292,7 @@ private:
                     }
                 }
 
-                if constexpr (std::is_same_v<CppType, DateTimeValue> ||
+                if constexpr (std::is_same_v<CppType, VecDateTimeValue> ||
                               std::is_same_v<CppType, DateV2Value<DateTimeV2ValueType>>) {
                     min_value.from_unixtime(date_value_min / second_mask, resolved_ctz);
                     max_value.from_unixtime(date_value_max / second_mask, resolved_ctz);

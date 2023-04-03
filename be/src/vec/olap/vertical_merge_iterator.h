@@ -16,6 +16,7 @@
 // under the License.
 
 #include "common/status.h"
+#include "io/io_common.h"
 #include "olap/iterators.h"
 #include "olap/schema.h"
 #include "vec/columns/columns_number.h"

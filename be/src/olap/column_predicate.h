@@ -187,10 +187,17 @@ public:
     }
     uint32_t column_id() const { return _column_id; }
 
+    bool opposite() const { return _opposite; }
+
     virtual std::string debug_string() const {
         return _debug_string() + ", column_id=" + std::to_string(_column_id) +
                ", opposite=" + (_opposite ? "true" : "false");
     }
+
+    /// Some predicates need to be cloned for each segment.
+    virtual bool need_to_clone() const { return false; }
+
+    virtual void clone(ColumnPredicate** to) const { LOG(FATAL) << "clone not supported"; }
 
     std::shared_ptr<PredicateParams> predicate_params() { return _predicate_params; }
 

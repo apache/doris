@@ -17,8 +17,13 @@
 
 package org.apache.doris.ha;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
+
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -26,18 +31,25 @@ import java.io.IOException;
 
 public class MasterInfo implements Writable {
 
+    @SerializedName("ip")
     private String ip;
+    @SerializedName("hostName")
+    private String hostName;
+    @SerializedName("httpPort")
     private int httpPort;
+    @SerializedName("rpcPort")
     private int rpcPort;
 
     public MasterInfo() {
         this.ip = "";
+        this.hostName = "";
         this.httpPort = 0;
         this.rpcPort = 0;
     }
 
-    public MasterInfo(String ip, int httpPort, int rpcPort) {
+    public MasterInfo(String ip, String hostName, int httpPort, int rpcPort) {
         this.ip = ip;
+        this.hostName = hostName;
         this.httpPort = httpPort;
         this.rpcPort = rpcPort;
     }
@@ -48,6 +60,14 @@ public class MasterInfo implements Writable {
 
     public void setIp(String ip) {
         this.ip = ip;
+    }
+
+    public String getHostName() {
+        return hostName;
+    }
+
+    public void setHostName(String hostName) {
+        this.hostName = hostName;
     }
 
     public int getHttpPort() {
@@ -68,15 +88,25 @@ public class MasterInfo implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        Text.writeString(out, ip);
-        out.writeInt(httpPort);
-        out.writeInt(rpcPort);
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
-    public void readFields(DataInput in) throws IOException {
+    @Deprecated
+    private void readFields(DataInput in) throws IOException {
         ip = Text.readString(in);
         httpPort = in.readInt();
         rpcPort = in.readInt();
+    }
+
+    public static MasterInfo read(DataInput in) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_118) {
+            MasterInfo masterInfo = new MasterInfo();
+            masterInfo.readFields(in);
+            return masterInfo;
+        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, MasterInfo.class);
     }
 
 }

@@ -23,7 +23,6 @@
 #include "common/status.h"
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/Types_types.h"
-#include "runtime/mem_pool.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 
@@ -88,21 +87,19 @@ public:
     const std::vector<ColumnDesc>& get_column_desc() const { return _columns; }
     // factory function
     static SchemaScanner* create(TSchemaTableType::type type);
-    const TupleDescriptor* tuple_desc() const { return _tuple_desc; }
     TSchemaTableType::type type() const { return _schema_table_type; }
 
     static void set_doris_server(DorisServer* doris_server) { _s_doris_server = doris_server; }
 
 protected:
-    Status fill_dest_column(vectorized::Block* block, void* data, const ColumnDesc& slot_desc);
-    Status create_tuple_desc(ObjectPool* pool);
+    Status fill_dest_column_for_range(vectorized::Block* block, size_t pos,
+                                      const std::vector<void*>& datas);
 
     bool _is_init;
     // this is used for sub class
     SchemaScannerParam* _param;
     // schema table's column desc
     std::vector<ColumnDesc> _columns;
-    TupleDescriptor* _tuple_desc;
 
     static DorisServer* _s_doris_server;
 

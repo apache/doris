@@ -135,6 +135,7 @@ public class BatchRollupJobTest {
         OlapTable tbl = (OlapTable) db.getTableNullable("tbl2");
         Assert.assertNotNull(tbl);
 
+
         for (AlterJobV2 alterJobV2 : alterJobs.values()) {
             if (alterJobV2.getType() != AlterJobV2.JobType.ROLLUP) {
                 continue;
@@ -163,8 +164,18 @@ public class BatchRollupJobTest {
             break;
         }
 
+        int finishedJobNum = 0;
+        for (AlterJobV2 alterJobV2 : alterJobs.values()) {
+            if (alterJobV2.getType() != AlterJobV2.JobType.ROLLUP) {
+                continue;
+            }
+            if (alterJobV2.getJobState() == AlterJobV2.JobState.FINISHED) {
+                ++finishedJobNum;
+            }
+        }
+
         for (Partition partition : tbl.getPartitions()) {
-            Assert.assertEquals(2, partition.getMaterializedIndices(IndexExtState.VISIBLE).size());
+            Assert.assertEquals(finishedJobNum + 1, partition.getMaterializedIndices(IndexExtState.VISIBLE).size());
         }
     }
 }

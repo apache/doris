@@ -71,7 +71,7 @@ Query:
            - MaxBlockSize: 8.00 MB
         DataBufferSender (dst_fragment_instance_id=a0a9259df9844029-845331577440a3be):
            - AppendBatchTime: 9.23us
-             - ResultRendTime: 956ns
+             - ResultSendTime: 956ns
              - TupleConvertTime: 5.735us
            - NumSentRows: 5
         OLAP_SCAN_NODE (id=0):(Active: 1.506ms, % non-child: 20.59%)

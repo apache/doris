@@ -17,8 +17,9 @@
 
 #pragma once
 
+#include <type_traits>
+
 #include "olap/hll.h"
-#include "util/slice.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
@@ -29,7 +30,6 @@
 
 namespace doris::vectorized {
 
-template <bool is_nullable>
 struct AggregateFunctionHLLData {
     HyperLogLog dst_hll {};
 
@@ -55,26 +55,16 @@ struct AggregateFunctionHLLData {
     void reset() { dst_hll.clear(); }
 
     void add(const IColumn* column, size_t row_num) {
-        if constexpr (is_nullable) {
-            auto* nullable_column = check_and_get_column<const ColumnNullable>(*column);
-            if (nullable_column->is_null_at(row_num)) {
-                return;
-            }
-            const auto& sources =
-                    static_cast<const ColumnHLL&>((nullable_column->get_nested_column()));
-            dst_hll.merge(sources.get_element(row_num));
-
-        } else {
-            const auto& sources = static_cast<const ColumnHLL&>(*column);
-            dst_hll.merge(sources.get_element(row_num));
-        }
+        const auto& sources = static_cast<const ColumnHLL&>(*column);
+        dst_hll.merge(sources.get_element(row_num));
     }
 };
 
 template <typename Data>
 struct AggregateFunctionHLLUnionImpl : Data {
     void insert_result_into(IColumn& to) const {
-        assert_cast<ColumnHLL&>(to).get_data().emplace_back(this->get());
+        ColumnHLL& column = assert_cast<ColumnHLL&>(to);
+        column.get_data().emplace_back(this->get());
     }
 
     static DataTypePtr get_return_type() { return std::make_shared<DataTypeHLL>(); }
@@ -85,7 +75,8 @@ struct AggregateFunctionHLLUnionImpl : Data {
 template <typename Data>
 struct AggregateFunctionHLLUnionAggImpl : Data {
     void insert_result_into(IColumn& to) const {
-        assert_cast<ColumnInt64&>(to).get_data().emplace_back(this->get_cardinality());
+        ColumnInt64& column = assert_cast<ColumnInt64&>(to);
+        column.get_data().emplace_back(this->get_cardinality());
     }
 
     static DataTypePtr get_return_type() { return std::make_shared<DataTypeInt64>(); }
@@ -130,9 +121,9 @@ public:
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 };
 
-template <bool is_nullable = false>
-AggregateFunctionPtr create_aggregate_function_HLL_union(const std::string& name,
-                                                         const DataTypes& argument_types,
-                                                         const bool result_is_nullable);
+template <template <typename> class Impl>
+AggregateFunctionPtr create_aggregate_function_HLL(const std::string& name,
+                                                   const DataTypes& argument_types,
+                                                   const bool result_is_nullable);
 
 } // namespace doris::vectorized

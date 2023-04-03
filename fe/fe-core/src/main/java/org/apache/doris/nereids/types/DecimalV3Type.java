@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.FractionalType;
-import org.apache.doris.nereids.types.coercion.IntegralType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
@@ -40,10 +39,8 @@ public class DecimalV3Type extends FractionalType {
     public static final int MAX_DECIMAL64_PRECISION = 18;
     public static final int MAX_DECIMAL128_PRECISION = 38;
 
-    public static final DecimalV3Type DEFAULT_DECIMAL32 = new DecimalV3Type(MAX_DECIMAL32_PRECISION, DEFAULT_SCALE);
-    public static final DecimalV3Type DEFAULT_DECIMAL64 = new DecimalV3Type(MAX_DECIMAL64_PRECISION, DEFAULT_SCALE);
-    public static final DecimalV3Type DEFAULT_DECIMAL128 = new DecimalV3Type(MAX_DECIMAL128_PRECISION, DEFAULT_SCALE);
-    public static final DecimalV3Type SYSTEM_DEFAULT = DEFAULT_DECIMAL128;
+    public static final DecimalV3Type WILDCARD = new DecimalV3Type(-1, -1);
+    public static final DecimalV3Type SYSTEM_DEFAULT = new DecimalV3Type(MAX_DECIMAL128_PRECISION, DEFAULT_SCALE);
 
     private static final DecimalV3Type BOOLEAN_DECIMAL = new DecimalV3Type(1, 0);
     private static final DecimalV3Type TINYINT_DECIMAL = new DecimalV3Type(3, 0);
@@ -65,11 +62,10 @@ public class DecimalV3Type extends FractionalType {
             .put(DoubleType.INSTANCE, DOUBLE_DECIMAL)
             .build();
 
-    private final int precision;
-    private final int scale;
+    protected final int precision;
+    protected final int scale;
 
     private DecimalV3Type(int precision, int scale) {
-        Preconditions.checkArgument(precision > 0 && precision <= MAX_DECIMAL128_PRECISION);
         this.precision = precision;
         this.scale = scale;
     }
@@ -78,12 +74,19 @@ public class DecimalV3Type extends FractionalType {
      * create DecimalV3Type with appropriate scale and precision.
      */
     public static DecimalV3Type forType(DataType dataType) {
-        if (FOR_TYPE_MAP.containsKey(dataType)) {
-            return FOR_TYPE_MAP.get(dataType);
+        if (dataType instanceof DecimalV3Type) {
+            return (DecimalV3Type) dataType;
         }
         if (dataType instanceof DecimalV2Type) {
             return createDecimalV3Type(
                     ((DecimalV2Type) dataType).getPrecision(), ((DecimalV2Type) dataType).getScale());
+        }
+        if (FOR_TYPE_MAP.containsKey(dataType)) {
+            return FOR_TYPE_MAP.get(dataType);
+        }
+        if (dataType.isDateTimeV2Type()) {
+            return createDecimalV3Type(14 + ((DateTimeV2Type) dataType).getScale(),
+                    ((DateTimeV2Type) dataType).getScale());
         }
         return SYSTEM_DEFAULT;
     }
@@ -107,13 +110,21 @@ public class DecimalV3Type extends FractionalType {
         return createDecimalV3Type(precision, scale);
     }
 
-    public static DecimalV3Type widerDecimalV3Type(DecimalV3Type left, DecimalV3Type right) {
-        return widerDecimalV3Type(left.getPrecision(), right.getPrecision());
+    public static DataType widerDecimalV3Type(DecimalV3Type left, DecimalV3Type right, boolean overflowToDouble) {
+        return widerDecimalV3Type(left.getPrecision(), right.getPrecision(),
+                left.getScale(), right.getScale(), overflowToDouble);
     }
 
-    private static DecimalV3Type widerDecimalV3Type(int leftPrecision, int rightPrecision) {
-        int maxPrecision = Math.max(leftPrecision, rightPrecision);
-        return DecimalV3Type.createDecimalV3Type(maxPrecision);
+    private static DataType widerDecimalV3Type(
+            int leftPrecision, int rightPrecision,
+            int leftScale, int rightScale,
+            boolean overflowToDouble) {
+        int scale = Math.max(leftScale, rightScale);
+        int range = Math.max(leftPrecision - leftScale, rightPrecision - rightScale);
+        if (range + scale > MAX_DECIMAL128_PRECISION && overflowToDouble) {
+            return DoubleType.INSTANCE;
+        }
+        return DecimalV3Type.createDecimalV3Type(range + scale, scale);
     }
 
     @Override
@@ -129,18 +140,8 @@ public class DecimalV3Type extends FractionalType {
         return scale;
     }
 
-    public boolean isWiderThan(DataType other) {
-        return isWiderThanInternal(other);
-    }
-
-    private boolean isWiderThanInternal(DataType other) {
-        if (other instanceof DecimalV3Type) {
-            DecimalV3Type dt = (DecimalV3Type) other;
-            return this.precision - this.scale >= dt.precision - dt.scale && this.scale >= dt.scale;
-        } else if (other instanceof IntegralType) {
-            return isWiderThanInternal(forType(other));
-        }
-        return false;
+    public int getRange() {
+        return precision - scale;
     }
 
     @Override
@@ -150,17 +151,17 @@ public class DecimalV3Type extends FractionalType {
 
     @Override
     public boolean acceptsType(AbstractDataType other) {
-        return other instanceof DecimalV3Type;
+        return other.equals(this);
     }
 
     @Override
     public String simpleString() {
-        return "decimal";
+        return "decimalv3";
     }
 
     @Override
     public String toSql() {
-        return "DECIMAL(" + precision + ", " + scale + ")";
+        return "DECIMALV3(" + precision + ", " + scale + ")";
     }
 
     @Override
@@ -193,6 +194,4 @@ public class DecimalV3Type extends FractionalType {
             return 16;
         }
     }
-
 }
-

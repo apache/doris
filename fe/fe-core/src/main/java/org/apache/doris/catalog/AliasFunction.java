@@ -234,7 +234,13 @@ public class AliasFunction extends Function {
     @Override
     public String toSql(boolean ifNotExists) {
         setSlotRefLabel(originFunction);
-        StringBuilder sb = new StringBuilder("CREATE ALIAS FUNCTION ");
+        StringBuilder sb = new StringBuilder("CREATE ");
+
+        if (this.isGlobal) {
+            sb.append("GLOBAL ");
+        }
+        sb.append("ALIAS FUNCTION ");
+
         if (ifNotExists) {
             sb.append("IF NOT EXISTS ");
         }

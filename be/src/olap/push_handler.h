@@ -25,7 +25,6 @@
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/MasterService_types.h"
 #include "gen_cpp/PaloInternalService_types.h"
-#include "olap/file_helper.h"
 #include "olap/merger.h"
 #include "olap/olap_common.h"
 #include "olap/row_cursor.h"
@@ -39,8 +38,6 @@ class RowCursor;
 
 class PushHandler {
 public:
-    using SchemaMapping = std::vector<ColumnMapping>;
-
     PushHandler() = default;
     ~PushHandler() = default;
 
@@ -62,7 +59,6 @@ private:
     Status _do_streaming_ingestion(TabletSharedPtr tablet, const TPushReq& request,
                                    PushType push_type, std::vector<TTabletInfo>* tablet_info_vec);
 
-private:
     // mainly tablet_id, version and delta file path
     TPushReq _request;
 

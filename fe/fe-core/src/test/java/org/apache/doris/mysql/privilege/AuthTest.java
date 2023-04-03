@@ -857,6 +857,17 @@ public class AuthTest {
         }
         Assert.assertTrue(hasException);
 
+        // 23. create role start with RoleManager.DEFAULT_ROLE_PREFIX, which is not allowed
+        roleStmt = new CreateRoleStmt(RoleManager.DEFAULT_ROLE_PREFIX + "role");
+        hasException = false;
+        try {
+            roleStmt.analyze(analyzer);
+        } catch (UserException e1) {
+            e1.printStackTrace();
+            hasException = true;
+        }
+        Assert.assertTrue(hasException);
+
         // 24. create role
         roleStmt = new CreateRoleStmt("role1");
         try {
@@ -1445,6 +1456,83 @@ public class AuthTest {
             e.printStackTrace();
             Assert.fail();
         }
+    }
+
+    @Test
+    public void testGrantRole() {
+        UserIdentity userIdentity = new UserIdentity("testUser", "%");
+        UserDesc userDesc = new UserDesc(userIdentity, "12345", true);
+        String role = "role1";
+        // 1. create role
+        CreateRoleStmt createRoleStmt = new CreateRoleStmt(role);
+        try {
+            createRoleStmt.analyze(analyzer);
+            auth.createRole(createRoleStmt);
+        } catch (UserException e1) {
+            e1.printStackTrace();
+            Assert.fail();
+        }
+        // grant select_priv on db 'db1' to role 'role1'
+        GrantStmt grantStmt = new GrantStmt(null, role, new TablePattern("db1", "*"),
+                Lists.newArrayList(AccessPrivilege.SELECT_PRIV));
+        try {
+            grantStmt.analyze(analyzer);
+            auth.grant(grantStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+
+        // create user with no role
+        CreateUserStmt createUserStmt = new CreateUserStmt(false, userDesc, null);
+        try {
+            createUserStmt.analyze(analyzer);
+            auth.createUser(createUserStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+        Assert.assertFalse(accessManager
+                .checkDbPriv(userIdentity, SystemInfoService.DEFAULT_CLUSTER + ":db1", PrivPredicate.SELECT));
+        // grant 'role1' to testUser
+        grantStmt = new GrantStmt(Lists.newArrayList(role), userIdentity);
+        try {
+            grantStmt.analyze(analyzer);
+            auth.grant(grantStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+        Assert.assertTrue(accessManager
+                .checkDbPriv(userIdentity, SystemInfoService.DEFAULT_CLUSTER + ":db1", PrivPredicate.SELECT));
+        // revoke 'role1' from testUser
+        RevokeStmt revokeStmt = new RevokeStmt(Lists.newArrayList(role), userIdentity);
+        try {
+            revokeStmt.analyze(analyzer);
+            auth.revoke(revokeStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+        Assert.assertFalse(accessManager
+                .checkDbPriv(userIdentity, SystemInfoService.DEFAULT_CLUSTER + ":db1", PrivPredicate.SELECT));
+        // grant not exist role to testUser
+        grantStmt = new GrantStmt(Lists.newArrayList("norole"), userIdentity);
+        try {
+            grantStmt.analyze(analyzer);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+
+        boolean hasException = false;
+        try {
+            auth.grant(grantStmt);
+        } catch (DdlException e) {
+            e.printStackTrace();
+            hasException = true;
+        }
+        Assert.assertTrue(hasException);
     }
 
     @Test

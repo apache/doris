@@ -67,9 +67,6 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-
-
-
 /**
  * CatalogMgr will load all catalogs at FE startup,
  * and save them in map with name.
@@ -81,7 +78,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
     public static final String ACCESS_CONTROLLER_CLASS_PROP = "access_controller.class";
     public static final String ACCESS_CONTROLLER_PROPERTY_PREFIX_PROP = "access_controller.properties.";
-    public static final String METADATA_REFRESH_INTERVAL_SEC = "metadata_refresh_interval_sec";
     public static final String CATALOG_TYPE_PROP = "type";
 
     private static final String YES = "yes";
@@ -127,7 +123,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (catalog != null) {
             catalog.onClose();
             nameToCatalog.remove(catalog.getName());
-            Env.getCurrentEnv().getRefreshManager().getRefreshMap().remove(catalog.getName());
             lastDBOfCatalog.remove(catalog.getName());
             Env.getCurrentEnv().getExtMetaCacheMgr().removeCache(catalog.getName());
             if (!Strings.isNullOrEmpty(catalog.getResource())) {
@@ -255,10 +250,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             }
             long id = Env.getCurrentEnv().getNextId();
             CatalogLog log = CatalogFactory.constructorCatalogLog(id, stmt);
-            CatalogIf catalog = replayCreateCatalog(log);
-            if (catalog instanceof ExternalCatalog) {
-                ((ExternalCatalog) catalog).checkProperties();
-            }
+            replayCreateCatalog(log, false);
             Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_CREATE_CATALOG, log);
         } finally {
             writeUnlock();
@@ -466,23 +458,12 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     /**
      * Reply for create catalog event.
      */
-    public CatalogIf replayCreateCatalog(CatalogLog log) throws DdlException {
+    public CatalogIf replayCreateCatalog(CatalogLog log, boolean isReplay) throws DdlException {
         writeLock();
         try {
             CatalogIf catalog = CatalogFactory.constructorFromLog(log);
-            Map<String, String> props = log.getProps();
-            if (props.containsKey(METADATA_REFRESH_INTERVAL_SEC)) {
-                // need refresh
-                String catalogName = log.getCatalogName();
-                Integer metadataRefreshIntervalSec = null;
-                try {
-                    metadataRefreshIntervalSec = Integer.valueOf(props.get(METADATA_REFRESH_INTERVAL_SEC));
-                } catch (NumberFormatException e) {
-                    throw new DdlException("Invalid properties: " + METADATA_REFRESH_INTERVAL_SEC);
-                }
-                Integer[] sec = {metadataRefreshIntervalSec, metadataRefreshIntervalSec};
-                Env.getCurrentEnv().getRefreshManager().getRefreshMap().put(catalogName, sec);
-
+            if (!isReplay && catalog instanceof ExternalCatalog) {
+                ((ExternalCatalog) catalog).checkProperties();
             }
             addCatalog(catalog);
             return catalog;

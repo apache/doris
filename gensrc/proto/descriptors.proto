@@ -28,7 +28,7 @@ message PSlotDescriptor {
     required int32 parent = 2; // tuple id which this slot is belong to
     required PTypeDesc slot_type = 3;
     required int32 column_pos = 4;   // in originating table
-    required int32 byte_offset = 5;  // into tuple
+    required int32 byte_offset = 5;  // into tuple, not used any more
     required int32 null_indicator_byte = 6;
     required int32 null_indicator_bit = 7;
     required string col_name = 8;

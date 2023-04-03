@@ -22,11 +22,11 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.Pair;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -36,7 +36,8 @@ import java.util.Map;
 
 public class FrontendClause extends AlterClause {
     protected String hostPort;
-    protected String host;
+    protected String ip;
+    protected String hostName;
     protected int port;
     protected FrontendNodeType role;
 
@@ -46,8 +47,12 @@ public class FrontendClause extends AlterClause {
         this.role = role;
     }
 
-    public String getHost() {
-        return host;
+    public String getIp() {
+        return ip;
+    }
+
+    public String getHostName() {
+        return hostName;
     }
 
     public int getPort() {
@@ -61,10 +66,11 @@ public class FrontendClause extends AlterClause {
                                                 analyzer.getQualifiedUser());
         }
 
-        Pair<String, Integer> pair = SystemInfoService.validateHostAndPort(hostPort);
-        this.host = pair.first;
-        this.port = pair.second;
-        Preconditions.checkState(!Strings.isNullOrEmpty(host));
+        HostInfo hostInfo = SystemInfoService.getIpHostAndPort(hostPort, true);
+        this.ip = hostInfo.getIp();
+        this.hostName = hostInfo.getHostName();
+        this.port = hostInfo.getPort();
+        Preconditions.checkState(!Strings.isNullOrEmpty(ip));
     }
 
     @Override

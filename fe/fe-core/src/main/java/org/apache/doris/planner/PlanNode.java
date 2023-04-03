@@ -57,6 +57,7 @@ import org.apache.commons.collections.CollectionUtils;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -122,6 +123,8 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     // estimate of the output cardinality of this node; set in computeStats();
     // invalid: -1
     protected long cardinality;
+
+    protected long cardinalityAfterFilter = -1;
 
     // number of nodes on which the plan tree rooted at this node would execute;
     // set in computeStats(); invalid: -1
@@ -621,6 +624,16 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
      * Subclasses need to override this.
      */
     public void finalize(Analyzer analyzer) throws UserException {
+        for (Expr expr : conjuncts) {
+            Set<SlotRef> slotRefs = new HashSet<>();
+            expr.getSlotRefsBoundByTupleIds(tupleIds, slotRefs);
+            for (SlotRef slotRef : slotRefs) {
+                slotRef.getDesc().setIsMaterialized(true);
+            }
+            for (TupleId tupleId : tupleIds) {
+                analyzer.getTupleDesc(tupleId).computeMemLayout();
+            }
+        }
         for (PlanNode child : children) {
             child.finalize(analyzer);
         }
@@ -706,6 +719,10 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
      * Assign remaining unassigned conjuncts.
      */
     protected void assignConjuncts(Analyzer analyzer) {
+        // we cannot plan conjuncts on exchange node, so we just skip the node.
+        if (this instanceof ExchangeNode) {
+            return;
+        }
         List<Expr> unassigned = analyzer.getUnassignedConjuncts(this);
         for (Expr unassignedConjunct : unassigned) {
             addConjunct(unassignedConjunct);
@@ -816,6 +833,10 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     public int getNumInstances() {
         return numInstances;
+    }
+
+    public boolean shouldColoAgg() {
+        return true;
     }
 
     public void setNumInstances(int numInstances) {
@@ -1131,5 +1152,9 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     public void setVConjunct(Set<Expr> exprs) {
         vconjunct = convertConjunctsToAndCompoundPredicate(new ArrayList<>(exprs));
+    }
+
+    public void setCardinalityAfterFilter(long cardinalityAfterFilter) {
+        this.cardinalityAfterFilter = cardinalityAfterFilter;
     }
 }

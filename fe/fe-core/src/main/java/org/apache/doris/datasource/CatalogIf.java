@@ -49,6 +49,8 @@ public interface CatalogIf<T extends DatabaseIf> {
 
     List<String> getDbNames();
 
+    // Will be used when querying the information_schema table
+    // Unable to get db for uninitialized catalog to avoid query timeout
     default List<String> getDbNamesOrEmpty() {
         try {
             return getDbNames();
@@ -72,7 +74,7 @@ public interface CatalogIf<T extends DatabaseIf> {
         return null;
     }
 
-    default void notifyPropertiesUpdated() {
+    default void notifyPropertiesUpdated(Map<String, String> updatedProps) {
         if (this instanceof ExternalCatalog) {
             ((ExternalCatalog) this).setUninitialized(false);
         }

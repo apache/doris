@@ -54,7 +54,8 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
                 .when(this::typeChecker)
                 .when(topSemi -> InnerJoinLAsscom.checkReorder(topSemi, topSemi.left().child()))
                 .whenNot(join -> join.hasJoinHint() || join.left().child().hasJoinHint())
-                .when(join -> JoinReorderUtils.checkProject(join.left()))
+                .whenNot(join -> join.isMarkJoin() || join.left().child().isMarkJoin())
+                .when(join -> JoinReorderUtils.isAllSlotProject(join.left()))
                 .then(topSemi -> {
                     LogicalJoin<GroupPlan, GroupPlan> bottomSemi = topSemi.left().child();
                     LogicalProject abProject = topSemi.left();
@@ -64,21 +65,19 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
                     Set<ExprId> aOutputExprIdSet = a.getOutputExprIdSet();
                     Set<NamedExpression> acProjects = new HashSet<NamedExpression>(abProject.getProjects());
 
-                    bottomSemi.getHashJoinConjuncts().forEach(
-                            expression -> expression.getInputSlots().forEach(
-                                    slot -> {
-                                        if (aOutputExprIdSet.contains(slot.getExprId())) {
-                                            acProjects.add(slot);
-                                        }
-                                    })
-                    );
-                    LogicalJoin newBottomSemi = (LogicalJoin) topSemi.withChildren(a, c);
+                    bottomSemi.getConditionSlot()
+                            .forEach(slot -> {
+                                if (aOutputExprIdSet.contains(slot.getExprId())) {
+                                    acProjects.add(slot);
+                                }
+                            });
+                    LogicalJoin newBottomSemi = topSemi.withChildrenNoContext(a, c);
                     newBottomSemi.getJoinReorderContext().copyFrom(bottomSemi.getJoinReorderContext());
                     newBottomSemi.getJoinReorderContext().setHasCommute(false);
                     newBottomSemi.getJoinReorderContext().setHasLAsscom(false);
 
                     LogicalProject acProject = new LogicalProject<>(Lists.newArrayList(acProjects), newBottomSemi);
-                    LogicalJoin newTopSemi = (LogicalJoin) bottomSemi.withChildren(acProject, b);
+                    LogicalJoin newTopSemi = bottomSemi.withChildrenNoContext(acProject, b);
                     newTopSemi.getJoinReorderContext().copyFrom(topSemi.getJoinReorderContext());
                     newTopSemi.getJoinReorderContext().setHasLAsscom(true);
                     return JoinReorderUtils.projectOrSelf(new ArrayList<>(topSemi.getOutput()), newTopSemi);

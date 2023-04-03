@@ -25,6 +25,7 @@ import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.NullLiteral;
+import org.apache.doris.analysis.SchemaChangeExpr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
@@ -57,6 +58,7 @@ import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
+import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanNode;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileScanSlotInfo;
@@ -67,11 +69,15 @@ import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Multimap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -112,7 +118,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
     }
 
     private Type type = Type.QUERY;
-    private final BackendPolicy backendPolicy = new BackendPolicy();
+    private final FederationBackendPolicy backendPolicy = new FederationBackendPolicy();
 
     // Only for load job.
     // Save all info about load attributes and files.
@@ -291,6 +297,16 @@ public class ExternalFileScanNode extends ExternalScanNode {
                 scanProvider = new IcebergScanProvider(hmsSource, analyzer);
                 break;
             case HIVE:
+                String inputFormat = hmsTable.getRemoteTable().getSd().getInputFormat();
+                if (inputFormat.contains("TextInputFormat")) {
+                    for (SlotDescriptor slot : desc.getSlots()) {
+                        if (!slot.getType().isScalarType()) {
+                            throw new UserException("For column `" + slot.getColumn().getName()
+                                    + "`, The column types ARRAY/MAP/STRUCT are not supported yet"
+                                    + " for text input format of Hive. ");
+                        }
+                    }
+                }
                 scanProvider = new HiveScanProvider(hmsTable, desc, columnNameToRange);
                 break;
             default:
@@ -615,6 +631,10 @@ public class ExternalFileScanNode extends ExternalScanNode {
                 String name = "jsonb_parse_" + nullable + "_error_to_null";
                 expr = new FunctionCallExpr(name, args);
                 expr.analyze(analyzer);
+            } else if (dstType == PrimitiveType.VARIANT) {
+                // Generate SchemaChange expr for dynamicly generating columns
+                TableIf targetTbl = desc.getTable();
+                expr = new SchemaChangeExpr((SlotRef) expr, (int) targetTbl.getId());
             } else {
                 expr = castToSlot(destSlotDesc, expr);
             }
@@ -714,6 +734,52 @@ public class ExternalFileScanNode extends ExternalScanNode {
         output.append(prefix).append("partition=").append(readPartitionNum).append("/").append(totalPartitionNum)
                 .append("\n");
 
+        if (detailLevel == TExplainLevel.VERBOSE) {
+            output.append(prefix).append("backends:").append("\n");
+            Multimap<Long, TFileRangeDesc> scanRangeLocationsMap = ArrayListMultimap.create();
+            // 1. group by backend id
+            for (TScanRangeLocations locations : scanRangeLocations) {
+                scanRangeLocationsMap.putAll(locations.getLocations().get(0).backend_id,
+                        locations.getScanRange().getExtScanRange().getFileScanRange().getRanges());
+            }
+            for (long beId : scanRangeLocationsMap.keySet()) {
+                output.append(prefix).append("  ").append(beId).append("\n");
+                List<TFileRangeDesc> fileRangeDescs = Lists.newArrayList(scanRangeLocationsMap.get(beId));
+                // 2. sort by file start offset
+                Collections.sort(fileRangeDescs, new Comparator<TFileRangeDesc>() {
+                    @Override
+                    public int compare(TFileRangeDesc o1, TFileRangeDesc o2) {
+                        return Long.compare(o1.getStartOffset(), o2.getStartOffset());
+                    }
+                });
+                // 3. if size <= 4, print all. if size > 4, print first 3 and last 1
+                int size = fileRangeDescs.size();
+                if (size <= 4) {
+                    for (TFileRangeDesc file : fileRangeDescs) {
+                        output.append(prefix).append("    ").append(file.getPath())
+                                .append(" start: ").append(file.getStartOffset())
+                                .append(" length: ").append(file.getFileSize())
+                                .append("\n");
+                    }
+                } else {
+                    for (int i = 0; i < 3; i++) {
+                        TFileRangeDesc file = fileRangeDescs.get(i);
+                        output.append(prefix).append("    ").append(file.getPath())
+                                .append(" start: ").append(file.getStartOffset())
+                                .append(" length: ").append(file.getFileSize())
+                                .append("\n");
+                    }
+                    int other = size - 4;
+                    output.append(prefix).append("    ... other ").append(other).append(" files ...\n");
+                    TFileRangeDesc file = fileRangeDescs.get(size - 1);
+                    output.append(prefix).append("    ").append(file.getPath())
+                            .append(" start: ").append(file.getStartOffset())
+                            .append(" length: ").append(file.getFileSize())
+                            .append("\n");
+                }
+            }
+        }
+
         output.append(prefix);
         if (cardinality > 0) {
             output.append(String.format("cardinality=%s, ", cardinality));
@@ -726,6 +792,4 @@ public class ExternalFileScanNode extends ExternalScanNode {
         return output.toString();
     }
 }
-
-
 

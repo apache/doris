@@ -24,7 +24,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import java.util.List;
 import java.util.Optional;
@@ -49,9 +49,9 @@ public class PhysicalUnion extends PhysicalSetOperation {
 
     public PhysicalUnion(Qualifier qualifier,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult, List<Plan> inputs) {
+            PhysicalProperties physicalProperties, Statistics statistics, List<Plan> inputs) {
         super(PlanType.PHYSICAL_UNION, qualifier,
-                groupExpression, logicalProperties, physicalProperties, statsDeriveResult, inputs);
+                groupExpression, logicalProperties, physicalProperties, statistics, inputs);
     }
 
     @Override
@@ -61,9 +61,9 @@ public class PhysicalUnion extends PhysicalSetOperation {
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalUnion",
+        return Utils.toSqlString("PhysicalUnion" + getGroupIdAsString(),
                 "qualifier", qualifier,
-                "stats", statsDeriveResult);
+                "stats", statistics);
     }
 
     @Override
@@ -85,8 +85,8 @@ public class PhysicalUnion extends PhysicalSetOperation {
 
     @Override
     public PhysicalUnion withPhysicalPropertiesAndStats(
-            PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult) {
+            PhysicalProperties physicalProperties, Statistics statistics) {
         return new PhysicalUnion(qualifier, Optional.empty(),
-                getLogicalProperties(), physicalProperties, statsDeriveResult, children);
+                getLogicalProperties(), physicalProperties, statistics, children);
     }
 }

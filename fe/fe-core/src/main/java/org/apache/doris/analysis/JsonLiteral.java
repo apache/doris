@@ -98,7 +98,7 @@ public class JsonLiteral extends LiteralExpr {
 
     @Override
     public String getStringValue() {
-        return null;
+        return value;
     }
 
     @Override

@@ -138,14 +138,14 @@ public class RestBaseController extends BaseController {
                     try {
                         bis.close();
                     } catch (IOException e) {
-                        e.printStackTrace();
+                        LOG.warn("", e);
                     }
                 }
                 if (fis != null) {
                     try {
                         fis.close();
                     } catch (IOException e) {
-                        e.printStackTrace();
+                        LOG.warn("", e);
                     }
                 }
             }

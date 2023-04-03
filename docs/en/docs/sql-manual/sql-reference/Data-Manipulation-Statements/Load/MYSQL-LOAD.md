@@ -62,7 +62,7 @@ This import method can still guarantee the atomicity of a batch of import tasks,
 6. `COLUMNS TERMINATED BY` specifies the column separator
 7. `LINES TERMINATED BY` specifies the line separator
 8. `IGNORE num LINES` The user skips the header of the CSV and can skip any number of lines. This syntax can also be replaced by'IGNORE num ROWS '
-9. Column mapping syntax, please refer to the column mapping chapter of [Imported Data Transformation](../../../data-operate/import/import-way/mysql-load-manual.md)
+9. Column mapping syntax, please refer to the column mapping chapter of [Imported Data Transformation](../../../../data-operate/import/import-way/mysql-load-manual.md)
 10. `PROPERTIES` parameter configuration, see below for details
 
 ### PROPERTIES
@@ -76,6 +76,8 @@ This import method can still guarantee the atomicity of a batch of import tasks,
 4. timezone: Specify the time zone used for this import. The default is Dongba District. This parameter affects the results of all time zone-related functions involved in the import.
 
 5. exec_mem_limit: Import memory limit. Default is 2GB. The unit is bytes.
+
+6. trim_double_quotes: Boolean type, The default value is false. True means that the outermost double quotes of each field in the load file are trimmed.
 
 ### Example
 
@@ -121,8 +123,8 @@ This import method can still guarantee the atomicity of a batch of import tasks,
     ```sql
     LOAD DATA LOCAL
     INFILE 'testData'
-    PARTITION (p1, p2)
     INTO TABLE testDb.testTbl
+    PARTITION (p1, p2)
     PROPERTIES ("max_filter_ratio"="0.2")
     ```
 
@@ -141,8 +143,8 @@ This import method can still guarantee the atomicity of a batch of import tasks,
     ```sql
     LOAD DATA LOCAL
     INFILE 'testData'
-    PARTITION (p1, p2)
     INTO TABLE testDb.testTbl
+    PARTITION (p1, p2)
     IGNORE 1 LINES
     ```
 

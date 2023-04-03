@@ -78,10 +78,10 @@ inline size_t get_char_len(const std::string_view& str, std::vector<size_t>* str
     return char_len;
 }
 
-inline size_t get_char_len(const StringVal& str, std::vector<size_t>* str_index) {
+inline size_t get_char_len(const StringRef& str, std::vector<size_t>* str_index) {
     size_t char_len = 0;
-    for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
-        char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.ptr)[i]];
+    for (size_t i = 0, char_size = 0; i < str.size; i += char_size) {
+        char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.data)[i]];
         str_index->push_back(i);
         ++char_len;
     }
@@ -215,7 +215,7 @@ private:
             }
 
             if (byte_pos <= str_size && fixed_len > 0) {
-                // return StringVal(str.ptr + byte_pos, fixed_len);
+                // return StringRef(str.data + byte_pos, fixed_len);
                 StringOP::push_value_string(
                         std::string_view {reinterpret_cast<const char*>(raw_str + byte_pos),
                                           (size_t)fixed_len},
@@ -1070,14 +1070,14 @@ public:
             if (auto* col2 = check_and_get_column<ColumnInt32>(*argument_ptr[1])) {
                 vector_vector(col1->get_chars(), col1->get_offsets(), col2->get_data(),
                               res->get_chars(), res->get_offsets(), null_map->get_data(),
-                              context->impl()->state()->repeat_max_num());
+                              context->state()->repeat_max_num());
                 block.replace_by_position(
                         result, ColumnNullable::create(std::move(res), std::move(null_map)));
                 return Status::OK();
             } else if (auto* col2_const = check_and_get_column<ColumnConst>(*argument_ptr[1])) {
                 DCHECK(check_and_get_column<ColumnInt32>(col2_const->get_data_column()));
-                int repeat = std::min<int>(col2_const->get_int(0),
-                                           context->impl()->state()->repeat_max_num());
+                int repeat =
+                        std::min<int>(col2_const->get_int(0), context->state()->repeat_max_num());
                 if (repeat <= 0) {
                     null_map->get_data().resize_fill(input_rows_count, 0);
                     res->insert_many_defaults(input_rows_count);
@@ -1258,7 +1258,7 @@ public:
                 pad_byte_len = pad_times * pad_len;
                 pad_byte_len += pad_index[pad_remainder];
                 int32_t byte_len = str_len + pad_byte_len;
-                // StringVal result(context, byte_len);
+                // StringRef result(context, byte_len);
                 if constexpr (Impl::is_lpad) {
                     int pad_idx = 0;
                     int result_index = 0;
@@ -1325,48 +1325,45 @@ public:
         auto& res_chars = res->get_chars();
         res_offsets.resize(input_rows_count);
 
-        ColumnPtr content_column =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-
-        if (auto* nullable = check_and_get_column<const ColumnNullable>(*content_column)) {
-            // Danger: Here must dispose the null map data first! Because
-            // argument_columns[0]=nullable->get_nested_column_ptr(); will release the mem
-            // of column nullable mem of null map
-            VectorizedUtils::update_null_map(null_map->get_data(), nullable->get_null_map_data());
-            content_column = nullable->get_nested_column_ptr();
-        }
-
-        for (size_t i = 1; i <= 2; i++) {
-            ColumnPtr columnPtr = remove_nullable(block.get_by_position(arguments[i]).column);
-
-            if (!is_column_const(*columnPtr)) {
-                return Status::RuntimeError("Argument at index {} for function {} must be constant",
-                                            i + 1, get_name());
+        const size_t argument_size = arguments.size();
+        ColumnPtr argument_columns[argument_size];
+        for (size_t i = 0; i < argument_size; ++i) {
+            argument_columns[i] =
+                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
+            if (auto* nullable = check_and_get_column<const ColumnNullable>(*argument_columns[i])) {
+                // Danger: Here must dispose the null map data first! Because
+                // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
+                // of column nullable mem of null map
+                VectorizedUtils::update_null_map(null_map->get_data(),
+                                                 nullable->get_null_map_data());
+                argument_columns[i] = nullable->get_nested_column_ptr();
             }
         }
 
-        auto str_col = assert_cast<const ColumnString*>(content_column.get());
+        auto str_col = assert_cast<const ColumnString*>(argument_columns[0].get());
 
-        const IColumn& delimiter_col = *block.get_by_position(arguments[1]).column;
-        const auto* delimiter_const = typeid_cast<const ColumnConst*>(&delimiter_col);
-        auto delimiter = delimiter_const->get_field().get<String>();
-        int32_t delimiter_size = delimiter.size();
+        auto delimiter_col = assert_cast<const ColumnString*>(argument_columns[1].get());
 
-        const IColumn& part_num_col = *block.get_by_position(arguments[2]).column;
-        const auto* part_num_col_const = typeid_cast<const ColumnConst*>(&part_num_col);
-        auto part_number = part_num_col_const->get_field().get<Int32>();
+        auto part_num_col = assert_cast<const ColumnInt32*>(argument_columns[2].get());
+        auto& part_num_col_data = part_num_col->get_data();
 
-        if (part_number >= 0) {
-            for (size_t i = 0; i < input_rows_count; ++i) {
-                if (part_number == 0) {
-                    StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
-                    continue;
-                }
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if (part_num_col_data[i] == 0) {
+                StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
+                continue;
+            }
 
-                auto str = str_col->get_data_at(i);
-                if (delimiter_size == 0) {
-                    StringOP::push_empty_string(i, res_chars, res_offsets);
-                } else if (delimiter_size == 1) {
+            auto delimiter = delimiter_col->get_data_at(i);
+            auto delimiter_str = delimiter_col->get_data_at(i).to_string();
+            auto part_number = part_num_col_data[i];
+            auto str = str_col->get_data_at(i);
+            if (delimiter.size == 0) {
+                StringOP::push_empty_string(i, res_chars, res_offsets);
+                continue;
+            }
+
+            if (part_number > 0) {
+                if (delimiter.size == 1) {
                     // If delimiter is a char, use memchr to split
                     int32_t pre_offset = -1;
                     int32_t offset = -1;
@@ -1375,7 +1372,7 @@ public:
                         pre_offset = offset;
                         size_t n = str.size - offset - 1;
                         const char* pos = reinterpret_cast<const char*>(
-                                memchr(str.data + offset + 1, delimiter[0], n));
+                                memchr(str.data + offset + 1, delimiter_str[0], n));
                         if (pos != nullptr) {
                             offset = pos - str.data;
                             num++;
@@ -1397,15 +1394,15 @@ public:
                     }
                 } else {
                     // If delimiter is a string, use memmem to split
-                    int32_t pre_offset = -delimiter_size;
-                    int32_t offset = pre_offset;
+                    int32_t pre_offset = -delimiter.size;
+                    int32_t offset = -delimiter.size;
                     int32_t num = 0;
                     while (num < part_number) {
                         pre_offset = offset;
-                        size_t n = str.size - offset - delimiter_size;
-                        char* pos = reinterpret_cast<char*>(
-                                memmem(str.data + offset + delimiter_size, n, delimiter.c_str(),
-                                       delimiter_size));
+                        size_t n = str.size - offset - delimiter.size;
+                        char* pos =
+                                reinterpret_cast<char*>(memmem(str.data + offset + delimiter.size,
+                                                               n, delimiter.data, delimiter.size));
                         if (pos != nullptr) {
                             offset = pos - str.data;
                             num++;
@@ -1419,60 +1416,54 @@ public:
                     if (num == part_number) {
                         StringOP::push_value_string(
                                 std::string_view {reinterpret_cast<const char*>(
-                                                          str.data + pre_offset + delimiter_size),
-                                                  (size_t)offset - pre_offset - delimiter_size},
+                                                          str.data + pre_offset + delimiter.size),
+                                                  (size_t)offset - pre_offset - delimiter.size},
                                 i, res_chars, res_offsets);
                     } else {
                         StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
                     }
                 }
-            }
-        } else {
-            part_number = -part_number;
-            for (size_t i = 0; i < input_rows_count; ++i) {
-                if (delimiter_size == 0) {
-                    StringOP::push_empty_string(i, res_chars, res_offsets);
-                } else {
-                    auto str = str_col->get_data_at(i);
-                    auto str_str = str.to_string();
-                    int32_t offset = str.size;
-                    int32_t pre_offset = offset;
-                    int32_t num = 0;
-                    auto substr = str_str;
-                    while (num <= part_number && offset >= 0) {
-                        offset = (int)substr.rfind(delimiter, offset);
-                        if (offset != -1) {
-                            if (++num == part_number) {
-                                break;
-                            }
-                            pre_offset = offset;
-                            offset = offset - 1;
-                            substr = str_str.substr(0, pre_offset);
-                        } else {
+            } else {
+                part_number = -part_number;
+                auto str_str = str.to_string();
+                int32_t offset = str.size;
+                int32_t pre_offset = offset;
+                int32_t num = 0;
+                auto substr = str_str;
+                while (num <= part_number && offset >= 0) {
+                    offset = (int)substr.rfind(delimiter, offset);
+                    if (offset != -1) {
+                        if (++num == part_number) {
                             break;
                         }
-                    }
-                    num = (offset == -1 && num != 0) ? num + 1 : num;
-
-                    if (num == part_number) {
-                        if (offset == -1) {
-                            StringOP::push_value_string(
-                                    std::string_view {reinterpret_cast<const char*>(str.data),
-                                                      (size_t)pre_offset},
-                                    i, res_chars, res_offsets);
-                        } else {
-                            StringOP::push_value_string(
-                                    std::string_view {str_str.substr(
-                                            offset + delimiter_size,
-                                            (size_t)pre_offset - offset - delimiter_size)},
-                                    i, res_chars, res_offsets);
-                        }
+                        pre_offset = offset;
+                        offset = offset - 1;
+                        substr = str_str.substr(0, pre_offset);
                     } else {
-                        StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
+                        break;
                     }
+                }
+                num = (offset == -1 && num != 0) ? num + 1 : num;
+
+                if (num == part_number) {
+                    if (offset == -1) {
+                        StringOP::push_value_string(
+                                std::string_view {reinterpret_cast<const char*>(str.data),
+                                                  (size_t)pre_offset},
+                                i, res_chars, res_offsets);
+                    } else {
+                        StringOP::push_value_string(
+                                std::string_view {str_str.substr(
+                                        offset + delimiter.size,
+                                        (size_t)pre_offset - offset - delimiter.size)},
+                                i, res_chars, res_offsets);
+                    }
+                } else {
+                    StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
                 }
             }
         }
+
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(res), std::move(null_map));
         return Status::OK();
@@ -1762,6 +1753,7 @@ private:
         }
     }
 
+    //TODO: need to be rewrited in a more efficient way. compare BMH/KMP/...
     size_t split_str(size_t& pos, const StringRef str_ref, StringRef delimiter_ref) {
         size_t old_size = pos;
         size_t str_size = str_ref.size;
@@ -2020,38 +2012,40 @@ public:
 namespace MoneyFormat {
 
 template <typename T, size_t N>
-static StringVal do_money_format(FunctionContext* context, const T int_value,
-                                 const int32_t frac_value = 0) {
+StringRef do_money_format(FunctionContext* context, const T int_value,
+                          const int32_t frac_value = 0) {
     char local[N];
     char* p = SimpleItoaWithCommas(int_value, local, sizeof(local));
     int32_t string_val_len = local + sizeof(local) - p + 3;
-    StringVal result = StringVal::create_temp_string_val(context, string_val_len);
-    memcpy(result.ptr, p, string_val_len - 3);
-    *(result.ptr + string_val_len - 3) = '.';
-    *(result.ptr + string_val_len - 2) = '0' + (frac_value / 10);
-    *(result.ptr + string_val_len - 1) = '0' + (frac_value % 10);
+    StringRef result = context->create_temp_string_val(string_val_len);
+    char* result_data = const_cast<char*>(result.data);
+    memcpy(result_data, p, string_val_len - 3);
+    *(result_data + string_val_len - 3) = '.';
+    *(result_data + string_val_len - 2) = '0' + (frac_value / 10);
+    *(result_data + string_val_len - 1) = '0' + (frac_value % 10);
     return result;
 };
 
 // Note string value must be valid decimal string which contains two digits after the decimal point
-static StringVal do_money_format(FunctionContext* context, const string& value) {
+static StringRef do_money_format(FunctionContext* context, const string& value) {
     bool is_positive = (value[0] != '-');
     int32_t result_len = value.size() + (value.size() - (is_positive ? 4 : 5)) / 3;
-    StringVal result = StringVal::create_temp_string_val(context, result_len);
+    StringRef result = context->create_temp_string_val(result_len);
+    char* result_data = const_cast<char*>(result.data);
     if (!is_positive) {
-        *result.ptr = '-';
+        *result_data = '-';
     }
     for (int i = value.size() - 4, j = result_len - 4; i >= 0; i = i - 3, j = j - 4) {
-        *(result.ptr + j) = *(value.data() + i);
+        *(result_data + j) = *(value.data() + i);
         if (i - 1 < 0) break;
-        *(result.ptr + j - 1) = *(value.data() + i - 1);
+        *(result_data + j - 1) = *(value.data() + i - 1);
         if (i - 2 < 0) break;
-        *(result.ptr + j - 2) = *(value.data() + i - 2);
+        *(result_data + j - 2) = *(value.data() + i - 2);
         if (j - 3 > 1 || (j - 3 == 1 && is_positive)) {
-            *(result.ptr + j - 3) = ',';
+            *(result_data + j - 3) = ',';
         }
     }
-    memcpy(result.ptr + result_len - 3, value.data() + value.size() - 3, 3);
+    memcpy(result_data + result_len - 3, value.data() + value.size() - 3, 3);
     return result;
 };
 
@@ -2065,8 +2059,8 @@ struct MoneyFormatDoubleImpl {
         for (size_t i = 0; i < input_rows_count; i++) {
             double value =
                     MathFunctions::my_double_round(data_column->get_element(i), 2, false, false);
-            StringVal str = MoneyFormat::do_money_format(context, fmt::format("{:.2f}", value));
-            result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+            StringRef str = MoneyFormat::do_money_format(context, fmt::format("{:.2f}", value));
+            result_column->insert_data(str.data, str.size);
         }
     }
 };
@@ -2079,8 +2073,8 @@ struct MoneyFormatInt64Impl {
         const auto* data_column = assert_cast<const ColumnVector<Int64>*>(col_ptr.get());
         for (size_t i = 0; i < input_rows_count; i++) {
             Int64 value = data_column->get_element(i);
-            StringVal str = MoneyFormat::do_money_format<Int64, 26>(context, value);
-            result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+            StringRef str = MoneyFormat::do_money_format<Int64, 26>(context, value);
+            result_column->insert_data(str.data, str.size);
         }
     }
 };
@@ -2093,8 +2087,8 @@ struct MoneyFormatInt128Impl {
         const auto* data_column = assert_cast<const ColumnVector<Int128>*>(col_ptr.get());
         for (size_t i = 0; i < input_rows_count; i++) {
             Int128 value = data_column->get_element(i);
-            StringVal str = MoneyFormat::do_money_format<Int128, 52>(context, value);
-            result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+            StringRef str = MoneyFormat::do_money_format<Int128, 52>(context, value);
+            result_column->insert_data(str.data, str.size);
         }
     }
 };
@@ -2108,15 +2102,15 @@ struct MoneyFormatDecimalImpl {
                         size_t input_rows_count) {
         if (auto* decimalv2_column = check_and_get_column<ColumnDecimal<Decimal128>>(*col_ptr)) {
             for (size_t i = 0; i < input_rows_count; i++) {
-                DecimalV2Val value = DecimalV2Val(decimalv2_column->get_element(i));
+                DecimalV2Value value = DecimalV2Value(decimalv2_column->get_element(i));
 
                 DecimalV2Value rounded(0);
-                DecimalV2Value::from_decimal_val(value).round(&rounded, 2, HALF_UP);
+                value.round(&rounded, 2, HALF_UP);
 
-                StringVal str = MoneyFormat::do_money_format<int64_t, 26>(
+                StringRef str = MoneyFormat::do_money_format<int64_t, 26>(
                         context, rounded.int_value(), abs(rounded.frac_value() / 10000000));
 
-                result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+                result_column->insert_data(str.data, str.size);
             }
         } else if (auto* decimal32_column =
                            check_and_get_column<ColumnDecimal<Decimal32>>(*col_ptr)) {
@@ -2132,10 +2126,10 @@ struct MoneyFormatDecimalImpl {
                     frac_part = frac_part * multiplier;
                 }
 
-                StringVal str = MoneyFormat::do_money_format<int64_t, 26>(
+                StringRef str = MoneyFormat::do_money_format<int64_t, 26>(
                         context, decimal32_column->get_whole_part(i), frac_part);
 
-                result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+                result_column->insert_data(str.data, str.size);
             }
         } else if (auto* decimal64_column =
                            check_and_get_column<ColumnDecimal<Decimal64>>(*col_ptr)) {
@@ -2151,10 +2145,10 @@ struct MoneyFormatDecimalImpl {
                     frac_part = frac_part * multiplier;
                 }
 
-                StringVal str = MoneyFormat::do_money_format<int64_t, 26>(
+                StringRef str = MoneyFormat::do_money_format<int64_t, 26>(
                         context, decimal64_column->get_whole_part(i), frac_part);
 
-                result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+                result_column->insert_data(str.data, str.size);
             }
         } else if (auto* decimal128_column =
                            check_and_get_column<ColumnDecimal<Decimal128I>>(*col_ptr)) {
@@ -2170,10 +2164,10 @@ struct MoneyFormatDecimalImpl {
                     frac_part = frac_part * multiplier;
                 }
 
-                StringVal str = MoneyFormat::do_money_format<int64_t, 26>(
+                StringRef str = MoneyFormat::do_money_format<int64_t, 26>(
                         context, decimal128_column->get_whole_part(i), frac_part);
 
-                result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+                result_column->insert_data(str.data, str.size);
             }
         }
     }
@@ -2215,8 +2209,8 @@ public:
         vec_res.resize(input_rows_count);
 
         for (int i = 0; i < input_rows_count; ++i) {
-            vec_res[i] = locate_pos(col_substr->get_data_at(i).to_string_val(),
-                                    col_str->get_data_at(i).to_string_val(), vec_pos[i]);
+            vec_res[i] =
+                    locate_pos(col_substr->get_data_at(i), col_str->get_data_at(i), vec_pos[i]);
         }
 
         block.replace_by_position(result, std::move(col_res));
@@ -2224,13 +2218,13 @@ public:
     }
 
 private:
-    int locate_pos(StringVal substr, StringVal str, int start_pos) {
-        if (substr.len == 0) {
+    int locate_pos(StringRef substr, StringRef str, int start_pos) {
+        if (substr.size == 0) {
             if (start_pos <= 0) {
                 return 0;
             } else if (start_pos == 1) {
                 return 1;
-            } else if (start_pos > str.len) {
+            } else if (start_pos > str.size) {
                 return 0;
             } else {
                 return start_pos;
@@ -2241,14 +2235,13 @@ private:
         // Since returning 0 seems to be Hive's error condition, return 0.
         std::vector<size_t> index;
         size_t char_len = get_char_len(str, &index);
-        if (start_pos <= 0 || start_pos > str.len || start_pos > char_len) {
+        if (start_pos <= 0 || start_pos > str.size || start_pos > char_len) {
             return 0;
         }
         StringRef substr_sv = StringRef(substr);
         StringSearch search(&substr_sv);
         // Input start_pos starts from 1.
-        StringRef adjusted_str(reinterpret_cast<char*>(str.ptr) + index[start_pos - 1],
-                               str.len - index[start_pos - 1]);
+        StringRef adjusted_str(str.data + index[start_pos - 1], str.size - index[start_pos - 1]);
         int32_t match_pos = search.search(&adjusted_str);
         if (match_pos >= 0) {
             // Hive returns the position in the original string starting from 1.
@@ -2330,8 +2323,8 @@ struct ReverseImpl {
             int64_t src_len = offsets[i] - offsets[i - 1];
             string dst;
             dst.resize(src_len);
-            simd::VStringFunctions::reverse(StringVal((uint8_t*)src_str, src_len),
-                                            StringVal((uint8_t*)dst.data(), src_len));
+            simd::VStringFunctions::reverse(StringRef((uint8_t*)src_str, src_len),
+                                            StringRef((uint8_t*)dst.data(), src_len));
             StringOP::push_value_string(std::string_view(dst.data(), src_len), i, res_data,
                                         res_offsets);
         }
@@ -2490,7 +2483,7 @@ public:
 
     bool use_default_implementation_for_constants() const override { return true; }
 
-    Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         if (scope != FunctionContext::THREAD_LOCAL) {
             return Status::OK();
         }

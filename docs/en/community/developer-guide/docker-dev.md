@@ -31,7 +31,7 @@ under the License.
 
 - [Developing mirror compilation using Docker](/docs/install/source-install/compilation)
 - [Deploying Doris](/docs/install/install-deploy)
-- [VSCode Be Development Debugging](./be-vscode-dev)
+- [VSCode Be Development Debugging](./be-vscode-dev.md)
 
 ## Environment preparation
 
@@ -90,7 +90,7 @@ docker build -t doris .
 
 run image
 
-note! [problems with mounting](../../docs/install/source-install/compilation)
+note! [problems with mounting](../../docs/install/source-install/compilation.md)
 
 > See the link above: It is recommended to run the image by mounting the local Doris source code directory as a volume .....
 

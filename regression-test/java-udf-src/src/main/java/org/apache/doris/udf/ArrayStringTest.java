@@ -30,7 +30,6 @@ public class ArrayStringTest extends UDF {
         for (int i = 0; i < res.size(); ++i) {
             String data = res.get(i);
             if (data != null) {
-                System.out.println(data);
                 value = value + data;
             }
         }

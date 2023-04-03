@@ -46,8 +46,7 @@ public class BitmapUnionInt extends AggregateFunction
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BigIntType.INSTANCE).args(SmallIntType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE).args(TinyIntType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(IntegerType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(BigIntType.INSTANCE)
+            FunctionSignature.ret(BigIntType.INSTANCE).args(IntegerType.INSTANCE)
     );
 
     /**
@@ -68,7 +67,7 @@ public class BitmapUnionInt extends AggregateFunction
     public void checkLegalityBeforeTypeCoercion() {
         DataType argumentType = getArgumentType(0);
         if (!(argumentType instanceof Int64OrLessType)) {
-            throw new AnalysisException("BITMAP_UNION_INT params only support TINYINT or SMALLINT or INT or BIGINT");
+            throw new AnalysisException("BITMAP_UNION_INT params only support TINYINT or SMALLINT or INT");
         }
     }
 

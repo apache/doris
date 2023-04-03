@@ -78,7 +78,7 @@ public class ViewTest extends TestWithFeService implements MemoPatternMatchSuppo
 
     @Override
     protected void runBeforeEach() throws Exception {
-        NamedExpressionUtil.clear();
+        StatementScopeIdGenerator.clear();
     }
 
     @Test
@@ -96,7 +96,7 @@ public class ViewTest extends TestWithFeService implements MemoPatternMatchSuppo
 
         // check whether they can be translated.
         for (String sql : testSql) {
-            NamedExpressionUtil.clear();
+            StatementScopeIdGenerator.clear();
             System.out.println("\n\n***** " + sql + " *****\n\n");
             StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
             NereidsPlanner planner = new NereidsPlanner(statementContext);

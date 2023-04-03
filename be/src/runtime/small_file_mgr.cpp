@@ -23,13 +23,12 @@
 #include <sstream>
 
 #include "common/status.h"
-#include "env/env.h"
 #include "gen_cpp/HeartbeatService.h"
 #include "gutil/strings/split.h"
 #include "http/http_client.h"
+#include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "util/doris_metrics.h"
-#include "util/file_utils.h"
 #include "util/md5.h"
 #include "util/string_util.h"
 
@@ -55,20 +54,20 @@ Status SmallFileMgr::init() {
 }
 
 Status SmallFileMgr::_load_local_files() {
-    RETURN_IF_ERROR(FileUtils::create_dir(_local_path));
+    RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(_local_path));
 
-    auto scan_cb = [this](const char* file) {
-        if (is_dot_or_dotdot(file)) {
+    auto scan_cb = [this](const io::FileInfo& file) {
+        if (!file.is_file) {
             return true;
         }
-        auto st = _load_single_file(_local_path, file);
+        auto st = _load_single_file(_local_path, file.file_name);
         if (!st.ok()) {
             LOG(WARNING) << "load small file failed: " << st;
         }
         return true;
     };
 
-    RETURN_IF_ERROR(Env::Default()->iterate_dir(_local_path, scan_cb));
+    RETURN_IF_ERROR(io::global_local_filesystem()->iterate_directory(_local_path, scan_cb));
     return Status::OK();
 }
 
@@ -87,7 +86,7 @@ Status SmallFileMgr::_load_single_file(const std::string& path, const std::strin
     }
 
     std::string file_md5;
-    RETURN_IF_ERROR(FileUtils::md5sum(path + "/" + file_name, &file_md5));
+    RETURN_IF_ERROR(io::global_local_filesystem()->md5sum(path + "/" + file_name, &file_md5));
     if (file_md5 != md5) {
         return Status::InternalError("Invalid md5 of file: {}", file_name);
     }
@@ -129,11 +128,13 @@ Status SmallFileMgr::get_file(int64_t file_id, const std::string& md5, std::stri
 }
 
 Status SmallFileMgr::_check_file(const CacheEntry& entry, const std::string& md5) {
-    if (!FileUtils::check_exist(entry.path)) {
-        return Status::InternalError("file not exist");
+    bool exists;
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(entry.path, &exists));
+    if (!exists) {
+        return Status::InternalError("file not exist: {}", entry.path);
     }
     if (!iequal(md5, entry.md5)) {
-        return Status::InternalError("invalid MD5");
+        return Status::InternalError("invalid MD5 of file: {}", entry.path);
     }
     return Status::OK();
 }

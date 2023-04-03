@@ -21,6 +21,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Limit;
@@ -44,19 +45,28 @@ import java.util.Optional;
  * offset 100
  */
 public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Limit {
-
+    private final LimitPhase phase;
     private final long limit;
     private final long offset;
 
-    public LogicalLimit(long limit, long offset, CHILD_TYPE child) {
-        this(limit, offset, Optional.empty(), Optional.empty(), child);
+    public LogicalLimit(long limit, long offset, LimitPhase phase, CHILD_TYPE child) {
+        this(limit, offset, phase, Optional.empty(), Optional.empty(), child);
     }
 
-    public LogicalLimit(long limit, long offset, Optional<GroupExpression> groupExpression,
+    public LogicalLimit(long limit, long offset, LimitPhase phase, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_LIMIT, groupExpression, logicalProperties, child);
         this.limit = limit;
         this.offset = offset;
+        this.phase = phase;
+    }
+
+    public LimitPhase getPhase() {
+        return phase;
+    }
+
+    public boolean isSplit() {
+        return phase != LimitPhase.ORIGIN;
     }
 
     public long getLimit() {
@@ -94,7 +104,7 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
             return false;
         }
         LogicalLimit that = (LogicalLimit) o;
-        return limit == that.limit && offset == that.offset;
+        return limit == that.limit && offset == that.offset && phase == that.phase;
     }
 
     @Override
@@ -108,17 +118,17 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalLimit<>(limit, offset, groupExpression, Optional.of(getLogicalProperties()), child());
+        return new LogicalLimit<>(limit, offset, phase, groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalLimit<>(limit, offset, Optional.empty(), logicalProperties, child());
+        return new LogicalLimit<>(limit, offset, phase, Optional.empty(), logicalProperties, child());
     }
 
     @Override
     public LogicalLimit<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalLimit<>(limit, offset, children.get(0));
+        return new LogicalLimit<>(limit, offset, phase, children.get(0));
     }
 }

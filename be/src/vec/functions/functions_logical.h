@@ -46,12 +46,12 @@ static constexpr UInt8 True = -1;
 static constexpr UInt8 Null = 1;
 
 template <typename T>
-inline ResultType make_value(T value) {
+ResultType make_value(T value) {
     return value != 0 ? Ternary::True : Ternary::False;
 }
 
 template <typename T>
-inline ResultType make_value(T value, bool is_null) {
+ResultType make_value(T value, bool is_null) {
     if (is_null) return Ternary::Null;
     return make_value<T>(value);
 }

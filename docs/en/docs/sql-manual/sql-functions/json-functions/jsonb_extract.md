@@ -86,7 +86,7 @@ There are two extra functions to check field existence and type
 
 ### example
 
-refer to jsonb tutorial for more.
+refer to [jsonb tutorial](../../sql-reference/Data-Types/JSONB.md) for more.
 
 
 ### keywords

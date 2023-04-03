@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <gen_cpp/internal_service.pb.h>
+
 #include <condition_variable>
 #include <deque>
 
@@ -39,12 +41,11 @@ public:
 
     Status append_and_flush(const char* data, size_t size, size_t proto_byte_size = 0);
 
+    Status append(std::unique_ptr<PDataRow>&& row);
+
     Status append(const char* data, size_t size) override;
 
     Status append(const ByteBufferPtr& buf) override;
-
-    Status read_at(size_t offset, Slice result, const IOContext& io_ctx,
-                   size_t* bytes_read) override;
 
     const Path& path() const override { return _path; }
 
@@ -68,6 +69,10 @@ public:
 
     FileSystemSPtr fs() const override { return nullptr; }
 
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const IOContext* io_ctx) override;
+
 private:
     // read the next buffer from _buf_queue
     Status _read_next_buffer(std::unique_ptr<uint8_t[]>* data, size_t* length);
@@ -90,6 +95,7 @@ private:
     int64_t _total_length = -1;
     bool _use_proto = false;
     std::deque<ByteBufferPtr> _buf_queue;
+    std::deque<std::unique_ptr<PDataRow>> _data_row_ptrs;
     std::condition_variable _put_cond;
     std::condition_variable _get_cond;
 

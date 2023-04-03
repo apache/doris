@@ -59,30 +59,60 @@ This command will list all currently saved import profiles. Each line correspond
 1. List all Load Profiles
 
    ```sql
-   mysql> show load profile "/";
-   +---------+------+-----------+------+-----------+---------------------+---------------------+-----------+------------+
-   | QueryId | User | DefaultDb | SQL  | QueryType | StartTime           | EndTime             | TotalTime | QueryState |
-   +---------+------+-----------+------+-----------+---------------------+---------------------+-----------+------------+
-   | 10441   | N/A  | N/A       | N/A  | Load      | 2021-04-10 22:15:37 | 2021-04-10 22:18:54 | 3m17s     | N/A        |
-   +---------+------+-----------+------+-----------+---------------------+---------------------+-----------+------------+
-   2 rows in set (0.00 sec)
+   mysql> show load profile "/"\G
+*************************** 1. row ***************************
+                 JobId: 20010
+               QueryId: 980014623046410a-af5d36f23381017f
+                  User: root
+             DefaultDb: default_cluster:test
+                   SQL: LOAD LABEL xxx
+             QueryType: Load
+             StartTime: 2023-03-07 19:48:24
+               EndTime: 2023-03-07 19:50:45
+             TotalTime: 2m21s
+            QueryState: N/A
+               TraceId:
+          AnalysisTime: NULL
+              PlanTime: NULL
+          ScheduleTime: NULL
+       FetchResultTime: NULL
+       WriteResultTime: NULL
+WaitAndFetchResultTime: NULL
+*************************** 2. row ***************************
+                 JobId: N/A
+               QueryId: 7cc2d0282a7a4391-8dd75030185134d8
+                  User: root
+             DefaultDb: default_cluster:test
+                   SQL: insert into xxx
+             QueryType: Load
+             StartTime: 2023-03-07 19:49:15
+               EndTime: 2023-03-07 19:49:15
+             TotalTime: 102ms
+            QueryState: OK
+               TraceId:
+          AnalysisTime: 825.277us
+              PlanTime: 4.126ms
+          ScheduleTime: N/A
+       FetchResultTime: 0ns
+       WriteResultTime: 0ns
+WaitAndFetchResultTime: N/A
    ````
 
 2. View an overview of the subtasks with imported jobs:
 
    ```sql
-   mysql> show load profile "/10441";
+   mysql> show load profile "/980014623046410a-af5d36f23381017f";
    +-----------------------------------+------------+
    | TaskId                            | ActiveTime |
    +-----------------------------------+------------+
-   | 980014623046410a-88e260f0c43031f1 | 3m14s      |
+   | 980014623046410a-af5d36f23381017f | 3m14s      |
    +-----------------------------------+------------+
    ````
    
 3. View the Instance overview of the specified subtask
 
    ```sql
-   mysql> show load profile "/10441/980014623046410a-88e260f0c43031f1";
+   mysql> show load profile "/980014623046410a-af5d36f23381017f/980014623046410a-af5d36f23381017f/980014623046410a-88e260f0c43031f5"\G
    +-----------------------------------+------------------+------------+
    | Instances                         | Host             | ActiveTime |
    +-----------------------------------+------------------+------------+

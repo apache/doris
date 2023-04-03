@@ -28,20 +28,18 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
-import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.PartitionColumnFilter;
 
 import com.google.common.collect.ImmutableList;
@@ -54,10 +52,10 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-public class PruneOlapScanTabletTest {
+class PruneOlapScanTabletTest implements MemoPatternMatchSupported {
 
     @Test
-    public void testPruneOlapScanTablet(@Mocked OlapTable olapTable,
+    void testPruneOlapScanTablet(@Mocked OlapTable olapTable,
             @Mocked Partition partition, @Mocked MaterializedIndex index,
             @Mocked HashDistributionInfo distributionInfo) {
         List<Long> tabletIds = Lists.newArrayListWithExpectedSize(300);
@@ -78,24 +76,24 @@ public class PruneOlapScanTabletTest {
         k0Filter.setUpperBound(new StringLiteral("2019-08-22"), true);
 
         PartitionColumnFilter k1Filter = new PartitionColumnFilter();
-        List<Expr> inList = Lists.newArrayList();
-        inList.add(new IntLiteral(100));
-        inList.add(new IntLiteral(200));
-        inList.add(new IntLiteral(300));
-        inList.add(new IntLiteral(400));
-        inList.add(new IntLiteral(500));
+        List<Expr> inList = ImmutableList.of(
+                new IntLiteral(100),
+                new IntLiteral(200),
+                new IntLiteral(300),
+                new IntLiteral(400),
+                new IntLiteral(500));
         k1Filter.setInPredicate(new org.apache.doris.analysis.InPredicate(new SlotRef(null, "k1"), inList, false));
 
         PartitionColumnFilter k2Filter = new PartitionColumnFilter();
-        List<Expr> inList2 = Lists.newArrayList();
-        inList2.add(new IntLiteral(900));
-        inList2.add(new IntLiteral(1100));
+        List<Expr> inList2 = ImmutableList.of(
+                new IntLiteral(900),
+                new IntLiteral(1100));
         k2Filter.setInPredicate(new org.apache.doris.analysis.InPredicate(new SlotRef(null, "k2"), inList2, false));
 
         PartitionColumnFilter k3Filter = new PartitionColumnFilter();
-        List<Expr> inList3 = Lists.newArrayList();
-        inList3.add(new IntLiteral(1));
-        inList3.add(new IntLiteral(3));
+        List<Expr> inList3 = ImmutableList.of(
+                new IntLiteral(1),
+                new IntLiteral(3));
         k3Filter.setInPredicate(new org.apache.doris.analysis.InPredicate(new SlotRef(null, "k3"), inList3, false));
 
         PartitionColumnFilter k4Filter = new PartitionColumnFilter();
@@ -103,35 +101,20 @@ public class PruneOlapScanTabletTest {
         inList4.add(new IntLiteral(2));
         k4Filter.setInPredicate(new org.apache.doris.analysis.InPredicate(new SlotRef(null, "k4"), inList4, false));
 
-        SlotReference k0 = new SlotReference("k0", DataType.convertFromCatalogDataType(Type.INT), false, ImmutableList.of());
-        SlotReference k1 = new SlotReference("k1", DataType.convertFromCatalogDataType(Type.INT), false, ImmutableList.of());
-        SlotReference k2 = new SlotReference("k2", DataType.convertFromCatalogDataType(Type.INT), false, ImmutableList.of());
-        SlotReference k3 = new SlotReference("k3", DataType.convertFromCatalogDataType(Type.INT), false, ImmutableList.of());
-        SlotReference k4 = new SlotReference("k4", DataType.convertFromCatalogDataType(Type.INT), false, ImmutableList.of());
-
-        GreaterThanEqual greaterThanEqual = new GreaterThanEqual(k0, new DateLiteral("2019-08-22"));
-        LessThanEqual lessThanEqual = new LessThanEqual(k0, new DateLiteral("2019-08-22"));
-
-        InPredicate inPredicate1 = new InPredicate(k1, ImmutableList.of(new IntegerLiteral(101),
-                new IntegerLiteral(201),
-                new IntegerLiteral(301),
-                new IntegerLiteral(401),
-                new IntegerLiteral(500)));
-        InPredicate inPredicate2 = new InPredicate(k2, ImmutableList.of(new IntegerLiteral(901),
-                new IntegerLiteral(1101)));
-        InPredicate inPredicate3 = new InPredicate(k3, ImmutableList.of(new IntegerLiteral(1),
-                new IntegerLiteral(3)));
-        EqualTo equalTo = new EqualTo(k4, new IntegerLiteral(10));
-
         new Expectations() {
             {
                 olapTable.getPartitionIds();
                 result = ImmutableList.of(1L);
 
+                olapTable.getBaseSchema();
+                result = columns;
+
                 olapTable.getName();
                 result = "t1";
                 olapTable.getPartition(anyLong);
                 result = partition;
+                partition.hasData();
+                result = true;
                 partition.getIndex(anyLong);
                 result = index;
                 partition.getDistributionInfo();
@@ -147,17 +130,30 @@ public class PruneOlapScanTabletTest {
             }
         };
 
+        LogicalOlapScan scan = new LogicalOlapScan(ObjectId.createGenerator().getNextId(), olapTable);
+
+        GreaterThanEqual greaterThanEqual = new GreaterThanEqual(scan.getOutput().get(0),
+                new DateLiteral("2019-08-22"));
+        LessThanEqual lessThanEqual = new LessThanEqual(scan.getOutput().get(0), new DateLiteral("2019-08-22"));
+        InPredicate inPredicate1 = new InPredicate(scan.getOutput().get(1), ImmutableList.of(Literal.of(101),
+                Literal.of(201), Literal.of(301), Literal.of(401), Literal.of(500)));
+        InPredicate inPredicate2 = new InPredicate(scan.getOutput().get(2), ImmutableList.of(Literal.of(901),
+                Literal.of(1101)));
+        InPredicate inPredicate3 = new InPredicate(scan.getOutput().get(3), ImmutableList.of(Literal.of(1),
+                Literal.of(3)));
+        EqualTo equalTo = new EqualTo(scan.getOutput().get(4), Literal.of(10));
         LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(
                 ImmutableSet.of(greaterThanEqual, lessThanEqual, inPredicate1, inPredicate2, inPredicate3, equalTo),
-                new LogicalOlapScan(RelationId.createGenerator().getNextId(), olapTable));
+                scan);
 
         Assertions.assertEquals(0, filter.child().getSelectedTabletIds().size());
 
-        CascadesContext context = MemoTestUtils.createCascadesContext(filter);
-        context.topDownRewrite(ImmutableList.of(new PruneOlapScanTablet().build()));
-
-        LogicalFilter<LogicalOlapScan> filter1 = ((LogicalFilter<LogicalOlapScan>) context.getMemo().copyOut());
-        LogicalOlapScan olapScan = filter1.child();
-        Assertions.assertEquals(19, olapScan.getSelectedTabletIds().size());
+        PlanChecker.from(MemoTestUtils.createConnectContext(), filter)
+                .applyTopDown(new PruneOlapScanTablet())
+                .matches(
+                        logicalFilter(
+                                logicalOlapScan().when(s -> s.getSelectedTabletIds().size() == 19)
+                        )
+                );
     }
 }

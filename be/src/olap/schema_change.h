@@ -34,16 +34,21 @@ namespace segment_v2 {
 class InvertedIndexColumnWriter;
 }
 
-class RowBlockChanger {
+class BlockChanger {
 public:
-    RowBlockChanger(TabletSchemaSPtr tablet_schema, const DeleteHandler* delete_handler,
-                    DescriptorTbl desc_tbl);
+    BlockChanger(TabletSchemaSPtr tablet_schema, DescriptorTbl desc_tbl);
 
-    ~RowBlockChanger();
+    ~BlockChanger();
 
     ColumnMapping* get_mutable_column_mapping(size_t column_index);
 
     Status change_block(vectorized::Block* ref_block, vectorized::Block* new_block) const;
+
+    void set_where_expr(const std::shared_ptr<TExpr>& where_expr) { _where_expr = where_expr; }
+
+    void set_type(AlterTabletType type) { _type = type; }
+
+    bool has_where() const { return _where_expr != nullptr; }
 
 private:
     Status _check_cast_valid(vectorized::ColumnPtr ref_column,
@@ -52,12 +57,11 @@ private:
     // @brief column-mapping specification of new schema
     SchemaMapping _schema_mapping;
 
-    // delete handler for filtering data which use specified in DELETE_DATA
-    const DeleteHandler* _delete_handler = nullptr;
-
     DescriptorTbl _desc_tbl;
 
-    DISALLOW_COPY_AND_ASSIGN(RowBlockChanger);
+    std::shared_ptr<TExpr> _where_expr;
+
+    AlterTabletType _type;
 };
 
 class SchemaChange {
@@ -85,7 +89,7 @@ public:
         _add_filtered_rows(rowset_reader->filtered_rows());
 
         // Check row num changes
-        if (config::row_nums_check && !_check_row_nums(rowset_reader, *rowset_writer)) {
+        if (!_check_row_nums(rowset_reader, *rowset_writer)) {
             return Status::Error<ErrorCode::ALTER_STATUS_ERR>();
         }
 
@@ -109,7 +113,7 @@ protected:
         return Status::NotSupported("inner process unsupported.");
     }
 
-    bool _check_row_nums(RowsetReaderSharedPtr reader, const RowsetWriter& writer) const {
+    virtual bool _check_row_nums(RowsetReaderSharedPtr reader, const RowsetWriter& writer) const {
         if (reader->rowset()->num_rows() != writer.num_rows() + _merged_rows + _filtered_rows) {
             LOG(WARNING) << "fail to check row num! "
                          << "source_rows=" << reader->rowset()->num_rows()
@@ -129,8 +133,7 @@ private:
 
 class LinkedSchemaChange : public SchemaChange {
 public:
-    explicit LinkedSchemaChange(const RowBlockChanger& row_block_changer)
-            : _row_block_changer(row_block_changer) {}
+    explicit LinkedSchemaChange(const BlockChanger& changer) : _changer(changer) {}
     ~LinkedSchemaChange() override = default;
 
     Status process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* rowset_writer,
@@ -138,25 +141,29 @@ public:
                    TabletSchemaSPtr base_tablet_schema) override;
 
 private:
-    const RowBlockChanger& _row_block_changer;
+    const BlockChanger& _changer;
     DISALLOW_COPY_AND_ASSIGN(LinkedSchemaChange);
 };
 
 class VSchemaChangeDirectly : public SchemaChange {
 public:
-    VSchemaChangeDirectly(const RowBlockChanger& row_block_changer) : _changer(row_block_changer) {}
+    VSchemaChangeDirectly(const BlockChanger& changer) : _changer(changer) {}
 
 private:
     Status _inner_process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* rowset_writer,
                           TabletSharedPtr new_tablet, TabletSchemaSPtr base_tablet_schema) override;
 
-    const RowBlockChanger& _changer;
+    bool _check_row_nums(RowsetReaderSharedPtr reader, const RowsetWriter& writer) const override {
+        return _changer.has_where() || SchemaChange::_check_row_nums(reader, writer);
+    }
+
+    const BlockChanger& _changer;
 };
 
 // @breif schema change with sorting
 class VSchemaChangeWithSorting : public SchemaChange {
 public:
-    VSchemaChangeWithSorting(const RowBlockChanger& row_block_changer, size_t memory_limitation);
+    VSchemaChangeWithSorting(const BlockChanger& changer, size_t memory_limitation);
     ~VSchemaChangeWithSorting() override = default;
 
 private:
@@ -171,7 +178,11 @@ private:
     Status _external_sorting(std::vector<RowsetSharedPtr>& src_rowsets, RowsetWriter* rowset_writer,
                              TabletSharedPtr new_tablet);
 
-    const RowBlockChanger& _changer;
+    bool _check_row_nums(RowsetReaderSharedPtr reader, const RowsetWriter& writer) const override {
+        return _changer.has_where() || SchemaChange::_check_row_nums(reader, writer);
+    }
+
+    const BlockChanger& _changer;
     size_t _memory_limitation;
     Version _temp_delta_versions;
     std::unique_ptr<MemTracker> _mem_tracker;
@@ -181,11 +192,11 @@ class SchemaChangeForInvertedIndex : public SchemaChange {
 public:
     explicit SchemaChangeForInvertedIndex(const std::vector<TOlapTableIndex>& alter_inverted_indexs,
                                           const TabletSchemaSPtr& tablet_schema);
-    virtual ~SchemaChangeForInvertedIndex();
+    ~SchemaChangeForInvertedIndex() override;
 
-    virtual Status process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* rowset_writer,
-                           TabletSharedPtr new_tablet, TabletSharedPtr base_tablet,
-                           TabletSchemaSPtr base_tablet_schema) override;
+    Status process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* rowset_writer,
+                   TabletSharedPtr new_tablet, TabletSharedPtr base_tablet,
+                   TabletSchemaSPtr base_tablet_schema) override;
 
 private:
     DISALLOW_COPY_AND_ASSIGN(SchemaChangeForInvertedIndex);
@@ -197,7 +208,6 @@ private:
                          const std::pair<int64_t, int64_t>& index_writer_sign, Field* field,
                          const uint8_t* null_map, const uint8_t** ptr, size_t num_rows);
 
-private:
     std::vector<TOlapTableIndex> _alter_inverted_indexs;
     TabletSchemaSPtr _tablet_schema;
 
@@ -216,18 +226,18 @@ public:
 
     static Status process_alter_inverted_index(const TAlterInvertedIndexReq& request);
 
-    static std::unique_ptr<SchemaChange> get_sc_procedure(const RowBlockChanger& rb_changer,
+    static std::unique_ptr<SchemaChange> get_sc_procedure(const BlockChanger& changer,
                                                           bool sc_sorting, bool sc_directly) {
         if (sc_sorting) {
             return std::make_unique<VSchemaChangeWithSorting>(
-                    rb_changer, config::memory_limitation_per_thread_for_schema_change_bytes);
+                    changer, config::memory_limitation_per_thread_for_schema_change_bytes);
         }
 
         if (sc_directly) {
-            return std::make_unique<VSchemaChangeDirectly>(rb_changer);
+            return std::make_unique<VSchemaChangeDirectly>(changer);
         }
 
-        return std::make_unique<LinkedSchemaChange>(rb_changer);
+        return std::make_unique<LinkedSchemaChange>(changer);
     }
 
     static bool tablet_in_converting(int64_t tablet_id);
@@ -240,7 +250,6 @@ private:
     struct AlterMaterializedViewParam {
         std::string column_name;
         std::string origin_column_name;
-        std::string mv_expr;
         std::shared_ptr<TExpr> expr;
     };
 
@@ -263,7 +272,7 @@ private:
 
     static Status _convert_historical_rowsets(const SchemaChangeParams& sc_params);
 
-    static Status _parse_request(const SchemaChangeParams& sc_params, RowBlockChanger* rb_changer,
+    static Status _parse_request(const SchemaChangeParams& sc_params, BlockChanger* changer,
                                  bool* sc_sorting, bool* sc_directly);
 
     static Status _do_process_alter_inverted_index(TabletSharedPtr tablet,

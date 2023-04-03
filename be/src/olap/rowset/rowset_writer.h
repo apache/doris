@@ -88,6 +88,10 @@ public:
 
     virtual int32_t get_atomic_num_segment() const = 0;
 
+    virtual bool is_doing_segcompaction() const = 0;
+
+    virtual Status wait_flying_segcompaction() = 0;
+
 private:
     DISALLOW_COPY_AND_ASSIGN(RowsetWriter);
 };

@@ -229,6 +229,7 @@ Status VSchemaScanNode::get_next(RuntimeState* state, vectorized::Block* block, 
                                                 dest_slot_desc->col_name()));
         }
 
+        // src block columns desc is filled by schema_scanner->get_column_desc.
         vectorized::Block src_block;
         for (int i = 0; i < columns_desc.size(); ++i) {
             TypeDescriptor descriptor(columns_desc[i].type);

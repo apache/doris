@@ -30,18 +30,21 @@
 namespace doris::vectorized {
 
 std::string DataTypeJsonb::to_string(const IColumn& column, size_t row_num) const {
-    const StringRef& s =
-            reinterpret_cast<const ColumnString&>(*column.convert_to_full_column_if_const().get())
-                    .get_data_at(row_num);
-    // size == 0 is for NULL
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
+
+    const StringRef& s = assert_cast<const ColumnString&>(*ptr).get_data_at(row_num);
     return s.size > 0 ? JsonbToJson::jsonb_to_json_string(s.data, s.size) : "";
 }
 
 void DataTypeJsonb::to_string(const class doris::vectorized::IColumn& column, size_t row_num,
                               class doris::vectorized::BufferWritable& ostr) const {
-    const StringRef& s =
-            reinterpret_cast<const ColumnString&>(*column.convert_to_full_column_if_const().get())
-                    .get_data_at(row_num);
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
+
+    const StringRef& s = assert_cast<const ColumnString&>(*ptr).get_data_at(row_num);
     if (s.size > 0) {
         std::string str = JsonbToJson::jsonb_to_json_string(s.data, s.size);
         ostr.write(str.c_str(), str.size());

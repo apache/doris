@@ -19,16 +19,16 @@
 
 #include "common/status.h"
 #include "gutil/macros.h"
+#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/path.h"
 #include "util/slice.h"
 
 namespace doris {
 
-struct IOContext;
-
 namespace io {
 
 class FileSystem;
+class IOContext;
 
 class FileReader {
 public:
@@ -37,10 +37,12 @@ public:
 
     DISALLOW_COPY_AND_ASSIGN(FileReader);
 
-    virtual Status close() = 0;
+    /// If io_ctx is not null,
+    /// the caller must ensure that the IOContext exists during the left cycle of read_at()
+    Status read_at(size_t offset, Slice result, size_t* bytes_read,
+                   const IOContext* io_ctx = nullptr);
 
-    virtual Status read_at(size_t offset, Slice result, const IOContext& io_ctx,
-                           size_t* bytes_read) = 0;
+    virtual Status close() = 0;
 
     virtual const Path& path() const = 0;
 
@@ -49,9 +51,11 @@ public:
     virtual bool closed() const = 0;
 
     virtual std::shared_ptr<FileSystem> fs() const = 0;
-};
 
-using FileReaderSPtr = std::shared_ptr<FileReader>;
+protected:
+    virtual Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                                const IOContext* io_ctx) = 0;
+};
 
 } // namespace io
 } // namespace doris

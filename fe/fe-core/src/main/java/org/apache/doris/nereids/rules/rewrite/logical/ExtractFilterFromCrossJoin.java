@@ -42,7 +42,7 @@ public class ExtractFilterFromCrossJoin extends OneRewriteRuleFactory {
                 .then(join -> {
                     LogicalJoin<Plan, Plan> newJoin = new LogicalJoin<>(JoinType.CROSS_JOIN,
                             ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, join.getHint(),
-                            join.left(), join.right());
+                            join.getMarkJoinSlotReference(), join.left(), join.right());
                     Set<Expression> predicates = Stream.concat(join.getHashJoinConjuncts().stream(),
                                     join.getOtherJoinConjuncts().stream())
                             .collect(ImmutableSet.toImmutableSet());

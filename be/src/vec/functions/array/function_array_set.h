@@ -171,6 +171,9 @@ public:
             _execute_internal<ColumnInt128>(dst, left_data, right_data) ||
             _execute_internal<ColumnFloat32>(dst, left_data, right_data) ||
             _execute_internal<ColumnFloat64>(dst, left_data, right_data) ||
+            _execute_internal<ColumnDecimal32>(dst, left_data, right_data) ||
+            _execute_internal<ColumnDecimal64>(dst, left_data, right_data) ||
+            _execute_internal<ColumnDecimal128I>(dst, left_data, right_data) ||
             _execute_internal<ColumnDecimal128>(dst, left_data, right_data)) {
             res_column = assemble_column_array(dst);
             if (res_column) {

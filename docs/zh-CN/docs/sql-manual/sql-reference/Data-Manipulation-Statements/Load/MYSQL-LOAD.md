@@ -61,7 +61,7 @@ INTO TABLE tbl_name
 6. `COLUMNS TERMINATED BY`指定列分隔符
 7. `LINES TERMINATED BY`指定行分隔符
 8. `IGNORE num LINES`用户跳过CSV的表头, 可以跳过任意行数. 该语法也可以用`IGNORE num ROWS`代替
-9. 列映射语法, 具体参数详见[导入的数据转换](../../../data-operate/import/import-way/mysql-load-manual.md) 的列映射章节
+9. 列映射语法, 具体参数详见[导入的数据转换](../../../../data-operate/import/import-way/mysql-load-manual.md) 的列映射章节
 10. `PROPERTIES`参数配置, 详见下文
 
 ### PROPERTIES
@@ -75,6 +75,8 @@ INTO TABLE tbl_name
 4. timezone: 指定本次导入所使用的时区。默认为东八区。该参数会影响所有导入涉及的和时区有关的函数结果。
 
 5. exec_mem_limit: 导入内存限制。默认为 2GB。单位为字节。
+
+6. trim_double_quotes: 布尔类型，默认值为 false，为 true 时表示裁剪掉导入文件每个字段最外层的双引号。
 
 ### Example
 
@@ -120,8 +122,8 @@ INTO TABLE tbl_name
     ```sql
     LOAD DATA LOCAL
     INFILE 'testData'
-    PARTITION (p1, p2)
     INTO TABLE testDb.testTbl
+    PARTITION (p1, p2)
     PROPERTIES ("max_filter_ratio"="0.2")
     ```
 
@@ -140,8 +142,8 @@ INTO TABLE tbl_name
     ```sql
     LOAD DATA LOCAL
     INFILE 'testData'
-    PARTITION (p1, p2)
     INTO TABLE testDb.testTbl
+    PARTITION (p1, p2)
     IGNORE 1 LINES
     ```
 

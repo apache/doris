@@ -76,29 +76,15 @@ public class OdbcTable extends Table {
     private static String mysqlProperName(String name) {
         // In JdbcExternalTable, the name contains databaseName, like: db.table
         // So, we should split db and table, then switch to `db`.`table`.
-        String[] fields = name.split("\\.");
-        String result = "";
-        for (int i = 0; i < fields.length; ++i) {
-            if (i != 0) {
-                result += ".";
-            }
-            result += ("`" + fields[i] + "`");
-        }
-        return result;
+        List<String> list = Arrays.asList(name.split("\\."));
+        return list.stream().map(s -> "`" + s + "`").collect(Collectors.joining("."));
     }
 
     private static String mssqlProperName(String name) {
         // In JdbcExternalTable, the name contains databaseName, like: db.table
         // So, we should split db and table, then switch to [db].[table].
-        String[] fields = name.split("\\.");
-        String result = "";
-        for (int i = 0; i < fields.length; ++i) {
-            if (i != 0) {
-                result += ".";
-            }
-            result += ("[" + fields[i] + "]");
-        }
-        return result;
+        List<String> list = Arrays.asList(name.split("\\."));
+        return list.stream().map(s -> "[" + s + "]").collect(Collectors.joining("."));
     }
 
     private static String psqlProperName(String name) {
@@ -107,6 +93,11 @@ public class OdbcTable extends Table {
     }
 
     private static String oracleProperName(String name) {
+        List<String> list = Arrays.asList(name.split("\\."));
+        return list.stream().map(s -> "\"" + s.toUpperCase() + "\"").collect(Collectors.joining("."));
+    }
+
+    private static String saphanaProperName(String name) {
         List<String> list = Arrays.asList(name.split("\\."));
         return list.stream().map(s -> "\"" + s.toUpperCase() + "\"").collect(Collectors.joining("."));
     }
@@ -121,6 +112,8 @@ public class OdbcTable extends Table {
                 return psqlProperName(name);
             case ORACLE:
                 return oracleProperName(name);
+            case SAP_HANA:
+                return saphanaProperName(name);
             default:
                 return name;
         }

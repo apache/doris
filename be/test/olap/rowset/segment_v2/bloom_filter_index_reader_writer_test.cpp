@@ -18,7 +18,6 @@
 #include <gtest/gtest.h>
 
 #include "common/logging.h"
-#include "env/env.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
@@ -28,7 +27,6 @@
 #include "olap/rowset/segment_v2/bloom_filter_index_reader.h"
 #include "olap/rowset/segment_v2/bloom_filter_index_writer.h"
 #include "olap/types.h"
-#include "util/file_utils.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -38,15 +36,10 @@ const std::string dname = "./ut_dir/bloom_filter_index_reader_writer_test";
 class BloomFilterIndexReaderWriterTest : public testing::Test {
 public:
     void SetUp() override {
-        if (FileUtils::check_exist(dname)) {
-            EXPECT_TRUE(FileUtils::remove_all(dname).ok());
-        }
-        EXPECT_TRUE(FileUtils::create_dir(dname).ok());
+        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(dname).ok());
     }
     void TearDown() override {
-        if (FileUtils::check_exist(dname)) {
-            EXPECT_TRUE(FileUtils::remove_all(dname).ok());
-        }
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(dname).ok());
     }
 };
 
@@ -91,7 +84,7 @@ void get_bloom_filter_reader_iter(const std::string& file_name, const ColumnInde
                                   std::unique_ptr<BloomFilterIndexIterator>* iter) {
     std::string fname = dname + "/" + file_name;
     io::FileReaderSPtr file_reader;
-    ASSERT_EQ(io::global_local_filesystem()->open_file(fname, &file_reader, nullptr), Status::OK());
+    ASSERT_EQ(io::global_local_filesystem()->open_file(fname, &file_reader), Status::OK());
     *reader = new BloomFilterIndexReader(std::move(file_reader), &meta.bloom_filter_index());
     auto st = (*reader)->load(true, false);
     EXPECT_TRUE(st.ok());

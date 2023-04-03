@@ -17,6 +17,7 @@
 
 package org.apache.doris.external.jdbc;
 
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.PrimitiveType;
@@ -24,10 +25,11 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.util.Util;
 
+import com.alibaba.druid.pool.DruidDataSource;
 import com.google.common.collect.Lists;
-import com.zaxxer.hikari.HikariConfig;
-import com.zaxxer.hikari.HikariDataSource;
+import com.google.common.collect.Maps;
 import lombok.Data;
 import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
@@ -42,6 +44,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
+import java.util.Map;
 
 @Getter
 public class JdbcClient {
@@ -54,10 +57,24 @@ public class JdbcClient {
 
     private URLClassLoader classLoader = null;
 
-    private HikariDataSource dataSource = null;
+    private DruidDataSource dataSource = null;
+    private boolean isOnlySpecifiedDatabase = false;
 
-    public JdbcClient(String user, String password, String jdbcUrl, String driverUrl, String driverClass) {
+    private boolean isLowerCaseTableNames = false;
+
+    private Map<String, Boolean> specifiedDatabaseMap = Maps.newHashMap();
+
+    // only used when isLowerCaseTableNames = true.
+    private Map<String, String> lowerTableToRealTable = Maps.newHashMap();
+
+    public JdbcClient(String user, String password, String jdbcUrl, String driverUrl, String driverClass,
+            String onlySpecifiedDatabase, String isLowerCaseTableNames, Map specifiedDatabaseMap) {
         this.jdbcUser = user;
+        this.isOnlySpecifiedDatabase = Boolean.valueOf(onlySpecifiedDatabase).booleanValue();
+        this.isLowerCaseTableNames = Boolean.valueOf(isLowerCaseTableNames).booleanValue();
+        if (specifiedDatabaseMap != null) {
+            this.specifiedDatabaseMap = specifiedDatabaseMap;
+        }
         try {
             this.dbType = JdbcResource.parseDbType(jdbcUrl);
         } catch (DdlException e) {
@@ -69,21 +86,26 @@ public class JdbcClient {
             //  and URLClassLoader may load the jar package directly into memory
             URL[] urls = {new URL(JdbcResource.getFullDriverUrl(driverUrl))};
             // set parent ClassLoader to null, we can achieve class loading isolation.
-            classLoader = URLClassLoader.newInstance(urls, null);
+            ClassLoader parent = getClass().getClassLoader();
+            ClassLoader classLoader = URLClassLoader.newInstance(urls, parent);
+            LOG.debug("parent ClassLoader: {}, old ClassLoader: {}, class Loader: {}.",
+                    parent, oldClassLoader, classLoader);
             Thread.currentThread().setContextClassLoader(classLoader);
-            HikariConfig config = new HikariConfig();
-            config.setDriverClassName(driverClass);
-            config.setJdbcUrl(jdbcUrl);
-            config.setUsername(jdbcUser);
-            config.setPassword(password);
-            config.setMaximumPoolSize(1);
+            dataSource = new DruidDataSource();
+            dataSource.setDriverClassLoader(classLoader);
+            dataSource.setDriverClassName(driverClass);
+            dataSource.setUrl(jdbcUrl);
+            dataSource.setUsername(jdbcUser);
+            dataSource.setPassword(password);
+            dataSource.setMinIdle(1);
+            dataSource.setInitialSize(2);
+            dataSource.setMaxActive(5);
             // set connection timeout to 5s.
             // The default is 30s, which is too long.
             // Because when querying information_schema db, BE will call thrift rpc(default timeout is 30s)
             // to FE to get schema info, and may create connection here, if we set it too long and the url is invalid,
             // it may cause the thrift rpc timeout.
-            config.setConnectionTimeout(5000);
-            dataSource = new HikariDataSource(config);
+            dataSource.setMaxWait(5000);
         } catch (MalformedURLException e) {
             throw new JdbcClientException("MalformedURLException to load class about " + driverUrl, e);
         } finally {
@@ -150,9 +172,12 @@ public class JdbcClient {
      * @return list of database names
      */
     public List<String> getDatabaseNameList() {
-        Connection conn =  getConnection();
+        Connection conn = getConnection();
         Statement stmt = null;
         ResultSet rs = null;
+        if (isOnlySpecifiedDatabase && specifiedDatabaseMap.isEmpty()) {
+            return getSpecifiedDatabase(conn);
+        }
         List<String> databaseNames = Lists.newArrayList();
         try {
             stmt = conn.createStatement();
@@ -162,8 +187,8 @@ public class JdbcClient {
                     rs = stmt.executeQuery("SHOW DATABASES");
                     break;
                 case JdbcResource.POSTGRESQL:
-                    rs = stmt.executeQuery("SELECT schema_name FROM information_schema.schemata "
-                            + "where schema_owner='" + jdbcUser + "';");
+                    rs = stmt.executeQuery("SELECT nspname FROM pg_namespace WHERE has_schema_privilege("
+                            + "'" + jdbcUser + "', nspname, 'USAGE');");
                     break;
                 case JdbcResource.ORACLE:
                     rs = stmt.executeQuery("SELECT DISTINCT OWNER FROM all_tables");
@@ -171,12 +196,24 @@ public class JdbcClient {
                 case JdbcResource.SQLSERVER:
                     rs = stmt.executeQuery("SELECT name FROM sys.schemas");
                     break;
+                case JdbcResource.SAP_HANA:
+                    rs = stmt.executeQuery("SELECT SCHEMA_NAME FROM SYS.SCHEMAS WHERE HAS_PRIVILEGES = 'TRUE'");
+                    break;
                 default:
                     throw new JdbcClientException("Not supported jdbc type");
             }
-
+            List<String> tempDatabaseNames = Lists.newArrayList();
             while (rs.next()) {
-                databaseNames.add(rs.getString(1));
+                tempDatabaseNames.add(rs.getString(1));
+            }
+            if (isOnlySpecifiedDatabase && !specifiedDatabaseMap.isEmpty()) {
+                for (String db : tempDatabaseNames) {
+                    if (specifiedDatabaseMap.get(db) != null) {
+                        databaseNames.add(db);
+                    }
+                }
+            } else {
+                databaseNames = tempDatabaseNames;
             }
         } catch (SQLException e) {
             throw new JdbcClientException("failed to get database name list from jdbc", e);
@@ -186,14 +223,39 @@ public class JdbcClient {
         return databaseNames;
     }
 
+    public List<String> getSpecifiedDatabase(Connection conn) {
+        List<String> databaseNames = Lists.newArrayList();
+        try {
+            switch (dbType) {
+                case JdbcResource.MYSQL:
+                case JdbcResource.CLICKHOUSE:
+                    databaseNames.add(conn.getCatalog());
+                    break;
+                case JdbcResource.POSTGRESQL:
+                case JdbcResource.ORACLE:
+                case JdbcResource.SQLSERVER:
+                case JdbcResource.SAP_HANA:
+                    databaseNames.add(conn.getSchema());
+                    break;
+                default:
+                    throw new JdbcClientException("Not supported jdbc type");
+            }
+        } catch (SQLException e) {
+            throw new JdbcClientException("failed to get specified database name from jdbc", e);
+        } finally {
+            close(conn);
+        }
+        return databaseNames;
+    }
+
     /**
      * get all tables of one database
      */
     public List<String> getTablesNameList(String dbName) {
-        Connection conn =  getConnection();
+        Connection conn = getConnection();
         ResultSet rs = null;
         List<String> tablesName = Lists.newArrayList();
-        String[] types = { "TABLE", "VIEW" };
+        String[] types = {"TABLE", "VIEW"};
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             switch (dbType) {
@@ -204,13 +266,19 @@ public class JdbcClient {
                 case JdbcResource.ORACLE:
                 case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
+                case JdbcResource.SAP_HANA:
                     rs = databaseMetaData.getTables(null, dbName, null, types);
                     break;
                 default:
                     throw new JdbcClientException("Unknown database type");
             }
             while (rs.next()) {
-                tablesName.add(rs.getString("TABLE_NAME"));
+                String tableName = rs.getString("TABLE_NAME");
+                if (isLowerCaseTableNames) {
+                    lowerTableToRealTable.put(tableName.toLowerCase(), tableName);
+                    tableName = tableName.toLowerCase();
+                }
+                tablesName.add(tableName);
             }
         } catch (SQLException e) {
             throw new JdbcClientException("failed to get all tables for db %s", e, dbName);
@@ -221,9 +289,9 @@ public class JdbcClient {
     }
 
     public boolean isTableExist(String dbName, String tableName) {
-        Connection conn =  getConnection();
+        Connection conn = getConnection();
         ResultSet rs = null;
-        String[] types = { "TABLE", "VIEW" };
+        String[] types = {"TABLE", "VIEW"};
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             switch (dbType) {
@@ -234,6 +302,7 @@ public class JdbcClient {
                 case JdbcResource.ORACLE:
                 case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
+                case JdbcResource.SAP_HANA:
                     rs = databaseMetaData.getTables(null, dbName, null, types);
                     break;
                 default:
@@ -277,9 +346,14 @@ public class JdbcClient {
      * get all columns of one table
      */
     public List<JdbcFieldSchema> getJdbcColumnsInfo(String dbName, String tableName) {
-        Connection conn =  getConnection();
+        Connection conn = getConnection();
         ResultSet rs = null;
         List<JdbcFieldSchema> tableSchema = Lists.newArrayList();
+        // if isLowerCaseTableNames == true, tableName is lower case
+        // but databaseMetaData.getColumns() is case sensitive
+        if (isLowerCaseTableNames) {
+            tableName = lowerTableToRealTable.get(tableName);
+        }
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             // getColumns(String catalog, String schemaPattern, String tableNamePattern, String columnNamePattern)
@@ -299,6 +373,7 @@ public class JdbcClient {
                 case JdbcResource.ORACLE:
                 case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
+                case JdbcResource.SAP_HANA:
                     rs = databaseMetaData.getColumns(null, dbName, tableName, null);
                     break;
                 default:
@@ -324,7 +399,8 @@ public class JdbcClient {
                 tableSchema.add(field);
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get table name list from jdbc for table %s", e, tableName);
+            throw new JdbcClientException("failed to get table name list from jdbc for table %s:%s", e, tableName,
+                    Util.getRootCauseMessage(e));
         } finally {
             close(rs, conn);
         }
@@ -343,6 +419,8 @@ public class JdbcClient {
                 return oracleTypeToDoris(fieldSchema);
             case JdbcResource.SQLSERVER:
                 return sqlserverTypeToDoris(fieldSchema);
+            case JdbcResource.SAP_HANA:
+                return saphanaTypeToDoris(fieldSchema);
             default:
                 throw new JdbcClientException("Unknown database type");
         }
@@ -514,7 +592,12 @@ public class JdbcClient {
                 || ckType.startsWith("FixedString")) {
             return ScalarType.createStringType();
         } else if (ckType.startsWith("DateTime")) {
-            return ScalarType.createDatetimeV2Type(0);
+            return ScalarType.createDatetimeV2Type(6);
+        } else if (ckType.startsWith("Array")) {
+            String cktype = ckType.substring(6, ckType.length() - 1);
+            fieldSchema.setDataTypeName(cktype);
+            Type type = clickhouseTypeToDoris(fieldSchema);
+            return ArrayType.create(type, true);
         }
         switch (ckType) {
             case "Bool":
@@ -547,7 +630,6 @@ public class JdbcClient {
             default:
                 return Type.UNSUPPORTED;
         }
-        // Todo(zyk): Wait the JDBC external table support the array type then supported clickhouse array type
     }
 
     public Type oracleTypeToDoris(JdbcFieldSchema fieldSchema) {
@@ -669,6 +751,59 @@ public class JdbcClient {
             case "image":
             case "binary":
             case "varbinary":
+            default:
+                return Type.UNSUPPORTED;
+        }
+    }
+
+    public Type saphanaTypeToDoris(JdbcFieldSchema fieldSchema) {
+        String hanaType = fieldSchema.getDataTypeName();
+        switch (hanaType) {
+            case "TINYINT":
+                return Type.TINYINT;
+            case "SMALLINT":
+                return Type.SMALLINT;
+            case "INTEGER":
+                return Type.INT;
+            case "BIGINT":
+                return Type.BIGINT;
+            case "SMALLDECIMAL":
+            case "DECIMAL": {
+                int precision = fieldSchema.getColumnSize();
+                int scale = fieldSchema.getDecimalDigits();
+                return createDecimalOrStringType(precision, scale);
+            }
+            case "REAL":
+                return Type.FLOAT;
+            case "DOUBLE":
+                return Type.DOUBLE;
+            case "TIMESTAMP":
+            case "SECONDDATE":
+                return ScalarType.createDatetimeV2Type(6);
+            case "DATE":
+                return ScalarType.createDateV2Type();
+            case "BOOLEAN":
+                return Type.BOOLEAN;
+            case "CHAR":
+            case "NCHAR":
+                ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
+                charType.setLength(fieldSchema.columnSize);
+                return charType;
+            case "TIME":
+            case "VARCHAR":
+            case "NVARCHAR":
+            case "ALPHANUM":
+            case "SHORTTEXT":
+                return ScalarType.createStringType();
+            case "BINARY":
+            case "VARBINARY":
+            case "BLOB":
+            case "CLOB":
+            case "NCLOB":
+            case "TEXT":
+            case "BINTEXT":
+            case "ST_GEOMETRY":
+            case "ST_POINT":
             default:
                 return Type.UNSUPPORTED;
         }

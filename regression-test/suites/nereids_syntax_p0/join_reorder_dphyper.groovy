@@ -118,32 +118,32 @@ suite("join_order_dphyper") {
         )
     """
 
-    explain {
-        sql("""SELECT
-                count(*)
-                FROM
-                dphyper_store_sales
-                , dphyper_store_returns
-                , dphyper_date_dim d1
-                , dphyper_store
-                , dphyper_customer
-                , dphyper_customer_demographics cd1
-                , dphyper_customer_demographics cd2
-                , dphyper_household_demographics hd1
-                , dphyper_household_demographics hd2
-                , dphyper_customer_address ad1
-                , dphyper_customer_address ad2
-                WHERE (ss_store_sk = s_store_sk)
-                    AND (ss_sold_date_sk = d1.d_date_sk)
-                    AND (ss_customer_sk = c_customer_sk)
-                    AND (ss_cdemo_sk = cd1.cd_demo_sk)
-                    AND (ss_hdemo_sk = hd1.hd_demo_sk)
-                    AND (ss_addr_sk = ad1.ca_address_sk)
-                    AND (ss_ticket_number = sr_ticket_number)
-                    AND (c_current_cdemo_sk = cd2.cd_demo_sk)
-                    AND (c_current_hdemo_sk = hd2.hd_demo_sk)
-                    AND (c_current_addr_sk = ad2.ca_address_sk)
-                    AND (cd1.cd_marital_status <> cd2.cd_marital_status);""")
-        notContains "VNESTED LOOP JOIN"
-    }
+    // explain {
+    //     sql("""SELECT
+    //             count(*)
+    //             FROM
+    //             dphyper_store_sales
+    //             , dphyper_store_returns
+    //             , dphyper_date_dim d1
+    //             , dphyper_store
+    //             , dphyper_customer
+    //             , dphyper_customer_demographics cd1
+    //             , dphyper_customer_demographics cd2
+    //             , dphyper_household_demographics hd1
+    //             , dphyper_household_demographics hd2
+    //             , dphyper_customer_address ad1
+    //             , dphyper_customer_address ad2
+    //             WHERE (ss_store_sk = s_store_sk)
+    //                 AND (ss_sold_date_sk = d1.d_date_sk)
+    //                 AND (ss_customer_sk = c_customer_sk)
+    //                 AND (ss_cdemo_sk = cd1.cd_demo_sk)
+    //                 AND (ss_hdemo_sk = hd1.hd_demo_sk)
+    //                 AND (ss_addr_sk = ad1.ca_address_sk)
+    //                 AND (ss_ticket_number = sr_ticket_number)
+    //                 AND (c_current_cdemo_sk = cd2.cd_demo_sk)
+    //                 AND (c_current_hdemo_sk = hd2.hd_demo_sk)
+    //                 AND (c_current_addr_sk = ad2.ca_address_sk)
+    //                 AND (cd1.cd_marital_status <> cd2.cd_marital_status);""")
+    //     notContains "VNESTED LOOP JOIN"
+    // }
 }

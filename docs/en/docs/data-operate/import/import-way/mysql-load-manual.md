@@ -83,7 +83,7 @@ PROPERTIES ("strict_mode" = "true")
 6. `LINES TERMINATED BY` specifies the line separator
 7. `IGNORE num LINES` skips the num header of the CSV.
 8. Column mapping syntax, see the column mapping chapter of [Imported Data Transformation](../import-scenes/load-data-convert.md) for specific parameters
-9. `PROPERTIES` is the configuration of import, please refer to the [MySQL Load](../../../sql-manual/sql-reference/Data-Management-Statements/Load/MYSQL-LOAD.md) command manual for specific properties.
+9. `PROPERTIES` is the configuration of import, please refer to the [MySQL Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/MYSQL-LOAD.md) command manual for specific properties.
 
 ### import file from fe server node
 Assuming that the '/root/server_local.csv' path on the FE node is a CSV file, use the MySQL client side to connect to the corresponding FE node, and then execute the following command to import data into the test table.
@@ -102,7 +102,7 @@ PROPERTIES ("strict_mode" = "true")
 ```
 1. The only difference between the syntax of importing server level local files and importing client side syntax is whether the'LOCAL 'keyword is added after the'LOAD DATA' keyword.
 2. FE will have multi-nodes, and importing server level files can only import FE nodes connected by the client side, and cannot import files local to other FE nodes.
-3. Server side load was disabled by default. Enable it by setting `mysql_load_server_secure_path` with a secure path. All the load file should be under this path. Recommend create a `local_import_data` directory under `DORIS_HOME` to load data.
+3. Server side load was disabled by default. Enable it by setting `mysql_load_server_secure_path` with a secure path. All the load file should be under this path.
 
 ### Return result
 Since MySQL load is a synchronous import method, the imported results are returned to the user through SQL syntax.
@@ -113,6 +113,10 @@ Query OK, 1 row affected (0.17 sec)
 Records: 1 Deleted: 0 Skipped: 0 Warnings: 0
 ```
 
+### Configuration
+1. `mysql_load_thread_pool`: the thread pool size for singe FE node, set 4 thread by default. The block queue size is 5 times of `mysql_load_thread_pool`. So FE can accept 4 + 4*5 = 24 requests in one time. Increase this configuration if the parallelism are larger than 24.
+2. `mysql_load_server_secure_path`: the secure path for load data from server. Empty path by default means that it's not allowed for server load. Recommend to create a `local_import_data` directory under `DORIS_HOME` to load data if you want enable it.
+
 ## Notice 
 
 1. If you see this `LOAD DATA LOCAL INFILE file request rejected due to restrictions on access` message, you should connet mysql with `mysql  --local-infile=1` command to enable client to load local file.
@@ -120,4 +124,4 @@ Records: 1 Deleted: 0 Skipped: 0 Warnings: 0
 
 ## More Help
 
-1. For more detailed syntax and best practices for using MySQL Load, see the [MySQL Load](../../../sql-manual/sql-reference/Data-Management-Statements/Load/MYSQL-LOAD.md) command manual.
+1. For more detailed syntax and best practices for using MySQL Load, see the [MySQL Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/MYSQL-LOAD.md) command manual.

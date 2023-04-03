@@ -1,4 +1,3 @@
-set enable_vectorized_engine=true;
 select count() from test_nbagames_json;
 select max(`teams.results.orb`[1]) from test_nbagames_json;
 select sum(cast(element_at(`teams.results.ft_pct`, 1) as double)) from test_nbagames_json;

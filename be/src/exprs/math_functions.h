@@ -23,6 +23,7 @@
 #include <stdint.h>
 
 #include "util/string_parser.hpp"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 
@@ -32,8 +33,8 @@ public:
 
     // Converts src_num in decimal to dest_base,
     // and fills expr_val.string_val with the result.
-    static doris_udf::StringVal decimal_to_base(doris_udf::FunctionContext* ctx, int64_t src_num,
-                                                int8_t dest_base);
+    static doris::StringRef decimal_to_base(doris::FunctionContext* ctx, int64_t src_num,
+                                            int8_t dest_base);
 
     // Converts src_num representing a number in src_base but encoded in decimal
     // into its actual decimal number.

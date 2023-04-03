@@ -128,8 +128,8 @@ struct ConvInt64Impl {
                                                    StringParser::PARSE_OVERFLOW);
             }
         }
-        StringVal str = MathFunctions::decimal_to_base(context, decimal_num, dst_base);
-        result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+        StringRef str = MathFunctions::decimal_to_base(context, decimal_num, dst_base);
+        result_column->insert_data(reinterpret_cast<const char*>(str.data), str.size);
     }
 };
 
@@ -153,8 +153,8 @@ struct ConvStringImpl {
         if (!MathFunctions::handle_parse_result(dst_base, &decimal_num, parse_res)) {
             result_column->insert_data("0", 1);
         } else {
-            StringVal str = MathFunctions::decimal_to_base(context, decimal_num, dst_base);
-            result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+            StringRef str = MathFunctions::decimal_to_base(context, decimal_num, dst_base);
+            result_column->insert_data(reinterpret_cast<const char*>(str.data), str.size);
         }
     }
 };

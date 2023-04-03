@@ -62,23 +62,24 @@ public:
 
     bool use_default_implementation_for_nulls() const override { return false; }
 
-    Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         if (scope == FunctionContext::THREAD_LOCAL) {
             return Status::OK();
         }
         std::shared_ptr<InState> state = std::make_shared<InState>();
         context->set_function_state(scope, state);
-        if (context->get_arg_type(0)->type == FunctionContext::Type::TYPE_CHAR ||
-            context->get_arg_type(0)->type == FunctionContext::Type::TYPE_VARCHAR ||
-            context->get_arg_type(0)->type == FunctionContext::Type::TYPE_STRING) {
+        DCHECK(context->get_num_args() >= 1);
+        if (context->get_arg_type(0)->type == doris::PrimitiveType::TYPE_CHAR ||
+            context->get_arg_type(0)->type == doris::PrimitiveType::TYPE_VARCHAR ||
+            context->get_arg_type(0)->type == doris::PrimitiveType::TYPE_STRING) {
             // the StringValue's memory is held by FunctionContext, so we can use StringValueSet here directly
-            state->hybrid_set.reset(new StringValueSet());
+            state->hybrid_set.reset(create_string_value_set((size_t)(context->get_num_args() - 1)));
+
         } else {
-            state->hybrid_set.reset(
-                    create_set(convert_type_to_primitive(context->get_arg_type(0)->type)));
+            state->hybrid_set.reset(create_set(context->get_arg_type(0)->type,
+                                               (size_t)(context->get_num_args() - 1)));
         }
 
-        DCHECK(context->get_num_args() >= 1);
         for (int i = 1; i < context->get_num_args(); ++i) {
             const auto& const_column_ptr = context->get_constant_col(i);
             if (const_column_ptr != nullptr) {
@@ -120,19 +121,17 @@ public:
             if (materialized_column->is_nullable()) {
                 auto* null_col_ptr = vectorized::check_and_get_column<vectorized::ColumnNullable>(
                         materialized_column);
-                auto& null_bitmap = reinterpret_cast<const vectorized::ColumnUInt8&>(
-                                            null_col_ptr->get_null_map_column())
-                                            .get_data();
+                auto& null_map = reinterpret_cast<const vectorized::ColumnUInt8&>(
+                                         null_col_ptr->get_null_map_column())
+                                         .get_data();
                 auto* nested_col_ptr = null_col_ptr->get_nested_column_ptr().get();
                 auto search_hash_set = [&](auto* col_ptr) {
-                    for (size_t i = 0; i < input_rows_count; ++i) {
-                        const auto& ref_data = col_ptr->get_data_at(i);
-                        vec_res[i] =
-                                !null_bitmap[i] &&
-                                in_state->hybrid_set->find((void*)ref_data.data, ref_data.size);
-                        if constexpr (negative) {
-                            vec_res[i] = !vec_res[i];
-                        }
+                    if constexpr (!negative) {
+                        in_state->hybrid_set->find_batch_nullable(*col_ptr, input_rows_count,
+                                                                  null_map, vec_res);
+                    } else {
+                        in_state->hybrid_set->find_batch_nullable_negative(
+                                *col_ptr, input_rows_count, null_map, vec_res);
                     }
                 };
 
@@ -147,24 +146,22 @@ public:
 
                 if (!in_state->null_in_set) {
                     for (size_t i = 0; i < input_rows_count; ++i) {
-                        vec_null_map_to[i] = null_bitmap[i];
+                        vec_null_map_to[i] = null_map[i];
                     }
                 } else {
                     for (size_t i = 0; i < input_rows_count; ++i) {
-                        vec_null_map_to[i] = null_bitmap[i] || negative == vec_res[i];
+                        vec_null_map_to[i] = null_map[i] || negative == vec_res[i];
                     }
                 }
 
             } else { // non-nullable
 
                 auto search_hash_set = [&](auto* col_ptr) {
-                    for (size_t i = 0; i < input_rows_count; ++i) {
-                        const auto& ref_data = col_ptr->get_data_at(i);
-                        vec_res[i] =
-                                in_state->hybrid_set->find((void*)ref_data.data, ref_data.size);
-                        if constexpr (negative) {
-                            vec_res[i] = !vec_res[i];
-                        }
+                    if constexpr (!negative) {
+                        in_state->hybrid_set->find_batch(*col_ptr, input_rows_count, vec_res);
+                    } else {
+                        in_state->hybrid_set->find_batch_negative(*col_ptr, input_rows_count,
+                                                                  vec_res);
                     }
                 };
 
@@ -197,7 +194,7 @@ public:
                 }
 
                 std::unique_ptr<HybridSetBase> hybrid_set(
-                        create_set(convert_type_to_primitive(context->get_arg_type(0)->type)));
+                        create_set(context->get_arg_type(0)->type, set_columns.size()));
                 bool null_in_set = false;
 
                 for (const auto& set_column : set_columns) {

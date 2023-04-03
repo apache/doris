@@ -36,6 +36,9 @@ class HyperLogLog;
 struct decimal12_t;
 struct uint24_t;
 
+template <typename T>
+class QuantileState;
+
 namespace vectorized {
 
 /// Data types for representing elementary values from a database in RAM.
@@ -85,6 +88,7 @@ enum class TypeIndex {
     Map,
     Struct,
     VARIANT,
+    QuantileState,
 };
 
 struct Consted {
@@ -206,6 +210,11 @@ struct TypeName<HyperLogLog> {
     static const char* get() { return "HLL"; }
 };
 
+template <>
+struct TypeName<QuantileState<double>> {
+    static const char* get() { return "QuantileState"; }
+};
+
 template <typename T>
 struct TypeId;
 template <>
@@ -308,9 +317,18 @@ struct Decimal {
     DECLARE_NUMERIC_CTOR(Int64)
     DECLARE_NUMERIC_CTOR(UInt32)
     DECLARE_NUMERIC_CTOR(UInt64)
-    DECLARE_NUMERIC_CTOR(Float32)
-    DECLARE_NUMERIC_CTOR(Float64)
+
 #undef DECLARE_NUMERIC_CTOR
+    Decimal(const Float32& value_) : value(value_) {
+        if constexpr (std::is_integral<T>::value) {
+            value = round(value_);
+        }
+    }
+    Decimal(const Float64& value_) : value(value_) {
+        if constexpr (std::is_integral<T>::value) {
+            value = round(value_);
+        }
+    }
 
     static Decimal double_to_decimal(double value_) {
         DecimalV2Value decimal_value;
@@ -604,6 +622,8 @@ inline const char* getTypeName(TypeIndex idx) {
         return "JSONB";
     case TypeIndex::Struct:
         return "Struct";
+    case TypeIndex::QuantileState:
+        return TypeName<QuantileState<double>>::get();
     }
 
     __builtin_unreachable();

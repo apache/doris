@@ -104,7 +104,6 @@ public class LogController {
             content.put("LogConfiguration", map);
         } catch (IOException e) {
             LOG.error(e);
-            e.printStackTrace();
         }
     }
 

@@ -40,7 +40,7 @@ public:
         return std::make_shared<DataTypeFloat64>();
     }
 
-    Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         std::shared_ptr<std::mt19937_64> generator(new std::mt19937_64());
         context->set_function_state(scope, generator);
         if (scope == FunctionContext::THREAD_LOCAL) {

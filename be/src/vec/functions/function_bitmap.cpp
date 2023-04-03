@@ -272,8 +272,7 @@ public:
         auto& null_map = res_null_map->get_data();
         auto& res = res_data_column->get_data();
 
-        ColumnPtr argument_column =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        ColumnPtr& argument_column = block.get_by_position(arguments[0]).column;
         if constexpr (std::is_same_v<typename Impl::ArgumentType, DataTypeString>) {
             const auto& str_column = static_cast<const ColumnString&>(*argument_column);
             const ColumnString::Chars& data = str_column.get_chars();
@@ -413,7 +412,7 @@ public:
         auto data_null_map = ColumnUInt8::create(input_rows_count, 0);
         auto& null_map = data_null_map->get_data();
 
-        auto column = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto& column = block.get_by_position(arguments[0]).column;
         if (auto* nullable = check_and_get_column<const ColumnNullable>(*column)) {
             VectorizedUtils::update_null_map(null_map, nullable->get_null_map_data());
             column = nullable->get_nested_column_ptr();
@@ -445,13 +444,26 @@ struct BitmapNot {
     using T1 = typename RightDataType::FieldType;
     using TData = std::vector<BitmapValue>;
 
-    static Status vector_vector(const TData& lvec, const TData& rvec, TData& res) {
+    static void vector_vector(const TData& lvec, const TData& rvec, TData& res) {
         size_t size = lvec.size();
         for (size_t i = 0; i < size; ++i) {
             res[i] = lvec[i];
             res[i] -= rvec[i];
         }
-        return Status::OK();
+    }
+    static void vector_scalar(const TData& lvec, const BitmapValue& rval, TData& res) {
+        size_t size = lvec.size();
+        for (size_t i = 0; i < size; ++i) {
+            res[i] = lvec[i];
+            res[i] -= rval;
+        }
+    }
+    static void scalar_vector(const BitmapValue& lval, const TData& rvec, TData& res) {
+        size_t size = rvec.size();
+        for (size_t i = 0; i < size; ++i) {
+            res[i] = lval;
+            res[i] -= rvec[i];
+        }
     }
 };
 
@@ -466,7 +478,7 @@ struct BitmapAndNot {
     using T1 = typename RightDataType::FieldType;
     using TData = std::vector<BitmapValue>;
 
-    static Status vector_vector(const TData& lvec, const TData& rvec, TData& res) {
+    static void vector_vector(const TData& lvec, const TData& rvec, TData& res) {
         size_t size = lvec.size();
         BitmapValue mid_data;
         for (size_t i = 0; i < size; ++i) {
@@ -476,7 +488,28 @@ struct BitmapAndNot {
             res[i] -= mid_data;
             mid_data.clear();
         }
-        return Status::OK();
+    }
+    static void vector_scalar(const TData& lvec, const BitmapValue& rval, TData& res) {
+        size_t size = lvec.size();
+        BitmapValue mid_data;
+        for (size_t i = 0; i < size; ++i) {
+            mid_data = lvec[i];
+            mid_data &= rval;
+            res[i] = lvec[i];
+            res[i] -= mid_data;
+            mid_data.clear();
+        }
+    }
+    static void scalar_vector(const BitmapValue& lval, const TData& rvec, TData& res) {
+        size_t size = rvec.size();
+        BitmapValue mid_data;
+        for (size_t i = 0; i < size; ++i) {
+            mid_data = lval;
+            mid_data &= rvec[i];
+            res[i] = lval;
+            res[i] -= mid_data;
+            mid_data.clear();
+        }
     }
 };
 
@@ -490,9 +523,9 @@ struct BitmapAndNotCount {
     using T0 = typename LeftDataType::FieldType;
     using T1 = typename RightDataType::FieldType;
     using TData = std::vector<BitmapValue>;
-    using ResTData = typename ColumnVector<Int64>::Container;
+    using ResTData = typename ColumnVector<Int64>::Container::value_type;
 
-    static Status vector_vector(const TData& lvec, const TData& rvec, ResTData& res) {
+    static void vector_vector(const TData& lvec, const TData& rvec, ResTData* res) {
         size_t size = lvec.size();
         BitmapValue mid_data;
         for (size_t i = 0; i < size; ++i) {
@@ -500,6 +533,186 @@ struct BitmapAndNotCount {
             mid_data &= rvec[i];
             res[i] = lvec[i].andnot_cardinality(mid_data);
             mid_data.clear();
+        }
+    }
+    static void scalar_vector(const BitmapValue& lval, const TData& rvec, ResTData* res) {
+        size_t size = rvec.size();
+        BitmapValue mid_data;
+        for (size_t i = 0; i < size; ++i) {
+            mid_data = lval;
+            mid_data &= rvec[i];
+            res[i] = lval.andnot_cardinality(mid_data);
+            mid_data.clear();
+        }
+    }
+    static void vector_scalar(const TData& lvec, const BitmapValue& rval, ResTData* res) {
+        size_t size = lvec.size();
+        BitmapValue mid_data;
+        for (size_t i = 0; i < size; ++i) {
+            mid_data = lvec[i];
+            mid_data &= rval;
+            res[i] = lvec[i].andnot_cardinality(mid_data);
+            mid_data.clear();
+        }
+    }
+};
+
+void update_bitmap_op_count(int64_t* __restrict count, const NullMap& null_map) {
+    static constexpr int64_t flags[2] = {-1, 0};
+    size_t size = null_map.size();
+    auto* __restrict null_map_data = null_map.data();
+    for (size_t i = 0; i < size; ++i) {
+        count[i] &= flags[null_map_data[i]];
+    }
+}
+
+// for bitmap_and_count, bitmap_xor_count and bitmap_and_not_count,
+// result is 0 for rows that if any column is null value
+ColumnPtr handle_bitmap_op_count_null_value(ColumnPtr& src, const Block& block,
+                                            const ColumnNumbers& args, size_t result,
+                                            size_t input_rows_count) {
+    auto* nullable = assert_cast<const ColumnNullable*>(src.get());
+    ColumnPtr src_not_nullable = nullable->get_nested_column_ptr();
+    MutableColumnPtr src_not_nullable_mutable = (*std::move(src_not_nullable)).assume_mutable();
+    auto* __restrict count_data =
+            assert_cast<ColumnInt64*>(src_not_nullable_mutable.get())->get_data().data();
+
+    for (const auto& arg : args) {
+        const ColumnWithTypeAndName& elem = block.get_by_position(arg);
+        if (!elem.type->is_nullable()) {
+            continue;
+        }
+
+        bool is_const = is_column_const(*elem.column);
+        /// Const Nullable that are NULL.
+        if (is_const && assert_cast<const ColumnConst*>(elem.column.get())->only_null()) {
+            return block.get_by_position(result).type->create_column_const(input_rows_count, 0);
+        }
+        if (is_const) {
+            continue;
+        }
+
+        if (auto* nullable = assert_cast<const ColumnNullable*>(elem.column.get())) {
+            const ColumnPtr& null_map_column = nullable->get_null_map_column_ptr();
+            const NullMap& src_null_map =
+                    assert_cast<const ColumnUInt8&>(*null_map_column).get_data();
+
+            update_bitmap_op_count(count_data, src_null_map);
+        }
+    }
+
+    return src;
+}
+
+Status execute_bitmap_op_count_null_to_zero(
+        FunctionContext* context, Block& block, const ColumnNumbers& arguments, size_t result,
+        size_t input_rows_count,
+        const std::function<Status(FunctionContext*, Block&, const ColumnNumbers&, size_t, size_t)>&
+                exec_impl_func) {
+    NullPresence null_presence = get_null_presence(block, arguments);
+
+    if (null_presence.has_null_constant) {
+        block.get_by_position(result).column =
+                block.get_by_position(result).type->create_column_const(input_rows_count, 0);
+    } else if (null_presence.has_nullable) {
+        auto [temporary_block, new_args, new_result] =
+                create_block_with_nested_columns(block, arguments, result);
+        RETURN_IF_ERROR(exec_impl_func(context, temporary_block, new_args, new_result,
+                                       temporary_block.rows()));
+        block.get_by_position(result).column = handle_bitmap_op_count_null_value(
+                temporary_block.get_by_position(new_result).column, block, arguments, result,
+                input_rows_count);
+    } else {
+        return exec_impl_func(context, block, arguments, result, input_rows_count);
+    }
+    return Status::OK();
+}
+
+class FunctionBitmapAndNotCount : public IFunction {
+public:
+    using LeftDataType = DataTypeBitMap;
+    using RightDataType = DataTypeBitMap;
+    using ResultDataType = typename BitmapAndNotCount<LeftDataType, RightDataType>::ResultDataType;
+
+    static constexpr auto name = "bitmap_and_not_count";
+    static FunctionPtr create() { return std::make_shared<FunctionBitmapAndNotCount>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 2; }
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        bool return_nullable = false;
+        // result is nullable only when any columns is nullable for bitmap_and_not_count
+        for (size_t i = 0; i < arguments.size(); ++i) {
+            if (arguments[i]->is_nullable()) {
+                return_nullable = true;
+                break;
+            }
+        }
+        auto result_type = std::make_shared<ResultDataType>();
+        return return_nullable ? make_nullable(result_type) : result_type;
+    }
+
+    bool use_default_implementation_for_constants() const override { return true; }
+
+    bool use_default_implementation_for_nulls() const override {
+        // for bitmap_and_not_count, result is always not null, and if the bitmap op result is null,
+        // the count is 0
+        return false;
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        DCHECK_EQ(arguments.size(), 2);
+
+        return execute_bitmap_op_count_null_to_zero(
+                context, block, arguments, result, input_rows_count,
+                std::bind((Status(FunctionBitmapAndNotCount::*)(
+                                  FunctionContext*, Block&, const ColumnNumbers&, size_t, size_t)) &
+                                  FunctionBitmapAndNotCount::execute_impl_internal,
+                          this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3,
+                          std::placeholders::_4, std::placeholders::_5));
+    }
+
+    Status execute_impl_internal(FunctionContext* context, Block& block,
+                                 const ColumnNumbers& arguments, size_t result,
+                                 size_t input_rows_count) {
+        using ResultType = typename ResultDataType::FieldType;
+        using ColVecResult = ColumnVector<ResultType>;
+
+        typename ColVecResult::MutablePtr col_res = ColVecResult::create();
+        auto& vec_res = col_res->get_data();
+        vec_res.resize(block.rows());
+
+        const auto& left = block.get_by_position(arguments[0]);
+        auto lcol = left.column;
+        const auto& right = block.get_by_position(arguments[1]);
+        auto rcol = right.column;
+
+        if (is_column_const(*left.column)) {
+            BitmapAndNotCount<LeftDataType, RightDataType>::scalar_vector(
+                    assert_cast<const ColumnBitmap&>(
+                            assert_cast<const ColumnConst*>(lcol.get())->get_data_column())
+                            .get_data()[0],
+                    assert_cast<const ColumnBitmap*>(rcol.get())->get_data(), vec_res.data());
+        } else if (is_column_const(*right.column)) {
+            BitmapAndNotCount<LeftDataType, RightDataType>::vector_scalar(
+                    assert_cast<const ColumnBitmap*>(lcol.get())->get_data(),
+                    assert_cast<const ColumnBitmap&>(
+                            assert_cast<const ColumnConst*>(rcol.get())->get_data_column())
+                            .get_data()[0],
+                    vec_res.data());
+        } else {
+            BitmapAndNotCount<LeftDataType, RightDataType>::vector_vector(
+                    assert_cast<const ColumnBitmap*>(lcol.get())->get_data(),
+                    assert_cast<const ColumnBitmap*>(rcol.get())->get_data(), vec_res.data());
+        }
+
+        auto& result_info = block.get_by_position(result);
+        if (result_info.type->is_nullable()) {
+            block.replace_by_position(
+                    result, ColumnNullable::create(std::move(col_res),
+                                                   ColumnUInt8::create(input_rows_count, 0)));
+        } else {
+            block.replace_by_position(result, std::move(col_res));
         }
         return Status::OK();
     }
@@ -518,12 +731,23 @@ struct BitmapContains {
     using RTData = typename ColumnVector<T1>::Container;
     using ResTData = typename ColumnVector<UInt8>::Container;
 
-    static Status vector_vector(const LTData& lvec, const RTData& rvec, ResTData& res) {
+    static void vector_vector(const LTData& lvec, const RTData& rvec, ResTData& res) {
         size_t size = lvec.size();
         for (size_t i = 0; i < size; ++i) {
             res[i] = lvec[i].contains(rvec[i]);
         }
-        return Status::OK();
+    }
+    static void vector_scalar(const LTData& lvec, const T1& rval, ResTData& res) {
+        size_t size = lvec.size();
+        for (size_t i = 0; i < size; ++i) {
+            res[i] = lvec[i].contains(rval);
+        }
+    }
+    static void scalar_vector(const BitmapValue& lval, const RTData& rvec, ResTData& res) {
+        size_t size = rvec.size();
+        for (size_t i = 0; i < size; ++i) {
+            res[i] = lval.contains(rvec[i]);
+        }
     }
 };
 
@@ -539,14 +763,29 @@ struct BitmapHasAny {
     using TData = std::vector<BitmapValue>;
     using ResTData = typename ColumnVector<UInt8>::Container;
 
-    static Status vector_vector(const TData& lvec, const TData& rvec, ResTData& res) {
+    static void vector_vector(const TData& lvec, const TData& rvec, ResTData& res) {
         size_t size = lvec.size();
         for (size_t i = 0; i < size; ++i) {
             auto bitmap = const_cast<BitmapValue&>(lvec[i]);
             bitmap &= rvec[i];
             res[i] = bitmap.cardinality() != 0;
         }
-        return Status::OK();
+    }
+    static void vector_scalar(const TData& lvec, const BitmapValue& rval, ResTData& res) {
+        size_t size = lvec.size();
+        for (size_t i = 0; i < size; ++i) {
+            auto bitmap = const_cast<BitmapValue&>(lvec[i]);
+            bitmap &= rval;
+            res[i] = bitmap.cardinality() != 0;
+        }
+    }
+    static void scalar_vector(const BitmapValue& lval, const TData& rvec, ResTData& res) {
+        size_t size = rvec.size();
+        for (size_t i = 0; i < size; ++i) {
+            auto bitmap = const_cast<BitmapValue&>(lval);
+            bitmap &= rvec[i];
+            res[i] = bitmap.cardinality() != 0;
+        }
     }
 };
 
@@ -562,7 +801,7 @@ struct BitmapHasAll {
     using TData = std::vector<BitmapValue>;
     using ResTData = typename ColumnVector<UInt8>::Container;
 
-    static Status vector_vector(const TData& lvec, const TData& rvec, ResTData& res) {
+    static void vector_vector(const TData& lvec, const TData& rvec, ResTData& res) {
         size_t size = lvec.size();
         for (size_t i = 0; i < size; ++i) {
             uint64_t lhs_cardinality = lvec[i].cardinality();
@@ -570,7 +809,24 @@ struct BitmapHasAll {
             bitmap |= rvec[i];
             res[i] = bitmap.cardinality() == lhs_cardinality;
         }
-        return Status::OK();
+    }
+    static void vector_scalar(const TData& lvec, const BitmapValue& rval, ResTData& res) {
+        size_t size = lvec.size();
+        for (size_t i = 0; i < size; ++i) {
+            uint64_t lhs_cardinality = lvec[i].cardinality();
+            auto bitmap = const_cast<BitmapValue&>(lvec[i]);
+            bitmap |= rval;
+            res[i] = bitmap.cardinality() == lhs_cardinality;
+        }
+    }
+    static void scalar_vector(const BitmapValue& lval, const TData& rvec, ResTData& res) {
+        size_t size = rvec.size();
+        for (size_t i = 0; i < size; ++i) {
+            uint64_t lhs_cardinality = lval.cardinality();
+            auto bitmap = const_cast<BitmapValue&>(lval);
+            bitmap |= rvec[i];
+            res[i] = bitmap.cardinality() == lhs_cardinality;
+        }
     }
 };
 
@@ -602,9 +858,9 @@ struct SubBitmap {
     using TData1 = std::vector<BitmapValue>;
     using TData2 = typename ColumnVector<Int64>::Container;
 
-    static Status vector_vector(const TData1& bitmap_data, const TData2& offset_data,
-                                const TData2& limit_data, NullMap& null_map,
-                                size_t input_rows_count, TData1& res) {
+    static void vector3(const TData1& bitmap_data, const TData2& offset_data,
+                        const TData2& limit_data, NullMap& null_map, size_t input_rows_count,
+                        TData1& res) {
         for (int i = 0; i < input_rows_count; ++i) {
             if (null_map[i]) {
                 continue;
@@ -618,7 +874,23 @@ struct SubBitmap {
                 null_map[i] = 1;
             }
         }
-        return Status::OK();
+    }
+    static void vector_scalars(const TData1& bitmap_data, const Int64& offset_data,
+                               const Int64& limit_data, NullMap& null_map, size_t input_rows_count,
+                               TData1& res) {
+        for (int i = 0; i < input_rows_count; ++i) {
+            if (null_map[i]) {
+                continue;
+            }
+            if (limit_data <= 0) {
+                null_map[i] = 1;
+                continue;
+            }
+            if (const_cast<TData1&>(bitmap_data)[i].offset_limit(offset_data, limit_data,
+                                                                 &res[i]) == 0) {
+                null_map[i] = 1;
+            }
+        }
     }
 };
 
@@ -627,9 +899,9 @@ struct BitmapSubsetLimit {
     using TData1 = std::vector<BitmapValue>;
     using TData2 = typename ColumnVector<Int64>::Container;
 
-    static Status vector_vector(const TData1& bitmap_data, const TData2& offset_data,
-                                const TData2& limit_data, NullMap& null_map,
-                                size_t input_rows_count, TData1& res) {
+    static void vector3(const TData1& bitmap_data, const TData2& offset_data,
+                        const TData2& limit_data, NullMap& null_map, size_t input_rows_count,
+                        TData1& res) {
         for (int i = 0; i < input_rows_count; ++i) {
             if (null_map[i]) {
                 continue;
@@ -640,7 +912,20 @@ struct BitmapSubsetLimit {
             }
             const_cast<TData1&>(bitmap_data)[i].sub_limit(offset_data[i], limit_data[i], &res[i]);
         }
-        return Status::OK();
+    }
+    static void vector_scalars(const TData1& bitmap_data, const Int64& offset_data,
+                               const Int64& limit_data, NullMap& null_map, size_t input_rows_count,
+                               TData1& res) {
+        for (int i = 0; i < input_rows_count; ++i) {
+            if (null_map[i]) {
+                continue;
+            }
+            if (offset_data < 0 || limit_data < 0) {
+                null_map[i] = 1;
+                continue;
+            }
+            const_cast<TData1&>(bitmap_data)[i].sub_limit(offset_data, limit_data, &res[i]);
+        }
     }
 };
 
@@ -649,9 +934,9 @@ struct BitmapSubsetInRange {
     using TData1 = std::vector<BitmapValue>;
     using TData2 = typename ColumnVector<Int64>::Container;
 
-    static Status vector_vector(const TData1& bitmap_data, const TData2& range_start,
-                                const TData2& range_end, NullMap& null_map, size_t input_rows_count,
-                                TData1& res) {
+    static void vector3(const TData1& bitmap_data, const TData2& range_start,
+                        const TData2& range_end, NullMap& null_map, size_t input_rows_count,
+                        TData1& res) {
         for (int i = 0; i < input_rows_count; ++i) {
             if (null_map[i]) {
                 continue;
@@ -662,7 +947,20 @@ struct BitmapSubsetInRange {
             }
             const_cast<TData1&>(bitmap_data)[i].sub_range(range_start[i], range_end[i], &res[i]);
         }
-        return Status::OK();
+    }
+    static void vector_scalars(const TData1& bitmap_data, const Int64& range_start,
+                               const Int64& range_end, NullMap& null_map, size_t input_rows_count,
+                               TData1& res) {
+        for (int i = 0; i < input_rows_count; ++i) {
+            if (null_map[i]) {
+                continue;
+            }
+            if (range_start >= range_end || range_start < 0 || range_end < 0) {
+                null_map[i] = 1;
+                continue;
+            }
+            const_cast<TData1&>(bitmap_data)[i].sub_range(range_start, range_end, &res[i]);
+        }
     }
 };
 
@@ -689,25 +987,36 @@ public:
         DCHECK_EQ(arguments.size(), 3);
         auto res_null_map = ColumnUInt8::create(input_rows_count, 0);
         auto res_data_column = ColumnBitmap::create(input_rows_count);
-        ColumnPtr argument_columns[3];
 
+        bool col_const[3];
+        ColumnPtr argument_columns[3];
         for (int i = 0; i < 3; ++i) {
-            argument_columns[i] =
-                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
-            if (auto* nullable = check_and_get_column<ColumnNullable>(*argument_columns[i])) {
-                VectorizedUtils::update_null_map(res_null_map->get_data(),
-                                                 nullable->get_null_map_data());
-                argument_columns[i] = nullable->get_nested_column_ptr();
-            }
+            col_const[i] = is_column_const(*block.get_by_position(arguments[i]).column);
+        }
+        argument_columns[0] = col_const[0] ? static_cast<const ColumnConst&>(
+                                                     *block.get_by_position(arguments[0]).column)
+                                                     .convert_to_full_column()
+                                           : block.get_by_position(arguments[0]).column;
+
+        default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block, arguments);
+
+        for (int i = 0; i < 3; i++) {
+            check_set_nullable(argument_columns[i], res_null_map);
         }
 
         auto bitmap_column = assert_cast<const ColumnBitmap*>(argument_columns[0].get());
         auto offset_column = assert_cast<const ColumnVector<Int64>*>(argument_columns[1].get());
         auto limit_column = assert_cast<const ColumnVector<Int64>*>(argument_columns[2].get());
 
-        Impl::vector_vector(bitmap_column->get_data(), offset_column->get_data(),
-                            limit_column->get_data(), res_null_map->get_data(), input_rows_count,
-                            res_data_column->get_data());
+        if (col_const[1] && col_const[2]) {
+            Impl::vector_scalars(bitmap_column->get_data(), offset_column->get_element(0),
+                                 limit_column->get_element(0), res_null_map->get_data(),
+                                 input_rows_count, res_data_column->get_data());
+        } else {
+            Impl::vector3(bitmap_column->get_data(), offset_column->get_data(),
+                          limit_column->get_data(), res_null_map->get_data(), input_rows_count,
+                          res_data_column->get_data());
+        }
 
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(res_data_column), std::move(res_null_map));
@@ -731,6 +1040,7 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     bool use_default_implementation_for_nulls() const override { return true; }
+    bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
@@ -744,8 +1054,7 @@ public:
         dest_nested_column = dest_nested_nullable_col->get_nested_column_ptr();
         auto& dest_nested_null_map = dest_nested_nullable_col->get_null_map_column().get_data();
 
-        auto arg_col =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto& arg_col = block.get_by_position(arguments[0]).column;
         auto bitmap_col = assert_cast<const ColumnBitmap*>(arg_col.get());
         const auto& bitmap_col_data = bitmap_col->get_data();
         auto& nested_column_data =
@@ -781,8 +1090,6 @@ using FunctionBitmapNot =
         FunctionBinaryToType<DataTypeBitMap, DataTypeBitMap, BitmapNot, NameBitmapNot>;
 using FunctionBitmapAndNot =
         FunctionBinaryToType<DataTypeBitMap, DataTypeBitMap, BitmapAndNot, NameBitmapAndNot>;
-using FunctionBitmapAndNotCount = FunctionBinaryToType<DataTypeBitMap, DataTypeBitMap,
-                                                       BitmapAndNotCount, NameBitmapAndNotCount>;
 using FunctionBitmapContains =
         FunctionBinaryToType<DataTypeBitMap, DataTypeInt64, BitmapContains, NameBitmapContains>;
 

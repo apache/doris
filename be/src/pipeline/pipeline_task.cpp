@@ -17,7 +17,8 @@
 
 #include "pipeline_task.h"
 
-#include "pipeline/pipeline_fragment_context.h"
+#include "pipeline_fragment_context.h"
+#include "task_queue.h"
 
 namespace doris::pipeline {
 
@@ -53,7 +54,7 @@ void PipelineTask::_init_profile() {
 
 Status PipelineTask::prepare(RuntimeState* state) {
     DCHECK(_sink);
-    DCHECK(_cur_state == NOT_READY);
+    DCHECK(_cur_state == PipelineTaskState::NOT_READY);
     _init_profile();
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_CPU_TIMER(_task_cpu_timer);
@@ -80,7 +81,7 @@ Status PipelineTask::prepare(RuntimeState* state) {
     _block.reset(new doris::vectorized::Block());
 
     // We should make sure initial state for task are runnable so that we can do some preparation jobs (e.g. initialize runtime filters).
-    set_state(RUNNABLE);
+    set_state(PipelineTaskState::RUNNABLE);
     _prepared = true;
     return Status::OK();
 }
@@ -106,7 +107,7 @@ bool PipelineTask::has_dependency() {
     return false;
 }
 
-Status PipelineTask::open() {
+Status PipelineTask::_open() {
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_CPU_TIMER(_task_cpu_timer);
     SCOPED_TIMER(_open_timer);
@@ -120,45 +121,57 @@ Status PipelineTask::open() {
     return Status::OK();
 }
 
+void PipelineTask::set_task_queue(TaskQueue* task_queue) {
+    _task_queue = task_queue;
+}
+
 Status PipelineTask::execute(bool* eos) {
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_CPU_TIMER(_task_cpu_timer);
     SCOPED_TIMER(_exec_timer);
     SCOPED_ATTACH_TASK(_state);
     int64_t time_spent = 0;
+    Defer defer {[&]() {
+        if (_task_queue) {
+            _task_queue->update_statistics(this, time_spent);
+        }
+    }};
     // The status must be runnable
     *eos = false;
     if (!_opened) {
         {
             SCOPED_RAW_TIMER(&time_spent);
-            auto st = open();
-            if (st.is_blocked_by_rf()) {
-                set_state(BLOCKED_FOR_RF);
+            auto st = _open();
+            if (st.is<ErrorCode::PIP_WAIT_FOR_RF>()) {
+                set_state(PipelineTaskState::BLOCKED_FOR_RF);
+                return Status::OK();
+            } else if (st.is<ErrorCode::PIP_WAIT_FOR_SC>()) {
+                set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
                 return Status::OK();
             }
             RETURN_IF_ERROR(st);
         }
         if (has_dependency()) {
-            set_state(BLOCKED_FOR_DEPENDENCY);
+            set_state(PipelineTaskState::BLOCKED_FOR_DEPENDENCY);
             return Status::OK();
         }
         if (!_source->can_read()) {
-            set_state(BLOCKED_FOR_SOURCE);
+            set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
             return Status::OK();
         }
         if (!_sink->can_write()) {
-            set_state(BLOCKED_FOR_SINK);
+            set_state(PipelineTaskState::BLOCKED_FOR_SINK);
             return Status::OK();
         }
     }
 
     while (!_fragment_context->is_canceled()) {
         if (_data_state != SourceState::MORE_DATA && !_source->can_read()) {
-            set_state(BLOCKED_FOR_SOURCE);
+            set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
             break;
         }
         if (!_sink->can_write()) {
-            set_state(BLOCKED_FOR_SINK);
+            set_state(PipelineTaskState::BLOCKED_FOR_SINK);
             break;
         }
         if (time_spent > THREAD_TIME_SLICE) {
@@ -190,6 +203,11 @@ Status PipelineTask::execute(bool* eos) {
 Status PipelineTask::finalize() {
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_CPU_TIMER(_task_cpu_timer);
+    Defer defer {[&]() {
+        if (_task_queue) {
+            _task_queue->update_statistics(this, _finalize_timer->value());
+        }
+    }};
     SCOPED_TIMER(_finalize_timer);
     return _sink->finalize(_state);
 }
@@ -200,6 +218,11 @@ Status PipelineTask::try_close() {
 
 Status PipelineTask::close() {
     int64_t close_ns = 0;
+    Defer defer {[&]() {
+        if (_task_queue) {
+            _task_queue->update_statistics(this, close_ns);
+        }
+    }};
     Status s;
     {
         SCOPED_RAW_TIMER(&close_ns);
@@ -232,20 +255,20 @@ void PipelineTask::set_state(PipelineTaskState state) {
     if (_cur_state == state) {
         return;
     }
-    if (_cur_state == BLOCKED_FOR_SOURCE) {
-        if (state == RUNNABLE) {
+    if (_cur_state == PipelineTaskState::BLOCKED_FOR_SOURCE) {
+        if (state == PipelineTaskState::RUNNABLE) {
             _wait_source_watcher.stop();
         }
-    } else if (_cur_state == BLOCKED_FOR_SINK) {
-        if (state == RUNNABLE) {
+    } else if (_cur_state == PipelineTaskState::BLOCKED_FOR_SINK) {
+        if (state == PipelineTaskState::RUNNABLE) {
             _wait_sink_watcher.stop();
         }
-    } else if (_cur_state == RUNNABLE) {
+    } else if (_cur_state == PipelineTaskState::RUNNABLE) {
         COUNTER_UPDATE(_block_counts, 1);
-        if (state == BLOCKED_FOR_SOURCE) {
+        if (state == PipelineTaskState::BLOCKED_FOR_SOURCE) {
             _wait_source_watcher.start();
             COUNTER_UPDATE(_block_by_source_counts, 1);
-        } else if (state == BLOCKED_FOR_SINK) {
+        } else if (state == PipelineTaskState::BLOCKED_FOR_SINK) {
             _wait_sink_watcher.start();
             COUNTER_UPDATE(_block_by_sink_counts, 1);
         }
@@ -264,6 +287,10 @@ std::string PipelineTask::debug_string() const {
     fmt::format_to(debug_string_buffer, "\n{}{}", std::string(_operators.size() * 2, ' '),
                    _sink->debug_string());
     return fmt::to_string(debug_string_buffer);
+}
+
+taskgroup::TaskGroup* PipelineTask::get_task_group() const {
+    return _fragment_context->get_task_group();
 }
 
 } // namespace doris::pipeline

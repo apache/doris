@@ -39,7 +39,9 @@ class VScanner {
 public:
     VScanner(RuntimeState* state, VScanNode* parent, int64_t limit, RuntimeProfile* profile);
 
-    virtual ~VScanner() {}
+    virtual ~VScanner() = default;
+
+    virtual Status init() { return Status::OK(); }
 
     virtual Status open(RuntimeState* state) { return Status::OK(); }
 
@@ -57,12 +59,17 @@ protected:
     // Filter the output block finally.
     Status _filter_output_block(Block* block);
 
+    // Not virtual, all child will call this method explictly
+    Status prepare(RuntimeState* state, VExprContext** vconjunct_ctx_ptr);
+
 public:
     VScanNode* get_parent() { return _parent; }
 
     int64_t get_time_cost_ns() const { return _per_scanner_timer; }
 
     int64_t get_rows_read() const { return _num_rows_read; }
+
+    bool is_init() const { return _is_init; }
 
     Status try_append_late_arrival_runtime_filter();
 
@@ -117,7 +124,6 @@ public:
 protected:
     void _discard_conjuncts() {
         if (_vconjunct_ctx) {
-            _vconjunct_ctx->mark_as_stale();
             _stale_vexpr_ctxs.push_back(_vconjunct_ctx);
             _vconjunct_ctx = nullptr;
         }
@@ -151,6 +157,7 @@ protected:
     // Cloned from _vconjunct_ctx of scan node.
     // It includes predicate in SQL and runtime filters.
     VExprContext* _vconjunct_ctx = nullptr;
+    VExprContext* _common_vexpr_ctxs_pushdown = nullptr;
     // Late arriving runtime filters will update _vconjunct_ctx.
     // The old _vconjunct_ctx will be temporarily placed in _stale_vexpr_ctxs
     // and will be destroyed at the end.
@@ -175,6 +182,8 @@ protected:
     bool _is_load = false;
     // set to true after decrease the "_num_unfinished_scanners" in scanner context
     bool _is_counted_down = false;
+
+    bool _is_init = true;
 
     ScannerCounter _counter;
     int64_t _per_scanner_timer = 0;

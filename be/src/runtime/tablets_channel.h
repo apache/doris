@@ -136,8 +136,6 @@ private:
     OlapTableSchemaParam* _schema = nullptr;
 
     TupleDescriptor* _tuple_desc = nullptr;
-    // row_desc used to construct
-    RowDescriptor* _row_desc = nullptr;
 
     // next sequence we expect
     int _num_remaining_senders = 0;

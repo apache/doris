@@ -152,6 +152,7 @@ suite ("test_rename_column") {
     while (max_try_time--){
         String result = getRollupJobState(tableName)
         if (result == "FINISHED") {
+            sleep(3000)
             break
         } else {
             sleep(100)
@@ -217,6 +218,7 @@ suite ("test_rename_column") {
     while (max_try_time--){
         String result = getMVJobState(tableName)
         if (result == "FINISHED") {
+            sleep(3000)
             break
         } else {
             sleep(100)

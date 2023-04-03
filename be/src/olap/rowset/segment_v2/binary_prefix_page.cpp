@@ -27,7 +27,6 @@
 
 #include "common/logging.h"
 #include "gutil/strings/substitute.h"
-#include "runtime/mem_pool.h"
 #include "util/coding.h"
 #include "util/faststring.h"
 #include "util/slice.h"

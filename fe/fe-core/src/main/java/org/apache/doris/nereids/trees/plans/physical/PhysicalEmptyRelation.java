@@ -28,7 +28,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.EmptyRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
 
@@ -51,9 +51,9 @@ public class PhysicalEmptyRelation extends PhysicalLeaf implements EmptyRelation
 
     public PhysicalEmptyRelation(List<? extends NamedExpression> projects, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
-            StatsDeriveResult statsDeriveResult) {
+            Statistics statistics) {
         super(PlanType.PHYSICAL_EMPTY_RELATION, groupExpression, logicalProperties, physicalProperties,
-                statsDeriveResult);
+                statistics);
         this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
     }
 
@@ -70,13 +70,13 @@ public class PhysicalEmptyRelation extends PhysicalLeaf implements EmptyRelation
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalEmptyRelation(projects, groupExpression,
-                logicalPropertiesSupplier.get(), physicalProperties, statsDeriveResult);
+                logicalPropertiesSupplier.get(), physicalProperties, statistics);
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new PhysicalEmptyRelation(projects, Optional.empty(),
-                logicalProperties.get(), physicalProperties, statsDeriveResult);
+                logicalProperties.get(), physicalProperties, statistics);
     }
 
     @Override
@@ -120,8 +120,8 @@ public class PhysicalEmptyRelation extends PhysicalLeaf implements EmptyRelation
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
-            StatsDeriveResult statsDeriveResult) {
+            Statistics statistics) {
         return new PhysicalEmptyRelation(projects, Optional.empty(),
-                logicalPropertiesSupplier.get(), physicalProperties, statsDeriveResult);
+                logicalPropertiesSupplier.get(), physicalProperties, statistics);
     }
 }

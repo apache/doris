@@ -22,6 +22,8 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.CTEContext;
+import org.apache.doris.nereids.cost.Cost;
+import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.metrics.EventChannel;
 import org.apache.doris.nereids.metrics.EventProducer;
 import org.apache.doris.nereids.metrics.consumer.LogConsumer;
@@ -38,7 +40,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -105,6 +107,22 @@ public class Memo {
         return groupExpressions;
     }
 
+    private Plan skipProject(Plan plan, Group targetGroup) {
+        if (plan instanceof LogicalProject) {
+            LogicalProject<Plan> logicalProject = (LogicalProject<Plan>) plan;
+            if (targetGroup != root) {
+                if (logicalProject.getOutputSet().equals(logicalProject.child().getOutputSet())) {
+                    return skipProject(logicalProject.child(), targetGroup);
+                }
+            } else {
+                if (logicalProject.getOutput().equals(logicalProject.child().getOutput())) {
+                    return skipProject(logicalProject.child(), targetGroup);
+                }
+            }
+        }
+        return plan;
+    }
+
     /**
      * Add plan to Memo.
      *
@@ -120,7 +138,7 @@ public class Memo {
         if (rewrite) {
             result = doRewrite(plan, target);
         } else {
-            result = doCopyIn(plan, target);
+            result = doCopyIn(skipProject(plan, target), target);
         }
         maybeAddStateId(result);
         return result;
@@ -314,6 +332,17 @@ public class Memo {
         }
     }
 
+    private Plan skipProjectGetChild(Plan plan) {
+        if (plan instanceof LogicalProject) {
+            LogicalProject<Plan> logicalProject = (LogicalProject<Plan>) plan;
+            Plan child = logicalProject.child();
+            if (logicalProject.getOutputSet().equals(child.getOutputSet())) {
+                return skipProjectGetChild(child);
+            }
+        }
+        return plan;
+    }
+
     /**
      * add the plan into the target group
      * @param plan the plan which want added
@@ -324,20 +353,7 @@ public class Memo {
      *         and the second element is a reference of node in Memo
      */
     private CopyInResult doCopyIn(Plan plan, @Nullable Group targetGroup) {
-        // TODO: this is same with EliminateUnnecessaryProject,
-        //   we need a infra to rewrite plan after every exploration job
-        if (plan instanceof LogicalProject) {
-            LogicalProject<Plan> logicalProject = (LogicalProject<Plan>) plan;
-            if (targetGroup != root) {
-                if (logicalProject.getOutputSet().equals(logicalProject.child().getOutputSet())) {
-                    return doCopyIn(logicalProject.child(), targetGroup);
-                }
-            } else {
-                if (logicalProject.getOutput().equals(logicalProject.child().getOutput())) {
-                    return doCopyIn(logicalProject.child(), targetGroup);
-                }
-            }
-        }
+        Preconditions.checkArgument(!(plan instanceof GroupPlan), "plan can not be GroupPlan");
         // check logicalproperties, must same output in a Group.
         if (targetGroup != null && !plan.getLogicalProperties().equals(targetGroup.getLogicalProperties())) {
             throw new IllegalStateException("Insert a plan into targetGroup but differ in logicalproperties");
@@ -348,13 +364,14 @@ public class Memo {
         }
         List<Group> childrenGroups = Lists.newArrayList();
         for (int i = 0; i < plan.children().size(); i++) {
-            Plan child = plan.children().get(i);
+            // skip useless project.
+            Plan child = skipProjectGetChild(plan.child(i));
             if (child instanceof GroupPlan) {
                 childrenGroups.add(((GroupPlan) child).getGroup());
             } else if (child.getGroupExpression().isPresent()) {
                 childrenGroups.add(child.getGroupExpression().get().getOwnerGroup());
             } else {
-                childrenGroups.add(copyIn(child, null, false).correspondingExpression.getOwnerGroup());
+                childrenGroups.add(doCopyIn(child, null).correspondingExpression.getOwnerGroup());
             }
         }
         plan = replaceChildrenToGroupPlan(plan, childrenGroups);
@@ -376,7 +393,7 @@ public class Memo {
                 validateRewriteChildGroup(childGroup, targetGroup);
                 childrenGroups.add(childGroup);
             } else {
-                childrenGroups.add(copyIn(child, null, true).correspondingExpression.getOwnerGroup());
+                childrenGroups.add(doRewrite(child, null).correspondingExpression.getOwnerGroup());
             }
         }
         return childrenGroups;
@@ -449,7 +466,6 @@ public class Memo {
         }
         GROUP_MERGE_TRACER.log(GroupMergeEvent.of(source, destination, needReplaceChild));
 
-        Map<Group, Group> needMergeGroupPairs = Maps.newHashMap();
         for (GroupExpression reinsertGroupExpr : needReplaceChild) {
             // After change GroupExpression children, hashcode will change, so need to reinsert into map.
             groupExpressions.remove(reinsertGroupExpr);
@@ -470,7 +486,7 @@ public class Memo {
                     reinsertGroupExpr.mergeTo(existGroupExpr);
                 } else {
                     // reinsertGroupExpr & existGroupExpr aren't in same group, need to merge their OwnerGroup.
-                    needMergeGroupPairs.put(reinsertGroupExpr.getOwnerGroup(), existGroupExpr.getOwnerGroup());
+                    mergeGroup(reinsertGroupExpr.getOwnerGroup(), existGroupExpr.getOwnerGroup());
                 }
             } else {
                 groupExpressions.put(reinsertGroupExpr, reinsertGroupExpr);
@@ -481,7 +497,6 @@ public class Memo {
             groups.remove(source.getGroupId());
         }
 
-        needMergeGroupPairs.forEach(this::mergeGroup);
         return destination;
     }
 
@@ -691,21 +706,27 @@ public class Memo {
         StringBuilder builder = new StringBuilder();
         builder.append("root:").append(getRoot()).append("\n");
         for (Group group : groups.values()) {
-            builder.append(group).append("\n");
+            builder.append("\n\n").append(group);
             builder.append("  stats=").append(group.getStatistics()).append("\n");
-            StatsDeriveResult stats = group.getStatistics();
+            Statistics stats = group.getStatistics();
             if (stats != null && !group.getLogicalExpressions().isEmpty()
                     && group.getLogicalExpressions().get(0).getPlan() instanceof LogicalOlapScan) {
-                for (Entry e : stats.getSlotIdToColumnStats().entrySet()) {
+                for (Entry e : stats.columnStatistics().entrySet()) {
                     builder.append("    ").append(e.getKey()).append(":").append(e.getValue()).append("\n");
                 }
             }
-            for (GroupExpression groupExpression : group.getLogicalExpressions()) {
-                builder.append("  ").append(groupExpression.toString()).append("\n");
-            }
-            for (GroupExpression groupExpression : group.getPhysicalExpressions()) {
-                builder.append("  ").append(groupExpression.toString()).append("\n");
-            }
+
+            builder.append("  lowest Plan(cost, properties, plan)");
+            group.getAllProperties().forEach(
+                    prop -> {
+                        Optional<Pair<Cost, GroupExpression>> costAndGroupExpression = group.getLowestCostPlan(prop);
+                        if (costAndGroupExpression.isPresent()) {
+                            builder.append("\n    " + costAndGroupExpression.get().first.getValue() + " " + prop)
+                                    .append("\n     ").append(costAndGroupExpression.get().second);
+                        }
+                    }
+            );
+            builder.append("\n");
         }
         return builder.toString();
     }
@@ -765,26 +786,27 @@ public class Memo {
             return res;
         }
 
-        double bestChildrenCost = 0;
         List<List<Pair<Long, Double>>> children = new ArrayList<>();
         for (int i = 0; i < inputProperties.size(); i++) {
             // To avoid reach a circle, we don't allow ranking the same group with the same physical properties.
             Preconditions.checkArgument(!groupExpression.child(i).equals(groupExpression.getOwnerGroup())
                     || !prop.equals(inputProperties.get(i)));
-            bestChildrenCost += groupExpression.children().get(i).getLowestCostPlan(inputProperties.get(i)).get().first;
             List<Pair<Long, Double>> idCostPair
                     = rankGroup(groupExpression.child(i), inputProperties.get(i));
             children.add(idCostPair);
         }
         List<Pair<Long, List<Integer>>> childrenId = new ArrayList<>();
         permute(children, 0, childrenId, new ArrayList<>());
+        Cost cost = CostCalculator.calculateCost(groupExpression, inputProperties);
         for (Pair<Long, List<Integer>> c : childrenId) {
-            double childCost = 0;
+            Cost totalCost = cost;
             for (int i = 0; i < children.size(); i++) {
-                childCost += children.get(i).get(c.second.get(i)).second;
+                totalCost = CostCalculator.addChildCost(groupExpression.getPlan(),
+                        totalCost,
+                        groupExpression.child(i).getLowestCostPlan(inputProperties.get(i)).get().first,
+                        i);
             }
-            res.add(Pair.of(c.first,
-                    childCost + groupExpression.getCostByProperties(prop) - bestChildrenCost));
+            res.add(Pair.of(c.first, totalCost.getValue()));
         }
         return res;
     }

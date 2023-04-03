@@ -78,6 +78,25 @@ struct TDescribeTableResult {
   1: required list<TColumnDef> columns
 }
 
+// Arguments to DescribeTables, which returns a list of column descriptors for
+// given tables
+struct TDescribeTablesParams {
+  1: optional string db
+  2: required list<string> tables_name
+  3: optional string user   // deprecated
+  4: optional string user_ip    // deprecated
+  5: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
+  6: optional bool show_hidden_columns = false
+  7: optional string catalog
+}
+
+// Results of a call to describeTable()
+struct TDescribeTablesResult {
+  // tables_offset means that the offset for each table in columns
+  1: required list<i32> tables_offset
+  2: required list<TColumnDef> columns
+}
+
 struct TShowVariableRequest {
     1: required i64 threadId
     2: required Types.TVarType varType
@@ -696,16 +715,15 @@ struct TInitExternalCtlMetaResult {
     2: optional string status;
 }
 
-enum TSchemaTableName{
+enum TSchemaTableName {
   BACKENDS = 0,
-  ICEBERG_TABLE_META = 1,
+  METADATA_TABLE = 1,
 }
 
 struct TMetadataTableRequestParams {
-  1: optional PlanNodes.TIcebergMetadataParams iceberg_metadata_params
-  2: optional string catalog
-  3: optional string database
-  4: optional string table
+  1: optional Types.TMetadataType metadata_type
+  2: optional PlanNodes.TIcebergMetadataParams iceberg_metadata_params
+  3: optional PlanNodes.TBackendsMetadataParams backends_metadata_params
 }
 
 struct TFetchSchemaTableDataRequest {
@@ -755,10 +773,57 @@ struct TConfirmUnusedRemoteFilesResult {
     1: optional list<Types.TTabletId> confirmed_tablets
 }
 
+enum TPrivilegeHier {
+  GLOBAL = 0,
+  CATALOG = 1,
+  DATABASE = 2,
+  TABLE = 3,
+  COLUMNS = 4,
+  RESOURSE = 5,
+}
+
+struct TPrivilegeCtrl {
+    1: required TPrivilegeHier priv_hier
+    2: optional string ctl
+    3: optional string db
+    4: optional string tbl
+    5: optional set<string> cols
+    6: optional string res
+}
+
+enum TPrivilegeType {
+  SHOW = 0,
+  SHOW_RESOURCES = 1,
+  GRANT = 2,
+  ADMIN = 3,
+  LOAD = 4,
+  ALTER = 5,
+  USAGE = 6,
+  CREATE = 7,
+  ALL = 8,
+  OPERATOR = 9,
+  DROP = 10
+}
+
+struct TCheckAuthRequest {
+    1: optional string cluster
+    2: required string user
+    3: required string passwd
+    4: optional string user_ip
+    5: optional TPrivilegeCtrl priv_ctrl
+    6: optional TPrivilegeType priv_type
+    7: optional i64 thrift_rpc_timeout_ms
+}
+
+struct TCheckAuthResult {
+    1: required Status.TStatus status
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
     TDescribeTableResult describeTable(1: TDescribeTableParams params)
+    TDescribeTablesResult describeTables(1: TDescribeTablesParams params)
     TShowVariableResult showVariables(1: TShowVariableRequest params)
     TReportExecStatusResult reportExecStatus(1: TReportExecStatusParams params)
 
@@ -798,4 +863,6 @@ service FrontendService {
     TMySqlLoadAcquireTokenResult acquireToken()
 
     TConfirmUnusedRemoteFilesResult confirmUnusedRemoteFiles(1: TConfirmUnusedRemoteFilesRequest request)
+
+    TCheckAuthResult checkAuth(1: TCheckAuthRequest request)
 }

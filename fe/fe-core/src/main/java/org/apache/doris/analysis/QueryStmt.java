@@ -28,6 +28,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.rewrite.ExprRewriter;
+import org.apache.doris.thrift.TQueryOptions;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -271,6 +272,9 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
     }
 
     public boolean isDisableTuplesMVRewriter(Expr expr) {
+        if (disableTuplesMVRewriter.isEmpty()) {
+            return false;
+        }
         return expr.isBoundByTupleIds(disableTuplesMVRewriter.stream().collect(Collectors.toList()));
     }
 
@@ -280,14 +284,10 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
         }
         ExprRewriter rewriter = analyzer.getMVExprRewriter();
         rewriter.reset();
-        rewriter.setDisableTuplesMVRewriter(disableTuplesMVRewriter);
+        rewriter.setInfoMVRewriter(disableTuplesMVRewriter, mvSMap, aliasSMap);
         rewriter.setUpBottom();
 
         Expr result = rewriter.rewrite(expr, analyzer);
-        if (result != expr) {
-            expr.analyze(analyzer);
-            mvSMap.put(result, expr);
-        }
         return result;
     }
 
@@ -517,11 +517,11 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
 
 
     @Override
-    public void foldConstant(ExprRewriter rewriter) throws AnalysisException {
+    public void foldConstant(ExprRewriter rewriter, TQueryOptions tQueryOptions) throws AnalysisException {
         Preconditions.checkState(isAnalyzed());
         Map<String, Expr> exprMap = new HashMap<>();
         collectExprs(exprMap);
-        rewriter.rewriteConstant(exprMap, analyzer);
+        rewriter.rewriteConstant(exprMap, analyzer, tQueryOptions);
         if (rewriter.changed()) {
             putBackExprs(exprMap);
         }
@@ -843,5 +843,9 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
     public String toSqlWithHint() {
         toSQLWithHint = true;
         return toSql();
+    }
+
+    public void setToSQLWithHint(boolean enableSqlSqlWithHint) {
+        this.toSQLWithHint = enableSqlSqlWithHint;
     }
 }

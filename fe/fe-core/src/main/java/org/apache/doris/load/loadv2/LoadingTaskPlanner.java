@@ -154,9 +154,11 @@ public class LoadingTaskPlanner {
             Column col = new Column(Column.DYNAMIC_COLUMN_NAME, Type.VARIANT, false, null, false, "",
                                     "stream load auto dynamic column");
             slotDesc.setIsMaterialized(true);
+            // Non-nullable slots will have 0 for the byte offset and -1 for the bit mask
+            slotDesc.setNullIndicatorBit(-1);
+            slotDesc.setNullIndicatorByte(0);
             slotDesc.setColumn(col);
-            // alaways nullable
-            slotDesc.setIsNullable(true);
+            slotDesc.setIsNullable(false);
             LOG.debug("plan scanTupleDesc{}", scanTupleDesc.toString());
         }
 

@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.journal.bdbje.BDBEnvironment;
 
 import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.je.Database;
 import com.sleepycat.je.DatabaseEntry;
@@ -69,11 +68,6 @@ public class BDBHA implements HAProtocol {
     }
 
     @Override
-    public long getEpochNumber() {
-        return 0;
-    }
-
-    @Override
     public boolean fencing() {
         Database epochDb = environment.getEpochDB();
 
@@ -101,7 +95,7 @@ public class BDBHA implements HAProtocol {
                 try {
                     Thread.sleep(2000);
                 } catch (InterruptedException e1) {
-                    e1.printStackTrace();
+                    LOG.warn("", e1);
                 }
             }
         }
@@ -163,47 +157,6 @@ public class BDBHA implements HAProtocol {
     }
 
     @Override
-    public List<InetSocketAddress> getNoneLeaderNodes() {
-        ReplicationGroupAdmin replicationGroupAdmin = environment.getReplicationGroupAdmin();
-        if (replicationGroupAdmin == null) {
-            return null;
-        }
-        List<InetSocketAddress> ret = new ArrayList<InetSocketAddress>();
-        try {
-            ReplicationGroup replicationGroup = replicationGroupAdmin.getGroup();
-            for (ReplicationNode replicationNode : replicationGroup.getSecondaryNodes()) {
-                ret.add(replicationNode.getSocketAddress());
-            }
-            for (ReplicationNode replicationNode : replicationGroup.getElectableNodes()) {
-                if (!replicationNode.getName().equals(replicationGroupAdmin.getMasterNodeName())) {
-                    ret.add(replicationNode.getSocketAddress());
-                }
-            }
-        } catch (UnknownMasterException e) {
-            LOG.warn("Catch UnknownMasterException when calling getNoneLeaderNodes.", e);
-            return null;
-        }
-        return ret;
-    }
-
-    @Override
-    public void transferToMaster() {
-
-    }
-
-    @Override
-    public void transferToNonMaster() {
-
-    }
-
-    @Override
-    public boolean isLeader() {
-        ReplicationGroupAdmin replicationGroupAdmin = environment.getReplicationGroupAdmin();
-        String leaderName = replicationGroupAdmin.getMasterNodeName();
-        return leaderName.equals(nodeName);
-    }
-
-    @Override
     public boolean removeElectableNode(String nodeName) {
         ReplicationGroupAdmin replicationGroupAdmin = environment.getReplicationGroupAdmin();
         if (replicationGroupAdmin == null) {
@@ -221,25 +174,21 @@ public class BDBHA implements HAProtocol {
         return true;
     }
 
-    // When new Follower FE is added to the cluster, it should also be added to the
-    // helper sockets in
-    // ReplicationGroupAdmin, in order to fix the following case:
-    // 1. A Observer starts with helper of master FE.
-    // 2. Master FE is dead, new Master is elected.
-    // 3. Observer's helper sockets only contains the info of the dead master FE.
-    // So when you try to get frontends' info from this Observer, it will throw the
-    // Exception:
-    // "Could not determine master from helpers at:[/dead master FE host:port]"
-    public void addHelperSocket(String ip, Integer port) {
+    public boolean updateNodeAddress(String nodeName, String newHostName, int port) {
         ReplicationGroupAdmin replicationGroupAdmin = environment.getReplicationGroupAdmin();
-        Set<InetSocketAddress> helperSockets =
-                Sets.newHashSet(replicationGroupAdmin.getHelperSockets());
-        InetSocketAddress newHelperSocket = new InetSocketAddress(ip, port);
-        if (!helperSockets.contains(newHelperSocket)) {
-            helperSockets.add(newHelperSocket);
-            environment.setNewReplicationGroupAdmin(helperSockets);
-            LOG.info("add {}:{} to helper sockets", ip, port);
+        if (replicationGroupAdmin == null) {
+            return false;
         }
+        try {
+            replicationGroupAdmin.updateAddress(nodeName, newHostName, port);
+        } catch (MemberNotFoundException e) {
+            LOG.error("the updating electable node is not found {}", nodeName, e);
+            return false;
+        } catch (MasterStateException e) {
+            LOG.error("the updating electable node is master {}", nodeName, e);
+            return false;
+        }
+        return true;
     }
 
     public void removeConflictNodeIfExist(String host, int port) {

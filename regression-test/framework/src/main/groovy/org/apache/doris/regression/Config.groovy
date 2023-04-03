@@ -31,6 +31,7 @@ import java.sql.DriverManager
 import java.util.concurrent.atomic.AtomicReference
 import java.util.function.Predicate
 
+import static java.lang.Math.random
 import static org.apache.doris.regression.ConfigOptions.*
 
 @Slf4j
@@ -371,7 +372,7 @@ class Config {
             log.info("Set actionParallel to 10 because not specify.".toString())
         }
     }
-    
+
     static String configToString(Object obj) {
         return (obj instanceof String || obj instanceof GString) ? obj.toString() : null
     }
@@ -465,7 +466,8 @@ class Config {
         if (urlWithoutSchema.indexOf("/") >= 0) {
             if (jdbcUrl.contains("?")) {
                 // e.g: jdbc:mysql://locahost:8080/?a=b
-                urlWithDb = jdbcUrl.substring(0, jdbcUrl.lastIndexOf("/"))
+                urlWithDb = jdbcUrl.substring(0, jdbcUrl.lastIndexOf("?"))
+                urlWithDb = urlWithDb.substring(0, urlWithDb.lastIndexOf("/"))
                 urlWithDb += ("/" + dbName) + jdbcUrl.substring(jdbcUrl.lastIndexOf("?"))
             } else {
                 // e.g: jdbc:mysql://locahost:8080/
@@ -475,7 +477,33 @@ class Config {
             // e.g: jdbc:mysql://locahost:8080
             urlWithDb += ("/" + dbName)
         }
+        urlWithDb = addSslUrl(urlWithDb);
 
         return urlWithDb
+    }
+
+    private String addSslUrl(String url) {
+        if (url.contains("TLS")) {
+            return url
+        }
+        // ssl-mode = PREFERRED
+        String useSsl = "true"
+        String useSslConfig = "verifyServerCertificate=false&useSSL=" + useSsl + "&requireSSL=false"
+        String tlsVersion = "TLSv1.2"
+        String tlsVersionConfig = "&enabledTLSProtocols=" + tlsVersion
+        String keyStoreFile = "file:regression-test/certificate.p12"
+        String keyStoreFileConfig = "&trustCertificateKeyStoreUrl=" + keyStoreFile + "&clientCertificateKeyStoreUrl=" + keyStoreFile
+        String password = "&trustCertificateKeyStorePassword=doris&clientCertificateKeyStorePassword=doris"
+        String sslUrl = useSslConfig + tlsVersionConfig + keyStoreFileConfig + password
+        // e.g: jdbc:mysql://locahost:8080/dbname?
+        if (url.charAt(url.length() - 1) == '?') {
+            return url + sslUrl
+            // e.g: jdbc:mysql://locahost:8080/dbname?a=b
+        } else if (url.contains('?')) {
+            return url + '&' + sslUrl
+            // e.g: jdbc:mysql://locahost:8080/dbname
+        } else {
+            return url + '?' + sslUrl
+        }
     }
 }

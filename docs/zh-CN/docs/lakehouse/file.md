@@ -37,8 +37,8 @@ under the License.
 
 更多使用方式可参阅 Table Value Function 文档：
 
-* [S3](../sql-manual/sql-functions/table-functions/s3)：支持 S3 兼容的对象存储上的文件分析。
-* [HDFS](../sql-manual/sql-functions/table-functions/hdfs)：支持 HDFS 上的文件分析。
+* [S3](../sql-manual/sql-functions/table-functions/s3.md)：支持 S3 兼容的对象存储上的文件分析。
+* [HDFS](../sql-manual/sql-functions/table-functions/hdfs.md)：支持 HDFS 上的文件分析。
 
 这里我们通过 S3 Table Value Function 举例说明如何进行文件分析。
 
@@ -85,6 +85,49 @@ s3(
 
 目前支持对 Parquet、ORC、CSV、Json 格式进行分析和列类型推断。
 
+**CSV Schema**
+
+<version since="dev"></version>
+
+在默认情况下，对 CSV 格式文件，所有列类型均为 String。可以通过 `csv_schema` 属性单独指定列名和列类型。Doris 会使用指定的列类型进行文件读取。格式如下：
+
+`name1:type1;name2:type2;...`
+
+对于格式不匹配的列（比如文件中为字符串，用户定义为 int），或缺失列（比如文件中有4列，用户定义了5列），则这些列将返回null。
+
+当前支持的列类型为：
+
+| 名称 | 映射类型 |
+| --- | --- |
+|tinyint |tinyint |
+|smallint |smallint |
+|int |int |
+| bigint | bigint |
+| largeint | largeint |
+| float| float |
+| double| double|
+| decimal(p,s) | decimalv3(p,s) |
+| date | datev2 |
+| datetime | datetimev2 |
+| char |string |
+|varchar |string |
+|string|string |
+|boolean| boolean |
+
+示例：
+
+```
+s3 (
+    'URI' = 'https://bucket1/inventory.dat',
+    'ACCESS_KEY'= 'ak',
+    'SECRET_KEY' = 'sk',
+    'FORMAT' = 'csv',
+    'column_separator' = '|',
+    'csv_schema' = 'k1:int;k2:int;k3:int;k4:decimal(38,10)',
+    'use_path_style'='true'
+)
+```
+
 ### 查询分析
 
 你可以使用任意的 SQL 语句对这个文件进行分析
@@ -110,6 +153,26 @@ LIMIT 5;
 
 Table Value Function 可以出现在 SQL 中，Table 能出现的任意位置。如 CTE 的 WITH 子句中，FROM 子句中。
 这样，你可以把文件当做一张普通的表进行任意分析。
+
+<version since="dev"></version>
+
+你也可以用过 `CREATE VIEW` 语句为 Table Value Function 创建一个逻辑视图。这样，你可以想其他视图一样，对这个 Table Value Function 进行访问、权限管理等操作，也可以让其他用户访问这个 Table Value Function。
+
+```
+CREATE VIEW v1 AS 
+SELECT * FROM s3(
+    "URI" = "http://127.0.0.1:9312/test2/test.snappy.parquet",
+    "ACCESS_KEY"= "minioadmin",
+    "SECRET_KEY" = "minioadmin",
+    "Format" = "parquet",
+    "use_path_style"="true");
+
+DESC v1;
+
+SELECT * FROM v1;
+
+GRANT SELECT_PRIV ON db1.v1 TO user1;
+```
 
 ### 数据导入
 

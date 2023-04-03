@@ -111,6 +111,7 @@ public class Replica implements Writable {
     private boolean bad = false;
 
     private TUniqueId cooldownMetaId;
+    private long cooldownTerm = -1;
 
     /*
      * If set to true, with means this replica need to be repaired. explicitly.
@@ -244,6 +245,14 @@ public class Replica implements Writable {
 
     public void setCooldownMetaId(TUniqueId cooldownMetaId) {
         this.cooldownMetaId = cooldownMetaId;
+    }
+
+    public long getCooldownTerm() {
+        return cooldownTerm;
+    }
+
+    public void setCooldownTerm(long cooldownTerm) {
+        this.cooldownTerm = cooldownTerm;
     }
 
     public boolean needFurtherRepair() {

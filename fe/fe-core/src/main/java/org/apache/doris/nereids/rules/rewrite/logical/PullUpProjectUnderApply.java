@@ -57,13 +57,15 @@ public class PullUpProjectUnderApply extends OneRewriteRuleFactory {
                 .then(apply -> {
                     LogicalProject<Plan> project = apply.right();
                     LogicalApply newCorrelate = new LogicalApply<>(apply.getCorrelationSlot(), apply.getSubqueryExpr(),
-                            apply.getCorrelationFilter(), apply.left(), project.child());
+                                apply.getCorrelationFilter(), apply.getMarkJoinSlotReference(),
+                                apply.getSubCorrespondingConjunct(), apply.isNeedAddSubOutputToProjects(),
+                                apply.left(), project.child());
                     List<NamedExpression> newProjects = new ArrayList<>();
                     newProjects.addAll(apply.left().getOutput());
                     if (apply.getSubqueryExpr() instanceof ScalarSubquery) {
                         newProjects.add(project.getProjects().get(0));
                     }
-                    return new LogicalProject(newProjects, newCorrelate);
+                    return project.withProjectsAndChild(newProjects, newCorrelate);
                 }).toRule(RuleType.PULL_UP_PROJECT_UNDER_APPLY);
     }
 }

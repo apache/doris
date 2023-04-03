@@ -20,8 +20,10 @@
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/exec/format/parquet/bool_plain_decoder.h"
+#include "vec/exec/format/parquet/bool_rle_decoder.h"
 #include "vec/exec/format/parquet/byte_array_dict_decoder.h"
 #include "vec/exec/format/parquet/byte_array_plain_decoder.h"
+#include "vec/exec/format/parquet/delta_bit_pack_decoder.h"
 #include "vec/exec/format/parquet/fix_length_dict_decoder.hpp"
 #include "vec/exec/format/parquet/fix_length_plain_decoder.h"
 
@@ -86,6 +88,48 @@ Status Decoder::get_decoder(tparquet::Type::type type, tparquet::Encoding::type 
         default:
             return Status::InternalError("Unsupported type {}(encoding={}) in parquet decoder",
                                          tparquet::to_string(type), tparquet::to_string(encoding));
+        }
+        break;
+    case tparquet::Encoding::RLE:
+        switch (type) {
+        case tparquet::Type::BOOLEAN:
+            decoder.reset(new BoolRLEDecoder());
+            break;
+        default:
+            return Status::InternalError("Unsupported type {}(encoding={}) in parquet decoder",
+                                         tparquet::to_string(type), tparquet::to_string(encoding));
+        }
+        break;
+    case tparquet::Encoding::DELTA_BINARY_PACKED:
+        // Supports only INT32 and INT64.
+        switch (type) {
+        case tparquet::Type::INT32:
+            decoder.reset(new DeltaBitPackDecoder<Int32>(type));
+            break;
+        case tparquet::Type::INT64:
+            decoder.reset(new DeltaBitPackDecoder<Int64>(type));
+            break;
+        default:
+            return Status::InternalError("DELTA_BINARY_PACKED only supports INT32 and INT64");
+        }
+        break;
+    case tparquet::Encoding::DELTA_BYTE_ARRAY:
+        switch (type) {
+        case tparquet::Type::BYTE_ARRAY:
+            decoder.reset(new DeltaByteArrayDecoder(type));
+            break;
+        default:
+            return Status::InternalError("DELTA_BYTE_ARRAY only supports BYTE_ARRAY.");
+        }
+        break;
+    case tparquet::Encoding::DELTA_LENGTH_BYTE_ARRAY:
+        switch (type) {
+        case tparquet::Type::FIXED_LEN_BYTE_ARRAY:
+            decoder.reset(new DeltaLengthByteArrayDecoder(type));
+            break;
+        default:
+            return Status::InternalError(
+                    "DELTA_LENGTH_BYTE_ARRAY only supports FIXED_LEN_BYTE_ARRAY.");
         }
         break;
     default:

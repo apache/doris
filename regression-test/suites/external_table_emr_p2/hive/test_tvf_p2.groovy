@@ -22,7 +22,7 @@ suite("test_tvf_p2", "p2") {
         String hdfsPort = context.config.otherConfigs.get("extHdfsPort")
 
         qt_eof_check """select * from hdfs(
-            "uri" = "hdfs://${nameNodeHost}:${hdfsPort}/user/data/tvf/bad_store_sales.parquet",
+            "uri" = "hdfs://${nameNodeHost}:${hdfsPort}/catalog/tvf/parquet/bad_store_sales.parquet",
             "fs.defaultFS" = "hdfs://${nameNodeHost}:${hdfsPort}",
             "format" = "parquet")
             where ss_store_sk = 4 and ss_addr_sk is null order by ss_item_sk"""

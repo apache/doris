@@ -21,7 +21,10 @@
 #include "vec/data_types/data_type_time.h"
 
 #include "util/date_func.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
 #include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
 
 namespace doris::vectorized {
 
@@ -30,19 +33,17 @@ bool DataTypeTime::equals(const IDataType& rhs) const {
 }
 
 std::string DataTypeTime::to_string(const IColumn& column, size_t row_num) const {
-    Float64 float_val =
-            assert_cast<const ColumnFloat64&>(*column.convert_to_full_column_if_const().get())
-                    .get_data()[row_num];
-    return time_to_buffer_from_double(float_val);
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
+
+    auto value = assert_cast<const ColumnFloat64&>(*ptr).get_element(row_num);
+    return time_to_buffer_from_double(value);
 }
 
 void DataTypeTime::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
-    Float64 float_val =
-            assert_cast<const ColumnFloat64&>(*column.convert_to_full_column_if_const().get())
-                    .get_data()[row_num];
-    std::string time_val = time_to_buffer_from_double(float_val);
-    // DateTime to_string the end is /0
-    ostr.write(time_val.data(), time_val.size());
+    std::string value = to_string(column, row_num);
+    ostr.write(value.data(), value.size());
 }
 
 MutableColumnPtr DataTypeTime::create_column() const {

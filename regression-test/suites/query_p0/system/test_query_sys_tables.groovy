@@ -195,4 +195,14 @@ suite("test_query_sys_tables", "query,p0") {
     """
     sql("use information_schema")
     qt_views("select TABLE_NAME, VIEW_DEFINITION from views where TABLE_SCHEMA = '${dbName1}'")
+
+    // test no impl schema table
+    sql "USE information_schema"
+    qt_sql "select * from column_privileges"
+    qt_sql "select * from engines"
+    qt_sql "select * from events"
+    qt_sql "select * from routines"
+    qt_sql "select * from referential_constraints"
+    qt_sql "select * from key_column_usage"
+    qt_sql "select * from triggers"
 }

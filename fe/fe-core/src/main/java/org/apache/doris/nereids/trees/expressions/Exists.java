@@ -28,6 +28,7 @@ import com.google.common.base.Preconditions;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Exists subquery expression.
@@ -41,8 +42,16 @@ public class Exists extends SubqueryExpr implements LeafExpression {
     }
 
     public Exists(LogicalPlan subquery, List<Slot> correlateSlots, boolean isNot) {
+        this(Objects.requireNonNull(subquery, "subquery can not be null"),
+                Objects.requireNonNull(correlateSlots, "subquery can not be null"),
+                Optional.empty(), isNot);
+    }
+
+    public Exists(LogicalPlan subquery, List<Slot> correlateSlots,
+                  Optional<Expression> typeCoercionExpr, boolean isNot) {
         super(Objects.requireNonNull(subquery, "subquery can not be null"),
-                Objects.requireNonNull(correlateSlots, "subquery can not be null"));
+                Objects.requireNonNull(correlateSlots, "subquery can not be null"),
+                typeCoercionExpr);
         this.isNot = Objects.requireNonNull(isNot, "isNot can not be null");
     }
 
@@ -87,5 +96,10 @@ public class Exists extends SubqueryExpr implements LeafExpression {
     @Override
     public int hashCode() {
         return Objects.hash(this.queryPlan, this.isNot);
+    }
+
+    @Override
+    public Expression withTypeCoercion(DataType dataType) {
+        return this;
     }
 }

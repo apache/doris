@@ -100,9 +100,6 @@ public:
 
     void send_report(bool);
 
-    void set_pipe(std::shared_ptr<io::StreamLoadPipe> pipe) { _pipe = pipe; }
-    std::shared_ptr<io::StreamLoadPipe> get_pipe() const { return _pipe; }
-
     void report_profile();
 
     Status update_status(Status status) {
@@ -112,6 +109,8 @@ public:
         }
         return _exec_status;
     }
+
+    taskgroup::TaskGroup* get_task_group() const { return _query_ctx->get_task_group(); }
 
 private:
     Status _create_sink(const TDataSink& t_data_sink);
@@ -170,8 +169,6 @@ private:
     MonotonicStopWatch _fragment_watcher;
     RuntimeProfile::Counter* _start_timer;
     RuntimeProfile::Counter* _prepare_timer;
-
-    std::shared_ptr<io::StreamLoadPipe> _pipe;
 
     std::function<void(RuntimeState*, Status*)> _call_back;
     std::once_flag _close_once_flag;

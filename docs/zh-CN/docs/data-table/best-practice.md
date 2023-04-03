@@ -179,4 +179,4 @@ ALTER TABLE session_data ADD ROLLUP rollup_brower(brower,province,ip,url) DUPLIC
 - 增加、修改 Bloom Filter
 - 增加、删除 bitmap index
 
-具体请参照 [Schema 变更](../advanced/alter-table/schema-change)
+具体请参照 [Schema 变更](../advanced/alter-table/schema-change.md)

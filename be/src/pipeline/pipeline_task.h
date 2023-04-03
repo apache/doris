@@ -48,7 +48,7 @@ namespace doris::pipeline {
  * transfer 8 (RUNNABLE -> FINISHED): this pipeline task completed and no resource need to be released
  * transfer 9 (RUNNABLE -> RUNNABLE): this pipeline task yields CPU and re-enters the runnable queue if it is runnable and has occupied CPU for a max time slice
  */
-enum PipelineTaskState : uint8_t {
+enum class PipelineTaskState : uint8_t {
     NOT_READY = 0, // do not prepare
     BLOCKED_FOR_DEPENDENCY = 1,
     BLOCKED_FOR_SOURCE = 2,
@@ -85,6 +85,8 @@ inline const char* get_state_name(PipelineTaskState idx) {
     __builtin_unreachable();
 }
 
+class TaskQueue;
+
 // The class do the pipeline task. Minest schdule union by task scheduler
 class PipelineTask {
 public:
@@ -101,7 +103,7 @@ public:
               _opened(false),
               _can_steal(pipeline->_can_steal),
               _state(state),
-              _cur_state(NOT_READY),
+              _cur_state(PipelineTaskState::NOT_READY),
               _data_state(SourceState::DEPEND_ON_SOURCE),
               _fragment_context(fragment_context),
               _parent_profile(parent_profile) {}
@@ -179,10 +181,14 @@ public:
 
     uint32_t total_schedule_time() const { return _schedule_time; }
 
+    taskgroup::TaskGroup* get_task_group() const;
+
+    void set_task_queue(TaskQueue* task_queue);
+
     static constexpr auto THREAD_TIME_SLICE = 100'000'000L;
 
 private:
-    Status open();
+    Status _open();
     void _init_profile();
 
     uint32_t _index;
@@ -203,6 +209,7 @@ private:
     SourceState _data_state;
     std::unique_ptr<doris::vectorized::Block> _block;
     PipelineFragmentContext* _fragment_context;
+    TaskQueue* _task_queue = nullptr;
 
     RuntimeProfile* _parent_profile;
     std::unique_ptr<RuntimeProfile> _task_profile;

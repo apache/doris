@@ -126,6 +126,118 @@ struct GenericComparisonImpl {
     }
 };
 
+template <typename Op>
+struct StringComparisonImpl {
+    static void NO_INLINE string_vector_string_vector(const ColumnString::Chars& a_data,
+                                                      const ColumnString::Offsets& a_offsets,
+                                                      const ColumnString::Chars& b_data,
+                                                      const ColumnString::Offsets& b_offsets,
+                                                      PaddedPODArray<UInt8>& c) {
+        size_t size = a_offsets.size();
+        ColumnString::Offset prev_a_offset = 0;
+        ColumnString::Offset prev_b_offset = 0;
+        const auto* a_pos = a_data.data();
+        const auto* b_pos = b_data.data();
+
+        for (size_t i = 0; i < size; ++i) {
+            c[i] = Op::apply(memcmp_small_allow_overflow15(
+                                     a_pos + prev_a_offset, a_offsets[i] - prev_a_offset,
+                                     b_pos + prev_b_offset, b_offsets[i] - prev_b_offset),
+                             0);
+
+            prev_a_offset = a_offsets[i];
+            prev_b_offset = b_offsets[i];
+        }
+    }
+
+    static void NO_INLINE string_vector_constant(const ColumnString::Chars& a_data,
+                                                 const ColumnString::Offsets& a_offsets,
+                                                 const ColumnString::Chars& b_data,
+                                                 ColumnString::Offset b_size,
+                                                 PaddedPODArray<UInt8>& c) {
+        size_t size = a_offsets.size();
+        ColumnString::Offset prev_a_offset = 0;
+        const auto* a_pos = a_data.data();
+        const auto* b_pos = b_data.data();
+
+        for (size_t i = 0; i < size; ++i) {
+            c[i] = Op::apply(
+                    memcmp_small_allow_overflow15(a_pos + prev_a_offset,
+                                                  a_offsets[i] - prev_a_offset, b_pos, b_size),
+                    0);
+
+            prev_a_offset = a_offsets[i];
+        }
+    }
+
+    static void constant_string_vector(const ColumnString::Chars& a_data,
+                                       ColumnString::Offset a_size,
+                                       const ColumnString::Chars& b_data,
+                                       const ColumnString::Offsets& b_offsets,
+                                       PaddedPODArray<UInt8>& c) {
+        StringComparisonImpl<typename Op::SymmetricOp>::string_vector_constant(b_data, b_offsets,
+                                                                               a_data, a_size, c);
+    }
+};
+
+template <bool positive>
+struct StringEqualsImpl {
+    static void NO_INLINE string_vector_string_vector(const ColumnString::Chars& a_data,
+                                                      const ColumnString::Offsets& a_offsets,
+                                                      const ColumnString::Chars& b_data,
+                                                      const ColumnString::Offsets& b_offsets,
+                                                      PaddedPODArray<UInt8>& c) {
+        size_t size = a_offsets.size();
+        ColumnString::Offset prev_a_offset = 0;
+        ColumnString::Offset prev_b_offset = 0;
+        const auto* a_pos = a_data.data();
+        const auto* b_pos = b_data.data();
+
+        for (size_t i = 0; i < size; ++i) {
+            auto a_size = a_offsets[i] - prev_a_offset;
+            auto b_size = b_offsets[i] - prev_b_offset;
+
+            c[i] = positive == memequal_small_allow_overflow15(a_pos + prev_a_offset, a_size,
+                                                               b_pos + prev_b_offset, b_size);
+
+            prev_a_offset = a_offsets[i];
+            prev_b_offset = b_offsets[i];
+        }
+    }
+
+    static void NO_INLINE string_vector_constant(const ColumnString::Chars& a_data,
+                                                 const ColumnString::Offsets& a_offsets,
+                                                 const ColumnString::Chars& b_data,
+                                                 ColumnString::Offset b_size,
+                                                 PaddedPODArray<UInt8>& c) {
+        size_t size = a_offsets.size();
+        ColumnString::Offset prev_a_offset = 0;
+
+        for (size_t i = 0; i < size; ++i) {
+            auto a_size = a_offsets[i] - prev_a_offset;
+
+            c[i] = positive == memequal_small_allow_overflow15(a_data.data() + prev_a_offset,
+                                                               a_size, b_data.data(), b_size);
+
+            prev_a_offset = a_offsets[i];
+        }
+    }
+
+    static void NO_INLINE constant_string_vector(const ColumnString::Chars& a_data,
+                                                 ColumnString::Offset a_size,
+                                                 const ColumnString::Chars& b_data,
+                                                 const ColumnString::Offsets& b_offsets,
+                                                 PaddedPODArray<UInt8>& c) {
+        string_vector_constant(b_data, b_offsets, a_data, a_size, c);
+    }
+};
+
+template <typename A, typename B>
+struct StringComparisonImpl<EqualsOp<A, B>> : StringEqualsImpl<true> {};
+
+template <typename A, typename B>
+struct StringComparisonImpl<NotEqualsOp<A, B>> : StringEqualsImpl<false> {};
+
 struct NameEquals {
     static constexpr auto name = "eq";
 };
@@ -291,6 +403,77 @@ private:
         return Status::OK();
     }
 
+    Status execute_string(Block& block, size_t result, const IColumn* c0, const IColumn* c1) {
+        const ColumnString* c0_string = check_and_get_column<ColumnString>(c0);
+        const ColumnString* c1_string = check_and_get_column<ColumnString>(c1);
+        const ColumnConst* c0_const = check_and_get_column_const_string_or_fixedstring(c0);
+        const ColumnConst* c1_const = check_and_get_column_const_string_or_fixedstring(c1);
+        if (!((c0_string || c0_const) && (c1_string || c1_const))) {
+            return Status::NotSupported("Illegal columns {}, {} of argument of function {}",
+                                        c0->get_name(), c1->get_name(), name);
+        }
+
+        if (c0_const && c1_const) {
+            execute_generic_identical_types(block, result, c0, c1);
+            return Status::OK();
+        }
+
+        const ColumnString::Chars* c0_const_chars = nullptr;
+        const ColumnString::Chars* c1_const_chars = nullptr;
+        ColumnString::Offset c0_const_size = 0;
+        ColumnString::Offset c1_const_size = 0;
+
+        if (c0_const) {
+            const ColumnString* c0_const_string =
+                    check_and_get_column<ColumnString>(&c0_const->get_data_column());
+
+            if (c0_const_string) {
+                c0_const_chars = &c0_const_string->get_chars();
+                c0_const_size = c0_const_string->get_data_at(0).size;
+            } else {
+                return Status::NotSupported("Illegal columns {}, of argument of function {}",
+                                            c0->get_name(), name);
+            }
+        }
+
+        if (c1_const) {
+            const ColumnString* c1_const_string =
+                    check_and_get_column<ColumnString>(&c1_const->get_data_column());
+
+            if (c1_const_string) {
+                c1_const_chars = &c1_const_string->get_chars();
+                c1_const_size = c1_const_string->get_data_at(0).size;
+            } else {
+                return Status::NotSupported("Illegal columns {}, of argument of function {}",
+                                            c1->get_name(), name);
+            }
+        }
+
+        using StringImpl = StringComparisonImpl<Op<int, int>>;
+
+        auto c_res = ColumnUInt8::create();
+        ColumnUInt8::Container& vec_res = c_res->get_data();
+        vec_res.resize(c0->size());
+
+        if (c0_string && c1_string) {
+            StringImpl::string_vector_string_vector(
+                    c0_string->get_chars(), c0_string->get_offsets(), c1_string->get_chars(),
+                    c1_string->get_offsets(), vec_res);
+        } else if (c0_string && c1_const) {
+            StringImpl::string_vector_constant(c0_string->get_chars(), c0_string->get_offsets(),
+                                               *c1_const_chars, c1_const_size, vec_res);
+        } else if (c0_const && c1_string) {
+            StringImpl::constant_string_vector(*c0_const_chars, c0_const_size,
+                                               c1_string->get_chars(), c1_string->get_offsets(),
+                                               vec_res);
+        } else {
+            return Status::NotSupported("Illegal columns {}, {} of argument of function {}",
+                                        c0->get_name(), c1->get_name(), name);
+        }
+        block.replace_by_position(result, std::move(c_res));
+        return Status::OK();
+    }
+
     void execute_generic_identical_types(Block& block, size_t result, const IColumn* c0,
                                          const IColumn* c1) {
         bool c0_const = is_column_const(*c0);
@@ -373,6 +556,9 @@ public:
         const bool left_is_num = col_left_untyped->is_numeric();
         const bool right_is_num = col_right_untyped->is_numeric();
 
+        const bool left_is_string = which_left.is_string_or_fixed_string();
+        const bool right_is_string = which_right.is_string_or_fixed_string();
+
         // Compare date and datetime direct use the Int64 compare. Keep the comment
         // may we should refactor the code.
         //        bool date_and_datetime = (left_type != right_type) && which_left.is_date_or_datetime() &&
@@ -417,6 +603,9 @@ public:
             }
             return execute_decimal(block, result, col_with_type_and_name_left,
                                    col_with_type_and_name_right);
+        } else if (left_is_string && right_is_string) {
+            return execute_string(block, result, col_with_type_and_name_left.column.get(),
+                                  col_with_type_and_name_right.column.get());
         } else {
             // TODO: varchar and string maybe need a quickly way
             return execute_generic(block, result, col_with_type_and_name_left,

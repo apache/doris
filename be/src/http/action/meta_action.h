@@ -24,14 +24,10 @@ namespace doris {
 
 class ExecEnv;
 
-enum META_TYPE {
-    HEADER = 1,
-};
-
 // Get Meta Info
 class MetaAction : public HttpHandler {
 public:
-    MetaAction(META_TYPE meta_type) : _meta_type(meta_type) {}
+    MetaAction() = default;
 
     virtual ~MetaAction() {}
 
@@ -39,9 +35,6 @@ public:
 
 private:
     Status _handle_header(HttpRequest* req, std::string* json_header);
-
-private:
-    META_TYPE _meta_type;
 };
 
 } // end namespace doris

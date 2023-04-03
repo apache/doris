@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -82,7 +83,8 @@ public:
     void save_meta();
     // Used in clone task, to update local meta when finishing a clone job
     Status revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
-                              const std::vector<RowsetSharedPtr>& to_delete);
+                              const std::vector<RowsetSharedPtr>& to_delete,
+                              bool is_incremental_clone);
 
     int64_t cumulative_layer_point() const;
     void set_cumulative_layer_point(int64_t new_point);
@@ -308,7 +310,7 @@ public:
     ////////////////////////////////////////////////////////////////////////////
     // begin cooldown functions
     ////////////////////////////////////////////////////////////////////////////
-    int64_t cooldown_replica_id() const { return _cooldown_replica_id; }
+    int64_t last_failed_follow_cooldown_time() const { return _last_failed_follow_cooldown_time; }
 
     // Cooldown to remote fs.
     Status cooldown();
@@ -317,7 +319,22 @@ public:
 
     bool need_cooldown(int64_t* cooldown_timestamp, size_t* file_size);
 
-    void update_cooldown_conf(int64_t cooldown_term, int64_t cooldown_replica_id) {
+    std::pair<int64_t, int64_t> cooldown_conf() const {
+        std::shared_lock rlock(_cooldown_conf_lock);
+        return {_cooldown_replica_id, _cooldown_term};
+    }
+
+    std::pair<int64_t, int64_t> cooldown_conf_unlocked() const {
+        return {_cooldown_replica_id, _cooldown_term};
+    }
+
+    // return true if update success
+    bool update_cooldown_conf(int64_t cooldown_term, int64_t cooldown_replica_id) {
+        std::unique_lock wlock(_cooldown_conf_lock, std::try_to_lock);
+        if (!wlock.owns_lock()) {
+            LOG(INFO) << "try cooldown_conf_lock failed, tablet_id=" << tablet_id();
+            return false;
+        }
         if (cooldown_term > _cooldown_term) {
             LOG(INFO) << "update cooldown conf. tablet_id=" << tablet_id()
                       << " cooldown_replica_id: " << _cooldown_replica_id << " -> "
@@ -325,7 +342,9 @@ public:
                       << cooldown_term;
             _cooldown_replica_id = cooldown_replica_id;
             _cooldown_term = cooldown_term;
+            return true;
         }
+        return false;
     }
 
     Status remove_all_remote_rowsets();
@@ -344,6 +363,11 @@ public:
     uint32_t calc_cold_data_compaction_score() const;
 
     std::mutex& get_cold_compaction_lock() { return _cold_compaction_lock; }
+
+    std::shared_mutex& get_cooldown_conf_lock() { return _cooldown_conf_lock; }
+
+    static void async_write_cooldown_meta(TabletSharedPtr tablet);
+    Status write_cooldown_meta();
     ////////////////////////////////////////////////////////////////////////////
     // end cooldown functions
     ////////////////////////////////////////////////////////////////////////////
@@ -358,7 +382,8 @@ public:
     // Lookup a row with TupleDescriptor and fill Block
     Status lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
                            RowsetSharedPtr rowset, const TupleDescriptor* desc,
-                           vectorized::Block* block, bool write_to_cache = false);
+                           OlapReaderStatistics& stats, vectorized::Block* block,
+                           bool write_to_cache = false);
 
     // calc delete bitmap when flush memtable, use a fake version to calc
     // For example, cur max version is 5, and we use version 6 to calc but
@@ -374,9 +399,10 @@ public:
 
     Status update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset);
     Status update_delete_bitmap(const RowsetSharedPtr& rowset, const TabletTxnInfo* load_info);
-    uint64_t calc_compaction_output_rowset_delete_bitmap(
+    void calc_compaction_output_rowset_delete_bitmap(
             const std::vector<RowsetSharedPtr>& input_rowsets,
             const RowIdConversion& rowid_conversion, uint64_t start_version, uint64_t end_version,
+            std::set<RowLocation>* missed_rows,
             std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>* location_map,
             DeleteBitmap* output_rowset_delete_bitmap);
     void merge_delete_bitmap(const DeleteBitmap& delete_bitmap);
@@ -411,10 +437,6 @@ public:
     inline bool is_io_error_too_times() const {
         return config::max_tablet_io_errors > 0 && _io_error_times >= config::max_tablet_io_errors;
     }
-
-    Status write_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& fs,
-                               UniqueId cooldown_meta_id, const RowsetMetaSharedPtr& new_rs_meta,
-                               const std::vector<RowsetMetaSharedPtr>& to_deletes);
 
 private:
     Status _init_once_action();
@@ -455,11 +477,10 @@ private:
     ////////////////////////////////////////////////////////////////////////////
     // begin cooldown functions
     ////////////////////////////////////////////////////////////////////////////
-    Status _cooldown_data(const std::shared_ptr<io::RemoteFileSystem>& dest_fs);
-    Status _follow_cooldowned_data(const std::shared_ptr<io::RemoteFileSystem>& fs,
-                                   int64_t cooldown_replica_id);
+    Status _cooldown_data();
+    Status _follow_cooldowned_data();
     Status _read_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& fs,
-                               int64_t cooldown_replica_id, TabletMetaPB* tablet_meta_pb);
+                               TabletMetaPB* tablet_meta_pb);
     ////////////////////////////////////////////////////////////////////////////
     // end cooldown functions
     ////////////////////////////////////////////////////////////////////////////
@@ -539,7 +560,15 @@ private:
     // cooldown related
     int64_t _cooldown_replica_id = -1;
     int64_t _cooldown_term = -1;
+    // `_cooldown_conf_lock` is used to serialize update cooldown conf and all operations that:
+    // 1. read cooldown conf
+    // 2. upload rowsets to remote storage
+    // 3. update cooldown meta id
+    mutable std::shared_mutex _cooldown_conf_lock;
+    // `_cold_compaction_lock` is used to serialize cold data compaction and all operations that
+    // may delete compaction input rowsets.
     std::mutex _cold_compaction_lock;
+    int64_t _last_failed_follow_cooldown_time = 0;
 
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 

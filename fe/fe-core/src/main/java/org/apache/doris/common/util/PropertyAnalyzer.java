@@ -201,8 +201,7 @@ public class PropertyAnalyzer {
         }
 
         if (storageMedium == TStorageMedium.SSD && !hasCooldown) {
-            // set default cooldown time
-            cooldownTimestamp = currentTimeMs + Config.storage_cooldown_second * 1000L;
+            cooldownTimestamp = DataProperty.MAX_COOLDOWN_TIME_MS;
         }
 
         if (hasStoragePolicy) {
@@ -725,7 +724,7 @@ public class PropertyAnalyzer {
             if (!parts[0].startsWith(TAG_LOCATION)) {
                 throw new AnalysisException("Invalid replication allocation tag property: " + location);
             }
-            String locationVal = parts[0].substring(TAG_LOCATION.length() + 1); // +1 to skip dot.
+            String locationVal = parts[0].replace(TAG_LOCATION, "").replace(".", "");
             if (Strings.isNullOrEmpty(locationVal)) {
                 throw new AnalysisException("Invalid replication allocation location tag property: " + location);
             }
@@ -818,7 +817,7 @@ public class PropertyAnalyzer {
         // validate access controller properties
         // eg:
         // (
-        // "access_controller.class" = "org.apache.doris.mysql.privilege.RangerAccessControllerFactory",
+        // "access_controller.class" = "org.apache.doris.mysql.privilege.RangerHiveAccessControllerFactory",
         // "access_controller.properties.prop1" = "xxx",
         // "access_controller.properties.prop2" = "yyy",
         // )

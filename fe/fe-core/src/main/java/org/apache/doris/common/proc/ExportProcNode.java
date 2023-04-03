@@ -51,14 +51,18 @@ public class ExportProcNode implements ProcNodeInterface {
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
-        Preconditions.checkNotNull(db);
         Preconditions.checkNotNull(exportMgr);
 
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
-        List<List<String>> jobInfos = exportMgr.getExportJobInfosByIdOrState(
+        List<List<String>> jobInfos;
+        if (db == null) {
+            jobInfos = exportMgr.getExportJobInfos(LIMIT);
+        } else {
+            jobInfos = exportMgr.getExportJobInfosByIdOrState(
                 db.getId(), 0, "", false, null, null, LIMIT);
+        }
         result.setRows(jobInfos);
         return result;
     }

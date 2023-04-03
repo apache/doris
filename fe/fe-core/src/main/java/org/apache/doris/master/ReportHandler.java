@@ -18,6 +18,7 @@
 package org.apache.doris.master;
 
 
+import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -82,6 +83,7 @@ import org.apache.doris.thrift.TTablet;
 import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.thrift.TTaskType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
@@ -1115,8 +1117,18 @@ public class ReportHandler extends Daemon {
 
             // colocate table will delete Replica in meta when balance
             // but we need to rely on MetaNotFoundException to decide whether delete the tablet in backend
-            if (Env.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
-                return true;
+            // if the tablet is healthy, delete it.
+            ColocateTableIndex colocateTableIndex = Env.getCurrentColocateIndex();
+            if (colocateTableIndex.isColocateTable(olapTable.getId())) {
+                ColocateTableIndex.GroupId groupId = colocateTableIndex.getGroup(tableId);
+                Preconditions.checkState(groupId != null,
+                        "can not get colocate group for %s", tableId);
+                int tabletOrderIdx = materializedIndex.getTabletOrderIdx(tabletId);
+                Preconditions.checkState(tabletOrderIdx != -1, "get tablet materializedIndex for %s fail", tabletId);
+                Set<Long> backendsSet = colocateTableIndex.getTabletBackendsByGroup(groupId, tabletOrderIdx);
+                TabletStatus status =
+                        tablet.getColocateHealthStatus(visibleVersion, replicaAlloc, backendsSet);
+                return status != TabletStatus.HEALTHY;
             }
 
             SystemInfoService infoService = Env.getCurrentSystemInfo();
@@ -1147,18 +1159,40 @@ public class ReportHandler extends Daemon {
                 if (backendTabletInfo.isSetCooldownMetaId()) {
                     // replica has cooldowned data
                     do {
-                        if (backendTabletInfo.getReplicaId() == tablet.getCooldownConf().first) {
+                        Pair<Long, Long> cooldownConf = tablet.getCooldownConf();
+                        if (backendTabletInfo.getCooldownTerm() > cooldownConf.second) {
+                            // should not be here
+                            LOG.warn("report cooldownTerm({}) > cooldownTerm in TabletMeta({}), tabletId={}",
+                                    backendTabletInfo.getCooldownTerm(), cooldownConf.second, tabletId);
+                            return false;
+                        }
+                        if (backendTabletInfo.getReplicaId() == cooldownConf.first) {
                             // this replica is true cooldown replica, so replica's cooldowned data must not be deleted
                             break;
                         }
-                        if (backendTabletInfo.getReplicaId() != backendTabletInfo.getCooldownReplicaId()
-                                && Env.getCurrentInvertedIndex().getReplicas(tabletId).stream()
-                                .anyMatch(r -> backendTabletInfo.getCooldownMetaId().equals(r.getCooldownMetaId()))) {
-                            // this replica can not cooldown data, and shares same cooldowned data with others replica,
-                            // so replica's cooldowned data must not be deleted
-                            break;
+                        List<Replica> replicas = Env.getCurrentInvertedIndex().getReplicas(tabletId);
+                        if (backendTabletInfo.getCooldownTerm() <= 0) {
+                            if (replicas.stream().anyMatch(
+                                    r -> backendTabletInfo.getCooldownMetaId().equals(r.getCooldownMetaId()))) {
+                                // this backend is just restarted, and shares same cooldowned data with others replica,
+                                // so replica's cooldowned data must not be deleted
+                                break;
+                            }
                         }
-                        LOG.warn("replica's cooldowned data may have been deleted");
+                        long minCooldownTerm = Long.MAX_VALUE;
+                        for (Replica r : replicas) {
+                            minCooldownTerm = Math.min(r.getCooldownTerm(), minCooldownTerm);
+                        }
+                        if (backendTabletInfo.getCooldownTerm() >= minCooldownTerm) {
+                            if (replicas.stream().anyMatch(
+                                    r -> backendTabletInfo.getCooldownMetaId().equals(r.getCooldownMetaId()))) {
+                                // this replica shares same cooldowned data with others replica, and won't follow data
+                                // of lower cooldown term, so replica's cooldowned data must not be deleted
+                                break;
+                            }
+                        }
+                        LOG.warn("replica's cooldowned data may have been deleted. tabletId={}, replicaId={}", tabletId,
+                                replicaId);
                         return false;
                     } while (false);
                 }

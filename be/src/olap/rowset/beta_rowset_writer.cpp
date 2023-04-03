@@ -23,7 +23,6 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "env/env.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/file_writer.h"
 #include "olap/memtable.h"
@@ -32,6 +31,8 @@
 #include "olap/row_cursor.h" // RowCursor
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_factory.h"
+#include "olap/rowset/segment_v2/inverted_index_cache.h"
+#include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/segment_writer.h"
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
@@ -62,7 +63,11 @@ BetaRowsetWriter::BetaRowsetWriter()
 }
 
 BetaRowsetWriter::~BetaRowsetWriter() {
-    // OLAP_UNUSED_ARG(_wait_flying_segcompaction());
+    /* Note that segcompaction is async and in parallel with load job. So we should handle carefully
+     * when the job is cancelled. Although it is meaningless to continue segcompaction when the job
+     * is cancelled, the objects involved in the job should be preserved during segcompaction to
+     * avoid crashs for memory issues. */
+    wait_flying_segcompaction();
 
     // TODO(lingbin): Should wrapper exception logic, no need to know file ops directly.
     if (!_already_built) {       // abnormal exit, remove all files generated
@@ -211,13 +216,18 @@ Status BetaRowsetWriter::_rename_compacted_segments(int64_t begin, int64_t end) 
     auto src_seg_path = BetaRowset::local_segment_path_segcompacted(_context.rowset_dir,
                                                                     _context.rowset_id, begin, end);
     auto dst_seg_path = BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id,
-                                                      _num_segcompacted++);
+                                                      _num_segcompacted);
     ret = rename(src_seg_path.c_str(), dst_seg_path.c_str());
     if (ret) {
         LOG(WARNING) << "failed to rename " << src_seg_path << " to " << dst_seg_path
                      << ". ret:" << ret << " errno:" << errno;
         return Status::Error<ROWSET_RENAME_FILE_FAILED>();
     }
+
+    // rename inverted index files
+    RETURN_NOT_OK(_rename_compacted_indices(begin, end, 0));
+
+    _num_segcompacted++;
     return Status::OK();
 }
 
@@ -251,12 +261,46 @@ Status BetaRowsetWriter::_rename_compacted_segment_plain(uint64_t seg_id) {
         _segid_statistics_map.emplace(_num_segcompacted, org);
         _clear_statistics_for_deleting_segments_unsafe(seg_id, seg_id);
     }
-    ++_num_segcompacted;
     ret = rename(src_seg_path.c_str(), dst_seg_path.c_str());
     if (ret) {
         LOG(WARNING) << "failed to rename " << src_seg_path << " to " << dst_seg_path
                      << ". ret:" << ret << " errno:" << errno;
         return Status::Error<ROWSET_RENAME_FILE_FAILED>();
+    }
+    // rename remaining inverted index files
+    RETURN_NOT_OK(_rename_compacted_indices(-1, -1, seg_id));
+
+    ++_num_segcompacted;
+    return Status::OK();
+}
+
+Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, uint64_t seg_id) {
+    int ret;
+    // rename remaining inverted index files
+    for (auto column : _context.tablet_schema->columns()) {
+        if (_context.tablet_schema->has_inverted_index(column.unique_id())) {
+            auto index_id =
+                    _context.tablet_schema->get_inverted_index(column.unique_id())->index_id();
+            auto src_idx_path =
+                    begin < 0 ? InvertedIndexDescriptor::inverted_index_file_path(
+                                        _context.rowset_dir, _context.rowset_id, seg_id, index_id)
+                              : InvertedIndexDescriptor::local_inverted_index_path_segcompacted(
+                                        _context.rowset_dir, _context.rowset_id, begin, end,
+                                        index_id);
+            auto dst_idx_path = InvertedIndexDescriptor::inverted_index_file_path(
+                    _context.rowset_dir, _context.rowset_id, _num_segcompacted, index_id);
+            VLOG_DEBUG << "segcompaction skip this index. rename " << src_idx_path << " to "
+                       << dst_idx_path;
+            ret = rename(src_idx_path.c_str(), dst_idx_path.c_str());
+            if (ret) {
+                LOG(WARNING) << "failed to rename " << src_idx_path << " to " << dst_idx_path
+                             << ". ret:" << ret << " errno:" << errno;
+                return Status::Error<INVERTED_INDEX_RENAME_FILE_FAILED>();
+            }
+            // Erase the origin index file cache
+            InvertedIndexSearcherCache::instance()->erase(src_idx_path);
+            InvertedIndexSearcherCache::instance()->erase(dst_idx_path);
+        }
     }
     return Status::OK();
 }
@@ -290,8 +334,8 @@ bool BetaRowsetWriter::_check_and_set_is_doing_segcompaction() {
 
 Status BetaRowsetWriter::_segcompaction_if_necessary() {
     Status status = Status::OK();
-    if (!config::enable_segcompaction || !config::enable_storage_vectorization ||
-        _context.tablet_schema->is_dynamic_schema() || !_check_and_set_is_doing_segcompaction()) {
+    if (!config::enable_segcompaction || _context.tablet_schema->is_dynamic_schema() ||
+        !_check_and_set_is_doing_segcompaction()) {
         return status;
     }
     if (_segcompaction_status.load() != OK) {
@@ -322,7 +366,7 @@ Status BetaRowsetWriter::_segcompaction_if_necessary() {
 Status BetaRowsetWriter::_segcompaction_ramaining_if_necessary() {
     Status status = Status::OK();
     DCHECK_EQ(_is_doing_segcompaction, false);
-    if (!config::enable_segcompaction || !config::enable_storage_vectorization) {
+    if (!config::enable_segcompaction) {
         return Status::OK();
     }
     if (_segcompaction_status.load() != OK) {
@@ -419,7 +463,7 @@ Status BetaRowsetWriter::flush_single_memtable(const vectorized::Block* block, i
     return Status::OK();
 }
 
-Status BetaRowsetWriter::_wait_flying_segcompaction() {
+Status BetaRowsetWriter::wait_flying_segcompaction() {
     std::unique_lock<std::mutex> l(_is_doing_segcompaction_lock);
     uint64_t begin_wait = GetCurrentTimeMicros();
     while (_is_doing_segcompaction) {
@@ -464,7 +508,7 @@ RowsetSharedPtr BetaRowsetWriter::build() {
         }
     }
     Status status;
-    status = _wait_flying_segcompaction();
+    status = wait_flying_segcompaction();
     if (!status.ok()) {
         LOG(WARNING) << "segcompaction failed when build new rowset 1st wait, res=" << status;
         return nullptr;
@@ -474,7 +518,7 @@ RowsetSharedPtr BetaRowsetWriter::build() {
         LOG(WARNING) << "segcompaction failed when build new rowset, res=" << status;
         return nullptr;
     }
-    status = _wait_flying_segcompaction();
+    status = wait_flying_segcompaction();
     if (!status.ok()) {
         LOG(WARNING) << "segcompaction failed when build new rowset 2nd wait, res=" << status;
         return nullptr;

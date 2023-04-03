@@ -22,6 +22,8 @@ import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
@@ -33,7 +35,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/rest/v1")
 public class ConfigController {
-
+    private static final Logger LOG = LogManager.getLogger(ConfigController.class);
     private static final List<String> CONFIG_TABLE_HEADER = Lists.newArrayList("Name", "Value");
 
     @RequestMapping(path = "/config/fe", method = RequestMethod.GET)
@@ -57,7 +59,7 @@ public class ConfigController {
                 list.add(info);
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            LOG.warn("", e);
         }
     }
 }

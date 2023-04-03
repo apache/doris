@@ -50,7 +50,7 @@ uint64_t str_to_datetime_v2(std::string datetime_str, std::string datetime_forma
 
 size_t type_index_to_data_type(const std::vector<AnyType>& input_types, size_t index,
                                ut_type::UTDataTypeDesc& ut_desc, DataTypePtr& type) {
-    doris_udf::FunctionContext::TypeDesc& desc = ut_desc.type_desc;
+    doris::TypeDescriptor& desc = ut_desc.type_desc;
     if (index >= input_types.size()) {
         return -1;
     }
@@ -73,71 +73,71 @@ size_t type_index_to_data_type(const std::vector<AnyType>& input_types, size_t i
 
     switch (tp) {
     case TypeIndex::String:
-        desc.type = doris_udf::FunctionContext::TYPE_STRING;
+        desc.type = doris::PrimitiveType::TYPE_STRING;
         type = std::make_shared<DataTypeString>();
         return 1;
     case TypeIndex::JSONB:
-        desc.type = doris_udf::FunctionContext::TYPE_JSONB;
+        desc.type = doris::PrimitiveType::TYPE_JSONB;
         type = std::make_shared<DataTypeJsonb>();
         return 1;
     case TypeIndex::BitMap:
-        desc.type = doris_udf::FunctionContext::TYPE_OBJECT;
+        desc.type = doris::PrimitiveType::TYPE_OBJECT;
         type = std::make_shared<DataTypeBitMap>();
         return 1;
     case TypeIndex::UInt8:
-        desc.type = doris_udf::FunctionContext::TYPE_BOOLEAN;
+        desc.type = doris::PrimitiveType::TYPE_BOOLEAN;
         type = std::make_shared<DataTypeUInt8>();
         return 1;
     case TypeIndex::Int8:
-        desc.type = doris_udf::FunctionContext::TYPE_TINYINT;
+        desc.type = doris::PrimitiveType::TYPE_TINYINT;
         type = std::make_shared<DataTypeInt8>();
         return 1;
     case TypeIndex::Int16:
-        desc.type = doris_udf::FunctionContext::TYPE_SMALLINT;
+        desc.type = doris::PrimitiveType::TYPE_SMALLINT;
         type = std::make_shared<DataTypeInt16>();
         return 1;
     case TypeIndex::Int32:
-        desc.type = doris_udf::FunctionContext::TYPE_INT;
+        desc.type = doris::PrimitiveType::TYPE_INT;
         type = std::make_shared<DataTypeInt32>();
         return 1;
     case TypeIndex::Int64:
-        desc.type = doris_udf::FunctionContext::TYPE_BIGINT;
+        desc.type = doris::PrimitiveType::TYPE_BIGINT;
         type = std::make_shared<DataTypeInt64>();
         return 1;
     case TypeIndex::Int128:
-        desc.type = doris_udf::FunctionContext::TYPE_LARGEINT;
+        desc.type = doris::PrimitiveType::TYPE_LARGEINT;
         type = std::make_shared<DataTypeInt128>();
         return 1;
     case TypeIndex::Float32:
-        desc.type = doris_udf::FunctionContext::TYPE_FLOAT;
+        desc.type = doris::PrimitiveType::TYPE_FLOAT;
         type = std::make_shared<DataTypeFloat32>();
         return 1;
     case TypeIndex::Float64:
-        desc.type = doris_udf::FunctionContext::TYPE_DOUBLE;
+        desc.type = doris::PrimitiveType::TYPE_DOUBLE;
         type = std::make_shared<DataTypeFloat64>();
         return 1;
     case TypeIndex::Decimal128:
-        desc.type = doris_udf::FunctionContext::TYPE_DECIMALV2;
+        desc.type = doris::PrimitiveType::TYPE_DECIMALV2;
         type = std::make_shared<DataTypeDecimal<Decimal128>>();
         return 1;
     case TypeIndex::DateTime:
-        desc.type = doris_udf::FunctionContext::TYPE_DATETIME;
+        desc.type = doris::PrimitiveType::TYPE_DATETIME;
         type = std::make_shared<DataTypeDateTime>();
         return 1;
     case TypeIndex::Date:
-        desc.type = doris_udf::FunctionContext::TYPE_DATE;
+        desc.type = doris::PrimitiveType::TYPE_DATE;
         type = std::make_shared<DataTypeDate>();
         return 1;
     case TypeIndex::DateV2:
-        desc.type = doris_udf::FunctionContext::TYPE_DATEV2;
+        desc.type = doris::PrimitiveType::TYPE_DATEV2;
         type = std::make_shared<DataTypeDateV2>();
         return 1;
     case TypeIndex::DateTimeV2:
-        desc.type = doris_udf::FunctionContext::TYPE_DATETIMEV2;
+        desc.type = doris::PrimitiveType::TYPE_DATETIMEV2;
         type = std::make_shared<DataTypeDateTimeV2>();
         return 1;
     case TypeIndex::Array: {
-        desc.type = doris_udf::FunctionContext::TYPE_ARRAY;
+        desc.type = doris::PrimitiveType::TYPE_ARRAY;
         ut_type::UTDataTypeDesc sub_desc;
         DataTypePtr sub_type = nullptr;
         ++index;
@@ -335,6 +335,9 @@ Block* process_table_function(TableFunction* fn, Block* input_block,
 
     // prepare output column
     vectorized::MutableColumnPtr column = descs[0].data_type->create_column();
+    if (column->is_nullable()) {
+        fn->set_nullable();
+    }
 
     // process table function for all rows
     for (size_t row = 0; row < input_block->rows(); ++row) {
@@ -348,25 +351,10 @@ Block* process_table_function(TableFunction* fn, Block* input_block,
             continue;
         }
 
-        bool tmp_eos = false;
         do {
-            void* cell = nullptr;
-            int64_t cell_len = 0;
-            if (fn->get_value(&cell) != Status::OK() ||
-                fn->get_value_length(&cell_len) != Status::OK()) {
-                LOG(WARNING) << "TableFunction get_value or get_value_length failed";
-                return nullptr;
-            }
-
-            // copy data from input block
-            if (cell == nullptr) {
-                column->insert_default();
-            } else {
-                column->insert_data(reinterpret_cast<char*>(cell), cell_len);
-            }
-
-            fn->forward(&tmp_eos);
-        } while (!tmp_eos);
+            fn->get_value(column);
+            fn->forward();
+        } while (!fn->eos());
     }
 
     std::unique_ptr<Block> output_block(new Block());

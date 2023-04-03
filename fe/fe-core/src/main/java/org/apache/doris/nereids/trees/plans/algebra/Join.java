@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.algebra;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinHint.JoinHintType;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -38,6 +39,8 @@ public interface Join {
     Optional<Expression> getOnClauseCondition();
 
     JoinHint getHint();
+
+    boolean isMarkJoin();
 
     default boolean hasJoinHint() {
         return getHint() != JoinHint.NONE;
@@ -66,5 +69,9 @@ public interface Join {
             default:
                 return JoinHintType.NONE;
         }
+    }
+
+    default Optional<MarkJoinSlotReference> getLeftMarkJoinSlotReference() {
+        return Optional.empty();
     }
 }

@@ -172,7 +172,7 @@ std::pair<const uint8_t*, int64_t> BitPacking::UnpackAndDecodeValues(
 // avoid buffer overflow (if we are unpacking 32 values, we can safely assume an input
 // buffer of length 32 * BIT_WIDTH).
 template <int BIT_WIDTH, int VALUE_IDX, bool FULL_BATCH>
-inline uint64_t ALWAYS_INLINE UnpackValue(const uint8_t* __restrict__ in_buf) {
+uint64_t UnpackValue(const uint8_t* __restrict__ in_buf) {
     if (BIT_WIDTH == 0) return 0;
 
     constexpr int FIRST_BIT_IDX = VALUE_IDX * BIT_WIDTH;
@@ -220,9 +220,8 @@ inline uint64_t ALWAYS_INLINE UnpackValue(const uint8_t* __restrict__ in_buf) {
 }
 
 template <typename OutType>
-inline void ALWAYS_INLINE DecodeValue(OutType* __restrict__ dict, int64_t dict_len, uint32_t idx,
-                                      OutType* __restrict__ out_val,
-                                      bool* __restrict__ decode_error) {
+void DecodeValue(OutType* __restrict__ dict, int64_t dict_len, uint32_t idx,
+                 OutType* __restrict__ out_val, bool* __restrict__ decode_error) {
     if (UNLIKELY(idx >= dict_len)) {
         *decode_error = true;
     } else {

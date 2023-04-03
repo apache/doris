@@ -50,6 +50,7 @@ uint32_t timestamp_from_date(const std::string& date_str) {
         value = (uint32_t)((time_tm.tm_year + 1900) * 16 * 32 + (time_tm.tm_mon + 1) * 32 +
                            time_tm.tm_mday);
     } else {
+        LOG(WARNING) << "Invalid date string: " << date_str;
         // 1400 - 01 - 01
         value = 716833;
     }

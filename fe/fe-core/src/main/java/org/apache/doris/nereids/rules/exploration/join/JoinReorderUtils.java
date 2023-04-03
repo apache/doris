@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.exploration.join;
 
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -26,81 +25,50 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-
-import com.google.common.collect.ImmutableList;
+import org.apache.doris.nereids.util.Utils;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * Common
  */
 class JoinReorderUtils {
-    /**
-     * check project inside Join to prevent matching some pattern.
-     * just allow projection is slot or Alias(slot) to prevent reorder when:
-     * - output of project function is in condition, A join (project [abs(B.id), ..] B join C on ..) on abs(B.id)=A.id.
-     * - hyper edge in projection. project A.id + B.id A join B on .. (this project will prevent join reorder).
-     */
-    static boolean checkProject(LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project) {
-        List<NamedExpression> exprs = project.getProjects();
-        // must be slot or Alias(slot)
-        return exprs.stream().allMatch(expr -> {
-            if (expr instanceof Slot) {
-                return true;
-            }
-            if (expr instanceof Alias) {
-                return ((Alias) expr).child() instanceof Slot;
-            }
-            return false;
-        });
+    static boolean isAllSlotProject(LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project) {
+        return project.getProjects().stream().allMatch(expr -> expr instanceof Slot);
     }
 
-    static Map<Boolean, List<NamedExpression>> splitProjection(List<NamedExpression> projects, Plan splitChild) {
-        Set<ExprId> splitExprIds = splitChild.getOutputExprIdSet();
-
+    /**
+     * Split project according to whether namedExpr contains by splitChildExprIds.
+     * Notice: projects must all be Slot.
+     */
+    static Map<Boolean, List<NamedExpression>> splitProject(List<NamedExpression> projects,
+            Set<ExprId> splitChildExprIds) {
         return projects.stream()
-                .collect(Collectors.partitioningBy(projectExpr -> {
-                    Set<ExprId> usedExprIds = projectExpr.getInputSlotExprIds();
-                    return splitExprIds.containsAll(usedExprIds);
+                .collect(Collectors.partitioningBy(expr -> {
+                    Slot slot = (Slot) expr;
+                    return splitChildExprIds.contains(slot.getExprId());
                 }));
     }
 
-    public static Set<ExprId> combineProjectAndChildExprId(Plan b, List<NamedExpression> bProject) {
-        return Stream.concat(
-                b.getOutput().stream().map(NamedExpression::getExprId),
-                bProject.stream().map(NamedExpression::getExprId)).collect(Collectors.toSet());
-    }
-
     /**
-     * If projectExprs is empty or project output equal plan output, return the original plan.
+     * If projects is empty or project output equal plan output, return the original plan.
      */
-    public static Plan projectOrSelf(List<NamedExpression> projectExprs, Plan plan) {
-        if (projectExprs.isEmpty() || projectExprs.stream().map(NamedExpression::getExprId).collect(Collectors.toSet())
-                .equals(plan.getOutputExprIdSet())) {
+    public static Plan projectOrSelf(List<NamedExpression> projects, Plan plan) {
+        Set<Slot> outputSet = plan.getOutputSet();
+        if (projects.isEmpty() || (outputSet.size() == projects.size() && outputSet.containsAll(projects))) {
             return plan;
         }
-        return new LogicalProject<>(projectExprs, plan);
+        return new LogicalProject<>(projects, plan);
     }
 
-    /**
-     * replace JoinConjuncts by using slots map.
-     */
-    public static List<Expression> replaceJoinConjuncts(List<Expression> joinConjuncts,
-            Map<ExprId, Slot> replaceMaps) {
-        return joinConjuncts.stream()
-                .map(expr ->
-                        expr.rewriteUp(e -> {
-                            if (e instanceof Slot && replaceMaps.containsKey(((Slot) e).getExprId())) {
-                                return replaceMaps.get(((Slot) e).getExprId());
-                            } else {
-                                return e;
-                            }
-                        })
-                ).collect(ImmutableList.toImmutableList());
+    public static Plan projectOrSelfInOrder(List<NamedExpression> projects, Plan plan) {
+        if (projects.isEmpty() || projects.equals(plan.getOutput())) {
+            return plan;
+        }
+        return new LogicalProject<>(projects, plan);
     }
 
     /**
@@ -118,5 +86,38 @@ class JoinReorderUtils {
                 projects.add(slot);
             }
         });
+    }
+
+    public static Set<Slot> joinChildConditionSlots(LogicalJoin<? extends Plan, ? extends Plan> join, boolean left) {
+        Set<Slot> childSlots = left ? join.left().getOutputSet() : join.right().getOutputSet();
+        return join.getConditionSlot().stream()
+                .filter(childSlots::contains)
+                .collect(Collectors.toSet());
+    }
+
+    public static Plan newProject(Set<ExprId> requiredExprIds, Plan plan) {
+        List<NamedExpression> projects = plan.getOutput().stream()
+                .filter(namedExpr -> requiredExprIds.contains(namedExpr.getExprId()))
+                .collect(Collectors.toList());
+        return new LogicalProject<>(projects, plan);
+    }
+
+    public static Map<Boolean, List<Expression>> splitConjuncts(List<Expression> topConjuncts,
+            List<Expression> bottomConjuncts, Set<ExprId> bExprIdSet) {
+        // top: (A B)(error) (A C) (B C) (A B C)
+        // Split topJoin Condition to two part according to include B.
+        Map<Boolean, List<Expression>> splitOn = topConjuncts.stream()
+                .collect(Collectors.partitioningBy(topHashOn -> {
+                    Set<ExprId> usedExprIds = topHashOn.getInputSlotExprIds();
+                    return Utils.isIntersecting(usedExprIds, bExprIdSet);
+                }));
+        // * don't include B, just include (A C)
+        // we add it into newBottomJoin HashConjuncts.
+        // * include B, include (A B C) or (A B)
+        // we add it into newTopJoin HashConjuncts.
+        List<Expression> newTopHashConjuncts = splitOn.get(true);
+        newTopHashConjuncts.addAll(bottomConjuncts);
+
+        return splitOn;
     }
 }

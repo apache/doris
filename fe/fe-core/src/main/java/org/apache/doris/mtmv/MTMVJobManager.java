@@ -157,7 +157,7 @@ public class MTMVJobManager {
                 Metric.MetricUnit.NOUNIT, "Total task number of mtmv.") {
             @Override
             public Integer getValue() {
-                return getTaskManager().getAllHistory().size();
+                return getTaskManager().getHistoryTasks().size();
             }
         };
         totalTask.addLabel(new MetricLabel("type", "TOTAL-TASK"));

@@ -43,7 +43,7 @@ private:
     int _table_index;
     TGetDbsResult _db_result;
     TGetTablesResult _table_result;
-    TDescribeTableResult _desc_result;
+    TDescribeTablesResult _desc_result;
     static std::vector<SchemaScanner::ColumnDesc> _s_col_columns;
 };
 

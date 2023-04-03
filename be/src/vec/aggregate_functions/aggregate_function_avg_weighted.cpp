@@ -21,35 +21,8 @@
 #include "vec/aggregate_functions/helpers.h"
 
 namespace doris::vectorized {
-
-AggregateFunctionPtr create_aggregate_function_avg_weight(const std::string& name,
-                                                          const DataTypes& argument_types,
-                                                          const bool result_is_nullable) {
-    auto type = argument_types[0].get();
-    if (type->is_nullable()) {
-        type = assert_cast<const DataTypeNullable*>(type)->get_nested_type().get();
-    }
-
-    WhichDataType which(*type);
-
-#define DISPATCH(TYPE)                \
-    if (which.idx == TypeIndex::TYPE) \
-        return AggregateFunctionPtr(new AggregateFunctionAvgWeight<TYPE>(argument_types));
-    FOR_NUMERIC_TYPES(DISPATCH)
-#undef DISPATCH
-    if (which.is_decimal128()) {
-        return AggregateFunctionPtr(new AggregateFunctionAvgWeight<Decimal128>(argument_types));
-    }
-    if (which.is_decimal()) {
-        return AggregateFunctionPtr(new AggregateFunctionAvgWeight<Decimal128I>(argument_types));
-    }
-
-    LOG(WARNING) << fmt::format("Illegal argument  type for aggregate function topn_array is: {}",
-                                type->get_name());
-    return nullptr;
-}
-
 void register_aggregate_function_avg_weighted(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function("avg_weighted", create_aggregate_function_avg_weight);
+    factory.register_function_both("avg_weighted",
+                                   creator_with_type::creator<AggregateFunctionAvgWeight>);
 }
 } // namespace doris::vectorized

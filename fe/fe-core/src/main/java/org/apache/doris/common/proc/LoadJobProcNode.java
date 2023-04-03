@@ -18,12 +18,9 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.load.Load;
+import org.apache.doris.load.loadv2.LoadManager;
 
 import com.google.common.collect.ImmutableList;
-
-import java.util.ArrayList;
-import java.util.List;
 
 public class LoadJobProcNode implements ProcNodeInterface {
 
@@ -32,11 +29,11 @@ public class LoadJobProcNode implements ProcNodeInterface {
             .add("PartitionId").add("LoadVersion")
             .build();
 
-    private Load load;
+    private LoadManager loadManager;
     private long jobId;
 
-    public LoadJobProcNode(Load load, long jobId) {
-        this.load = load;
+    public LoadJobProcNode(LoadManager loadManager, long jobId) {
+        this.loadManager = loadManager;
         this.jobId = jobId;
     }
 
@@ -45,17 +42,7 @@ public class LoadJobProcNode implements ProcNodeInterface {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
-        List<List<Comparable>> infos = load.getLoadJobUnfinishedInfo(jobId);
-        // In this step, the detail of load job which is belongs to LoadManager will not be presented.
-        // The reason is that there are no detail info in load job which is streaming during loading.
-        // So it don't need to invoke the LoadManager here.
-        for (List<Comparable> info : infos) {
-            List<String> oneInfo = new ArrayList<String>(TITLE_NAMES.size());
-            for (Comparable element : info) {
-                oneInfo.add(element.toString());
-            }
-            result.addRow(oneInfo);
-        }
+        // TODO get results from LoadManager. Before do that, update implement of LoadManager：record detail info
         return result;
     }
 

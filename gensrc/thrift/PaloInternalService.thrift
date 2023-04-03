@@ -201,6 +201,14 @@ struct TQueryOptions {
 
   // For debug purpose, skip delete bitmap when reading data
   63: optional bool skip_delete_bitmap = false
+
+  64: optional bool dry_run_query = false
+
+  65: optional bool enable_common_expr_pushdown = false;
+
+  66: optional i32 parallel_instance = 1
+  // Indicate where useServerPrepStmts enabled
+  67: optional bool mysql_row_binary_format = false;
 }
     
 
@@ -428,6 +436,8 @@ struct TFoldConstantParams {
   1: required map<string, map<string, Exprs.TExpr>> expr_map
   2: required TQueryGlobals query_globals
   3: optional bool vec_exec
+  4: optional TQueryOptions query_options
+  5: optional Types.TUniqueId query_id
 }
 
 // TransmitData
@@ -593,6 +603,7 @@ struct TPipelineFragmentParams {
   22: optional TGlobalDict global_dict  // scan node could use the global dict to encode the string value to an integer
   23: optional Planner.TPlanFragment fragment
   24: list<TPipelineInstanceParams> local_params
+  25: optional bool shared_scan_opt = false;
 }
 
 struct TPipelineFragmentParamsList {

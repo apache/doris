@@ -32,7 +32,6 @@
 #include "olap/schema.h"
 #include "olap/tablet_schema.h"
 #include "olap/tablet_schema_helper.h"
-#include "util/file_utils.h"
 #include "vec/olap/vertical_block_reader.h"
 #include "vec/olap/vertical_merge_iterator.h"
 
@@ -49,12 +48,11 @@ protected:
         char buffer[MAX_PATH_LEN];
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         absolute_dir = std::string(buffer) + kTestDir;
+        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(absolute_dir).ok());
+        EXPECT_TRUE(io::global_local_filesystem()
+                            ->create_directory(absolute_dir + "/tablet_path")
+                            .ok());
 
-        if (FileUtils::check_exist(absolute_dir)) {
-            EXPECT_TRUE(FileUtils::remove_all(absolute_dir).ok());
-        }
-        EXPECT_TRUE(FileUtils::create_dir(absolute_dir).ok());
-        EXPECT_TRUE(FileUtils::create_dir(absolute_dir + "/tablet_path").ok());
         _data_dir = std::make_unique<DataDir>(absolute_dir);
         _data_dir->update_capacity();
         doris::EngineOptions options;
@@ -65,9 +63,7 @@ protected:
         config::ordered_data_compaction_min_segment_size = 10;
     }
     void TearDown() override {
-        if (FileUtils::check_exist(absolute_dir)) {
-            EXPECT_TRUE(FileUtils::remove_all(absolute_dir).ok());
-        }
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(absolute_dir).ok());
         if (k_engine != nullptr) {
             k_engine->stop();
             delete k_engine;
@@ -208,25 +204,24 @@ protected:
         Status s = RowsetFactory::create_rowset_writer(writer_context, true, &rowset_writer);
         EXPECT_TRUE(s.ok());
 
-        RowCursor input_row;
-        input_row.init(tablet_schema);
-
         uint32_t num_rows = 0;
         for (int i = 0; i < rowset_data.size(); ++i) {
-            MemPool mem_pool;
+            vectorized::Block block = tablet_schema->create_block();
+            auto columns = block.mutate_columns();
             for (int rid = 0; rid < rowset_data[i].size(); ++rid) {
-                uint32_t c1 = std::get<0>(rowset_data[i][rid]);
-                uint32_t c2 = std::get<1>(rowset_data[i][rid]);
-                input_row.set_field_content(0, reinterpret_cast<char*>(&c1), &mem_pool);
-                input_row.set_field_content(1, reinterpret_cast<char*>(&c2), &mem_pool);
+                int32_t c1 = std::get<0>(rowset_data[i][rid]);
+                int32_t c2 = std::get<1>(rowset_data[i][rid]);
+                columns[0]->insert_data((const char*)&c1, sizeof(c1));
+                columns[1]->insert_data((const char*)&c2, sizeof(c2));
+
                 if (tablet_schema->keys_type() == UNIQUE_KEYS) {
                     uint8_t num = 0;
-                    input_row.set_field_content(2, reinterpret_cast<char*>(&num), &mem_pool);
+                    columns[2]->insert_data((const char*)&num, sizeof(num));
                 }
-                s = rowset_writer->add_row(input_row);
-                EXPECT_TRUE(s.ok());
                 num_rows++;
             }
+            s = rowset_writer->add_block(&block);
+            EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
             EXPECT_TRUE(s.ok());
         }
@@ -390,7 +385,7 @@ TEST_F(OrderedDataCompactionTest, test_01) {
 
     TabletSchemaSPtr tablet_schema = create_schema();
     TabletSharedPtr tablet = create_tablet(*tablet_schema, false, 10000, false);
-    EXPECT_TRUE(FileUtils::create_dir(tablet->tablet_path()).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(tablet->tablet_path()).ok());
     // create input rowset
     vector<RowsetSharedPtr> input_rowsets;
     SegmentsOverlapPB new_overlap = NONOVERLAPPING;
@@ -414,7 +409,6 @@ TEST_F(OrderedDataCompactionTest, test_01) {
     reader_context.need_ordered_result = false;
     std::vector<uint32_t> return_columns = {0, 1};
     reader_context.return_columns = &return_columns;
-    reader_context.is_vec = true;
     RowsetReaderSharedPtr output_rs_reader;
     LOG(INFO) << "create rowset reader in test";
     create_and_init_rowset_reader(out_rowset.get(), reader_context, &output_rs_reader);

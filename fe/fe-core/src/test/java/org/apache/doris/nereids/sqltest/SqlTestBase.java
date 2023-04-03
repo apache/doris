@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.sqltest;
 
-import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -80,6 +80,6 @@ public abstract class SqlTestBase extends TestWithFeService implements MemoPatte
 
     @Override
     protected void runBeforeEach() throws Exception {
-        NamedExpressionUtil.clear();
+        StatementScopeIdGenerator.clear();
     }
 }

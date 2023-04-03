@@ -36,7 +36,9 @@ The usual way is to ensure that you can access the intranet IP address, or to as
 
 ### Q2. Does Doris support changing column names?
 
-Modifying column names is not supported.
+After version 1.2.0, when the `"light_schema_change"="true"` option is enabled, column names can be modified.
+
+Before version 1.2.0 or when the `"light_schema_change"="true"` option is not enabled, modifying column names is not supported. The reasons are as follows:
 
 Doris supports modifying database name, table name, partition name, materialized view (Rollup) name, as well as column type, comment, default value, etc. But unfortunately, modifying column names is currently not supported.
 

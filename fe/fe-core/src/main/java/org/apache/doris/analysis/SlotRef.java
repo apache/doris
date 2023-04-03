@@ -384,6 +384,16 @@ public class SlotRef extends Expr {
     }
 
     @Override
+    public boolean hasAggregateSlot() {
+        return desc.getColumn().isAggregated();
+    }
+
+    @Override
+    public boolean isRelativedByTupleIds(List<TupleId> tids) {
+        return isBoundByTupleIds(tids);
+    }
+
+    @Override
     public boolean isBound(SlotId slotId) {
         Preconditions.checkState(isAnalyzed);
         return desc.getId().equals(slotId);
@@ -522,11 +532,6 @@ public class SlotRef extends Expr {
     }
 
     @Override
-    public void finalizeImplForNereids() throws AnalysisException {
-
-    }
-
-    @Override
     public String toString() {
         StringBuilder builder = new StringBuilder();
         if (tblName != null) {
@@ -551,10 +556,19 @@ public class SlotRef extends Expr {
         if (!(originExpr instanceof SlotRef)) {
             return true; // means this is alias of other expr.
         }
+
         SlotRef aliasExpr = (SlotRef) originExpr;
         if (aliasExpr.getColumnName() == null) {
+            if (desc.getSourceExprs() != null) {
+                for (Expr expr : desc.getSourceExprs()) {
+                    if (!expr.matchExprs(exprs, stmt, ignoreAlias, tableName)) {
+                        return false;
+                    }
+                }
+            }
             return true; // means this is alias of other expr.
         }
+
         if (aliasExpr.desc != null) {
             TableIf table = aliasExpr.desc.getParent().getTable();
             if (table != null && table.getName() != tableName) {

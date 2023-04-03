@@ -88,14 +88,17 @@ Status SchemaUserPrivilegesScanner::get_next_block(vectorized::Block* block, boo
 Status SchemaUserPrivilegesScanner::_fill_block_impl(vectorized::Block* block) {
     SCOPED_TIMER(_fill_block_timer);
     auto privileges_num = _priv_result.privileges.size();
+    std::vector<void*> datas(privileges_num);
 
     // grantee
     {
+        StringRef strs[privileges_num];
         for (int i = 0; i < privileges_num; ++i) {
             const TPrivilegeStatus& priv_status = _priv_result.privileges[i];
-            StringRef str = StringRef(priv_status.grantee.c_str(), priv_status.grantee.size());
-            fill_dest_column(block, &str, _s_tbls_columns[0]);
+            strs[i] = StringRef(priv_status.grantee.c_str(), priv_status.grantee.size());
+            datas[i] = strs + i;
         }
+        fill_dest_column_for_range(block, 0, datas);
     }
     // catalog
     // This value is always def.
@@ -103,26 +106,30 @@ Status SchemaUserPrivilegesScanner::_fill_block_impl(vectorized::Block* block) {
         std::string definer = "def";
         StringRef str = StringRef(definer.c_str(), definer.size());
         for (int i = 0; i < privileges_num; ++i) {
-            fill_dest_column(block, &str, _s_tbls_columns[1]);
+            datas[i] = &str;
         }
+        fill_dest_column_for_range(block, 1, datas);
     }
     // privilege type
     {
+        StringRef strs[privileges_num];
         for (int i = 0; i < privileges_num; ++i) {
             const TPrivilegeStatus& priv_status = _priv_result.privileges[i];
-            StringRef str = StringRef(priv_status.privilege_type.c_str(),
-                                      priv_status.privilege_type.size());
-            fill_dest_column(block, &str, _s_tbls_columns[2]);
+            strs[i] = StringRef(priv_status.privilege_type.c_str(),
+                                priv_status.privilege_type.size());
+            datas[i] = strs + i;
         }
+        fill_dest_column_for_range(block, 2, datas);
     }
     // is grantable
     {
+        StringRef strs[privileges_num];
         for (int i = 0; i < privileges_num; ++i) {
             const TPrivilegeStatus& priv_status = _priv_result.privileges[i];
-            StringRef str =
-                    StringRef(priv_status.is_grantable.c_str(), priv_status.is_grantable.size());
-            fill_dest_column(block, &str, _s_tbls_columns[3]);
+            strs[i] = StringRef(priv_status.is_grantable.c_str(), priv_status.is_grantable.size());
+            datas[i] = strs + i;
         }
+        fill_dest_column_for_range(block, 3, datas);
     }
     return Status::OK();
 }

@@ -50,18 +50,62 @@ Doris 新的权限管理系统参照了 Mysql 的权限管理机制，做到了�
 
    用户属性包括但不限于： 用户最大连接数、导入集群配置等等。
 
+## 权限框架
+
+Doris权限设计基于RBAC(Role-Based Access Control)的权限管理模型,用户和角色关联，角色和权限关联，用户通过角色间接和权限关联。
+
+当角色被删除时，用户自动失去该角色的所有权限。
+
+当用户和角色取消关联，用户自动失去角色的所有权限。
+
+当角色的权限被增加或删除，用户的权限也会随之变更。
+
+```
+┌────────┐        ┌────────┐         ┌────────┐
+│  user1 ├────┬───►  role1 ├────┬────►  priv1 │
+└────────┘    │   └────────┘    │    └────────┘
+              │                 │
+              │                 │
+              │   ┌────────┐    │
+              │   │  role2 ├────┤
+┌────────┐    │   └────────┘    │    ┌────────┐
+│  user2 ├────┘                 │  ┌─►  priv2 │
+└────────┘                      │  │ └────────┘
+                  ┌────────┐    │  │
+           ┌──────►  role3 ├────┘  │
+           │      └────────┘       │
+           │                       │
+           │                       │
+┌────────┐ │      ┌────────┐       │ ┌────────┐
+│  userN ├─┴──────►  roleN ├───────┴─►  privN │
+└────────┘        └────────┘         └────────┘
+```
+
+如上图所示：
+
+user1和user2都是通过role1拥有了priv1的权限。
+
+userN通过role3拥有了priv1的权限，通过roleN拥有了priv2和privN的权限，因此userN同时拥有priv1，priv2和privN的权限。
+
+为了方便用户操作，是可以直接给用户授权的，底层实现上，是为每个用户创建了一个专属于该用户的默认角色，当给用户授权时，实际上是在给该用户的默认角色授权。
+
+默认角色不能被删除，不能被分配给其他人，删除用户时，默认角色也自动删除。
+
 ## 支持的操作
 
-1. 创建用户：CREATE USER
-2. 删除用户：DROP USER
-3. 授权：GRANT
-4. 撤权：REVOKE
-5. 创建角色：CREATE ROLE
-6. 删除角色：DROP ROLE
-7. 查看当前用户权限：SHOW GRANTS
-8. 查看所有用户权限：SHOW ALL GRANTS
-9. 查看已创建的角色：SHOW ROLES
-10. 查看用户属性：SHOW PROPERTY
+1. 创建用户：[CREATE USER](../../sql-manual/sql-reference/Account-Management-Statements/CREATE-USER.md)
+2. 修改用户：[ALTER USER](../../sql-manual/sql-reference/Account-Management-Statements/ALTER-USER.md)
+3. 删除用户：[DROP USER](../../sql-manual/sql-reference/Account-Management-Statements/DROP-USER.md)
+4. 授权/分配角色：[GRANT](../../sql-manual/sql-reference/Account-Management-Statements/GRANT.md)
+5. 撤权/撤销角色：[REVOKE](../../sql-manual/sql-reference/Account-Management-Statements/REVOKE.md)
+6. 创建角色：[CREATE ROLE](../../sql-manual/sql-reference/Account-Management-Statements/CREATE-ROLE.md)
+7. 删除角色：[DROP ROLE](../../sql-manual/sql-reference/Account-Management-Statements/DROP-ROLE.md)
+8. 查看当前用户权限和角色：[SHOW GRANTS](../../sql-manual/sql-reference/Show-Statements/SHOW-GRANTS.md)
+9. 查看所有用户权限和角色：[SHOW ALL GRANTS](../../sql-manual/sql-reference/Show-Statements/SHOW-GRANTS.md)
+10. 查看已创建的角色：[SHOW ROLES](../../sql-manual/sql-reference/Show-Statements/SHOW-ROLES.md)
+11. 设置用户属性: [SET PROPERTY](../../sql-manual/sql-reference/Account-Management-Statements/SET-PROPERTY.md)
+12. 查看用户属性：[SHOW PROPERTY](../../sql-manual/sql-reference/Show-Statements/SHOW-PROPERTY.md)
+13. 修改密码：[SET PASSWORD](../../sql-manual/sql-reference/Account-Management-Statements/SET-PASSWORD.md)
 
 关于以上命令的详细帮助，可以通过 mysql 客户端连接 Doris 后，使用 help + command 获取帮助。如 `HELP CREATE USER`。
 

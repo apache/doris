@@ -26,7 +26,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 
 /**
  * mapping the real slot to virtual slots, grouping(_id) function will use a virtual slot of BIGINT to substitute
@@ -53,14 +52,6 @@ public class GroupingFunctionCallExpr extends FunctionCallExpr {
         if (this.childrenReseted) {
             this.realChildren = Expr.cloneList(other.realChildren);
         }
-    }
-
-    /**
-     * just for nereids.
-     */
-    public GroupingFunctionCallExpr(String functionName, List<Expr> params, List<Expr> realChildren) {
-        super(functionName, params);
-        this.realChildren = Objects.requireNonNull(realChildren, "realChildren can not be null");
     }
 
     @Override
@@ -128,15 +119,5 @@ public class GroupingFunctionCallExpr extends FunctionCallExpr {
 
     public List<Expr> getRealChildren() {
         return realChildren;
-    }
-
-    @Override
-    public void finalizeImplForNereids() throws AnalysisException {
-        if (children.size() < 1) {
-            throw new AnalysisException("GROUPING functions required at least one parameters");
-        }
-        Type[] childTypes = new Type[] {Type.BIGINT};
-        fn = getBuiltinFunction(getFnName().getFunction(), childTypes, Function.CompareMode.IS_IDENTICAL);
-        this.type = fn.getReturnType();
     }
 }

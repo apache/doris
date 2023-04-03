@@ -566,7 +566,7 @@ void __asan_set_death_callback(void (*callback)(void));
      one can use
         ... = ANNOTATE_UNPROTECTED_READ(x); */
 template <class T>
-inline T ANNOTATE_UNPROTECTED_READ(const volatile T& x) ANNOTALYSIS_UNPROTECTED_READ {
+ T ANNOTATE_UNPROTECTED_READ(const volatile T& x) ANNOTALYSIS_UNPROTECTED_READ {
     ANNOTATE_IGNORE_READS_BEGIN();
     T res = x;
     ANNOTATE_IGNORE_READS_END();
@@ -635,7 +635,7 @@ inline T ANNOTATE_UNPROTECTED_READ(const volatile T& x) ANNOTALYSIS_UNPROTECTED_
 #if defined(__cplusplus)
 #undef ANNOTATE_UNPROTECTED_READ
 template <class T>
-inline T ANNOTATE_UNPROTECTED_READ(const volatile T& x) ANNOTALYSIS_UNPROTECTED_READ {
+ T ANNOTATE_UNPROTECTED_READ(const volatile T& x) ANNOTALYSIS_UNPROTECTED_READ {
     ANNOTATE_IGNORE_READS_BEGIN();
     T res = x;
     ANNOTATE_IGNORE_READS_END();
@@ -675,7 +675,7 @@ inline T ANNOTATE_UNPROTECTED_READ(const volatile T& x) ANNOTALYSIS_UNPROTECTED_
 #if defined(__cplusplus)
 #undef ANNOTATE_UNPROTECTED_READ
 template <class T>
-inline T ANNOTATE_UNPROTECTED_READ(const volatile T& x) {
+ T ANNOTATE_UNPROTECTED_READ(const volatile T& x) {
     ANNOTATE_IGNORE_READS_BEGIN();
     T res = x;
     ANNOTATE_IGNORE_READS_END();

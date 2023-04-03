@@ -55,10 +55,10 @@ export TP_JAR_DIR="${TP_INSTALL_DIR}/lib/jar"
 #####################################################
 
 #clucene
-CLUCENE_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/libclucene-v2.4.6.zip"
-CLUCENE_NAME="doris-thirdparty-libclucene-v2.4.6.zip"
-CLUCENE_SOURCE="doris-thirdparty-libclucene-v2.4.6"
-CLUCENE_MD5SUM="3d2432c9dc4b23e4f4fb73605f0e577d"
+CLUCENE_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/libclucene-v2.4.8.tar.gz"
+CLUCENE_NAME="doris-thirdparty-libclucene-v2.4.8.tar.gz"
+CLUCENE_SOURCE="doris-thirdparty-libclucene-v2.4.8"
+CLUCENE_MD5SUM="4d77af3c2c0d3c47754ffa68c277b9d6"
 
 # libevent
 LIBEVENT_DOWNLOAD="https://github.com/libevent/libevent/archive/release-2.1.12-stable.tar.gz"
@@ -73,10 +73,10 @@ OPENSSL_SOURCE=openssl-OpenSSL_1_1_1s
 OPENSSL_MD5SUM="7e79a7560dee77c0758baa33c61af4b4"
 
 # thrift
-THRIFT_DOWNLOAD="http://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.tar.gz"
-THRIFT_NAME=thrift-0.13.0.tar.gz
-THRIFT_SOURCE=thrift-0.13.0
-THRIFT_MD5SUM="38a27d391a2b03214b444cb13d5664f1"
+THRIFT_DOWNLOAD="http://archive.apache.org/dist/thrift/0.16.0/thrift-0.16.0.tar.gz"
+THRIFT_NAME=thrift-0.16.0.tar.gz
+THRIFT_SOURCE=thrift-0.16.0
+THRIFT_MD5SUM="44cf1b54b4ec1890576c85804acfa637"
 
 # protobuf
 PROTOBUF_DOWNLOAD="https://github.com/google/protobuf/archive/v3.15.0.tar.gz"
@@ -179,10 +179,10 @@ RAGEL_SOURCE=ragel-6.10
 RAGEL_MD5SUM="748cae8b50cffe9efcaa5acebc6abf0d"
 
 # boost
-BOOST_DOWNLOAD="https://boostorg.jfrog.io/artifactory/main/release/1.73.0/source/boost_1_73_0.tar.gz"
-BOOST_NAME=boost_1_73_0.tar.gz
-BOOST_SOURCE=boost_1_73_0
-BOOST_MD5SUM="4036cd27ef7548b8d29c30ea10956196"
+BOOST_DOWNLOAD="https://boostorg.jfrog.io/artifactory/main/release/1.81.0/source/boost_1_81_0.tar.gz"
+BOOST_NAME=boost_1_81_0.tar.gz
+BOOST_SOURCE=boost_1_81_0
+BOOST_MD5SUM="4bf02e84afb56dfdccd1e6aec9911f4b"
 
 # mysql
 MYSQL_DOWNLOAD="https://github.com/mysql/mysql-server/archive/mysql-5.7.18.tar.gz"
@@ -203,10 +203,10 @@ LEVELDB_SOURCE=leveldb-1.23
 LEVELDB_MD5SUM="afbde776fb8760312009963f09a586c7"
 
 # brpc
-BRPC_DOWNLOAD="https://github.com/apache/brpc/archive/refs/tags/1.2.0.tar.gz"
-BRPC_NAME="brpc-1.2.0.tar.gz"
-BRPC_SOURCE="brpc-1.2.0"
-BRPC_MD5SUM="c3c148e672dc660ad48d8bd973f95dcf"
+BRPC_DOWNLOAD="https://github.com/apache/brpc/archive/refs/tags/1.4.0.tar.gz"
+BRPC_NAME="brpc-1.4.0.tar.gz"
+BRPC_SOURCE="brpc-1.4.0"
+BRPC_MD5SUM="6af9d50822c33a3abc56a1ec0af0e0bc"
 
 # rocksdb
 ROCKSDB_DOWNLOAD="https://github.com/facebook/rocksdb/archive/v5.14.2.tar.gz"
@@ -458,6 +458,12 @@ FAST_FLOAT_NAME=fast_float-3.9.0.tar.gz
 FAST_FLOAT_SOURCE=fast_float-3.9.0
 FAST_FLOAT_MD5SUM="5656b0d8b150a3b157cfb092d214f6ea"
 
+# libhdfs
+HADOOP_LIBS_X86_DOWNLOAD="https://github.com/apache/doris-thirdparty/releases/download/hadoop-libs-3.3.4/hadoop_lib_3.3.4-x86.tar.gz"
+HADOOP_LIBS_X86_NAME="hadoop_lib_3.3.4-x86.tar.gz"
+HADOOP_LIBS_X86_SOURCE="hadoop_lib_3.3.4-x86"
+HADOOP_LIBS_X86_MD5SUM="96117450170487f007ffeca5ddf62f7e"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'CLUCENE'
@@ -525,6 +531,7 @@ export TP_ARCHIVES=(
     'XXHASH'
     'CONCURRENTQUEUE'
     'FAST_FLOAT'
+    'HADOOP_LIBS_X86'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

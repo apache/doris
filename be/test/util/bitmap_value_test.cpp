@@ -167,7 +167,7 @@ TEST(BitmapValueTest, bitmap_intersect) {
 std::string convert_bitmap_to_string(BitmapValue& bitmap) {
     std::string buf;
     buf.resize(bitmap.getSizeInBytes());
-    bitmap.write((char*)buf.c_str());
+    bitmap.write_to((char*)buf.c_str());
     return buf;
 }
 

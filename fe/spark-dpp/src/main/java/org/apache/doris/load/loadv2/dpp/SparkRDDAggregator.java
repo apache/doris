@@ -24,6 +24,8 @@ import org.apache.doris.sparkdpp.EtlJobConfig;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.apache.spark.Partitioner;
 import org.apache.spark.api.java.function.Function2;
 import org.apache.spark.api.java.function.PairFunction;
@@ -247,6 +249,7 @@ class ReplaceIfNotNullAggregator extends SparkRDDAggregator<Object> {
 }
 
 class BitmapUnionAggregator extends SparkRDDAggregator<BitmapValue> {
+    private static final Logger LOG = LogManager.getLogger(BitmapUnionAggregator.class);
 
     @Override
     BitmapValue init(Object value) {
@@ -283,7 +286,7 @@ class BitmapUnionAggregator extends SparkRDDAggregator<BitmapValue> {
             ((BitmapValue) value).serialize(outputStream);
             return bos.toByteArray();
         } catch (IOException ioException) {
-            ioException.printStackTrace();
+            LOG.warn("", ioException);
             throw new RuntimeException(ioException);
         }
     }
@@ -291,6 +294,7 @@ class BitmapUnionAggregator extends SparkRDDAggregator<BitmapValue> {
 }
 
 class HllUnionAggregator extends SparkRDDAggregator<Hll> {
+    private static final Logger LOG = LogManager.getLogger(HllUnionAggregator.class);
 
     @Override
     Hll init(Object value) {
@@ -327,7 +331,7 @@ class HllUnionAggregator extends SparkRDDAggregator<Hll> {
             ((Hll) value).serialize(outputStream);
             return bos.toByteArray();
         } catch (IOException ioException) {
-            ioException.printStackTrace();
+            LOG.warn("", ioException);
             throw new RuntimeException(ioException);
         }
     }

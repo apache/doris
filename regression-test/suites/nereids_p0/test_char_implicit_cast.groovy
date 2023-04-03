@@ -17,8 +17,7 @@
 
 suite("test_char_implicit_cast") {
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
-    sql "SET enable_fallback_to_original_planner=false" 
+    sql "SET enable_fallback_to_original_planner=false"
     qt_test_dayofweek_varchar 'select dayofweek("2012-12-01");'
     qt_test_dayofweek_char 'select dayofweek(cast("2012-12-01" as char(16)));'
     qt_test_timediff_varchar 'select timediff("2010-01-01 01:00:00", "2010-01-02 01:00:00");'

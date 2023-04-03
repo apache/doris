@@ -50,9 +50,9 @@ struct RegexpReplaceImpl {
             std::unique_ptr<re2::RE2> scoped_re; // destroys re if state->re is nullptr
             if (re == nullptr) {
                 std::string error_str;
-                const auto& pattern = pattern_col->get_data_at(i).to_string_val();
-                bool st = StringFunctions::compile_regex(pattern, &error_str, StringVal::null(),
-                                                         scoped_re);
+                const auto& pattern = pattern_col->get_data_at(i);
+                bool st =
+                        StringFunctions::compile_regex(pattern, &error_str, StringRef(), scoped_re);
                 if (!st) {
                     context->add_warning(error_str.c_str());
                     StringOP::push_null_string(i, result_data, result_offset, null_map);
@@ -94,9 +94,9 @@ struct RegexpReplaceOneImpl {
             std::unique_ptr<re2::RE2> scoped_re; // destroys re if state->re is nullptr
             if (re == nullptr) {
                 std::string error_str;
-                const auto& pattern = pattern_col->get_data_at(i).to_string_val();
-                bool st = StringFunctions::compile_regex(pattern, &error_str, StringVal::null(),
-                                                         scoped_re);
+                const auto& pattern = pattern_col->get_data_at(i);
+                bool st =
+                        StringFunctions::compile_regex(pattern, &error_str, StringRef(), scoped_re);
                 if (!st) {
                     context->add_warning(error_str.c_str());
                     StringOP::push_null_string(i, result_data, result_offset, null_map);
@@ -143,9 +143,9 @@ struct RegexpExtractImpl {
             std::unique_ptr<re2::RE2> scoped_re;
             if (re == nullptr) {
                 std::string error_str;
-                const auto& pattern = pattern_col->get_data_at(i).to_string_val();
-                bool st = StringFunctions::compile_regex(pattern, &error_str, StringVal::null(),
-                                                         scoped_re);
+                const auto& pattern = pattern_col->get_data_at(i);
+                bool st =
+                        StringFunctions::compile_regex(pattern, &error_str, StringRef(), scoped_re);
                 if (!st) {
                     context->add_warning(error_str.c_str());
                     StringOP::push_null_string(i, result_data, result_offset, null_map);
@@ -198,9 +198,9 @@ struct RegexpExtractAllImpl {
             std::unique_ptr<re2::RE2> scoped_re;
             if (re == nullptr) {
                 std::string error_str;
-                const auto& pattern = pattern_col->get_data_at(i).to_string_val();
-                bool st = StringFunctions::compile_regex(pattern, &error_str, StringVal::null(),
-                                                         scoped_re);
+                const auto& pattern = pattern_col->get_data_at(i);
+                bool st =
+                        StringFunctions::compile_regex(pattern, &error_str, StringRef(), scoped_re);
                 if (!st) {
                     context->add_warning(error_str.c_str());
                     StringOP::push_null_string(i, result_data, result_offset, null_map);
@@ -275,20 +275,20 @@ public:
         return make_nullable(std::make_shared<DataTypeString>());
     }
 
-    Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         if (scope == FunctionContext::THREAD_LOCAL) {
             if (context->is_col_constant(1)) {
                 DCHECK(!context->get_function_state(scope));
                 const auto pattern_col = context->get_constant_col(1)->column_ptr;
-                const auto& pattern = pattern_col->get_data_at(0).to_string_val();
-                if (pattern.is_null) {
+                const auto& pattern = pattern_col->get_data_at(0);
+                if (pattern.size == 0) {
                     return Status::OK();
                 }
 
                 std::string error_str;
                 std::unique_ptr<re2::RE2> scoped_re;
-                bool st = StringFunctions::compile_regex(pattern, &error_str, StringVal::null(),
-                                                         scoped_re);
+                bool st =
+                        StringFunctions::compile_regex(pattern, &error_str, StringRef(), scoped_re);
                 if (!st) {
                     context->set_error(error_str.c_str());
                     return Status::InvalidArgument(error_str);

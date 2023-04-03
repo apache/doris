@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
@@ -30,12 +31,14 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
 class PushdownAliasThroughJoinTest implements MemoPatternMatchSupported {
+    private static final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+    private static final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
 
     @Test
     void testPushdown() {
         // condition don't use alias slot
-        LogicalPlan plan = new LogicalPlanBuilder(PlanConstructor.scan1)
-                .join(PlanConstructor.scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
                 .alias(ImmutableList.of(1, 3), ImmutableList.of("1name", "2name"))
                 .build();
 
@@ -54,8 +57,8 @@ class PushdownAliasThroughJoinTest implements MemoPatternMatchSupported {
     @Test
     void testCondition() {
         // condition use alias slot
-        LogicalPlan plan = new LogicalPlanBuilder(PlanConstructor.scan1)
-                .join(PlanConstructor.scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
                 .alias(ImmutableList.of(0, 1, 3), ImmutableList.of("1id", "1name", "2name"))
                 .build();
 
@@ -79,8 +82,8 @@ class PushdownAliasThroughJoinTest implements MemoPatternMatchSupported {
     @Test
     void testJustRightSide() {
         // condition use alias slot
-        LogicalPlan plan = new LogicalPlanBuilder(PlanConstructor.scan1)
-                .join(PlanConstructor.scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
                 .alias(ImmutableList.of(2, 3), ImmutableList.of("2id", "2name"))
                 .build();
 

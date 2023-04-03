@@ -35,7 +35,7 @@ suite("explode_json_array") {
         (200, 'Mary', NULL, 1, 'Street 2'),
         (300, 'Mike', 80, 3, 'Street 3'),
         (400, 'Dan', 50, 4, 'Street 4')  """
-    qt_explode_json_array7 """ SELECT * FROM ${tableName}
+    qt_explode_json_array7 """ SELECT id, name, age, class, address, d_age, c_age FROM ${tableName}
                         LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[30, 60]') t1 as c_age 
                         LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[40, 80]') t2 as d_age 
                         ORDER BY id, c_age, d_age """
@@ -49,7 +49,7 @@ suite("explode_json_array") {
                             LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[]') t1 AS c_age 
                             ORDER BY id, c_age """
 
-    qt_explode_json_array10 """ SELECT * FROM ${tableName}
+    qt_explode_json_array10 """ SELECT id, name, age, class, address, d, c FROM ${tableName}
                         LATERAL VIEW EXPLODE_JSON_ARRAY_STRING('[1, "b", 3]') t1 as c 
                         LATERAL VIEW EXPLODE_JSON_ARRAY_DOUBLE('[1.23, 22.214, 214.1]') t2 as d 
                         ORDER BY id, c, d """

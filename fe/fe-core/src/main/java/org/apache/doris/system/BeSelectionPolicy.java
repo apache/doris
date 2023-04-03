@@ -49,6 +49,8 @@ public class BeSelectionPolicy {
     public boolean preferComputeNode = false;
     public int expectBeNum = 0;
 
+    public List<String> preferredLocations = new ArrayList<>();
+
     private BeSelectionPolicy() {
 
     }
@@ -100,13 +102,18 @@ public class BeSelectionPolicy {
             return this;
         }
 
-        public Builder preferComputeNode() {
-            policy.preferComputeNode = true;
+        public Builder preferComputeNode(boolean prefer) {
+            policy.preferComputeNode = prefer;
             return this;
         }
 
         public Builder assignExpectBeNum(int expectBeNum) {
             policy.expectBeNum = expectBeNum;
+            return this;
+        }
+
+        public Builder addPreLocations(List<String> preferredLocations) {
+            policy.preferredLocations.addAll(preferredLocations);
             return this;
         }
 
@@ -141,6 +148,13 @@ public class BeSelectionPolicy {
 
     public List<Backend> getCandidateBackends(ImmutableCollection<Backend> backends) {
         List<Backend> filterBackends = backends.stream().filter(this::isMatch).collect(Collectors.toList());
+        List<Backend> preLocationFilterBackends = filterBackends.stream()
+                .filter(iterm -> preferredLocations.contains(iterm.getHostName())).collect(Collectors.toList());
+        // If preLocations were chosen, use the preLocation backends. Otherwise we just ignore this filter.
+        if (!preLocationFilterBackends.isEmpty()) {
+            filterBackends = preLocationFilterBackends;
+        }
+        Collections.shuffle(filterBackends);
         List<Backend> candidates = new ArrayList<>();
         if (preferComputeNode) {
             int num = 0;

@@ -37,11 +37,9 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
 
 ## Create Catalog
 
-<version since="1.2.0">
-
 1. MySQL
 
-</version>
+<version since="1.2.0"></version>
 
    ```sql
    CREATE CATALOG jdbc_mysql PROPERTIES (
@@ -54,11 +52,9 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
    )
    ```
 
-<version since="1.2.2">
-
 2. PostgreSQL
 
-</version>
+<version since="1.2.2"></version>
 
    ```sql
    CREATE CATALOG jdbc_postgresql PROPERTIES (
@@ -70,20 +66,19 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
        "driver_class" = "org.postgresql.Driver"
    );
    ```
+> Doris obtains all schemas that PG user can access through the SQL statement: `select nspname from pg_namespace where has_schema_privilege('<UserName>', nspname, 'USAGE');` and map these schemas to doris database.   
 
    As for data mapping from PostgreSQL to Doris, one Database in Doris corresponds to one schema in the specified database in PostgreSQL (for example, "demo" in `jdbc_url`  above), and one Table in that Database corresponds to one table in that schema. To make it more intuitive, the mapping relations are as follows:
 
-   | Doris    | PostgreSQL |
-   | -------- | ---------- |
-   | Catalog  | Database   |
-   | Database | Schema     |
-   | Table    | Table      |
-
-<version since="1.2.2">
+| Doris    | PostgreSQL |
+| -------- | ---------- |
+| Catalog  | Database   |
+| Database | Schema     |
+| Table    | Table      |
 
 3. Oracle
 
-</version>
+<version since="1.2.2"></version>
 
    ```sql
    CREATE CATALOG jdbc_oracle PROPERTIES (
@@ -96,19 +91,17 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
    );
    ```
 
-   As for data mapping from Oracle to Doris, one Database in Doris corresponds to one User (for example, "helowin" in `jdbc_url`  above), and one Table in that Database corresponds to one table that the User has access to. In conclusion, the mapping relations are as follows:
+   As for data mapping from Oracle to Doris, one Database in Doris corresponds to one User, and one Table in that Database corresponds to one table that the User has access to. In conclusion, the mapping relations are as follows:
 
-   | Doris    | PostgreSQL |
-   | -------- | ---------- |
-   | Catalog  | Database   |
-   | Database | User       |
-   | Table    | Table      |
-
-<version since="1.2.2">
+| Doris    | Oracle |
+| -------- | ---------- |
+| Catalog  | Database   |
+| Database | User       |
+| Table    | Table      |
 
 4. Clickhouse
 
-</version>
+<version since="1.2.2"></version>
 
    ```sql
    CREATE CATALOG jdbc_clickhouse PROPERTIES (
@@ -121,11 +114,9 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
    );
    ```
 
-<version since="1.2.2">
-
 5. SQLServer
 
-</version>
+<version since="1.2.2"></version>
 
    ```sql
    CREATE CATALOG sqlserver_catalog PROPERTIES (
@@ -140,17 +131,15 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
 
    As for data mapping from SQLServer to Doris, one Database in Doris corresponds to one schema in the specified database in SQLServer (for example, "doris_test" in `jdbc_url`  above), and one Table in that Database corresponds to one table in that schema. The mapping relations are as follows:
 
-   | Doris    | SQLServer |
-   | -------- | --------- |
-   | Catalog  | Database  |
-   | Database | Schema    |
-   | Table    | Table     |
-
-<version since="dev">
+| Doris    | SQLServer |
+| -------- | --------- |
+| Catalog  | Database  |
+| Database | Schema    |
+| Table    | Table     |
     
 6. Doris
 
-</version>
+<version since="1.2.3"></version>
 
 Jdbc Catalog also support to connect another Doris database:
 
@@ -167,6 +156,27 @@ CREATE CATALOG doris_catalog PROPERTIES (
 
 Currently, Jdbc Catalog only support to use 5.x version of JDBC jar package to connect another Doris database. If you use 8.x version of JDBC jar package, the data type of column may not be matched.
 
+7. SAP_HANA
+
+<version since="1.2.3"></version>
+
+```sql
+CREATE CATALOG hana_catalog PROPERTIES (
+    "type"="jdbc",
+    "user"="SYSTEM",
+    "password"="SAPHANA",
+    "jdbc_url" = "jdbc:sap://localhost:31515/TEST",
+    "driver_url" = "ngdbc.jar",
+    "driver_class" = "com.sap.db.jdbc.Driver"
+)
+```
+
+| Doris    | SAP_HANA |
+|----------|----------|
+| Catalog  | Database | 
+| Database | Schema   |
+| Table    | Table    |
+
 ### Parameter Description
 
 | Parameter       | Required or Not | Default Value | Description                                        |
@@ -176,6 +186,9 @@ Currently, Jdbc Catalog only support to use 5.x version of JDBC jar package to c
 | `jdbc_url `     | Yes             |               | JDBC connection string                             |
 | `driver_url `   | Yes             |               | JDBC Driver Jar                                    |
 | `driver_class ` | Yes             |               | JDBC Driver Class                                  |
+| `only_specified_database` | No             |     "false"          | Whether only the database specified to be synchronized.                                  |
+| `lower_case_table_names` | No             |     "false"          | Whether to synchronize jdbc external data source table names in lower case. |
+| `specified_database_list` | No             |     ""          | When only_specified_database=true，only synchronize the specified databases. split with ','. db name is case sensitive.|
 
 > `driver_url` can be specified in three ways:
 >
@@ -185,11 +198,17 @@ Currently, Jdbc Catalog only support to use 5.x version of JDBC jar package to c
 >
 > 3. HTTP address. For example, `https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-5.1.47.jar`. The system will download the Driver file from the HTTP address. This only supports HTTP services with no authentication requirements.
 
+> `only_specified_database`:
+>
+> When the JDBC is connected, you can specify which database/schema to connect. For example, you can specify the DataBase in mysql `jdbc_url`; you can specify the CurrentSchema in PG `jdbc_url`. When `only_specified_database=true` and `specified_database_list` is empty, only the database in jdbc_url specified to be synchronized. When `only_specified_database=true` and `specified_database_list` with some database names，and these names will specified to be synchronized。
+> 
+> If you connect the Oracle database when using this property, please  use the version of the jar package above 8 or more (such as ojdbc8.jar).
+
 
 ## Query
 
 ```
-select * from mysql_table where k1 > 1000 and k3 ='term';
+select * from mysql_catalog.mysql_database.mysql_table where k1 > 1000 and k3 ='term';
 ```
 
 In some cases, the keywords in the database might be used as the field names. For queries to function normally in these cases, Doris will add escape characters to the field names and tables names in SQL statements based on the rules of different databases, such as (``) for MySQL, ([]) for SQLServer, and ("") for PostgreSQL and Oracle. This might require extra attention on case sensitivity. You can view the query statements sent to these various databases via ```explain sql```.
@@ -203,8 +222,8 @@ After creating a JDBC Catalog in Doris, you can write data or query results to i
 Example:
 
 ```
-insert into mysql_table values(1, "doris");
-insert into mysql_table select * from table;
+insert into mysql_catalog.mysql_database.mysql_table values(1, "doris");
+insert into mysql_catalog.mysql_database.mysql_table select * from table;
 ```
 
 ### Transaction
@@ -311,23 +330,24 @@ The transaction mechanism ensures the atomicity of data writing to JDBC External
 
 ### Clickhouse
 
-| ClickHouse Type        | Doris Type  | Comment                                                      |
-| ---------------------- | ----------- | ------------------------------------------------------------ |
-| Bool                   | BOOLEAN     |                                                              |
-| String                 | STRING      |                                                              |
-| Date/Date32            | DATE        |                                                              |
-| DateTime/DateTime64    | DATETIME    | Data beyond the maximum precision of DateTime in Doris will be truncated. |
-| Float32                | FLOAT       |                                                              |
-| Float64                | DOUBLE      |                                                              |
-| Int8                   | TINYINT     |                                                              |
-| Int16/UInt8            | SMALLINT    | Doris does not support UNSIGNED data types so UInt8 will be mapped to SMALLINT. |
-| Int32/UInt16           | INT         | Doris does not support UNSIGNED data types so UInt16 will be mapped to INT. |
-| Int64/Uint32           | BIGINT      | Doris does not support UNSIGNED data types so UInt32 will be mapped to BIGINT. |
-| Int128/UInt64          | LARGEINT    | Doris does not support UNSIGNED data types so UInt64 will be mapped to LARGEINT. |
-| Int256/UInt128/UInt256 | STRING      | Doris does not support data types of such orders of magnitude so these will be mapped to STRING. |
-| DECIMAL                | DECIMAL     | Data beyond the maximum decimal precision in Doris will be truncated. |
-| Enum/IPv4/IPv6/UUID    | STRING      | Data of IPv4 and IPv6 type will be displayed with an extra `/` as a prefix. To remove the `/`, you can use the `split_part`function. |
-| Other                  | UNSUPPORTED |                                                              |
+| ClickHouse Type                                         | Doris Type               | Comment                                                                                                                              |
+|---------------------------------------------------------|--------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
+| Bool                                                    | BOOLEAN                  |                                                                                                                                      |
+| String                                                  | STRING                   |                                                                                                                                      |
+| Date/Date32                                             | DATEV2                   | JDBC CATLOG uses Datev2 type default when connecting DORIS                                                                           |
+| DateTime/DateTime64                                     | DATETIMEV2               | JDBC CATLOG uses DateTimev2 type default when connecting DORIS                                                                       |
+| Float32                                                 | FLOAT                    |                                                                                                                                      |
+| Float64                                                 | DOUBLE                   |                                                                                                                                      |
+| Int8                                                    | TINYINT                  |                                                                                                                                      |
+| Int16/UInt8                                             | SMALLINT                 | Doris does not support UNSIGNED data types so UInt8 will be mapped to SMALLINT.                                                      |
+| Int32/UInt16                                            | INT                      | Doris does not support UNSIGNED data types so UInt16 will be mapped to INT.                                                          |
+| Int64/Uint32                                            | BIGINT                   | Doris does not support UNSIGNED data types so UInt32 will be mapped to BIGINT.                                                       |
+| Int128/UInt64                                           | LARGEINT                 | Doris does not support UNSIGNED data types so UInt64 will be mapped to LARGEINT.                                                     |
+| Int256/UInt128/UInt256                                  | STRING                   | Doris does not support data types of such orders of magnitude so these will be mapped to STRING.                                     |
+| DECIMAL                                                 | DECIMAL/DECIMALV3/STRING | The Data type is based on the DECIMAL field's (precision, scale) and the `enable_decimal_conversion` configuration.                  |
+| Enum/IPv4/IPv6/UUID                                     | STRING                   | Data of IPv4 and IPv6 type will be displayed with an extra `/` as a prefix. To remove the `/`, you can use the `split_part`function. |
+| <version since="dev" type="inline"> Array(T) </version> | ARRAY\<T\>               | Array internal basic type adaptation logic refers to the preceding types. Nested types are not supported                             |
+| Other                                                   | UNSUPPORTED              |                                                                                                                                      |
 
 ### Doris
 
@@ -351,9 +371,34 @@ The transaction mechanism ensures the atomicity of data writing to JDBC External
 | STRING | STRING | |
 | TEXT | STRING | |
 |Other| UNSUPPORTED |
+
+### SAP HANA
+
+| SAP_HANA     | Doris                    | Comment                                                                                                            |
+|--------------|--------------------------|--------------------------------------------------------------------------------------------------------------------|
+| BOOLEAN      | BOOLEAN                  |                                                                                                                    |
+| TINYINT      | TINYINT                  |                                                                                                                    |
+| SMALLINT     | SMALLINT                 |                                                                                                                    |
+| INTERGER     | INT                      |                                                                                                                    |
+| BIGINT       | BIGINT                   |                                                                                                                    |
+| SMALLDECIMAL | DECIMALV3                |                                                                                                                    |
+| DECIMAL      | DECIMAL/DECIMALV3/STRING | The Data type is based on the DECIMAL field's (precision, scale) and the `enable_decimal_conversion` configuration |
+| REAL         | FLOAT                    |                                                                                                                    |
+| DOUBLE       | DOUBLE                   |                                                                                                                    |
+| DATE         | DATEV2                   | JDBC CATLOG uses Datev2 type default when connecting DORIS                                                         |
+| TIME         | TEXT                     |                                                                                                                    |
+| TIMESTAMP    | DATETIMEV2               | JDBC CATLOG uses DATETIMEV2 type default when connecting DORIS                                                     |
+| SECONDDATE   | DATETIMEV2               | JDBC CATLOG uses DATETIMEV2 type default when connecting DORIS                                                     |
+| VARCHAR      | TEXT                     |                                                                                                                    |
+| NVARCHAR     | TEXT                     |                                                                                                                    |
+| ALPHANUM     | TEXT                     |                                                                                                                    |
+| SHORTTEXT    | TEXT                     |                                                                                                                    |
+| CHAR         | CHAR                     |                                                                                                                    |
+| NCHAR        | CHAR                     |                                                                                                                    |
+
 ## FAQ
 
-1. Are there any other databases supported besides MySQL, Oracle, PostgreSQL, SQLServer, and ClickHouse?
+1. Are there any other databases supported besides MySQL, Oracle, PostgreSQL, SQLServer, ClickHouse and SAP HANA?
 
    Currently, Doris supports MySQL, Oracle, PostgreSQL, SQLServer, and ClickHouse. We are planning to expand this list. Technically, any databases that support JDBC access can be connected to Doris in the form of JDBC external tables. You are more than welcome to be a Doris contributor to expedite this effort.
 
@@ -433,6 +478,16 @@ The transaction mechanism ensures the atomicity of data writing to JDBC External
 
    To reduce memory usage, Doris obtains one batch of query results at a time, and has a size limit for each batch. However, MySQL conducts one-off loading of all query results by default, which means the "loading in batches" method won't work. To solve this, you need to specify "jdbc_url"="jdbc:mysql://IP:PORT/doris_test?useCursorFetch=true" in the URL.
 
- 7. What to do with errors such as "CAUSED BY: SQLException OutOfMemoryError" when performing JDBC queries?
+7. What to do with errors such as "CAUSED BY: SQLException OutOfMemoryError" when performing JDBC queries?
 
-    If you have set `useCursorFetch`  for MySQL, you can increase the JVM memory limit by modifying the value of `jvm_max_heap_size` in be.conf. The current default value is 1024M.
+   If you have set `useCursorFetch`  for MySQL, you can increase the JVM memory limit by modifying the value of `jvm_max_heap_size` in be.conf. The current default value is 1024M.
+
+8. When using JDBC to query MySQL large data volume, if the query can occasionally succeed, occasionally report the following errors, and all the MySQL connections are completely disconnected when the error occurs:
+
+   ```
+    ERROR 1105 (HY000): errCode = 2, detailMessage = [INTERNAL_ERROR]UdfRuntimeException: JDBC executor sql has error:
+    CAUSED BY: CommunicationsException: Communications link failure
+    The last packet successfully received from the server was 4,446 milliseconds ago. The last packet sent successfully to the server was 4,446 milliseconds ago.
+    ```
+
+    When the above phenomenon appears, it may be that mysql server's own memory or CPU resources are exhausted and the MySQL service is unavailable. You can try to increase the memory or CPU resources of MySQL Server.

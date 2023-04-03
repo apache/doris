@@ -402,6 +402,11 @@ public class EditLog {
                     env.replayAddFrontend(fe);
                     break;
                 }
+                case OperationType.OP_MODIFY_FRONTEND: {
+                    Frontend fe = (Frontend) journal.getData();
+                    env.replayModifyFrontend(fe);
+                    break;
+                }
                 case OperationType.OP_REMOVE_FRONTEND: {
                     Frontend fe = (Frontend) journal.getData();
                     env.replayDropFrontend(fe);
@@ -557,6 +562,12 @@ public class EditLog {
                     Env.getCurrentGlobalTransactionMgr().replayBatchRemoveTransactions(operation);
                     break;
                 }
+                case OperationType.OP_BATCH_REMOVE_TXNS_V2: {
+                    final BatchRemoveTransactionsOperationV2 operation =
+                            (BatchRemoveTransactionsOperationV2) journal.getData();
+                    Env.getCurrentGlobalTransactionMgr().replayBatchRemoveTransactionV2(operation);
+                    break;
+                }
                 case OperationType.OP_CREATE_REPOSITORY: {
                     Repository repository = (Repository) journal.getData();
                     env.getBackupHandler().getRepoMgr().addAndInitRepoIfNotExist(repository, true);
@@ -615,6 +626,16 @@ public class EditLog {
                 case OperationType.OP_DROP_FUNCTION: {
                     FunctionSearchDesc function = (FunctionSearchDesc) journal.getData();
                     Env.getCurrentEnv().replayDropFunction(function);
+                    break;
+                }
+                case OperationType.OP_ADD_GLOBAL_FUNCTION: {
+                    final Function function = (Function) journal.getData();
+                    Env.getCurrentEnv().replayCreateGlobalFunction(function);
+                    break;
+                }
+                case OperationType.OP_DROP_GLOBAL_FUNCTION: {
+                    FunctionSearchDesc function = (FunctionSearchDesc) journal.getData();
+                    Env.getCurrentEnv().replayDropGlobalFunction(function);
                     break;
                 }
                 case OperationType.OP_CREATE_ENCRYPTKEY: {
@@ -846,7 +867,7 @@ public class EditLog {
                 }
                 case OperationType.OP_CREATE_CATALOG: {
                     CatalogLog log = (CatalogLog) journal.getData();
-                    env.getCatalogMgr().replayCreateCatalog(log);
+                    env.getCatalogMgr().replayCreateCatalog(log, true);
                     break;
                 }
                 case OperationType.OP_DROP_CATALOG: {
@@ -869,9 +890,9 @@ public class EditLog {
                     env.getCatalogMgr().replayRefreshCatalog(log);
                     break;
                 }
-                case OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_COLUMNS: {
+                case OperationType.OP_MODIFY_TABLE_LIGHT_SCHEMA_CHANGE: {
                     final TableAddOrDropColumnsInfo info = (TableAddOrDropColumnsInfo) journal.getData();
-                    env.getSchemaChangeHandler().replayModifyTableAddOrDropColumns(info);
+                    env.getSchemaChangeHandler().replayModifyTableLightSchemaChange(info);
                     break;
                 }
                 case OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES: {
@@ -1236,6 +1257,10 @@ public class EditLog {
         logEdit(OperationType.OP_ADD_FIRST_FRONTEND, fe);
     }
 
+    public void logModifyFrontend(Frontend fe) {
+        logEdit(OperationType.OP_MODIFY_FRONTEND, fe);
+    }
+
     public void logRemoveFrontend(Frontend fe) {
         logEdit(OperationType.OP_REMOVE_FRONTEND, fe);
     }
@@ -1446,8 +1471,16 @@ public class EditLog {
         logEdit(OperationType.OP_ADD_FUNCTION, function);
     }
 
+    public void logAddGlobalFunction(Function function) {
+        logEdit(OperationType.OP_ADD_GLOBAL_FUNCTION, function);
+    }
+
     public void logDropFunction(FunctionSearchDesc function) {
         logEdit(OperationType.OP_DROP_FUNCTION, function);
+    }
+
+    public void logDropGlobalFunction(FunctionSearchDesc function) {
+        logEdit(OperationType.OP_DROP_GLOBAL_FUNCTION, function);
     }
 
     public void logAddEncryptKey(EncryptKey encryptKey) {
@@ -1595,8 +1628,8 @@ public class EditLog {
         logEdit(OperationType.OP_REPLACE_TABLE, log);
     }
 
-    public void logBatchRemoveTransactions(BatchRemoveTransactionsOperation op) {
-        logEdit(OperationType.OP_BATCH_REMOVE_TXNS, op);
+    public void logBatchRemoveTransactions(BatchRemoveTransactionsOperationV2 op) {
+        logEdit(OperationType.OP_BATCH_REMOVE_TXNS_V2, op);
     }
 
     public void logModifyComment(ModifyCommentOperationLog op) {
@@ -1704,7 +1737,7 @@ public class EditLog {
     }
 
     public void logModifyTableAddOrDropColumns(TableAddOrDropColumnsInfo info) {
-        logEdit(OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_COLUMNS, info);
+        logEdit(OperationType.OP_MODIFY_TABLE_LIGHT_SCHEMA_CHANGE, info);
     }
 
     public void logModifyTableAddOrDropInvertedIndices(TableAddOrDropInvertedIndicesInfo info) {

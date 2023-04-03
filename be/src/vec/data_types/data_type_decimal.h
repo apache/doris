@@ -20,21 +20,24 @@
 
 #pragma once
 #include <cmath>
+#include <type_traits>
 
 #include "common/config.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/common/arithmetic_overflow.h"
 #include "vec/common/typeid_cast.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number.h"
 
 namespace doris::vectorized {
 
-static constexpr size_t min_decimal_precision() {
+constexpr size_t min_decimal_precision() {
     return 1;
 }
 template <typename T>
-static constexpr size_t max_decimal_precision() {
+constexpr size_t max_decimal_precision() {
     return 0;
 }
 template <>
@@ -55,7 +58,7 @@ constexpr size_t max_decimal_precision<Decimal128I>() {
 }
 
 template <typename T>
-static constexpr typename T::NativeType max_decimal_value() {
+constexpr typename T::NativeType max_decimal_value() {
     return 0;
 }
 template <>
@@ -138,6 +141,31 @@ public:
     const char* get_family_name() const override { return "Decimal"; }
     std::string do_get_name() const override;
     TypeIndex get_type_id() const override { return TypeId<T>::value; }
+    PrimitiveType get_type_as_primitive_type() const override {
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal32>>) {
+            return TYPE_DECIMAL32;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal64>>) {
+            return TYPE_DECIMAL64;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128I>>) {
+            return TYPE_DECIMAL128I;
+        }
+        __builtin_unreachable();
+    }
+
+    TPrimitiveType::type get_type_as_tprimitive_type() const override {
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal32>>) {
+            return TPrimitiveType::DECIMAL32;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal64>>) {
+            return TPrimitiveType::DECIMAL64;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128I>>) {
+            return TPrimitiveType::DECIMAL128I;
+        }
+        __builtin_unreachable();
+    }
 
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int be_exec_version) const override;
@@ -236,7 +264,7 @@ DataTypePtr decimal_result_type(const DataTypeDecimal<T>& tx, const DataTypeDeci
         size_t divide_precision = tx.get_precision() + ty.get_scale();
         size_t plus_minus_precision =
                 std::max(tx.get_precision() - tx.get_scale(), ty.get_precision() - ty.get_scale()) +
-                scale;
+                scale + 1;
         if (is_multiply) {
             scale = tx.get_scale() + ty.get_scale();
             precision = std::min(multiply_precision, max_decimal_precision<Decimal128I>());
@@ -251,7 +279,7 @@ DataTypePtr decimal_result_type(const DataTypeDecimal<T>& tx, const DataTypeDeci
 }
 
 template <typename T>
-inline const DataTypeDecimal<T>* check_decimal(const IDataType& data_type) {
+const DataTypeDecimal<T>* check_decimal(const IDataType& data_type) {
     return typeid_cast<const DataTypeDecimal<T>*>(&data_type);
 }
 
@@ -292,8 +320,8 @@ constexpr bool IsDataTypeDecimalOrNumber =
         IsDataTypeDecimal<DataType> || IsDataTypeNumber<DataType>;
 
 template <typename FromDataType, typename ToDataType>
-inline std::enable_if_t<IsDataTypeDecimal<FromDataType> && IsDataTypeDecimal<ToDataType>,
-                        typename ToDataType::FieldType>
+std::enable_if_t<IsDataTypeDecimal<FromDataType> && IsDataTypeDecimal<ToDataType>,
+                 typename ToDataType::FieldType>
 convert_decimals(const typename FromDataType::FieldType& value, UInt32 scale_from, UInt32 scale_to,
                  UInt8* overflow_flag = nullptr) {
     using FromFieldType = typename FromDataType::FieldType;
@@ -347,8 +375,68 @@ convert_decimals(const typename FromDataType::FieldType& value, UInt32 scale_fro
 }
 
 template <typename FromDataType, typename ToDataType>
-inline std::enable_if_t<IsDataTypeDecimal<FromDataType> && IsDataTypeNumber<ToDataType>,
-                        typename ToDataType::FieldType>
+void convert_decimal_cols(
+        const typename ColumnDecimal<typename FromDataType::FieldType>::Container& vec_from,
+        typename ColumnDecimal<typename ToDataType::FieldType>::Container& vec_to,
+        UInt32 scale_from, UInt32 scale_to, UInt8* overflow_flag = nullptr) {
+    using FromFieldType = typename FromDataType::FieldType;
+    using ToFieldType = typename ToDataType::FieldType;
+    using MaxFieldType =
+            std::conditional_t<(sizeof(FromFieldType) == sizeof(ToFieldType)) &&
+                                       (std::is_same_v<ToFieldType, Decimal128I> ||
+                                        std::is_same_v<FromFieldType, Decimal128I>),
+                               Decimal128I,
+                               std::conditional_t<(sizeof(FromFieldType) > sizeof(ToFieldType)),
+                                                  FromFieldType, ToFieldType>>;
+    using MaxNativeType = typename MaxFieldType::NativeType;
+
+    if (scale_to > scale_from) {
+        MaxNativeType multiplier =
+                DataTypeDecimal<MaxFieldType>::get_scale_multiplier(scale_to - scale_from);
+        MaxNativeType res;
+        for (size_t i = 0; i < vec_from.size(); i++) {
+            if (common::mul_overflow(static_cast<MaxNativeType>(vec_from[i]), multiplier, res)) {
+                if (overflow_flag) {
+                    overflow_flag[i] = 1;
+                }
+                VLOG_DEBUG << "Decimal convert overflow";
+                vec_to[i] = res < 0 ? std::numeric_limits<typename ToFieldType::NativeType>::min()
+                                    : std::numeric_limits<typename ToFieldType::NativeType>::max();
+            } else {
+                vec_to[i] = res;
+            }
+        }
+    } else {
+        MaxNativeType multiplier =
+                DataTypeDecimal<MaxFieldType>::get_scale_multiplier(scale_from - scale_to);
+        for (size_t i = 0; i < vec_from.size(); i++) {
+            vec_to[i] = vec_from[i] / multiplier;
+        }
+    }
+
+    if constexpr (sizeof(FromFieldType) > sizeof(ToFieldType)) {
+        for (size_t i = 0; i < vec_from.size(); i++) {
+            if (vec_to[i] < std::numeric_limits<typename ToFieldType::NativeType>::min()) {
+                if (overflow_flag) {
+                    *overflow_flag = 1;
+                }
+                VLOG_DEBUG << "Decimal convert overflow";
+                vec_to[i] = std::numeric_limits<typename ToFieldType::NativeType>::min();
+            }
+            if (vec_to[i] > std::numeric_limits<typename ToFieldType::NativeType>::max()) {
+                if (overflow_flag) {
+                    *overflow_flag = 1;
+                }
+                VLOG_DEBUG << "Decimal convert overflow";
+                vec_to[i] = std::numeric_limits<typename ToFieldType::NativeType>::max();
+            }
+        }
+    }
+}
+
+template <typename FromDataType, typename ToDataType>
+std::enable_if_t<IsDataTypeDecimal<FromDataType> && IsDataTypeNumber<ToDataType>,
+                 typename ToDataType::FieldType>
 convert_from_decimal(const typename FromDataType::FieldType& value, UInt32 scale) {
     using FromFieldType = typename FromDataType::FieldType;
     using ToFieldType = typename ToDataType::FieldType;
@@ -391,8 +479,8 @@ convert_from_decimal(const typename FromDataType::FieldType& value, UInt32 scale
 }
 
 template <typename FromDataType, typename ToDataType>
-inline std::enable_if_t<IsDataTypeNumber<FromDataType> && IsDataTypeDecimal<ToDataType>,
-                        typename ToDataType::FieldType>
+std::enable_if_t<IsDataTypeNumber<FromDataType> && IsDataTypeDecimal<ToDataType>,
+                 typename ToDataType::FieldType>
 convert_to_decimal(const typename FromDataType::FieldType& value, UInt32 scale,
                    UInt8* overflow_flag) {
     using FromFieldType = typename FromDataType::FieldType;

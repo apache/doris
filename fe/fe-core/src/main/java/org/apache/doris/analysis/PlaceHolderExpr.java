@@ -157,11 +157,6 @@ public class PlaceHolderExpr extends LiteralExpr {
     }
 
     @Override
-    public void finalizeImplForNereids() throws AnalysisException {
-
-    }
-
-    @Override
     public Expr clone() {
         // Should not clone, since it's a reference class
         return this;

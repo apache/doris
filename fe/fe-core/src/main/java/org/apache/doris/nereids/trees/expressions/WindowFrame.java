@@ -64,6 +64,10 @@ public class WindowFrame extends Expression implements PropagateNullable, LeafEx
         return new WindowFrame(frameUnits, rightBoundary.reverse(), leftBoundary.reverse());
     }
 
+    public WindowFrame withFrameUnits(FrameUnitsType newFrameUnits) {
+        return new WindowFrame(newFrameUnits, leftBoundary, rightBoundary);
+    }
+
     public WindowFrame withRightBoundary(FrameBoundary newRightBoundary) {
         return new WindowFrame(frameUnits, leftBoundary, newRightBoundary);
     }

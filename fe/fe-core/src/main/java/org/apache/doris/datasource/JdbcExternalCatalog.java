@@ -85,7 +85,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
             properties.put(JdbcResource.JDBC_URL, jdbcUrl);
         }
 
-        if (properties.containsKey(JdbcResource.DRIVER_URL)) {
+        if (properties.containsKey(JdbcResource.DRIVER_URL) && !properties.containsKey(JdbcResource.CHECK_SUM)) {
             properties.put(JdbcResource.CHECK_SUM,
                     JdbcResource.computeObjectChecksum(properties.get(JdbcResource.DRIVER_URL)));
         }
@@ -120,9 +120,22 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         return catalogProperty.getOrDefault(JdbcResource.CHECK_SUM, "");
     }
 
+    public String getOnlySpecifiedDatabase() {
+        return catalogProperty.getOrDefault(JdbcResource.ONLY_SPECIFIED_DATABASE, "false");
+    }
+
+    public String getLowerCaseTableNames() {
+        return catalogProperty.getOrDefault(JdbcResource.LOWER_CASE_TABLE_NAMES, "false");
+    }
+
+    public String getSpecifiedDatabaseList() {
+        return catalogProperty.getOrDefault(JdbcResource.SPECIFIED_DATABASE_LIST, "");
+    }
+
     @Override
     protected void initLocalObjectsImpl() {
-        jdbcClient = new JdbcClient(getJdbcUser(), getJdbcPasswd(), getJdbcUrl(), getDriverUrl(), getDriverClass());
+        jdbcClient = new JdbcClient(getJdbcUser(), getJdbcPasswd(), getJdbcUrl(), getDriverUrl(), getDriverClass(),
+                getOnlySpecifiedDatabase(), getLowerCaseTableNames(), getSpecifiedDatabaseMap());
     }
 
     @Override

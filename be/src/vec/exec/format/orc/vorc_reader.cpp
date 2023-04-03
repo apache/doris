@@ -48,16 +48,15 @@ namespace doris::vectorized {
     M(TypeIndex::Float64, Float64, orc::DoubleVectorBatch)
 
 void ORCFileInputStream::read(void* buf, uint64_t length, uint64_t offset) {
-    _statistics.read_calls++;
-    _statistics.read_bytes += length;
-    SCOPED_RAW_TIMER(&_statistics.read_time);
+    _statistics->fs_read_calls++;
+    _statistics->fs_read_bytes += length;
+    SCOPED_RAW_TIMER(&_statistics->fs_read_time);
     uint64_t has_read = 0;
     char* out = reinterpret_cast<char*>(buf);
-    IOContext io_ctx;
     while (has_read < length) {
         size_t loop_read;
         Slice result(out + has_read, length - has_read);
-        Status st = _file_reader->read_at(offset + has_read, result, io_ctx, &loop_read);
+        Status st = _file_reader->read_at(offset + has_read, result, &loop_read, _io_ctx);
         if (!st.ok()) {
             throw orc::ParseError(
                     strings::Substitute("Failed to read $0: $1", _file_name, st.to_string()));
@@ -75,7 +74,7 @@ void ORCFileInputStream::read(void* buf, uint64_t length, uint64_t offset) {
 
 OrcReader::OrcReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                      const TFileRangeDesc& range, const std::vector<std::string>& column_names,
-                     size_t batch_size, const std::string& ctz, IOContext* io_ctx)
+                     size_t batch_size, const std::string& ctz, io::IOContext* io_ctx)
         : _profile(profile),
           _scan_params(params),
           _scan_range(range),
@@ -94,7 +93,7 @@ OrcReader::OrcReader(RuntimeProfile* profile, const TFileScanRangeParams& params
 
 OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
                      const std::vector<std::string>& column_names, const std::string& ctz,
-                     IOContext* io_ctx)
+                     io::IOContext* io_ctx)
         : _profile(nullptr),
           _scan_params(params),
           _scan_range(range),
@@ -113,21 +112,26 @@ OrcReader::~OrcReader() {
 
 void OrcReader::close() {
     if (!_closed) {
-        if (_profile != nullptr) {
-            if (_file_reader != nullptr) {
-                auto& fst = _file_reader->statistics();
-                COUNTER_UPDATE(_orc_profile.read_time, fst.read_time);
-                COUNTER_UPDATE(_orc_profile.read_calls, fst.read_calls);
-                COUNTER_UPDATE(_orc_profile.read_bytes, fst.read_bytes);
-            }
-            COUNTER_UPDATE(_orc_profile.column_read_time, _statistics.column_read_time);
-            COUNTER_UPDATE(_orc_profile.get_batch_time, _statistics.get_batch_time);
-            COUNTER_UPDATE(_orc_profile.parse_meta_time, _statistics.parse_meta_time);
-            COUNTER_UPDATE(_orc_profile.decode_value_time, _statistics.decode_value_time);
-            COUNTER_UPDATE(_orc_profile.decode_null_map_time, _statistics.decode_null_map_time);
-        }
+        _collect_profile_on_close();
         _closed = true;
     }
+}
+
+void OrcReader::_collect_profile_on_close() {
+    if (_profile != nullptr) {
+        COUNTER_UPDATE(_orc_profile.read_time, _statistics.fs_read_time);
+        COUNTER_UPDATE(_orc_profile.read_calls, _statistics.fs_read_calls);
+        COUNTER_UPDATE(_orc_profile.read_bytes, _statistics.fs_read_bytes);
+        COUNTER_UPDATE(_orc_profile.column_read_time, _statistics.column_read_time);
+        COUNTER_UPDATE(_orc_profile.get_batch_time, _statistics.get_batch_time);
+        COUNTER_UPDATE(_orc_profile.parse_meta_time, _statistics.parse_meta_time);
+        COUNTER_UPDATE(_orc_profile.decode_value_time, _statistics.decode_value_time);
+        COUNTER_UPDATE(_orc_profile.decode_null_map_time, _statistics.decode_null_map_time);
+    }
+}
+
+int64_t OrcReader::size() const {
+    return _file_input_stream->getLength();
 }
 
 void OrcReader::_init_profile() {
@@ -146,33 +150,32 @@ void OrcReader::_init_profile() {
     }
 }
 
-Status OrcReader::init_reader(
-        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
-    SCOPED_RAW_TIMER(&_statistics.parse_meta_time);
-    if (_file_reader == nullptr) {
+Status OrcReader::_create_file_reader() {
+    if (_file_input_stream == nullptr) {
         io::FileReaderSPtr inner_reader;
-
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties,
-                                                        _file_description, &_file_system,
-                                                        &inner_reader, _io_ctx));
-
-        _file_reader = new ORCFileInputStream(_scan_range.path, inner_reader);
+        RETURN_IF_ERROR(FileFactory::create_file_reader(
+                _profile, _system_properties, _file_description, &_file_system, &inner_reader));
+        _file_input_stream.reset(
+                new ORCFileInputStream(_scan_range.path, inner_reader, &_statistics, _io_ctx));
     }
-    if (_file_reader->getLength() == 0) {
-        return Status::EndOfFile("init reader failed, empty orc file: " + _scan_range.path);
+    if (_file_input_stream->getLength() == 0) {
+        return Status::EndOfFile("empty orc file: " + _scan_range.path);
     }
-
     // create orc reader
     try {
         orc::ReaderOptions options;
-        _reader = orc::createReader(std::unique_ptr<ORCFileInputStream>(_file_reader), options);
+        _reader = orc::createReader(
+                std::unique_ptr<ORCFileInputStream>(_file_input_stream.release()), options);
     } catch (std::exception& e) {
         return Status::InternalError("Init OrcReader failed. reason = {}", e.what());
     }
-    if (_reader->getNumberOfRows() == 0) {
-        return Status::EndOfFile("init reader failed, empty orc file with row num 0: " +
-                                 _scan_range.path);
-    }
+    return Status::OK();
+}
+
+Status OrcReader::init_reader(
+        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
+    SCOPED_RAW_TIMER(&_statistics.parse_meta_time);
+    RETURN_IF_ERROR(_create_file_reader());
     // _init_bloom_filter(colname_to_value_range);
 
     // create orc row reader
@@ -206,27 +209,7 @@ Status OrcReader::init_reader(
 
 Status OrcReader::get_parsed_schema(std::vector<std::string>* col_names,
                                     std::vector<TypeDescriptor>* col_types) {
-    if (_file_reader == nullptr) {
-        io::FileReaderSPtr inner_reader;
-
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties,
-                                                        _file_description, &_file_system,
-                                                        &inner_reader, _io_ctx));
-
-        _file_reader = new ORCFileInputStream(_scan_range.path, inner_reader);
-    }
-    if (_file_reader->getLength() == 0) {
-        return Status::EndOfFile("get parsed schema fail, empty orc file: " + _scan_range.path);
-    }
-
-    // create orc reader
-    try {
-        orc::ReaderOptions options;
-        _reader = orc::createReader(std::unique_ptr<ORCFileInputStream>(_file_reader), options);
-    } catch (std::exception& e) {
-        return Status::InternalError("Init OrcReader failed. reason = {}", e.what());
-    }
-
+    RETURN_IF_ERROR(_create_file_reader());
     auto& root_type = _reader->getType();
     for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
         col_names->emplace_back(_get_field_name_lower_case(&root_type, i));
@@ -292,9 +275,8 @@ static std::unordered_map<orc::TypeKind, orc::PredicateDataType> TYPEKIND_TO_PRE
         {orc::TypeKind::BOOLEAN, orc::PredicateDataType::BOOLEAN}};
 
 template <typename CppType>
-static std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type,
-                                                             const void* value, int precision,
-                                                             int scale) {
+std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type, const void* value,
+                                                      int precision, int scale) {
     try {
         switch (type->getKind()) {
         case orc::TypeKind::BOOLEAN:
@@ -341,8 +323,8 @@ static std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* ty
         case orc::TypeKind::DATE: {
             int64_t day_offset;
             static const cctz::time_zone utc0 = cctz::utc_time_zone();
-            if constexpr (std::is_same_v<CppType, DateTimeValue>) {
-                const DateTimeValue date_v1 = *reinterpret_cast<const DateTimeValue*>(value);
+            if constexpr (std::is_same_v<CppType, VecDateTimeValue>) {
+                const VecDateTimeValue date_v1 = *reinterpret_cast<const VecDateTimeValue*>(value);
                 cctz::civil_day civil_date(date_v1.year(), date_v1.month(), date_v1.day());
                 day_offset =
                         cctz::convert(civil_date, utc0).time_since_epoch().count() / (24 * 60 * 60);
@@ -360,13 +342,14 @@ static std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* ty
             int32_t nanos;
             static const cctz::time_zone utc0 = cctz::utc_time_zone();
             // TODO: ColumnValueRange has lost the precision of microsecond
-            if constexpr (std::is_same_v<CppType, DateTimeValue>) {
-                const DateTimeValue datetime_v1 = *reinterpret_cast<const DateTimeValue*>(value);
+            if constexpr (std::is_same_v<CppType, VecDateTimeValue>) {
+                const VecDateTimeValue datetime_v1 =
+                        *reinterpret_cast<const VecDateTimeValue*>(value);
                 cctz::civil_second civil_seconds(datetime_v1.year(), datetime_v1.month(),
                                                  datetime_v1.day(), datetime_v1.hour(),
                                                  datetime_v1.minute(), datetime_v1.second());
                 seconds = cctz::convert(civil_seconds, utc0).time_since_epoch().count();
-                nanos = datetime_v1.microsecond() * 1000;
+                nanos = 0;
             } else {
                 const DateV2Value<DateTimeV2ValueType> datetime_v2 =
                         *reinterpret_cast<const DateV2Value<DateTimeV2ValueType>*>(value);
@@ -390,7 +373,7 @@ static std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* ty
 }
 
 template <PrimitiveType primitive_type>
-static std::vector<OrcPredicate> value_range_to_predicate(
+std::vector<OrcPredicate> value_range_to_predicate(
         const ColumnValueRange<primitive_type>& col_val_range, const orc::Type* type) {
     using CppType = typename PrimitiveTypeTraits<primitive_type>::CppType;
     std::vector<OrcPredicate> predicates;
@@ -822,10 +805,8 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
                         ->get_value_type());
         const orc::Type* orc_key_type = orc_column_type->getSubtype(0);
         const orc::Type* orc_value_type = orc_column_type->getSubtype(1);
-        const ColumnPtr& doris_key_column =
-                typeid_cast<const ColumnArray*>(doris_map.get_keys_ptr().get())->get_data_ptr();
-        const ColumnPtr& doris_value_column =
-                typeid_cast<const ColumnArray*>(doris_map.get_values_ptr().get())->get_data_ptr();
+        const ColumnPtr& doris_key_column = doris_map.get_keys_ptr();
+        const ColumnPtr& doris_value_column = doris_map.get_values_ptr();
         RETURN_IF_ERROR(_orc_column_to_doris_column(col_name, doris_key_column, doris_key_type,
                                                     orc_key_type, orc_map->keys.get(),
                                                     element_size));

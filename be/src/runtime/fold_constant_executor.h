@@ -41,12 +41,11 @@ public:
 
 private:
     // init runtime_state and mem_tracker
-    Status _init(const TQueryGlobals& query_globals);
+    Status _init(const TQueryGlobals& query_globals, const TQueryOptions& query_options);
     // prepare expr
     template <typename Context>
     Status _prepare_and_open(Context* ctx);
 
-    template <bool is_vec = false>
     std::string _get_result(void* src, size_t size, const TypeDescriptor& type,
                             const vectorized::ColumnPtr column_ptr,
                             const vectorized::DataTypePtr column_type);
@@ -55,6 +54,6 @@ private:
     std::unique_ptr<MemTracker> _mem_tracker;
     RuntimeProfile* _runtime_profile = nullptr;
     ObjectPool _pool;
-    static TUniqueId _dummy_id;
+    TUniqueId _query_id;
 };
 } // namespace doris

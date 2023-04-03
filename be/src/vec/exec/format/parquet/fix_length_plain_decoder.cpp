@@ -32,7 +32,8 @@ Status FixLengthPlainDecoder::skip_values(size_t num_values) {
 }
 
 Status FixLengthPlainDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                                            ColumnSelectVector& select_vector) {
+                                            ColumnSelectVector& select_vector,
+                                            bool is_dict_filter) {
     size_t non_null_size = select_vector.num_values() - select_vector.num_nulls();
     if (UNLIKELY(_offset + _type_length * non_null_size > _data->size)) {
         return Status::IOError("Out-of-bounds access in parquet data decoder");

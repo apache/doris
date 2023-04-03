@@ -127,7 +127,7 @@ When the disk capacity is higher than High Watermark or even Flood Stage, many o
     * snapshot/: Snapshot files in the snapshot directory. 
     * trash/ Trash files in the trash directory. 
 
-    **This operation will affect [Restore data from BE Recycle Bin](../../tablet-restore-tool).**
+    **This operation will affect [Restore data from BE Recycle Bin](./tablet-restore-tool.md).**
 
     If the BE can still be started, you can use `ADMIN CLEAN TRASH ON(BackendHost:BackendHeartBeatPort);` to actively clean up temporary files. **all trash files** and expired snapshot files will be cleaned up, **This will affect the operation of restoring data from the trash bin**.
 
@@ -162,6 +162,6 @@ When the disk capacity is higher than High Watermark or even Flood Stage, many o
 
         ```rm -rf data/0/12345/```
 
-    * Delete tablet metadata (refer to [Tablet metadata management tool](./tablet-meta-tool)）
+    * Delete tablet metadata (refer to [Tablet metadata management tool](./tablet-meta-tool.md)）
 
         ```./lib/meta_tool --operation=delete_header --root_path=/path/to/root_path --tablet_id=12345 --schema_hash= 352781111```

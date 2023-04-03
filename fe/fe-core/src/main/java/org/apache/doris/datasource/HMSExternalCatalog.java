@@ -31,6 +31,7 @@ import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchExceptio
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.commons.lang.math.NumberUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.api.CurrentNotificationEventId;
@@ -42,6 +43,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * External catalog for hive metastore compatible data sources.
@@ -52,7 +54,16 @@ public class HMSExternalCatalog extends ExternalCatalog {
     private static final int MAX_CLIENT_POOL_SIZE = 8;
     protected PooledHiveMetaStoreClient client;
     // Record the latest synced event id when processing hive events
-    private long lastSyncedEventId;
+    // Must set to -1 otherwise client.getNextNotification will throw exception
+    // Reference to https://github.com/apache/doris/issues/18251
+    private long lastSyncedEventId = -1L;
+    public static final String ENABLE_SELF_SPLITTER = "enable.self.splitter";
+    public static final String FILE_META_CACHE_TTL_SECOND = "file.meta.cache.ttl-second";
+
+    // -1 means file cache no ttl set
+    public static final int FILE_META_CACHE_NO_TTL = -1;
+    // 0 means file cache is disabled; >0 means file cache with ttl;
+    public static final int FILE_META_CACHE_TTL_DISABLE_CACHE = 0;
 
     /**
      * Default constructor for HMSExternalCatalog.
@@ -68,6 +79,14 @@ public class HMSExternalCatalog extends ExternalCatalog {
     @Override
     public void checkProperties() throws DdlException {
         super.checkProperties();
+        // check file.meta.cache.ttl-second parameter
+        String fileMetaCacheTtlSecond = catalogProperty.getOrDefault(FILE_META_CACHE_TTL_SECOND, null);
+        if (Objects.nonNull(fileMetaCacheTtlSecond) && NumberUtils.toInt(fileMetaCacheTtlSecond, FILE_META_CACHE_NO_TTL)
+                < FILE_META_CACHE_TTL_DISABLE_CACHE) {
+            throw new DdlException(
+                    "The parameter " + FILE_META_CACHE_TTL_SECOND + " is wrong, value is " + fileMetaCacheTtlSecond);
+        }
+
         // check the dfs.ha properties
         // 'dfs.nameservices'='your-nameservice',
         // 'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
@@ -111,8 +130,12 @@ public class HMSExternalCatalog extends ExternalCatalog {
         initCatalogLog.setCatalogId(id);
         initCatalogLog.setType(InitCatalogLog.Type.HMS);
         List<String> allDatabases = client.getAllDatabases();
+        Map<String, Boolean> specifiedDatabaseMap = getSpecifiedDatabaseMap();
         // Update the db name to id map.
         for (String dbName : allDatabases) {
+            if (!specifiedDatabaseMap.isEmpty() && specifiedDatabaseMap.get(dbName) == null) {
+                continue;
+            }
             long dbId;
             if (dbNameToId != null && dbNameToId.containsKey(dbName)) {
                 dbId = dbNameToId.get(dbName);
@@ -265,5 +288,14 @@ public class HMSExternalCatalog extends ExternalCatalog {
         dbNameToId.put(dbName, dbId);
         HMSExternalDatabase db = new HMSExternalDatabase(this, dbId, dbName);
         idToDb.put(dbId, db);
+    }
+
+    @Override
+    public void notifyPropertiesUpdated(Map<String, String> updatedProps) {
+        super.notifyPropertiesUpdated(updatedProps);
+        String fileMetaCacheTtl = updatedProps.getOrDefault(FILE_META_CACHE_TTL_SECOND, null);
+        if (Objects.nonNull(fileMetaCacheTtl)) {
+            Env.getCurrentEnv().getExtMetaCacheMgr().getMetaStoreCache(this).setNewFileCache();
+        }
     }
 }

@@ -48,7 +48,17 @@ public class DecimalLiteral extends LiteralExpr {
     }
 
     public DecimalLiteral(BigDecimal value) {
-        init(value);
+        this(value, false);
+    }
+
+    public DecimalLiteral(BigDecimal value, boolean isDecimalV3) {
+        init(value, isDecimalV3);
+        analysisDone();
+    }
+
+    public DecimalLiteral(BigDecimal value, Type type) {
+        this.value = value;
+        this.type = type;
         analysisDone();
     }
 
@@ -111,11 +121,19 @@ public class DecimalLiteral extends LiteralExpr {
         return Math.max(0, decimal.scale());
     }
 
-    private void init(BigDecimal value) {
+    private void init(BigDecimal value, boolean enforceV3) {
         this.value = value;
         int precision = getBigDecimalPrecision(this.value);
         int scale = getBigDecimalScale(this.value);
-        type = ScalarType.createDecimalType(precision, scale);
+        if (enforceV3) {
+            type = ScalarType.createDecimalV3Type(precision, scale);
+        } else {
+            type = ScalarType.createDecimalType(precision, scale);
+        }
+    }
+
+    private void init(BigDecimal value) {
+        init(value, false);
     }
 
     public BigDecimal getValue() {

@@ -23,13 +23,18 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.DateType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.FollowToArgumentType;
 import org.apache.doris.nereids.util.ResponsibilityChain;
 
+import com.google.common.base.Preconditions;
+
 import java.util.List;
 import java.util.function.BiFunction;
+import java.util.stream.Collectors;
 
 /** ComputeSignatureHelper */
 public class ComputeSignatureHelper {
@@ -57,23 +62,21 @@ public class ComputeSignatureHelper {
     /** computePrecision */
     public static FunctionSignature computePrecision(
             ComputeSignature computeSignature, FunctionSignature signature, List<Expression> arguments) {
-        if (!(signature.returnType instanceof DateType)) {
+        if (!(signature.returnType instanceof DataType)) {
+            return signature;
+        }
+        if (computeSignature instanceof DateTimeWithPrecision) {
             return signature;
         }
         if (computeSignature instanceof ComputePrecision) {
             return ((ComputePrecision) computeSignature).computePrecision(signature);
-        } else {
-            DataType returnType = (DataType) signature.returnType;
-            if (returnType.isDecimalV3Type()
-                    || (returnType.isDateTimeV2Type() && !(computeSignature instanceof DateTimeWithPrecision))) {
-                if (!arguments.isEmpty() && arguments.get(0).getDataType().isDecimalV3Type()
-                        && returnType.isDecimalV3Type()) {
-                    return signature.withReturnType(arguments.get(0).getDataType());
-                } else if (!arguments.isEmpty() && arguments.get(0).getDataType().isDateTimeV2Type()
-                        && returnType.isDateTimeV2Type()) {
-                    return signature.withReturnType(arguments.get(0).getDataType());
-                }
-            }
+        }
+        if (signature.argumentsTypes.stream().anyMatch(DateTimeV2Type.class::isInstance)) {
+            signature = defaultDateTimeV2PrecisionPromotion(signature, arguments);
+        }
+        if (signature.argumentsTypes.stream().anyMatch(DecimalV3Type.class::isInstance)) {
+            // do decimal v3 precision
+            signature = defaultDecimalV3PrecisionPromotion(signature, arguments);
         }
         return signature;
     }
@@ -100,6 +103,82 @@ public class ComputeSignatureHelper {
                 .anyMatch(ArrayType::containsNull);*/
         return signature.withReturnType(
                 ArrayType.of(arrayType.getItemType(), arrayType.containsNull() || containsNull));
+    }
+
+    private static FunctionSignature defaultDateTimeV2PrecisionPromotion(
+            FunctionSignature signature, List<Expression> arguments) {
+        DateTimeV2Type finalType = null;
+        for (int i = 0; i < arguments.size(); i++) {
+            AbstractDataType targetType;
+            if (i >= signature.argumentsTypes.size()) {
+                Preconditions.checkState(signature.getVarArgType().isPresent(),
+                        "argument size larger than signature");
+                targetType = signature.getVarArgType().get();
+            } else {
+                targetType = signature.getArgType(i);
+            }
+            if (!(targetType instanceof DateTimeV2Type)) {
+                continue;
+            }
+            if (finalType == null) {
+                finalType = DateTimeV2Type.forType(arguments.get(i).getDataType());
+            } else {
+                finalType = DateTimeV2Type.getWiderDatetimeV2Type(finalType,
+                        DateTimeV2Type.forType(arguments.get(i).getDataType()));
+            }
+        }
+        DateTimeV2Type argType = finalType;
+        List<AbstractDataType> newArgTypes = signature.argumentsTypes.stream().map(t -> {
+            if (t instanceof DateTimeV2Type) {
+                return argType;
+            } else {
+                return t;
+            }
+        }).collect(Collectors.toList());
+        signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
+        if (signature.returnType instanceof DateTimeV2Type) {
+            signature = signature.withReturnType(argType);
+        }
+        return signature;
+    }
+
+    private static FunctionSignature defaultDecimalV3PrecisionPromotion(
+            FunctionSignature signature, List<Expression> arguments) {
+        DataType finalType = null;
+        for (int i = 0; i < arguments.size(); i++) {
+            AbstractDataType targetType;
+            if (i >= signature.argumentsTypes.size()) {
+                Preconditions.checkState(signature.getVarArgType().isPresent(),
+                        "argument size larger than signature");
+                targetType = signature.getVarArgType().get();
+            } else {
+                targetType = signature.getArgType(i);
+            }
+            if (!(targetType instanceof DecimalV3Type)) {
+                continue;
+            }
+            if (finalType == null) {
+                finalType = DecimalV3Type.forType(arguments.get(i).getDataType());
+            } else {
+                finalType = DecimalV3Type.widerDecimalV3Type((DecimalV3Type) finalType,
+                        DecimalV3Type.forType(arguments.get(i).getDataType()), true);
+            }
+            Preconditions.checkState(finalType.isDecimalV3Type(),
+                    "decimalv3 precision promotion failed.");
+        }
+        DataType argType = finalType;
+        List<AbstractDataType> newArgTypes = signature.argumentsTypes.stream().map(t -> {
+            if (t instanceof DecimalV3Type) {
+                return argType;
+            } else {
+                return t;
+            }
+        }).collect(Collectors.toList());
+        signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
+        if (signature.returnType instanceof DecimalV3Type) {
+            signature = signature.withReturnType(argType);
+        }
+        return signature;
     }
 
     static class ComputeSignatureChain {

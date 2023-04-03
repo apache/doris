@@ -33,7 +33,6 @@
 #include "olap/row_cursor.h"
 #include "olap/schema.h"
 #include "olap/tablet.h"
-#include "runtime/mem_pool.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -95,7 +94,7 @@ TabletReader::~TabletReader() {
 }
 
 Status TabletReader::init(const ReaderParams& read_params) {
-    _predicate_mem_pool.reset(new MemPool());
+    _predicate_arena.reset(new vectorized::Arena());
 
     Status res = _init_params(read_params);
     if (!res.ok()) {
@@ -225,6 +224,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.record_rowids = read_params.record_rowids;
     _reader_context.is_key_column_group = read_params.is_key_column_group;
     _reader_context.remaining_vconjunct_root = read_params.remaining_vconjunct_root;
+    _reader_context.common_vexpr_ctxs_pushdown = read_params.common_vexpr_ctxs_pushdown;
     _reader_context.output_columns = &read_params.output_columns;
 
     return Status::OK();
@@ -241,7 +241,7 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
     _tablet_schema = read_params.tablet_schema;
     _reader_context.runtime_state = read_params.runtime_state;
 
-    _init_conditions_param(read_params);
+    RETURN_IF_ERROR(_init_conditions_param(read_params));
     _init_conditions_param_except_leafnode_of_andnode(read_params);
 
     Status res = _init_delete_condition(read_params);
@@ -437,16 +437,16 @@ Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
     return Status::OK();
 }
 
-void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
+Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
     for (auto& condition : read_params.conditions) {
         // These conditions is passed from OlapScannode, but not set column unique id here, so that set it here because it
         // is too complicated to modify related interface
         TCondition tmp_cond = condition;
-
+        RETURN_IF_ERROR(_tablet_schema->have_column(tmp_cond.column_name));
         auto condition_col_uid = _tablet_schema->column(tmp_cond.column_name).unique_id();
         tmp_cond.__set_column_unique_id(condition_col_uid);
         ColumnPredicate* predicate =
-                parse_to_predicate(_tablet_schema, tmp_cond, _predicate_mem_pool.get());
+                parse_to_predicate(_tablet_schema, tmp_cond, _predicate_arena.get());
         if (predicate != nullptr) {
             // record condition value into predicate_params in order to pushdown segment_iterator,
             // _gen_predicate_result_sign will build predicate result unique sign with condition value
@@ -483,8 +483,7 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
 
     // Function filter push down to storage engine
     auto is_like_predicate = [](ColumnPredicate* _pred) {
-        if (dynamic_cast<LikeColumnPredicate<false>*>(_pred) ||
-            dynamic_cast<LikeColumnPredicate<true>*>(_pred)) {
+        if (dynamic_cast<LikeColumnPredicate*>(_pred)) {
             return true;
         }
 
@@ -513,6 +512,7 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
             }
         }
     }
+    return Status::OK();
 }
 
 void TabletReader::_init_conditions_param_except_leafnode_of_andnode(
@@ -522,7 +522,7 @@ void TabletReader::_init_conditions_param_except_leafnode_of_andnode(
         auto condition_col_uid = _tablet_schema->column(tmp_cond.column_name).unique_id();
         tmp_cond.__set_column_unique_id(condition_col_uid);
         ColumnPredicate* predicate =
-                parse_to_predicate(_tablet_schema, tmp_cond, _predicate_mem_pool.get());
+                parse_to_predicate(_tablet_schema, tmp_cond, _predicate_arena.get());
         if (predicate != nullptr) {
             auto predicate_params = predicate->predicate_params();
             predicate_params->marked_by_runtime_filter = condition.marked_by_runtime_filter;
@@ -578,8 +578,8 @@ ColumnPredicate* TabletReader::_parse_to_predicate(const FunctionFilter& functio
     }
 
     // currently only support like predicate
-    return new LikeColumnPredicate<false>(function_filter._opposite, index, function_filter._fn_ctx,
-                                          function_filter._string_param);
+    return new LikeColumnPredicate(function_filter._opposite, index, function_filter._fn_ctx,
+                                   function_filter._string_param);
 }
 
 Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {

@@ -30,6 +30,7 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -69,6 +70,8 @@ public class ArrayIntersect extends CompatibleTypeArrayFunction
                     .args(ArrayType.of(DoubleType.INSTANCE), ArrayType.of(DoubleType.INSTANCE)),
             FunctionSignature.ret(ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT))
                     .args(ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT), ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT)),
+            FunctionSignature.ret(ArrayType.of(DecimalV3Type.WILDCARD))
+                    .args(ArrayType.of(DecimalV3Type.WILDCARD), ArrayType.of(DecimalV3Type.WILDCARD)),
             FunctionSignature.ret(ArrayType.of(DateTimeType.INSTANCE))
                     .args(ArrayType.of(DateTimeType.INSTANCE), ArrayType.of(DateTimeType.INSTANCE)),
             FunctionSignature.ret(ArrayType.of(DateType.INSTANCE))

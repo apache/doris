@@ -79,7 +79,7 @@ inline std::vector<std::string> split(const std::string& s, const std::string& d
 }
 
 template <typename T>
-inline std::string join(const std::vector<T>& elems, const std::string& delim) {
+std::string join(const std::vector<T>& elems, const std::string& delim) {
     std::stringstream ss;
     for (size_t i = 0; i < elems.size(); ++i) {
         if (i != 0) {
@@ -131,14 +131,14 @@ using StringCaseUnorderedMap =
         std::unordered_map<std::string, T, StringCaseHasher, StringCaseEqual>;
 
 template <typename T>
-inline auto get_json_token(T& path_string) {
+auto get_json_token(T& path_string) {
     return boost::tokenizer<boost::escaped_list_separator<char>>(
             path_string, boost::escaped_list_separator<char>("\\", ".", "\""));
 }
 
 #ifdef USE_LIBCPP
 template <>
-inline auto get_json_token(std::string_view& path_string) = delete;
+auto get_json_token(std::string_view& path_string) = delete;
 #endif
 
 } // namespace doris

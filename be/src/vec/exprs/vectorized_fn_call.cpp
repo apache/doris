@@ -23,7 +23,7 @@
 #include "common/status.h"
 #include "fmt/format.h"
 #include "fmt/ranges.h"
-#include "udf/udf_internal.h"
+#include "udf/udf.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/function_java_udf.h"

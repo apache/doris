@@ -28,7 +28,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -53,9 +53,9 @@ public class PhysicalStorageLayerAggregate extends PhysicalRelation {
 
     public PhysicalStorageLayerAggregate(PhysicalRelation relation, PushDownAggOp aggOp,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult) {
+            PhysicalProperties physicalProperties, Statistics statistics) {
         super(relation.getId(), relation.getType(), relation.getQualifier(), groupExpression,
-                logicalProperties, physicalProperties, statsDeriveResult);
+                logicalProperties, physicalProperties, statistics);
         this.relation = Objects.requireNonNull(relation, "relation cannot be null");
         this.aggOp = Objects.requireNonNull(aggOp, "aggOp cannot be null");
     }
@@ -105,10 +105,10 @@ public class PhysicalStorageLayerAggregate extends PhysicalRelation {
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalStorageLayerAggregate",
+        return Utils.toSqlString("PhysicalStorageLayerAggregate[" + id.asInt() + "]" + getGroupIdAsString(),
                 "pushDownAggOp", aggOp,
                 "relation", relation,
-                "stats", statsDeriveResult
+                "stats", statistics
         );
     }
 
@@ -119,20 +119,20 @@ public class PhysicalStorageLayerAggregate extends PhysicalRelation {
     @Override
     public PhysicalStorageLayerAggregate withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalStorageLayerAggregate(relation, aggOp, groupExpression, getLogicalProperties(),
-                physicalProperties, statsDeriveResult);
+                physicalProperties, statistics);
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new PhysicalStorageLayerAggregate(relation, aggOp, Optional.empty(),
-                logicalProperties.get(), physicalProperties, statsDeriveResult);
+                logicalProperties.get(), physicalProperties, statistics);
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
-            StatsDeriveResult statsDeriveResult) {
-        return new PhysicalStorageLayerAggregate(relation, aggOp, Optional.empty(),
-                getLogicalProperties(), physicalProperties, statsDeriveResult);
+            Statistics statistics) {
+        return new PhysicalStorageLayerAggregate(relation, aggOp, groupExpression,
+                getLogicalProperties(), physicalProperties, statistics);
     }
 
     /** PushAggOp */

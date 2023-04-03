@@ -62,6 +62,7 @@ public enum PrimitiveType {
     DATEV2("DATEV2", 4, TPrimitiveType.DATEV2),
     DATETIMEV2("DATETIMEV2", 8, TPrimitiveType.DATETIMEV2),
     TIMEV2("TIMEV2", 8, TPrimitiveType.TIMEV2),
+    LAMBDA_FUNCTION("LAMBDA_FUNCTION", 16, TPrimitiveType.LAMBDA_FUNCTION),
 
     // sizeof(CollectionValue)
     ARRAY("ARRAY", 32, TPrimitiveType.ARRAY),
@@ -72,6 +73,7 @@ public enum PrimitiveType {
     STRUCT("STRUCT", 16, TPrimitiveType.STRUCT),
     STRING("STRING", 16, TPrimitiveType.STRING),
     VARIANT("VARIANT", 24, TPrimitiveType.VARIANT),
+    TEMPLATE("TEMPLATE", -1, TPrimitiveType.INVALID_TYPE),
     // Unsupported scalar types.
     BINARY("BINARY", -1, TPrimitiveType.BINARY),
     ALL("ALL", -1, TPrimitiveType.INVALID_TYPE);

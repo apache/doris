@@ -21,6 +21,8 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 
 import com.google.common.base.Strings;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.ByteArrayOutputStream;
 import java.io.UnsupportedEncodingException;
@@ -28,6 +30,7 @@ import java.nio.ByteBuffer;
 
 // used for serialize memory data to byte stream of MySQL protocol
 public class MysqlSerializer {
+    private static final Logger LOG = LogManager.getLogger(MysqlSerializer.class);
     private ByteArrayOutputStream out;
     private MysqlCapability capability;
 
@@ -134,7 +137,7 @@ public class MysqlSerializer {
             writeVInt(buf.length);
             writeBytes(buf);
         } catch (UnsupportedEncodingException e) {
-            e.printStackTrace();
+            LOG.warn("", e);
         }
     }
 
@@ -143,7 +146,7 @@ public class MysqlSerializer {
             byte[] buf = value.getBytes("UTF-8");
             writeBytes(buf);
         } catch (UnsupportedEncodingException e) {
-            e.printStackTrace();
+            LOG.warn("", e);
         }
     }
 
@@ -153,7 +156,7 @@ public class MysqlSerializer {
             writeBytes(buf);
             writeByte((byte) 0);
         } catch (UnsupportedEncodingException e) {
-            e.printStackTrace();
+            LOG.warn("", e);
         }
     }
 

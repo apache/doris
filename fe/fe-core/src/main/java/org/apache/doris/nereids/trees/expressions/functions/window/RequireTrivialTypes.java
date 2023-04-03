@@ -57,7 +57,7 @@ public interface RequireTrivialTypes {
             FloatType.INSTANCE,
             DoubleType.INSTANCE,
             DecimalV2Type.SYSTEM_DEFAULT,
-            DecimalV3Type.SYSTEM_DEFAULT,
+            DecimalV3Type.WILDCARD,
             DateType.INSTANCE,
             DateTimeType.INSTANCE,
             DateV2Type.INSTANCE,

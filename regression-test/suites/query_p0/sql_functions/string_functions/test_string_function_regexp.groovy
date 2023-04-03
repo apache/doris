@@ -35,6 +35,7 @@ suite("test_string_function_regexp") {
         """
     qt_sql "SELECT k FROM ${tbName} WHERE k regexp '^billie' ORDER BY k;"
     qt_sql "SELECT k FROM ${tbName} WHERE k regexp 'ok\$' ORDER BY k;"
+    qt_sql "SELECT k FROM ${tbName} WHERE k regexp concat('^', k) order by k;"
 
     qt_sql "SELECT k FROM ${tbName} WHERE k not regexp '^billie' ORDER BY k;"
     qt_sql "SELECT k FROM ${tbName} WHERE k not regexp 'ok\$' ORDER BY k;"

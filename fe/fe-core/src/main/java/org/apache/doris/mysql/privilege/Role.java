@@ -118,6 +118,10 @@ public class Role implements Writable, GsonPostProcessable {
 
     }
 
+    public static boolean isDefaultRoleName(String roleName) {
+        return roleName.startsWith(RoleManager.DEFAULT_ROLE_PREFIX);
+    }
+
     public String getRoleName() {
         return roleName;
     }

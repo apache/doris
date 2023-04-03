@@ -181,3 +181,8 @@
 -- !select18 --
 200	changsha	3456789
 
+-- !select19 --
+1	beijing	2345671
+2	shanghai	2345672
+200	changsha	3456789
+

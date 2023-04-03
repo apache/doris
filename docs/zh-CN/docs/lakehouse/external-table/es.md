@@ -28,7 +28,7 @@ under the License.
 
 <version deprecated="1.2.2">
 
-推荐使用 [ES Catalog](../multi-catalog/es) 功能访问 ES。
+推荐使用 [ES Catalog](../multi-catalog/es.md) 功能访问 ES。
 
 </version>
 

@@ -41,7 +41,7 @@ Doris has its built-in root, and the default password is empty.
 >
 >The root user has all the privileges about the clusters by default. Users who have both Grant_priv and Node_priv can grant these privileges to other users. Node changing privileges include adding, deleting, and offlining FE, BE, and BROKER nodes.
 >
->For more instructions on privileges, please refer to [Privilege Management](../../admin-manual/privilege-ldap/user-privilege)
+>For more instructions on privileges, please refer to [Privilege Management](../admin-manual/privilege-ldap/user-privilege.md)
 
 After starting the Doris program, root or admin users can connect to Doris clusters. You can use the following command to log in to Doris. After login, you will enter the corresponding MySQL command line interface.
 
@@ -129,7 +129,7 @@ CREATE DATABASE example_db;
 >    SHOW CREATE ROUTINE LOAD
 > ```
 
-After the database is created, you can view the information about the database via the [SHOW DATABASES](../../sql-manual/sql-reference/Show-Statements/SHOW-DATABASES) command.
+After the database is created, you can view the information about the database via the [SHOW DATABASES](../sql-manual/sql-reference/Show-Statements/SHOW-DATABASES.md) command.
 
 ```sql
 MySQL> SHOW DATABASES;
@@ -164,7 +164,7 @@ mysql> USE example_db;
 Database changed
 ```
 
-Doris supports two table creation methods: [compound partitioning and single partitioning](./data-partition). The following takes the Aggregate Model as an example to demonstrate how to create tables with these two methods, respectively.
+Doris supports two table creation methods: [compound partitioning and single partitioning](./data-partition.md). The following takes the Aggregate Model as an example to demonstrate how to create tables with these two methods, respectively.
 
 #### Single Partitioning
 
@@ -446,7 +446,7 @@ MySQL> SELECT SUM(pv) FROM table2 WHERE siteid IN (SELECT siteid FROM table1 WHE
 
 ## Change Table Schema
 
-Use the [ALTER TABLE COLUMN](../../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN) command to modify the table Schema, including the following changes.
+Use the [ALTER TABLE COLUMN](../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN.md) command to modify the table Schema, including the following changes.
 
 - Adding columns
 - Deleting columns
@@ -510,7 +510,7 @@ For more help, see ``HELP ALTER TABLE``.
 
 Rollup can be seen as a materialized index structure for a Table, **materialized** in the sense that its data is physically independent in storage, and **indexed** in the sense that Rollup can reorder columns to increase the hit rate of prefix indexes as well as reduce Key columns to increase the aggregation level of data.
 
-You can perform various changes to Rollup using [ALTER TABLE ROLLUP](../../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-ROLLUP).
+You can perform various changes to Rollup using [ALTER TABLE ROLLUP](../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-ROLLUP.md).
 
 The following is an exemplified illustration.
 
@@ -579,7 +579,7 @@ Materialized views are a space-for-time data analysis acceleration technique. Do
 
 Doris can automatically ensure data consistency between materialized views and base tables, and automatically match the appropriate materialized view at query time, greatly reducing the cost of data maintenance for users and providing a consistent and transparent query acceleration experience.
 
-For more information about materialized views, see [Materialized Views](../../advanced/materialized-view)
+For more information about materialized views, see [Materialized Views](../advanced/materialized-view.md)
 
 ## Data Table Queries
 
@@ -694,7 +694,7 @@ mysql> select sum(table1.pv) from table1 join [shuffle] table2 where table1.site
 
 When deploying multiple FE nodes, you can deploy a load balancing layer on top of multiple FEs to achieve high availability of Doris.
 
-Please refer to [Load Balancing](../admin-manual/cluster-management/load-balancing) for details on installation, deployment, and usage.
+Please refer to [Load Balancing](../admin-manual/cluster-management/load-balancing.md) for details on installation, deployment, and usage.
 
 ## Update and Delete Data
 
@@ -702,4 +702,4 @@ Doris supports two methods to delete imported data. One is to use the `DELETE FR
 
 The other method is only used in the Unique Models with a unique primary key. It imports the the primary key rows that are to be deleted, and the final physical deletion of the data is performed internally by Doris using the deletion mark. This method is suitable for real-time deletion of data.
 
-For specific instructions on deleting and updating data, see [Data Update](../../data-operate/update-delete/update).
+For specific instructions on deleting and updating data, see [Data Update](../data-operate/update-delete/update.md).

@@ -34,7 +34,7 @@ EXPORT
 
 This statement is used to export the data of the specified table to the specified location.
 
-This is an asynchronous operation that returns if the task is submitted successfully. After execution, you can use the [SHOW EXPORT](../../Show-Statements/SHOW-EXPORT) command to view the progress.
+This is an asynchronous operation that returns if the task is submitted successfully. After execution, you can use the [SHOW EXPORT](../../Show-Statements/SHOW-EXPORT.md) command to view the progress.
 
 ```sql
 EXPORT TABLE table_name

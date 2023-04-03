@@ -185,7 +185,7 @@ public class Checkpoint extends MasterDaemon {
         if (!allFrontends.isEmpty()) {
             otherNodesCount = allFrontends.size() - 1; // skip master itself
             for (Frontend fe : allFrontends) {
-                String host = fe.getHost();
+                String host = fe.getIp();
                 if (host.equals(Env.getServingEnv().getMasterIp())) {
                     // skip master itself
                     continue;
@@ -227,7 +227,7 @@ public class Checkpoint extends MasterDaemon {
                 long deleteVersion = storage.getLatestValidatedImageSeq();
                 if (successPushed > 0) {
                     for (Frontend fe : allFrontends) {
-                        String host = fe.getHost();
+                        String host = fe.getIp();
                         if (host.equals(Env.getServingEnv().getMasterIp())) {
                             // skip master itself
                             continue;

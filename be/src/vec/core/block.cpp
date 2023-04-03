@@ -21,6 +21,7 @@
 #include "vec/core/block.h"
 
 #include <fmt/format.h>
+#include <glog/logging.h>
 #include <snappy.h>
 
 #include "agent/be_exec_version_manager.h"
@@ -28,7 +29,6 @@
 #include "runtime/descriptors.h"
 #include "udf/udf.h"
 #include "util/block_compression.h"
-#include "util/exception.h"
 #include "util/faststring.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
@@ -38,7 +38,6 @@
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/exception.h"
 #include "vec/common/schema_util.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/typeid_cast.h"
@@ -195,7 +194,7 @@ void Block::erase_tail(size_t start) {
 
 void Block::erase(size_t position) {
     DCHECK(!data.empty()) << "Block is empty";
-    DCHECK(position < data.size()) << fmt::format(
+    DCHECK_LT(position, data.size()) << fmt::format(
             "Position out of bound in Block::erase(), max position = {}", data.size() - 1);
 
     erase_impl(position);
@@ -321,8 +320,8 @@ void Block::check_number_of_rows(bool allow_null_columns) const {
         if (rows == -1) {
             rows = size;
         } else if (rows != size) {
-            LOG(FATAL) << fmt::format("Sizes of columns doesn't match: {}:{},{}:{}",
-                                      data.front().name, rows, elem.name, size);
+            LOG(FATAL) << fmt::format("Sizes of columns doesn't match: {}:{},{}:{}, col size: {}",
+                                      data.front().name, rows, elem.name, size, each_col_size());
         }
     }
 }
@@ -337,16 +336,17 @@ size_t Block::rows() const {
     return 0;
 }
 
-std::string Block::each_col_size() {
-    std::stringstream ss;
+std::string Block::each_col_size() const {
+    std::string ss;
     for (const auto& elem : data) {
         if (elem.column) {
-            ss << elem.column->size() << " | ";
+            ss += elem.column->size();
+            ss += " | ";
         } else {
-            ss << "-1 | ";
+            ss += "-1 | ";
         }
     }
-    return ss.str();
+    return ss;
 }
 
 void Block::set_num_rows(size_t length) {
@@ -398,12 +398,25 @@ size_t Block::allocated_bytes() const {
 }
 
 std::string Block::dump_names() const {
-    std::stringstream out;
+    std::string out;
     for (auto it = data.begin(); it != data.end(); ++it) {
-        if (it != data.begin()) out << ", ";
-        out << it->name;
+        if (it != data.begin()) {
+            out += ", ";
+        }
+        out += it->name;
     }
-    return out.str();
+    return out;
+}
+
+std::string Block::dump_types() const {
+    std::string out;
+    for (auto it = data.begin(); it != data.end(); ++it) {
+        if (it != data.begin()) {
+            out += ", ";
+        }
+        out += it->type->get_name();
+    }
+    return out;
 }
 
 std::string Block::dump_data(size_t begin, size_t row_limit) const {
@@ -438,7 +451,12 @@ std::string Block::dump_data(size_t begin, size_t row_limit) const {
     // content
     for (size_t row_num = begin; row_num < rows() && row_num < row_limit + begin; ++row_num) {
         for (size_t i = 0; i < columns(); ++i) {
-            std::string s = "";
+            if (data[i].column->empty()) {
+                out << std::setfill(' ') << std::setw(1) << "|" << std::setw(headers_size[i])
+                    << std::right;
+                continue;
+            }
+            std::string s;
             if (data[i].column) {
                 s = data[i].to_string(row_num);
             }
@@ -473,15 +491,14 @@ std::string Block::dump_one_line(size_t row, int column_end) const {
 }
 
 std::string Block::dump_structure() const {
-    // WriteBufferFromOwnString out;
-    std::stringstream out;
+    std::string out;
     for (auto it = data.begin(); it != data.end(); ++it) {
         if (it != data.begin()) {
-            out << ", ";
+            out += ", \n";
         }
-        out << it->dump_structure();
+        out += it->dump_structure();
     }
-    return out.str();
+    return out;
 }
 
 Block Block::clone_empty() const {
@@ -489,7 +506,6 @@ Block Block::clone_empty() const {
     for (const auto& elem : data) {
         res.insert(elem.clone_empty());
     }
-    res.set_block_type(_type);
     return res;
 }
 
@@ -544,7 +560,6 @@ Block Block::clone_with_columns(MutableColumns&& columns) const {
     for (size_t i = 0; i < num_columns; ++i) {
         res.insert({std::move(columns[i]), data[i].type, data[i].name});
     }
-    res.set_block_type(_type);
 
     return res;
 }
@@ -564,7 +579,6 @@ Block Block::clone_with_columns(const Columns& columns) const {
     for (size_t i = 0; i < num_columns; ++i) {
         res.insert({columns[i], data[i].type, data[i].name});
     }
-    res.set_block_type(_type);
     return res;
 }
 
@@ -575,7 +589,6 @@ Block Block::clone_without_columns() const {
     for (size_t i = 0; i < num_columns; ++i) {
         res.insert({nullptr, data[i].type, data[i].name});
     }
-    res.set_block_type(_type);
     return res;
 }
 
@@ -668,7 +681,7 @@ void Block::filter_block_internal(Block* block, const std::vector<uint32_t>& col
         for (auto& col : columns_to_filter) {
             auto& column = block->get_by_position(col).column;
             if (column->size() != count) {
-                if (column->use_count() == 1) {
+                if (column->is_exclusive()) {
                     const auto result_size = column->assume_mutable()->filter(filter);
                     CHECK_EQ(result_size, count);
                 } else {
@@ -699,11 +712,7 @@ Block Block::copy_block(const std::vector<int>& column_offset) const {
 }
 
 void Block::append_block_by_selector(MutableBlock* dst, const IColumn::Selector& selector) const {
-    if (UNLIKELY(dst->get_block_type() == BlockType::DYNAMIC)) {
-        schema_util::align_append_block_by_selector(dst, this, selector);
-        return;
-    }
-    DCHECK(data.size() == dst->mutable_columns().size());
+    DCHECK_EQ(data.size(), dst->mutable_columns().size());
     for (size_t i = 0; i < data.size(); i++) {
         data[i].column->append_data_by_selector(dst->mutable_columns()[i], selector);
     }
@@ -779,10 +788,8 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
     try {
         column_values.resize(content_uncompressed_size);
     } catch (...) {
-        std::exception_ptr p = std::current_exception();
-        std::string msg =
-                fmt::format("Try to alloc {} bytes for pblock column values failed. reason {}",
-                            content_uncompressed_size, get_current_exception_type_name(p));
+        std::string msg = fmt::format("Try to alloc {} bytes for pblock column values failed.",
+                                      content_uncompressed_size);
         LOG(WARNING) << msg;
         return Status::BufferAllocFailed(msg);
     }
@@ -817,23 +824,15 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
 
         VLOG_ROW << "uncompressed size: " << content_uncompressed_size
                  << ", compressed size: " << compressed_size;
+    } else {
+        pblock->set_column_values(std::move(column_values));
+        *compressed_bytes = content_uncompressed_size;
     }
     if (!allow_transfer_large_data && *compressed_bytes >= std::numeric_limits<int32_t>::max()) {
         return Status::InternalError("The block is large than 2GB({}), can not send by Protobuf.",
                                      *compressed_bytes);
     }
     return Status::OK();
-}
-
-inline bool Block::is_column_data_null(const doris::TypeDescriptor& type_desc,
-                                       const StringRef& data_ref, const IColumn* column, int row) {
-    if (type_desc.type != TYPE_ARRAY) {
-        return data_ref.data == nullptr;
-    } else {
-        Field array;
-        column->get(row, array);
-        return array.is_null();
-    }
 }
 
 MutableBlock::MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs, int reserve_size,
@@ -887,10 +886,6 @@ void MutableBlock::add_row(const Block* block, int row) {
 }
 
 void MutableBlock::add_rows(const Block* block, const int* row_begin, const int* row_end) {
-    if (UNLIKELY(_type == BlockType::DYNAMIC)) {
-        schema_util::align_block_by_name_and_type(this, block, row_begin, row_end);
-        return;
-    }
     auto& block_data = block->get_columns_with_type_and_name();
     for (size_t i = 0; i < _columns.size(); ++i) {
         auto& dst = _columns[i];
@@ -900,10 +895,6 @@ void MutableBlock::add_rows(const Block* block, const int* row_begin, const int*
 }
 
 void MutableBlock::add_rows(const Block* block, size_t row_begin, size_t length) {
-    if (UNLIKELY(_type == BlockType::DYNAMIC)) {
-        schema_util::align_block_by_name_and_type(this, block, row_begin, length);
-        return;
-    }
     auto& block_data = block->get_columns_with_type_and_name();
     for (size_t i = 0; i < _columns.size(); ++i) {
         auto& dst = _columns[i];
@@ -956,6 +947,11 @@ std::string MutableBlock::dump_data(size_t row_limit) const {
     // content
     for (size_t row_num = 0; row_num < rows() && row_num < row_limit; ++row_num) {
         for (size_t i = 0; i < columns(); ++i) {
+            if (_columns[i].get()->empty()) {
+                out << std::setfill(' ') << std::setw(1) << "|" << std::setw(headers_size[i])
+                    << std::right;
+                continue;
+            }
             std::string s = _data_types[i]->to_string(*_columns[i].get(), row_num);
             if (s.length() > headers_size[i]) {
                 s = s.substr(0, headers_size[i] - 3) + "...";
@@ -1030,14 +1026,14 @@ size_t MutableBlock::get_position_by_name(const std::string& name) const {
 }
 
 std::string MutableBlock::dump_names() const {
-    std::stringstream out;
+    std::string out;
     for (auto it = _names.begin(); it != _names.end(); ++it) {
         if (it != _names.begin()) {
-            out << ", ";
+            out += ", ";
         }
-        out << *it;
+        out += *it;
     }
-    return out.str();
+    return out;
 }
 
 } // namespace doris::vectorized

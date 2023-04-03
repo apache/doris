@@ -19,6 +19,8 @@ package org.apache.doris.system;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.ha.BDBHA;
+import org.apache.doris.ha.FrontendNodeType;
 
 import mockit.Expectations;
 import mockit.Mock;
@@ -30,6 +32,8 @@ import org.junit.Test;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.util.ArrayList;
+import java.util.List;
 
 public class FQDNManagerTest {
     @Mocked
@@ -41,6 +45,11 @@ public class FQDNManagerTest {
     private FQDNManager fdqnManager;
 
     private SystemInfoService systemInfoService;
+
+    List<Frontend> frontends = new ArrayList<>();
+
+    @Mocked
+    private BDBHA bdbha;
 
     @Before
     public void setUp() throws UnknownHostException {
@@ -56,7 +65,40 @@ public class FQDNManagerTest {
             public Env getServingEnv() {
                 return env;
             }
+
+            @Mock
+            public Env getCurrentEnv() {
+                return env;
+            }
+
+            @Mock
+            public boolean tryLock() {
+                return true;
+            }
+
+            @Mock
+            public void modifyFrontendIp(String nodeName, String ip) {
+                for (Frontend fe : frontends) {
+                    if (fe.getNodeName().equals(nodeName)) {
+                        fe.setIp(ip);
+                    }
+                }
+            }
         };
+
+        new MockUp<BDBHA>(BDBHA.class) {
+            @Mock
+            public boolean updateNodeAddress(String nodeName, String ip, int port) {
+                return true;
+            }
+        };
+
+        Config.enable_fqdn_mode = true;
+        systemInfoService = new SystemInfoService();
+        systemInfoService.addBackend(new Backend(1, "193.88.67.98", "doris.test.domain", 9090));
+        frontends.add(new Frontend(FrontendNodeType.FOLLOWER, "doris.test.domain_9010_1675168383846",
+                "193.88.67.90", "doris.test.domain", 9010));
+        fdqnManager = new FQDNManager(systemInfoService);
 
         new Expectations() {
             {
@@ -67,13 +109,20 @@ public class FQDNManagerTest {
                 inetAddress.getHostAddress();
                 minTimes = 0;
                 result = "193.88.67.99";
+
+                env.getFrontends(null);
+                minTimes = 0;
+                result = frontends;
+
+                env.getFeByName("doris.test.domain_9010_1675168383846");
+                minTimes = 0;
+                result = frontends.get(0);
+
+                env.getHaProtocol();
+                minTimes = 0;
+                result = bdbha;
             }
         };
-
-        Config.enable_fqdn_mode = true;
-        systemInfoService = new SystemInfoService();
-        systemInfoService.addBackend(new Backend(1, "193.88.67.98", "doris.test.domain", 9090));
-        fdqnManager = new FQDNManager(systemInfoService);
     }
 
     @Test
@@ -82,6 +131,16 @@ public class FQDNManagerTest {
         fdqnManager.start();
         Thread.sleep(1000);
         Assert.assertEquals("193.88.67.99", systemInfoService.getBackend(1).getIp());
+        fdqnManager.exit();
+    }
+
+    @Test
+    public void testFrontendChanged() throws InterruptedException {
+        // frontend ip changed
+        Assert.assertEquals("193.88.67.90", env.getFrontends(null).get(0).getIp());
+        fdqnManager.start();
+        Thread.sleep(1000);
+        Assert.assertEquals("193.88.67.99", env.getFrontends(null).get(0).getIp());
         fdqnManager.exit();
     }
 }

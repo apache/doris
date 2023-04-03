@@ -27,8 +27,8 @@
 #include "gutil/strings/escaping.h"
 #include "gutil/strings/split.h"
 #include "gutil/strings/substitute.h"
+#include "io/fs/local_file_system.h"
 #include "util/error_util.h"
-#include "util/file_utils.h"
 #include "util/string_parser.hpp"
 
 using strings::CUnescape;
@@ -224,7 +224,9 @@ std::string CGroupUtil::debug_string() {
 }
 
 bool CGroupUtil::enable() {
-    return FileUtils::check_exist("/proc/cgroups");
+    bool exists = true;
+    Status st = io::global_local_filesystem()->exists("/proc/cgroups", &exists);
+    return st.ok() && exists;
 }
 
 } // namespace doris

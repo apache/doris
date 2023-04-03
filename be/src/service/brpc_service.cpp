@@ -20,6 +20,7 @@
 #include <string.h>
 
 #include "common/logging.h"
+#include "service/backend_options.h"
 #include "service/brpc.h"
 #include "service/internal_service.h"
 

@@ -29,6 +29,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
@@ -71,6 +72,12 @@ public class CaseWhen extends Expression {
                 .collect(ImmutableList.toImmutableList());
     }
 
+    public List<Expression> expressionForCoercion() {
+        List<Expression> ret = whenClauses.stream().map(WhenClause::getResult).collect(Collectors.toList());
+        defaultValue.ifPresent(ret::add);
+        return ret;
+    }
+
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitCaseWhen(this, context);
     }
@@ -97,7 +104,7 @@ public class CaseWhen extends Expression {
 
     @Override
     public String toSql() throws UnboundException {
-        StringBuilder output = new StringBuilder("CASE ");
+        StringBuilder output = new StringBuilder("CASE");
         for (Expression child : children()) {
             if (child instanceof WhenClause) {
                 output.append(child.toSql());

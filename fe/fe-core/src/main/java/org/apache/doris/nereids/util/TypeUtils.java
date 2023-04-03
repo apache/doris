@@ -33,7 +33,6 @@ import java.util.Optional;
  * Judgment expression type.
  */
 public class TypeUtils {
-
     public static boolean isAddOrSubtract(Expression expr) {
         return isAdd(expr) || isSubtract(expr);
     }

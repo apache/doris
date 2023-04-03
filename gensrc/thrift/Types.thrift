@@ -92,7 +92,8 @@ enum TPrimitiveType {
   DECIMAL128I,
   JSONB,
   VARIANT,
-  UNSUPPORTED
+  UNSUPPORTED,
+  LAMBDA_FUNCTION
 }
 
 enum TTypeNodeType {
@@ -155,6 +156,7 @@ struct TTypeNode {
 struct TTypeDesc {
     1: list<TTypeNode> types
     2: optional bool is_nullable
+    3: optional i64  byte_size
 }
 
 enum TAggregationType {
@@ -370,6 +372,17 @@ enum TJdbcOperation {
     WRITE
 }
 
+enum TOdbcTableType {
+    MYSQL,
+    ORACLE,
+    POSTGRESQL,
+    SQLSERVER,
+    REDIS,
+    MONGODB,
+    CLICKHOUSE,
+    SAP_HANA
+}
+
 struct TJdbcExecutorCtorParams {
   1: optional string statement
 
@@ -391,6 +404,8 @@ struct TJdbcExecutorCtorParams {
 
   // "/home/user/mysql-connector-java-5.1.47.jar"
   8: optional string driver_path
+
+  9: optional TOdbcTableType table_type
 }
 
 struct TJavaUdfExecutorCtorParams {
@@ -571,16 +586,6 @@ enum TTableType {
     TEST_EXTERNAL_TABLE,
 }
 
-enum TOdbcTableType {
-    MYSQL,
-    ORACLE,
-    POSTGRESQL,
-    SQLSERVER,
-    REDIS,
-    MONGODB,
-    CLICKHOUSE
-}
-
 enum TKeysType {
     PRIMARY_KEYS,
     DUP_KEYS,
@@ -652,6 +657,15 @@ enum TMergeType {
 enum TSortType {
     LEXICAL,
     ZORDER, 
+}
+
+enum TMetadataType {
+  ICEBERG,
+  BACKENDS
+}
+
+enum TIcebergQueryType {
+  SNAPSHOTS
 }
 
 // represent a user identity

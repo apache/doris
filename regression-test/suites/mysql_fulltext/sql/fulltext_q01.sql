@@ -1,5 +1,3 @@
-SET enable_vectorized_engine=true;
-
 SELECT * FROM fulltext_t1_uk WHERE a MATCH_ANY 'collections' OR b MATCH_ANY 'collections' ORDER BY a;
 SELECT * FROM fulltext_t1_uk WHERE a MATCH_ANY 'indexes' OR b MATCH_ANY 'indexes' ORDER BY a;
 SELECT * FROM fulltext_t1_uk WHERE a MATCH_ANY 'indexes collections' OR b MATCH_ANY 'indexes collections' ORDER BY a;

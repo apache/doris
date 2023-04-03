@@ -106,7 +106,7 @@ const TypeInfo* get_scalar_type_info(FieldType field_type) {
     }
 
 template <FieldType field_type>
-inline const ArrayTypeInfo* get_init_array_type_info(int32_t iterations) {
+const ArrayTypeInfo* get_init_array_type_info(int32_t iterations) {
     static ArrayTypeInfo nested_type_info_0(
             create_static_type_info_ptr(get_scalar_type_info<field_type>()));
     static ArrayTypeInfo nested_type_info_1(create_static_type_info_ptr(&nested_type_info_0));

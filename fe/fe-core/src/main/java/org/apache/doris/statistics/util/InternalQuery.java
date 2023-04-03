@@ -154,7 +154,7 @@ public class InternalQuery {
         TQueryOptions queryOptions = new TQueryOptions();
         originalPlanner.plan(stmt, queryOptions);
 
-        coord = new Coordinator(context, analyzer, originalPlanner);
+        coord = new Coordinator(context, analyzer, originalPlanner, null);
     }
 
     private void execute() throws Exception {

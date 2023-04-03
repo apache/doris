@@ -50,6 +50,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
 
@@ -62,6 +63,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.Stack;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 import javax.annotation.Nullable;
 
 /**
@@ -280,6 +282,23 @@ public class CascadesContext implements ScheduleContext, PlanSource {
         this.outerScope = Optional.ofNullable(outerScope);
     }
 
+    /** getAndCacheSessionVariable */
+    public <T> T getAndCacheSessionVariable(String cacheName,
+            T defaultValue, Function<SessionVariable, T> variableSupplier) {
+        ConnectContext connectContext = getConnectContext();
+        if (connectContext == null) {
+            return defaultValue;
+        }
+
+        StatementContext statementContext = getStatementContext();
+        if (statementContext == null) {
+            return defaultValue;
+        }
+        T cacheResult = statementContext.getOrRegisterCache(cacheName,
+                () -> variableSupplier.apply(connectContext.getSessionVariable()));
+        return cacheResult;
+    }
+
     private CascadesContext execute(Job job) {
         pushJob(job);
         jobScheduler.executeJobPool(this);
@@ -386,6 +405,7 @@ public class CascadesContext implements ScheduleContext, PlanSource {
             cascadesContext.extractTables(plan);
             for (Table table : cascadesContext.tables) {
                 if (!table.tryReadLock(1, TimeUnit.MINUTES)) {
+                    close();
                     throw new RuntimeException(String.format("Failed to get read lock on table: %s", table.getName()));
                 }
                 locked.push(table);

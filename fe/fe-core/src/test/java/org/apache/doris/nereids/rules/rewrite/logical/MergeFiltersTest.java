@@ -17,47 +17,40 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.analyzer.UnboundRelation;
-import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
-import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.util.LogicalPlanBuilder;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
+import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.List;
-import java.util.Set;
-
 /**
- * MergeConsecutiveFilter ut
+ * Tests for {@link MergeFilters}.
  */
-public class MergeFiltersTest {
-    @Test
-    public void testMergeConsecutiveFilters() {
-        UnboundRelation relation = new UnboundRelation(RelationUtil.newRelationId(), Lists.newArrayList("db", "table"));
-        Expression expression1 = new IntegerLiteral(1);
-        LogicalFilter filter1 = new LogicalFilter<>(ImmutableSet.of(expression1), relation);
-        Expression expression2 = new IntegerLiteral(2);
-        LogicalFilter filter2 = new LogicalFilter<>(ImmutableSet.of(expression2), filter1);
-        Expression expression3 = new IntegerLiteral(3);
-        LogicalFilter filter3 = new LogicalFilter<>(ImmutableSet.of(expression3), filter2);
+class MergeFiltersTest implements MemoPatternMatchSupported {
+    private final LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
 
-        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(filter3);
-        List<Rule> rules = Lists.newArrayList(new MergeFilters().build());
-        cascadesContext.bottomUpRewrite(rules);
-        //check transformed plan
-        Plan resultPlan = cascadesContext.getMemo().copyOut();
-        System.out.println(resultPlan.treeString());
-        Assertions.assertTrue(resultPlan instanceof LogicalFilter);
-        Set<Expression> allPredicates = ImmutableSet.of(expression1, expression2, expression3);
-        Assertions.assertEquals(ImmutableSet.copyOf(((LogicalFilter<?>) resultPlan).getConjuncts()), allPredicates);
-        Assertions.assertTrue(resultPlan.child(0) instanceof UnboundRelation);
+    @Test
+    void testMergeFilters() {
+        Expression expression1 = new IntegerLiteral(1);
+        Expression expression2 = new IntegerLiteral(2);
+        Expression expression3 = new IntegerLiteral(3);
+
+        LogicalPlan logicalFilter = new LogicalPlanBuilder(scan)
+                .filter(ImmutableSet.of(expression1))
+                .filter(ImmutableSet.of(expression2))
+                .filter(ImmutableSet.of(expression3))
+                .build();
+
+        PlanChecker.from(new ConnectContext(), logicalFilter).applyBottomUp(new MergeFilters())
+                .matches(
+                        logicalFilter().when(filter -> filter.getConjuncts()
+                                .equals(ImmutableSet.of(expression1, expression2, expression3))));
     }
 }

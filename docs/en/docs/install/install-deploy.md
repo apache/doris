@@ -159,7 +159,7 @@ Broker currently does not have the `priority_networks` configuration item, nor d
 
 By default, table names in Doris are case-sensitive. If you need to change that, you may do it before cluster initialization. The table name case sensitivity cannot be changed after cluster initialization is completed.
 
-See the `lower_case_table_names` section in [Variables](../../advanced/variables) for details.
+See the `lower_case_table_names` section in [Variables](../advanced/variables.md) for details.
 
 ## Cluster Deployment
 

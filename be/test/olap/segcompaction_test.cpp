@@ -26,6 +26,7 @@
 #include "env/env_posix.h"
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/olap_file.pb.h"
+#include "io/fs/local_file_system.h"
 #include "olap/data_dir.h"
 #include "olap/row_cursor.h"
 #include "olap/rowset/beta_rowset_reader.h"
@@ -39,9 +40,7 @@
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
 #include "runtime/exec_env.h"
-#include "runtime/mem_pool.h"
 #include "runtime/memory/mem_tracker.h"
-#include "util/file_utils.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -59,7 +58,6 @@ public:
 
     void SetUp() {
         config::enable_segcompaction = true;
-        config::enable_storage_vectorization = true;
         config::tablet_map_shard_size = 1;
         config::txn_map_shard_size = 1;
         config::txn_shard_size = 1;
@@ -68,8 +66,9 @@ public:
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         config::storage_root_path = std::string(buffer) + "/data_test";
 
-        EXPECT_TRUE(FileUtils::remove_all(config::storage_root_path).ok());
-        EXPECT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
+        EXPECT_TRUE(io::global_local_filesystem()
+                            ->delete_and_create_directory(config::storage_root_path)
+                            .ok());
 
         std::vector<StorePath> paths;
         paths.emplace_back(config::storage_root_path, -1);
@@ -82,7 +81,7 @@ public:
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
         exec_env->set_storage_engine(l_engine);
 
-        EXPECT_TRUE(FileUtils::create_dir(lTestDir).ok());
+        EXPECT_TRUE(io::global_local_filesystem()->create_directory(lTestDir).ok());
 
         l_engine->start_bg_threads();
     }
@@ -225,7 +224,6 @@ private:
 
 TEST_F(SegCompactionTest, SegCompactionThenRead) {
     config::enable_segcompaction = true;
-    config::enable_storage_vectorization = true;
     Status s;
     TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     create_tablet_schema(tablet_schema, DUP_KEYS);
@@ -253,14 +251,14 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
         // k2 := k1 * 10
         // k3 := rid
         for (int i = 0; i < num_segments; ++i) {
-            MemPool mem_pool;
+            vectorized::Arena arena;
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
                 uint32_t k2 = i;
                 uint32_t k3 = rid;
-                input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-                input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-                input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+                input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+                input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+                input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
                 s = rowset_writer->add_row(input_row);
                 EXPECT_EQ(Status::OK(), s);
             }
@@ -337,7 +335,6 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
 
 TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
     config::enable_segcompaction = true;
-    config::enable_storage_vectorization = true;
     Status s;
     TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     create_tablet_schema(tablet_schema, DUP_KEYS);
@@ -364,14 +361,14 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         int num_segments = 4;
         uint32_t rows_per_segment = 4096;
         for (int i = 0; i < num_segments; ++i) {
-            MemPool mem_pool;
+            vectorized::Arena arena;
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
                 uint32_t k2 = i;
                 uint32_t k3 = rid;
-                input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-                input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-                input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+                input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+                input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+                input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
                 s = rowset_writer->add_row(input_row);
                 EXPECT_EQ(Status::OK(), s);
             }
@@ -381,14 +378,14 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         num_segments = 2;
         rows_per_segment = 6400;
         for (int i = 0; i < num_segments; ++i) {
-            MemPool mem_pool;
+            vectorized::Arena arena;
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
                 uint32_t k2 = i;
                 uint32_t k3 = rid;
-                input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-                input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-                input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+                input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+                input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+                input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
                 s = rowset_writer->add_row(input_row);
                 EXPECT_EQ(Status::OK(), s);
             }
@@ -398,14 +395,14 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         num_segments = 1;
         rows_per_segment = 4096;
         for (int i = 0; i < num_segments; ++i) {
-            MemPool mem_pool;
+            vectorized::Arena arena;
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
                 uint32_t k2 = i;
                 uint32_t k3 = rid;
-                input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-                input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-                input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+                input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+                input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+                input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
                 s = rowset_writer->add_row(input_row);
                 EXPECT_EQ(Status::OK(), s);
             }
@@ -415,14 +412,14 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         num_segments = 1;
         rows_per_segment = 6400;
         for (int i = 0; i < num_segments; ++i) {
-            MemPool mem_pool;
+            vectorized::Arena arena;
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
                 uint32_t k2 = i;
                 uint32_t k3 = rid;
-                input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-                input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-                input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+                input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+                input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+                input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
                 s = rowset_writer->add_row(input_row);
                 EXPECT_EQ(Status::OK(), s);
             }
@@ -432,14 +429,14 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         num_segments = 8;
         rows_per_segment = 4096;
         for (int i = 0; i < num_segments; ++i) {
-            MemPool mem_pool;
+            vectorized::Arena arena;
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
                 uint32_t k2 = i;
                 uint32_t k3 = rid;
-                input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-                input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-                input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+                input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+                input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+                input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
                 s = rowset_writer->add_row(input_row);
                 EXPECT_EQ(Status::OK(), s);
             }
@@ -450,14 +447,14 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         num_segments = 1;
         rows_per_segment = 6400;
         for (int i = 0; i < num_segments; ++i) {
-            MemPool mem_pool;
+            vectorized::Arena arena;
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
                 uint32_t k2 = i;
                 uint32_t k3 = rid;
-                input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-                input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-                input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+                input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+                input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+                input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
                 s = rowset_writer->add_row(input_row);
                 EXPECT_EQ(Status::OK(), s);
             }
@@ -482,7 +479,6 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
 
 TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_OoOoO) {
     config::enable_segcompaction = true;
-    config::enable_storage_vectorization = true;
     Status s;
     TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     create_tablet_schema(tablet_schema, DUP_KEYS);
@@ -509,14 +505,14 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_OoOoO) {
         int num_segments = 1;
         uint32_t rows_per_segment = 6400;
         for (int i = 0; i < num_segments; ++i) {
-            MemPool mem_pool;
+            vectorized::Arena arena;
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
                 uint32_t k2 = i;
                 uint32_t k3 = rid;
-                input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-                input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-                input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+                input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+                input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+                input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
                 s = rowset_writer->add_row(input_row);
                 EXPECT_EQ(Status::OK(), s);
             }
@@ -526,14 +522,14 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_OoOoO) {
         num_segments = 1;
         rows_per_segment = 4096;
         for (int i = 0; i < num_segments; ++i) {
-            MemPool mem_pool;
+            vectorized::Arena arena;
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
                 uint32_t k2 = i;
                 uint32_t k3 = rid;
-                input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-                input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-                input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+                input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+                input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+                input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
                 s = rowset_writer->add_row(input_row);
                 EXPECT_EQ(Status::OK(), s);
             }
@@ -543,14 +539,14 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_OoOoO) {
         num_segments = 1;
         rows_per_segment = 6400;
         for (int i = 0; i < num_segments; ++i) {
-            MemPool mem_pool;
+            vectorized::Arena arena;
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
                 uint32_t k2 = i;
                 uint32_t k3 = rid;
-                input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-                input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-                input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+                input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+                input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+                input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
                 s = rowset_writer->add_row(input_row);
                 EXPECT_EQ(Status::OK(), s);
             }
@@ -560,14 +556,14 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_OoOoO) {
         num_segments = 1;
         rows_per_segment = 4096;
         for (int i = 0; i < num_segments; ++i) {
-            MemPool mem_pool;
+            vectorized::Arena arena;
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
                 uint32_t k2 = i;
                 uint32_t k3 = rid;
-                input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-                input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-                input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+                input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+                input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+                input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
                 s = rowset_writer->add_row(input_row);
                 EXPECT_EQ(Status::OK(), s);
             }
@@ -577,14 +573,14 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_OoOoO) {
         num_segments = 1;
         rows_per_segment = 6400;
         for (int i = 0; i < num_segments; ++i) {
-            MemPool mem_pool;
+            vectorized::Arena arena;
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
                 uint32_t k2 = i;
                 uint32_t k3 = rid;
-                input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-                input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-                input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+                input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+                input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+                input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
                 s = rowset_writer->add_row(input_row);
                 EXPECT_EQ(Status::OK(), s);
             }
@@ -606,7 +602,6 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_OoOoO) {
 
 TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
     config::enable_segcompaction = true;
-    config::enable_storage_vectorization = true;
     Status s;
     TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     create_tablet_schema(tablet_schema, UNIQUE_KEYS);
@@ -627,7 +622,7 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
         RowCursor input_row;
         input_row.init(tablet_schema);
 
-        MemPool mem_pool;
+        vectorized::Arena arena;
         uint32_t k1 = 0;
         uint32_t k2 = 0;
         uint32_t k3 = 0;
@@ -635,25 +630,25 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
         // segment#0
         k1 = k2 = 1;
         k3 = 1;
-        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
         s = rowset_writer->add_row(input_row);
         EXPECT_EQ(Status::OK(), s);
 
         k1 = k2 = 4;
         k3 = 1;
-        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
         s = rowset_writer->add_row(input_row);
         EXPECT_EQ(Status::OK(), s);
 
         k1 = k2 = 6;
         k3 = 1;
-        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
         s = rowset_writer->add_row(input_row);
         EXPECT_EQ(Status::OK(), s);
 
@@ -663,25 +658,25 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
         // segment#1
         k1 = k2 = 2;
         k3 = 1;
-        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
         s = rowset_writer->add_row(input_row);
         EXPECT_EQ(Status::OK(), s);
 
         k1 = k2 = 4;
         k3 = 2;
-        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
         s = rowset_writer->add_row(input_row);
         EXPECT_EQ(Status::OK(), s);
 
         k1 = k2 = 6;
         k3 = 2;
-        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
         s = rowset_writer->add_row(input_row);
         EXPECT_EQ(Status::OK(), s);
 
@@ -692,25 +687,25 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
         // segment#2
         k1 = k2 = 3;
         k3 = 1;
-        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
         s = rowset_writer->add_row(input_row);
         EXPECT_EQ(Status::OK(), s);
 
         k1 = k2 = 6;
         k3 = 3;
-        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
         s = rowset_writer->add_row(input_row);
         EXPECT_EQ(Status::OK(), s);
 
         k1 = k2 = 9;
         k3 = 1;
-        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
         s = rowset_writer->add_row(input_row);
         EXPECT_EQ(Status::OK(), s);
 
@@ -721,25 +716,25 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
         // segment#3
         k1 = k2 = 4;
         k3 = 3;
-        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
         s = rowset_writer->add_row(input_row);
         EXPECT_EQ(Status::OK(), s);
 
         k1 = k2 = 9;
         k3 = 2;
-        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
         s = rowset_writer->add_row(input_row);
         EXPECT_EQ(Status::OK(), s);
 
         k1 = k2 = 12;
         k3 = 1;
-        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
         s = rowset_writer->add_row(input_row);
         EXPECT_EQ(Status::OK(), s);
 
@@ -750,9 +745,9 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
         // segment#4
         k1 = k2 = 25;
         k3 = 1;
-        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
         s = rowset_writer->add_row(input_row);
         EXPECT_EQ(Status::OK(), s);
 
@@ -763,9 +758,9 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
         // segment#5
         k1 = k2 = 26;
         k3 = 1;
-        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
         s = rowset_writer->add_row(input_row);
         EXPECT_EQ(Status::OK(), s);
 
@@ -841,7 +836,6 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
 
 TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
     config::enable_segcompaction = true;
-    config::enable_storage_vectorization = true;
     Status s;
     TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     create_tablet_schema(tablet_schema, AGG_KEYS);
@@ -862,7 +856,7 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
         RowCursor input_row;
         input_row.init(tablet_schema);
 
-        MemPool mem_pool;
+        vectorized::Arena arena;
         uint32_t k1 = 0;
         uint32_t k2 = 0;
         uint32_t k3 = 0;
@@ -870,25 +864,25 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
         // segment#0
         k1 = k2 = 1;
         k3 = 1;
-        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
         s = rowset_writer->add_row(input_row);
         EXPECT_EQ(Status::OK(), s);
 
         k1 = k2 = 4;
         k3 = 1;
-        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
         s = rowset_writer->add_row(input_row);
         EXPECT_EQ(Status::OK(), s);
 
         k1 = k2 = 6;
         k3 = 1;
-        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
         s = rowset_writer->add_row(input_row);
         EXPECT_EQ(Status::OK(), s);
 
@@ -898,25 +892,25 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
         // segment#1
         k1 = k2 = 2;
         k3 = 1;
-        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
         s = rowset_writer->add_row(input_row);
         EXPECT_EQ(Status::OK(), s);
 
         k1 = k2 = 4;
         k3 = 2;
-        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
         s = rowset_writer->add_row(input_row);
         EXPECT_EQ(Status::OK(), s);
 
         k1 = k2 = 6;
         k3 = 2;
-        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
         s = rowset_writer->add_row(input_row);
         EXPECT_EQ(Status::OK(), s);
 
@@ -927,25 +921,25 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
         // segment#2
         k1 = k2 = 3;
         k3 = 1;
-        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
         s = rowset_writer->add_row(input_row);
         EXPECT_EQ(Status::OK(), s);
 
         k1 = k2 = 6;
         k3 = 3;
-        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
         s = rowset_writer->add_row(input_row);
         EXPECT_EQ(Status::OK(), s);
 
         k1 = k2 = 9;
         k3 = 1;
-        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
         s = rowset_writer->add_row(input_row);
         EXPECT_EQ(Status::OK(), s);
 
@@ -956,25 +950,25 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
         // segment#3
         k1 = k2 = 4;
         k3 = 3;
-        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
         s = rowset_writer->add_row(input_row);
         EXPECT_EQ(Status::OK(), s);
 
         k1 = k2 = 9;
         k3 = 2;
-        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
         s = rowset_writer->add_row(input_row);
         EXPECT_EQ(Status::OK(), s);
 
         k1 = k2 = 12;
         k3 = 1;
-        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
         s = rowset_writer->add_row(input_row);
         EXPECT_EQ(Status::OK(), s);
 
@@ -985,9 +979,9 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
         // segment#4
         k1 = k2 = 25;
         k3 = 1;
-        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
         s = rowset_writer->add_row(input_row);
         EXPECT_EQ(Status::OK(), s);
 
@@ -998,9 +992,9 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
         // segment#5
         k1 = k2 = 26;
         k3 = 1;
-        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
-        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
-        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &arena);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &arena);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &arena);
         s = rowset_writer->add_row(input_row);
         EXPECT_EQ(Status::OK(), s);
 

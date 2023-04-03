@@ -35,6 +35,11 @@ public class CharType extends CharacterType {
         super(len);
     }
 
+    @Override
+    public int width() {
+        return len;
+    }
+
     public static CharType createCharType(int len) {
         if (len == SYSTEM_DEFAULT.len) {
             return SYSTEM_DEFAULT;

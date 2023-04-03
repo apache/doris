@@ -21,7 +21,6 @@
 #include <string>
 
 #include "common/logging.h"
-#include "env/env.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
@@ -32,7 +31,6 @@
 #include "olap/rowset/segment_v2/bitmap_index_writer.h"
 #include "olap/types.h"
 #include "testutil/test_util.h"
-#include "util/file_utils.h"
 
 namespace doris {
 
@@ -46,15 +44,10 @@ public:
     const std::string kTestDir = "./ut_dir/bitmap_index_test";
 
     void SetUp() override {
-        if (FileUtils::check_exist(kTestDir)) {
-            EXPECT_TRUE(FileUtils::remove_all(kTestDir).ok());
-        }
-        EXPECT_TRUE(FileUtils::create_dir(kTestDir).ok());
+        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(kTestDir).ok());
     }
     void TearDown() override {
-        if (FileUtils::check_exist(kTestDir)) {
-            EXPECT_TRUE(FileUtils::remove_all(kTestDir).ok());
-        }
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
     }
 };
 
@@ -80,8 +73,7 @@ template <FieldType type>
 void get_bitmap_reader_iter(const std::string& file_name, const ColumnIndexMetaPB& meta,
                             BitmapIndexReader** reader, BitmapIndexIterator** iter) {
     io::FileReaderSPtr file_reader;
-    ASSERT_EQ(io::global_local_filesystem()->open_file(file_name, &file_reader, nullptr),
-              Status::OK());
+    ASSERT_EQ(io::global_local_filesystem()->open_file(file_name, &file_reader), Status::OK());
     *reader = new BitmapIndexReader(std::move(file_reader), &meta.bitmap_index());
     auto st = (*reader)->load(true, false);
     EXPECT_TRUE(st.ok());

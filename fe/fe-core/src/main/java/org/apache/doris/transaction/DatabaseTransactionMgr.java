@@ -31,6 +31,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -46,7 +47,7 @@ import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.persist.BatchRemoveTransactionsOperation;
+import org.apache.doris.persist.BatchRemoveTransactionsOperationV2;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.AgentBatchTask;
@@ -127,7 +128,6 @@ public class DatabaseTransactionMgr {
 
     // count the number of running txns of database, except for the routine load txn
     private volatile int runningTxnNums = 0;
-    private volatile int runningTxnReplicaNums = 0;
 
     // count only the number of running routine load txns of database
     private volatile int runningRoutineLoadTxnNums = 0;
@@ -143,6 +143,10 @@ public class DatabaseTransactionMgr {
     // not realtime usedQuota value to make a fast check for database data quota
     private volatile long usedQuotaDataBytes = -1;
 
+    private long lockWriteStart;
+
+    private long lockReportingThresholdMs = Config.lock_reporting_threshold_ms;
+
     protected void readLock() {
         this.transactionLock.readLock().lock();
     }
@@ -153,9 +157,11 @@ public class DatabaseTransactionMgr {
 
     protected void writeLock() {
         this.transactionLock.writeLock().lock();
+        lockWriteStart = System.currentTimeMillis();
     }
 
     protected void writeUnlock() {
+        checkAndLogWriteLockDuration(lockWriteStart, System.currentTimeMillis());
         this.transactionLock.writeLock().unlock();
     }
 
@@ -742,6 +748,33 @@ public class DatabaseTransactionMgr {
         }
     }
 
+    public void replayBatchRemoveTransaction(BatchRemoveTransactionsOperationV2 operation) {
+        writeLock();
+        try {
+            if (operation.getLatestTxnIdForShort() != -1) {
+                while (!finalStatusTransactionStateDequeShort.isEmpty()) {
+                    TransactionState transactionState = finalStatusTransactionStateDequeShort.pop();
+                    clearTransactionState(transactionState.getTransactionId());
+                    if (operation.getLatestTxnIdForShort() == transactionState.getTransactionId()) {
+                        break;
+                    }
+                }
+            }
+
+            if (operation.getLatestTxnIdForLong() != -1) {
+                while (!finalStatusTransactionStateDequeLong.isEmpty()) {
+                    TransactionState transactionState = finalStatusTransactionStateDequeLong.pop();
+                    clearTransactionState(transactionState.getTransactionId());
+                    if (operation.getLatestTxnIdForLong() == transactionState.getTransactionId()) {
+                        break;
+                    }
+                }
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
     public TransactionStatus getLabelState(String label) {
         readLock();
         try {
@@ -1113,20 +1146,6 @@ public class DatabaseTransactionMgr {
         updateTxnLabels(transactionState);
     }
 
-    public void registerTxnReplicas(long txnId, int replicaNum) throws UserException {
-        writeLock();
-        try {
-            TransactionState transactionState = idToRunningTransactionState.get(txnId);
-            if (transactionState == null) {
-                throw new UserException("running transaction not found, txnId=" + txnId);
-            }
-            transactionState.setReplicaNum(replicaNum);
-            runningTxnReplicaNums += replicaNum;
-        } finally {
-            writeUnlock();
-        }
-    }
-
     public int getRunningTxnNum() {
         readLock();
         try {
@@ -1136,21 +1155,8 @@ public class DatabaseTransactionMgr {
         }
     }
 
-    public int getRunningTxnReplicaNum() {
-        readLock();
-        try {
-            return runningTxnReplicaNums;
-        } finally {
-            readUnlock();
-        }
-    }
-
     private void updateTxnLabels(TransactionState transactionState) {
-        Set<Long> txnIds = labelToTxnIds.get(transactionState.getLabel());
-        if (txnIds == null) {
-            txnIds = Sets.newHashSet();
-            labelToTxnIds.put(transactionState.getLabel(), txnIds);
-        }
+        Set<Long> txnIds = labelToTxnIds.computeIfAbsent(transactionState.getLabel(), k -> Sets.newHashSet());
         txnIds.add(transactionState.getTransactionId());
     }
 
@@ -1368,44 +1374,44 @@ public class DatabaseTransactionMgr {
     }
 
     public void removeExpiredTxns(long currentMillis) {
-        List<Long> expiredTxnIds = Lists.newArrayList();
         // delete expired txns
-        int leftNum = MAX_REMOVE_TXN_PER_ROUND;
         writeLock();
         try {
-            leftNum = unprotectedRemoveExpiredTxns(currentMillis, expiredTxnIds,
-                    finalStatusTransactionStateDequeShort, leftNum);
-            leftNum = unprotectedRemoveExpiredTxns(currentMillis, expiredTxnIds,
-                    finalStatusTransactionStateDequeLong, leftNum);
-
-            if (!expiredTxnIds.isEmpty()) {
-                Map<Long, List<Long>> dbExpiredTxnIds = Maps.newHashMap();
-                dbExpiredTxnIds.put(dbId, expiredTxnIds);
-                BatchRemoveTransactionsOperation op = new BatchRemoveTransactionsOperation(dbExpiredTxnIds);
+            Pair<Long, Integer> expiredTxnsInfoForShort = unprotectedRemoveExpiredTxns(currentMillis,
+                    finalStatusTransactionStateDequeShort, MAX_REMOVE_TXN_PER_ROUND);
+            Pair<Long, Integer> expiredTxnsInfoForLong = unprotectedRemoveExpiredTxns(currentMillis,
+                    finalStatusTransactionStateDequeLong,
+                    MAX_REMOVE_TXN_PER_ROUND - expiredTxnsInfoForShort.second);
+            int numOfClearedTransaction = expiredTxnsInfoForShort.second + expiredTxnsInfoForLong.second;
+            if (numOfClearedTransaction > 0) {
+                BatchRemoveTransactionsOperationV2 op = new BatchRemoveTransactionsOperationV2(dbId,
+                        expiredTxnsInfoForShort.first, expiredTxnsInfoForLong.first);
                 editLog.logBatchRemoveTransactions(op);
-                LOG.info("Remove {} expired transactions", MAX_REMOVE_TXN_PER_ROUND - leftNum);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Remove {} expired transactions", numOfClearedTransaction);
+                }
             }
         } finally {
             writeUnlock();
         }
     }
 
-    private int unprotectedRemoveExpiredTxns(long currentMillis, List<Long> expiredTxnIds,
-                                             ArrayDeque<TransactionState> finalStatusTransactionStateDequeShort,
-                                             int maxNumber) {
-        int left = maxNumber;
-        while (!finalStatusTransactionStateDequeShort.isEmpty() && left > 0) {
-            TransactionState transactionState = finalStatusTransactionStateDequeShort.getFirst();
+    private Pair<Long, Integer> unprotectedRemoveExpiredTxns(long currentMillis,
+            ArrayDeque<TransactionState> finalStatusTransactionStateDeque, int left) {
+        long latestTxnId = -1;
+        int numOfClearedTransaction = 0;
+        while (!finalStatusTransactionStateDeque.isEmpty() && numOfClearedTransaction < left) {
+            TransactionState transactionState = finalStatusTransactionStateDeque.getFirst();
             if (transactionState.isExpired(currentMillis)) {
-                finalStatusTransactionStateDequeShort.pop();
+                finalStatusTransactionStateDeque.pop();
                 clearTransactionState(transactionState.getTransactionId());
-                expiredTxnIds.add(transactionState.getTransactionId());
-                left--;
+                latestTxnId = transactionState.getTransactionId();
+                numOfClearedTransaction++;
             } else {
                 break;
             }
         }
-        return left;
+        return Pair.of(latestTxnId, numOfClearedTransaction);
     }
 
     private void clearTransactionState(long txnId) {
@@ -1416,7 +1422,9 @@ public class DatabaseTransactionMgr {
             if (txnIds.isEmpty()) {
                 labelToTxnIds.remove(transactionState.getLabel());
             }
-            LOG.info("transaction [" + txnId + "] is expired, remove it from transaction manager");
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("transaction [" + txnId + "] is expired, remove it from transaction manager");
+            }
         } else {
             // should not happen, add a warn log to observer
             LOG.warn("transaction state is not found when clear transaction: " + txnId);
@@ -1841,5 +1849,35 @@ public class DatabaseTransactionMgr {
         } finally {
             readUnlock();
         }
+    }
+
+    /**
+     * Check write lock holding time, if it exceeds threshold, print this hint log.
+     *
+     * @param lockStart holing lock start time.
+     * @param lockEnd release lock time.
+     */
+    private void checkAndLogWriteLockDuration(long lockStart, long lockEnd) {
+        long duration = lockEnd - lockStart;
+        if (duration > lockReportingThresholdMs) {
+            StringBuilder msgBuilder = new StringBuilder();
+            msgBuilder.append("lock is held at ")
+                    .append(lockStart)
+                    .append(".And release after ")
+                    .append(duration)
+                    .append(" ms.")
+                    .append("Call stack is :\n")
+                    .append(getStackTrace(Thread.currentThread()));
+            LOG.info(msgBuilder.toString());
+        }
+    }
+
+    private static String getStackTrace(Thread t) {
+        final StackTraceElement[] stackTrace = t.getStackTrace();
+        StringBuilder msgBuilder = new StringBuilder();
+        for (StackTraceElement e : stackTrace) {
+            msgBuilder.append(e.toString() + "\n");
+        }
+        return msgBuilder.toString();
     }
 }

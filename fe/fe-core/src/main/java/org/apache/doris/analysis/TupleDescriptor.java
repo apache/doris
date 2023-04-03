@@ -199,7 +199,7 @@ public class TupleDescriptor {
     }
 
     public TableName getAliasAsName() {
-        return (aliases != null) ? new TableName(null, null, aliases[0]) : null;
+        return (aliases != null) ? new TableName(aliases[0]) : null;
     }
 
     public TTupleDescriptor toThrift() {

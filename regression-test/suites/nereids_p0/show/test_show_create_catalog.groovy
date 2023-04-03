@@ -17,8 +17,7 @@
 
 suite("test_show_create_catalog", "query") {
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
-    sql "SET enable_fallback_to_original_planner=false" 
+    sql "SET enable_fallback_to_original_planner=false"
     String catalog_name = "test_show_create_mysql_jdbc_catalog";
     try {
         String enabled = context.config.otherConfigs.get("enableJdbcTest")

@@ -21,11 +21,11 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.Scan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
 
@@ -38,13 +38,13 @@ import java.util.Optional;
  */
 public abstract class PhysicalRelation extends PhysicalLeaf implements Scan {
 
-    protected final RelationId id;
+    protected final ObjectId id;
     protected final ImmutableList<String> qualifier;
 
     /**
      * Constructor for PhysicalRelation.
      */
-    public PhysicalRelation(RelationId id, PlanType type, List<String> qualifier,
+    public PhysicalRelation(ObjectId id, PlanType type, List<String> qualifier,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties) {
         super(type, groupExpression, logicalProperties);
         this.id = id;
@@ -54,10 +54,10 @@ public abstract class PhysicalRelation extends PhysicalLeaf implements Scan {
     /**
      * Constructor for PhysicalRelation.
      */
-    public PhysicalRelation(RelationId id, PlanType type, List<String> qualifier,
+    public PhysicalRelation(ObjectId id, PlanType type, List<String> qualifier,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult) {
-        super(type, groupExpression, logicalProperties, physicalProperties, statsDeriveResult);
+            PhysicalProperties physicalProperties, Statistics statistics) {
+        super(type, groupExpression, logicalProperties, physicalProperties, statistics);
         this.id = id;
         this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier can not be null"));
     }
@@ -93,7 +93,7 @@ public abstract class PhysicalRelation extends PhysicalLeaf implements Scan {
         return ImmutableList.of();
     }
 
-    public RelationId getId() {
+    public ObjectId getId() {
         return id;
     }
 }

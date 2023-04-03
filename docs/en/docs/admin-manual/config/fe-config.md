@@ -1596,7 +1596,7 @@ The max size of one sys log and audit log
 
 #### `sys_log_dir`
 
-Default：PaloFe.DORIS_HOME_DIR + "/log"
+Default：DorisFE.DORIS_HOME_DIR + "/log"
 
 sys_log_dir:
 
@@ -2097,6 +2097,8 @@ After dropping database(table/partition), you can recover it by using RECOVER st
 
 #### `storage_cooldown_second`
 
+<version deprecated="2.0"></version>
+
 Default：`30 * 24 * 3600L`  （30 day）
 
 When create a table(or partition), you can specify its storage medium(HDD or SSD). If set to SSD, this specifies the default duration that tablets will stay on SSD.  After that, tablets will be moved to HDD automatically.  You can set storage cooldown time in CREATE TABLE stmt.
@@ -2326,9 +2328,19 @@ Is it possible to dynamically configure: true
 
 Is it a configuration item unique to the Master FE node: true
 
+#### `max_external_cache_loader_thread_pool_size`
+
+Maximum thread pool size for loading external meta cache.
+
+Default: 10
+
+Is it possible to dynamically configure: false
+
+Is it a configuration item unique to the Master FE node: false
+
 #### `max_external_file_cache_num`
 
-Maximum number of file cache to use for external external tables.
+Maximum number of file cache to use for external tables.
 
 Default: 100000
 
@@ -2394,7 +2406,7 @@ Default：{
 
 #### `yarn_config_dir`
 
-Default：PaloFe.DORIS_HOME_DIR + "/lib/yarn-config"
+Default：DorisFE.DORIS_HOME_DIR + "/lib/yarn-config"
 
 Default yarn config file directory ，Each time before running the yarn command, we need to check that the  config file exists under this path, and if not, create them.
 
@@ -2432,13 +2444,13 @@ Default spark dpp version
 
 #### `tmp_dir`
 
-Default：PaloFe.DORIS_HOME_DIR + "/temp_dir"
+Default：DorisFE.DORIS_HOME_DIR + "/temp_dir"
 
 temp dir is used to save intermediate results of some process, such as backup and restore process.  file in this dir will be cleaned after these process is finished.
 
 #### `custom_config_dir`
 
-Default：PaloFe.DORIS_HOME_DIR + "/conf"
+Default：DorisFE.DORIS_HOME_DIR + "/conf"
 
 Custom configuration file directory
 
@@ -2614,4 +2626,25 @@ View configuration
 show data （Detail：HELP SHOW DATA）
 ```
 
+#### `prefer_compute_node_for_external_table`
+
+Default：false
+
+IsMutable：true
+
+MasterOnly：false
+
+If set to true, query on external table will prefer to assign to compute node. And the max number of compute node is controlled by `min_backend_num_for_external_table`.
+If set to false, query on external table will assign to any node.
+
+#### `min_backend_num_for_external_table`
+
+Default：3
+
+IsMutable：true
+
+MasterOnly：false
+
+Only take effect when `prefer_compute_node_for_external_table` is true. If the compute node number is less than this value, query on external table will try to get some mix node to assign, to let the total number of node reach this value.
+If the compute node number is larger than this value, query on external table will assign to compute node only.
 

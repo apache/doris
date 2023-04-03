@@ -32,7 +32,7 @@ For the time being, read the [Doris metadata design document](/community/design/
 
 ## Important tips
 
-* Current metadata design is not backward compatible. That is, if the new version has a new metadata structure change (you can see whether there is a new VERSION in the `FeMetaVersion.java` file in the FE code), it is usually impossible to roll back to the old version after upgrading to the new version. Therefore, before upgrading FE, be sure to test metadata compatibility according to the operations in the [Upgrade Document](../../../admin-manual/cluster-management/upgrade).
+* Current metadata design is not backward compatible. That is, if the new version has a new metadata structure change (you can see whether there is a new VERSION in the `FeMetaVersion.java` file in the FE code), it is usually impossible to roll back to the old version after upgrading to the new version. Therefore, before upgrading FE, be sure to test metadata compatibility according to the operations in the [Upgrade Document](../../admin-manual/cluster-management/upgrade.md).
 
 ## Metadata catalog structure
 

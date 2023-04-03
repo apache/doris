@@ -22,10 +22,12 @@ package org.apache.doris.rewrite;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.rewrite.mvrewrite.ExprToSlotRefRule;
+import org.apache.doris.thrift.TQueryOptions;
 
 import com.google.common.collect.Lists;
 
@@ -131,10 +133,11 @@ public class ExprRewriter {
         rules = Lists.newArrayList(rule);
     }
 
-    public void setDisableTuplesMVRewriter(Set<TupleId> disableTuplesMVRewriter) {
+    public void setInfoMVRewriter(Set<TupleId> disableTuplesMVRewriter, ExprSubstitutionMap mvSMap,
+            ExprSubstitutionMap aliasSMap) {
         for (ExprRewriteRule rule : rules) {
             if (rule instanceof ExprToSlotRefRule) {
-                ((ExprToSlotRefRule) rule).setDisableTuplesMVRewriter(disableTuplesMVRewriter);
+                ((ExprToSlotRefRule) rule).setInfoMVRewriter(disableTuplesMVRewriter, mvSMap, aliasSMap);
             }
         }
     }
@@ -182,7 +185,8 @@ public class ExprRewriter {
     /**
      * FoldConstantsRule rewrite
      */
-    public void rewriteConstant(Map<String, Expr> exprMap, Analyzer analyzer) throws AnalysisException {
+    public void rewriteConstant(Map<String, Expr> exprMap, Analyzer analyzer, TQueryOptions tQueryOptions)
+            throws AnalysisException {
         if (exprMap.isEmpty()) {
             return;
         }
@@ -190,7 +194,7 @@ public class ExprRewriter {
         // rewrite constant expr
         for (ExprRewriteRule rule : rules) {
             if (rule instanceof FoldConstantsRule) {
-                changed = ((FoldConstantsRule) rule).apply(exprMap, analyzer, changed);
+                changed = ((FoldConstantsRule) rule).apply(exprMap, analyzer, changed, tQueryOptions);
             }
         }
         if (changed) {

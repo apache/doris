@@ -171,7 +171,7 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
         // todo: WFGs in the same OKG only need same RequiredProperties
         PhysicalProperties properties;
         if (windowFrameGroup.partitionKeys.isEmpty()) {
-            properties = new PhysicalProperties(new OrderSpec(requiredOrderKeys));
+            properties = PhysicalProperties.GATHER.withOrderSpec(new OrderSpec(requiredOrderKeys));
         } else {
             properties = PhysicalProperties.createHash(
                 windowFrameGroup.partitionKeys, DistributionSpecHash.ShuffleType.ENFORCED);

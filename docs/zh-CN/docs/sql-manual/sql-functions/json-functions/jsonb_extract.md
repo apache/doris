@@ -83,7 +83,7 @@ jsonb_extract是一系列函数，从JSONB类型的数据中提取json_path指�
 
 ### example
 
-参考jsonb tutorial中的示例
+参考 [jsonb tutorial](../../sql-reference/Data-Types/JSONB.md) 中的示例
 
 
 ### keywords

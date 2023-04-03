@@ -36,7 +36,7 @@ under the License.
 
 ### 基于Hive Metastore创建Catalog
 
-和 Hive Catalog 基本一致，这里仅给出简单示例。其他示例可参阅 [Hive Catalog](./hive)。
+和 Hive Catalog 基本一致，这里仅给出简单示例。其他示例可参阅 [Hive Catalog](./hive.md)。
 
 ```sql
 CREATE CATALOG iceberg PROPERTIES (
@@ -51,6 +51,11 @@ CREATE CATALOG iceberg PROPERTIES (
 );
 ```
 
+> `specified_database_list`:
+> 
+> 支持只同步指定的同步多个database，以','分隔。默认为''，同步所有database。db名称是大小写敏感的。
+> 
+
 ### 基于Iceberg API创建Catalog
 
 <version since="dev">
@@ -59,7 +64,7 @@ CREATE CATALOG iceberg PROPERTIES (
 
 </version>
 
-- Hive Metastore作为元数据服务
+#### Hive Metastore作为元数据服务
 
 ```sql
 CREATE CATALOG iceberg PROPERTIES (
@@ -75,7 +80,7 @@ CREATE CATALOG iceberg PROPERTIES (
 );
 ```
 
-- Glue Catalog作为元数据服务
+#### Glue Catalog作为元数据服务
 
 ```sql
 CREATE CATALOG glue PROPERTIES (
@@ -94,6 +99,8 @@ CREATE CATALOG glue PROPERTIES (
 `glue.endpoint`: Glue Endpoint. 参阅：[AWS Glue endpoints and quotas](https://docs.aws.amazon.com/general/latest/gr/glue.html).
 
 `warehouse`: Glue Warehouse Location. Glue Catalog的根路径，用于指定数据存放位置。
+
+属性详情参见 [Iceberg Glue Catalog](https://iceberg.apache.org/docs/latest/aws/#glue-catalog)
 
 - REST Catalog作为元数据服务
 
@@ -119,11 +126,11 @@ CREATE CATALOG iceberg PROPERTIES (
 
 ## 列类型映射
 
-和 Hive Catalog 一致，可参阅 [Hive Catalog](./hive) 中 **列类型映射** 一节。
+和 Hive Catalog 一致，可参阅 [Hive Catalog](./hive.md) 中 **列类型映射** 一节。
 
 ## Time Travel
 
-<version since="dev">
+<version since="1.2.2">
 
 支持读取 Iceberg 表指定的 Snapshot。
 

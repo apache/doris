@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include "vec/columns/column_vector.h"
+#include "vec/core/types.h"
 #ifdef __aarch64__
 #include <sse2neon.h>
 #endif
@@ -80,6 +82,11 @@ public:
     void get(size_t n, Field& res) const override;
     bool get_bool(size_t n) const override {
         return is_null_at(n) ? false : nested_column->get_bool(n);
+    }
+    // column must be nullable(uint8)
+    bool get_bool_inline(size_t n) const {
+        return is_null_at(n) ? false
+                             : assert_cast<const ColumnUInt8*>(nested_column.get())->get_bool(n);
     }
     UInt64 get64(size_t n) const override { return nested_column->get64(n); }
     StringRef get_data_at(size_t n) const override;
@@ -151,6 +158,12 @@ public:
         get_nested_column().insert_many_defaults(length);
         _get_null_map_data().resize_fill(_get_null_map_data().size() + length, 1);
         _has_null = true;
+    }
+
+    void insert_not_null_elements(size_t num) {
+        get_nested_column().insert_many_defaults(num);
+        _get_null_map_column().fill(0, num);
+        _has_null = false;
     }
 
     void insert_null_elements(int num) {
@@ -225,6 +238,11 @@ public:
     bool is_column_array() const override { return get_nested_column().is_column_array(); }
     bool is_fixed_and_contiguous() const override { return false; }
     bool values_have_fixed_size() const override { return nested_column->values_have_fixed_size(); }
+
+    bool is_exclusive() const override {
+        return IColumn::is_exclusive() && nested_column->is_exclusive() && null_map->is_exclusive();
+    }
+
     size_t size_of_value_if_fixed() const override {
         return null_map->size_of_value_if_fixed() + nested_column->size_of_value_if_fixed();
     }
@@ -313,8 +331,8 @@ public:
         get_nested_column().convert_dict_codes_if_necessary();
     }
 
-    void generate_hash_values_for_runtime_filter() override {
-        get_nested_column().generate_hash_values_for_runtime_filter();
+    void initialize_hash_values_for_runtime_filter() override {
+        get_nested_column().initialize_hash_values_for_runtime_filter();
     }
 
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
@@ -352,5 +370,7 @@ private:
 
 ColumnPtr make_nullable(const ColumnPtr& column, bool is_nullable = false);
 ColumnPtr remove_nullable(const ColumnPtr& column);
-
+// check if argument column is nullable. If so, extract its concrete column and set null_map.
+//TODO: use this to replace inner usages.
+void check_set_nullable(ColumnPtr&, ColumnVector<UInt8>::MutablePtr&);
 } // namespace doris::vectorized

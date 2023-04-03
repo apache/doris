@@ -18,6 +18,7 @@
 #pragma once
 
 #include "vec/columns/column_fixed_length_object.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
@@ -33,6 +34,12 @@ public:
     const char* get_family_name() const override { return "DataTypeFixedLengthObject"; }
 
     TypeIndex get_type_id() const override { return TypeIndex::FixedLengthObject; }
+
+    PrimitiveType get_type_as_primitive_type() const override { return INVALID_TYPE; }
+
+    TPrimitiveType::type get_type_as_tprimitive_type() const override {
+        return TPrimitiveType::INVALID_TYPE;
+    }
 
     Field get_default() const override { return String(); }
 

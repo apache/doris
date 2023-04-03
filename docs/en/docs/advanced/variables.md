@@ -69,7 +69,7 @@ Variables that support both session-level and global-level setting include:
 * `sql_mode`
 * `enable_profile`
 * `query_timeout`
-* `insert_timeout`
+* `insert_timeout`<version since="dev"></version>
 * `exec_mem_limit`
 * `batch_size`
 * `parallel_fragment_exec_instance_num`
@@ -362,7 +362,8 @@ Translated with www.DeepL.com/Translator (free version)
     Used to set the query timeout. This variable applies to all query statements in the current connection. Particularly, timeout of INSERT statements is recommended to be managed by the insert_timeout below. The default is 5 minutes, in seconds.
 
 * `insert_timeout`
-    Used to set the insert timeout. This variable applies to INSERT statements particularly in the current connection, and is recommended to manage long-duration INSERT action. The default is 4 hours, in seconds. It will lose effect when query_timeout is
+
+  <version since="dev"></version>Used to set the insert timeout. This variable applies to INSERT statements particularly in the current connection, and is recommended to manage long-duration INSERT action. The default is 4 hours, in seconds. It will lose effect when query_timeout is
     greater than itself to make it compatible with the habits of older version users to use query_timeout to control the timeout of INSERT statements.
 
 * `resource_group`
@@ -598,3 +599,46 @@ Translated with www.DeepL.com/Translator (free version)
 * `use_fix_replica`
 
     Use a fixed replica to query. If use_fix_replica is 1, the smallest one is used, if use_fix_replica is 2, the second smallest one is used, and so on. The default value is -1, which means it is not enabled.
+
+* `dry_run_query`
+
+    <version since="dev"></version>
+
+    If set to true, for query requests, the actual result set will no longer be returned, but only the number of rows. The default is false.
+
+    This parameter can be used to avoid the time-consuming result set transmission when testing a large number of data sets, and focus on the time-consuming underlying query execution.
+
+    ```
+    mysql> select * from bigtable;
+    +--------------+
+    | ReturnedRows |
+    +--------------+
+    | 10000000     |
+    +--------------+
+    ```
+
+***
+
+#### Supplementary instructions on statement execution timeout control
+
+* Means of control
+
+     Currently doris supports timeout control through `variable` and `user property` two systems. Both include `qeury_timeout` and `insert_timeout`.
+
+* Priority
+
+     The order of priority for timeout to take effect is: `session variable` > `user property` > `global variable` > `default value`
+
+     When a variable with a higher priority is not set, the value of the next priority is automatically adopted.
+
+* Related semantics
+
+     `query_timeout` is used to control the timeout of all statements, and `insert_timeout` is specifically used to control the timeout of the INSERT statement. When the INSERT statement is executed, the timeout time will take
+    
+     The maximum value of `query_timeout` and `insert_timeout`.
+
+     `query_timeout` and `insert_timeout` in `user property` can only be specified by the ADMIN user for the target user, and its semantics is to change the default timeout time of the specified user, and it does not have `quota` semantics.
+
+* Precautions
+
+     The timeout set by `user property` needs to be triggered after the client reconnects.

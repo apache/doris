@@ -16,7 +16,7 @@
 // under the License.
 
 suite("basic_agg_test", "types") {
-    def tables=["bitmap_basic_agg","hll_basic_agg"]
+    def tables=["bitmap_basic_agg","hll_basic_agg", "quantile_state_basic_agg"]
 
     for (String table in tables) {
         sql """drop table if exists ${table};"""
@@ -29,4 +29,8 @@ suite("basic_agg_test", "types") {
     qt_sql_hll """select * from hll_basic_agg;"""
 
     qt_sql_hll_cardinality """select k1, hll_cardinality(hll_union(k2)) from hll_basic_agg group by k1 order by k1;"""
+
+    qt_sql_quantile_state """select * from quantile_state_basic_agg;"""
+
+    qt_sql_quantile_state_percent """select k1, quantile_percent(quantile_union(k2), 0.5) from quantile_state_basic_agg group by k1 order by k1;"""
 }

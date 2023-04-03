@@ -25,7 +25,6 @@
 #include <random>
 #include <string>
 
-#include "agent/cgroups_mgr.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
@@ -37,7 +36,6 @@
 #include "olap/rowset/beta_rowset_writer.h"
 #include "olap/storage_engine.h"
 #include "service/point_query_executor.h"
-#include "util/file_utils.h"
 #include "util/time.h"
 
 using std::string;
@@ -83,7 +81,7 @@ Status StorageEngine::start_bg_threads() {
             .set_min_threads(config::max_cumu_compaction_threads)
             .set_max_threads(config::max_cumu_compaction_threads)
             .build(&_cumu_compaction_thread_pool);
-    if (config::enable_segcompaction && config::enable_storage_vectorization) {
+    if (config::enable_segcompaction) {
         ThreadPoolBuilder("SegCompactionTaskThreadPool")
                 .set_min_threads(config::seg_compaction_max_threads)
                 .set_max_threads(config::seg_compaction_max_threads)
@@ -339,7 +337,10 @@ void StorageEngine::_path_scan_thread_callback(DataDir* data_dir) {
     int32_t interval = config::path_scan_interval_second;
     do {
         LOG(INFO) << "try to perform path scan!";
-        data_dir->perform_path_scan();
+        Status st = data_dir->perform_path_scan();
+        if (!st) {
+            LOG(WARNING) << "path scan failed: " << st;
+        }
 
         interval = config::path_scan_interval_second;
         if (interval <= 0) {
@@ -359,10 +360,8 @@ void StorageEngine::_tablet_checkpoint_callback(const std::vector<DataDir*>& dat
     do {
         LOG(INFO) << "begin to produce tablet meta checkpoint tasks.";
         for (auto data_dir : data_dirs) {
-            auto st = _tablet_meta_checkpoint_thread_pool->submit_func([data_dir, this]() {
-                CgroupsMgr::apply_system_cgroup();
-                _tablet_manager->do_tablet_meta_checkpoint(data_dir);
-            });
+            auto st = _tablet_meta_checkpoint_thread_pool->submit_func(
+                    [data_dir, this]() { _tablet_manager->do_tablet_meta_checkpoint(data_dir); });
             if (!st.ok()) {
                 LOG(WARNING) << "submit tablet checkpoint tasks failed.";
             }
@@ -653,7 +652,6 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                         ? _cumu_compaction_thread_pool
                         : _base_compaction_thread_pool;
         auto st = thread_pool->submit_func([tablet, compaction_type, permits, this]() {
-            CgroupsMgr::apply_system_cgroup();
             tablet->execute_compaction(compaction_type);
             _permit_limiter.release(permits);
             // reset compaction
@@ -712,15 +710,22 @@ Status StorageEngine::submit_seg_compaction_task(BetaRowsetWriter* writer,
 
 void StorageEngine::_cooldown_tasks_producer_callback() {
     int64_t interval = config::generate_cooldown_task_interval_sec;
+    // the cooldown replica may be slow to upload it's meta file, so we should wait
+    // until it has done uploaded
+    int64_t skip_failed_interval = interval * 10;
     do {
         // these tables are ordered by priority desc
         std::vector<TabletSharedPtr> tablets;
         // TODO(luwei) : a more efficient way to get cooldown tablets
+        auto cur_time = time(nullptr);
         // we should skip all the tablets which are not running and those pending to do cooldown
-        auto skip_tablet = [this](const TabletSharedPtr& tablet) -> bool {
+        // also tablets once failed to do follow cooldown
+        auto skip_tablet = [this, skip_failed_interval,
+                            cur_time](const TabletSharedPtr& tablet) -> bool {
             std::lock_guard<std::mutex> lock(_running_cooldown_mutex);
-            return TABLET_RUNNING != tablet->tablet_state() ||
-                   _running_cooldown_tablets.find(tablet->tablet_id()) ==
+            return cur_time - tablet->last_failed_follow_cooldown_time() < skip_failed_interval ||
+                   TABLET_RUNNING != tablet->tablet_state() ||
+                   _running_cooldown_tablets.find(tablet->tablet_id()) !=
                            _running_cooldown_tablets.end();
         };
         _tablet_manager->get_cooldown_tablets(&tablets, std::move(skip_tablet));
@@ -797,7 +802,7 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
         tablet_to_follow.reserve(n + 1);
 
         for (auto& t : tablets) {
-            if (t->replica_id() == t->cooldown_replica_id()) {
+            if (t->replica_id() == t->cooldown_conf_unlocked().first) {
                 auto score = t->calc_cold_data_compaction_score();
                 if (score < 4) {
                     continue;

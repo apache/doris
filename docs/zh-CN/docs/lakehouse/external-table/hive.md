@@ -28,7 +28,7 @@ under the License.
 
 <version deprecated="1.2.0">
 
-推荐使用 [Hive Catalog](../multi-catalog/hive) 访问 Hive。
+推荐使用 [Hive Catalog](../multi-catalog/hive.md) 访问 Hive。
  
 </version>
 

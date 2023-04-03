@@ -63,16 +63,17 @@ public class SemiJoinSemiJoinTranspose extends OneExplorationRuleFactory {
         return logicalJoin(logicalJoin(), group())
                 .when(this::typeChecker)
                 .whenNot(join -> join.hasJoinHint() || join.left().hasJoinHint())
+                .whenNot(LogicalJoin::isMarkJoin)
                 .then(topJoin -> {
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left();
                     GroupPlan a = bottomJoin.left();
                     GroupPlan b = bottomJoin.right();
                     GroupPlan c = topJoin.right();
 
-                    Plan newBottomJoin = topJoin.withChildren(a, c);
-                    Plan newTopJoin = bottomJoin.withChildren(newBottomJoin, b);
+                    Plan newBottomJoin = topJoin.withChildrenNoContext(a, c);
+                    Plan newTopJoin = bottomJoin.withChildrenNoContext(newBottomJoin, b);
                     return newTopJoin;
-                }).toRule(RuleType.LOGICAL_SEMI_JOIN_SEMI_JOIN_TRANPOSE);
+                }).toRule(RuleType.LOGICAL_SEMI_JOIN_SEMI_JOIN_TRANSPOSE);
     }
 
     private boolean typeChecker(LogicalJoin<LogicalJoin<GroupPlan, GroupPlan>, GroupPlan> topJoin) {

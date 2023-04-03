@@ -54,6 +54,7 @@ Status VMysqlResultWriter<is_binary_format>::init(RuntimeState* state) {
         return Status::InternalError("sinker is NULL pointer.");
     }
     set_output_object_data(state->return_object_data_as_binary());
+    _is_dry_run = state->query_options().dry_run_query;
     return Status::OK();
 }
 
@@ -61,7 +62,7 @@ template <bool is_binary_format>
 void VMysqlResultWriter<is_binary_format>::_init_profile() {
     _append_row_batch_timer = ADD_TIMER(_parent_profile, "AppendBatchTime");
     _convert_tuple_timer = ADD_CHILD_TIMER(_parent_profile, "TupleConvertTime", "AppendBatchTime");
-    _result_send_timer = ADD_CHILD_TIMER(_parent_profile, "ResultRendTime", "AppendBatchTime");
+    _result_send_timer = ADD_CHILD_TIMER(_parent_profile, "ResultSendTime", "AppendBatchTime");
     _sent_rows_counter = ADD_COUNTER(_parent_profile, "NumSentRows", TUnit::UNIT);
 }
 
@@ -74,6 +75,10 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
     SCOPED_TIMER(_convert_tuple_timer);
 
     const auto row_size = column_ptr->size();
+    if (rows_buffer.size() != row_size) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR>("row_size({}) != rows_buffer.size({})",
+                                                        row_size, rows_buffer.size());
+    }
 
     doris::vectorized::ColumnPtr column;
     if constexpr (is_nullable) {
@@ -84,7 +89,8 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
 
     int buf_ret = 0;
 
-    if constexpr (type == TYPE_OBJECT || type == TYPE_VARCHAR || type == TYPE_JSONB) {
+    if constexpr (type == TYPE_OBJECT || type == TYPE_QUANTILE_STATE || type == TYPE_VARCHAR ||
+                  type == TYPE_JSONB) {
         for (int i = 0; i < row_size; ++i) {
             if (0 != buf_ret) {
                 return Status::InternalError("pack mysql buffer failed.");
@@ -105,7 +111,7 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
                     BitmapValue bitmapValue = pColumnComplexType->get_element(i);
                     size_t size = bitmapValue.getSizeInBytes();
                     std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
-                    bitmapValue.write(buf.get());
+                    bitmapValue.write_to(buf.get());
                     buf_ret = rows_buffer[i].push_string(buf.get(), size);
                 } else if (column->is_hll() && output_object_data()) {
                     const vectorized::ColumnComplexType<HyperLogLog>* pColumnComplexType =
@@ -115,6 +121,16 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
                     size_t size = hyperLogLog.max_serialized_size();
                     std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
                     hyperLogLog.serialize((uint8*)buf.get());
+                    buf_ret = rows_buffer[i].push_string(buf.get(), size);
+
+                } else if (column->is_quantile_state() && output_object_data()) {
+                    const vectorized::ColumnComplexType<QuantileStateDouble>* pColumnComplexType =
+                            assert_cast<const vectorized::ColumnComplexType<QuantileStateDouble>*>(
+                                    column.get());
+                    QuantileStateDouble quantileValue = pColumnComplexType->get_element(i);
+                    size_t size = quantileValue.get_serialized_size();
+                    std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
+                    quantileValue.serialize((uint8_t*)buf.get());
                     buf_ret = rows_buffer[i].push_string(buf.get(), size);
                 } else {
                     buf_ret = rows_buffer[i].push_null();
@@ -488,6 +504,42 @@ int VMysqlResultWriter<is_binary_format>::_add_one_cell(const ColumnPtr& column_
         }
         buf_ret = buffer.push_string("]", strlen("]"));
         return buf_ret;
+    } else if (which.is_struct()) {
+        auto& column_struct = assert_cast<const ColumnStruct&>(*column);
+
+        DataTypePtr nested_type = type;
+        if (type->is_nullable()) {
+            nested_type = assert_cast<const DataTypeNullable&>(*type).get_nested_type();
+        }
+
+        size_t tuple_size = column_struct.tuple_size();
+
+        int buf_ret = buffer.push_string("{", strlen("{"));
+        bool begin = true;
+        for (int i = 0; i < tuple_size; ++i) {
+            const auto& data = column_struct.get_column_ptr(i);
+            const auto& sub_type = assert_cast<const DataTypeStruct&>(*nested_type).get_element(i);
+
+            if (begin) {
+                begin = false;
+            } else {
+                buf_ret = buffer.push_string(", ", strlen(", "));
+            }
+
+            if (data->is_null_at(row_idx)) {
+                buf_ret = buffer.push_string("NULL", strlen("NULL"));
+            } else {
+                if (WhichDataType(remove_nullable(sub_type)).is_string()) {
+                    buf_ret = buffer.push_string("'", 1);
+                    buf_ret = _add_one_cell(data, row_idx, sub_type, buffer, scale);
+                    buf_ret = buffer.push_string("'", 1);
+                } else {
+                    buf_ret = _add_one_cell(data, row_idx, sub_type, buffer, scale);
+                }
+            }
+        }
+        buf_ret = buffer.push_string("}", strlen("}"));
+        return buf_ret;
     } else {
         LOG(WARNING) << "sub TypeIndex(" << (int)which.idx << "not supported yet";
         return -1;
@@ -727,6 +779,7 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
             break;
         }
         case TYPE_HLL:
+        case TYPE_QUANTILE_STATE:
         case TYPE_OBJECT: {
             if (type_ptr->is_nullable()) {
                 status = _add_one_column<PrimitiveType::TYPE_OBJECT, true>(column_ptr, result,
@@ -788,7 +841,8 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
         }
 
         if (!status) {
-            LOG(WARNING) << "convert row to mysql result failed.";
+            LOG(WARNING) << "convert row to mysql result failed. block_struct="
+                         << block.dump_structure();
             break;
         }
     }
@@ -801,13 +855,14 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
 
     if (status) {
         SCOPED_TIMER(_result_send_timer);
-        // push this batch to back
-        if (_sinker) {
-            status = _sinker->add_batch(result);
-        } else {
-            _results.push_back(std::move(result));
+        // If this is a dry run task, no need to send data block
+        if (!_is_dry_run) {
+            if (_sinker) {
+                status = _sinker->add_batch(result);
+            } else {
+                _results.push_back(std::move(result));
+            }
         }
-
         if (status.ok()) {
             _written_rows += num_rows;
         } else {

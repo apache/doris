@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -39,7 +39,7 @@ class OuterJoinAssocTest implements MemoPatternMatchSupported {
 
     public OuterJoinAssocTest() throws Exception {
         // clear id so that slot id keep consistent every running
-        NamedExpressionUtil.clear();
+        StatementScopeIdGenerator.clear();
         scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
         scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
         scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);

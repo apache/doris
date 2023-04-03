@@ -139,6 +139,7 @@ public class PushdownFilterThroughJoin extends OneRewriteRuleFactory {
                             join.getHashJoinConjuncts(),
                             joinConditions,
                             join.getHint(),
+                            join.getMarkJoinSlotReference(),
                             PlanUtils.filterOrSelf(leftPredicates, join.left()),
                             PlanUtils.filterOrSelf(rightPredicates, join.right())));
         }).toRule(RuleType.PUSHDOWN_FILTER_THROUGH_JOIN);

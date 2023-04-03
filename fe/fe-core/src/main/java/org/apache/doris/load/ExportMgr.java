@@ -223,77 +223,16 @@ public class ExportMgr {
                     }
                 }
 
-                // check auth
-                TableName tableName = job.getTableName();
-                if (tableName == null || tableName.getTbl().equals("DUMMY")) {
-                    // forward compatibility, no table name is saved before
-                    Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
-                    if (db == null) {
-                        continue;
-                    }
-                    if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
-                                                                           db.getFullName(), PrivPredicate.SHOW)) {
-                        continue;
-                    }
-                } else {
-                    if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(),
-                                                                            tableName.getDb(), tableName.getTbl(),
-                                                                            PrivPredicate.SHOW)) {
-                        continue;
-                    }
-                }
-
                 if (states != null) {
                     if (!states.contains(state)) {
                         continue;
                     }
                 }
 
-                List<Comparable> jobInfo = new ArrayList<Comparable>();
-
-                jobInfo.add(id);
-                jobInfo.add(jobLabel);
-                jobInfo.add(state.name());
-                jobInfo.add(job.getProgress() + "%");
-
-                // task infos
-                Map<String, Object> infoMap = Maps.newHashMap();
-                List<String> partitions = job.getPartitions();
-                if (partitions == null) {
-                    partitions = Lists.newArrayList();
-                    partitions.add("*");
+                // check auth
+                if (isJobShowable(job)) {
+                    exportJobInfos.add(composeExportJobInfo(job));
                 }
-                infoMap.put("db", job.getTableName().getDb());
-                infoMap.put("tbl", job.getTableName().getTbl());
-                if (job.getWhereExpr() != null) {
-                    infoMap.put("where expr", job.getWhereExpr().toMySql());
-                }
-                infoMap.put("partitions", partitions);
-                infoMap.put("broker", job.getBrokerDesc().getName());
-                infoMap.put("column separator", job.getColumnSeparator());
-                infoMap.put("line delimiter", job.getLineDelimiter());
-                infoMap.put("exec mem limit", job.getExecMemLimit());
-                infoMap.put("columns", job.getColumns());
-                infoMap.put("coord num", job.getCoordList().size());
-                infoMap.put("tablet num", job.getTabletLocations() == null ? -1 : job.getTabletLocations().size());
-                jobInfo.add(new Gson().toJson(infoMap));
-                // path
-                jobInfo.add(job.getShowExportPath());
-
-                jobInfo.add(TimeUtils.longToTimeString(job.getCreateTimeMs()));
-                jobInfo.add(TimeUtils.longToTimeString(job.getStartTimeMs()));
-                jobInfo.add(TimeUtils.longToTimeString(job.getFinishTimeMs()));
-                jobInfo.add(job.getTimeoutSecond());
-
-                // error msg
-                if (job.getState() == ExportJob.JobState.CANCELLED) {
-                    ExportFailMsg failMsg = job.getFailMsg();
-                    jobInfo.add("type:" + failMsg.getCancelType() + "; msg:" + failMsg.getMsg());
-                } else {
-                    jobInfo.add(FeConstants.null_string);
-                }
-
-                exportJobInfos.add(jobInfo);
 
                 if (++counter >= resultNum) {
                     break;
@@ -320,6 +259,112 @@ public class ExportMgr {
         }
 
         return results;
+    }
+
+    public List<List<String>> getExportJobInfos(long limit) {
+        long resultNum = limit == -1L ? Integer.MAX_VALUE : limit;
+        LinkedList<List<Comparable>> exportJobInfos = new LinkedList<List<Comparable>>();
+
+        readLock();
+        try {
+            int counter = 0;
+            for (ExportJob job : idToJob.values()) {
+                // check auth
+                if (isJobShowable(job)) {
+                    exportJobInfos.add(composeExportJobInfo(job));
+                }
+
+                if (++counter >= resultNum) {
+                    break;
+                }
+            }
+        } finally {
+            readUnlock();
+        }
+
+        // order by
+        ListComparator<List<Comparable>> comparator = null;
+        // sort by id asc
+        comparator = new ListComparator<List<Comparable>>(0);
+        Collections.sort(exportJobInfos, comparator);
+
+        List<List<String>> results = Lists.newArrayList();
+        for (List<Comparable> list : exportJobInfos) {
+            results.add(list.stream().map(e -> e.toString()).collect(Collectors.toList()));
+        }
+
+        return results;
+    }
+
+    public boolean isJobShowable(ExportJob job) {
+        TableName tableName = job.getTableName();
+        if (tableName == null || tableName.getTbl().equals("DUMMY")) {
+            // forward compatibility, no table name is saved before
+            Database db = Env.getCurrentInternalCatalog().getDbNullable(job.getDbId());
+            if (db == null) {
+                return false;
+            }
+            if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
+                    db.getFullName(), PrivPredicate.SHOW)) {
+                return false;
+            }
+        } else {
+            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(),
+                    tableName.getDb(), tableName.getTbl(),
+                    PrivPredicate.SHOW)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private List<Comparable> composeExportJobInfo(ExportJob job) {
+        List<Comparable> jobInfo = new ArrayList<Comparable>();
+
+        jobInfo.add(job.getId());
+        jobInfo.add(job.getLabel());
+        jobInfo.add(job.getState().name());
+        jobInfo.add(job.getProgress() + "%");
+
+        // task infos
+        Map<String, Object> infoMap = Maps.newHashMap();
+        List<String> partitions = job.getPartitions();
+        if (partitions == null) {
+            partitions = Lists.newArrayList();
+            partitions.add("*");
+        }
+        infoMap.put("db", job.getTableName().getDb());
+        infoMap.put("tbl", job.getTableName().getTbl());
+        if (job.getWhereExpr() != null) {
+            infoMap.put("where expr", job.getWhereExpr().toMySql());
+        }
+        infoMap.put("partitions", partitions);
+        infoMap.put("broker", job.getBrokerDesc().getName());
+        infoMap.put("column separator", job.getColumnSeparator());
+        infoMap.put("line delimiter", job.getLineDelimiter());
+        infoMap.put("exec mem limit", job.getExecMemLimit());
+        infoMap.put("columns", job.getColumns());
+        infoMap.put("coord num", job.getCoordList().size());
+        infoMap.put("tablet num", job.getTabletLocations() == null ? -1 : job.getTabletLocations().size());
+        jobInfo.add(new Gson().toJson(infoMap));
+        // path
+        jobInfo.add(job.getShowExportPath());
+
+        jobInfo.add(TimeUtils.longToTimeString(job.getCreateTimeMs()));
+        jobInfo.add(TimeUtils.longToTimeString(job.getStartTimeMs()));
+        jobInfo.add(TimeUtils.longToTimeString(job.getFinishTimeMs()));
+        jobInfo.add(job.getTimeoutSecond());
+
+        // error msg
+        if (job.getState() == ExportJob.JobState.CANCELLED) {
+            ExportFailMsg failMsg = job.getFailMsg();
+            jobInfo.add("type:" + failMsg.getCancelType() + "; msg:" + failMsg.getMsg());
+        } else {
+            jobInfo.add(FeConstants.null_string);
+        }
+
+        return jobInfo;
     }
 
     public void removeOldExportJobs() {
@@ -368,6 +413,27 @@ public class ExportMgr {
         try {
             for (ExportJob job : idToJob.values()) {
                 if (job.getState() == state && job.getDbId() == dbId) {
+                    ++size;
+                }
+            }
+        } finally {
+            readUnlock();
+        }
+        return size;
+    }
+
+    public long getJobNum(ExportJob.JobState state) {
+        int size = 0;
+        readLock();
+        try {
+            for (ExportJob job : idToJob.values()) {
+                if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
+                        Env.getCurrentEnv().getCatalogMgr().getDbNullable(job.getDbId()).getFullName(),
+                        PrivPredicate.LOAD)) {
+                    continue;
+                }
+
+                if (job.getState() == state) {
                     ++size;
                 }
             }

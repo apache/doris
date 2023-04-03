@@ -21,8 +21,10 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "io/fs/err_utils.h"
 
 namespace doris {
+namespace io {
 
 HDFSHandle& HDFSHandle::instance() {
     static HDFSHandle hdfs_handle;
@@ -30,20 +32,23 @@ HDFSHandle& HDFSHandle::instance() {
 }
 
 hdfsFS HDFSHandle::create_hdfs_fs(HDFSCommonBuilder& hdfs_builder) {
-    if (hdfs_builder.is_need_kinit()) {
-        Status status = hdfs_builder.run_kinit();
-        if (!status.ok()) {
-            LOG(WARNING) << status;
-            return nullptr;
-        }
-    }
     hdfsFS hdfs_fs = hdfsBuilderConnect(hdfs_builder.get());
     if (hdfs_fs == nullptr) {
         LOG(WARNING) << "connect to hdfs failed."
-                     << ", error: " << hdfsGetLastError();
+                     << ", error: " << hdfs_error();
         return nullptr;
     }
     return hdfs_fs;
 }
 
+Path convert_path(const Path& path, const std::string& namenode) {
+    Path real_path(path);
+    if (path.string().find(namenode) != std::string::npos) {
+        std::string real_path_str = path.string().substr(namenode.size());
+        real_path = real_path_str;
+    }
+    return real_path;
+}
+
+} // namespace io
 } // namespace doris
