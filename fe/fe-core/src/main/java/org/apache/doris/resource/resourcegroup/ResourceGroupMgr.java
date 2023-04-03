@@ -54,8 +54,6 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
 
     private static final String CPU_SCHEDULING_WEIGHT = "cpu_scheduling_weight";
 
-    private static final String CONCURRENCY_LIMIT = "concurrency_limit";
-
     public static final ImmutableList<String> RESOURCE_GROUP_PROC_NODE_TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("Id").add("Name").add("Item").add("Value")
             .build();
@@ -64,7 +62,7 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
             CPU_SCHEDULING_WEIGHT).build();
 
     private static final ImmutableSet<String> ALL_PROPERTIES_NAME = new ImmutableSet.Builder<String>().add(
-            CPU_SCHEDULING_WEIGHT).add(CONCURRENCY_LIMIT).build();
+            CPU_SCHEDULING_WEIGHT).build();
 
     @SerializedName(value = "idToResourceGroup")
     private final Map<Long, ResourceGroup> idToResourceGroup = Maps.newHashMap();
@@ -108,10 +106,6 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
             }
             // need to check resource group privs
             resourceGroups.add(resourceGroup.toThrift());
-            while (idToResourceGroup.containsKey(resourceGroup.getParentId())) {
-                resourceGroup = idToResourceGroup.get(resourceGroup.getParentId());
-                resourceGroups.add(resourceGroup.toThrift());
-            }
         } finally {
             readUnlock();
         }
@@ -150,7 +144,7 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
                 if (stmt.isIfNotExists()) {
                     return;
                 }
-                throw new DdlException("Resource group(" + resourceGroupNameName + ") already exist");
+                throw new DdlException("Resource group " + resourceGroupNameName + " already exist");
             }
             idToResourceGroup.put(resourceGroup.getId(), resourceGroup);
             Env.getCurrentEnv().getEditLog().logCreateResourceGroup(resourceGroup);
@@ -175,11 +169,6 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
         String cpuSchedulingWeight = properties.get(CPU_SCHEDULING_WEIGHT);
         if (!StringUtils.isNumeric(cpuSchedulingWeight) || Long.parseLong(cpuSchedulingWeight) <= 0) {
             throw new DdlException("cpu_scheduling_weight requires a positive integer.");
-        }
-        String concurrencyLimit = properties.get(CONCURRENCY_LIMIT);
-        if (concurrencyLimit != null && (!StringUtils.isNumeric(concurrencyLimit)
-                || Long.parseLong(concurrencyLimit) < 0)) {
-            throw new DdlException("concurrency_limit requires a non-negative integers.");
         }
     }
 

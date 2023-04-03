@@ -81,10 +81,6 @@ public class ResourceGroup implements Writable {
         return properties;
     }
 
-    public long getParentId() {
-        return parentId;
-    }
-
     public void getProcNodeData(BaseProcResult result) {
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             result.addRow(Lists.newArrayList(String.valueOf(id), name, entry.getKey(), entry.getValue()));
