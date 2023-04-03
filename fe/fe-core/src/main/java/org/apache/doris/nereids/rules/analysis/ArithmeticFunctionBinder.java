@@ -39,25 +39,25 @@ import java.util.Map;
  * bind arithmetic function
  */
 public class ArithmeticFunctionBinder {
-    private static final NullLiteral dummyExpression = new NullLiteral();
-    private static final Map<String, Expression> functionToExpression = ImmutableMap.<String, Expression>builder()
-            .put("add", new Add(dummyExpression, dummyExpression))
-            .put("subtract", new Subtract(dummyExpression, dummyExpression))
-            .put("multiply", new Multiply(dummyExpression, dummyExpression))
-            .put("divide", new Divide(dummyExpression, dummyExpression))
-            .put("int_divide", new IntegralDivide(dummyExpression, dummyExpression))
-            .put("mod", new Mod(dummyExpression, dummyExpression))
-            .put("bitand", new BitAnd(dummyExpression, dummyExpression))
-            .put("bitor", new BitOr(dummyExpression, dummyExpression))
-            .put("bitxor", new BitXor(dummyExpression, dummyExpression))
-            .put("bitnot", new BitNot(dummyExpression))
+    private static final NullLiteral DUMMY_EXPRESSION = new NullLiteral();
+    private static final Map<String, Expression> FUNCTION_TO_EXPRESSION = ImmutableMap.<String, Expression>builder()
+            .put("add", new Add(DUMMY_EXPRESSION, DUMMY_EXPRESSION))
+            .put("subtract", new Subtract(DUMMY_EXPRESSION, DUMMY_EXPRESSION))
+            .put("multiply", new Multiply(DUMMY_EXPRESSION, DUMMY_EXPRESSION))
+            .put("divide", new Divide(DUMMY_EXPRESSION, DUMMY_EXPRESSION))
+            .put("int_divide", new IntegralDivide(DUMMY_EXPRESSION, DUMMY_EXPRESSION))
+            .put("mod", new Mod(DUMMY_EXPRESSION, DUMMY_EXPRESSION))
+            .put("bitand", new BitAnd(DUMMY_EXPRESSION, DUMMY_EXPRESSION))
+            .put("bitor", new BitOr(DUMMY_EXPRESSION, DUMMY_EXPRESSION))
+            .put("bitxor", new BitXor(DUMMY_EXPRESSION, DUMMY_EXPRESSION))
+            .put("bitnot", new BitNot(DUMMY_EXPRESSION))
             .build();
 
     public boolean isBinaryArithmetic(String functionName) {
-        return functionToExpression.containsKey(functionName);
+        return FUNCTION_TO_EXPRESSION.containsKey(functionName);
     }
 
     public Expression bindBinaryArithmetic(String functionName, List<Expression> children) {
-        return functionToExpression.get(functionName).withChildren(children);
+        return FUNCTION_TO_EXPRESSION.get(functionName).withChildren(children);
     }
 }
