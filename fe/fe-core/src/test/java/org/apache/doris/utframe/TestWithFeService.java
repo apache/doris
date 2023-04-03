@@ -617,6 +617,12 @@ public abstract class TestWithFeService {
         Thread.sleep(100);
     }
 
+    protected void alterTableSync(String sql) throws Exception {
+        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        Env.getCurrentEnv().alterTable(alterTableStmt);
+        Thread.sleep(100);
+    }
+
     protected void createMv(String sql) throws Exception {
         CreateMaterializedViewStmt createMaterializedViewStmt =
                 (CreateMaterializedViewStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
