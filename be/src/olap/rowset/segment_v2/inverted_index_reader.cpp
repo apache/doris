@@ -80,16 +80,16 @@ Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cach
             return Status::OK();
         }
 
-        auto null_bitmap_file_name = InvertedIndexDescriptor::get_temporary_null_bitmap_file_name();
         if (!dir) {
             dir = new DorisCompoundReader(
                     DorisCompoundDirectory::getDirectory(_fs, index_dir.c_str()),
-                    null_bitmap_file_name.c_str(), config::inverted_index_read_buffer_size);
+                    index_file_name.c_str(), config::inverted_index_read_buffer_size);
             owned_dir = true;
         }
 
         // ownership of null_bitmap and its deletion will be transfered to cache
         roaring::Roaring* null_bitmap = new roaring::Roaring();
+        auto null_bitmap_file_name = InvertedIndexDescriptor::get_temporary_null_bitmap_file_name();
         if (dir->fileExists(null_bitmap_file_name.c_str())) {
             null_bitmap_in = dir->openInput(null_bitmap_file_name.c_str());
             size_t null_bitmap_size = null_bitmap_in->length();
