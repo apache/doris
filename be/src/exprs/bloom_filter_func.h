@@ -215,7 +215,7 @@ struct CommonFindOp {
 
     uint16_t find_batch_olap_engine(const BloomFilterAdaptor& bloom_filter, const char* data,
                                     const uint8* nullmap, uint16_t* offsets, int number,
-                                    bool is_parse_column) const {
+                                    const bool is_parse_column) const {
         uint16_t new_size = 0;
         if (is_parse_column) {
             if (nullmap == nullptr) {
@@ -301,7 +301,7 @@ struct StringFindOp {
 
     uint16_t find_batch_olap_engine(const BloomFilterAdaptor& bloom_filter, const char* data,
                                     const uint8* nullmap, uint16_t* offsets, int number,
-                                    bool is_parse_column) const {
+                                    const bool is_parse_column) const {
         LOG(FATAL) << "StringFindOp does not support find_batch_olap_engine";
         return 0;
     }
@@ -448,7 +448,7 @@ public:
     }
 
     uint16_t find_fixed_len_olap_engine(const char* data, const uint8* nullmap, uint16_t* offsets,
-                                        int number, bool is_parse_column) override {
+                                        int number, const bool is_parse_column) override {
         return dummy.find_batch_olap_engine(*_bloom_filter, data, nullmap, offsets, number,
                                             is_parse_column);
     }

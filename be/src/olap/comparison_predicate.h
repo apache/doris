@@ -246,7 +246,9 @@ public:
         }
     }
 
-    bool can_do_bloom_filter() const override { return PT == PredicateType::EQ; }
+    bool can_do_bloom_filter() const override {
+        return PT == PredicateType::EQ;
+    }
 
     void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                      bool* flags) const override {
@@ -361,11 +363,17 @@ private:
         }
     }
 
-    constexpr bool _is_range() const { return PredicateTypeTraits::is_range(PT); }
+    constexpr bool _is_range() const {
+        return PredicateTypeTraits::is_range(PT);
+    }
 
-    constexpr bool _is_greater() const { return _operator(1, 0); }
+    constexpr bool _is_greater() const {
+        return _operator(1, 0);
+    }
 
-    constexpr bool _is_eq() const { return _operator(1, 1); }
+    constexpr bool _is_eq() const {
+        return _operator(1, 1);
+    }
 
     Status _bitmap_compare(Status status, bool exact_match, rowid_t ordinal_limit,
                            rowid_t& seeked_ordinal, BitmapIndexIterator* iterator,
@@ -505,7 +513,7 @@ private:
     template <bool is_nullable, typename TArray, typename TValue>
     uint16_t _base_loop(uint16_t* sel, uint16_t size, const uint8_t* __restrict null_map,
                         const TArray* __restrict data_array, const TValue& value,
-                        bool is_dense) const {
+                        const bool is_dense) const {
         uint16_t new_size = 0;
         if (is_dense) {
             for (uint16_t i = 0; i < size; ++i) {
@@ -523,11 +531,11 @@ private:
             for (uint16_t i = 0; i < size; ++i) {
                 uint16_t idx = sel[i];
                 if constexpr (is_nullable) {
-                    if (_opposite ^ (!null_map[idx] && _operator(data_array[idx], value))) {
+                    if () {
                         sel[new_size++] = idx;
                     }
                 } else {
-                    if (_opposite ^ _operator(data_array[idx], value)) {
+                    if () {
                         sel[new_size++] = idx;
                     }
                 }
@@ -544,7 +552,8 @@ private:
             if constexpr (std::is_same_v<T, StringRef>) {
                 auto* dict_column_ptr =
                         vectorized::check_and_get_column<vectorized::ColumnDictI32>(column);
-                auto& data_array = dict_column_ptr->get_data();
+                auto& pred_col = dict_column_ptr->get_data();
+                auto pred_col_data = pred_col.data();
                 auto dict_code = _find_code_from_dictionary_column(*dict_column_ptr);
 
                 if constexpr (PT == PredicateType::EQ) {
@@ -552,21 +561,33 @@ private:
                         return _opposite ? size : 0;
                     }
                 }
+                uint16_t new_size = 0;
+#define EVALUATE_WITH_NULL_IMPL(IDX) \
+    _opposite ^ (!null_map[IDX] && _operator(pred_col_data[IDX], dict_code))
+#define EVALUATE_WITHOUT_NULL_IMPL(IDX) _opposite ^ _operator(pred_col_data[IDX], dict_code)
+                EVALUATE_BY_SELECTOR(EVALUATE_WITH_NULL_IMPL, EVALUATE_WITHOUT_NULL_IMPL)
+#undef EVALUATE_WITH_NULL_IMPL
+#undef EVALUATE_WITHOUT_NULL_IMPL
 
-                return _base_loop<is_nullable>(sel, size, null_map, data_array.data(), dict_code,
-                                               data_array.size() == size);
+                return new_size;
             } else {
                 LOG(FATAL) << "column_dictionary must use StringRef predicate.";
                 return 0;
             }
         } else {
-            auto& data_array =
+            auto& pred_col =
                     vectorized::check_and_get_column<
                             vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>(column)
                             ->get_data();
-
-            return _base_loop<is_nullable>(sel, size, null_map, data_array.data(), _value,
-                                           data_array.size() == size);
+            auto pred_col_data = pred_col.data();
+            uint16_t new_size = 0;
+#define EVALUATE_WITH_NULL_IMPL(IDX) \
+    _opposite ^ (!null_map[IDX] && _operator(pred_col_data[IDX], _value))
+#define EVALUATE_WITHOUT_NULL_IMPL(IDX) _opposite ^ _operator(pred_col_data[IDX], _value)
+            EVALUATE_BY_SELECTOR(EVALUATE_WITH_NULL_IMPL, EVALUATE_WITHOUT_NULL_IMPL)
+#undef EVALUATE_WITH_NULL_IMPL
+#undef EVALUATE_WITHOUT_NULL_IMPL
+            return new_size;
         }
     }
 
