@@ -350,7 +350,7 @@ public class MysqlChannel {
     }
 
     protected void realNetSend(ByteBuffer buffer) throws IOException {
-        encryptData(buffer);
+        buffer = encryptData(buffer);
         long bufLen = buffer.remaining();
         long writeLen = Channels.writeBlocking(conn.getSinkChannel(), buffer);
         if (bufLen != writeLen) {
@@ -361,9 +361,9 @@ public class MysqlChannel {
         isSend = true;
     }
 
-    protected void encryptData(ByteBuffer dstBuf) throws SSLException {
+    protected ByteBuffer encryptData(ByteBuffer dstBuf) throws SSLException {
         if (!isSslMode) {
-            return;
+            return dstBuf;
         }
         encryptNetData.clear();
         while (true) {
@@ -373,9 +373,7 @@ public class MysqlChannel {
             }
         }
         encryptNetData.flip();
-        dstBuf.clear();
-        dstBuf.put(encryptNetData);
-        dstBuf.flip();
+        return encryptNetData;
     }
 
     public void flush() throws IOException {
