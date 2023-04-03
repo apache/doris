@@ -96,7 +96,11 @@ public class S3Resource extends Resource {
         LOG.debug("s3 info need check validity : {}", needCheck);
 
         // the endpoint for ping need add uri scheme.
-        String pingEndpoint = "http://" + properties.get(S3Properties.ENDPOINT);
+        String pingEndpoint = properties.get(S3Properties.ENDPOINT);
+        if (!pingEndpoint.startsWith("http://")) {
+            pingEndpoint = "http://" + properties.get(S3Properties.ENDPOINT);
+            properties.put(S3Properties.ENDPOINT, pingEndpoint);
+        }
         String region = S3Properties.getRegionOfEndpoint(pingEndpoint);
         properties.putIfAbsent(S3Properties.REGION, region);
         String ak = properties.get(S3Properties.ACCESS_KEY);
