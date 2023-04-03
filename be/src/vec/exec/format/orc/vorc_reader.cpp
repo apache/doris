@@ -742,17 +742,13 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
         FOR_FLAT_ORC_COLUMNS(DISPATCH)
 #undef DISPATCH
     case TypeIndex::Decimal32:
-        return _decode_decimal_column<Int32>(col_name, data_column, data_type,
-                                             _decimal_scale_params, cvb, num_values);
+        return _decode_decimal_column<Int32>(col_name, data_column, data_type, cvb, num_values);
     case TypeIndex::Decimal64:
-        return _decode_decimal_column<Int64>(col_name, data_column, data_type,
-                                             _decimal_scale_params, cvb, num_values);
+        return _decode_decimal_column<Int64>(col_name, data_column, data_type, cvb, num_values);
     case TypeIndex::Decimal128:
-        return _decode_decimal_column<Int128>(col_name, data_column, data_type,
-                                              _decimal_scale_params, cvb, num_values);
+        return _decode_decimal_column<Int128>(col_name, data_column, data_type, cvb, num_values);
     case TypeIndex::Decimal128I:
-        return _decode_decimal_column<Int128>(col_name, data_column, data_type,
-                                              _decimal_scale_params, cvb, num_values);
+        return _decode_decimal_column<Int128>(col_name, data_column, data_type, cvb, num_values);
     case TypeIndex::Date:
         return _decode_time_column<VecDateTimeValue, Int64, orc::LongVectorBatch>(
                 col_name, data_column, cvb, num_values);
@@ -852,6 +848,8 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     SCOPED_RAW_TIMER(&_statistics.column_read_time);
     {
         SCOPED_RAW_TIMER(&_statistics.get_batch_time);
+        // reset decimal_scale_params_index
+        _decimal_scale_params_index = 0;
         if (!_row_reader->next(*_batch)) {
             *eof = true;
             *read_rows = 0;
