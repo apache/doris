@@ -76,6 +76,8 @@ else()
 endif()
 option(USE_JEMALLOC "Use jemalloc" ON)
 
+set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE "time -f 'TimeUsage: real=%es, user=%Us, sys=%Ss'")
+
 message(STATUS "GLIBC_COMPATIBILITY is ${GLIBC_COMPATIBILITY}")
 message(STATUS "USE_LIBCPP is ${USE_LIBCPP}")
 message(STATUS "USE_MEM_TRACKER is ${USE_MEM_TRACKER}")

@@ -31,7 +31,8 @@ void register_aggregate_function_combinator_distinct(AggregateFunctionSimpleFact
 
 void register_aggregate_function_sum(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_minmax(AggregateFunctionSimpleFactory& factory);
-void register_aggregate_function_min_max_by(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_min_by(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_max_by(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_avg(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_count(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_HLL_union_agg(AggregateFunctionSimpleFactory& factory);
@@ -63,7 +64,8 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
     std::call_once(oc, [&]() {
         register_aggregate_function_sum(instance);
         register_aggregate_function_minmax(instance);
-        register_aggregate_function_min_max_by(instance);
+        register_aggregate_function_min_by(instance);
+        register_aggregate_function_max_by(instance);
         register_aggregate_function_avg(instance);
         register_aggregate_function_count(instance);
         register_aggregate_function_uniq(instance);
