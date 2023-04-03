@@ -92,7 +92,7 @@ public class S3Resource extends Resource {
         // check properties
         S3Properties.requiredS3PingProperties(properties);
         // default need check resource conf valid, so need fix ut and regression case
-        boolean needCheck = isNeedCheck(null);
+        boolean needCheck = isNeedCheck(properties);
         LOG.debug("s3 info need check validity : {}", needCheck);
 
         // the endpoint for ping need add uri scheme.
@@ -200,11 +200,11 @@ public class S3Resource extends Resource {
         return new CloudCredentialWithEndpoint(pingEndpoint, region, ak, sk);
     }
 
-    private boolean isNeedCheck(Map<String, String> modifiedProperties) {
+    private boolean isNeedCheck(Map<String, String> newProperties) {
         boolean needCheck = !this.properties.containsKey(S3Properties.VALIDITY_CHECK)
                 || Boolean.parseBoolean(this.properties.get(S3Properties.VALIDITY_CHECK));
-        if (modifiedProperties != null && modifiedProperties.containsKey(S3Properties.VALIDITY_CHECK)) {
-            needCheck = Boolean.parseBoolean(modifiedProperties.get(S3Properties.VALIDITY_CHECK));
+        if (newProperties != null && newProperties.containsKey(S3Properties.VALIDITY_CHECK)) {
+            needCheck = Boolean.parseBoolean(newProperties.get(S3Properties.VALIDITY_CHECK));
         }
         return needCheck;
     }
