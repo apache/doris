@@ -1195,7 +1195,7 @@ public class Analyzer {
                     registerConstantConjunct(id, conjunct);
                 }
             }
-            markConstantConjunct(conjunct, fromHavingClause);
+            markConstantConjunct(conjunct, fromHavingClause, false);
         }
     }
 
@@ -1211,7 +1211,7 @@ public class Analyzer {
     }
 
     public void registerMigrateFailedConjuncts(InlineViewRef ref, Expr e) throws AnalysisException {
-        markConstantConjunct(e, false);
+        markConstantConjunct(e, false, false);
         Set<Expr> exprSet = globalState.migrateFailedConjuncts.computeIfAbsent(ref, (k) -> new HashSet<>());
         exprSet.add(e);
     }
@@ -1824,7 +1824,7 @@ public class Analyzer {
             if (rhsRef.getJoinOp().isInnerJoin()) {
                 globalState.ijClauseByConjunct.put(conjunct.getId(), rhsRef);
             }
-            markConstantConjunct(conjunct, false);
+            markConstantConjunct(conjunct, false, true);
         }
     }
 
@@ -1836,9 +1836,9 @@ public class Analyzer {
      * No-op if the conjunct is not constant or is outer joined.
      * Throws an AnalysisException if there is an error evaluating `conjunct`
      */
-    private void markConstantConjunct(Expr conjunct, boolean fromHavingClause)
+    private void markConstantConjunct(Expr conjunct, boolean fromHavingClause, boolean join)
             throws AnalysisException {
-        if (!conjunct.isConstant() || isOjConjunct(conjunct)) {
+        if (!conjunct.isConstant() || isOjConjunct(conjunct) || join) {
             return;
         }
         if ((!fromHavingClause && !hasEmptySpjResultSet)
