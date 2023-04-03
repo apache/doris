@@ -78,6 +78,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
     public static final String ACCESS_CONTROLLER_CLASS_PROP = "access_controller.class";
     public static final String ACCESS_CONTROLLER_PROPERTY_PREFIX_PROP = "access_controller.properties.";
+    public static final String METADATA_REFRESH_INTERVAL_SEC = "metadata_refresh_interval_sec";
     public static final String CATALOG_TYPE_PROP = "type";
 
     private static final String YES = "yes";
@@ -123,6 +124,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (catalog != null) {
             catalog.onClose();
             nameToCatalog.remove(catalog.getName());
+            Env.getCurrentEnv().getRefreshManager().logOutOfRefreshMap(catalog.getName());
             lastDBOfCatalog.remove(catalog.getName());
             Env.getCurrentEnv().getExtMetaCacheMgr().removeCache(catalog.getName());
             if (!Strings.isNullOrEmpty(catalog.getResource())) {
@@ -462,6 +464,20 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         writeLock();
         try {
             CatalogIf catalog = CatalogFactory.constructorFromLog(log);
+            Map<String, String> props = log.getProps();
+            if (props.containsKey(METADATA_REFRESH_INTERVAL_SEC)) {
+                // need refresh
+                String catalogName = log.getCatalogName();
+                Integer metadataRefreshIntervalSec = null;
+                try {
+                    metadataRefreshIntervalSec = Integer.valueOf(props.get(METADATA_REFRESH_INTERVAL_SEC));
+                } catch (NumberFormatException e) {
+                    throw new DdlException("Invalid properties: " + METADATA_REFRESH_INTERVAL_SEC);
+                }
+                Integer[] sec = {metadataRefreshIntervalSec, metadataRefreshIntervalSec};
+                Env.getCurrentEnv().getRefreshManager().registerIntoRefreshMap(catalogName, sec);
+
+            }
             if (!isReplay && catalog instanceof ExternalCatalog) {
                 ((ExternalCatalog) catalog).checkProperties();
             }

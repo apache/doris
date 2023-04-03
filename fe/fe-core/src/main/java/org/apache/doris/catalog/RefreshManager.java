@@ -45,20 +45,16 @@ import java.util.concurrent.TimeUnit;
 public class RefreshManager implements Runnable {
     private static final Logger LOG = LogManager.getLogger(RefreshManager.class);
 
-    private static final ScheduledThreadPoolExecutor REFRESH_Timer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
-            "refresh-timer-pool", true);
+    private static final ScheduledThreadPoolExecutor REFRESH_TIMER = ThreadPoolManager.newDaemonScheduledThreadPool(1,
+        "catalog-refresh-timer-pool", true);
     // Unit:SECONDS
-    private static final int REFRESH_TIME = 20;
+    private static final int REFRESH_TIME = 5;
     // key is the name of a catalog, value is an array of length 2, used to store
     // the original refresh time and the current remaining time of the catalog
-    private static Map<String, Integer[]> refreshMap = Maps.newConcurrentMap();
+    private Map<String, Integer[]> refreshMap = Maps.newConcurrentMap();
 
     public RefreshManager() {
-        REFRESH_Timer.scheduleAtFixedRate(this::run, 0, REFRESH_TIME, TimeUnit.SECONDS);
-    }
-
-    public Map<String, Integer[]> getRefreshMap() {
-        return refreshMap;
+        REFRESH_TIMER.scheduleAtFixedRate(this::run, 0, REFRESH_TIME, TimeUnit.SECONDS);
     }
 
     public void handleRefreshTable(RefreshTableStmt stmt) throws UserException {
@@ -169,6 +165,14 @@ public class RefreshManager implements Runnable {
         env.createTable(createTableStmt);
     }
 
+    public void registerIntoRefreshMap(String catalogName, Integer[] sec) {
+        refreshMap.put(catalogName, sec);
+    }
+
+    public void logOutOfRefreshMap(String catalogName) {
+        refreshMap.remove(catalogName);
+    }
+
     @Override
     public void run() {
         for (Map.Entry<String, Integer[]> entry : refreshMap.entrySet()) {
@@ -176,7 +180,6 @@ public class RefreshManager implements Runnable {
             Integer[] timeGroup = entry.getValue();
             Integer original = timeGroup[0];
             Integer current = timeGroup[1];
-
             if (current - REFRESH_TIME > 0) {
                 timeGroup[1] = current - REFRESH_TIME;
                 refreshMap.put(catalogName, timeGroup);
@@ -191,7 +194,6 @@ public class RefreshManager implements Runnable {
                 timeGroup[1] = original;
                 refreshMap.put(catalogName, timeGroup);
             }
-
         }
     }
 }
