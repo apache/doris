@@ -37,10 +37,12 @@ public:
               _value(value) {}
 
     void clone(ColumnPredicate** to) const override {
-        *to = new ComparisonPredicateBase(_column_id, _value, _opposite);
-        (*to)->predicate_params()->value = _predicate_params->value;
-        (*to)->predicate_params()->marked_by_runtime_filter =
+        auto* cloned = new ComparisonPredicateBase(_column_id, _value, _opposite);
+        cloned->predicate_params()->value = _predicate_params->value;
+        cloned->_cache_code_enabled = true;
+        cloned->predicate_params()->marked_by_runtime_filter =
                 _predicate_params->marked_by_runtime_filter;
+        *to = cloned;
     }
 
     bool need_to_clone() const override { return true; }
@@ -555,7 +557,8 @@ private:
 
     __attribute__((flatten)) int32_t _find_code_from_dictionary_column(
             const vectorized::ColumnDictI32& column) const {
-        if (UNLIKELY(_cached_code == _InvalidateCodeValue)) {
+        /// if _cache_code_enabled is false, always find the code from dict.
+        if (UNLIKELY(!_cache_code_enabled || _cached_code == _InvalidateCodeValue)) {
             _cached_code = _is_range() ? column.find_code_by_bound(_value, _is_greater(), _is_eq())
                                        : column.find_code(_value);
         }
@@ -570,6 +573,7 @@ private:
 
     static constexpr int32_t _InvalidateCodeValue = std::numeric_limits<int32_t>::max();
     mutable int32_t _cached_code;
+    bool _cache_code_enabled = false;
     T _value;
 };
 
