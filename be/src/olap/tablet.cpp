@@ -2519,9 +2519,9 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
                 if (specified_rowset_ids != nullptr && !specified_rowset_ids->empty()) {
                     auto st = lookup_row_key(key, specified_rowset_ids, &loc,
                                              dummy_version.first - 1);
-                    bool expect_st = st.ok() || st.is<NOT_FOUND>() || st.is<ALREADY_EXIST>();
-                    DCHECK(expect_st) << "unexpected error status while lookup_row_key:" << st;
-                    if (!expect_st) {
+                    bool expected_st = st.ok() || st.is<NOT_FOUND>() || st.is<ALREADY_EXIST>();
+                    DCHECK(expected_st) << "unexpected error status while lookup_row_key:" << st;
+                    if (!expected_st) {
                         return st;
                     }
                     if (st.is<NOT_FOUND>()) {
