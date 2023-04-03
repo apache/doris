@@ -191,6 +191,6 @@ suite("test_grouping_sets1") {
               ) idt_765
             group by
               GROUPING SETS((idt_765.entry_date),())
-          ) t_1 on t_0.dim_207 = t_1.dim_207;
+          ) t_1 on t_0.dim_207 = t_1.dim_207 order by publish_date;
     """
 }
