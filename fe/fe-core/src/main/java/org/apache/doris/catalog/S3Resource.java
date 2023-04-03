@@ -21,6 +21,7 @@ import org.apache.doris.backup.S3Storage;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.BaseProcResult;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.S3Properties;
@@ -223,6 +224,9 @@ public class S3Resource extends Resource {
         readLock();
         result.addRow(Lists.newArrayList(name, lowerCaseType, "version", String.valueOf(version)));
         for (Map.Entry<String, String> entry : properties.entrySet()) {
+            if (PrintableMap.HIDDEN_KEY.contains(entry.getKey())) {
+                continue;
+            }
             // it's dangerous to show password in show odbc resource,
             // so we use empty string to replace the real password
             if (entry.getKey().equals(S3Properties.Env.SECRET_KEY)) {
