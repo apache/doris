@@ -86,10 +86,9 @@ public class S3Resource extends Resource {
     @Override
     protected void setProperties(Map<String, String> properties) throws DdlException {
         Preconditions.checkState(properties != null);
-        if (properties.containsKey(S3Properties.Env.ENDPOINT)) {
-            // compatible with old version
-            S3Properties.convertToStdProperties(properties);
-        }
+
+        // compatible with old version
+        S3Properties.convertToStdProperties(properties);
         // check properties
         S3Properties.requiredS3PingProperties(properties);
         // default need check resource conf valid, so need fix ut and regression case
@@ -165,10 +164,8 @@ public class S3Resource extends Resource {
                 throw new DdlException("current not support modify property : " + any.get());
             }
         }
-        if (properties.containsKey(S3Properties.Env.ENDPOINT)) {
-            // compatible with old version
-            S3Properties.convertToStdProperties(properties);
-        }
+        // compatible with old version
+        S3Properties.convertToStdProperties(properties);
         boolean needCheck = isNeedCheck(properties);
         LOG.debug("s3 info need check validity : {}", needCheck);
         if (needCheck) {
