@@ -54,9 +54,10 @@ suite("test_data_type_marks") {
         distributed BY hash(k1) buckets 3
         properties("replication_num" = "1");
         """
+    sql """set enable_fold_constant_by_be = false;"""
     sql """insert into a_table select 1,1,1,1,to_bitmap(1),hll_hash(1);"""
     sql """insert into a_table select 2,2,1,2,to_bitmap(2),hll_hash(2);"""
     sql """insert into a_table select 3,-3,-3,-3,to_bitmap(3),hll_hash(3);"""
-
+    sql """set enable_fold_constant_by_be = true;"""
     qt_sql """select bitmap_count(k5) from a_table where abs(k1)=1;"""
 }
