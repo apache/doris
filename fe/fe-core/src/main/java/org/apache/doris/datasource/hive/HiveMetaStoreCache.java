@@ -36,6 +36,7 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.planner.ColumnBound;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PartitionPrunerV2Base.UniqueId;
+import org.apache.doris.planner.external.FileSplit;
 import org.apache.doris.planner.external.HiveSplitter;
 
 import com.google.common.base.Preconditions;
@@ -96,7 +97,7 @@ public class HiveMetaStoreCache {
     // cache from <dbname-tblname-partition_values> -> <partition info>
     private LoadingCache<PartitionCacheKey, HivePartition> partitionCache;
     // the ref of cache from <location> -> <file list>
-    private volatile AtomicReference<LoadingCache<FileCacheKey, ImmutableList<InputSplit>>> fileCacheRef
+    private volatile AtomicReference<LoadingCache<FileCacheKey, ImmutableList<FileSplit>>> fileCacheRef
             = new AtomicReference<>();
 
     public HiveMetaStoreCache(HMSExternalCatalog catalog, Executor executor) {
@@ -147,10 +148,10 @@ public class HiveMetaStoreCache {
         }
         // if the file.meta.cache.ttl-second is equal 0, use the synchronous loader
         // if the file.meta.cache.ttl-second greater than 0, use the asynchronous loader
-        CacheLoader<FileCacheKey, ImmutableList<InputSplit>> loader = getGuavaCacheLoader(executor,
+        CacheLoader<FileCacheKey, ImmutableList<FileSplit>> loader = getGuavaCacheLoader(executor,
                 fileMetaCacheTtlSecond);
 
-        LoadingCache<FileCacheKey, ImmutableList<InputSplit>> preFileCache = fileCacheRef.get();
+        LoadingCache<FileCacheKey, ImmutableList<FileSplit>> preFileCache = fileCacheRef.get();
 
         fileCacheRef.set(fileCacheBuilder.build(loader));
         if (Objects.nonNull(preFileCache)) {
@@ -261,7 +262,7 @@ public class HiveMetaStoreCache {
         return new HivePartition(sd.getInputFormat(), sd.getLocation(), key.values);
     }
 
-    private ImmutableList<InputSplit> loadFiles(FileCacheKey key) {
+    private ImmutableList<FileSplit> loadFiles(FileCacheKey key) {
         ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
         try {
             Thread.currentThread().setContextClassLoader(ClassLoader.getSystemClassLoader());
@@ -278,12 +279,13 @@ public class HiveMetaStoreCache {
             jobConf.set("mapreduce.input.fileinputformat.input.dir.recursive", "true");
             FileInputFormat.setInputPaths(jobConf, finalLocation);
             try {
+                FileSplit[] result;
                 InputFormat<?, ?> inputFormat = HiveUtil.getInputFormat(jobConf, key.inputFormat, false);
-                InputSplit[] splits;
                 // TODO: This is a temp config, will remove it after the HiveSplitter is stable.
                 if (key.useSelfSplitter) {
-                    splits = HiveSplitter.getHiveSplits(new Path(finalLocation), inputFormat, jobConf);
+                    result = HiveSplitter.getHiveSplits(new Path(finalLocation), inputFormat, jobConf);
                 } else {
+                    InputSplit[] splits;
                     String remoteUser = jobConf.get(HdfsResource.HADOOP_USER_NAME);
                     if (!Strings.isNullOrEmpty(remoteUser)) {
                         UserGroupInformation ugi = UserGroupInformation.createRemoteUser(remoteUser);
@@ -292,12 +294,18 @@ public class HiveMetaStoreCache {
                     } else {
                         splits = inputFormat.getSplits(jobConf, 0 /* use hdfs block size as default */);
                     }
+                    result = new FileSplit[splits.length];
+                    // Convert the hadoop split to Doris Split.
+                    for (int i = 0; i < splits.length; i++) {
+                        org.apache.hadoop.mapred.FileSplit fs = ((org.apache.hadoop.mapred.FileSplit) splits[i]);
+                        result[i] =  new FileSplit(fs.getPath(), fs.getStart(), fs.getLength(), -1, null);
+                    }
                 }
 
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("load #{} files for {} in catalog {}", splits.length, key, catalog.getName());
+                    LOG.debug("load #{} splits for {} in catalog {}", result.length, key, catalog.getName());
                 }
-                return ImmutableList.copyOf(splits);
+                return ImmutableList.copyOf(result);
             } catch (Exception e) {
                 throw new CacheException("failed to get input splits for %s in catalog %s", e, key, catalog.getName());
             }
@@ -345,7 +353,7 @@ public class HiveMetaStoreCache {
         }
     }
 
-    public List<InputSplit> getFilesByPartitions(List<HivePartition> partitions, boolean useSelfSplitter) {
+    public List<FileSplit> getFilesByPartitions(List<HivePartition> partitions, boolean useSelfSplitter) {
         long start = System.currentTimeMillis();
         List<FileCacheKey> keys = Lists.newArrayListWithExpectedSize(partitions.size());
         partitions.stream().forEach(p -> keys.add(new FileCacheKey(p.getPath(), p.getInputFormat(), useSelfSplitter)));
@@ -356,14 +364,14 @@ public class HiveMetaStoreCache {
         } else {
             stream = keys.parallelStream();
         }
-        List<ImmutableList<InputSplit>> fileLists = stream.map(k -> {
+        List<ImmutableList<FileSplit>> fileLists = stream.map(k -> {
             try {
                 return fileCacheRef.get().get(k);
             } catch (ExecutionException e) {
                 throw new RuntimeException(e);
             }
         }).collect(Collectors.toList());
-        List<InputSplit> retFiles = Lists.newArrayListWithExpectedSize(
+        List<FileSplit> retFiles = Lists.newArrayListWithExpectedSize(
                 fileLists.stream().mapToInt(l -> l.size()).sum());
         fileLists.stream().forEach(l -> retFiles.addAll(l));
         LOG.debug("get #{} files from #{} partitions in catalog {} cost: {} ms",
@@ -574,12 +582,12 @@ public class HiveMetaStoreCache {
      * @param fileMetaCacheTtlSecond
      * @return
      */
-    private CacheLoader<FileCacheKey, ImmutableList<InputSplit>> getGuavaCacheLoader(Executor executor,
+    private CacheLoader<FileCacheKey, ImmutableList<FileSplit>> getGuavaCacheLoader(Executor executor,
             int fileMetaCacheTtlSecond) {
-        CacheLoader<FileCacheKey, ImmutableList<InputSplit>> loader =
-                new CacheLoader<FileCacheKey, ImmutableList<InputSplit>>() {
+        CacheLoader<FileCacheKey, ImmutableList<FileSplit>> loader =
+                new CacheLoader<FileCacheKey, ImmutableList<FileSplit>>() {
                     @Override
-                    public ImmutableList<InputSplit> load(FileCacheKey key) throws Exception {
+                    public ImmutableList<FileSplit> load(FileCacheKey key) throws Exception {
                         return loadFiles(key);
                     }
                 };
@@ -594,7 +602,7 @@ public class HiveMetaStoreCache {
      * get fileCache ref
      * @return
      */
-    public AtomicReference<LoadingCache<FileCacheKey, ImmutableList<InputSplit>>> getFileCacheRef() {
+    public AtomicReference<LoadingCache<FileCacheKey, ImmutableList<FileSplit>>> getFileCacheRef() {
         return fileCacheRef;
     }
 
