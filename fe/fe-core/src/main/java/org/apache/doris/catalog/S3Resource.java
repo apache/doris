@@ -100,6 +100,7 @@ public class S3Resource extends Resource {
         if (!pingEndpoint.startsWith("http://")) {
             pingEndpoint = "http://" + properties.get(S3Properties.ENDPOINT);
             properties.put(S3Properties.ENDPOINT, pingEndpoint);
+            properties.put(S3Properties.Env.ENDPOINT, pingEndpoint);
         }
         String region = S3Properties.getRegionOfEndpoint(pingEndpoint);
         properties.putIfAbsent(S3Properties.REGION, region);
@@ -156,7 +157,8 @@ public class S3Resource extends Resource {
         if (references.containsValue(ReferenceType.POLICY)) {
             // can't change, because remote fs use it info to find data.
             List<String> cantChangeProperties = Arrays.asList(S3Properties.ENDPOINT, S3Properties.REGION,
-                    S3Properties.ROOT_PATH, S3Properties.BUCKET);
+                    S3Properties.ROOT_PATH, S3Properties.BUCKET, S3Properties.Env.ENDPOINT, S3Properties.Env.REGION,
+                    S3Properties.Env.ROOT_PATH, S3Properties.Env.BUCKET);
             Optional<String> any = cantChangeProperties.stream().filter(properties::containsKey).findAny();
             if (any.isPresent()) {
                 throw new DdlException("current not support modify property : " + any.get());
