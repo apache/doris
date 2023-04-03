@@ -162,30 +162,15 @@ public:
         }
         ColumnPtr res_column;
         if (left_const) {
-            if (_execute_internal_lconst<ColumnString, ColumnDate, ColumnDateTime, ColumnDateV2,
-                                         ColumnDateTimeV2, ColumnUInt8, ColumnInt8, ColumnInt16,
-                                         ColumnInt32, ColumnInt64, ColumnInt128, ColumnFloat32,
-                                         ColumnFloat64, ColumnDecimal32, ColumnDecimal64,
-                                         ColumnDecimal128I, ColumnDecimal128>(dst, left_data,
-                                                                              right_data)) {
+            if (_execute_internal_lconst<ALL_COLUMNS_SIMPLE>(dst, left_data, right_data)) {
                 res_column = assemble_column_array(dst);
             }
         } else if (right_const) {
-            if (_execute_internal_rconst<ColumnString, ColumnDate, ColumnDateTime, ColumnDateV2,
-                                         ColumnDateTimeV2, ColumnUInt8, ColumnInt8, ColumnInt16,
-                                         ColumnInt32, ColumnInt64, ColumnInt128, ColumnFloat32,
-                                         ColumnFloat64, ColumnDecimal32, ColumnDecimal64,
-                                         ColumnDecimal128I, ColumnDecimal128>(dst, left_data,
-                                                                              right_data)) {
+            if (_execute_internal_rconst<ALL_COLUMNS_SIMPLE>(dst, left_data, right_data)) {
                 res_column = assemble_column_array(dst);
             }
         } else {
-            if (_execute_internal<ColumnString, ColumnDate, ColumnDateTime, ColumnDateV2,
-                                  ColumnDateTimeV2, ColumnUInt8, ColumnInt8, ColumnInt16,
-                                  ColumnInt32, ColumnInt64, ColumnInt128, ColumnFloat32,
-                                  ColumnFloat64, ColumnDecimal32, ColumnDecimal64,
-                                  ColumnDecimal128I, ColumnDecimal128>(dst, left_data,
-                                                                       right_data)) {
+            if (_execute_internal<ALL_COLUMNS_SIMPLE>(dst, left_data, right_data)) {
                 res_column = assemble_column_array(dst);
             }
         }

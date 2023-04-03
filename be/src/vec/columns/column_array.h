@@ -27,6 +27,14 @@
 #include "vec/common/assert_cast.h"
 #include "vec/core/types.h"
 
+//TODO: use marcos below to decouple array function calls
+#define ALL_COLUMNS_NUMBER                                                                       \
+    ColumnUInt8, ColumnInt8, ColumnInt16, ColumnInt32, ColumnInt64, ColumnInt128, ColumnFloat32, \
+            ColumnFloat64, ColumnDecimal32, ColumnDecimal64, ColumnDecimal128I, ColumnDecimal128
+#define ALL_COLUMNS_TIME ColumnDate, ColumnDateTime, ColumnDateV2, ColumnDateTimeV2
+#define ALL_COLUMNS_NUMERIC ALL_COLUMNS_NUMBER, ALL_COLUMNS_TIME
+#define ALL_COLUMNS_SIMPLE ALL_COLUMNS_NUMERIC, ColumnString
+
 namespace doris::vectorized {
 
 /** Obtaining array as Field can be slow for large arrays and consume vast amount of memory.

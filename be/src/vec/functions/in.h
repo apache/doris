@@ -170,8 +170,13 @@ public:
             for (int i = 1; i < arguments.size(); ++i) {
                 set_columns.emplace_back(block.get_by_position(arguments[i]).column);
             }
-            impl_without_set(context, set_columns, input_rows_count, vec_res, vec_null_map_to,
-                             materialized_column, col_const);
+            if (col_const) {
+                impl_without_set<true>(context, set_columns, input_rows_count, vec_res,
+                                       vec_null_map_to, materialized_column);
+            } else {
+                impl_without_set<false>(context, set_columns, input_rows_count, vec_res,
+                                        vec_null_map_to, materialized_column);
+            }
         }
 
         if (block.get_by_position(result).type->is_nullable()) {
@@ -201,6 +206,7 @@ private:
                                                                vec_res);
         }
     }
+
     template <typename T>
     static void search_hash_set(InState* in_state, size_t input_rows_count,
                                 ColumnUInt8::Container& vec_res, T* col_ptr) {
@@ -210,13 +216,15 @@ private:
             in_state->hybrid_set->find_batch_negative(*col_ptr, input_rows_count, vec_res);
         }
     }
+
+    template <bool Const>
     static void impl_without_set(FunctionContext* context,
                                  const std::vector<ColumnPtr>& set_columns, size_t input_rows_count,
                                  ColumnUInt8::Container& vec_res,
                                  ColumnUInt8::Container& vec_null_map_to,
-                                 const ColumnPtr& materialized_column, bool col_const) {
+                                 const ColumnPtr& materialized_column) {
         for (size_t i = 0; i < input_rows_count; ++i) {
-            const auto& ref_data = materialized_column->get_data_at(col_const ? 0 : i);
+            const auto& ref_data = materialized_column->get_data_at(index_check_const(i, Const));
             if (ref_data.data == nullptr) {
                 vec_null_map_to[i] = true;
                 continue;
