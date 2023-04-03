@@ -19,7 +19,6 @@
 
 #include "olap/field.h"
 #include "olap/types.h"
-#include "runtime/mem_pool.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -38,7 +37,7 @@ void common_test(typename TypeTraits<field_type>::CppType src_val) {
     EXPECT_EQ(sizeof(src_val), type->size());
     {
         typename TypeTraits<field_type>::CppType dst_val;
-        MemPool pool;
+        vectorized::Arena pool;
         type->deep_copy((char*)&dst_val, (char*)&src_val, &pool);
         EXPECT_EQ(0, type->cmp((char*)&src_val, (char*)&dst_val));
     }
@@ -74,7 +73,7 @@ void test_char(Slice src_val) {
     {
         char buf[64];
         Slice dst_val(buf, sizeof(buf));
-        MemPool pool;
+        vectorized::Arena pool;
         type->deep_copy((char*)&dst_val, (char*)&src_val, &pool);
         EXPECT_EQ(0, type->cmp((char*)&src_val, (char*)&dst_val));
     }
@@ -153,7 +152,7 @@ void common_test_array(CollectionValue src_val) {
 
     { // test deep copy
         CollectionValue dst_val;
-        MemPool pool;
+        vectorized::Arena pool;
         array_type->deep_copy((char*)&dst_val, (char*)&src_val, &pool);
         EXPECT_EQ(0, array_type->cmp((char*)&src_val, (char*)&dst_val));
     }

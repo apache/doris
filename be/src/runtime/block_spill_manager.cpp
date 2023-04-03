@@ -21,8 +21,7 @@
 #include <boost/uuid/uuid_io.hpp>
 #include <random>
 
-#include "env/env_posix.h"
-#include "util/file_utils.h"
+#include "io/fs/local_file_system.h"
 #include "util/time.h"
 #include "vec/core/block_spill_reader.h"
 #include "vec/core/block_spill_writer.h"
@@ -35,19 +34,21 @@ BlockSpillManager::BlockSpillManager(const std::vector<StorePath>& paths) : _sto
 Status BlockSpillManager::init() {
     for (const auto& path : _store_paths) {
         auto dir = fmt::format("{}/{}", path.path, BLOCK_SPILL_GC_DIR);
-        if (!FileUtils::check_exist(dir)) {
-            RETURN_IF_ERROR(FileUtils::create_dir(dir));
+        bool exists = true;
+        RETURN_IF_ERROR(io::global_local_filesystem()->exists(dir, &exists));
+        if (!exists) {
+            RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(dir));
         }
 
         dir = fmt::format("{}/{}", path.path, BLOCK_SPILL_DIR);
-        if (!FileUtils::check_exist(dir)) {
-            RETURN_IF_ERROR(FileUtils::create_dir(dir));
+        RETURN_IF_ERROR(io::global_local_filesystem()->exists(dir, &exists));
+        if (!exists) {
+            RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(dir));
         } else {
             auto suffix = ToStringFromUnixMillis(UnixMillis());
             auto gc_dir = fmt::format("{}/{}/{}", path.path, BLOCK_SPILL_GC_DIR, suffix);
-            if (Env::Default()->rename_dir(dir, gc_dir).ok()) {
-                RETURN_IF_ERROR(FileUtils::create_dir(dir));
-            }
+            RETURN_IF_ERROR(io::global_local_filesystem()->rename_dir(dir, gc_dir));
+            RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(dir));
         }
     }
 
@@ -58,33 +59,36 @@ void BlockSpillManager::gc(int64_t max_file_count) {
     if (max_file_count < 1) {
         return;
     }
+    bool exists = true;
     int64_t count = 0;
     for (const auto& path : _store_paths) {
         std::string gc_root_dir = fmt::format("{}/{}", path.path, BLOCK_SPILL_GC_DIR);
 
-        std::set<std::string> dirs;
-        auto st = FileUtils::list_dirs_files(gc_root_dir, &dirs, nullptr, Env::Default());
+        std::vector<io::FileInfo> dirs;
+        auto st = io::global_local_filesystem()->list(gc_root_dir, false, &dirs, &exists);
         if (!st.ok()) {
             continue;
         }
         for (const auto& dir : dirs) {
-            std::string abs_dir = fmt::format("{}/{}", gc_root_dir, dir);
-
-            std::set<std::string> files;
-            st = FileUtils::list_dirs_files(abs_dir, nullptr, &files, Env::Default());
+            if (dir.is_file) {
+                continue;
+            }
+            std::string abs_dir = fmt::format("{}/{}", gc_root_dir, dir.file_name);
+            std::vector<io::FileInfo> files;
+            st = io::global_local_filesystem()->list(abs_dir, true, &files, &exists);
             if (!st.ok()) {
                 continue;
             }
             if (files.empty()) {
-                FileUtils::remove(abs_dir);
+                io::global_local_filesystem()->delete_directory(abs_dir);
                 if (count++ == max_file_count) {
                     return;
                 }
                 continue;
             }
             for (const auto& file : files) {
-                auto abs_file_path = fmt::format("{}/{}", abs_dir, file);
-                FileUtils::remove(abs_file_path);
+                auto abs_file_path = fmt::format("{}/{}", abs_dir, file.file_name);
+                io::global_local_filesystem()->delete_file(abs_file_path);
                 if (count++ == max_file_count) {
                     return;
                 }

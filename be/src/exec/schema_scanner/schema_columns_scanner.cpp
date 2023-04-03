@@ -193,21 +193,10 @@ std::string SchemaColumnsScanner::_type_to_string(TColumnDesc& desc) {
     case TPrimitiveType::DATETIME:
         return "datetime";
     case TPrimitiveType::DECIMALV2: {
-        std::stringstream stream;
-        stream << "decimal(";
-        if (desc.__isset.columnPrecision) {
-            stream << desc.columnPrecision;
-        } else {
-            stream << 27;
-        }
-        stream << ",";
-        if (desc.__isset.columnScale) {
-            stream << desc.columnScale;
-        } else {
-            stream << 9;
-        }
-        stream << ")";
-        return stream.str();
+        return fmt::format(
+                "decimal({}, {})",
+                desc.__isset.columnPrecision ? std::to_string(desc.columnPrecision) : "27",
+                desc.__isset.columnScale ? std::to_string(desc.columnScale) : "9");
     }
     case TPrimitiveType::DECIMAL32:
     case TPrimitiveType::DECIMAL64:
@@ -254,7 +243,7 @@ Status SchemaColumnsScanner::_get_new_desc() {
         }
         desc_params.tables_name.push_back(_table_result.tables[_table_index++]);
     }
-    LOG(WARNING) << "_get_new_desc tables_name size: " << desc_params.tables_name.size();
+
     if (nullptr != _param->current_user_ident) {
         desc_params.__set_current_user_ident(*(_param->current_user_ident));
     } else {

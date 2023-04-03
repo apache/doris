@@ -165,6 +165,11 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         analyzeSelectClause(analyzer);
         analyzeFromClause();
         if (selectStmt.getWhereClause() != null) {
+            if (!isReplay && selectStmt.getWhereClause().hasAggregateSlot()) {
+                throw new AnalysisException(
+                        "The where clause contained aggregate column is not supported, expr:"
+                                + selectStmt.getWhereClause().toSql());
+            }
             whereClauseItem = new MVColumnItem(selectStmt.getWhereClause());
         }
         if (selectStmt.getHavingPred() != null) {
@@ -202,6 +207,18 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 throw new AnalysisException("The materialized view only support the single column or function expr. "
                         + "Error column: " + selectListItemExpr.toSql());
             }
+            List<SlotRef> slots = new ArrayList<>();
+            selectListItemExpr.collect(SlotRef.class, slots);
+            if (!isReplay && slots.size() == 0) {
+                throw new AnalysisException(
+                        "The materialized view contain constant expr is disallowed, expr: "
+                                + selectListItemExpr.toSql());
+            }
+
+            if (!isReplay && selectListItemExpr.haveFunction("curdate")) {
+                throw new AnalysisException(
+                        "The materialized view contain curdate is disallowed");
+            }
 
             if (selectListItemExpr instanceof FunctionCallExpr
                     && ((FunctionCallExpr) selectListItemExpr).isAggregateFunction()) {
@@ -220,9 +237,6 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                                 "The function " + functionName + " must match pattern:" + mvColumnPattern.toString());
                     }
                 }
-                // check duplicate column
-                List<SlotRef> slots = new ArrayList<>();
-                functionCallExpr.collect(SlotRef.class, slots);
 
                 if (beginIndexOfAggregation == -1) {
                     beginIndexOfAggregation = i;
@@ -483,7 +497,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         return new MVColumnItem(type, mvAggregateType, defineExpr, mvColumnBuilder(defineExpr.toSql()));
     }
 
-    public Map<String, Expr> parseDefineExprWithoutAnalyze() throws AnalysisException {
+    public Map<String, Expr> parseDefineExpr(Analyzer analyzer) throws AnalysisException {
         Map<String, Expr> result = Maps.newHashMap();
         SelectList selectList = selectStmt.getSelectList();
         for (SelectListItem selectListItem : selectList.getItems()) {
@@ -499,7 +513,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                     case FunctionSet.BITMAP_UNION:
                     case FunctionSet.HLL_UNION:
                     case FunctionSet.COUNT:
-                        MVColumnItem item = buildMVColumnItem(null, functionCallExpr);
+                        MVColumnItem item = buildMVColumnItem(analyzer, functionCallExpr);
                         expr = item.getDefineExpr();
                         name = item.getName();
                         break;

@@ -23,6 +23,11 @@
 #include "gutil/macros.h"
 #include "util/thrift_util.h"
 
+#ifdef USE_HADOOP_HDFS
+// defined in hadoop_hdfs/hdfs.h
+extern "C" JNIEnv* getJNIEnv(void);
+#endif
+
 namespace doris {
 
 #define RETURN_ERROR_IF_EXC(env)                                     \

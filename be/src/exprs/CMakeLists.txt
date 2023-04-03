@@ -27,7 +27,6 @@ add_library(Exprs
   runtime_filter.cpp
   runtime_filter_rpc.cpp
   math_functions.cpp
-  rpc_fn_comm.cpp
   string_functions.cpp
   json_functions.cpp
 )

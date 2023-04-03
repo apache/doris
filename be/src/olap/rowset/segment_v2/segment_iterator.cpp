@@ -225,7 +225,7 @@ Status SegmentIterator::_init() {
         RETURN_IF_ERROR(_get_row_ranges_by_keys());
     }
     RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
-    _vec_init_lazy_materialization();
+    RETURN_IF_ERROR(_vec_init_lazy_materialization());
     _vec_init_char_column_id();
     // Remove rows that have been marked deleted
     if (_opts.delete_bitmap.count(segment_id()) > 0 &&
@@ -1145,7 +1145,7 @@ Status SegmentIterator::_seek_columns(const std::vector<ColumnId>& column_ids, r
  */
 
 // todo(wb) need a UT here
-void SegmentIterator::_vec_init_lazy_materialization() {
+Status SegmentIterator::_vec_init_lazy_materialization() {
     _is_pred_column.resize(_schema.columns().size(), false);
 
     // including short/vec/delete pred
@@ -1233,7 +1233,7 @@ void SegmentIterator::_vec_init_lazy_materialization() {
     // Step2: extract columns that can execute expr context
     _is_common_expr_column.resize(_schema.columns().size(), false);
     if (_enable_common_expr_pushdown && _remaining_vconjunct_root != nullptr) {
-        _extract_common_expr_columns(_remaining_vconjunct_root);
+        RETURN_IF_ERROR(_extract_common_expr_columns(_remaining_vconjunct_root));
         if (!_common_expr_columns.empty()) {
             _is_need_expr_eval = true;
             for (auto cid : _schema.column_ids()) {
@@ -1309,6 +1309,7 @@ void SegmentIterator::_vec_init_lazy_materialization() {
             }
         }
     }
+    return Status::OK();
 }
 
 bool SegmentIterator::_can_evaluated_by_vectorized(ColumnPredicate* predicate) {
@@ -1384,7 +1385,10 @@ Status SegmentIterator::_read_columns(const std::vector<ColumnId>& column_ids,
             continue;
         }
         RETURN_IF_ERROR(_column_iterators[_schema.unique_id(cid)]->next_batch(&rows_read, column));
-        DCHECK_EQ(nrows, rows_read);
+        if (nrows != rows_read) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>("nrows({}) != rows_read({})", nrows,
+                                                            rows_read);
+        }
     }
     return Status::OK();
 }
@@ -1653,8 +1657,9 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     }
     _split_row_ranges.clear();
     _split_row_ranges.reserve(nrows_read_limit / 2);
-    _read_columns_by_index(nrows_read_limit, _current_batch_rows_read,
-                           _lazy_materialization_read || _opts.record_rowids || _is_need_expr_eval);
+    RETURN_IF_ERROR(_read_columns_by_index(
+            nrows_read_limit, _current_batch_rows_read,
+            _lazy_materialization_read || _opts.record_rowids || _is_need_expr_eval));
     if (std::find(_first_read_column_ids.begin(), _first_read_column_ids.end(),
                   _schema.version_col_idx()) != _first_read_column_ids.end()) {
         _replace_version_col(_current_batch_rows_read);

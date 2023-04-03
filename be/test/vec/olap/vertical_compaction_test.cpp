@@ -20,6 +20,7 @@
 
 #include <vector>
 
+#include "io/fs/local_file_system.h"
 #include "olap/merger.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
@@ -32,7 +33,6 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet_schema.h"
 #include "olap/tablet_schema_helper.h"
-#include "util/file_utils.h"
 #include "vec/olap/vertical_block_reader.h"
 #include "vec/olap/vertical_merge_iterator.h"
 
@@ -50,19 +50,17 @@ protected:
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         absolute_dir = std::string(buffer) + kTestDir;
 
-        if (FileUtils::check_exist(absolute_dir)) {
-            EXPECT_TRUE(FileUtils::remove_all(absolute_dir).ok());
-        }
-        EXPECT_TRUE(FileUtils::create_dir(absolute_dir).ok());
-        EXPECT_TRUE(FileUtils::create_dir(absolute_dir + "/tablet_path").ok());
+        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(absolute_dir).ok());
+        EXPECT_TRUE(io::global_local_filesystem()
+                            ->create_directory(absolute_dir + "/tablet_path")
+                            .ok());
+
         doris::EngineOptions options;
         k_engine = new StorageEngine(options);
         StorageEngine::_s_instance = k_engine;
     }
     void TearDown() override {
-        if (FileUtils::check_exist(absolute_dir)) {
-            EXPECT_TRUE(FileUtils::remove_all(absolute_dir).ok());
-        }
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(absolute_dir).ok());
         if (k_engine != nullptr) {
             k_engine->stop();
             delete k_engine;

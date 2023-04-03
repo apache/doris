@@ -132,7 +132,7 @@ Same as that in Hive Catalogs. See the relevant section in [Hive](./hive.md).
 
 ## Time Travel
 
-<version since="dev">
+<version since="1.2.2">
 
 Doris supports reading the specified Snapshot of Iceberg tables.
 

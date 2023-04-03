@@ -42,28 +42,32 @@ File Cache 将访问的远程数据缓存到本地的 BE 节点。原始的数�
 File Cache 默认关闭，需要在 FE 和 BE 中设置相关参数进行开启。
 
 ### FE 配置
+
 单个会话中开启 File Cache:
+
 ```
 SET enable_file_cache = true;
 ```
 全局开启 File Cache:
+
 ```
 SET GLOBAL enable_file_cache = true;
 ```
 
 ### BE 配置
 添加参数到 BE 节点的配置文件 conf/be.conf 中，并重启 BE 节点让配置生效。
+
 |  参数   | 说明  |
-|  ----  | ----  |
-| enable_file_cache  | 是否启用 File Cache，默认 false |
-| file_cache_max_file_segment_size | 单个 Block 的大小上限，默认 4MB，需要大于 4096 |
-| file_cache_path | 缓存目录的相关配置，json格式，例子: [{"path": "storage1", "normal":53687091200,"persistent":21474836480,"query_limit": "10737418240"},{"path": "storage2", "normal":53687091200,"persistent":21474836480},{"path": "storage3","normal":53687091200,"persistent":21474836480}]。`path` 是缓存的保存路径，`normal` 是缓存的大小上限，`query_limit` 是单个查询能够使用的最大缓存大小，`persistent` / `file_cache_max_file_segment_size` 是最多缓存的 Block 数量。 |
-| enable_file_cache_query_limit | 是否限制单个 query 使用的缓存大小，默认 false |
-| clear_file_cache | BE 重启时是否删除之前的缓存数据，默认 false |
+|  ---  | ---  |
+| `enable_file_cache`  | 是否启用 File Cache，默认 false |
+| `file_cache_max_file_segment_size` | 单个 Block 的大小上限，默认 4MB，需要大于 4096 |
+| `file_cache_path` | 缓存目录的相关配置，json格式，例子: `[{"path": "storage1", "normal":53687091200,"persistent":21474836480,"query_limit": "10737418240"},{"path": "storage2", "normal":53687091200,"persistent":21474836480},{"path": "storage3","normal":53687091200,"persistent":21474836480}]`。`path` 是缓存的保存路径，`normal` 是缓存的大小上限，`query_limit` 是单个查询能够使用的最大缓存大小，`persistent` / `file_cache_max_file_segment_size` 是最多缓存的 Block 数量。 |
+| `enable_file_cache_query_limit` | 是否限制单个 query 使用的缓存大小，默认 false |
+| `clear_file_cache` | BE 重启时是否删除之前的缓存数据，默认 false |
 
 ### 查看 File Cache 命中情况
 
-执行 set enable_profile=true 打开会话变量，可以在 FE 的 web 页面的 Queris 标签中查看到作业的 Profile。File Cache 相关的指标如下:
+执行 `set enable_profile=true` 打开会话变量，可以在 FE 的 web 页面的 Queris 标签中查看到作业的 Profile。File Cache 相关的指标如下:
 ```
 -  FileCache:
   -  IOHitCacheNum:  552

@@ -42,9 +42,7 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
-import org.apache.hadoop.mapred.FileSplit;
 import org.apache.hadoop.mapred.InputFormat;
-import org.apache.hadoop.mapred.InputSplit;
 import org.apache.hadoop.mapred.JobConf;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -138,21 +136,14 @@ public class HiveSplitter implements Splitter {
 
     private void getFileSplitByPartitions(HiveMetaStoreCache cache, List<HivePartition> partitions,
                                           List<Split> allFiles, boolean useSelfSplitter) {
-        List<InputSplit> files = cache.getFilesByPartitions(partitions, useSelfSplitter);
+        List<FileSplit> files = cache.getFilesByPartitions(partitions, useSelfSplitter);
         if (LOG.isDebugEnabled()) {
             LOG.debug("get #{} files from #{} partitions: {}", files.size(), partitions.size(),
                     Joiner.on(",")
                     .join(files.stream().limit(10).map(f -> ((FileSplit) f).getPath())
                         .collect(Collectors.toList())));
         }
-        allFiles.addAll(files.stream().map(file -> {
-            FileSplit fs = (FileSplit) file;
-            org.apache.doris.planner.external.FileSplit split = new org.apache.doris.planner.external.FileSplit();
-            split.setPath(fs.getPath());
-            split.setStart(fs.getStart());
-            split.setLength(fs.getLength());
-            return split;
-        }).collect(Collectors.toList()));
+        allFiles.addAll(files);
     }
 
     public int getTotalPartitionNum() {
@@ -164,24 +155,24 @@ public class HiveSplitter implements Splitter {
     }
 
     // Get splits by using FileSystem API, the splits are blocks in HDFS or S3 like storage system.
-    public static InputSplit[] getHiveSplits(Path path, InputFormat<?, ?> inputFormat,
+    public static FileSplit[] getHiveSplits(Path path, InputFormat<?, ?> inputFormat,
                                              JobConf jobConf) throws IOException {
         FileSystem fs = path.getFileSystem(jobConf);
         boolean splittable = HiveUtil.isSplittable(inputFormat, fs, path);
-        List<InputSplit> splits = Lists.newArrayList();
+        List<FileSplit> splits = Lists.newArrayList();
         RemoteIterator<LocatedFileStatus> locatedFileStatusRemoteIterator = fs.listFiles(path, true);
         if (!locatedFileStatusRemoteIterator.hasNext()) {
             LOG.debug("File status for path {} is empty.", path);
-            return new InputSplit[0];
+            return new FileSplit[0];
         }
         if (!splittable) {
             LOG.debug("Path {} is not splittable.", path);
             while (locatedFileStatusRemoteIterator.hasNext()) {
                 LocatedFileStatus status = locatedFileStatusRemoteIterator.next();
                 BlockLocation block = status.getBlockLocations()[0];
-                splits.add(new FileSplit(status.getPath(), 0, status.getLen(), block.getHosts()));
+                splits.add(new FileSplit(status.getPath(), 0, status.getLen(), status.getLen(), block.getHosts()));
             }
-            return splits.toArray(new InputSplit[splits.size()]);
+            return splits.toArray(new FileSplit[splits.size()]);
         }
         long splitSize = Config.file_split_size;
         boolean useDefaultBlockSize = (splitSize <= 0);
@@ -197,17 +188,17 @@ public class HiveSplitter implements Splitter {
                     bytesRemaining -= splitSize) {
                 int location = getBlockIndex(blockLocations, length - bytesRemaining);
                 splits.add(new FileSplit(status.getPath(), length - bytesRemaining,
-                        splitSize, blockLocations[location].getHosts()));
+                        splitSize, length, blockLocations[location].getHosts()));
             }
             if (bytesRemaining != 0L) {
                 int location = getBlockIndex(blockLocations, length - bytesRemaining);
                 splits.add(new FileSplit(status.getPath(), length - bytesRemaining,
-                        bytesRemaining, blockLocations[location].getHosts()));
+                        bytesRemaining, length, blockLocations[location].getHosts()));
             }
         }
 
         LOG.debug("Path {} includes {} splits.", path, splits.size());
-        return splits.toArray(new InputSplit[splits.size()]);
+        return splits.toArray(new FileSplit[splits.size()]);
     }
 
     private static int getBlockIndex(BlockLocation[] blkLocations, long offset) {

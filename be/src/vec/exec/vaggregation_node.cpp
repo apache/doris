@@ -20,7 +20,6 @@
 #include <memory>
 
 #include "exec/exec_node.h"
-#include "runtime/mem_pool.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_string.h"
@@ -324,7 +323,7 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
     runtime_profile()->add_info_string("PartitionedHashTableEnabled",
                                        _partitioned_hash_table_enabled ? "true" : "false");
 
-    _mem_pool = std::make_unique<MemPool>();
+    _agg_profile_arena = std::make_unique<Arena>();
 
     int j = _probe_expr_ctxs.size();
     for (int i = 0; i < j; ++i) {
@@ -377,7 +376,7 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
         _agg_data->init(AggregatedDataVariants::Type::without_key);
 
         _agg_data->without_key = reinterpret_cast<AggregateDataPtr>(
-                _mem_pool->allocate(_total_size_of_aggregate_states));
+                _agg_profile_arena->alloc(_total_size_of_aggregate_states));
 
         if (_is_merge) {
             _executor.execute = std::bind<Status>(&AggregationNode::_merge_without_key, this,
@@ -1413,7 +1412,7 @@ void AggregationNode::release_tracker() {
 void AggregationNode::_release_mem() {
     _agg_data = nullptr;
     _aggregate_data_container = nullptr;
-    _mem_pool = nullptr;
+    _agg_profile_arena = nullptr;
     _agg_arena_pool = nullptr;
     _preagg_block.clear();
 

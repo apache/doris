@@ -157,7 +157,6 @@ bool RowGroupReader::_can_filter_by_dict(int slot_id,
             }
         }
     }
-
     return true;
 }
 // This function is copied from
@@ -844,7 +843,8 @@ Status RowGroupReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes,
             node.__set_is_nullable(false);
 
             root = _obj_pool->add(new vectorized::VDirectInPredicate(node));
-            std::shared_ptr<HybridSetBase> hybrid_set(create_set(PrimitiveType::TYPE_INT));
+            std::shared_ptr<HybridSetBase> hybrid_set(
+                    create_set(PrimitiveType::TYPE_INT, dict_codes.size()));
             for (int j = 0; j < dict_codes.size(); ++j) {
                 hybrid_set->insert(&dict_codes[j]);
             }

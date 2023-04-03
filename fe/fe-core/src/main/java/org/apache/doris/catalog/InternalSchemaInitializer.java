@@ -120,12 +120,11 @@ public class InternalSchemaInitializer extends Thread {
         columnDefs.add(new ColumnDef("data_size_in_bytes", TypeDef.create(PrimitiveType.BIGINT)));
         columnDefs.add(new ColumnDef("update_time", TypeDef.create(PrimitiveType.DATETIME)));
         String engineName = "olap";
-        KeysDesc keysDesc = new KeysDesc(KeysType.UNIQUE_KEYS,
-                Lists.newArrayList("id"));
-
+        ArrayList<String> uniqueKeys = Lists.newArrayList("id", "catalog_id",
+                "db_id", "tbl_id", "idx_id", "col_id", "part_id");
+        KeysDesc keysDesc = new KeysDesc(KeysType.UNIQUE_KEYS, uniqueKeys);
         DistributionDesc distributionDesc = new HashDistributionDesc(
-                StatisticConstants.STATISTIC_TABLE_BUCKET_COUNT,
-                Lists.newArrayList("id"));
+                StatisticConstants.STATISTIC_TABLE_BUCKET_COUNT, uniqueKeys);
         Map<String, String> properties = new HashMap<String, String>() {
             {
                 put("replication_num", String.valueOf(Config.statistic_internal_table_replica_num));
@@ -154,11 +153,11 @@ public class InternalSchemaInitializer extends Thread {
         columnDefs.add(new ColumnDef("buckets", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH)));
         columnDefs.add(new ColumnDef("update_time", TypeDef.create(PrimitiveType.DATETIME)));
         String engineName = "olap";
-        KeysDesc keysDesc = new KeysDesc(KeysType.UNIQUE_KEYS,
-                Lists.newArrayList("id"));
+        ArrayList<String> uniqueKeys = Lists.newArrayList("id", "catalog_id",
+                "db_id", "tbl_id", "idx_id", "col_id");
+        KeysDesc keysDesc = new KeysDesc(KeysType.UNIQUE_KEYS, uniqueKeys);
         DistributionDesc distributionDesc = new HashDistributionDesc(
-                StatisticConstants.STATISTIC_TABLE_BUCKET_COUNT,
-                Lists.newArrayList("id"));
+                StatisticConstants.STATISTIC_TABLE_BUCKET_COUNT, uniqueKeys);
         Map<String, String> properties = new HashMap<String, String>() {
             {
                 put("replication_num", String.valueOf(Config.statistic_internal_table_replica_num));

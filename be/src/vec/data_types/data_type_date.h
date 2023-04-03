@@ -27,6 +27,10 @@ namespace doris::vectorized {
 class DataTypeDate final : public DataTypeNumberBase<Int64> {
 public:
     TypeIndex get_type_id() const override { return TypeIndex::Date; }
+    PrimitiveType get_type_as_primitive_type() const override { return TYPE_DATE; }
+    TPrimitiveType::type get_type_as_tprimitive_type() const override {
+        return TPrimitiveType::DATE;
+    }
     const char* get_family_name() const override { return "DateTime"; }
     std::string do_get_name() const override { return "Date"; }
 

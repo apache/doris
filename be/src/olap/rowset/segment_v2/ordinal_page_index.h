@@ -22,7 +22,6 @@
 #include <string>
 
 #include "common/status.h"
-#include "env/env.h"
 #include "gutil/macros.h"
 #include "io/fs/file_reader.h"
 #include "olap/rowset/segment_v2/common.h"

@@ -140,7 +140,7 @@ CREATE CATALOG sqlserver_catalog PROPERTIES (
 
 6. Doris
 
-<version since="dev"></version>
+<version since="1.2.3"></version>
 
 Jdbc Catalog也支持连接另一个Doris数据库：
 
@@ -159,7 +159,7 @@ CREATE CATALOG doris_catalog PROPERTIES (
 
 7. SAP_HANA
 
-<version since="dev"></version>
+<version since="1.2.3"></version>
 
 ```sql
 CREATE CATALOG hana_catalog PROPERTIES (

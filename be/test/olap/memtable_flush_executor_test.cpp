@@ -25,6 +25,7 @@
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/Types_types.h"
+#include "io/fs/local_file_system.h"
 #include "olap/delta_writer.h"
 #include "olap/field.h"
 #include "olap/memtable.h"
@@ -36,7 +37,6 @@
 #include "olap/utils.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
-#include "util/file_utils.h"
 
 namespace doris {
 
@@ -47,8 +47,9 @@ void set_up() {
     char buffer[1024];
     getcwd(buffer, 1024);
     config::storage_root_path = std::string(buffer) + "/flush_test";
-    FileUtils::remove_all(config::storage_root_path);
-    FileUtils::create_dir(config::storage_root_path);
+    EXPECT_TRUE(io::global_local_filesystem()
+                        ->delete_and_create_directory(config::storage_root_path)
+                        .ok());
     std::vector<StorePath> paths;
     paths.emplace_back(config::storage_root_path, -1);
 
@@ -67,7 +68,9 @@ void tear_down() {
     delete k_engine;
     k_engine = nullptr;
     system("rm -rf ./flush_test");
-    FileUtils::remove_all(std::string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX);
+    EXPECT_TRUE(io::global_local_filesystem()
+                        ->delete_directory(std::string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX)
+                        .ok());
 }
 
 Schema create_schema() {

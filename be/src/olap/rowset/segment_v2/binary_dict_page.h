@@ -30,7 +30,7 @@
 #include "olap/rowset/segment_v2/bitshuffle_page.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/options.h"
-#include "runtime/mem_pool.h"
+#include "vec/common/arena.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -87,8 +87,8 @@ private:
     phmap::flat_hash_map<Slice, uint32_t, HashOfSlice> _dictionary;
     // used to remember the insertion order of dict keys
     std::vector<Slice> _dict_items;
-    // TODO(zc): rethink about this mem pool
-    MemPool _pool;
+    // TODO(zc): rethink about this arena
+    vectorized::Arena _arena;
     faststring _buffer;
     faststring _first_value;
 

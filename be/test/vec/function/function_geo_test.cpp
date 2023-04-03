@@ -157,6 +157,61 @@ TEST(VGeoFunctionsTest, function_geo_st_angle_sphere) {
     }
 }
 
+TEST(VGeoFunctionsTest, function_geo_st_angle) {
+    std::string func_name = "st_angle";
+    {
+        InputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String};
+
+        GeoPoint point1;
+        auto cur_res1 = point1.from_coord(1, 0);
+        EXPECT_TRUE(cur_res1 == GEO_PARSE_OK);
+        GeoPoint point2;
+        auto cur_res2 = point2.from_coord(0, 0);
+        EXPECT_TRUE(cur_res2 == GEO_PARSE_OK);
+        GeoPoint point3;
+        auto cur_res3 = point3.from_coord(0, 1);
+        EXPECT_TRUE(cur_res3 == GEO_PARSE_OK);
+        std::string buf1;
+        point1.encode_to(&buf1);
+        std::string buf2;
+        point2.encode_to(&buf2);
+        std::string buf3;
+        point3.encode_to(&buf3);
+
+        DataSet data_set = {{{buf1, buf2, buf3}, (double)4.71238898038469},
+                            {{buf1, buf2, Null()}, Null()},
+                            {{buf1, Null(), buf3}, Null()},
+                            {{Null(), buf2, buf3}, Null()}};
+
+        check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    }
+}
+
+TEST(VGeoFunctionsTest, function_geo_st_azimuth) {
+    std::string func_name = "st_azimuth";
+    {
+        InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
+
+        GeoPoint point1;
+        auto cur_res1 = point1.from_coord(0, 0);
+        EXPECT_TRUE(cur_res1 == GEO_PARSE_OK);
+        GeoPoint point2;
+        auto cur_res2 = point2.from_coord(1, 0);
+        EXPECT_TRUE(cur_res2 == GEO_PARSE_OK);
+
+        std::string buf1;
+        point1.encode_to(&buf1);
+        std::string buf2;
+        point2.encode_to(&buf2);
+
+        DataSet data_set = {{{buf1, buf2}, (double)1.5707963267948966},
+                            {{buf1, Null()}, Null()},
+                            {{Null(), buf2}, Null()}};
+
+        check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    }
+}
+
 TEST(VGeoFunctionsTest, function_geo_st_contains) {
     std::string func_name = "st_contains";
     {
@@ -300,6 +355,40 @@ TEST(VGeoFunctionsTest, function_geo_st_polygonfromtext) {
                             {{Null()}, Null()}};
 
         check_function<DataTypeString, true>(func_name, input_types, data_set);
+    }
+}
+
+TEST(VGeoFunctionsTest, function_geo_st_area_square_meters) {
+    std::string func_name = "st_area_square_meters";
+    {
+        InputTypeSet input_types = {TypeIndex::String};
+
+        GeoCircle circle;
+        auto cur_res = circle.init(0, 0, 1);
+        EXPECT_TRUE(cur_res == GEO_PARSE_OK);
+        std::string buf;
+        circle.encode_to(&buf);
+        DataSet data_set = {{{buf}, (double)3.1415926535897869}, {{Null()}, Null()}};
+
+        check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    }
+}
+
+TEST(VGeoFunctionsTest, function_geo_st_area_square_km) {
+    std::string func_name = "st_area_square_km";
+    {
+        InputTypeSet input_types = {TypeIndex::String};
+
+        GeoParseStatus status;
+        std::string buf;
+        std::string input = "POLYGON ((0 0, 1 0, 1 1, 0 1, 0 0))";
+        std::unique_ptr<GeoShape> shape(GeoShape::from_wkt(input.data(), input.size(), &status));
+        EXPECT_TRUE(shape != nullptr);
+        EXPECT_TRUE(status == GEO_PARSE_OK);
+        shape->encode_to(&buf);
+        DataSet data_set = {{{buf}, (double)12364.036567076409}, {{Null()}, Null()}};
+
+        check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
     }
 }
 

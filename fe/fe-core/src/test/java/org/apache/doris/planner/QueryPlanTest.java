@@ -1654,7 +1654,7 @@ public class QueryPlanTest extends TestWithFeService {
         //default format
         String sql = "select * from test1 where from_unixtime(query_time) > '2021-03-02 10:01:28'";
         String explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999, `query_time` > 1614650488"));
+        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999 AND `query_time` > 1614650488"));
     }
 
     @Test
@@ -1829,7 +1829,7 @@ public class QueryPlanTest extends TestWithFeService {
         // (false or expr1) and (false or expr2) ==> expr1 and expr2
         String sql9 = "select * from test.test1 where (-2=2 or query_time=2) and (-2=2 or stmt_id=2);";
         String explainString9 = getSQLPlanOrErrorMsg("EXPLAIN " + sql9);
-        Assert.assertTrue(explainString9.contains("PREDICATES: `query_time` = 2, `stmt_id` = 2"));
+        Assert.assertTrue(explainString9.contains("PREDICATES: `query_time` = 2 AND `stmt_id` = 2"));
 
         // false or (expr and true) ==> expr
         String sql10 = "select * from test.test1 where (2=-2) OR (query_time=0 AND 1=1);";
@@ -1865,7 +1865,7 @@ public class QueryPlanTest extends TestWithFeService {
             Assert.assertTrue(explainStr.contains("PREDICATES: `date` >= '2021-10-07',"
                     + " `date` <= '2021-10-11'"));
         } else {
-            Assert.assertTrue(explainStr.contains("PREDICATES: `date` >= '2021-10-07 00:00:00',"
+            Assert.assertTrue(explainStr.contains("PREDICATES: `date` >= '2021-10-07 00:00:00' AND"
                     + " `date` <= '2021-10-11 00:00:00'"));
         }
     }
@@ -2210,15 +2210,15 @@ public class QueryPlanTest extends TestWithFeService {
 
         sql = "SELECT * from test1 where (query_time = 1 or query_time = 2) and query_time in (3, 4)";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2), `query_time` IN (3, 4)\n"));
+        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2) AND `query_time` IN (3, 4)\n"));
 
         sql = "SELECT * from test1 where (query_time = 1 or query_time = 2 or scan_bytes = 2) and scan_bytes in (2, 3)";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2) OR `scan_bytes` = 2, `scan_bytes` IN (2, 3)\n"));
+        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2) OR `scan_bytes` = 2 AND `scan_bytes` IN (2, 3)\n"));
 
         sql = "SELECT * from test1 where (query_time = 1 or query_time = 2) and (scan_bytes = 2 or scan_bytes = 3)";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2), `scan_bytes` IN (2, 3)\n"));
+        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2) AND `scan_bytes` IN (2, 3)\n"));
 
         sql = "SELECT * from test1 where query_time = 1 or query_time = 2 or query_time = 3 or query_time = 1";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
@@ -2236,7 +2236,7 @@ public class QueryPlanTest extends TestWithFeService {
 
         sql = "SELECT * from test1 where (query_time = 1 or query_time = 2) and query_time in (3, 4)";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2), `query_time` IN (3, 4)\n"));
+        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2) AND `query_time` IN (3, 4)\n"));
 
         //test we can handle `!=` and `not in`
         sql = "select * from test1 where (query_time = 1 or query_time = 2 or query_time!= 3 or query_time not in (5, 6))";
@@ -2269,7 +2269,7 @@ public class QueryPlanTest extends TestWithFeService {
         sql = "select * from test1 where (stmt_id=1 and state='a') or (stmt_id=2 and state='b')";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains(
-                "PREDICATES: `state` IN ('a', 'b'), `stmt_id` IN (1, 2),"
+                "PREDICATES: `state` IN ('a', 'b') AND `stmt_id` IN (1, 2) AND"
                         + " `stmt_id` = 1 AND `state` = 'a' OR `stmt_id` = 2 AND `state` = 'b'\n"
         ));
     }

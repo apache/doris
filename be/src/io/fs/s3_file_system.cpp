@@ -70,9 +70,7 @@ Status S3FileSystem::create(S3Conf s3_conf, std::string id, std::shared_ptr<S3Fi
 }
 
 S3FileSystem::S3FileSystem(S3Conf&& s3_conf, std::string&& id)
-        : RemoteFileSystem(
-                  fmt::format("{}/{}/{}", s3_conf.endpoint, s3_conf.bucket, s3_conf.prefix),
-                  std::move(id), FileSystemType::S3),
+        : RemoteFileSystem(s3_conf.prefix, std::move(id), FileSystemType::S3),
           _s3_conf(std::move(s3_conf)) {
     // remove the first and last '/'
     if (!_s3_conf.prefix.empty()) {
@@ -104,9 +102,12 @@ Status S3FileSystem::create_file_impl(const Path& file, FileWriterPtr* writer) {
     return Status::OK();
 }
 
-Status S3FileSystem::open_file_internal(const Path& file, FileReaderSPtr* reader) {
-    size_t fsize = 0;
-    RETURN_IF_ERROR(file_size_impl(file, &fsize));
+Status S3FileSystem::open_file_internal(const Path& file, int64_t file_size,
+                                        FileReaderSPtr* reader) {
+    int64_t fsize = file_size;
+    if (fsize < 0) {
+        RETURN_IF_ERROR(file_size_impl(file, &fsize));
+    }
     GET_KEY(key, file);
     auto fs_path = Path(_s3_conf.endpoint) / _s3_conf.bucket / key;
     *reader = std::make_shared<S3FileReader>(
@@ -115,7 +116,7 @@ Status S3FileSystem::open_file_internal(const Path& file, FileReaderSPtr* reader
     return Status::OK();
 }
 
-Status S3FileSystem::create_directory_impl(const Path& dir) {
+Status S3FileSystem::create_directory_impl(const Path& dir, bool failed_if_exists) {
     return Status::OK();
 }
 
@@ -244,7 +245,7 @@ Status S3FileSystem::exists_impl(const Path& path, bool* res) const {
     return Status::OK();
 }
 
-Status S3FileSystem::file_size_impl(const Path& file, size_t* file_size) const {
+Status S3FileSystem::file_size_impl(const Path& file, int64_t* file_size) const {
     auto client = get_client();
     CHECK_S3_CLIENT(client);
 

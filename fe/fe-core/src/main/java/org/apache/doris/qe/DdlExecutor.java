@@ -325,7 +325,8 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof CleanProfileStmt) {
             ProfileManager.getInstance().cleanProfile();
         } else if (ddlStmt instanceof DropTableStatsStmt) {
-            // TODO: support later
+            DropTableStatsStmt stmt = (DropTableStatsStmt) ddlStmt;
+            StatisticsRepository.dropTableStatistics(stmt);
         } else {
             throw new DdlException("Unknown statement.");
         }

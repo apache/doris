@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
@@ -47,9 +48,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
-import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -111,8 +110,15 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                             newConjuncts.add(conjunct);
                         }
                     }
-                    Set<Expression> conjects = new HashSet<>();
+                    Set<Expression> conjects = new LinkedHashSet<>();
                     conjects.addAll(newConjuncts.build());
+                    Plan newFilter = new LogicalFilter<>(conjects, applyPlan);
+                    if (conjects.stream().flatMap(c -> c.children().stream())
+                            .anyMatch(MarkJoinSlotReference.class::isInstance)) {
+                        return new LogicalProject<>(applyPlan.getOutput().stream()
+                                .filter(s -> !(s instanceof MarkJoinSlotReference))
+                                .collect(ImmutableList.toImmutableList()), newFilter);
+                    }
                     return new LogicalFilter<>(conjects, applyPlan);
                 })
             ),
@@ -157,6 +163,10 @@ public class SubqueryToApply implements AnalysisRuleFactory {
         LogicalPlan tmpPlan = childPlan;
         for (int i = 0; i < subqueryExprs.size(); ++i) {
             SubqueryExpr subqueryExpr = subqueryExprs.get(i);
+            if (nonMarkJoinExistsWithAgg(subqueryExpr, subqueryToMarkJoinSlot)) {
+                continue;
+            }
+
             if (!ctx.subqueryIsAnalyzed(subqueryExpr)) {
                 tmpPlan = addApply(subqueryExpr, tmpPlan,
                     subqueryToMarkJoinSlot, subqueryCorrespondingConject, ctx, conjunct,
@@ -166,24 +176,41 @@ public class SubqueryToApply implements AnalysisRuleFactory {
         return tmpPlan;
     }
 
+    private boolean nonMarkJoinExistsWithAgg(SubqueryExpr exists,
+                 Map<SubqueryExpr, Optional<MarkJoinSlotReference>> subqueryToMarkJoinSlot) {
+        return exists instanceof Exists
+            && exists.getQueryPlan().anyMatch(Aggregate.class::isInstance)
+            && !subqueryToMarkJoinSlot.get(exists).isPresent();
+    }
+
     private LogicalPlan addApply(SubqueryExpr subquery, LogicalPlan childPlan,
                                  Map<SubqueryExpr, Optional<MarkJoinSlotReference>> subqueryToMarkJoinSlot,
                                  Map<SubqueryExpr, Expression> subqueryCorrespondingConject,
                                  CascadesContext ctx, Optional<Expression> conjunct,
                                  boolean isProject, boolean singleSubquery) {
         ctx.setSubqueryExprIsAnalyzed(subquery, true);
+        boolean needAddSubOutputToProjects = isScalarAndFilterContainsSubqueryOutput(
+                subquery, conjunct, isProject, singleSubquery);
         LogicalApply newApply = new LogicalApply(
                 subquery.getCorrelateSlots(),
                 subquery, Optional.empty(),
                 subqueryToMarkJoinSlot.get(subquery),
                 mergeScalarSubConjectAndFilterConject(
                     subquery, subqueryCorrespondingConject,
-                    conjunct, isProject, singleSubquery),
+                    conjunct, needAddSubOutputToProjects, singleSubquery), isProject,
                 childPlan, subquery.getQueryPlan());
-        List<NamedExpression> projects = new ArrayList<>(childPlan.getOutput());
-        if (subquery instanceof ScalarSubquery) {
-            projects.add(subquery.getQueryPlan().getOutput().get(0));
-        }
+
+        List<NamedExpression> projects = ImmutableList.<NamedExpression>builder()
+                    // left child
+                    .addAll(childPlan.getOutput())
+                    // markJoinSlotReference
+                    .addAll(subqueryToMarkJoinSlot.get(subquery).isPresent()
+                        ? ImmutableList.of(subqueryToMarkJoinSlot.get(subquery).get()) : ImmutableList.of())
+                    // scalarSubquery output
+                    .addAll(needAddSubOutputToProjects
+                        ? ImmutableList.of(subquery.getQueryPlan().getOutput().get(0)) : ImmutableList.of())
+                    .build();
+
         return new LogicalProject(projects, newApply);
     }
 
@@ -192,6 +219,15 @@ public class SubqueryToApply implements AnalysisRuleFactory {
         return subquery instanceof ScalarSubquery
                 && conjunct.isPresent() && conjunct.get() instanceof Or
                 && subquery.getCorrelateSlots().isEmpty();
+    }
+
+    private boolean isScalarAndFilterContainsSubqueryOutput(
+            SubqueryExpr subqueryExpr, Optional<Expression> conjunct, boolean isProject, boolean singleSubquery) {
+        return subqueryExpr instanceof ScalarSubquery
+            && ((!singleSubquery && conjunct.isPresent()
+                && ((ImmutableSet) conjunct.get().collect(SlotReference.class::isInstance))
+                    .contains(subqueryExpr.getQueryPlan().getOutput().get(0)))
+                || isProject);
     }
 
     /**
@@ -264,11 +300,11 @@ public class SubqueryToApply implements AnalysisRuleFactory {
             // The result set when NULL is specified in the subquery and still evaluates to TRUE by using EXISTS
             // When the number of rows returned is empty, agg will return null, so if there is more agg,
             // it will always consider the returned result to be true
-            MarkJoinSlotReference markJoinSlotReference;
-            if (exists.getQueryPlan().anyMatch(Aggregate.class::isInstance)) {
+            MarkJoinSlotReference markJoinSlotReference = null;
+            if (exists.getQueryPlan().anyMatch(Aggregate.class::isInstance) && isMarkJoin) {
                 markJoinSlotReference =
                         new MarkJoinSlotReference(statementContext.generateColumnName(), true);
-            } else {
+            } else if (isMarkJoin) {
                 markJoinSlotReference =
                         new MarkJoinSlotReference(statementContext.generateColumnName());
             }

@@ -23,6 +23,7 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -35,6 +36,7 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.text.StringSubstitutor;
 import org.apache.log4j.LogManager;
@@ -48,6 +50,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.stream.Collectors;
 
 public class AnalysisManager {
 
@@ -94,6 +97,19 @@ public class AnalysisManager {
         Set<String> partitionNames = analyzeStmt.getPartitionNames();
         Map<Long, AnalysisTaskInfo> analysisTaskInfos = new HashMap<>();
         long jobId = Env.getCurrentEnv().getNextId();
+
+        // If the analysis is not incremental, need to delete existing statistics.
+        // we cannot collect histograms incrementally and do not support it
+        if (!analyzeStmt.isIncrement && !analyzeStmt.isHistogram) {
+            long dbId = analyzeStmt.getDbId();
+            TableIf table = analyzeStmt.getTable();
+            Set<Long> tblIds = Sets.newHashSet(table.getId());
+            Set<Long> partIds = partitionNames.stream()
+                    .map(p -> table.getPartition(p).getId())
+                    .collect(Collectors.toSet());
+            StatisticsRepository.dropStatistics(dbId, tblIds, colNames, partIds);
+        }
+
         if (colNames != null) {
             for (String colName : colNames) {
                 long taskId = Env.getCurrentEnv().getNextId();

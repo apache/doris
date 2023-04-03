@@ -79,6 +79,14 @@ suite ("sub_query_correlated") {
     """
 
     sql """
+        create table if not exists sub_query_correlated_subquery5
+        (k1 bigint, k2 bigint)
+        duplicate key(k1)
+        distributed by hash(k2) buckets 1
+        properties('replication_num' = '1')
+    """
+
+    sql """
         insert into sub_query_correlated_subquery1 values (1,2), (1,3), (2,4), (2,5), (3,3), (3,4), (20,2), (22,3), (24,4)
     """
 
@@ -93,6 +101,10 @@ suite ("sub_query_correlated") {
 
     sql """
         insert into sub_query_correlated_subquery4 values (5,4), (5,2), (8,3), (5,4), (6,7), (8,9)
+    """
+
+    sql """
+        insert into sub_query_correlated_subquery5 values (5,4), (5,2), (8,3), (5,4), (6,7), (8,9)
     """
 
     sql "SET enable_fallback_to_original_planner=false"
@@ -391,5 +403,11 @@ suite ("sub_query_correlated") {
 
     qt_cast_subquery_in_with_disconjunct """
         SELECT * FROM sub_query_correlated_subquery1 WHERE k1 < (cast('1.2' as decimal(2,1)) * (SELECT sum(k1) FROM sub_query_correlated_subquery3 WHERE sub_query_correlated_subquery1.k1 = sub_query_correlated_subquery3.k1)) or k1 > 10 order by k1, k2;
+    """
+
+    qt_imitate_tpcds_10 """
+        SELECT * FROM sub_query_correlated_subquery1 WHERE exists (SELECT * FROM sub_query_correlated_subquery3, sub_query_correlated_subquery2 where sub_query_correlated_subquery1.k1 = sub_query_correlated_subquery3.k1 and sub_query_correlated_subquery2.k1 = sub_query_correlated_subquery3.v1)
+                                        and (exists (SELECT * FROM sub_query_correlated_subquery3, sub_query_correlated_subquery4 WHERE sub_query_correlated_subquery1.k1 = sub_query_correlated_subquery3.k1 and sub_query_correlated_subquery3.v1 = sub_query_correlated_subquery4.k1)
+                                             OR exists (SELECT * FROM sub_query_correlated_subquery3, sub_query_correlated_subquery5 WHERE sub_query_correlated_subquery1.k2 = sub_query_correlated_subquery3.v1 and sub_query_correlated_subquery3.v1 = sub_query_correlated_subquery5.k1))
     """
 }

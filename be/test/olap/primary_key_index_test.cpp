@@ -20,8 +20,8 @@
 #include <gtest/gtest.h>
 
 #include "io/fs/file_writer.h"
+#include "io/fs/fs_utils.h"
 #include "io/fs/local_file_system.h"
-#include "util/file_utils.h"
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
@@ -30,15 +30,10 @@ using namespace ErrorCode;
 class PrimaryKeyIndexTest : public testing::Test {
 public:
     void SetUp() override {
-        if (FileUtils::check_exist(kTestDir)) {
-            EXPECT_TRUE(FileUtils::remove_all(kTestDir).ok());
-        }
-        EXPECT_TRUE(FileUtils::create_dir(kTestDir).ok());
+        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(kTestDir).ok());
     }
     void TearDown() override {
-        if (FileUtils::check_exist(kTestDir)) {
-            EXPECT_TRUE(FileUtils::remove_all(kTestDir).ok());
-        }
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
     }
 
 private:
@@ -67,7 +62,7 @@ TEST_F(PrimaryKeyIndexTest, builder) {
     EXPECT_TRUE(file_writer->close().ok());
     EXPECT_EQ(num_rows, builder.num_rows());
 
-    FilePathDesc path_desc(filename);
+    io::FilePathDesc path_desc(filename);
     PrimaryKeyIndexReader index_reader;
     io::FileReaderSPtr file_reader;
     EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
@@ -131,7 +126,6 @@ TEST_F(PrimaryKeyIndexTest, builder) {
         std::string last_key;
         int num_batch = 0;
         int batch_size = 1024;
-        MemPool pool;
         while (remaining > 0) {
             std::unique_ptr<segment_v2::IndexedColumnIterator> iter;
             EXPECT_TRUE(index_reader.new_iterator(&iter).ok());

@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include "runtime/define_primitive_type.h"
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_number_base.h"
 #include "vec/data_types/data_type_time_v2.h"
@@ -55,6 +56,10 @@ public:
     const char* get_family_name() const override { return "DateTime"; }
     std::string do_get_name() const override { return "DateTime"; }
     TypeIndex get_type_id() const override { return TypeIndex::DateTime; }
+    PrimitiveType get_type_as_primitive_type() const override { return TYPE_DATETIME; }
+    TPrimitiveType::type get_type_as_tprimitive_type() const override {
+        return TPrimitiveType::DATETIME;
+    }
 
     bool can_be_used_as_version() const override { return true; }
     bool can_be_inside_nullable() const override { return true; }

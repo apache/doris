@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.preprocess;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -26,7 +27,9 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TUniqueId;
 
+import mockit.Expectations;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -36,6 +39,7 @@ public class SelectHintTest {
         String sql = " SELECT /*+ SET_VAR(enable_nereids_planner=\"false\") */ 1";
 
         ConnectContext ctx = new ConnectContext();
+        ctx.setEnv(Env.getCurrentEnv());
         StatementContext statementContext = new StatementContext(ctx, new OriginStatement(sql, 0));
         SessionVariable sv = ctx.getSessionVariable();
         Assertions.assertNotNull(sv);
@@ -47,7 +51,15 @@ public class SelectHintTest {
         // manually recover sv
         sv.setEnableNereidsPlanner(true);
         sv.enableFallbackToOriginalPlanner = false;
-        new StmtExecutor(ctx, sql).execute();
+        StmtExecutor stmtExecutor = new StmtExecutor(ctx, sql);
+
+        new Expectations(stmtExecutor) {
+            {
+                stmtExecutor.executeByLegacy((TUniqueId) any);
+            }
+        };
+
+        stmtExecutor.execute();
 
         Assertions.assertTrue(sv.isEnableNereidsPlanner());
         Assertions.assertFalse(sv.enableFallbackToOriginalPlanner);

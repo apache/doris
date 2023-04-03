@@ -154,6 +154,26 @@ LIMIT 5;
 Table Value Function 可以出现在 SQL 中，Table 能出现的任意位置。如 CTE 的 WITH 子句中，FROM 子句中。
 这样，你可以把文件当做一张普通的表进行任意分析。
 
+<version since="dev"></version>
+
+你也可以用过 `CREATE VIEW` 语句为 Table Value Function 创建一个逻辑视图。这样，你可以想其他视图一样，对这个 Table Value Function 进行访问、权限管理等操作，也可以让其他用户访问这个 Table Value Function。
+
+```
+CREATE VIEW v1 AS 
+SELECT * FROM s3(
+    "URI" = "http://127.0.0.1:9312/test2/test.snappy.parquet",
+    "ACCESS_KEY"= "minioadmin",
+    "SECRET_KEY" = "minioadmin",
+    "Format" = "parquet",
+    "use_path_style"="true");
+
+DESC v1;
+
+SELECT * FROM v1;
+
+GRANT SELECT_PRIV ON db1.v1 TO user1;
+```
+
 ### 数据导入
 
 配合 `INSERT INTO SELECT` 语法，我们可以方便将文件导入到 Doris 表中进行更快速的分析：

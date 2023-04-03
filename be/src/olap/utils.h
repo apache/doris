@@ -154,7 +154,7 @@ int operator-(const BinarySearchIterator& left, const BinarySearchIterator& righ
 // 不用sse4指令的crc32c的计算函数
 unsigned int crc32c_lut(char const* b, unsigned int off, unsigned int len, unsigned int crc);
 
-bool check_datapath_rw(const std::string& path);
+Status check_datapath_rw(const std::string& path);
 
 Status read_write_test_file(const std::string& test_file_path);
 

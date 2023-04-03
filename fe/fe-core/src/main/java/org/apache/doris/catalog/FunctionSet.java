@@ -66,6 +66,8 @@ public class FunctionSet<T> {
     // Including now(), curdate(), etc..
     private ImmutableSet<String> nondeterministicFunctions;
 
+    private boolean inited = false;
+
     public FunctionSet() {
         functions = Maps.newHashMap();
         vectorizedFunctions = Maps.newHashMap();
@@ -90,6 +92,8 @@ public class FunctionSet<T> {
 
         // init table function
         initTableFunction();
+
+        inited = true;
     }
 
     public void buildNullResultWithOneNullParamFunction(Set<String> funcNames) {
@@ -1249,7 +1253,7 @@ public class FunctionSet<T> {
         // then specialize template functions and try them
         List<Function> specializedTemplateFunctions = Lists.newArrayList();
         for (Function f : templateFunctions) {
-            f = FunctionSet.specializeTemplateFunction(f, desc, false);
+            f = specializeTemplateFunction(f, desc, false);
             if (f != null) {
                 specializedTemplateFunctions.add(f);
             }
@@ -1264,7 +1268,7 @@ public class FunctionSet<T> {
         // then specialize variadic template function and try them
         List<Function> specializedVariadicTemplateFunctions = Lists.newArrayList();
         for (Function f : variadicTemplateFunctions) {
-            f = FunctionSet.specializeTemplateFunction(f, desc, true);
+            f = specializeTemplateFunction(f, desc, true);
             if (f != null) {
                 specializedVariadicTemplateFunctions.add(f);
             }
@@ -1314,7 +1318,7 @@ public class FunctionSet<T> {
         return null;
     }
 
-    public static Function specializeTemplateFunction(Function templateFunction, Function requestFunction, boolean isVariadic) {
+    public Function specializeTemplateFunction(Function templateFunction, Function requestFunction, boolean isVariadic) {
         try {
             boolean hasTemplateType = false;
             LOG.debug("templateFunction signature: " + templateFunction.signatureString()
@@ -1352,7 +1356,8 @@ public class FunctionSet<T> {
                 specializedFunction = new ScalarFunction(f.getFunctionName(), newArgTypes, newRetType.get(0), f.hasVarArgs(),
                         f.getSymbolName(), f.getBinaryType(), f.isUserVisible(), f.isVectorized(), f.getNullableMode());
             } else {
-                // TODO(xk)
+                throw new TypeException(templateFunction
+                                + " is not support for template since it's not a ScalarFunction");
             }
             Type[] args = specializedFunction.getArgs();
             Map<String, Type> specializedTypeMap = Maps.newHashMap();
@@ -1372,7 +1377,9 @@ public class FunctionSet<T> {
                         + "  return: " + specializedFunction.getReturnType());
             return hasTemplateType ? specializedFunction : templateFunction;
         } catch (TypeException e) {
-            LOG.warn("specializeTemplateFunction exception", e);
+            if (inited) {
+                LOG.warn("specializeTemplateFunction exception", e);
+            }
             return null;
         }
     }
@@ -1556,6 +1563,27 @@ public class FunctionSet<T> {
                 null, null,
                 prefix + "17count_star_removeEPN9doris_udf15FunctionContextEPNS1_9BigIntValE",
                 null, false, true, true, true));
+
+        // count(array/map/struct)
+        for (Type complexType : Lists.newArrayList(Type.ARRAY, Type.MAP, Type.GENERIC_STRUCT)) {
+            addBuiltin(AggregateFunction.createBuiltin(FunctionSet.COUNT,
+                    Lists.newArrayList(complexType), Type.BIGINT, Type.BIGINT,
+                    prefix + "18init_zero_not_nullIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextEPT_",
+                    prefix + "12count_updateEPN9doris_udf15FunctionContextERKNS1_6AnyValEPNS1_9BigIntValE",
+                    prefix + "11count_mergeEPN9doris_udf15FunctionContextERKNS1_9BigIntValEPS4_",
+                    null, null,
+                    prefix + "12count_removeEPN9doris_udf15FunctionContextERKNS1_6AnyValEPNS1_9BigIntValE",
+                    null, false, true, true, true));
+
+            addBuiltin(AggregateFunction.createBuiltin(FunctionSet.COUNT,
+                    Lists.newArrayList(complexType), Type.BIGINT, Type.BIGINT,
+                    prefix + "18init_zero_not_nullIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextEPT_",
+                    prefix + "12count_updateEPN9doris_udf15FunctionContextERKNS1_6AnyValEPNS1_9BigIntValE",
+                    prefix + "11count_mergeEPN9doris_udf15FunctionContextERKNS1_9BigIntValEPS4_",
+                    null, null,
+                    prefix + "12count_removeEPN9doris_udf15FunctionContextERKNS1_6AnyValEPNS1_9BigIntValE",
+                    null, false, true, true, true));
+        }
 
         // windowFunnel
         addBuiltin(AggregateFunction.createBuiltin(FunctionSet.WINDOW_FUNNEL,

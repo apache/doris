@@ -67,6 +67,15 @@ CONF_String(mem_limit, "auto");
 // Soft memory limit as a fraction of hard memory limit.
 CONF_Double(soft_mem_limit_frac, "0.9");
 
+// When hash table capacity is greater than 2^double_grow_degree(default 2G), grow when 75% of the capacity is satisfied.
+// Increase can reduce the number of hash table resize, but may waste more memory.
+CONF_mInt32(hash_table_double_grow_degree, "31");
+
+// Expand the hash table before inserting data, the maximum expansion size.
+// There are fewer duplicate keys, reducing the number of resize hash tables
+// There are many duplicate keys, and the hash table filled bucket is far less than the hash table build bucket.
+CONF_mInt64(hash_table_pre_expanse_max_rows, "65535");
+
 // The maximum low water mark of the system `/proc/meminfo/MemAvailable`, Unit byte, default 1.6G,
 // actual low water mark=min(1.6G, MemTotal * 10%), avoid wasting too much memory on machines
 // with large memory larger than 16G.
@@ -77,10 +86,6 @@ CONF_Int64(max_sys_mem_available_low_water_mark_bytes, "1717986918");
 // The size of the memory that gc wants to release each time, as a percentage of the mem limit.
 CONF_mString(process_minor_gc_size, "10%");
 CONF_mString(process_full_gc_size, "20%");
-// Some caches have their own gc threads, such as segment cache.
-// For caches that do not have a separate gc thread, perform regular gc in the memory maintenance thread.
-// Currently only storage page cache, chunk allocator, more in the future.
-CONF_mInt32(cache_gc_interval_s, "60");
 
 // If true, when the process does not exceed the soft mem limit, the query memory will not be limited;
 // when the process memory exceeds the soft mem limit, the query with the largest ratio between the currently
@@ -874,8 +879,6 @@ CONF_Int32(segcompaction_threshold_segment_num, "10");
 // The segment whose row number above the threshold will be compacted during segcompaction
 CONF_Int32(segcompaction_small_threshold, "1048576");
 
-CONF_String(jvm_max_heap_size, "1024M");
-
 // enable java udf and jdbc scannode
 CONF_Bool(enable_java_support, "true");
 
@@ -883,6 +886,7 @@ CONF_Bool(enable_java_support, "true");
 CONF_Bool(enable_fuzzy_mode, "false");
 
 CONF_Int32(pipeline_executor_size, "0");
+CONF_mInt16(pipeline_short_query_timeout_s, "20");
 
 // Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
 // Will remove after fully test.
@@ -930,6 +934,9 @@ CONF_Int32(max_depth_of_expr_tree, "600");
 
 // Report a tablet as bad when io errors occurs more than this value.
 CONF_mInt64(max_tablet_io_errors, "-1");
+
+// Page size of row column, default 4KB
+CONF_mInt64(row_column_page_size, "4096");
 
 #ifdef BE_TEST
 // test s3

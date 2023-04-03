@@ -21,7 +21,7 @@
 
 #include "agent/utils.h"
 #include "gutil/strings/substitute.h"
-#include "util/file_utils.h"
+#include "io/fs/local_file_system.h"
 
 namespace doris {
 namespace config {
@@ -112,7 +112,7 @@ Status PprofUtils::get_readable_profile(const std::string& file_or_content, bool
     bool rc = util.exec_cmd(final_cmd, &cmd_output, false);
 
     // delete raw file
-    FileUtils::remove(file_or_content);
+    io::global_local_filesystem()->delete_file(file_or_content);
 
     if (!rc) {
         return Status::InternalError("Failed to execute command: {}", cmd_output);
@@ -134,7 +134,10 @@ Status PprofUtils::generate_flamegraph(int32_t sample_seconds,
     // check stackcollapse-perf.pl and flamegraph.pl exist
     std::string stackcollapse_perf_pl = flame_graph_tool_dir + "/stackcollapse-perf.pl";
     std::string flamegraph_pl = flame_graph_tool_dir + "/flamegraph.pl";
-    if (!FileUtils::check_exist(stackcollapse_perf_pl) || !FileUtils::check_exist(flamegraph_pl)) {
+    bool exists = false;
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(stackcollapse_perf_pl, &exists));
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(flamegraph_pl, &exists));
+    if (!exists) {
         return Status::InternalError(
                 "Missing stackcollapse-perf.pl or flamegraph.pl in FlameGraph");
     }
@@ -152,7 +155,7 @@ Status PprofUtils::generate_flamegraph(int32_t sample_seconds,
     std::string cmd_output;
     bool rc = util.exec_cmd(cmd.str(), &cmd_output);
     if (!rc) {
-        FileUtils::remove(tmp_file.str());
+        io::global_local_filesystem()->delete_file(tmp_file.str());
         return Status::InternalError("Failed to execute perf command: {}", cmd_output);
     }
 
@@ -168,8 +171,8 @@ Status PprofUtils::generate_flamegraph(int32_t sample_seconds,
                 << " | " << flamegraph_pl << " > " << graph_file.str();
         rc = util.exec_cmd(gen_cmd.str(), &res_content);
         if (!rc) {
-            FileUtils::remove(tmp_file.str());
-            FileUtils::remove(graph_file.str());
+            io::global_local_filesystem()->delete_file(tmp_file.str());
+            io::global_local_filesystem()->delete_file(graph_file.str());
             return Status::InternalError("Failed to execute perf script command: {}", res_content);
         }
         *svg_file_or_content = graph_file.str();
@@ -179,7 +182,7 @@ Status PprofUtils::generate_flamegraph(int32_t sample_seconds,
                 << " | " << flamegraph_pl;
         rc = util.exec_cmd(gen_cmd.str(), &res_content, false);
         if (!rc) {
-            FileUtils::remove(tmp_file.str());
+            io::global_local_filesystem()->delete_file(tmp_file.str());
             return Status::InternalError("Failed to execute perf script command: {}", res_content);
         }
         *svg_file_or_content = res_content;

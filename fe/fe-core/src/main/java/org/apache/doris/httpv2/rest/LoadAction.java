@@ -59,6 +59,10 @@ public class LoadAction extends RestBaseController {
     @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_load", method = RequestMethod.PUT)
     public Object load(HttpServletRequest request, HttpServletResponse response,
                        @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
+
         if (Config.disable_mini_load) {
             ResponseEntity entity = ResponseEntityBuilder.notFound("The mini load operation has been"
                     + " disabled by default, if you need to add disable_mini_load=false in fe.conf.");
@@ -73,6 +77,10 @@ public class LoadAction extends RestBaseController {
     public Object streamLoad(HttpServletRequest request,
                              HttpServletResponse response,
                              @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
+
         executeCheckPassword(request, response);
         return executeWithoutPassword(request, response, db, table, true);
     }
@@ -81,6 +89,10 @@ public class LoadAction extends RestBaseController {
     public Object streamLoad2PC(HttpServletRequest request,
                                    HttpServletResponse response,
                                    @PathVariable(value = DB_KEY) String db) {
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
+
         executeCheckPassword(request, response);
         return executeStreamLoad2PC(request, db);
     }
@@ -90,6 +102,10 @@ public class LoadAction extends RestBaseController {
                                       HttpServletResponse response,
                                       @PathVariable(value = DB_KEY) String db,
                                       @PathVariable(value = TABLE_KEY) String table) {
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
+
         executeCheckPassword(request, response);
         return executeStreamLoad2PC(request, db);
     }

@@ -151,6 +151,10 @@ private:
                                                     RuntimeState* state,
                                                     QueryFragmentsCtx* fragments_ctx);
 
+    template <typename Params>
+    Status _get_query_ctx(const Params& params, TUniqueId query_id, bool pipeline,
+                          std::shared_ptr<QueryFragmentsCtx>& fragments_ctx);
+
     // This is input params
     ExecEnv* _exec_env;
 

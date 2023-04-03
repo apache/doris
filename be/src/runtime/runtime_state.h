@@ -41,7 +41,6 @@ class DateTimeValue;
 class MemTracker;
 class DataStreamRecvr;
 class ResultBufferMgr;
-class TmpFileMgr;
 class BufferedBlockMgr;
 class RowDescriptor;
 class RuntimeFilterMgr;
