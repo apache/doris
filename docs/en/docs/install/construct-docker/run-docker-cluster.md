@@ -113,17 +113,17 @@ docker run -itd \
 --name=fe \
 --env FE_SERVERS="fe1:172.20.80.2:9010" \
 --env FE_ID=1 \
--p 8030:8030\
+-p 8030:8030 \
 -p 9030:9030 \
 -v /data/fe/doris-meta:/opt/apache-doris/fe/doris-meta \
 -v /data/fe/conf:/opt/apache-doris/fe/conf \
 -v /data/fe/log:/opt/apache-doris/fe/log \
 --network=doris-network \
---ip=172.20.80.2\
+--ip=172.20.80.2 \
 apache/doris:1.2.1-fe-x86_64
 
 docker run -itd \
---name=be\
+--name=be \
 --env FE_SERVERS="fe1:172.20.80.2:9010" \
 --env BE_ADDR="172.20.80.3:9050" \
 -p 8040:8040 \
@@ -131,7 +131,7 @@ docker run -itd \
 -v /data/be/conf:/opt/apache-doris/be/conf \
 -v /data/be/log:/opt/apache-doris/be/log \
 --network=doris-network \
---ip=172.20.80.3\
+--ip=172.20.80.3 \
 apache/doris:1.2.1-be-x86_64
 ```
 
