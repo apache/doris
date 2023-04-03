@@ -270,6 +270,8 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
     LOG(INFO) << "begin to revise tablet. tablet_id=" << tablet_id();
     delete_rowsets(to_delete, false);
     add_rowsets(to_add);
+    // reconstruct from tablet meta
+    _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas());
     if (keys_type() == UNIQUE_KEYS && enable_unique_key_merge_on_write()) {
         auto new_rowset_tree = std::make_unique<RowsetTree>();
         ModifyRowSetTree(*_rowset_tree, to_delete, to_add, new_rowset_tree.get());
@@ -316,8 +318,6 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
             CHECK(res.ok()) << "fail to update_delete_bitmap_without_lock, res: " << res;
         }
     }
-    // reconstruct from tablet meta
-    _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas());
     // clear stale rowset
     for (auto& [v, rs] : _stale_rs_version_map) {
         StorageEngine::instance()->add_unused_rowset(rs);
