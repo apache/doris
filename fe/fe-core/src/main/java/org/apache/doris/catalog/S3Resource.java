@@ -226,7 +226,8 @@ public class S3Resource extends Resource {
             }
             // it's dangerous to show password in show odbc resource,
             // so we use empty string to replace the real password
-            if (entry.getKey().equals(S3Properties.Env.SECRET_KEY)) {
+            if (entry.getKey().equals(S3Properties.Env.SECRET_KEY)
+                    || entry.getKey().equals(S3Properties.SECRET_KEY)) {
                 result.addRow(Lists.newArrayList(name, lowerCaseType, entry.getKey(), "******"));
             } else {
                 result.addRow(Lists.newArrayList(name, lowerCaseType, entry.getKey(), entry.getValue()));

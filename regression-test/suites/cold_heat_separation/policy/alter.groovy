@@ -165,7 +165,7 @@ suite("alter_policy") {
         // AWS_CONNECTION_TIMEOUT_MS
         assertEquals(show_alter_result[5][3], "2222")
         // AWS_ENDPOINT
-        assertEquals(show_alter_result[6][3], "bj.s3.comaaaa")
+        assertEquals(show_alter_result[6][3], "http://bj.s3.comaaaa")
         // AWS_REGION
         assertEquals(show_alter_result[7][3], "bj")
         // s3_rootpath
@@ -195,7 +195,7 @@ suite("alter_policy") {
         )
         """
     alter_resource_change_property(has_resource_policy_alter)
-    // check_alter_resource_result_with_policy(has_resource_policy_alter)
+    check_alter_resource_result_with_policy(has_resource_policy_alter)
     sql """
     DROP STORAGE POLICY has_resouce_policy_alter_policy
     """
