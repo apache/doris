@@ -534,7 +534,7 @@ public class ScalarType extends Type {
             }
             return "DECIMALV3(" + precision + ", " + scale + ")";
         } else  if (type == PrimitiveType.DATETIMEV2) {
-            return "DATETIMEV2(" + scale + ")";
+            return Config.use_fuzzy_session_variable && scale == 0 ? "DATETIME" : "DATETIMEV2(" + scale + ")";
         } else  if (type == PrimitiveType.TIMEV2) {
             return "TIMEV2(" + scale + ")";
         } else if (type == PrimitiveType.VARCHAR) {
@@ -594,7 +594,9 @@ public class ScalarType extends Type {
                 }
                 break;
             case DATETIMEV2:
-                stringBuilder.append("datetimev2").append("(").append(scale).append(")");
+                String appendStr = Config.use_fuzzy_session_variable && scale == 0
+                        ? "datetime" : "datetimev2(" + scale + ")";
+                stringBuilder.append(appendStr);
                 break;
             case TIME:
                 stringBuilder.append("time");
@@ -617,8 +619,8 @@ public class ScalarType extends Type {
             case FLOAT:
             case DOUBLE:
             case DATE:
-            case DATETIME:
             case DATEV2:
+            case DATETIME:
             case HLL:
             case BITMAP:
             case VARIANT:

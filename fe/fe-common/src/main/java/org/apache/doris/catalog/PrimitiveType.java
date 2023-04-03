@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TPrimitiveType;
 
 import com.google.common.base.Preconditions;
@@ -1054,6 +1055,12 @@ public enum PrimitiveType {
 
     @Override
     public String toString() {
+        // For regression test, we should keep the same string for DATEV2 and DATE and do not need to modify
+        // the regression output.
+        return Config.use_fuzzy_session_variable && this == DATEV2 ? "DATE" : description;
+    }
+
+    public String getDescription() {
         return description;
     }
 

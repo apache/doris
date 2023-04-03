@@ -149,7 +149,7 @@ public class CastExpr extends Expr {
     }
 
     private static String getFnName(Type targetType) {
-        return "castTo" + targetType.getPrimitiveType().toString();
+        return "castTo" + targetType.getPrimitiveType().getDescription();
     }
 
     public TypeDef getTargetTypeDef() {

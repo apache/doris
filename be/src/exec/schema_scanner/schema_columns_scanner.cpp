@@ -22,6 +22,7 @@
 #include <memory>
 #include <sstream>
 
+#include "common/config.h"
 #include "exec/schema_scanner/schema_helper.h"
 #include "runtime/primitive_type.h"
 #include "vec/common/string_ref.h"
@@ -209,11 +210,15 @@ std::string SchemaColumnsScanner::_type_to_string(TColumnDesc& desc) {
         return fmt::to_string(debug_string_buffer);
     }
     case TPrimitiveType::DATEV2:
-        return "datev2";
+        return config::enable_fuzzy_mode ? "date" : "datev2";
     case TPrimitiveType::DATETIMEV2: {
         fmt::memory_buffer debug_string_buffer;
-        fmt::format_to(debug_string_buffer, "datetimev2({})",
-                       desc.__isset.columnScale ? std::to_string(desc.columnScale) : "UNKNOWN");
+        if (config::enable_fuzzy_mode && (!desc.__isset.columnScale || desc.columnScale == 0)) {
+            fmt::format_to(debug_string_buffer, "datetime");
+        } else {
+            fmt::format_to(debug_string_buffer, "datetimev2({})",
+                           desc.__isset.columnScale ? std::to_string(desc.columnScale) : "UNKNOWN");
+        }
         return fmt::to_string(debug_string_buffer);
     }
     case TPrimitiveType::HLL: {
