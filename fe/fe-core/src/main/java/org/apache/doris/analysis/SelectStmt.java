@@ -997,15 +997,30 @@ public class SelectStmt extends QueryStmt {
              * TODO: the a.key should be replaced by a.k1 instead of unknown column 'key' in 'a'
              */
             if (groupByClause != null) {
-                // according to mysql
-                // if there is a group by clause, the having clause should use column name not alias
-                // this is the same as group by clause
-                try {
-                    // use col name from tableRefs first
-                    havingClauseAfterAnaylzed = havingClause.clone();
-                    havingClauseAfterAnaylzed.analyze(analyzer);
-                } catch (AnalysisException ex) {
-                    // then consider alias name
+                boolean aliasFirst = false;
+                if (analyzer.getContext() != null) {
+                    aliasFirst = analyzer.getContext().getSessionVariable().isGroupByAndHavingUseAliasFirst();
+                }
+                if (!aliasFirst) {
+                    ExprSubstitutionMap excludeAliasSMap = aliasSMap.clone();
+                    List<Expr> havingSlots = Lists.newArrayList();
+                    havingClause.collect(SlotRef.class, havingSlots);
+                    for (Expr expr : havingSlots) {
+                        if (excludeAliasSMap.get(expr) == null) {
+                            continue;
+                        }
+                        try {
+                            // try to use column name firstly
+                            expr.clone().analyze(analyzer);
+                            // analyze success means column name exist, do not use alias name
+                            excludeAliasSMap.removeByLhsExpr(expr);
+                        } catch (AnalysisException ex) {
+                            // according to case3, column name do not exist, keep alias name inside alias map
+                        }
+                    }
+                    havingClauseAfterAnaylzed = havingClause.substitute(excludeAliasSMap, analyzer, false);
+                } else {
+                    // If user set force using alias, then having clauses prefer using alias rather than column name
                     havingClauseAfterAnaylzed = havingClause.substitute(aliasSMap, analyzer, false);
                 }
             } else {
@@ -1125,7 +1140,11 @@ public class SelectStmt extends QueryStmt {
                 }
                 groupingInfo.buildRepeat(groupingExprs, groupByClause.getGroupingSetList());
             }
-            substituteOrdinalsAliases(groupingExprs, "GROUP BY", analyzer, false);
+            boolean aliasFirst = false;
+            if (analyzer.getContext() != null) {
+                aliasFirst = analyzer.getContext().getSessionVariable().isGroupByAndHavingUseAliasFirst();
+            }
+            substituteOrdinalsAliases(groupingExprs, "GROUP BY", analyzer, aliasFirst);
 
             if (!groupByClause.isGroupByExtension() && !groupingExprs.isEmpty()) {
                 ArrayList<Expr> tempExprs = new ArrayList<>(groupingExprs);
@@ -1911,7 +1930,11 @@ public class SelectStmt extends QueryStmt {
         }
         // substitute group by
         if (groupByClause != null) {
-            substituteOrdinalsAliases(groupByClause.getGroupingExprs(), "GROUP BY", analyzer, false);
+            boolean aliasFirst = false;
+            if (analyzer.getContext() != null) {
+                aliasFirst = analyzer.getContext().getSessionVariable().isGroupByAndHavingUseAliasFirst();
+            }
+            substituteOrdinalsAliases(groupByClause.getGroupingExprs(), "GROUP BY", analyzer, aliasFirst);
         }
         // substitute having
         if (havingClause != null) {
