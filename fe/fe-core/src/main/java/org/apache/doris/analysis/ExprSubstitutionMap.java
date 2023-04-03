@@ -99,6 +99,16 @@ public final class ExprSubstitutionMap {
         return null;
     }
 
+    public void removeByLhsExpr(Expr lhsExpr) {
+        for (int i = 0; i < lhs_.size(); ++i) {
+            if (lhs_.get(i).equals(lhsExpr)) {
+                lhs_.remove(i);
+                rhs_.remove(i);
+                break;
+            }
+        }
+    }
+
     public void removeByRhsExpr(Expr rhsExpr) {
         for (int i = 0; i < rhs_.size(); ++i) {
             if (rhs_.get(i).equals(rhsExpr)) {

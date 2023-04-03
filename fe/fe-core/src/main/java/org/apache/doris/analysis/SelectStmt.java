@@ -1019,6 +1019,10 @@ public class SelectStmt extends QueryStmt {
                         }
                     }
                     havingClauseAfterAnaylzed = havingClause.substitute(excludeAliasSMap, analyzer, false);
+                } else {
+                    // If user set force using alias, then having clauses prefer using alias rather than column name
+                    havingClauseAfterAnaylzed = havingClause.substitute(aliasSMap, analyzer, false);
+                }
             } else {
                 // according to mysql
                 // if there is no group by clause, the having clause should use alias
