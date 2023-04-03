@@ -50,7 +50,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.servlet.view.RedirectView;
 
 import java.io.StringReader;
 import java.lang.reflect.Type;
@@ -85,11 +84,8 @@ public class StmtExecutionAction extends RestBaseController {
     @RequestMapping(path = "/api/query/{" + NS_KEY + "}/{" + DB_KEY + "}", method = {RequestMethod.POST})
     public Object executeSQL(@PathVariable(value = NS_KEY) String ns, @PathVariable(value = DB_KEY) String dbName,
             HttpServletRequest request, HttpServletResponse response, @RequestBody String body) {
-        if (needRedirect(request.getServerPort())) {
-            RedirectView redirectView = new RedirectView("https://" + request.getServerName() + ":"
-                    + Config.https_port + "/api/query/" + ns + "/" + dbName);
-            redirectView.setStatusCode(org.springframework.http.HttpStatus.TEMPORARY_REDIRECT);
-            return redirectView;
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
         }
 
         ActionAuthorizationInfo authInfo = checkWithCookie(request, response, false);
@@ -135,11 +131,8 @@ public class StmtExecutionAction extends RestBaseController {
     @RequestMapping(path = "/api/query_schema/{" + NS_KEY + "}/{" + DB_KEY + "}", method = {RequestMethod.POST})
     public Object querySchema(@PathVariable(value = NS_KEY) String ns, @PathVariable(value = DB_KEY) String dbName,
             HttpServletRequest request, HttpServletResponse response, @RequestBody String sql) {
-        if (needRedirect(request.getServerPort())) {
-            RedirectView redirectView = new RedirectView("https://" + request.getServerName() + ":"
-                    + Config.https_port + "/api/query_schema/" + ns + "/" + dbName);
-            redirectView.setStatusCode(org.springframework.http.HttpStatus.TEMPORARY_REDIRECT);
-            return redirectView;
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
         }
 
         checkWithCookie(request, response, false);

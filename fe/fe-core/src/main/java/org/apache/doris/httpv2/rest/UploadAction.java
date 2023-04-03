@@ -29,14 +29,12 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
-import org.springframework.web.servlet.view.RedirectView;
 
 import java.io.IOException;
 import java.util.List;
@@ -77,12 +75,8 @@ public class UploadAction extends RestBaseController {
             @PathVariable(value = TABLE_KEY) String tblName,
             @RequestParam("file") MultipartFile file,
             HttpServletRequest request, HttpServletResponse response) {
-        if (needRedirect(request.getServerPort())) {
-            String query = request.getQueryString();
-            RedirectView redirectView = new RedirectView("https://" + request.getServerName() + ":"
-                    + Config.https_port + "/api/" + ns + "/" + dbName + "/" + tblName + "/upload?" + query);
-            redirectView.setStatusCode(HttpStatus.TEMPORARY_REDIRECT);
-            return redirectView;
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
         }
 
         checkWithCookie(request, response, false);

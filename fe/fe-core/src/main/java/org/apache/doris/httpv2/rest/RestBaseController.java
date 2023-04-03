@@ -31,6 +31,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.servlet.view.RedirectView;
 
 import java.io.BufferedInputStream;
@@ -174,7 +175,19 @@ public class RestBaseController extends BaseController {
         return fullDbName;
     }
 
-    public boolean needRedirect(int serverPort) {
-        return Config.enable_https && serverPort == Config.http_port;
+    public boolean needRedirect(String scheme) {
+        return Config.enable_https && "http".equalsIgnoreCase(scheme);
+    }
+
+    public Object redirectToHttps(HttpServletRequest request) {
+        String serverName = request.getServerName();
+        String uri = request.getRequestURI();
+        String query = request.getQueryString();
+        query = query == null ? "" : query;
+        String newUrl = "https://" + serverName + ":" + Config.https_port + uri + "?" + query;
+        LOG.info("redirect to new url: {}", newUrl);
+        RedirectView redirectView = new RedirectView(newUrl);
+        redirectView.setStatusCode(HttpStatus.TEMPORARY_REDIRECT);
+        return redirectView;
     }
 }
