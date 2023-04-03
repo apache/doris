@@ -17,7 +17,10 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.SetVar;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
@@ -1908,5 +1911,23 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setDumpNereidsMemo(boolean dumpNereidsMemo) {
         this.dumpNereidsMemo = dumpNereidsMemo;
+    }
+
+    public void enableFallbackToOriginalPlannerOnce() throws DdlException {
+        if (enableFallbackToOriginalPlanner) {
+            return;
+        }
+        setIsSingleSetVar(true);
+        VariableMgr.setVar(this,
+                new SetVar(SessionVariable.ENABLE_FALLBACK_TO_ORIGINAL_PLANNER, new StringLiteral("true")));
+    }
+
+    public void disableNereidsPlannerOnce() throws DdlException {
+        if (!enableNereidsPlanner) {
+            return;
+        }
+        setIsSingleSetVar(true);
+        VariableMgr.setVar(this,
+                new SetVar(SessionVariable.ENABLE_NEREIDS_PLANNER, new StringLiteral("false")));
     }
 }
