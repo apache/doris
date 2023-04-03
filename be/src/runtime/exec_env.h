@@ -122,6 +122,8 @@ public:
     std::shared_ptr<MemTrackerLimiter> orphan_mem_tracker() { return _orphan_mem_tracker; }
     MemTrackerLimiter* orphan_mem_tracker_raw() { return _orphan_mem_tracker_raw; }
     MemTrackerLimiter* experimental_mem_tracker() { return _experimental_mem_tracker.get(); }
+    MemTracker* page_no_cache_mem_tracker() { return _page_no_cache_mem_tracker.get(); }
+
     ThreadPool* send_batch_thread_pool() { return _send_batch_thread_pool.get(); }
     ThreadPool* download_cache_thread_pool() { return _download_cache_thread_pool.get(); }
     ThreadPool* send_report_thread_pool() { return _send_report_thread_pool.get(); }
@@ -211,6 +213,8 @@ private:
     std::shared_ptr<MemTrackerLimiter> _orphan_mem_tracker;
     MemTrackerLimiter* _orphan_mem_tracker_raw;
     std::shared_ptr<MemTrackerLimiter> _experimental_mem_tracker;
+    // page size not in cache, data page/index page/etc.
+    std::shared_ptr<MemTracker> _page_no_cache_mem_tracker;
 
     std::unique_ptr<ThreadPool> _send_batch_thread_pool;
 

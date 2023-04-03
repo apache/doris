@@ -290,6 +290,7 @@ void ExecEnv::init_mem_tracker() {
     _orphan_mem_tracker_raw = _orphan_mem_tracker.get();
     _experimental_mem_tracker = std::make_shared<MemTrackerLimiter>(
             MemTrackerLimiter::Type::EXPERIMENTAL, "ExperimentalSet");
+    _page_no_cache_mem_tracker = std::make_shared<MemTracker>("PageNoCache");
 }
 
 void ExecEnv::init_download_cache_buf() {
