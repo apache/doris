@@ -950,6 +950,8 @@ visible_functions = [
     [['timestamp'], 'DATETIMEV2', ['DATETIMEV2'], ''],
 
     [['to_days'], 'INT', ['DATEV2'], ''],
+    [['time_to_sec'], 'INT', ['DATETIMEV2'], ''],
+    [['time_to_sec'], 'INT', ['DATETIME'], ''],
 
     [['year'], 'INT', ['DATETIMEV2'], ''],
     [['month'], 'INT', ['DATETIMEV2'], ''],

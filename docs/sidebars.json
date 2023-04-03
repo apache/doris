@@ -347,6 +347,7 @@
                                 "sql-manual/sql-functions/date-time-functions/utc_timestamp",
                                 "sql-manual/sql-functions/date-time-functions/to_date",
                                 "sql-manual/sql-functions/date-time-functions/to_days",
+                                "sql-manual/sql-functions/date-time-functions/time_to_sec",
                                 "sql-manual/sql-functions/date-time-functions/extract",
                                 "sql-manual/sql-functions/date-time-functions/makedate",
                                 "sql-manual/sql-functions/date-time-functions/str_to_date",

@@ -23,4 +23,33 @@ suite("test_time_lut") {
             qt_sql """ select yearweek('${year}-${month}-1 23:59:59') """
         }
     }
+
+    def tableName = "test_time_to_sec_function"
+
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tableName} (
+                test_datetime datetime NULL COMMENT ""
+            ) ENGINE=OLAP
+            DUPLICATE KEY(test_datetime)
+            COMMENT "OLAP"
+            DISTRIBUTED BY HASH(test_datetime) BUCKETS 1
+            PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1",
+                "in_memory" = "false",
+                "storage_format" = "V2"
+            )
+        """
+    sql """ insert into ${tableName} values ("2019-08-01 13:21:03") """
+    sql """ insert into ${tableName} values ("1989-03-21 13:00:00") """
+    sql """ insert into ${tableName} values ("2015-03-13 10:30:00") """
+    sql """ insert into ${tableName} values ("2015-03-13 12:36:38") """
+    sql """ insert into ${tableName} values ("9999-11-11 12:12:00") """
+    sql """ insert into ${tableName} values ("1989-03-21 13:11:11") """
+    sql """ insert into ${tableName} values ("2013-04-02 15:16:52") """
+    sql """ insert into ${tableName} values ("1989-03-21 13:11:00") """
+    sql """ insert into ${tableName} values ("2013-04-02 10:16:52") """
+    sql """ insert into ${tableName} values ("2023-04-03 19:54:23") """
+
+    qt_sql_time_to_sec """ SELECT test_datetime,  time_to_sec(test_datetime) from ${tableName} order by test_datetime; """
 }

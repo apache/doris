@@ -69,6 +69,9 @@ using FunctionTimeStamp = FunctionDateOrDateTimeToSomething<DataTypeDateTime, Ti
 using FunctionTimeStampV2 =
         FunctionDateOrDateTimeToSomething<DataTypeDateTimeV2, TimeStampImpl<UInt64>>;
 
+using FunctionTimeToSec = FunctionDateOrDateTimeToSomething<DataTypeInt32, TimeToSecImpl<Int64>>;
+using FunctionTimeToSecV2 = FunctionDateOrDateTimeToSomething<DataTypeInt32, TimeToSecImpl<UInt64>>;
+
 void register_function_to_time_function(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSecond>();
     factory.register_function<FunctionMinute>();
@@ -92,6 +95,8 @@ void register_function_to_time_function(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionYearV2>();
     factory.register_function<FunctionQuarterV2>();
     factory.register_function<FunctionToDaysV2>();
+    factory.register_function<FunctionTimeToSec>();
+    factory.register_function<FunctionTimeToSecV2>();
     factory.register_function<FunctionToDateV2>();
     factory.register_function<FunctionDateV2>();
     factory.register_function<FunctionDateTimeV2Second>();
