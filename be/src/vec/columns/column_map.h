@@ -146,11 +146,25 @@ public:
     const IColumn& get_keys() const { return *keys_column; }
     IColumn& get_keys() { return *keys_column; }
 
+    const ColumnPtr get_keys_array_ptr() const {
+        return ColumnArray::create(keys_column, offsets_column);
+    }
+    ColumnPtr get_keys_array_ptr() { return ColumnArray::create(keys_column, offsets_column); }
+
     const ColumnPtr& get_values_ptr() const { return values_column; }
     ColumnPtr& get_values_ptr() { return values_column; }
 
     const IColumn& get_values() const { return *values_column; }
     IColumn& get_values() { return *values_column; }
+
+    const ColumnPtr get_values_array_ptr() const {
+        return ColumnArray::create(values_column, offsets_column);
+    }
+    ColumnPtr get_values_array_ptr() { return ColumnArray::create(values_column, offsets_column); }
+
+    size_t ALWAYS_INLINE size_at(ssize_t i) const {
+        return get_offsets()[i] - get_offsets()[i - 1];
+    }
 
 private:
     friend class COWHelper<IColumn, ColumnMap>;
@@ -160,9 +174,6 @@ private:
     WrappedPtr offsets_column; // offset
 
     size_t ALWAYS_INLINE offset_at(ssize_t i) const { return get_offsets()[i - 1]; }
-    size_t ALWAYS_INLINE size_at(ssize_t i) const {
-        return get_offsets()[i] - get_offsets()[i - 1];
-    }
 
     ColumnMap(MutableColumnPtr&& keys, MutableColumnPtr&& values, MutableColumnPtr&& offsets);
 

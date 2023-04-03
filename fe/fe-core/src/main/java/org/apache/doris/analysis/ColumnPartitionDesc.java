@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 
@@ -46,30 +47,34 @@ public class ColumnPartitionDesc extends PartitionDesc {
         for (SlotRef column : columns) {
             column.analyze(analyzer);
         }
-        OlapTable olapTable = matchTable(stmt.getOlapTables());
-        PartitionDesc partitionDesc = olapTable.getPartitionInfo().toPartitionDesc(olapTable);
+        Table olapTable = matchTable(stmt.getTables());
+        PartitionDesc partitionDesc = ((OlapTable) olapTable).getPartitionInfo().toPartitionDesc((OlapTable) olapTable);
         type = partitionDesc.getType();
         partitionColNames = toMVPartitionColumnNames(olapTable.getName(), partitionDesc.getPartitionColNames(),
                 stmt.getQueryStmt());
         singlePartitionDescs = partitionDesc.getSinglePartitionDescs();
     }
 
-    private OlapTable matchTable(Map<String, OlapTable> olapTables) throws AnalysisException {
-        OlapTable matched = null;
+    private Table matchTable(Map<String, Table> olapTables) throws AnalysisException {
+        Table matched = null;
         for (SlotRef column : columns) {
-            OlapTable olapTable = olapTables.get(column.getTableName().getTbl());
-            if (olapTable != null) {
-                if (matched != null && !matched.getName().equals(olapTable.getName())) {
+            Table table = olapTables.get(column.getDesc().getParent().getTable().getName());
+            if (table != null) {
+                if (!(table instanceof OlapTable)) {
+                    throw new AnalysisException(
+                            "Can not get the partition information from a table whose type isn't OLAP.");
+                }
+                if (matched != null && !matched.getName().equals(table.getName())) {
                     throw new AnalysisException("The partition columns must be in the same table.");
                 } else if (matched == null) {
-                    matched = olapTable;
+                    matched = table;
                 }
             }
         }
         if (matched == null) {
             throw new AnalysisException("The partition columns doesn't match the ones in base table.");
         }
-        PartitionInfo partitionInfo = matched.getPartitionInfo();
+        PartitionInfo partitionInfo = ((OlapTable) matched).getPartitionInfo();
         List<Column> partitionColumns = partitionInfo.getPartitionColumns();
         if (!columns.stream().map(SlotRef::getColumn).collect(Collectors.toList()).equals(partitionColumns)) {
             throw new AnalysisException("The partition columns doesn't match the ones in base table "
@@ -85,7 +90,7 @@ public class ColumnPartitionDesc extends PartitionDesc {
             List<SelectListItem> items = ((SelectStmt) queryStmt).getSelectList().getItems();
             for (String partitionColName : partitionColNames) {
                 String mvColumnName = null;
-                for (int i = 0; mvColumnName == null && i < items.size(); ++ i) {
+                for (int i = 0; mvColumnName == null && i < items.size(); ++i) {
                     SelectListItem item = items.get(i);
                     if (item.isStar()) {
                         mvColumnName = partitionColName;

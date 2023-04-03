@@ -115,8 +115,8 @@ Status VAnalyticEvalNode::init(const TPlanNode& tnode, RuntimeState* state) {
             ++node_idx;
             VExpr* expr = nullptr;
             VExprContext* ctx = nullptr;
-            RETURN_IF_ERROR(VExpr::create_tree_from_thrift(_pool, desc.nodes, nullptr, &node_idx,
-                                                           &expr, &ctx));
+            RETURN_IF_ERROR(
+                    VExpr::create_tree_from_thrift(_pool, desc.nodes, &node_idx, &expr, &ctx));
             _agg_expr_ctxs[i].emplace_back(ctx);
         }
 

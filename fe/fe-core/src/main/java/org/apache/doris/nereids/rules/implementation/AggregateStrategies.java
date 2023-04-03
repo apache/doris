@@ -71,6 +71,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -395,8 +396,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
     private List<PhysicalHashAggregate<Plan>> twoPhaseAggregateWithCountDistinctMulti(
             LogicalAggregate<? extends Plan> logicalAgg, CascadesContext cascadesContext) {
         AggregateParam inputToBufferParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER);
-
-        Set<Expression> countDistinctArguments = logicalAgg.getDistinctArguments();
+        Collection<Expression> countDistinctArguments = logicalAgg.getDistinctArguments();
 
         List<Expression> localAggGroupBy = ImmutableList.copyOf(ImmutableSet.<Expression>builder()
                 .addAll(logicalAgg.getGroupByExpressions())
@@ -513,7 +513,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             LogicalAggregate<? extends Plan> logicalAgg, CascadesContext cascadesContext) {
         AggregateParam inputToBufferParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER);
 
-        Set<Expression> countDistinctArguments = logicalAgg.getDistinctArguments();
+        Collection<Expression> countDistinctArguments = logicalAgg.getDistinctArguments();
 
         List<Expression> localAggGroupBy = ImmutableList.copyOf(ImmutableSet.<Expression>builder()
                 .addAll(logicalAgg.getGroupByExpressions())
@@ -738,7 +738,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
      *
      *     PhysicalHashAggregate(groupBy=[name], output=[name, count(distinct(id)], mode=BUFFER_TO_RESULT)
      *                                          |
-     *     PhysicalHashAggregate(groupBy=[name, id], output=[name, id], mode=INPUT_TO_RESULT)
+     *     PhysicalHashAggregate(groupBy=[name, id], output=[name, id], mode=INPUT_TO_BUFFER)
      *                                          |
      *                     PhysicalDistribute(distributionSpec=GATHER)
      *                                          |
@@ -748,7 +748,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
      *
      *     PhysicalHashAggregate(groupBy=[name], output=[name, count(distinct(id)], mode=BUFFER_TO_RESULT)
      *                                          |
-     *     PhysicalHashAggregate(groupBy=[name, id], output=[name, id], mode=INPUT_TO_RESULT)
+     *     PhysicalHashAggregate(groupBy=[name, id], output=[name, id], mode=INPUT_TO_BUFFER)
      *                                          |
      *                 PhysicalDistribute(distributionSpec=HASH(name))
      *                                          |
@@ -1134,7 +1134,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 RequireProperties.of(PhysicalProperties.GATHER), anyLocalAgg);
 
         if (logicalAgg.getGroupByExpressions().isEmpty()) {
-            Set<Expression> distinctArguments = logicalAgg.getDistinctArguments();
+            Collection<Expression> distinctArguments = logicalAgg.getDistinctArguments();
             RequireProperties requireDistinctHash = RequireProperties.of(PhysicalProperties.createHash(
                     distinctArguments, ShuffleType.AGGREGATE));
             PhysicalHashAggregate<? extends Plan> hashLocalGatherGlobalAgg = anyLocalGatherGlobalAgg

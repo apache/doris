@@ -56,6 +56,7 @@ import java.util.Set;
 public class Column implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(Column.class);
     public static final String DELETE_SIGN = "__DORIS_DELETE_SIGN__";
+    public static final String WHERE_SIGN = "__DORIS_WHERE_SIGN__";
     public static final String SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
     public static final String ROWID_COL = "__DORIS_ROWID_COL__";
     public static final String ROW_STORE_COL = "__DORIS_ROW_STORE_COL__";
@@ -140,7 +141,11 @@ public class Column implements Writable, GsonPostProcessable {
     }
 
     public Column(String name, PrimitiveType dataType, boolean isAllowNull) {
-        this(name, ScalarType.createType(dataType), false, null, isAllowNull, null, "");
+        this(name, ScalarType.createType(dataType), isAllowNull);
+    }
+
+    public Column(String name, Type type, boolean isAllowNull) {
+        this(name, type, false, null, isAllowNull, null, "");
     }
 
     public Column(String name, Type type) {
@@ -261,6 +266,10 @@ public class Column implements Writable, GsonPostProcessable {
 
     public String getNameWithoutMvPrefix() {
         return CreateMaterializedViewStmt.mvColumnBreaker(name);
+    }
+
+    public static String getNameWithoutMvPrefix(String originalName) {
+        return CreateMaterializedViewStmt.mvColumnBreaker(originalName);
     }
 
     public String getDisplayName() {

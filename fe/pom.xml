@@ -167,6 +167,7 @@ under the License.
         <maven.compiler.target>1.8</maven.compiler.target>
         <sonar.organization>apache</sonar.organization>
         <sonar.host.url>https://sonarcloud.io</sonar.host.url>
+        <aspectj.version>1.9.7</aspectj.version>
         <cglib.version>2.2</cglib.version>
         <commons-cli.version>1.4</commons-cli.version>
         <commons-filerupload.version>1.5</commons-filerupload.version>
@@ -177,7 +178,7 @@ under the License.
         <commons-validator.version>1.7</commons-validator.version>
         <gson.version>2.8.9</gson.version>
         <guava.version>30.0-jre</guava.version>
-        <jackson.version>2.14.2</jackson.version>
+        <jackson.version>2.12.3</jackson.version>
         <java-cup.version>0.11-a-czt02-cdh</java-cup.version>
         <javassist.version>3.18.2-GA</javassist.version>
         <javax.servlet-api.version>3.0.1</javax.servlet-api.version>
@@ -198,6 +199,9 @@ under the License.
         <objenesis.version>2.1</objenesis.version>
         <grpc.version>1.30.0</grpc.version>
         <protobuf.version>3.21.12</protobuf.version>
+        <!-- we use protoc-jar-maven-plugin to generate protobuf generated code -->
+        <!-- see https://repo.maven.apache.org/maven2/com/google/protobuf/protoc/ to get correct version -->
+        <protoc.artifact.version>3.21.9</protoc.artifact.version>
         <protoparser.version>3.1.5</protoparser.version>
         <snappy-java.version>1.1.7.2</snappy-java.version>
         <automaton.version>1.11-8</automaton.version>
@@ -206,7 +210,6 @@ under the License.
         <kubernetes-model.version>5.12.2</kubernetes-model.version>
         <logging-interceptor.version>4.7.2</logging-interceptor.version>
         <okhttp.version>4.7.2</okhttp.version>
-        <okhttp-ws.version>3.4.2</okhttp-ws.version>
         <okio.version>2.6.0</okio.version>
         <snakeyaml.version>1.15</snakeyaml.version>
         <validation-api.version>1.1.0.Final</validation-api.version>
@@ -627,12 +630,6 @@ under the License.
                 <groupId>com.squareup.okhttp3</groupId>
                 <artifactId>okhttp</artifactId>
                 <version>${okhttp.version}</version>
-            </dependency>
-            <!-- https://mvnrepository.com/artifact/com.squareup.okhttp3/okhttp-ws -->
-            <dependency>
-                <groupId>com.squareup.okhttp3</groupId>
-                <artifactId>okhttp-ws</artifactId>
-                <version>${okhttp-ws.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/com.squareup.okio/okio -->
             <dependency>

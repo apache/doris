@@ -23,7 +23,6 @@
 
 #include <string>
 
-#include "env/env.h"
 #include "gutil/strings/util.h"
 
 namespace doris {

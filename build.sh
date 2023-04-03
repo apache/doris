@@ -63,6 +63,7 @@ Usage: $0 <options>
     $0 --spark-dpp                          build Spark DPP application alone
     $0 --broker                             build Broker
     $0 --be --fe                            build Backend, Frontend, Spark Dpp application and Java UDF library
+    $0 --be --coverage                      build Backend with coverage enabled
 
     USE_AVX2=0 $0 --be                      build Backend and not using AVX2 instruction.
     USE_AVX2=0 STRIP_DEBUG_INFO=ON $0       build all and not using AVX2 instruction, and strip the debug info for Backend
@@ -115,6 +116,7 @@ if ! OPTS="$(getopt \
     -l 'spark-dpp' \
     -l 'hive-udf' \
     -l 'clean' \
+    -l 'coverage' \
     -l 'help' \
     -o 'hj:' \
     -- "$@")"; then
@@ -136,6 +138,7 @@ CLEAN=0
 HELP=0
 PARAMETER_COUNT="$#"
 PARAMETER_FLAG=0
+DENABLE_CLANG_COVERAGE='OFF'
 if [[ "$#" == 1 ]]; then
     # default
     BUILD_FE=1
@@ -184,6 +187,10 @@ else
             ;;
         --clean)
             CLEAN=1
+            shift
+            ;;
+        --coverage)
+            DENABLE_CLANG_COVERAGE='ON'
             shift
             ;;
         -h)
@@ -288,9 +295,6 @@ fi
 if [[ -z "${ENABLE_STACKTRACE}" ]]; then
     ENABLE_STACKTRACE='ON'
 fi
-if [[ -z "${STRICT_MEMORY_USE}" ]]; then
-    STRICT_MEMORY_USE='OFF'
-fi
 
 if [[ -z "${USE_DWARF}" ]]; then
     USE_DWARF='OFF'
@@ -316,7 +320,7 @@ if [[ "${BUILD_JAVA_UDF}" -eq 1 && "$(uname -s)" == 'Darwin' ]]; then
     if [[ -z "${JAVA_HOME}" ]]; then
         CAUSE='the environment variable JAVA_HOME is not set'
     else
-        LIBJVM="$(find "${JAVA_HOME}/" -name 'libjvm.dylib')"
+        LIBJVM="$(find -L "${JAVA_HOME}/" -name 'libjvm.dylib')"
         if [[ -z "${LIBJVM}" ]]; then
             CAUSE="the library libjvm.dylib is missing"
         elif [[ "$(file "${LIBJVM}" | awk '{print $NF}')" != "$(uname -m)" ]]; then
@@ -356,8 +360,8 @@ echo "Get params:
     USE_MEM_TRACKER     -- ${USE_MEM_TRACKER}
     USE_JEMALLOC        -- ${USE_JEMALLOC}
     USE_BTHREAD_SCANNER -- ${USE_BTHREAD_SCANNER}
-    STRICT_MEMORY_USE   -- ${STRICT_MEMORY_USE}
     ENABLE_STACKTRACE   -- ${ENABLE_STACKTRACE}
+    DENABLE_CLANG_COVERAGE -- ${DENABLE_CLANG_COVERAGE}
 "
 
 # Clean and build generated code
@@ -428,11 +432,11 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DUSE_MEM_TRACKER="${USE_MEM_TRACKER}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
         -DUSE_BTHREAD_SCANNER="${USE_BTHREAD_SCANNER}" \
-        -DSTRICT_MEMORY_USE="${STRICT_MEMORY_USE}" \
         -DENABLE_STACKTRACE="${ENABLE_STACKTRACE}" \
         -DUSE_AVX2="${USE_AVX2}" \
         -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
         -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
+        -DENABLE_CLANG_COVERAGE="${DENABLE_CLANG_COVERAGE}" \
         "${DORIS_HOME}/be"
 
     if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
@@ -524,6 +528,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     copy_common_files "${DORIS_OUTPUT}/fe/"
     mkdir -p "${DORIS_OUTPUT}/fe/log"
     mkdir -p "${DORIS_OUTPUT}/fe/doris-meta"
+    mkdir -p "${DORIS_OUTPUT}/fe/conf/ssl"
 fi
 
 if [[ "${BUILD_SPARK_DPP}" -eq 1 ]]; then
@@ -542,6 +547,10 @@ if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
 
     cp -r -p "${DORIS_HOME}/be/output/bin"/* "${DORIS_OUTPUT}/be/bin"/
     cp -r -p "${DORIS_HOME}/be/output/conf"/* "${DORIS_OUTPUT}/be/conf"/
+
+    if [[ -d "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" ]]; then
+        cp -r -p "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" "${DORIS_OUTPUT}/be/lib/"
+    fi
 
     if [[ "${DISABLE_JAVA_UDF_IN_CONF}" -eq 1 ]]; then
         echo -e "\033[33;1mWARNNING: \033[37;1mDisable Java UDF support in be.conf due to the BE was built without Java UDF.\033[0m"

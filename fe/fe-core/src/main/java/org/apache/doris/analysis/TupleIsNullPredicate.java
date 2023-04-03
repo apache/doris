@@ -80,6 +80,11 @@ public class TupleIsNullPredicate extends Predicate {
     }
 
     @Override
+    public boolean isRelativedByTupleIds(List<TupleId> tids) {
+        return isBoundByTupleIds(tids);
+    }
+
+    @Override
     public Expr clone() {
         return new TupleIsNullPredicate(this);
     }
@@ -233,10 +238,5 @@ public class TupleIsNullPredicate extends Predicate {
     @Override
     public boolean isNullable() {
         return false;
-    }
-
-    @Override
-    public void finalizeImplForNereids() throws AnalysisException {
-        super.finalizeImplForNereids();
     }
 }

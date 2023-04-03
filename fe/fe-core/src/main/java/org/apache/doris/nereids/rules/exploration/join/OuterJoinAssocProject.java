@@ -66,9 +66,10 @@ public class OuterJoinAssocProject extends OneExplorationRuleFactory {
                     GroupPlan a = bottomJoin.left();
                     GroupPlan b = bottomJoin.right();
                     GroupPlan c = topJoin.right();
+                    Set<ExprId> aOutputExprIds = a.getOutputExprIdSet();
 
                     /* ********** Split projects ********** */
-                    Map<Boolean, List<NamedExpression>> map = JoinReorderUtils.splitProjection(projects, a);
+                    Map<Boolean, List<NamedExpression>> map = JoinReorderUtils.splitProject(projects, aOutputExprIds);
                     List<NamedExpression> aProjects = map.get(true);
                     List<NamedExpression> bProjects = map.get(false);
                     if (bProjects.isEmpty()) {
@@ -84,25 +85,24 @@ public class OuterJoinAssocProject extends OneExplorationRuleFactory {
                     }
 
                     // Add all slots used by OnCondition when projects not empty.
-                    Set<ExprId> aExprIdSet = JoinReorderUtils.combineProjectAndChildExprId(a, aProjects);
                     Map<Boolean, Set<Slot>> abOnUsedSlots = Stream.concat(
                                     bottomJoin.getHashJoinConjuncts().stream(),
                                     bottomJoin.getHashJoinConjuncts().stream())
                             .flatMap(onExpr -> onExpr.getInputSlots().stream())
                             .collect(Collectors.partitioningBy(
-                                    slot -> aExprIdSet.contains(slot.getExprId()), Collectors.toSet()));
+                                    slot -> aOutputExprIds.contains(slot.getExprId()), Collectors.toSet()));
                     JoinReorderUtils.addSlotsUsedByOn(abOnUsedSlots.get(true), aProjects);
                     JoinReorderUtils.addSlotsUsedByOn(abOnUsedSlots.get(false), bProjects);
 
                     bProjects.addAll(OuterJoinLAsscomProject.forceToNullable(c.getOutputSet()));
                     /* ********** new Plan ********** */
-                    LogicalJoin newBottomJoin = (LogicalJoin) topJoin.withChildren(b, c);
+                    LogicalJoin newBottomJoin = topJoin.withChildrenNoContext(b, c);
                     newBottomJoin.getJoinReorderContext().copyFrom(bottomJoin.getJoinReorderContext());
 
                     Plan left = JoinReorderUtils.projectOrSelf(aProjects, a);
                     Plan right = JoinReorderUtils.projectOrSelf(bProjects, newBottomJoin);
 
-                    LogicalJoin newTopJoin = (LogicalJoin) bottomJoin.withChildren(left, right);
+                    LogicalJoin newTopJoin = bottomJoin.withChildrenNoContext(left, right);
                     newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());
                     OuterJoinAssoc.setReorderContext(newTopJoin, newBottomJoin);
 

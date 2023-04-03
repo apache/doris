@@ -145,14 +145,14 @@ public class StatsCalculatorTest {
         Group ownerGroup = newGroup();
         groupExpression.setOwnerGroup(ownerGroup);
         StatsCalculator.estimate(groupExpression);
-        Assertions.assertEquals((long) 500, ownerGroup.getStatistics().getRowCount(), 0.001);
+        Assertions.assertEquals((10000 * 0.1 * 0.05), ownerGroup.getStatistics().getRowCount(), 0.001);
 
         LogicalFilter<GroupPlan> logicalFilterOr = new LogicalFilter<>(or, groupPlan);
         GroupExpression groupExpressionOr = new GroupExpression(logicalFilterOr, ImmutableList.of(childGroup));
         Group ownerGroupOr = newGroup();
         groupExpressionOr.setOwnerGroup(ownerGroupOr);
         StatsCalculator.estimate(groupExpressionOr);
-        Assertions.assertEquals((long) 1000,
+        Assertions.assertEquals((long) (10000 * (0.1 + 0.05 - 0.1 * 0.05)),
                 ownerGroupOr.getStatistics().getRowCount(), 0.001);
     }
 
@@ -292,8 +292,8 @@ public class StatsCalculatorTest {
         Statistics limitStats = ownerGroup.getStatistics();
         Assertions.assertEquals(1, limitStats.getRowCount());
         ColumnStatistic slot1Stats = limitStats.columnStatistics().get(slot1);
-        Assertions.assertEquals(1, slot1Stats.ndv);
-        Assertions.assertEquals(1, slot1Stats.numNulls);
+        Assertions.assertEquals(1, slot1Stats.ndv, 0.1);
+        Assertions.assertEquals(0.5, slot1Stats.numNulls);
     }
 
     @Test
@@ -322,7 +322,7 @@ public class StatsCalculatorTest {
         Statistics topNStats = ownerGroup.getStatistics();
         Assertions.assertEquals(1, topNStats.getRowCount());
         ColumnStatistic slot1Stats = topNStats.columnStatistics().get(slot1);
-        Assertions.assertEquals(1, slot1Stats.ndv);
-        Assertions.assertEquals(1, slot1Stats.numNulls);
+        Assertions.assertEquals(1, slot1Stats.ndv, 0.1);
+        Assertions.assertEquals(0.5, slot1Stats.numNulls);
     }
 }

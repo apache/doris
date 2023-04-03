@@ -18,6 +18,7 @@
 package org.apache.doris.planner.external;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.Split;
 import org.apache.doris.planner.Splitter;
@@ -46,11 +47,31 @@ public class TVFSplitter implements Splitter {
         List<Split> splits = Lists.newArrayList();
         List<TBrokerFileStatus> fileStatuses = tableValuedFunction.getFileStatuses();
         for (TBrokerFileStatus fileStatus : fileStatuses) {
+            long fileLength = fileStatus.getSize();
             Path path = new Path(fileStatus.getPath());
-            Split split = new FileSplit(path, 0, fileStatus.getSize(), new String[0]);
-            splits.add(split);
+            if (fileStatus.isSplitable) {
+                long splitSize = Config.file_split_size;
+                if (splitSize <= 0) {
+                    splitSize = fileStatus.getBlockSize() > 0 ? fileStatus.getBlockSize() : DEFAULT_SPLIT_SIZE;
+                }
+                addFileSplits(path, fileLength, splitSize, splits);
+            } else {
+                Split split = new FileSplit(path, 0, fileLength, fileLength, new String[0]);
+                splits.add(split);
+            }
         }
         return splits;
+    }
+
+    private void addFileSplits(Path path, long fileSize, long splitSize, List<Split> splits) {
+        long bytesRemaining;
+        for (bytesRemaining = fileSize; (double) bytesRemaining / (double) splitSize > 1.1D;
+                bytesRemaining -= splitSize) {
+            splits.add(new FileSplit(path, fileSize - bytesRemaining, splitSize, fileSize, new String[0]));
+        }
+        if (bytesRemaining != 0L) {
+            splits.add(new FileSplit(path, fileSize - bytesRemaining, bytesRemaining, fileSize, new String[0]));
+        }
     }
 
 }

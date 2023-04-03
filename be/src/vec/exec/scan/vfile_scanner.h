@@ -34,7 +34,7 @@ class VFileScanner : public VScanner {
 public:
     VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
                  const TFileScanRange& scan_range, RuntimeProfile* profile,
-                 KVCache<string>& kv_cache);
+                 ShardedKVCache* kv_cache);
 
     Status open(RuntimeState* state) override;
 
@@ -100,8 +100,8 @@ protected:
     std::unique_ptr<RowDescriptor> _src_row_desc;
     // row desc for default exprs
     std::unique_ptr<RowDescriptor> _default_val_row_desc;
-
-    KVCache<std::string>& _kv_cache;
+    // owned by scan node
+    ShardedKVCache* _kv_cache;
 
     bool _scanner_eof = false;
     int _rows = 0;
@@ -119,8 +119,8 @@ protected:
     // for tracing dynamic schema
     std::unique_ptr<vectorized::schema_util::FullBaseSchemaView> _full_base_schema_view;
 
-    std::unique_ptr<FileCacheStatistics> _file_cache_statistics;
-    std::unique_ptr<IOContext> _io_ctx;
+    std::unique_ptr<io::FileCacheStatistics> _file_cache_statistics;
+    std::unique_ptr<io::IOContext> _io_ctx;
 
 private:
     RuntimeProfile::Counter* _get_block_timer = nullptr;
@@ -129,6 +129,7 @@ private:
     RuntimeProfile::Counter* _fill_missing_columns_timer = nullptr;
     RuntimeProfile::Counter* _pre_filter_timer = nullptr;
     RuntimeProfile::Counter* _convert_to_output_block_timer = nullptr;
+    RuntimeProfile::Counter* _empty_file_counter = nullptr;
 
     const std::unordered_map<std::string, int>* _col_name_to_slot_id;
     // single slot filter conjuncts

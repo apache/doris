@@ -21,7 +21,7 @@
 #include <arrow/status.h>
 #include <time.h>
 
-#include "io/file_writer.h"
+#include "io/fs/file_writer.h"
 #include "util/mysql_global.h"
 #include "util/types.h"
 #include "vec/columns/column_complex.h"
@@ -35,7 +35,7 @@
 
 namespace doris::vectorized {
 
-ParquetOutputStream::ParquetOutputStream(FileWriter* file_writer)
+ParquetOutputStream::ParquetOutputStream(doris::io::FileWriter* file_writer)
         : _file_writer(file_writer), _cur_pos(0), _written_len(0) {
     set_mode(arrow::io::FileMode::WRITE);
 }
@@ -51,8 +51,8 @@ arrow::Status ParquetOutputStream::Write(const void* data, int64_t nbytes) {
     if (_is_closed) {
         return arrow::Status::OK();
     }
-    size_t written_len = 0;
-    Status st = _file_writer->write(static_cast<const uint8_t*>(data), nbytes, &written_len);
+    size_t written_len = nbytes;
+    Status st = _file_writer->append({static_cast<const uint8_t*>(data), written_len});
     if (!st.ok()) {
         return arrow::Status::IOError(st.to_string());
     }
@@ -204,7 +204,7 @@ void ParquetBuildHelper::build_version(parquet::WriterProperties::Builder& build
     }
 }
 
-VParquetWriterWrapper::VParquetWriterWrapper(doris::FileWriter* file_writer,
+VParquetWriterWrapper::VParquetWriterWrapper(doris::io::FileWriter* file_writer,
                                              const std::vector<VExprContext*>& output_vexpr_ctxs,
                                              const std::vector<TParquetSchema>& parquet_schemas,
                                              const TParquetCompressionType::type& compression_type,

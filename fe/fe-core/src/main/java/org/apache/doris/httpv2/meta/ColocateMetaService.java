@@ -103,6 +103,10 @@ public class ColocateMetaService extends RestBaseController {
     @RequestMapping(path = "/api/colocate/group_stable", method = {RequestMethod.POST, RequestMethod.DELETE})
     public Object group_stable(HttpServletRequest request, HttpServletResponse response)
             throws DdlException {
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
+
         executeWithoutPassword(request, response);
         GroupId groupId = checkAndGetGroupId(request);
 
@@ -118,6 +122,10 @@ public class ColocateMetaService extends RestBaseController {
     @RequestMapping(path = "/api/colocate/bucketseq", method = RequestMethod.POST)
     public Object bucketseq(HttpServletRequest request, HttpServletResponse response, @RequestBody String meta)
             throws DdlException {
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
+
         executeWithoutPassword(request, response);
         final String clusterName = ConnectContext.get().getClusterName();
         GroupId groupId = checkAndGetGroupId(request);

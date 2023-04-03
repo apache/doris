@@ -30,12 +30,10 @@ public:
     ~VExplodeSplitTableFunction() override = default;
 
     Status open() override;
-    Status process_init(vectorized::Block* block) override;
+    Status process_init(Block* block) override;
     Status process_row(size_t row_idx) override;
     Status process_close() override;
-    Status get_value(void** output) override;
-    Status get_value_length(int64_t* length) override;
-    Status reset() override;
+    void get_value(MutableColumnPtr& column) override;
 
 private:
     std::vector<std::string_view> _backup;

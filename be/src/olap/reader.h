@@ -22,12 +22,14 @@
 #include "exprs/bitmapfilter_predicate.h"
 #include "exprs/function_filter.h"
 #include "exprs/hybrid_set.h"
+#include "io/io_common.h"
 #include "olap/delete_handler.h"
 #include "olap/row_cursor.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
 #include "util/runtime_profile.h"
+#include "vec/common/arena.h"
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris {
@@ -161,7 +163,6 @@ public:
     // Return OK and set `*eof` to false when next block is read
     // Return OK and set `*eof` to true when no more rows can be read.
     // Return others when unexpected error happens.
-    // TODO: Rethink here we still need mem_pool and agg_pool?
     virtual Status next_block_with_aggregation(vectorized::Block* block, bool* eof) {
         return Status::Error<ErrorCode::READER_INITIALIZE_ERROR>();
     }
@@ -171,7 +172,7 @@ public:
     uint64_t filtered_rows() const {
         return _stats.rows_del_filtered + _stats.rows_del_by_bitmap +
                _stats.rows_conditions_filtered + _stats.rows_vec_del_cond_filtered +
-               _stats.rows_vec_cond_filtered;
+               _stats.rows_vec_cond_filtered + _stats.rows_short_circuit_cond_filtered;
     }
 
     void set_batch_size(int batch_size) { _reader_context.batch_size = batch_size; }
@@ -201,7 +202,7 @@ protected:
 
     Status _init_orderby_keys_param(const ReaderParams& read_params);
 
-    void _init_conditions_param(const ReaderParams& read_params);
+    Status _init_conditions_param(const ReaderParams& read_params);
 
     void _init_conditions_param_except_leafnode_of_andnode(const ReaderParams& read_params);
 
@@ -223,7 +224,7 @@ protected:
     TabletSharedPtr tablet() { return _tablet; }
     const TabletSchema& tablet_schema() { return *_tablet_schema; }
 
-    std::unique_ptr<MemPool> _predicate_mem_pool;
+    std::unique_ptr<vectorized::Arena> _predicate_arena;
     std::vector<uint32_t> _return_columns;
     // used for special optimization for query : ORDER BY key [ASC|DESC] LIMIT n
     // columns for orderby keys

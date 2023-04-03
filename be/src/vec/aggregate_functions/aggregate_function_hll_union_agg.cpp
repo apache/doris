@@ -18,27 +18,18 @@
 #include "vec/aggregate_functions/aggregate_function_hll_union_agg.h"
 
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-#include "vec/aggregate_functions/factory_helpers.h"
 #include "vec/aggregate_functions/helpers.h"
 
 namespace doris::vectorized {
 
-template <template <typename> class Impl>
-AggregateFunctionPtr create_aggregate_function_HLL(const std::string& name,
-                                                   const DataTypes& argument_types,
-                                                   const bool result_is_nullable) {
-    assert_arity_at_most<1>(name, argument_types);
-    return AggregateFunctionPtr(
-            creator_without_type::create<AggregateFunctionHLLUnion<Impl<AggregateFunctionHLLData>>>(
-                    result_is_nullable, argument_types));
-}
-
 void register_aggregate_function_HLL_union_agg(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function_both("hll_union_agg",
-                                   create_aggregate_function_HLL<AggregateFunctionHLLUnionAggImpl>);
+    factory.register_function_both(
+            "hll_union_agg", creator_without_type::creator<AggregateFunctionHLLUnion<
+                                     AggregateFunctionHLLUnionAggImpl<AggregateFunctionHLLData>>>);
 
-    factory.register_function_both("hll_union",
-                                   create_aggregate_function_HLL<AggregateFunctionHLLUnionImpl>);
+    factory.register_function_both(
+            "hll_union", creator_without_type::creator<AggregateFunctionHLLUnion<
+                                 AggregateFunctionHLLUnionImpl<AggregateFunctionHLLData>>>);
     factory.register_alias("hll_union", "hll_raw_agg");
 }
 

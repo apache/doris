@@ -175,6 +175,9 @@ doris3	20
 -- !specified_database --
 doris_test
 
+-- !specified_database --
+doris_test
+
 -- !ex_tb1 --
 {"k1":"v1", "k2":"v2"}
 

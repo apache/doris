@@ -33,7 +33,8 @@ NewPlainBinaryLineReader::~NewPlainBinaryLineReader() {
 
 void NewPlainBinaryLineReader::close() {}
 
-Status NewPlainBinaryLineReader::read_line(const uint8_t** ptr, size_t* size, bool* eof) {
+Status NewPlainBinaryLineReader::read_line(const uint8_t** ptr, size_t* size, bool* eof,
+                                           const io::IOContext* /*io_ctx*/) {
     size_t read_size = 0;
     RETURN_IF_ERROR((dynamic_cast<io::StreamLoadPipe*>(_file_reader.get()))
                             ->read_one_message(&_file_buf, &read_size));

@@ -39,6 +39,11 @@ protected:
 
 private:
     std::vector<TScanRangeParams> _scan_ranges;
-    KVCache<std::string> _kv_cache;
+    // A in memory cache to save some common components
+    // of the this scan node. eg:
+    // 1. iceberg delete file
+    // 2. parquet file meta
+    // KVCache<std::string> _kv_cache;
+    std::unique_ptr<ShardedKVCache> _kv_cache;
 };
 } // namespace doris::vectorized

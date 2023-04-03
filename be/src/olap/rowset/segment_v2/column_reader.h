@@ -26,6 +26,7 @@
 #include "common/status.h"         // for Status
 #include "gen_cpp/segment_v2.pb.h" // for ColumnMetaPB
 #include "io/fs/file_reader.h"
+#include "io/io_common.h"
 #include "olap/block_column_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/iterators.h"
@@ -38,7 +39,6 @@
 #include "olap/rowset/segment_v2/row_ranges.h"            // for RowRanges
 #include "olap/rowset/segment_v2/zone_map_index.h"
 #include "olap/tablet_schema.h"
-#include "util/file_cache.h"
 #include "util/once.h"
 #include "vec/columns/column_array.h" // ColumnArray
 
@@ -76,7 +76,7 @@ struct ColumnIteratorOptions {
     // page types are divided into DATA_PAGE & INDEX_PAGE
     // INDEX_PAGE including index_page, dict_page and short_key_page
     PageTypePB type;
-    IOContext io_ctx;
+    io::IOContext io_ctx;
 
     void sanity_check() const {
         CHECK_NOTNULL(file_reader);

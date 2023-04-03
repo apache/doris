@@ -36,7 +36,6 @@ struct ColumnPtrWrapper;
 struct StringRef;
 class BitmapValue;
 class DecimalV2Value;
-class DateTimeValue;
 class CollectionValue;
 struct TypeDescriptor;
 
@@ -179,48 +178,5 @@ private:
     std::string _string_result;
 };
 
-//----------------------------------------------------------------------------
-//-------------Implementation of the *Val structs ----------------------------
-//----------------------------------------------------------------------------
-struct AnyVal {
-    bool is_null;
-
-    AnyVal() : is_null(false) {}
-
-    AnyVal(bool is_null) : is_null(is_null) {}
-};
-
-// This object has a compatible storage format with boost::ptime.
-struct DateTimeVal : public AnyVal {
-    // MySQL packet time
-    int64_t packed_time;
-    // Indicate which type of this value.
-    int type;
-
-    // NOTE: Type 3 is TIME_DATETIME in runtime/datetime_value.h
-    DateTimeVal() : packed_time(0), type(3) {}
-
-    static DateTimeVal null() {
-        DateTimeVal result;
-        result.is_null = true;
-        return result;
-    }
-
-    bool operator==(const DateTimeVal& other) const {
-        if (is_null && other.is_null) {
-            return true;
-        }
-
-        if (is_null || other.is_null) {
-            return false;
-        }
-
-        return packed_time == other.packed_time;
-    }
-
-    bool operator!=(const DateTimeVal& other) const { return !(*this == other); }
-};
-
-using doris::DateTimeVal;
 using doris::FunctionContext;
 } // namespace doris

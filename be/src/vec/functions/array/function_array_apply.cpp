@@ -37,6 +37,7 @@ public:
     String get_name() const override { return name; }
 
     size_t get_number_of_arguments() const override { return 3; }
+    ColumnNumbers get_arguments_that_are_always_constant() const override { return {1, 2}; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DCHECK(is_array(arguments[0]))
@@ -63,10 +64,7 @@ public:
         auto nested_type = assert_cast<const DataTypeArray&>(*src_column_type).get_nested_type();
         const std::string& condition =
                 block.get_by_position(arguments[1]).column->get_data_at(0).to_string();
-        if (!is_column_const(*block.get_by_position(arguments[2]).column)) {
-            return Status::RuntimeError(
-                    "execute failed or unsupported column, only support const column");
-        }
+
         const ColumnConst& rhs_value_column =
                 static_cast<const ColumnConst&>(*block.get_by_position(arguments[2]).column.get());
         ColumnPtr result_ptr;
@@ -124,12 +122,10 @@ private:
                                           .get_raw_data()
                                           .data;
         }
-        for (size_t i = 0; i < src_column.size(); ++i) {
-            T lhs_val = *reinterpret_cast<const T*>(src_column_data_ptr);
-            if (apply<T, op>(lhs_val, rhs_val)) {
-                column_filter_data[i] = 1;
-            }
-            src_column_data_ptr += sizeof(T);
+        const T* src_column_data_t_ptr = reinterpret_cast<const T*>(src_column_data_ptr);
+        const size_t src_column_size = src_column.size();
+        for (size_t i = 0; i < src_column_size; ++i) {
+            column_filter_data[i] = apply<T, op>(src_column_data_t_ptr[i], rhs_val);
         }
         const IColumn::Filter& filter = column_filter_data;
         ColumnPtr filtered = src_column.filter(filter, src_column.size());
@@ -139,7 +135,9 @@ private:
         size_t out_pos = 0;
         for (size_t i = 0; i < src_offsets.size(); ++i) {
             for (; in_pos < src_offsets[i]; ++in_pos) {
-                if (filter[in_pos]) ++out_pos;
+                if (filter[in_pos]) {
+                    ++out_pos;
+                }
             }
             dst_offsets[i] = out_pos;
         }

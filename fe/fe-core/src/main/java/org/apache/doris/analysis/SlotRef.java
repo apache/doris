@@ -384,6 +384,16 @@ public class SlotRef extends Expr {
     }
 
     @Override
+    public boolean hasAggregateSlot() {
+        return desc.getColumn().isAggregated();
+    }
+
+    @Override
+    public boolean isRelativedByTupleIds(List<TupleId> tids) {
+        return isBoundByTupleIds(tids);
+    }
+
+    @Override
     public boolean isBound(SlotId slotId) {
         Preconditions.checkState(isAnalyzed);
         return desc.getId().equals(slotId);
@@ -519,11 +529,6 @@ public class SlotRef extends Expr {
     public boolean isNullable() {
         Preconditions.checkNotNull(desc);
         return desc.getIsNullable();
-    }
-
-    @Override
-    public void finalizeImplForNereids() throws AnalysisException {
-
     }
 
     @Override

@@ -39,6 +39,7 @@ public:
         return pool->add(new VRuntimeFilterWrapper(*this));
     }
     const std::string& expr_name() const override;
+    const std::vector<VExpr*>& children() const override { return _impl->children(); }
 
     const VExpr* get_impl() const override { return _impl; }
 

@@ -38,7 +38,10 @@ public:
                         size_t result, size_t input_rows_count) override {
         const ColumnWithTypeAndName& src_column = block.get_by_position(arguments[0]);
         DCHECK(src_column.column->size() == input_rows_count);
-        block.get_by_position(result).column = src_column.column;
+        // result of functions grouping and grouping_id is always not nullable,
+        // but outer join will convert the column to nullable when necessary,
+        // so need to remove nullable here when functions grouping and grouping_id are executed
+        block.get_by_position(result).column = remove_nullable(src_column.column);
         return Status::OK();
     }
 };

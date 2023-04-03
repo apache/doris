@@ -29,8 +29,8 @@
 #include <set>
 
 #include "common/status.h"
-#include "env/env.h"
 #include "gen_cpp/Types_constants.h"
+#include "io/fs/local_file_system.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_writer.h"
@@ -98,16 +98,12 @@ Status SnapshotManager::release_snapshot(const string& snapshot_path) {
     auto stores = StorageEngine::instance()->get_stores();
     for (auto store : stores) {
         std::string abs_path;
-        RETURN_WITH_WARN_IF_ERROR(Env::Default()->canonicalize(store->path(), &abs_path),
-                                  Status::Error<DIR_NOT_EXIST>(),
-                                  "canonical path " + store->path() + "failed");
-
+        RETURN_IF_ERROR(io::global_local_filesystem()->canonicalize(store->path(), &abs_path));
         if (snapshot_path.compare(0, abs_path.size(), abs_path) == 0 &&
             snapshot_path.compare(abs_path.size() + 1, SNAPSHOT_PREFIX.size(), SNAPSHOT_PREFIX) ==
                     0) {
-            Env::Default()->delete_dir(snapshot_path);
+            RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(snapshot_path));
             LOG(INFO) << "success to release snapshot path. [path='" << snapshot_path << "']";
-
             return Status::OK();
         }
     }
@@ -121,7 +117,9 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     Status res = Status::OK();
     // check clone dir existed
-    if (!FileUtils::check_exist(clone_dir)) {
+    bool exists = true;
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(clone_dir, &exists));
+    if (!exists) {
         res = Status::Error<DIR_NOT_EXIST>();
         LOG(WARNING) << "clone dir not existed when convert rowsetids. clone_dir=" << clone_dir;
         return res;
@@ -367,19 +365,16 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
     auto header_path = _get_header_full_path(ref_tablet, schema_full_path);
     //      /schema_full_path/tablet_id.hdr.json
     auto json_header_path = _get_json_header_full_path(ref_tablet, schema_full_path);
-    if (FileUtils::check_exist(schema_full_path)) {
-        VLOG_TRACE << "remove the old schema_full_path.";
-        FileUtils::remove_all(schema_full_path);
+    bool exists = true;
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(schema_full_path, &exists));
+    if (exists) {
+        VLOG_TRACE << "remove the old schema_full_path." << schema_full_path;
+        RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(schema_full_path));
     }
 
-    RETURN_WITH_WARN_IF_ERROR(FileUtils::create_dir(schema_full_path),
-                              Status::Error<CANNOT_CREATE_DIR>(),
-                              "create path " + schema_full_path + " failed");
-
+    RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(schema_full_path));
     string snapshot_id;
-    RETURN_WITH_WARN_IF_ERROR(FileUtils::canonicalize(snapshot_id_path, &snapshot_id),
-                              Status::Error<CANNOT_CREATE_DIR>(),
-                              "canonicalize path " + snapshot_id_path + " failed");
+    RETURN_IF_ERROR(io::global_local_filesystem()->canonicalize(snapshot_id_path, &snapshot_id));
 
     do {
         TabletMetaSharedPtr new_tablet_meta(new (nothrow) TabletMeta());
@@ -399,6 +394,8 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
             if (ref_tablet->tablet_state() == TABLET_SHUTDOWN) {
                 return Status::Aborted("tablet has shutdown");
             }
+            // be would definitely set it as true no matter has missed version or not
+            // but it would take no effets on the following range loop
             if (request.__isset.missing_version) {
                 for (int64_t missed_version : request.missing_version) {
                     Version version = {missed_version, missed_version};
@@ -424,8 +421,18 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                 }
             }
 
+            // be would definitely set it as true no matter has missed version or not, we could
+            // just check whether the missed version is empty or not
             int64_t version = -1;
-            if (!res.ok() || !request.__isset.missing_version) {
+            if (!res.ok() || request.missing_version.empty()) {
+                if (!request.__isset.missing_version &&
+                    ref_tablet->tablet_meta()->cooldown_meta_id().initialized()) {
+                    LOG(WARNING) << "currently not support backup tablet with cooldowned remote "
+                                    "data. tablet="
+                                 << request.tablet_id;
+                    return Status::NotSupported(
+                            "currently not support backup tablet with cooldowned remote data");
+                }
                 /// not all missing versions are found, fall back to full snapshot.
                 res = Status::OK();         // reset res
                 consistent_rowsets.clear(); // reset vector
@@ -530,9 +537,11 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
         LOG(WARNING) << "fail to make snapshot, try to delete the snapshot path. path="
                      << snapshot_id_path.c_str();
 
-        if (FileUtils::check_exist(snapshot_id_path)) {
+        bool exists = true;
+        RETURN_IF_ERROR(io::global_local_filesystem()->exists(snapshot_id_path, &exists));
+        if (exists) {
             VLOG_NOTICE << "remove snapshot path. [path=" << snapshot_id_path << "]";
-            FileUtils::remove_all(snapshot_id_path);
+            RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(snapshot_id_path));
         }
     } else {
         *snapshot_path = snapshot_id;

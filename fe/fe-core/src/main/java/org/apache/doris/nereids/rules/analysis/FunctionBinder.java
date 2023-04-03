@@ -31,9 +31,12 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Divide;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.IntegralDivide;
+import org.apache.doris.nereids.trees.expressions.ListQuery;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
@@ -211,5 +214,21 @@ public class FunctionBinder extends DefaultExpressionRewriter<CascadesContext> {
                 .map(e -> e.accept(this, context)).collect(Collectors.toList());
         Between newBetween = between.withChildren(rewrittenChildren);
         return TypeCoercionUtils.processBetween(newBetween);
+    }
+
+    @Override
+    public Expression visitInSubquery(InSubquery inSubquery, CascadesContext context) {
+        Expression newCompareExpr = inSubquery.getCompareExpr().accept(this, context);
+        Expression newListQuery = inSubquery.getListQuery().accept(this, context);
+        ComparisonPredicate newCpAfterUnNestingSubquery =
+                new EqualTo(newCompareExpr, ((ListQuery) newListQuery).getQueryPlan().getOutput().get(0));
+        ComparisonPredicate afterTypeCoercion = (ComparisonPredicate) TypeCoercionUtils.processComparisonPredicate(
+                newCpAfterUnNestingSubquery, newCompareExpr, newListQuery);
+        if (!newCompareExpr.getDataType().isBigIntType() && newListQuery.getDataType().isBitmapType()) {
+            newCompareExpr = new Cast(newCompareExpr, BigIntType.INSTANCE);
+        }
+        return new InSubquery(newCompareExpr, (ListQuery) afterTypeCoercion.right(),
+            inSubquery.getCorrelateSlots(), ((ListQuery) afterTypeCoercion.right()).getTypeCoercionExpr(),
+            inSubquery.isNot());
     }
 }

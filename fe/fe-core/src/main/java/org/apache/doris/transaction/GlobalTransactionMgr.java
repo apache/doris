@@ -297,13 +297,33 @@ public class GlobalTransactionMgr implements Writable {
     }
 
     public void abortTransaction(long dbId, long transactionId, String reason) throws UserException {
-        abortTransaction(dbId, transactionId, reason, null);
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
+        TransactionState transactionState = getDatabaseTransactionMgr(dbId).getTransactionState(transactionId);
+        if (transactionState == null) {
+            LOG.info("try to cancel one txn which has no txn state. txn id: {}.", transactionId);
+            return;
+        }
+        List<Table> tableList = db.getTablesOnIdOrderIfExist(transactionState.getTableIdList());
+        abortTransaction(dbId, transactionId, reason, null, tableList);
+    }
+
+    public void abortTransaction(long dbId, long transactionId, String reason, List<Table> tableList)
+            throws UserException {
+        abortTransaction(dbId, transactionId, reason, null, tableList);
     }
 
     public void abortTransaction(Long dbId, Long txnId, String reason,
-            TxnCommitAttachment txnCommitAttachment) throws UserException {
+            TxnCommitAttachment txnCommitAttachment, List<Table> tableList) throws UserException {
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
-        dbTransactionMgr.abortTransaction(txnId, reason, txnCommitAttachment);
+        if (!MetaLockUtils.tryWriteLockTablesOrMetaException(tableList, 5000, TimeUnit.MILLISECONDS)) {
+            throw new UserException("get tableList write lock timeout, tableList=("
+                    + StringUtils.join(tableList, ",") + ")");
+        }
+        try {
+            dbTransactionMgr.abortTransaction(txnId, reason, txnCommitAttachment);
+        } finally {
+            MetaLockUtils.writeUnlockTables(tableList);
+        }
     }
 
     // for http cancel stream load api
@@ -312,9 +332,17 @@ public class GlobalTransactionMgr implements Writable {
         dbTransactionMgr.abortTransaction(label, reason);
     }
 
-    public void abortTransaction2PC(Long dbId, long transactionId) throws UserException {
+    public void abortTransaction2PC(Long dbId, long transactionId, List<Table> tableList) throws UserException {
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
-        dbTransactionMgr.abortTransaction2PC(transactionId);
+        if (!MetaLockUtils.tryWriteLockTablesOrMetaException(tableList, 5000, TimeUnit.MILLISECONDS)) {
+            throw new UserException("get tableList write lock timeout, tableList=("
+                    + StringUtils.join(tableList, ",") + ")");
+        }
+        try {
+            dbTransactionMgr.abortTransaction2PC(transactionId);
+        } finally {
+            MetaLockUtils.writeUnlockTables(tableList);
+        }
     }
 
     /*
@@ -669,18 +697,13 @@ public class GlobalTransactionMgr implements Writable {
     }
 
     public long getAllRunningTxnNum() {
-        return updateTxnMetric(databaseTransactionMgr -> Long.valueOf(databaseTransactionMgr.getRunningTxnNum()),
+        return updateTxnMetric(databaseTransactionMgr -> (long) databaseTransactionMgr.getRunningTxnNum(),
                 MetricRepo.DB_GAUGE_TXN_NUM);
-    }
-
-    public long getAllRunningTxnReplicaNum() {
-        return updateTxnMetric(databaseTransactionMgr -> Long.valueOf(databaseTransactionMgr.getRunningTxnReplicaNum()),
-                MetricRepo.DB_GAUGE_TXN_REPLICA_NUM);
     }
 
     public long getAllPublishTxnNum() {
         return updateTxnMetric(
-                databaseTransactionMgr -> Long.valueOf(databaseTransactionMgr.getCommittedTxnList().size()),
+                databaseTransactionMgr -> (long) databaseTransactionMgr.getCommittedTxnList().size(),
                 MetricRepo.DB_GAUGE_PUBLISH_TXN_NUM);
     }
 

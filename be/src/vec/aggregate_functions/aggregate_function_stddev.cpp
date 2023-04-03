@@ -19,79 +19,72 @@
 
 #include "common/logging.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-#include "vec/aggregate_functions/factory_helpers.h"
 #include "vec/aggregate_functions/helpers.h"
 namespace doris::vectorized {
 
 template <template <typename, bool> class AggregateFunctionTemplate,
           template <typename> class NameData, template <typename, typename> class Data,
           bool is_stddev, bool is_nullable = false>
-IAggregateFunction* create_function_single_value(const String& name,
-                                                 const DataTypes& argument_types,
-                                                 const bool result_is_nullable,
-                                                 bool custom_nullable) {
-    IAggregateFunction* res = nullptr;
+AggregateFunctionPtr create_function_single_value(const String& name,
+                                                  const DataTypes& argument_types,
+                                                  const bool result_is_nullable,
+                                                  bool custom_nullable) {
     WhichDataType which(remove_nullable(argument_types[0]));
-#define DISPATCH(TYPE)                                                          \
-    if (which.idx == TypeIndex::TYPE)                                           \
-        res = creator_without_type::create<AggregateFunctionTemplate<           \
-                NameData<Data<TYPE, BaseData<TYPE, is_stddev>>>, is_nullable>>( \
-                result_is_nullable,                                             \
-                custom_nullable ? remove_nullable(argument_types) : argument_types);
+#define DISPATCH(TYPE)                                                              \
+    if (which.idx == TypeIndex::TYPE)                                               \
+        return creator_without_type::create<AggregateFunctionTemplate<              \
+                NameData<Data<TYPE, BaseData<TYPE, is_stddev>>>, is_nullable>>(     \
+                custom_nullable ? remove_nullable(argument_types) : argument_types, \
+                result_is_nullable);
     FOR_NUMERIC_TYPES(DISPATCH)
 #undef DISPATCH
 
 #define DISPATCH(TYPE)                                                                 \
     if (which.idx == TypeIndex::TYPE)                                                  \
-        res = creator_without_type::create<AggregateFunctionTemplate<                  \
+        return creator_without_type::create<AggregateFunctionTemplate<                 \
                 NameData<Data<TYPE, BaseDatadecimal<TYPE, is_stddev>>>, is_nullable>>( \
-                result_is_nullable,                                                    \
-                custom_nullable ? remove_nullable(argument_types) : argument_types);
+                custom_nullable ? remove_nullable(argument_types) : argument_types,    \
+                result_is_nullable);
     FOR_DECIMAL_TYPES(DISPATCH)
 #undef DISPATCH
 
-    if (res == nullptr) {
-        LOG(WARNING) << fmt::format("create_function_single_value with unknowed type {}",
-                                    argument_types[0]->get_name());
-    }
-    return res;
+    LOG(WARNING) << fmt::format("create_function_single_value with unknowed type {}",
+                                argument_types[0]->get_name());
+    return nullptr;
 }
 
 template <bool is_stddev, bool is_nullable>
 AggregateFunctionPtr create_aggregate_function_variance_samp(const std::string& name,
                                                              const DataTypes& argument_types,
                                                              const bool result_is_nullable) {
-    return AggregateFunctionPtr(
-            create_function_single_value<AggregateFunctionSamp, VarianceSampName, SampData,
-                                         is_stddev, is_nullable>(name, argument_types,
-                                                                 result_is_nullable, true));
+    return create_function_single_value<AggregateFunctionSamp, VarianceSampName, SampData,
+                                        is_stddev, is_nullable>(name, argument_types,
+                                                                result_is_nullable, true);
 }
 
 template <bool is_stddev, bool is_nullable>
 AggregateFunctionPtr create_aggregate_function_stddev_samp(const std::string& name,
                                                            const DataTypes& argument_types,
                                                            const bool result_is_nullable) {
-    return AggregateFunctionPtr(create_function_single_value<AggregateFunctionSamp, StddevSampName,
-                                                             SampData, is_stddev, is_nullable>(
-            name, argument_types, result_is_nullable, true));
+    return create_function_single_value<AggregateFunctionSamp, StddevSampName, SampData, is_stddev,
+                                        is_nullable>(name, argument_types, result_is_nullable,
+                                                     true);
 }
 
 template <bool is_stddev>
 AggregateFunctionPtr create_aggregate_function_variance_pop(const std::string& name,
                                                             const DataTypes& argument_types,
                                                             const bool result_is_nullable) {
-    return AggregateFunctionPtr(
-            create_function_single_value<AggregateFunctionPop, VarianceName, PopData, is_stddev>(
-                    name, argument_types, result_is_nullable, false));
+    return create_function_single_value<AggregateFunctionPop, VarianceName, PopData, is_stddev>(
+            name, argument_types, result_is_nullable, false);
 }
 
 template <bool is_stddev>
 AggregateFunctionPtr create_aggregate_function_stddev_pop(const std::string& name,
                                                           const DataTypes& argument_types,
                                                           const bool result_is_nullable) {
-    return AggregateFunctionPtr(
-            create_function_single_value<AggregateFunctionPop, StddevName, PopData, is_stddev>(
-                    name, argument_types, result_is_nullable, false));
+    return create_function_single_value<AggregateFunctionPop, StddevName, PopData, is_stddev>(
+            name, argument_types, result_is_nullable, false);
 }
 
 void register_aggregate_function_stddev_variance_pop(AggregateFunctionSimpleFactory& factory) {

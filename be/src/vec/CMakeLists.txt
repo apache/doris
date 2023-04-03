@@ -63,7 +63,6 @@ set(VEC_FILES
   json/path_in_data.cpp
   common/schema_util.cpp
   common/demangle.cpp
-  common/exception.cpp
   common/mremap.cpp
   common/pod_array.cpp
   common/string_ref.cpp
@@ -113,7 +112,6 @@ set(VEC_FILES
   exec/vset_operation_node.cpp
   exec/vunion_node.cpp
   exec/vselect_node.cpp
-  exec/vmysql_scan_node.cpp
   exec/vschema_scan_node.cpp
   exec/vempty_set_node.cpp
   exec/vanalytic_eval_node.cpp
@@ -161,18 +159,21 @@ set(VEC_FILES
   exprs/table_function/vexplode_numbers.cpp
   exprs/table_function/vexplode_bitmap.cpp
   exprs/lambda_function/varray_map_function.cpp
+  exprs/lambda_function/varray_filter_function.cpp
   functions/array/function_array_index.cpp
   functions/array/function_array_element.cpp
   functions/array/function_array_register.cpp
   functions/array/function_array_size.cpp
   functions/array/function_array_aggregation.cpp
   functions/array/function_array_sort.cpp
+  functions/array/function_array_sortby.cpp
   functions/array/function_array_utils.cpp
   functions/array/function_arrays_overlap.cpp
   functions/array/function_array_distinct.cpp
   functions/array/function_array_remove.cpp
   functions/array/function_array_union.cpp
   functions/array/function_array_except.cpp
+  functions/array/function_array_exists.cpp
   functions/array/function_array_intersect.cpp
   functions/array/function_array_slice.cpp
   functions/array/function_array_difference.cpp
@@ -186,7 +187,10 @@ set(VEC_FILES
   functions/array/function_array_with_constant.cpp
   functions/array/function_array_apply.cpp
   functions/array/function_array_concat.cpp
+  functions/array/function_array_zip.cpp
   functions/array/function_array_pushfront.cpp
+  functions/array/function_array_first_index.cpp
+  functions/function_map.cpp
   exprs/table_function/vexplode_json_array.cpp
   functions/math.cpp
   functions/function_bitmap.cpp
@@ -321,11 +325,14 @@ set(VEC_FILES
   exec/format/file_reader/new_plain_binary_line_reader.cpp
   exec/format/parquet/delta_bit_pack_decoder.cpp
   exec/format/parquet/bool_rle_decoder.cpp
+  exec/jni_connector.cpp
+  exec/scan/jni_reader.cpp
   )
 
 if (WITH_MYSQL)
     set(VEC_FILES
             ${VEC_FILES}
+            exec/vmysql_scan_node.cpp
             exec/scan/mysql_scanner.cpp)
 endif ()
 

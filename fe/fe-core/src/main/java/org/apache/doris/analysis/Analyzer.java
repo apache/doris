@@ -155,6 +155,7 @@ public class Analyzer {
 
     // Flag indicating if this analyzer instance belongs to a subquery.
     private boolean isSubquery = false;
+    private boolean isFirstScopeInSubquery = false;
     // Flag indicating if this analyzer instance belongs to an inlineview.
     private boolean isInlineView = false;
 
@@ -179,6 +180,7 @@ public class Analyzer {
 
     public void setIsSubquery() {
         isSubquery = true;
+        isFirstScopeInSubquery = true;
         globalState.containsSubquery = true;
     }
 
@@ -893,7 +895,7 @@ public class Analyzer {
          * This column could not be resolved because doris can only resolved the parent column instead of grandpa.
          * The exception to this query like that: Unknown column 'k1' in 'a'
          */
-        if (d == null && hasAncestors() && isSubquery) {
+        if (d == null && hasAncestors() && isSubquery && isFirstScopeInSubquery) {
             // analyzer father for subquery
             if (newTblName == null) {
                 d = getParentAnalyzer().resolveColumnRef(colName);

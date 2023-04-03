@@ -65,6 +65,7 @@ private:
 private:
     TOlapScanNode _olap_scan_node;
     std::vector<std::unique_ptr<TPaloScanRange>> _scan_ranges;
+    std::vector<std::unique_ptr<doris::OlapScanRange>> _cond_ranges;
     OlapScanKeys _scan_keys;
     std::vector<TCondition> _olap_filters;
     // _compound_filters store conditions in the one compound relationship in conjunct expr tree except leaf node of `and` node,
@@ -90,7 +91,10 @@ private:
     RuntimeProfile::Counter* _read_uncompressed_counter = nullptr;
     RuntimeProfile::Counter* _raw_rows_counter = nullptr;
 
-    RuntimeProfile::Counter* _rows_vec_cond_counter = nullptr;
+    RuntimeProfile::Counter* _rows_vec_cond_filtered_counter = nullptr;
+    RuntimeProfile::Counter* _rows_short_circuit_cond_filtered_counter = nullptr;
+    RuntimeProfile::Counter* _rows_vec_cond_input_counter = nullptr;
+    RuntimeProfile::Counter* _rows_short_circuit_cond_input_counter = nullptr;
     RuntimeProfile::Counter* _vec_cond_timer = nullptr;
     RuntimeProfile::Counter* _short_cond_timer = nullptr;
     RuntimeProfile::Counter* _expr_filter_timer = nullptr;

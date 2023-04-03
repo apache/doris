@@ -190,7 +190,7 @@ public class HyperGraphBuilder {
             int count = rowCounts.get(Integer.parseInt(scanPlan.getTable().getName()));
             for (Slot slot : scanPlan.getOutput()) {
                 slotIdToColumnStats.put(slot,
-                        new ColumnStatistic(count, count, 0, 0, 0, 0,
+                        new ColumnStatistic(count, count, 0, 0, 0, 0, 0,
                                 0, 0, null, null, true, null));
             }
             Statistics stats = new Statistics(count, slotIdToColumnStats);

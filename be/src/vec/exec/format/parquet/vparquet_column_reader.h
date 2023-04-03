@@ -39,7 +39,7 @@ public:
                   decode_level_time(0),
                   decode_null_map_time(0) {}
 
-        Statistics(BufferedStreamReader::Statistics& fs, ColumnChunkReader::Statistics& cs,
+        Statistics(io::BufferedStreamReader::Statistics& fs, ColumnChunkReader::Statistics& cs,
                    int64_t null_map_time)
                 : read_time(fs.read_time),
                   read_calls(fs.read_calls),
@@ -147,7 +147,7 @@ public:
 
 private:
     tparquet::ColumnChunk _chunk_meta;
-    std::unique_ptr<BufferedFileStreamReader> _stream_reader;
+    std::unique_ptr<io::BufferedFileStreamReader> _stream_reader;
     std::unique_ptr<ColumnChunkReader> _chunk_reader;
     std::vector<level_t> _rep_levels;
     std::vector<level_t> _def_levels;

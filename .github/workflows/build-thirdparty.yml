@@ -89,7 +89,6 @@ jobs:
             'openjdk-11-jdk'
             'openjdk-11-jdk-headless'
             'maven'
-            'llvm'
           )
 
           sudo apt update
@@ -134,7 +133,7 @@ jobs:
             'texinfo'
             'coreutils'
             'gnu-getopt'
-            'python'
+            'python@3'
             'cmake'
             'ninja'
             'ccache'
@@ -146,6 +145,7 @@ jobs:
             'openjdk@11'
             'maven'
             'node'
+            'llvm@15'
           )
 
           brew install "${packages[@]}"

@@ -786,15 +786,15 @@ std::string LRUFileCache::read_file_cache_version() const {
         return "1.0";
     }
     FileReaderSPtr version_reader;
-    size_t file_size = 0;
+    int64_t file_size = -1;
     fs->file_size(version_path, &file_size);
     char version[file_size];
 
-    IOContext io_ctx;
-    fs->open_file(version_path, &version_reader, &io_ctx);
-    version_reader->read_at(0, Slice(version, file_size), io_ctx, &file_size);
+    fs->open_file(version_path, &version_reader);
+    size_t bytes_read = 0;
+    version_reader->read_at(0, Slice(version, file_size), &bytes_read);
     version_reader->close();
-    return std::string(version, file_size);
+    return std::string(version, bytes_read);
 }
 
 std::vector<std::string> LRUFileCache::try_get_cache_paths(const Key& key, bool is_persistent) {

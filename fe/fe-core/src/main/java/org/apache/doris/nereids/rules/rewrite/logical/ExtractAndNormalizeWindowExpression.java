@@ -28,7 +28,6 @@ import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -65,10 +64,11 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
                 boolean needAggregate = bottomProjects.stream().anyMatch(expr ->
                         expr.anyMatch(AggregateFunction.class::isInstance));
                 if (needAggregate) {
-                    normalizedChild = new LogicalAggregate<>(
-                            ImmutableList.of(), ImmutableList.copyOf(bottomProjects), project.child());
+                    normalizedChild = new LogicalAggregate<>(ImmutableList.of(),
+                            ImmutableList.copyOf(bottomProjects), project.child());
                 } else {
-                    normalizedChild = new LogicalProject<>(ImmutableList.copyOf(bottomProjects), project.child());
+                    normalizedChild = project.withProjectsAndChild(
+                            ImmutableList.copyOf(bottomProjects), project.child());
                 }
             }
 
@@ -89,7 +89,7 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
 
             // 3. handle top projects
             List<NamedExpression> topProjects = ctxForWindows.normalizeToUseSlotRef(normalizedOutputs1);
-            return new LogicalProject<>(topProjects, normalizedLogicalWindow);
+            return project.withProjectsAndChild(topProjects, normalizedLogicalWindow);
         }).toRule(RuleType.EXTRACT_AND_NORMALIZE_WINDOW_EXPRESSIONS);
     }
 

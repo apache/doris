@@ -40,7 +40,6 @@ import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
@@ -55,7 +54,11 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.context.Context;
+import io.opentelemetry.context.Scope;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -104,7 +107,7 @@ public class NereidsPlanner extends Planner {
         PhysicalPlan physicalPlan = (PhysicalPlan) resultPlan;
         PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
         PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator(planTranslatorContext,
-                ConnectContext.get().getStatsErrorEstimator());
+                statementContext.getConnectContext().getStatsErrorEstimator());
         if (ConnectContext.get().getSessionVariable().isEnableNereidsTrace()) {
             CounterEvent.clearCounter();
         }
@@ -159,13 +162,31 @@ public class NereidsPlanner extends Planner {
 
         try (Lock lock = new Lock(plan, cascadesContext)) {
             // resolve column, table and function
-            analyze();
+
+            Span queryAnalysisSpan =
+                    statementContext.getConnectContext().getTracer()
+                            .spanBuilder("query analysis").setParent(Context.current()).startSpan();
+            try (Scope scope = queryAnalysisSpan.makeCurrent()) {
+                // analyze this query
+                analyze();
+            } catch (Exception e) {
+                queryAnalysisSpan.recordException(e);
+                throw e;
+            } finally {
+                queryAnalysisSpan.end();
+            }
+
+            if (statementContext.getConnectContext().getExecutor() != null) {
+                statementContext.getConnectContext().getExecutor().getPlannerProfile().setQueryAnalysisFinishTime();
+            }
+
             if (explainLevel == ExplainLevel.ANALYZED_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
                 analyzedPlan = cascadesContext.getRewritePlan();
                 if (explainLevel == ExplainLevel.ANALYZED_PLAN) {
                     return analyzedPlan;
                 }
             }
+
             // rule-based optimize
             rewrite();
             if (explainLevel == ExplainLevel.REWRITTEN_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
@@ -181,8 +202,8 @@ public class NereidsPlanner extends Planner {
 
             optimize();
 
-            //print memo before choose plan.
-            //if chooseNthPlan failed, we could get memo to debug
+            // print memo before choose plan.
+            // if chooseNthPlan failed, we could get memo to debug
             if (ConnectContext.get().getSessionVariable().isDumpNereidsMemo()) {
                 String memo = cascadesContext.getMemo().toString();
                 LOG.info(memo);
@@ -240,11 +261,12 @@ public class NereidsPlanner extends Planner {
         if (root.isJoinGroup()) {
             // If the root group is join group, DPHyp can change the root group.
             // To keep the root group is not changed, we add a project operator above join
-            List<Slot> outputs = root.getLogicalExpression().getPlan().getOutput();
-            LogicalPlan plan = new LogicalProject(outputs, root.getLogicalExpression().getPlan());
+            List<NamedExpression> outputs = ImmutableList.copyOf(root.getLogicalExpression().getPlan().getOutput());
+            LogicalPlan plan = new LogicalProject<>(outputs, root.getLogicalExpression().getPlan());
             CopyInResult copyInResult = cascadesContext.getMemo().copyIn(plan, null, false);
             root = copyInResult.correspondingExpression.getOwnerGroup();
         }
+        cascadesContext.getStatementContext().setDpHyp(true);
         cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
     }

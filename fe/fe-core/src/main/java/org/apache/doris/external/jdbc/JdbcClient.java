@@ -17,6 +17,7 @@
 
 package org.apache.doris.external.jdbc;
 
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.PrimitiveType;
@@ -61,14 +62,19 @@ public class JdbcClient {
 
     private boolean isLowerCaseTableNames = false;
 
+    private Map<String, Boolean> specifiedDatabaseMap = Maps.newHashMap();
+
     // only used when isLowerCaseTableNames = true.
     private Map<String, String> lowerTableToRealTable = Maps.newHashMap();
 
     public JdbcClient(String user, String password, String jdbcUrl, String driverUrl, String driverClass,
-            String onlySpecifiedDatabase, String isLowerCaseTableNames) {
+            String onlySpecifiedDatabase, String isLowerCaseTableNames, Map specifiedDatabaseMap) {
         this.jdbcUser = user;
         this.isOnlySpecifiedDatabase = Boolean.valueOf(onlySpecifiedDatabase).booleanValue();
         this.isLowerCaseTableNames = Boolean.valueOf(isLowerCaseTableNames).booleanValue();
+        if (specifiedDatabaseMap != null) {
+            this.specifiedDatabaseMap = specifiedDatabaseMap;
+        }
         try {
             this.dbType = JdbcResource.parseDbType(jdbcUrl);
         } catch (DdlException e) {
@@ -169,7 +175,7 @@ public class JdbcClient {
         Connection conn = getConnection();
         Statement stmt = null;
         ResultSet rs = null;
-        if (isOnlySpecifiedDatabase) {
+        if (isOnlySpecifiedDatabase && specifiedDatabaseMap.isEmpty()) {
             return getSpecifiedDatabase(conn);
         }
         List<String> databaseNames = Lists.newArrayList();
@@ -191,14 +197,23 @@ public class JdbcClient {
                     rs = stmt.executeQuery("SELECT name FROM sys.schemas");
                     break;
                 case JdbcResource.SAP_HANA:
-                    rs = stmt.executeQuery("SELECT SCHEMA_NAME FROM SYS.SCHEMAS");
+                    rs = stmt.executeQuery("SELECT SCHEMA_NAME FROM SYS.SCHEMAS WHERE HAS_PRIVILEGES = 'TRUE'");
                     break;
                 default:
                     throw new JdbcClientException("Not supported jdbc type");
             }
-
+            List<String> tempDatabaseNames = Lists.newArrayList();
             while (rs.next()) {
-                databaseNames.add(rs.getString(1));
+                tempDatabaseNames.add(rs.getString(1));
+            }
+            if (isOnlySpecifiedDatabase && !specifiedDatabaseMap.isEmpty()) {
+                for (String db : tempDatabaseNames) {
+                    if (specifiedDatabaseMap.get(db) != null) {
+                        databaseNames.add(db);
+                    }
+                }
+            } else {
+                databaseNames = tempDatabaseNames;
             }
         } catch (SQLException e) {
             throw new JdbcClientException("failed to get database name list from jdbc", e);
@@ -577,7 +592,12 @@ public class JdbcClient {
                 || ckType.startsWith("FixedString")) {
             return ScalarType.createStringType();
         } else if (ckType.startsWith("DateTime")) {
-            return ScalarType.createDatetimeV2Type(0);
+            return ScalarType.createDatetimeV2Type(6);
+        } else if (ckType.startsWith("Array")) {
+            String cktype = ckType.substring(6, ckType.length() - 1);
+            fieldSchema.setDataTypeName(cktype);
+            Type type = clickhouseTypeToDoris(fieldSchema);
+            return ArrayType.create(type, true);
         }
         switch (ckType) {
             case "Bool":
@@ -610,7 +630,6 @@ public class JdbcClient {
             default:
                 return Type.UNSUPPORTED;
         }
-        // Todo(zyk): Wait the JDBC external table support the array type then supported clickhouse array type
     }
 
     public Type oracleTypeToDoris(JdbcFieldSchema fieldSchema) {

@@ -32,7 +32,6 @@
 #include "exec/base_scanner.h"
 #include "gen_cpp/Types_types.h"
 #include "io/file_factory.h"
-#include "runtime/mem_pool.h"
 #include "util/runtime_profile.h"
 
 namespace doris::vectorized {

@@ -43,6 +43,6 @@ suite("test_array_functions_of_array_difference") {
 
 
     // Nereids does't support array function
-    // qt_select "SELECT *, array_difference(k2) FROM ${tableName}"
+    // qt_select "SELECT *, array_difference(k2) FROM ${tableName} order by k1"
 
 }

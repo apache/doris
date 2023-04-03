@@ -31,6 +31,290 @@ TBLPROPERTIES (
 
 msck repair table partition_table;
 
+
+CREATE TABLE `delta_byte_array`(
+  `c_salutation` string,
+  `c_first_name` string,
+  `c_last_name` string,
+  `c_preferred_cust_flag` string,
+  `c_birth_country` string,
+  `c_login` string,
+  `c_email_address` string,
+  `c_last_review_date` string,
+  `c_customer_id` string
+  )
+ROW FORMAT SERDE
+  'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'
+STORED AS INPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat'
+OUTPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
+LOCATION
+  '/user/doris/preinstalled_data/different_types_parquet/delta_byte_array'
+TBLPROPERTIES (
+  'transient_lastDdlTime'='1661955829');
+
+
+CREATE TABLE `delta_length_byte_array`(
+  `FRUIT` string
+  )
+ROW FORMAT SERDE
+  'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'
+STORED AS INPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat'
+OUTPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
+LOCATION
+  '/user/doris/preinstalled_data/different_types_parquet/delta_length_byte_array'
+TBLPROPERTIES (
+  'transient_lastDdlTime'='1661955829');
+
+msck repair table delta_length_byte_array;
+
+CREATE EXTERNAL TABLE `delta_binary_packed`(
+  bitwidth0 bigint,
+  bitwidth1 bigint,
+  bitwidth2 bigint,
+  bitwidth3 bigint,
+  bitwidth4 bigint,
+  bitwidth5 bigint,
+  bitwidth6 bigint,
+  bitwidth7 bigint,
+  bitwidth8 bigint,
+  bitwidth9 bigint,
+  bitwidth10 bigint,
+  bitwidth11 bigint,
+  bitwidth12 bigint,
+  bitwidth13 bigint,
+  bitwidth14 bigint,
+  bitwidth15 bigint,
+  bitwidth16 bigint,
+  bitwidth17 bigint,
+  bitwidth18 bigint,
+  bitwidth19 bigint,
+  bitwidth20 bigint,
+  bitwidth21 bigint,
+  bitwidth22 bigint,
+  bitwidth23 bigint,
+  bitwidth24 bigint,
+  bitwidth25 bigint,
+  bitwidth26 bigint,
+  bitwidth27 bigint,
+  bitwidth28 bigint,
+  bitwidth29 bigint,
+  bitwidth30 bigint,
+  bitwidth31 bigint,
+  bitwidth32 bigint,
+  bitwidth33 bigint,
+  bitwidth34 bigint,
+  bitwidth35 bigint,
+  bitwidth36 bigint,
+  bitwidth37 bigint,
+  bitwidth38 bigint,
+  bitwidth39 bigint,
+  bitwidth40 bigint,
+  bitwidth41 bigint,
+  bitwidth42 bigint,
+  bitwidth43 bigint,
+  bitwidth44 bigint,
+  bitwidth45 bigint,
+  bitwidth46 bigint,
+  bitwidth47 bigint,
+  bitwidth48 bigint,
+  bitwidth49 bigint,
+  bitwidth50 bigint,
+  bitwidth51 bigint,
+  bitwidth52 bigint,
+  bitwidth53 bigint,
+  bitwidth54 bigint,
+  bitwidth55 bigint,
+  bitwidth56 bigint,
+  bitwidth57 bigint,
+  bitwidth58 bigint,
+  bitwidth59 bigint,
+  bitwidth60 bigint,
+  bitwidth61 bigint,
+  bitwidth62 bigint,
+  bitwidth63 bigint,
+  bitwidth64 bigint,
+  int_value  int
+  )
+STORED AS parquet
+LOCATION
+  '/user/doris/preinstalled_data/different_types_parquet/delta_binary_packed'
+TBLPROPERTIES (
+  'transient_lastDdlTime'='1661955829');
+
+msck repair table delta_binary_packed;
+
+
+CREATE TABLE `delta_encoding_required_column`(
+   c_customer_sk int,
+    c_current_cdemo_sk int,
+   c_current_hdemo_sk int,
+   c_current_addr_sk int,
+   c_first_shipto_date_sk int,
+   c_first_sales_date_sk  int,
+   c_birth_day  int,
+   c_birth_month  int,
+     c_birth_year int,
+     c_customer_id string,
+     c_salutation string,
+     c_first_name string,
+     c_last_name string,
+     c_preferred_cust_flag string,
+     c_birth_country string,
+     c_email_address string,
+     c_last_review_date  string
+  )
+STORED AS parquet;
+
+load data inpath '/user/doris/preinstalled_data/different_types_parquet/delta_encoding_required_column/delta_encoding_required_column.parquet' into table default.delta_encoding_required_column;
+
+msck repair table delta_encoding_required_column;
+
+
+CREATE EXTERNAL TABLE `delta_encoding_optional_column`(
+    c_customer_sk int,
+    c_current_cdemo_sk int,
+    c_current_hdemo_sk int,
+    c_current_addr_sk int,
+    c_first_shipto_date_sk int,
+    c_first_sales_date_sk  int,
+     c_birth_year int,
+     c_customer_id string,
+     c_salutation string,
+     c_first_name string,
+     c_last_name string,
+     c_preferred_cust_flag string,
+     c_birth_country string
+  )
+ROW FORMAT SERDE
+  'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'
+STORED AS INPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat'
+OUTPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
+LOCATION
+  '/user/doris/preinstalled_data/different_types_parquet/delta_encoding_optional_column'
+TBLPROPERTIES (
+  'transient_lastDdlTime'='1661955829');
+
+msck repair table delta_encoding_optional_column;
+
+
+CREATE TABLE `datapage_v1_snappy_compressed_checksum`(
+  `a` int,
+  `b` int
+  )
+ROW FORMAT SERDE
+  'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'
+STORED AS INPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat'
+OUTPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
+LOCATION
+  '/user/doris/preinstalled_data/different_types_parquet/datapage_v1-snappy-compressed-checksum'
+TBLPROPERTIES (
+  'transient_lastDdlTime'='1661955829');
+
+msck repair table datapage_v1_snappy_compressed_checksum;
+
+
+CREATE TABLE `overflow_i16_page_cnt`(
+  `inc` boolean
+  )
+ROW FORMAT SERDE
+  'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'
+STORED AS INPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat'
+OUTPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
+LOCATION
+  '/user/doris/preinstalled_data/different_types_parquet/overflow_i16_page_cnt'
+TBLPROPERTIES (
+  'transient_lastDdlTime'='1661955829');
+
+msck repair table overflow_i16_page_cnt;
+
+
+CREATE TABLE `alltypes_tiny_pages`(
+  bool_col boolean,
+  tinyint_col int,
+  smallint_col  int,
+  int_col int,
+  bigint_col bigint,
+  float_col float,
+  double_col double,
+  id int,
+  date_string_col string,
+  string_col string,
+  timestamp_col timestamp,
+  year int,
+  month int
+  )
+ROW FORMAT SERDE
+  'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'
+STORED AS INPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat'
+OUTPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
+LOCATION
+  '/user/doris/preinstalled_data/different_types_parquet/alltypes_tiny_pages'
+TBLPROPERTIES (
+  'transient_lastDdlTime'='1661955829');
+
+msck repair table alltypes_tiny_pages;
+
+
+CREATE TABLE `alltypes_tiny_pages_plain`(
+  bool_col boolean,
+  tinyint_col int,
+  smallint_col  int,
+  int_col int,
+  bigint_col bigint,
+  float_col float,
+  double_col double,
+  id int,
+  date_string_col string,
+  string_col string,
+  timestamp_col timestamp,
+  year int,
+  month int
+  )
+ROW FORMAT SERDE
+  'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'
+STORED AS INPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat'
+OUTPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
+LOCATION
+  '/user/doris/preinstalled_data/different_types_parquet/alltypes_tiny_pages_plain'
+TBLPROPERTIES (
+  'transient_lastDdlTime'='1661955829');
+
+msck repair table alltypes_tiny_pages_plain;
+
+CREATE TABLE `example_string`(
+  `strings` string
+  )
+ROW FORMAT SERDE
+  'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'
+WITH SERDEPROPERTIES (
+  'field.delim'='\t',
+  'serialization.format'='\t')
+STORED AS INPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat'
+OUTPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
+LOCATION
+  '/user/doris/preinstalled_data/example_string.parquet'
+TBLPROPERTIES (
+  'transient_lastDdlTime'='1661955829');
+
+msck repair table example_string;
+
+
 CREATE EXTERNAL TABLE IF NOT EXISTS `orc_all_types`(
   `tinyint_col` tinyint,
   `smallint_col` smallint,
@@ -75,23 +359,23 @@ LOCATION '/user/doris/preinstalled_data/data_case/student'
 TBLPROPERTIES ('transient_lastDdlTime'='1658816839');
 
 CREATE TABLE `lineorder` (
-  `lo_orderkey` int, 
+  `lo_orderkey` int,
   `lo_linenumber` int,
-  `lo_custkey` int, 
-  `lo_partkey` int, 
-  `lo_suppkey` int, 
-  `lo_orderdate` int, 
+  `lo_custkey` int,
+  `lo_partkey` int,
+  `lo_suppkey` int,
+  `lo_orderdate` int,
   `lo_orderpriority` varchar(16),
-  `lo_shippriority` int, 
-  `lo_quantity` int, 
-  `lo_extendedprice` int, 
-  `lo_ordtotalprice` int, 
+  `lo_shippriority` int,
+  `lo_quantity` int,
+  `lo_extendedprice` int,
+  `lo_ordtotalprice` int,
   `lo_discount` int,
   `lo_revenue` int,
-  `lo_supplycost` int, 
-  `lo_tax` int, 
-  `lo_commitdate` int, 
-  `lo_shipmode` varchar(11) 
+  `lo_supplycost` int,
+  `lo_tax` int,
+  `lo_commitdate` int,
+  `lo_shipmode` varchar(11)
 )
 ROW FORMAT DELIMITED FIELDS TERMINATED by ','
 LOCATION '/user/doris/preinstalled_data/data_case/lineorder'

@@ -174,7 +174,8 @@ void NewPlainTextLineReader::extend_output_buf() {
     } while (false);
 }
 
-Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool* eof) {
+Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool* eof,
+                                         const io::IOContext* io_ctx) {
     if (_eof || update_eof()) {
         *size = 0;
         *eof = true;
@@ -185,8 +186,8 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
     while (!done()) {
         // find line delimiter in current decompressed data
         uint8_t* cur_ptr = _output_buf + _output_buf_pos;
-        uint8_t* pos = update_field_pos_and_find_line_delimiter(
-                cur_ptr + offset, output_buf_read_remaining() - offset);
+        uint8_t* pos =
+                update_field_pos_and_find_line_delimiter(cur_ptr, output_buf_read_remaining());
 
         if (pos == nullptr) {
             // didn't find line delimiter, read more data from decompressor
@@ -229,9 +230,8 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
                 {
                     SCOPED_TIMER(_read_timer);
                     Slice file_slice(file_buf, buffer_len);
-                    IOContext io_ctx;
                     RETURN_IF_ERROR(
-                            _file_reader->read_at(_current_offset, file_slice, io_ctx, &read_len));
+                            _file_reader->read_at(_current_offset, file_slice, &read_len, io_ctx));
                     _current_offset += read_len;
                     if (read_len == 0) {
                         _file_eof = true;

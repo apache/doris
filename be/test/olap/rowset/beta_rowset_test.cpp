@@ -23,6 +23,7 @@
 
 #include "gen_cpp/olap_file.pb.h"
 #include "gtest/gtest.h"
+#include "io/fs/local_file_system.h"
 #include "io/fs/s3_file_system.h"
 #include "olap/comparison_predicate.h"
 #include "olap/data_dir.h"
@@ -36,9 +37,7 @@
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
 #include "runtime/exec_env.h"
-#include "runtime/mem_pool.h"
 #include "runtime/memory/mem_tracker.h"
-#include "util/file_utils.h"
 #include "util/slice.h"
 
 using std::string;
@@ -65,8 +64,9 @@ public:
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         config::storage_root_path = std::string(buffer) + "/data_test";
 
-        EXPECT_TRUE(FileUtils::remove_all(config::storage_root_path).ok());
-        EXPECT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
+        EXPECT_TRUE(io::global_local_filesystem()
+                            ->delete_and_create_directory(config::storage_root_path)
+                            .ok());
 
         std::vector<StorePath> paths;
         paths.emplace_back(config::storage_root_path, -1);
@@ -79,7 +79,7 @@ public:
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
         exec_env->set_storage_engine(k_engine);
 
-        EXPECT_TRUE(FileUtils::create_dir(kTestDir).ok());
+        EXPECT_TRUE(io::global_local_filesystem()->create_directory(kTestDir).ok());
     }
 
     static void TearDownTestSuite() {
@@ -231,9 +231,8 @@ TEST_F(BetaRowsetTest, ReadTest) {
     s3_conf.bucket = "bucket";
     s3_conf.prefix = "prefix";
     std::string resource_id = "10000";
-    auto fs = io::S3FileSystem::create(std::move(s3_conf), resource_id);
-    Aws::SDKOptions aws_options = Aws::SDKOptions {};
-    Aws::InitAPI(aws_options);
+    std::shared_ptr<io::S3FileSystem> fs;
+    ASSERT_TRUE(io::S3FileSystem::create(std::move(s3_conf), resource_id, &fs).ok());
     // failed to head object
     {
         Aws::Auth::AWSCredentials aws_cred("ak", "sk");
@@ -280,8 +279,6 @@ TEST_F(BetaRowsetTest, ReadTest) {
         Status st = rowset.load_segments(&segments);
         ASSERT_FALSE(st.ok());
     }
-
-    Aws::ShutdownAPI(aws_options);
 }
 
 } // namespace doris

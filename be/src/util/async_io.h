@@ -81,10 +81,10 @@ public:
             cv.notify_one();
         };
 
-        if (file_type == io::FileSystemType::S3) {
-            AsyncIO::instance().remote_thread_pool()->offer(task);
-        } else {
+        if (file_type == io::FileSystemType::LOCAL) {
             AsyncIO::instance().io_thread_pool()->offer(task);
+        } else {
+            AsyncIO::instance().remote_thread_pool()->offer(task);
         }
         cv.wait(l);
     }

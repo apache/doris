@@ -70,6 +70,32 @@ suite("test_inlineview_with_project") {
         ) tx;
     """
 
+    qt_select2 """
+        SELECT count(*) AS count
+        FROM (with t0 AS 
+            (SELECT report.date AS date,
+                max(date)- min(date) imp_price
+            FROM 
+                (SELECT DATE_FORMAT(date,
+                '%Y%m%d') AS date
+                FROM cir_1756_t1 ) report
+                GROUP BY  date ), t3 AS 
+                    (SELECT date_format(date,
+                '%Y%m%d') AS `date`
+                    FROM cir_1756_t2 )
+                    SELECT date 1account_id_num
+                    FROM 
+                        (SELECT date,
+                dense_rank() over(partition by date
+                        ORDER BY  date desc) 1account_id_num
+                        FROM 
+                            (SELECT t0.date
+                            FROM t0
+                            LEFT JOIN t3
+                                ON t0.date=t3.date )t0 )tb
+                            WHERE 1account_id_num <= 3 ) t;
+    """
+
     sql """
         drop table if exists cir_1756_t1;
     """

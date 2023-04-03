@@ -81,18 +81,18 @@ TEST_F(DecimalV2ValueTest, string_to_decimal) {
     EXPECT_EQ("0", std::string(buffer, len));
 
     DecimalV2Value value6(std::string("999999999999999999.999999999"));
-    EXPECT_EQ("999999999999999999.999", value6.to_string(3));
+    EXPECT_EQ("1000000000000000000.000", value6.to_string(3));
     EXPECT_EQ("999999999999999999.999999999", value6.to_string());
     len = value6.to_buffer(buffer, 3);
-    EXPECT_EQ("999999999999999999.999", std::string(buffer, len));
+    EXPECT_EQ("1000000000000000000.000", std::string(buffer, len));
     len = value6.to_buffer(buffer, -1);
     EXPECT_EQ("999999999999999999.999999999", std::string(buffer, len));
 
     DecimalV2Value value7(std::string("-999999999999999999.999999999"));
-    EXPECT_EQ("-999999999999999999.999", value7.to_string(3));
+    EXPECT_EQ("-1000000000000000000.000", value7.to_string(3));
     EXPECT_EQ("-999999999999999999.999999999", value7.to_string());
     len = value7.to_buffer(buffer, 3);
-    EXPECT_EQ("-999999999999999999.999", std::string(buffer, len));
+    EXPECT_EQ("-1000000000000000000.000", std::string(buffer, len));
     len = value7.to_buffer(buffer, -1);
     EXPECT_EQ("-999999999999999999.999999999", std::string(buffer, len));
 

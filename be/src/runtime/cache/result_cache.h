@@ -31,7 +31,6 @@
 #include "common/config.h"
 #include "runtime/cache/cache_utils.h"
 #include "runtime/cache/result_node.h"
-#include "runtime/mem_pool.h"
 
 namespace doris {
 

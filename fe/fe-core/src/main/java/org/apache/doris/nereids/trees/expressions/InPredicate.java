@@ -33,6 +33,8 @@ import java.util.stream.Collectors;
 
 /**
  * In predicate expression.
+ * InPredicate could not use traits PropagateNullable, because fold constant will do wrong fold, such as
+ * 3 in (1, null, 3, 4) => null
  */
 public class InPredicate extends Expression {
 
@@ -55,14 +57,14 @@ public class InPredicate extends Expression {
     }
 
     @Override
-    public boolean nullable() throws UnboundException {
-        return children().stream().anyMatch(Expression::nullable);
-    }
-
-    @Override
     public InPredicate withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() > 1);
         return new InPredicate(children.get(0), ImmutableList.copyOf(children).subList(1, children.size()));
+    }
+
+    @Override
+    public boolean nullable() throws UnboundException {
+        return children().stream().anyMatch(Expression::nullable);
     }
 
     @Override

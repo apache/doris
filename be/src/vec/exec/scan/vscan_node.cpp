@@ -1212,35 +1212,32 @@ Status VScanNode::_change_value_range(ColumnValueRange<PrimitiveType>& temp_rang
                                       const ChangeFixedValueRangeFunc& func,
                                       const std::string& fn_name, int slot_ref_child) {
     if constexpr (PrimitiveType == TYPE_DATE) {
-        DateTimeValue date_value;
-        reinterpret_cast<VecDateTimeValue*>(value)->convert_vec_dt_to_dt(&date_value);
+        VecDateTimeValue tmp_value;
+        memcpy(&tmp_value, value, sizeof(VecDateTimeValue));
         if constexpr (IsFixed) {
-            if (!date_value.check_loss_accuracy_cast_to_date()) {
+            if (!tmp_value.check_loss_accuracy_cast_to_date()) {
                 func(temp_range,
                      reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
-                             &date_value));
+                             &tmp_value));
             }
         } else {
-            if (date_value.check_loss_accuracy_cast_to_date()) {
+            if (tmp_value.check_loss_accuracy_cast_to_date()) {
                 if (fn_name == "lt" || fn_name == "ge") {
-                    ++date_value;
+                    ++tmp_value;
                 }
             }
             func(temp_range, to_olap_filter_type(fn_name, slot_ref_child),
                  reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
-                         &date_value));
+                         &tmp_value));
         }
     } else if constexpr (PrimitiveType == TYPE_DATETIME) {
-        DateTimeValue date_value;
-        reinterpret_cast<VecDateTimeValue*>(value)->convert_vec_dt_to_dt(&date_value);
         if constexpr (IsFixed) {
             func(temp_range,
-                 reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
-                         &date_value));
+                 reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(value));
         } else {
             func(temp_range, to_olap_filter_type(fn_name, slot_ref_child),
                  reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
-                         reinterpret_cast<char*>(&date_value)));
+                         reinterpret_cast<char*>(value)));
         }
     } else if constexpr ((PrimitiveType == TYPE_DECIMALV2) || (PrimitiveType == TYPE_CHAR) ||
                          (PrimitiveType == TYPE_VARCHAR) || (PrimitiveType == TYPE_HLL) ||
@@ -1366,7 +1363,6 @@ Status VScanNode::_prepare_scanners() {
         COUNTER_SET(_num_scanners, static_cast<int64_t>(scanners.size()));
         RETURN_IF_ERROR(_start_scanners(scanners));
     }
-
     return Status::OK();
 }
 } // namespace doris::vectorized
