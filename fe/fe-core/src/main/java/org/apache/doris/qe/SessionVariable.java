@@ -940,6 +940,10 @@ public class SessionVariable implements Serializable, Writable {
         this.trimTailingSpacesForExternalTableQuery = trimTailingSpacesForExternalTableQuery;
     }
 
+    public boolean isGroupByAndHavingUseAliasFirst() {
+        return groupByAndHavingUseAliasFirst;
+    }
+
     // Serialize to thrift object
     // used for rest api
     public TQueryOptions toThrift() {
