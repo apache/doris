@@ -23,7 +23,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.statistics.AnalysisTaskInfo.JobType;
 
-import com.google.common.base.Preconditions;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
@@ -47,19 +46,26 @@ public class AnalysisTaskScheduler {
 
     private final Set<BaseAnalysisTask> manualJobSet = new HashSet<>();
 
+    @SuppressWarnings({"unchecked", "rawtypes"})
     public synchronized void schedule(AnalysisTaskInfo analysisJobInfo) {
-        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(analysisJobInfo.catalogName);
-        Preconditions.checkArgument(catalog != null);
-        DatabaseIf db = catalog.getDbNullable(analysisJobInfo.dbName);
-        Preconditions.checkArgument(db != null);
-        TableIf table = db.getTableNullable(analysisJobInfo.tblName);
-        Preconditions.checkArgument(table != null);
-        BaseAnalysisTask analysisTask = table.createAnalysisTask(this, analysisJobInfo);
-        addToManualJobQueue(analysisTask);
-        if (analysisJobInfo.jobType.equals(JobType.MANUAL)) {
-            return;
+        try {
+            CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogOrException(analysisJobInfo.dbName,
+                    c -> new RuntimeException("Catalog: " + c + " not exists"));
+            DatabaseIf db = catalog.getDbOrException(analysisJobInfo.dbName,
+                    d -> new RuntimeException("DB: " + d + " not exists"));
+            TableIf table = db.getTableOrException(analysisJobInfo.tblName,
+                    t -> new RuntimeException("Table: " + t + " not exists"));
+            BaseAnalysisTask analysisTask = table.createAnalysisTask(this, analysisJobInfo);
+            addToManualJobQueue(analysisTask);
+            if (analysisJobInfo.jobType.equals(JobType.MANUAL)) {
+                return;
+            }
+            addToSystemQueue(analysisTask);
+        } catch (Throwable t) {
+            Env.getCurrentEnv().getAnalysisManager().updateTaskStatus(
+                    analysisJobInfo, AnalysisState.FAILED, t.getMessage(), System.currentTimeMillis());
         }
-        addToSystemQueue(analysisTask);
+
     }
 
     private void removeFromSystemQueue(BaseAnalysisTask analysisJobInfo) {

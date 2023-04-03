@@ -64,4 +64,6 @@ public class StatisticConstants {
 
     public static final double DEFAULT_INNER_JOIN_FACTOR = 0.1;
 
+    public static final long PRELOAD_STATS_CACHE_ENTRY_COUNT = 1000;
+
 }

@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisType;
@@ -28,6 +29,9 @@ import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisType;
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.util.HashSet;
+import java.util.Set;
 
 public abstract class BaseAnalysisTask {
 
@@ -93,6 +97,8 @@ public abstract class BaseAnalysisTask {
 
     protected AnalysisState analysisState;
 
+    protected Set<Type> unsupportedType = new HashSet<>();
+
     @VisibleForTesting
     public BaseAnalysisTask() {
 
@@ -104,7 +110,16 @@ public abstract class BaseAnalysisTask {
         init(info);
     }
 
+    protected void initUnsupportedType() {
+        unsupportedType.add(Type.HLL);
+        unsupportedType.add(Type.BITMAP);
+        unsupportedType.add(Type.ARRAY);
+        unsupportedType.add(Type.MAP);
+        unsupportedType.add(Type.JSONB);
+    }
+
     private void init(AnalysisTaskInfo info) {
+        initUnsupportedType();
         catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(info.catalogName);
         if (catalog == null) {
             Env.getCurrentEnv().getAnalysisManager().updateTaskStatus(info, AnalysisState.FAILED,
@@ -127,9 +142,11 @@ public abstract class BaseAnalysisTask {
                 || info.analysisType.equals(AnalysisType.HISTOGRAM))) {
             col = tbl.getColumn(info.colName);
             if (col == null) {
-                Env.getCurrentEnv().getAnalysisManager().updateTaskStatus(
-                        info, AnalysisState.FAILED, String.format("Column with name %s not exists", info.tblName),
-                        System.currentTimeMillis());
+                throw new RuntimeException(String.format("Column with name %s not exists", info.tblName));
+            }
+            if (isUnsupportedType(col.getType())) {
+                throw new RuntimeException(String.format("Column with type %s is not supported",
+                        col.getType().toString()));
             }
         }
 
@@ -163,6 +180,10 @@ public abstract class BaseAnalysisTask {
             return "SUM(LENGTH(`${colName}`))";
         }
         return "COUNT(1) * " + column.getType().getSlotSize();
+    }
+
+    private boolean isUnsupportedType(Type type) {
+        return unsupportedType.contains(type);
     }
 
 }
