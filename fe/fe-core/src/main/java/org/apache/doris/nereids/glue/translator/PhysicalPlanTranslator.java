@@ -177,9 +177,8 @@ import java.util.stream.Stream;
  */
 public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, PlanTranslatorContext> {
     private static final Logger LOG = LogManager.getLogger(PhysicalPlanTranslator.class);
+    protected StatsErrorEstimator statsErrorEstimator;
     PlanTranslatorContext context;
-
-    StatsErrorEstimator statsErrorEstimator;
 
     public PhysicalPlanTranslator() {
     }
