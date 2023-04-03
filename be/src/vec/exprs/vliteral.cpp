@@ -34,7 +34,7 @@ namespace vectorized {
 void VLiteral::init(const TExprNode& node) {
     Field field;
     if (node.node_type != TExprNodeType::NULL_LITERAL) {
-            switch (_type.type) {
+        switch (_type.type) {
         case TYPE_BOOLEAN: {
             DCHECK_EQ(node.node_type, TExprNodeType::BOOL_LITERAL);
             DCHECK(node.__isset.bool_literal);
