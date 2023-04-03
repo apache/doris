@@ -528,6 +528,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     copy_common_files "${DORIS_OUTPUT}/fe/"
     mkdir -p "${DORIS_OUTPUT}/fe/log"
     mkdir -p "${DORIS_OUTPUT}/fe/doris-meta"
+    mkdir -p "${DORIS_OUTPUT}/fe/conf/ssl"
 fi
 
 if [[ "${BUILD_SPARK_DPP}" -eq 1 ]]; then
