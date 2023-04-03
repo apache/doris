@@ -26,6 +26,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TPipelineResourceGroup;
 
@@ -45,7 +46,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-public class ResourceGroupMgr implements Writable {
+public class ResourceGroupMgr implements Writable, GsonPostProcessable {
 
     private static final Logger LOG = LogManager.getLogger(ResourceGroupMgr.class);
 
@@ -65,7 +66,9 @@ public class ResourceGroupMgr implements Writable {
     private static final ImmutableSet<String> ALL_PROPERTIES_NAME = new ImmutableSet.Builder<String>().add(
             CPU_SCHEDULING_WEIGHT).add(CONCURRENCY_LIMIT).build();
 
-    @SerializedName(value = "nameToResourceGroup")
+    @SerializedName(value = "idToResourceGroup")
+    private final Map<Long, ResourceGroup> idToResourceGroup = Maps.newHashMap();
+
     private final Map<String, ResourceGroup> nameToResourceGroup = Maps.newHashMap();
 
     private final ResourceProcNode procNode = new ResourceProcNode();
@@ -99,16 +102,16 @@ public class ResourceGroupMgr implements Writable {
         List<TPipelineResourceGroup> resourceGroups = Lists.newArrayList();
         readLock();
         try {
-            if (!nameToResourceGroup.containsKey(groupName)) {
+            ResourceGroup resourceGroup = nameToResourceGroup.get(groupName);
+            if (resourceGroup == null) {
                 throw new UserException("Resource group " + groupName + " does not exist");
             }
             // need to check resource group privs
-            ResourceGroup resourceGroup;
-            do {
-                resourceGroup = nameToResourceGroup.get(groupName);
+            resourceGroups.add(resourceGroup.toThrift());
+            while (idToResourceGroup.containsKey(resourceGroup.getParentId())) {
+                resourceGroup = idToResourceGroup.get(resourceGroup.getParentId());
                 resourceGroups.add(resourceGroup.toThrift());
-                groupName = resourceGroup.getParentName();
-            } while (groupName != null);
+            }
         } finally {
             readUnlock();
         }
@@ -125,8 +128,9 @@ public class ResourceGroupMgr implements Writable {
             Map<String, String> properties = Maps.newHashMap();
             properties.put(CPU_SCHEDULING_WEIGHT, "10");
             defaultResourceGroup = new ResourceGroup(Env.getCurrentEnv().getNextId(),
-                    DEFAULT_GROUP_NAME, properties, null);
+                    DEFAULT_GROUP_NAME, properties, -1);
             nameToResourceGroup.put(DEFAULT_GROUP_NAME, defaultResourceGroup);
+            idToResourceGroup.put(defaultResourceGroup.getId(), defaultResourceGroup);
             Env.getCurrentEnv().getEditLog().logCreateResourceGroup(defaultResourceGroup);
         } finally {
             writeUnlock();
@@ -138,17 +142,17 @@ public class ResourceGroupMgr implements Writable {
         checkProperties(stmt.getProperties());
         ResourceGroup resourceGroup = new ResourceGroup(Env.getCurrentEnv().getNextId(),
                 stmt.getResourceGroupName(),
-                stmt.getProperties(), null);
+                stmt.getProperties(), -1);
         String resourceGroupNameName = resourceGroup.getName();
         writeLock();
         try {
             if (nameToResourceGroup.putIfAbsent(resourceGroupNameName, resourceGroup) != null) {
                 if (stmt.isIfNotExists()) {
                     return;
-                } else {
-                    throw new DdlException("Resource group(" + resourceGroupNameName + ") already exist");
                 }
+                throw new DdlException("Resource group(" + resourceGroupNameName + ") already exist");
             }
+            idToResourceGroup.put(resourceGroup.getId(), resourceGroup);
             Env.getCurrentEnv().getEditLog().logCreateResourceGroup(resourceGroup);
         } finally {
             writeUnlock();
@@ -183,6 +187,7 @@ public class ResourceGroupMgr implements Writable {
         writeLock();
         try {
             nameToResourceGroup.put(resourceGroup.getName(), resourceGroup);
+            idToResourceGroup.put(resourceGroup.getId(), resourceGroup);
         } finally {
             writeUnlock();
         }
@@ -203,6 +208,12 @@ public class ResourceGroupMgr implements Writable {
         return GsonUtils.GSON.fromJson(json, ResourceGroupMgr.class);
     }
 
+    @Override
+    public void gsonPostProcess() throws IOException {
+        idToResourceGroup.forEach(
+                (id, resourceGroup) -> nameToResourceGroup.put(resourceGroup.getName(), resourceGroup));
+    }
+
     public class ResourceProcNode implements ProcNodeInterface {
         @Override
         public ProcResult fetchResult() {
@@ -210,8 +221,7 @@ public class ResourceGroupMgr implements Writable {
             result.setNames(RESOURCE_GROUP_PROC_NODE_TITLE_NAMES);
             readLock();
             try {
-                for (Map.Entry<String, ResourceGroup> entry : nameToResourceGroup.entrySet()) {
-                    ResourceGroup resourceGroup = entry.getValue();
+                for (ResourceGroup resourceGroup : idToResourceGroup.values()) {
                     // need to check resource group privs
                     resourceGroup.getProcNodeData(result);
                 }

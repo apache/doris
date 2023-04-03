@@ -54,18 +54,18 @@ public class ResourceGroup implements Writable {
     @SerializedName(value = "version")
     private long version;
 
-    @SerializedName(value = "parentName")
-    private String parentName;
+    @SerializedName(value = "parentId")
+    private long parentId;
 
-    @SerializedName(value = "childrenNames")
-    private Set<String> childrenNames;
+    @SerializedName(value = "childrenIds")
+    private Set<Long> childrenIds;
 
-    public ResourceGroup(long id, String name, Map<String, String> properties, String parentName) {
+    public ResourceGroup(long id, String name, Map<String, String> properties, long parentId) {
         this.id = id;
         this.name = name;
         this.properties = properties;
-        this.parentName = parentName;
-        this.childrenNames = Sets.newHashSet();
+        this.parentId = parentId;
+        this.childrenIds = Sets.newHashSet();
         this.version = 0;
     }
 
@@ -81,8 +81,8 @@ public class ResourceGroup implements Writable {
         return properties;
     }
 
-    public String getParentName() {
-        return parentName;
+    public long getParentId() {
+        return parentId;
     }
 
     public void getProcNodeData(BaseProcResult result) {
