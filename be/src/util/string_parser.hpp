@@ -614,6 +614,10 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
             // an exponent will be made later.
             if (LIKELY(type_precision > precision)) {
                 value = (value * 10) + (c - '0'); // Benchmarks are faster with parenthesis...
+            } else {
+                *result = StringParser::PARSE_OVERFLOW;
+                value = 0;
+                return value;
             }
             DCHECK(value >= 0); // For some reason //DCHECK_GE doesn't work with __int128.
             ++precision;
