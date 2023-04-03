@@ -37,6 +37,11 @@ public abstract class BaseAnalysisTask {
 
     public static final Logger LOG = LogManager.getLogger(BaseAnalysisTask.class);
 
+    /**
+     * Stats stored in the column_statistics table basically has two types, `part_id` is null which means it is
+     * aggregate from partition level stats, `part_id` is not null which means it is partition level stats.
+     * For latter, it's id field contains part id, for previous doesn't.
+     */
     protected static final String INSERT_PART_STATISTICS = "INSERT INTO "
             + "${internalDB}.${columnStatTbl}"
             + " SELECT "

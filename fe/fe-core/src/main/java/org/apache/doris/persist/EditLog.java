@@ -79,6 +79,7 @@ import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
+import org.apache.doris.statistics.StatisticsCacheKeys;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -1005,6 +1006,11 @@ public class EditLog {
                     // Do nothing.
                     break;
                 }
+                case OperationType.OP_LOAD_STATS_KEY: {
+                    StatisticsCacheKeys statisticsCacheKeys = (StatisticsCacheKeys) journal.getData();
+                    env.getStatisticsCache().loadPreheatingEntries(statisticsCacheKeys);
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1754,5 +1760,9 @@ public class EditLog {
 
     public void logAlterMTMV(AlterMultiMaterializedView log) {
         logEdit(OperationType.OP_ALTER_MTMV_STMT, log);
+    }
+
+    public void logPreHeatingStatsKey(StatisticsCacheKeys keys) {
+        logEdit(OperationType.OP_LOAD_STATS_KEY, keys);
     }
 }

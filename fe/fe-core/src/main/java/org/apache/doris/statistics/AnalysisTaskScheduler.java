@@ -49,7 +49,7 @@ public class AnalysisTaskScheduler {
     @SuppressWarnings({"unchecked", "rawtypes"})
     public synchronized void schedule(AnalysisTaskInfo analysisJobInfo) {
         try {
-            CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogOrException(analysisJobInfo.dbName,
+            CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogOrException(analysisJobInfo.catalogName,
                     c -> new RuntimeException("Catalog: " + c + " not exists"));
             DatabaseIf db = catalog.getDbOrException(analysisJobInfo.dbName,
                     d -> new RuntimeException("DB: " + d + " not exists"));

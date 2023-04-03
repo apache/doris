@@ -152,7 +152,6 @@ public class InternalSchemaInitializer extends Thread {
         columnDefs.add(new ColumnDef("sample_rate", TypeDef.create(PrimitiveType.DOUBLE)));
         columnDefs.add(new ColumnDef("buckets", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH)));
         columnDefs.add(new ColumnDef("update_time", TypeDef.create(PrimitiveType.DATETIME)));
-        columnDefs.add(new ColumnDef("get_time", TypeDef.create(PrimitiveType.DATETIME)));
         String engineName = "olap";
         ArrayList<String> uniqueKeys = Lists.newArrayList("id", "catalog_id",
                 "db_id", "tbl_id", "idx_id", "col_id");

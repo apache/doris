@@ -113,6 +113,7 @@ import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
+import org.apache.doris.statistics.StatisticsCacheKeys;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -798,6 +799,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_ALTER_USER: {
                 data = AlterUserOperationLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_LOAD_STATS_KEY: {
+                data = StatisticsCacheKeys.read(in);
                 isRead = true;
                 break;
             }

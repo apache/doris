@@ -83,6 +83,10 @@ public class StatisticsRepository {
     private static final String DROP_TABLE_HISTOGRAM_TEMPLATE = "DELETE FROM " + FeConstants.INTERNAL_DB_NAME
             + "." + StatisticConstants.HISTOGRAM_TBL_NAME + " WHERE ${condition}";
 
+    private static final String UPDATE_COLUMN_STATS_GET_TIME =
+            "UPDATE column_statistics SET get_time=${accessTime}"
+                    + "WHERE id=CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}')";
+
     public static ColumnStatistic queryColumnStatisticsByName(long tableId, String colName) {
         ResultRow resultRow = queryColumnStatisticById(tableId, colName);
         if (resultRow == null) {

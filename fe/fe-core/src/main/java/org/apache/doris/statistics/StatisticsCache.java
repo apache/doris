@@ -46,6 +46,8 @@ public class StatisticsCache {
 
     private final StatisticsCacheLoader cacheLoader = new StatisticsCacheLoader();
 
+    private StatisticsCacheKeys preHeatingKeys = null;
+
     private final AsyncLoadingCache<StatisticsCacheKey, ColumnLevelStatisticCache> cache = Caffeine.newBuilder()
             .maximumSize(StatisticConstants.STATISTICS_RECORDS_CACHE_SIZE)
             .expireAfterAccess(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_VALID_DURATION_IN_HOURS))
@@ -125,4 +127,24 @@ public class StatisticsCache {
     public void refreshSync(long tblId, long idxId, String colName) {
         cache.synchronous().refresh(new StatisticsCacheKey(tblId, idxId, colName));
     }
+
+    public void preHeat() {
+        Thread t = new Thread(() -> {
+            if (preHeatingKeys == null || preHeatingKeys.isEmpty()) {
+                return;
+            }
+            for (StatisticsCacheKey k : preHeatingKeys.keySet()) {
+                cacheLoader.asyncLoad(k, threadPool);
+
+            }
+            // free mem.
+            preHeatingKeys = null;
+        });
+        t.start();
+    }
+
+    public void loadPreheatingEntries(StatisticsCacheKeys statisticsCacheKeys) {
+        this.preHeatingKeys = statisticsCacheKeys;
+    }
+
 }

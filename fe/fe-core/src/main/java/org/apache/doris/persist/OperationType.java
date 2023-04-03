@@ -280,6 +280,8 @@ public class OperationType {
     public static final short OP_UPDATE_COOLDOWN_CONF = 401;
     public static final short OP_COOLDOWN_DELETE = 402;
 
+    public static final short OP_LOAD_STATS_KEY = 403;
+
     /**
      * Get opcode name by op code.
      **/

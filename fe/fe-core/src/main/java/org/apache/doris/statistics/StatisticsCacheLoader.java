@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -52,6 +53,14 @@ public class StatisticsCacheLoader implements AsyncCacheLoader<StatisticsCacheKe
 
     private final Map<StatisticsCacheKey, CompletableFutureWithCreateTime>
             inProgressing = new HashMap<>();
+
+    private final StatisticsCacheKeys statisticsCacheKeys = new StatisticsCacheKeys();
+
+    {
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            Env.getCurrentEnv().getEditLog().logPreHeatingStatsKey(statisticsCacheKeys);
+        }));
+    }
 
     @Override
     public @NonNull CompletableFuture<ColumnLevelStatisticCache> asyncLoad(@NonNull StatisticsCacheKey key,
@@ -106,6 +115,9 @@ public class StatisticsCacheLoader implements AsyncCacheLoader<StatisticsCacheKe
                 LOG.info("Query BE for column stats:{}-{} end time:{} cost time:{}", key.tableId, key.colName,
                         endTime, endTime - startTime);
                 removeFromIProgressing(key);
+                if (!key.preHeating) {
+                    statisticsCacheKeys.update(key);
+                }
             }
         }, executor);
         putIntoIProgressing(key, new CompletableFutureWithCreateTime(System.currentTimeMillis(), future));
