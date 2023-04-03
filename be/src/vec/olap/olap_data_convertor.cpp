@@ -172,8 +172,9 @@ void OlapBlockDataConvertor::OlapColumnDataConvertorBase::clear_source_column() 
     _nullmap = nullptr;
 }
 
-// This should be called only in SegmentWriter. If you want to access nullmap in Convertor,
-// use `_nullmap` directly.
+// Obtain the converted nullmap with an offset of _row_pos.
+// This should be called only in SegmentWriter and `get_data_at` in Convertor.
+// If you want to access origin nullmap without offset, use `_nullmap` directly.
 const UInt8* OlapBlockDataConvertor::OlapColumnDataConvertorBase::get_nullmap() const {
     assert(_typed_column.column);
     return _nullmap ? _nullmap + _row_pos : nullptr;
@@ -195,8 +196,8 @@ const void* OlapBlockDataConvertor::OlapColumnDataConvertorObject::get_data() co
 const void* OlapBlockDataConvertor::OlapColumnDataConvertorObject::get_data_at(
         size_t offset) const {
     UInt8 null_flag = 0;
-    if (_nullmap) {
-        null_flag = _nullmap[offset];
+    if (get_nullmap()) {
+        null_flag = get_nullmap()[offset];
     }
     return null_flag ? nullptr : _slice.data() + offset;
 }
@@ -372,8 +373,8 @@ const void* OlapBlockDataConvertor::OlapColumnDataConvertorChar::get_data() cons
 
 const void* OlapBlockDataConvertor::OlapColumnDataConvertorChar::get_data_at(size_t offset) const {
     UInt8 null_flag = 0;
-    if (_nullmap) {
-        null_flag = _nullmap[offset];
+    if (get_nullmap()) {
+        null_flag = get_nullmap()[offset];
     }
     return null_flag ? nullptr : _slice.data() + offset;
 }
@@ -428,8 +429,8 @@ const void* OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::get_data_at(
         size_t offset) const {
     assert(offset < _slice.size());
     UInt8 null_flag = 0;
-    if (_nullmap) {
-        null_flag = _nullmap[offset];
+    if (get_nullmap()) {
+        null_flag = get_nullmap()[offset];
     }
     return null_flag ? nullptr : _slice.data() + offset;
 }
