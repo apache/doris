@@ -125,6 +125,7 @@ public class StatisticsUtil {
         sessionVariable.parallelExecInstanceNum = StatisticConstants.STATISTIC_PARALLEL_EXEC_INSTANCE_NUM;
         sessionVariable.setEnableNereidsPlanner(false);
         sessionVariable.enableProfile = false;
+        sessionVariable.setEnableNereidsPlanner(false);
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
         connectContext.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
