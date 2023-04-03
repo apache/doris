@@ -149,8 +149,15 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                 return createProjectForMv(scan.withMaterializedIndexSelected(PreAggStatus.on(), bestIndex));
             }
         } else {
+            final PreAggStatus preAggStatus;
+            if (preAggEnabledByHint(scan)) {
+                // PreAggStatus could be enabled by pre-aggregation hint for agg-keys and unique-keys.
+                preAggStatus = PreAggStatus.on();
+            } else {
+                preAggStatus = PreAggStatus.off("No aggregate on scan.");
+            }
             if (table.getIndexIdToMeta().size() == 1) {
-                return scan.withMaterializedIndexSelected(PreAggStatus.off("No aggregate on scan."), baseIndexId);
+                return scan.withMaterializedIndexSelected(preAggStatus, baseIndexId);
             }
             int baseIndexKeySize = table.getKeyColumnsByIndexId(table.getBaseIndexId()).size();
             // No aggregate on scan.
@@ -163,9 +170,9 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
 
             if (candidates.size() == 1) {
                 // `candidates` only have base index.
-                return scan.withMaterializedIndexSelected(PreAggStatus.off("No aggregate on scan."), baseIndexId);
+                return scan.withMaterializedIndexSelected(preAggStatus, baseIndexId);
             } else {
-                return createProjectForMv(scan.withMaterializedIndexSelected(PreAggStatus.on(),
+                return createProjectForMv(scan.withMaterializedIndexSelected(preAggStatus,
                         selectBestIndex(candidates, scan, predicatesSupplier.get())));
             }
         }
@@ -183,19 +190,21 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
         List<Slot> baseSlots = scan.getOutputByMvIndex(scan.getTable().getBaseIndexId());
         List<Alias> aliases = Lists.newArrayList();
         List<String> baseColumnNames = mvSlots.stream()
-                .map(slot -> org.apache.doris.analysis.CreateMaterializedViewStmt
-                        .mvColumnBreaker(((SlotReference) slot).getColumn().get().getName()))
+                .map(slot -> org.apache.doris.analysis.CreateMaterializedViewStmt.mvColumnBreaker(slot.getName()))
                 .collect(Collectors.toList());
+        boolean isMvName = org.apache.doris.analysis.CreateMaterializedViewStmt.isMVColumn(mvSlots.get(0).getName());
         for (int i = 0; i < baseColumnNames.size(); ++i) {
             for (Slot slot : baseSlots) {
                 if (((SlotReference) slot).getColumn().get().getName()
                         .equals(baseColumnNames.get(i))) {
                     aliases.add(
-                            new Alias(slot.getExprId(), mvSlots.get(i), baseColumnNames.get(i)));
+                            new Alias(slot.getExprId(), isMvName ? mvSlots.get(i) : slot, baseColumnNames.get(i)));
                     break;
                 }
             }
         }
-        return new LogicalProject(aliases, scan);
+        return new LogicalProject(aliases,
+                isMvName ? scan.withOutput(scan.getOutputByMvIndex(scan.getSelectedIndexId()))
+                        : scan);
     }
 }

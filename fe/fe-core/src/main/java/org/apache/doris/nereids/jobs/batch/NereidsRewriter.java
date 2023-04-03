@@ -228,20 +228,24 @@ public class NereidsRewriter extends BatchRewriteJob {
             ),
 
             // TODO: I think these rules should be implementation rules, and generate alternative physical plans.
-            topic("Table/MV/Physical optimization",
+            topic("Table/Physical optimization",
                 topDown(
                     // TODO: the logical plan should not contains any phase information,
                     //       we should refactor like AggregateStrategies, e.g. LimitStrategies,
                     //       generate one PhysicalLimit if current distribution is gather or two
                     //       PhysicalLimits with gather exchange
                     new SplitLimit(),
+                    new PruneOlapScanPartition()
+                )
+            ),
 
+            topic("MV optimization",
+                topDown(
                     new SelectMaterializedIndexWithAggregate(),
                     new SelectMaterializedIndexWithoutAggregate(),
                     new PushdownFilterThroughProject(),
                     new MergeProjects(),
-                    new PruneOlapScanTablet(),
-                    new PruneOlapScanPartition()
+                    new PruneOlapScanTablet()
                 )
             ),
 
