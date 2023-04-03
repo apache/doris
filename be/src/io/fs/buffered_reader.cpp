@@ -23,7 +23,6 @@
 #include "common/config.h"
 #include "olap/iterators.h"
 #include "olap/olap_define.h"
-#include "util/bit_util.h"
 
 namespace doris {
 namespace io {
@@ -191,7 +190,7 @@ BufferedFileStreamReader::BufferedFileStreamReader(io::FileReaderSPtr file, uint
           _max_buf_size(max_buf_size) {}
 
 Status BufferedFileStreamReader::read_bytes(const uint8_t** buf, uint64_t offset,
-                                            const size_t bytes_to_read) {
+                                            const size_t bytes_to_read, const IOContext* io_ctx) {
     if (offset < _file_start_offset || offset >= _file_end_offset) {
         return Status::IOError("Out-of-bounds Access");
     }
@@ -223,7 +222,7 @@ Status BufferedFileStreamReader::read_bytes(const uint8_t** buf, uint64_t offset
     while (has_read < to_read) {
         size_t loop_read = 0;
         Slice result(_buf.get() + buf_remaining + has_read, to_read - has_read);
-        RETURN_IF_ERROR(_file->read_at(_buf_end_offset + has_read, result, &loop_read));
+        RETURN_IF_ERROR(_file->read_at(_buf_end_offset + has_read, result, &loop_read, io_ctx));
         _statistics.read_calls++;
         if (loop_read == 0) {
             break;
@@ -239,8 +238,9 @@ Status BufferedFileStreamReader::read_bytes(const uint8_t** buf, uint64_t offset
     return Status::OK();
 }
 
-Status BufferedFileStreamReader::read_bytes(Slice& slice, uint64_t offset) {
-    return read_bytes((const uint8_t**)&slice.data, offset, slice.size);
+Status BufferedFileStreamReader::read_bytes(Slice& slice, uint64_t offset,
+                                            const IOContext* io_ctx) {
+    return read_bytes((const uint8_t**)&slice.data, offset, slice.size, io_ctx);
 }
 
 } // namespace io

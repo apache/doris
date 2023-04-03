@@ -45,7 +45,7 @@ public:
         int64_t decode_null_map_time = 0;
     };
 
-    OrcReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
+    OrcReader(RuntimeProfile* profile, RuntimeState* state, const TFileScanRangeParams& params,
               const TFileRangeDesc& range, const std::vector<std::string>& column_names,
               size_t batch_size, const std::string& ctz, io::IOContext* io_ctx);
 
@@ -248,6 +248,7 @@ private:
 
 private:
     RuntimeProfile* _profile;
+    RuntimeState* _state;
     const TFileScanRangeParams& _scan_params;
     const TFileRangeDesc& _scan_range;
     FileSystemProperties _system_properties;

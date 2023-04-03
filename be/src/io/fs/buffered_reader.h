@@ -156,11 +156,12 @@ public:
      * @param offset start offset ot read in stream
      * @param bytes_to_read bytes to read
      */
-    virtual Status read_bytes(const uint8_t** buf, uint64_t offset, const size_t bytes_to_read) = 0;
+    virtual Status read_bytes(const uint8_t** buf, uint64_t offset, const size_t bytes_to_read,
+                              const IOContext* io_ctx) = 0;
     /**
      * Save the data address to slice.data, and the slice.size is the bytes to read.
      */
-    virtual Status read_bytes(Slice& slice, uint64_t offset) = 0;
+    virtual Status read_bytes(Slice& slice, uint64_t offset, const IOContext* io_ctx) = 0;
     Statistics& statistics() { return _statistics; }
     virtual ~BufferedStreamReader() = default;
     // return the file path
@@ -176,8 +177,9 @@ public:
                              size_t max_buf_size);
     ~BufferedFileStreamReader() override = default;
 
-    Status read_bytes(const uint8_t** buf, uint64_t offset, const size_t bytes_to_read) override;
-    Status read_bytes(Slice& slice, uint64_t offset) override;
+    Status read_bytes(const uint8_t** buf, uint64_t offset, const size_t bytes_to_read,
+                      const IOContext* io_ctx) override;
+    Status read_bytes(Slice& slice, uint64_t offset, const IOContext* io_ctx) override;
     std::string path() override { return _file->path(); }
 
 private:
