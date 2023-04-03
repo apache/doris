@@ -308,14 +308,17 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
             CHECK_EQ(to_add_min_version, 0) << "to_add_min_version is: " << to_add_min_version;
             calc_delete_bitmap_ver = Version(to_add_max_version + 1, max_version().second);
         }
-        Status res =
-                capture_consistent_rowsets(calc_delete_bitmap_ver, &calc_delete_bitmap_rowsets);
-        // Because the data in memory has been changed, can't return an error.
-        CHECK(res.ok()) << "fail to capture_consistent_rowsets, res: " << res;
 
-        for (auto rs : calc_delete_bitmap_rowsets) {
-            res = update_delete_bitmap_without_lock(rs);
-            CHECK(res.ok()) << "fail to update_delete_bitmap_without_lock, res: " << res;
+        if (calc_delete_bitmap_ver.first <= calc_delete_bitmap_ver.second) {
+            Status res =
+                    capture_consistent_rowsets(calc_delete_bitmap_ver, &calc_delete_bitmap_rowsets);
+            // Because the data in memory has been changed, can't return an error.
+            CHECK(res.ok()) << "fail to capture_consistent_rowsets, res: " << res;
+
+            for (auto rs : calc_delete_bitmap_rowsets) {
+                res = update_delete_bitmap_without_lock(rs);
+                CHECK(res.ok()) << "fail to update_delete_bitmap_without_lock, res: " << res;
+            }
         }
     }
     // clear stale rowset
