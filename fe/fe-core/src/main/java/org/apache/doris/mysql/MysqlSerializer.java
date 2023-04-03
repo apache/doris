@@ -227,7 +227,8 @@ public class MysqlSerializer {
 
     /**
      * Specify the display width of the returned data according to the MySQL type
-     * todo:The driver determines the number of bytes per character according to different character sets index
+     * todo:The driver determines the number of bytes per character according to
+     * different character sets index
      *
      * @param type
      * @return
@@ -265,8 +266,11 @@ public class MysqlSerializer {
             case DECIMAL32:
             case DECIMAL64:
             case DECIMAL128: {
-                // f.getDecimals() > 0 ? clampedGetLength(f) - 1 + f.getPrecisionAdjustFactor() :
-                // clampedGetLength(f) + f.getPrecisionAdjustFactor();
+                // https://github.com/mysql/mysql-connector-j/blob/release/5.1/src/com/mysql/jdbc/ResultSetMetaData.java
+                // in function: int getPrecision(int column)
+                // f.getDecimals() > 0 ? clampedGetLength(f) - 1 + f.getPrecisionAdjustFactor()
+                // :clampedGetLength(f) + f.getPrecisionAdjustFactor();
+                // f.getDecimals() is return the value of scale, and precisionAdjustFactor = -1
                 ScalarType decimalType = (ScalarType) type;
                 int precision = decimalType.decimalPrecision();
                 int scale = decimalType.decimalScale();
@@ -277,13 +281,9 @@ public class MysqlSerializer {
                 }
                 return precision;
             }
-            case VARCHAR:
-            case CHAR: {
-                //lengthInBytes / f.getMaxBytesPerCharacter();
-                return 3 * ((ScalarType) type).getLength();
-            }
             // todo:It needs to be obtained according to the field length set during the actual creation,
             // todo:which is not supported for the time being.default is 255
+            // CHAR,VARCHAR:
             default:
                 return 255;
         }
