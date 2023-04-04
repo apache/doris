@@ -1,7 +1,7 @@
 {
-  "test_dynamic": {
+  "test_complex_type": {
     "mappings": {
-      "dynamic_type": {
+      "complex_type": {
         "dynamic": "true",
         "properties": {
           "account": {
@@ -17,6 +17,17 @@
               },
               "test4": {
                 "type": "double"
+              }
+            }
+          },
+          "mobile": {
+            "type": "nested",
+            "properties": {
+              "first": {
+                "type": "text"
+              },
+              "last": {
+                "type": "keyword"
               }
             }
           }

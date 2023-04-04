@@ -260,11 +260,12 @@ public class EsUtilTest extends EsTestCase {
     }
 
     @Test
-    public void testDynamic() throws IOException, URISyntaxException {
+    public void testComplexType() throws IOException, URISyntaxException {
         ObjectNode testFieldAlias = EsUtil.getRootSchema(
-                EsUtil.getMapping(loadJsonFromFile("data/es/es6_dynamic_mapping.json")), null, new ArrayList<>());
-        List<Column> parseColumns = EsUtil.genColumnsFromEs("test_dynamic", "dynamic_type", testFieldAlias, true, new ArrayList<>());
-        System.out.println(parseColumns);
+                EsUtil.getMapping(loadJsonFromFile("data/es/es6_dynamic_complex_type.json")), null, new ArrayList<>());
+        List<Column> columns = EsUtil.genColumnsFromEs("test_complex_type", "complex_type", testFieldAlias, true,
+                new ArrayList<>());
+        Assertions.assertEquals(3, columns.size());
     }
 
 }
