@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <type_traits>
 #include "exprs/block_bloom_filter.hpp"
 #include "exprs/runtime_filter.h"
 
@@ -52,8 +53,18 @@ public:
         return _bloom_filter->find(data);
     }
 
-    void add_bytes(const char* data, size_t len) { _bloom_filter->insert(Slice(data, len)); }
 
+    template <typename T>
+    bool test_new_hash(T data) const {
+        if constexpr (std::is_same_v<T, Slice>){
+            return _bloom_filter->find_new_hash(data);
+        }else {
+            return _bloom_filter->find(data);
+        }
+    }
+    void add_bytes(const char* data, size_t len) { _bloom_filter->insert(Slice(data, len)); }
+    // This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
+    void add_bytes_new_hash(const char* data, size_t len) { _bloom_filter->insert_new_hash(Slice(data, len)); }
     // test_element/find_element only used on vectorized engine
     template <typename T>
     bool test_element(T element) const {
@@ -172,8 +183,13 @@ public:
     }
 
     virtual void insert(const void* data) = 0;
+    // This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
+    virtual void insert_new_hash(const void* data) = 0;
 
     virtual bool find(const void* data) const = 0;
+
+    // This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
+    virtual bool find_new_hash(const void* data) const = 0;
 
     virtual bool find_olap_engine(const void* data) const = 0;
 
@@ -317,6 +333,15 @@ struct StringFindOp {
             bloom_filter.add_bytes(value->data, value->size);
         }
     }
+
+    // This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
+    void insert_new_hash(BloomFilterAdaptor& bloom_filter, const void* data) const {
+        const auto* value = reinterpret_cast<const StringRef*>(data);
+        if (value) {
+            bloom_filter.add_bytes_new_hash(value->data, value->size);
+        }
+    }
+
     bool find(const BloomFilterAdaptor& bloom_filter, const void* data) const {
         const auto* value = reinterpret_cast<const StringRef*>(data);
         if (value == nullptr) {
@@ -324,6 +349,16 @@ struct StringFindOp {
         }
         return bloom_filter.test(Slice(value->data, value->size));
     }
+
+    //This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
+    bool find_new_hash(const BloomFilterAdaptor& bloom_filter, const void* data) const {
+        const auto* value = reinterpret_cast<const StringRef*>(data);
+        if (value == nullptr) {
+            return false;
+        }
+        return bloom_filter.test_new_hash(Slice(value->data, value->size));
+    }
+
     bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const {
         return StringFindOp::find(bloom_filter, data);
     }
@@ -436,6 +471,13 @@ public:
         DCHECK(_bloom_filter != nullptr);
         dummy.insert(*_bloom_filter, data);
     }
+    // This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
+    void insert_new_hash(const void* data) override {
+        if constexpr (std::is_same_v<typename BloomFilterTypeTraits<type>::FindOp,StringFindOp>){
+            DCHECK(_bloom_filter != nullptr);
+            dummy.insert_new_hash(*_bloom_filter, data);
+        }   
+    }
 
     void insert_fixed_len(const char* data, const int* offsets, int number) override {
         DCHECK(_bloom_filter != nullptr);
@@ -462,6 +504,16 @@ public:
         DCHECK(_bloom_filter != nullptr);
         return dummy.find(*_bloom_filter, data);
     }
+
+    // This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
+    bool find_new_hash(const void* data) const override {
+        if constexpr (std::is_same_v<typename BloomFilterTypeTraits<type>::FindOp,StringFindOp>){
+            DCHECK(_bloom_filter != nullptr);
+            return dummy.find_new_hash(*_bloom_filter, data); 
+        }
+        return false;
+    }
+
 
     bool find_olap_engine(const void* data) const override {
         return dummy.find_olap_engine(*_bloom_filter, data);
