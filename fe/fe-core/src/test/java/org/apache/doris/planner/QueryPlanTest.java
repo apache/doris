@@ -2048,7 +2048,6 @@ public class QueryPlanTest extends TestWithFeService {
                 + "PROPERTIES (\n"
                 + "\"replication_num\" = \"1\",\n"
                 + "\"in_memory\" = \"false\",\n"
-                + "\"business_key_column_name\" = \"\",\n"
                 + "\"storage_medium\" = \"HDD\",\n"
                 + "\"storage_format\" = \"V2\"\n"
                 + ");\n");
