@@ -200,10 +200,10 @@ mkdir -p /soft/be/storage
 }
 ```
 
-配置中 **"request": "attach"， "processId":PID**，这两个配置是重点： 分别设置 gdb 的调试模式为 attach，附加进程的 processId，否则会失败。如何查找进程 id，可以在命令行中输入以下命令：
+配置中 **"request": "attach"， "processId":PID**，这两个配置是重点： 分别设置 gdb 的调试模式为 attach，附加进程的 processId，否则会失败。以下命令可以直接提取进程ID：
 
 ```
-ps -ef | grep palo*
+lsof -i | grep -m 1 doris_be | awk "{print $2}"
 ```
 
 或者写作 **"processId": "${command:pickProcess}"**，可在启动attach时指定pid.
@@ -294,3 +294,32 @@ lldb的attach比gdb更快，使用方式和gdb类似。vscode需要安装的插�
 }
 ```
 需要注意的是，此方式要求系统`glibc`版本为`2.18+`。如果没有则可以参考 [如何使CodeLLDB在CentOS7下工作](https://gist.github.com/JaySon-Huang/63dcc6c011feb5bd6deb1ef0cf1a9b96) 安装高版本glibc并将其链接到插件。
+
+## 调试core dump文件
+
+有时我们需要调试程序崩溃产生的core文件，这同样可以在vscode中完成，此时只需要在对应的configuration项中添加
+```json
+    "coreDumpPath": "/PATH/TO/CORE/DUMP/FILE"
+```
+即可。
+
+## 常用调试技巧
+
+### 函数执行路径
+
+当对BE的执行细节不熟悉时，可以使用`perf`等相关工具追踪函数调用，找出调用链。`perf`的使用可以在[调试工具](./debug-tool.md)中找到。这时候我们可以在较大的表上执行需要追踪的sql语句，然后增大采样频率（例如，`perf -F 999`）。观察结果可以大致得到sql在BE执行的关键路径。
+
+### 调试CRTP对象
+
+BE代码为了提高运行效率，在基础类型中大量采用了CRTP（奇异递归模板模式），导致debugger无法按照派生类型调试对象。此时我们可以使用GDB这样解决这一问题：
+
+假设我们需要调试`IColumn`类型的对象`col`，不知道它的实际类型，那么可以：
+
+```powershell
+set print object on # 按照派生类型输出对象
+p *col.t # 此时使用col.t即可得到col的具体类型
+p col.t->size() # 可以按照派生类型去使用它，例如ColumnString我们可以调用size()
+......
+```
+
+注意：具有多态效果的是指针`COW::t`而非`IColumn`类对象，所以我们需要在GDB中将所有对`col`的使用替换为`col.t`才可以真正得到派生类型对象。
