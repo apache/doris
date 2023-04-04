@@ -31,7 +31,8 @@ namespace doris {
 Status HDFSCommonBuilder::init_hdfs_builder() {
     hdfs_builder = hdfsNewBuilder();
     if (hdfs_builder == nullptr) {
-        LOG(INFO) << "failed to init HDFSCommonBuilder, please check be/conf/hdfs-site.xml and be.out";
+        LOG(INFO) << "failed to init HDFSCommonBuilder, please check be/conf/hdfs-site.xml and "
+                     "be.out";
         return Status::InternalError(
                 "failed to init HDFSCommonBuilder, please check be/conf/hdfs-site.xml and be.out");
     }
