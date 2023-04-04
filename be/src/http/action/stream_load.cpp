@@ -573,6 +573,13 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
             request.__set_trim_double_quotes(false);
         }
     }
+    if (!http_req->header(HTTP_ENABLE_PROFILE).empty()) {
+        if (iequal(http_req->header(HTTP_ENABLE_PROFILE), "true")) {
+            request.__set_enable_profile(true);
+        } else {
+            request.__set_enable_profile(false);
+        }
+    }
 
 #ifndef BE_TEST
     // plan this load
@@ -591,12 +598,6 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     if (!plan_status.ok()) {
         LOG(WARNING) << "plan streaming load failed. errmsg=" << plan_status << ctx->brief();
         return plan_status;
-    }
-
-    auto& query_options = ctx->put_result.params.query_options;
-    if (query_options.__isset.is_report_success && query_options.is_report_success &&
-        !config::enable_stream_load_profile_log) {
-        query_options.is_report_success = false;
     }
 
     VLOG_NOTICE << "params is " << apache::thrift::ThriftDebugString(ctx->put_result.params);
