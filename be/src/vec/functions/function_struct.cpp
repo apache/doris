@@ -68,7 +68,9 @@ public:
                      Impl::types_index);
         size_t num_element = args_num.size();
         if (num_element != struct_column->tuple_size()) {
-            return Status::RuntimeError("function {} args number {} is not equal to result struct field number {}.", get_name(), num_element, struct_column->tuple_size());
+            return Status::RuntimeError(
+                    "function {} args number {} is not equal to result struct field number {}.",
+                    get_name(), num_element, struct_column->tuple_size());
         }
         for (size_t i = 0; i < num_element; ++i) {
             auto& nested_col = struct_column->get_column(i);
@@ -96,9 +98,7 @@ struct StructImpl {
     static constexpr auto name = "struct";
     static constexpr auto types_index = [](size_t i) { return true; };
 
-    static void check_number_of_arguments(size_t number_of_arguments) {
-        return;
-    }
+    static void check_number_of_arguments(size_t number_of_arguments) {}
 
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
         return std::make_shared<DataTypeStruct>(make_nullable(arguments));
@@ -113,7 +113,6 @@ struct NamedStructImpl {
     static void check_number_of_arguments(size_t number_of_arguments) {
         DCHECK(number_of_arguments % 2 == 0)
                 << "function: " << name << ", arguments size should be even number.";
-        return;
     }
 
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
