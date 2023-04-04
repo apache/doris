@@ -97,6 +97,11 @@ public class OdbcTable extends Table {
         return list.stream().map(s -> "\"" + s.toUpperCase() + "\"").collect(Collectors.joining("."));
     }
 
+    private static String clickhouseProperName(String name) {
+        List<String> list = Arrays.asList(name.split("\\."));
+        return list.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining("."));
+    }
+
     private static String saphanaProperName(String name) {
         List<String> list = Arrays.asList(name.split("\\."));
         return list.stream().map(s -> "\"" + s.toUpperCase() + "\"").collect(Collectors.joining("."));
@@ -112,6 +117,8 @@ public class OdbcTable extends Table {
                 return psqlProperName(name);
             case ORACLE:
                 return oracleProperName(name);
+            case CLICKHOUSE:
+                return clickhouseProperName(name);
             case SAP_HANA:
                 return saphanaProperName(name);
             default:
