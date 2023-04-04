@@ -1518,6 +1518,8 @@ public class FunctionCallExpr extends Expr {
                         || fnName.getFunction().equalsIgnoreCase("reverse")
                         || fnName.getFunction().equalsIgnoreCase("%element_slice%")
                         || fnName.getFunction().equalsIgnoreCase("array_concat")
+                        || fnName.getFunction().equalsIgnoreCase("array_shuffle")
+                        || fnName.getFunction().equalsIgnoreCase("shuffle")
                         || fnName.getFunction().equalsIgnoreCase("array_except"))
                         && ((args[ix].isDecimalV3())
                         || (children.get(0).getType().isArrayType()
@@ -1631,6 +1633,8 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("array_pushfront")
                 || fnName.getFunction().equalsIgnoreCase("reverse")
                 || fnName.getFunction().equalsIgnoreCase("%element_slice%")
+                || fnName.getFunction().equalsIgnoreCase("array_shuffle")
+                || fnName.getFunction().equalsIgnoreCase("shuffle")
                 || fnName.getFunction().equalsIgnoreCase("array_except")
                 || fnName.getFunction().equalsIgnoreCase("array_concat")) {
             if (children.size() > 0) {
