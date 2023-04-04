@@ -46,12 +46,12 @@ public:
     size_t get_number_of_arguments() const override { return 0; }
 
     void check_number_of_arguments(size_t number_of_arguments) const override {
-        DCHECK(arguments.size() > 0)
+        DCHECK(number_of_arguments > 0)
                 << "function: " << get_name() << ", arguments should not be empty.";
         return Impl::check_number_of_arguments(number_of_arguments);
     }
 
-    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return Impl::get_return_type_impl(arguments);
     }
 
@@ -67,14 +67,15 @@ public:
         std::copy_if(arguments.begin(), arguments.end(), std::back_inserter(args_num),
                      Impl::types_index);
         size_t num_element = args_num.size();
-        if (num_element != struct_column.tuple_size()) {
-            return Status::RuntimeError("function {} args number {} is not equal to result struct field number {}.", get_name(), num_element, struct_column.tuple_size());
+        if (num_element != struct_column->tuple_size()) {
+            return Status::RuntimeError("function {} args number {} is not equal to result struct field number {}.", get_name(), num_element, struct_column->tuple_size());
         }
         for (size_t i = 0; i < num_element; ++i) {
             auto& nested_col = struct_column->get_column(i);
             nested_col.reserve(input_rows_count);
             bool is_nullable = nested_col.is_nullable();
-            auto& col = block.get_by_position(args_num[i]).column->convert_to_full_column_if_const();
+            auto& col = block.get_by_position(args_num[i]).column;
+            col = col->convert_to_full_column_if_const();
             if (is_nullable && !col->is_nullable()) {
                 col = ColumnNullable::create(col, ColumnUInt8::create(col->size(), 0));
             }
@@ -93,13 +94,13 @@ public:
 // struct(value1, value2, value3) -> {value1, value2, value3}
 struct StructImpl {
     static constexpr auto name = "struct";
-    static auto types_index = [](size_t i) { return true; }
+    static constexpr auto types_index = [](size_t i) { return true; };
 
     static void check_number_of_arguments(size_t number_of_arguments) {
         return;
     }
 
-    static DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) {
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
         return std::make_shared<DataTypeStruct>(make_nullable(arguments));
     }
 };
@@ -107,26 +108,22 @@ struct StructImpl {
 // named_struct(name1, value1, name2, value2) -> {name1:value1, name2:value2}
 struct NamedStructImpl {
     static constexpr auto name = "named_struct";
-    static auto types_index = [](size_t i) { return i % 2 == 0; }
+    static constexpr auto types_index = [](size_t i) { return i % 2 == 0; };
 
     static void check_number_of_arguments(size_t number_of_arguments) {
-        DCHECK(arguments.size() % 2 == 0)
-                << "function: " << get_name() << ", arguments size should be even number.";
+        DCHECK(number_of_arguments % 2 == 0)
+                << "function: " << name << ", arguments size should be even number.";
         return;
     }
 
-    static DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) {
-        Strings names;
-        DataTypes dataTypes;
-        for (size_t i = 0; i < arguments.size(); i += 2) {
-            const ColumnConst* const_string =
-                    check_and_get_column_const<ColumnString>(arguments[i].column.get());
-            DCHECK(const_string)
-                    << "Only const StringType arguments are allowed at odd position.";
-            names.push_back(const_string->get_value<String>());
-            dataTypes.push_back(arguments[i + 1].type);
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        DataTypes data_types(arguments.size() / 2);
+        size_t even_idx = 1;
+        for (size_t i = 0; i < data_types.size(); i++) {
+            data_types[i] = arguments[even_idx];
+            even_idx += 2;
         }
-        return std::make_shared<DataTypeStruct>(make_nullable(dataTypes), names);
+        return std::make_shared<DataTypeStruct>(make_nullable(data_types));
     }
 };
 
