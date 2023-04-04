@@ -1409,7 +1409,7 @@ public class FunctionSet<T> {
     public Function resolveInferenceFunction(Function inferenceFunction, Function requestFunction) {
         Type[] args = requestFunction.getArgs();
         Type newRetType = FunctionTypeDeducers.deduce(inferenceFunction.functionName(), args);
-        if (inferenceFunction instanceof ScalarFunction) {
+        if (newRetType != null && inferenceFunction instanceof ScalarFunction) {
             ScalarFunction f = (ScalarFunction) inferenceFunction;
             return new ScalarFunction(f.getFunctionName(), Lists.newArrayList(f.getArgs()), newRetType, f.hasVarArgs(),
                     f.getSymbolName(), f.getBinaryType(), f.isUserVisible(), f.isVectorized(), f.getNullableMode());
