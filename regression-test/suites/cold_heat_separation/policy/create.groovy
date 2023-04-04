@@ -24,7 +24,7 @@ suite("create_policy") {
     // normal
     if(has_created_1.size() == 0) {
         sql """
-        CREATE RESOURCE "crete_policy_1"
+        CREATE RESOURCE IF NOT EXISTS "crete_policy_1"
         PROPERTIES(
             "type" = "s3",
             "AWS_ENDPOINT" = "bj.s3.comaaaa",
