@@ -542,6 +542,10 @@ Status VerticalMaskMergeIterator::unique_key_next_row(vectorized::IteratorRowRef
         auto& ctx = _origin_iter_ctx[order];
         RETURN_IF_ERROR(ctx->init(_opts));
         DCHECK(ctx->valid());
+        if (!ctx->valid()) {
+            LOG(INFO) << "VerticalMergeIteratorContext not valid";
+            return Status::InternalError("VerticalMergeIteratorContext not valid");
+        }
 
         if (UNLIKELY(ctx->is_first_row()) && !row_source.agg_flag()) {
             // first row in block, don't call ctx->advance
@@ -576,6 +580,10 @@ Status VerticalMaskMergeIterator::next_batch(Block* block) {
         auto& ctx = _origin_iter_ctx[order];
         RETURN_IF_ERROR(ctx->init(_opts));
         DCHECK(ctx->valid());
+        if (!ctx->valid()) {
+            LOG(INFO) << "VerticalMergeIteratorContext not valid";
+            return Status::InternalError("VerticalMergeIteratorContext not valid");
+        }
 
         // find max same source count in cur ctx
         size_t limit = std::min(ctx->remain_rows(), _block_row_max - rows);
