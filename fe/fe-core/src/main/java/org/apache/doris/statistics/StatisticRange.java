@@ -55,7 +55,7 @@ public class StatisticRange {
             return 1.0;
         }
 
-        double lengthOfIntersect = dataType.length(Math.min(this.high, other.high), Math.max(this.low, other.low));
+        double lengthOfIntersect = dataType.rangeLength(Math.min(this.high, other.high), Math.max(this.low, other.low));
         if (Double.isInfinite(lengthOfIntersect)) {
             if (Double.isFinite(this.distinctValues) && Double.isFinite(other.distinctValues)) {
                 return Math.min(other.distinctValues / this.distinctValues, 1);
@@ -103,7 +103,7 @@ public class StatisticRange {
     }
 
     public double length() {
-        return dataType.length(this.high, this.low);
+        return dataType.rangeLength(this.high, this.low);
     }
 
     public StatisticRange intersect(StatisticRange other) {

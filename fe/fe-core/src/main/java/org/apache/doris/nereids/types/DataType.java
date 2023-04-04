@@ -588,7 +588,7 @@ public abstract class DataType implements AbstractDataType {
         }
     }
 
-    public double length(double high, double low) {
+    public double rangeLength(double high, double low) {
         return high - low;
     }
 }

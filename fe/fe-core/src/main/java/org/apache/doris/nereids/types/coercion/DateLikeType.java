@@ -38,7 +38,7 @@ public abstract class DateLikeType extends PrimitiveType {
     }
 
     @Override
-    public double length(double high, double low) {
+    public double rangeLength(double high, double low) {
         Calendar to = toCalendar(high);
         Calendar from = toCalendar(low);
         return ChronoUnit.DAYS.between(from.toInstant(), to.toInstant());
