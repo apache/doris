@@ -158,7 +158,8 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
     } else {
         iter->reset(new SegmentIterator(this->shared_from_this(), schema));
     }
-    return Status::OK();
+
+    return iter->get()->init(read_options);
 }
 
 Status Segment::_parse_footer() {

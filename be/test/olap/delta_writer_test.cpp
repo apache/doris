@@ -691,8 +691,6 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     Schema schema(rowset->tablet_schema());
     auto s = segments[0]->new_iterator(schema, opts, &iter);
     ASSERT_TRUE(s.ok());
-    s = segments[0]->init(opts);
-    ASSERT_TRUE(s.ok());
     auto read_block = rowset->tablet_schema()->create_block();
     res = iter->next_batch(&read_block);
     ASSERT_TRUE(res.ok());
