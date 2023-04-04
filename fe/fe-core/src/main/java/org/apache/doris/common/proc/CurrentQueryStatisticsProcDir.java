@@ -35,10 +35,10 @@ import java.util.Map;
  */
 public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("QueryId").add("ConnectionId").add("Database").add("User")
+            .add("QueryId").add("ConnectionId").add("Catalog").add("Database").add("User")
             .add("ScanBytes").add("ProcessRows").add("ExecTime").build();
 
-    private static final int EXEC_TIME_INDEX = 6;
+    private static final int EXEC_TIME_INDEX = 7;
 
     @Override
     public boolean register(String name, ProcNodeInterface node) {
@@ -73,6 +73,7 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
             final List<String> values = Lists.newArrayList();
             values.add(item.getQueryId());
             values.add(item.getConnId());
+            values.add(item.getCatalog());
             values.add(item.getDb());
             values.add(item.getUser());
             if (item.getIsReportSucc()) {
