@@ -29,8 +29,10 @@ import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -866,5 +868,27 @@ class FilterEstimationTest {
         ColumnStatistic colStats = result.findColumnStatistics(a);
         Assertions.assertTrue(colStats != null);
         Assertions.assertEquals(10, colStats.ndv, 0.1);
+    }
+
+    @Test
+    public void testDateRangeSelectivity() {
+        DateLiteral from = new DateLiteral("1990-01-01");
+        DateLiteral to = new DateLiteral("2000-01-01");
+        SlotReference a = new SlotReference("a", DateType.INSTANCE);
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+                .setNdv(100)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setMaxValue(to.getDouble())
+                .setMinValue(from.getDouble())
+                .setSelectivity(1.0)
+                .setCount(100);
+        DateLiteral mid = new DateLiteral("1999-01-01");
+        GreaterThan greaterThan = new GreaterThan(a, mid);
+        Statistics stats = new Statistics(100, new HashMap<>());
+        stats.addColumnStats(a, builder.build());
+        FilterEstimation filterEstimation = new FilterEstimation();
+        Statistics result = filterEstimation.estimate(greaterThan, stats);
+        Assertions.assertEquals(result.getRowCount(), 10, 0.1);
     }
 }
