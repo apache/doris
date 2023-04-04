@@ -17,8 +17,9 @@
 
 package org.apache.doris.planner.external;
 
-import org.apache.doris.common.Config;
-
+/**
+ * TODO: This class would be used later for split assignment.
+ */
 public class FileSplitStrategy {
     private long totalSplitSize;
     private int splitNum;
@@ -34,7 +35,7 @@ public class FileSplitStrategy {
     }
 
     public boolean hasNext() {
-        return totalSplitSize >= Config.file_scan_node_split_size || splitNum >= Config.file_scan_node_split_num;
+        return true;
     }
 
     public void next() {
