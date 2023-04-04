@@ -19,7 +19,9 @@
 
 #include <butil/iobuf.h>
 #include <gen_cpp/Status_types.h>
+#include <stdint.h>
 
+#include <algorithm>
 #include <set>
 #include <sstream>
 #include <string>
@@ -571,7 +573,7 @@ void PInternalServiceImpl::get_column_ids_by_tablet_ids(google::protobuf::RpcCon
     for (const auto& param : params) {
         int64_t index_id = param.indexid();
         auto tablet_ids = param.tablet_ids();
-        std::set<std::vector<TabletColumn>> filter_set;
+        std::set<std::vector<int32_t>> filter_set;
         for (const int64_t tablet_id : tablet_ids) {
             TabletSharedPtr tablet = tablet_mgr->get_tablet(tablet_id);
             if (tablet == nullptr) {
@@ -582,8 +584,12 @@ void PInternalServiceImpl::get_column_ids_by_tablet_ids(google::protobuf::RpcCon
                 response->mutable_status()->add_error_msgs(ss.str());
                 return;
             }
-            // use a set<schema> to check schema consistency (name, id) should be the same
-            filter_set.insert(tablet->tablet_schema()->columns());
+            // check schema consistency, column ids should be the same
+            const auto& columns = tablet->tablet_schema()->columns();
+            std::vector<int32_t> column_ids(columns.size());
+            std::transform(columns.begin(), columns.end(), column_ids.begin(),
+                           [](const TabletColumn& c) { return c.unique_id(); });
+            filter_set.insert(column_ids);
         }
         if (filter_set.size() > 1) {
             // consistecy check failed
