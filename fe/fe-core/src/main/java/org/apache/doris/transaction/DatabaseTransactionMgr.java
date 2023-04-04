@@ -31,6 +31,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -142,6 +143,10 @@ public class DatabaseTransactionMgr {
     // not realtime usedQuota value to make a fast check for database data quota
     private volatile long usedQuotaDataBytes = -1;
 
+    private long lockWriteStart;
+
+    private long lockReportingThresholdMs = Config.lock_reporting_threshold_ms;
+
     protected void readLock() {
         this.transactionLock.readLock().lock();
     }
@@ -152,9 +157,11 @@ public class DatabaseTransactionMgr {
 
     protected void writeLock() {
         this.transactionLock.writeLock().lock();
+        lockWriteStart = System.currentTimeMillis();
     }
 
     protected void writeUnlock() {
+        checkAndLogWriteLockDuration(lockWriteStart, System.currentTimeMillis());
         this.transactionLock.writeLock().unlock();
     }
 
@@ -1842,5 +1849,35 @@ public class DatabaseTransactionMgr {
         } finally {
             readUnlock();
         }
+    }
+
+    /**
+     * Check write lock holding time, if it exceeds threshold, print this hint log.
+     *
+     * @param lockStart holing lock start time.
+     * @param lockEnd release lock time.
+     */
+    private void checkAndLogWriteLockDuration(long lockStart, long lockEnd) {
+        long duration = lockEnd - lockStart;
+        if (duration > lockReportingThresholdMs) {
+            StringBuilder msgBuilder = new StringBuilder();
+            msgBuilder.append("lock is held at ")
+                    .append(lockStart)
+                    .append(".And release after ")
+                    .append(duration)
+                    .append(" ms.")
+                    .append("Call stack is :\n")
+                    .append(getStackTrace(Thread.currentThread()));
+            LOG.info(msgBuilder.toString());
+        }
+    }
+
+    private static String getStackTrace(Thread t) {
+        final StackTraceElement[] stackTrace = t.getStackTrace();
+        StringBuilder msgBuilder = new StringBuilder();
+        for (StackTraceElement e : stackTrace) {
+            msgBuilder.append(e.toString() + "\n");
+        }
+        return msgBuilder.toString();
     }
 }

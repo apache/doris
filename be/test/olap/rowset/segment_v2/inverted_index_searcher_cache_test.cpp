@@ -296,5 +296,73 @@ TEST_F(InvertedIndexSearcherCacheTest, evict_by_element_count_limit) {
     delete index_searcher_cache;
 }
 
+TEST_F(InvertedIndexSearcherCacheTest, remove_element_only_in_table) {
+    InvertedIndexSearcherCache* index_searcher_cache =
+            new InvertedIndexSearcherCache(kCacheSize, 1);
+    // no need evict
+    std::string file_name_1 = "test_1.idx";
+    InvertedIndexSearcherCache::CacheKey key_1(file_name_1);
+    IndexCacheValuePtr cache_value_1 = std::make_unique<InvertedIndexSearcherCache::CacheValue>();
+    cache_value_1->size = 200;
+    cache_value_1->index_searcher = nullptr;
+    cache_value_1->last_visit_time = 10;
+    index_searcher_cache->_cache->release(
+            index_searcher_cache->_insert(key_1, cache_value_1.release()));
+
+    std::string file_name_2 = "test_2.idx";
+    InvertedIndexSearcherCache::CacheKey key_2(file_name_2);
+    IndexCacheValuePtr cache_value_2 = std::make_unique<InvertedIndexSearcherCache::CacheValue>();
+
+    // lookup key_1, insert key_2, release key_2, release key_1
+    {
+        InvertedIndexCacheHandle cache_handle;
+        // lookup key_1
+        EXPECT_TRUE(index_searcher_cache->_lookup(key_1, &cache_handle));
+
+        // insert key_2, and then evict {key_1, cache_value_1}
+        cache_value_2->size = 800;
+        cache_value_2->index_searcher = nullptr;
+        cache_value_2->last_visit_time = 20;
+        index_searcher_cache->_cache->release(
+                index_searcher_cache->_insert(key_2, cache_value_2.release()));
+
+        // lookup key_2, key_2 has removed from table due to cache is full
+        {
+            InvertedIndexCacheHandle cache_handle;
+            EXPECT_FALSE(index_searcher_cache->_lookup(key_2, &cache_handle));
+        }
+    }
+
+    // lookup key_1 exist
+    {
+        InvertedIndexCacheHandle cache_handle;
+        EXPECT_TRUE(index_searcher_cache->_lookup(key_1, &cache_handle));
+    }
+
+    // lookup key_2 not exist, then insert into cache, and evict key_1
+    OlapReaderStatistics stats;
+    {
+        InvertedIndexCacheHandle inverted_index_cache_handle;
+        auto status = index_searcher_cache->get_index_searcher(
+                fs, kTestDir, file_name_2, &inverted_index_cache_handle, &stats);
+        EXPECT_EQ(Status::OK(), status);
+        EXPECT_FALSE(inverted_index_cache_handle.owned);
+    }
+    // lookup key_2 again
+    {
+        InvertedIndexCacheHandle inverted_index_cache_handle;
+        auto status = index_searcher_cache->get_index_searcher(
+                fs, kTestDir, file_name_2, &inverted_index_cache_handle, &stats);
+        EXPECT_EQ(Status::OK(), status);
+        EXPECT_FALSE(inverted_index_cache_handle.owned);
+        auto cache_value_use_cache =
+                (InvertedIndexSearcherCache::CacheValue*)(inverted_index_cache_handle._cache)
+                        ->value(inverted_index_cache_handle._handle);
+        EXPECT_LT(UnixMillis(), cache_value_use_cache->last_visit_time);
+    }
+
+    delete index_searcher_cache;
+}
+
 } // namespace segment_v2
 } // namespace doris

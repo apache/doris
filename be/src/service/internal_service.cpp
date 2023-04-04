@@ -577,7 +577,7 @@ void PInternalServiceImpl::get_column_ids_by_tablet_ids(google::protobuf::RpcCon
             if (tablet == nullptr) {
                 std::stringstream ss;
                 ss << "cannot get tablet by id:" << tablet_id;
-                LOG(WARNING) ss.str();
+                LOG(WARNING) << ss.str();
                 response->mutable_status()->set_status_code(TStatusCode::ILLEGAL_STATE);
                 response->mutable_status()->add_error_msgs(ss.str());
                 return;

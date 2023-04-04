@@ -73,32 +73,35 @@ public:
     static Status create_service(ExecEnv* exec_env, int port, ThriftServer** server);
 
     // Agent service
-    void submit_tasks(TAgentResult& return_value,
-                      const std::vector<TAgentTaskRequest>& tasks) override {
+    virtual void submit_tasks(TAgentResult& return_value,
+                              const std::vector<TAgentTaskRequest>& tasks) override {
         _agent_server->submit_tasks(return_value, tasks);
     }
 
-    void make_snapshot(TAgentResult& return_value,
-                       const TSnapshotRequest& snapshot_request) override {
+    virtual void make_snapshot(TAgentResult& return_value,
+                               const TSnapshotRequest& snapshot_request) override {
         _agent_server->make_snapshot(return_value, snapshot_request);
     }
 
-    void release_snapshot(TAgentResult& return_value, const std::string& snapshot_path) override {
+    virtual void release_snapshot(TAgentResult& return_value,
+                                  const std::string& snapshot_path) override {
         _agent_server->release_snapshot(return_value, snapshot_path);
     }
 
-    void publish_cluster_state(TAgentResult& result, const TAgentPublishRequest& request) override {
+    virtual void publish_cluster_state(TAgentResult& result,
+                                       const TAgentPublishRequest& request) override {
         _agent_server->publish_cluster_state(result, request);
     }
 
     // DorisServer service
-    void exec_plan_fragment(TExecPlanFragmentResult& return_val,
-                            const TExecPlanFragmentParams& params) override;
+    virtual void exec_plan_fragment(TExecPlanFragmentResult& return_val,
+                                    const TExecPlanFragmentParams& params) override;
 
-    void cancel_plan_fragment(TCancelPlanFragmentResult& return_val,
-                              const TCancelPlanFragmentParams& params) override;
+    virtual void cancel_plan_fragment(TCancelPlanFragmentResult& return_val,
+                                      const TCancelPlanFragmentParams& params) override;
 
-    void transmit_data(TTransmitDataResult& return_val, const TTransmitDataParams& params) override;
+    virtual void transmit_data(TTransmitDataResult& return_val,
+                               const TTransmitDataParams& params) override;
 
     void submit_export_task(TStatus& t_status, const TExportTaskRequest& request) override;
 
@@ -106,30 +109,30 @@ public:
 
     void erase_export_task(TStatus& t_status, const TUniqueId& task_id) override;
 
-    void get_tablet_stat(TTabletStatResult& result) override;
+    virtual void get_tablet_stat(TTabletStatResult& result) override;
 
-    int64_t get_trash_used_capacity() override;
+    virtual int64_t get_trash_used_capacity() override;
 
-    void get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& diskTrashInfos) override;
+    virtual void get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& diskTrashInfos) override;
 
-    void submit_routine_load_task(TStatus& t_status,
-                                  const std::vector<TRoutineLoadTask>& tasks) override;
+    virtual void submit_routine_load_task(TStatus& t_status,
+                                          const std::vector<TRoutineLoadTask>& tasks) override;
 
     // used for external service, open means start the scan procedure
-    void open_scanner(TScanOpenResult& result_, const TScanOpenParams& params) override;
+    virtual void open_scanner(TScanOpenResult& result_, const TScanOpenParams& params) override;
 
     // used for external service, external use getNext to fetch data batch after batch until eos = true
-    void get_next(TScanBatchResult& result_, const TScanNextBatchParams& params) override;
+    virtual void get_next(TScanBatchResult& result_, const TScanNextBatchParams& params) override;
 
     // used for external service, close some context and release resource related with this context
-    void close_scanner(TScanCloseResult& result_, const TScanCloseParams& params) override;
+    virtual void close_scanner(TScanCloseResult& result_, const TScanCloseParams& params) override;
 
-    void get_stream_load_record(TStreamLoadRecordResult& result,
-                                const int64_t last_stream_record_time) override;
+    virtual void get_stream_load_record(TStreamLoadRecordResult& result,
+                                        const int64_t last_stream_record_time) override;
 
-    void clean_trash() override;
+    virtual void clean_trash() override;
 
-    void check_storage_format(TCheckStorageFormatResult& result) override;
+    virtual void check_storage_format(TCheckStorageFormatResult& result) override;
 
 private:
     Status start_plan_fragment_execution(const TExecPlanFragmentParams& exec_params);
