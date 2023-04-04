@@ -67,7 +67,7 @@ inline const std::string& client_id(ExecEnv* env, const TNetworkAddress& addr) {
 }
 #endif
 
-Status BrokerFileWriter::close() {
+Status BrokerFileWriter::_close(bool) {
     if (_closed) {
         return Status::OK();
     }
@@ -147,10 +147,6 @@ Status BrokerFileWriter::appendv(const Slice* data, size_t data_cnt) {
             _bytes_appended += written_bytes;
         }
     }
-    return Status::OK();
-}
-
-Status BrokerFileWriter::finalize() {
     return Status::OK();
 }
 

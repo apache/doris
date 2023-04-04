@@ -65,13 +65,9 @@ S3FileWriter::S3FileWriter(Path path, std::shared_ptr<Aws::S3::S3Client> client,
 
 S3FileWriter::~S3FileWriter() {
     if (_opened) {
-        close();
+        close({true, false});
     }
     CHECK(!_opened || _closed) << "open: " << _opened << ", closed: " << _closed;
-}
-
-Status S3FileWriter::close() {
-    return _close();
 }
 
 Status S3FileWriter::abort() {
@@ -109,14 +105,6 @@ Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
     }
     if (_stream_ptr->str().size() >= MAX_SIZE_EACH_PART) {
         RETURN_IF_ERROR(_upload_part());
-    }
-    return Status::OK();
-}
-
-Status S3FileWriter::finalize() {
-    DCHECK(!_closed);
-    if (_opened) {
-        _close();
     }
     return Status::OK();
 }
@@ -193,7 +181,7 @@ void S3FileWriter::_reset_stream() {
     _stream_ptr = Aws::MakeShared<Aws::StringStream>(STREAM_TAG, "");
 }
 
-Status S3FileWriter::_close() {
+Status S3FileWriter::_close(bool /*flush*/) {
     if (_closed) {
         return Status::OK();
     }

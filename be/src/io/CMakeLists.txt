@@ -26,6 +26,7 @@ set(IO_FILES
     hdfs_builder.cpp
     fs/file_reader_options.cpp
     fs/file_reader.cpp
+    fs/file_writer.cpp
     fs/file_system.cpp
     fs/remote_file_system.cpp
     fs/local_file_system.cpp

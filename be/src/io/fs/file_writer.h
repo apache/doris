@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <future>
 #include <memory>
 
 #include "common/status.h"
@@ -29,6 +30,14 @@
 namespace doris {
 namespace io {
 
+struct FileWriterCloseOptions {
+    // normal case, all data appended would persist
+    // only cache data could be volatile
+    bool flush = true;
+    // normal case, the close interface would block until all data persist
+    bool nonblock = false;
+};
+
 class FileWriter {
 public:
     FileWriter(Path&& path, FileSystemSPtr fs) : _path(std::move(path)), _fs(fs) {}
@@ -37,7 +46,7 @@ public:
     DISALLOW_COPY_AND_ASSIGN(FileWriter);
 
     // Normal close. Wait for all data to persist before returning.
-    virtual Status close() = 0;
+    Status close(FileWriterCloseOptions option = FileWriterCloseOptions());
 
     // Abnormal close and remove this file.
     virtual Status abort() = 0;
@@ -49,8 +58,7 @@ public:
     virtual Status write_at(size_t offset, const Slice& data) = 0;
 
     // Call this method when there is no more data to write.
-    // FIXME(cyx): Does not seem to be an appropriate interface for file system?
-    virtual Status finalize() = 0;
+    Status wait_until_flush();
 
     const Path& path() const { return _path; }
 
@@ -59,11 +67,14 @@ public:
     FileSystemSPtr fs() const { return _fs; }
 
 protected:
+    virtual Status _close(bool flush) = 0;
     Path _path;
     size_t _bytes_appended = 0;
     FileSystemSPtr _fs;
     bool _closed = false;
     bool _opened = false;
+    std::promise<Status> _close_promise;
+    std::future<Status> _close_future;
 };
 
 } // namespace io

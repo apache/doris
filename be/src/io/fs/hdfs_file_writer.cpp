@@ -39,7 +39,7 @@ HdfsFileWriter::~HdfsFileWriter() {
     CHECK(!_opened || _closed) << "open: " << _opened << ", closed: " << _closed;
 }
 
-Status HdfsFileWriter::close() {
+Status HdfsFileWriter::_close(bool) {
     if (_closed) {
         return Status::OK();
     }
@@ -88,16 +88,6 @@ Status HdfsFileWriter::appendv(const Slice* data, size_t data_cnt) {
             p += written_bytes;
             _bytes_appended += written_bytes;
         }
-    }
-    return Status::OK();
-}
-
-// Call this method when there is no more data to write.
-// FIXME(cyx): Does not seem to be an appropriate interface for file system?
-Status HdfsFileWriter::finalize() {
-    DCHECK(!_closed);
-    if (_opened) {
-        RETURN_IF_ERROR(close());
     }
     return Status::OK();
 }

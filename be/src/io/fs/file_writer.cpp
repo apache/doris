@@ -15,40 +15,41 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
-
-#include <map>
-#include <string>
-
-#include "gen_cpp/PlanNodes_types.h"
 #include "io/fs/file_writer.h"
-#include "io/fs/path.h"
-#include "io/hdfs_builder.h"
+
+#include <future>
+
+#include "io/fs/file_system.h"
+#include "io/io_common.h"
+#include "util/async_io.h"
 
 namespace doris {
 namespace io {
 
-class HdfsFileSystem;
-class HdfsFileWriter : public FileWriter {
-public:
-    HdfsFileWriter(Path file, FileSystemSPtr fs);
-    ~HdfsFileWriter() override;
-
-    Status abort() override;
-    Status appendv(const Slice* data, size_t data_cnt) override;
-    Status write_at(size_t offset, const Slice& data) override {
-        return Status::NotSupported("not support");
+Status FileWriter::close(FileWriterCloseOptions option) {
+    Status st;
+    if (!option.nonblock) {
+        st = _close(option.flush);
+    } else {
+        _close_future = _close_promise.get_future();
+        auto task = [o = option, this]() mutable {
+            _close_promise.set_value(_close(o.flush));
+        };
+        AsyncIO::run_task(std::move(task), fs()->type());
     }
+    if (!st) {
+        LOG(WARNING) << st;
+    }
+    _closed = true;
+    return st;
+}
 
-private:
-    Status _open();
-    Status _close(bool flush) override;
-
-private:
-    hdfsFile _hdfs_file = nullptr;
-    // A convenient pointer to _fs
-    HdfsFileSystem* _hdfs_fs;
-};
+Status FileWriter::wait_until_flush() { 
+    if (_close_future.valid()) {
+        return _close_future.get();
+    }
+    return Status::OK();
+}
 
 } // namespace io
 } // namespace doris

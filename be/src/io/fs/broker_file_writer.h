@@ -43,10 +43,8 @@ public:
                      int64_t start_offset, FileSystemSPtr fs);
     virtual ~BrokerFileWriter();
 
-    Status close() override;
     Status abort() override;
     Status appendv(const Slice* data, size_t data_cnt) override;
-    Status finalize() override;
     Status write_at(size_t offset, const Slice& data) override {
         return Status::NotSupported("not support");
     }
@@ -54,6 +52,7 @@ public:
 private:
     Status _open();
     Status _write(const uint8_t* buf, size_t buf_len, size_t* written_bytes);
+    Status _close(bool flush) override;
 
 private:
     ExecEnv* _env;

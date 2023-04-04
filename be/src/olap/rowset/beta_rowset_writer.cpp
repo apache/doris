@@ -500,7 +500,7 @@ RowsetSharedPtr BetaRowsetWriter::manual_build(const RowsetMetaSharedPtr& spec_r
 RowsetSharedPtr BetaRowsetWriter::build() {
     // TODO(lingbin): move to more better place, or in a CreateBlockBatch?
     for (auto& file_writer : _file_writers) {
-        Status status = file_writer->close();
+        Status status = file_writer->wait_until_flush();
         if (!status.ok()) {
             LOG(WARNING) << "failed to close file writer, path=" << file_writer->path()
                          << " res=" << status;

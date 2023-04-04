@@ -40,16 +40,14 @@ public:
                  FileSystemSPtr fs);
     ~S3FileWriter() override;
 
-    Status close() override;
     Status abort() override;
     Status appendv(const Slice* data, size_t data_cnt) override;
-    Status finalize() override;
     Status write_at(size_t offset, const Slice& data) override {
         return Status::NotSupported("not support");
     }
 
 private:
-    Status _close();
+    Status _close(bool flush) override;
     Status _open();
     Status _upload_part();
     void _reset_stream();
