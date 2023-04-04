@@ -17,6 +17,7 @@
 
 package org.apache.doris.external.jdbc;
 
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.PrimitiveType;
@@ -191,7 +192,7 @@ public class JdbcClient {
                     rs = stmt.executeQuery("SELECT name FROM sys.schemas");
                     break;
                 case JdbcResource.SAP_HANA:
-                    rs = stmt.executeQuery("SELECT SCHEMA_NAME FROM SYS.SCHEMAS");
+                    rs = stmt.executeQuery("SELECT SCHEMA_NAME FROM SYS.SCHEMAS WHERE HAS_PRIVILEGES = 'TRUE'");
                     break;
                 default:
                     throw new JdbcClientException("Not supported jdbc type");
@@ -577,7 +578,12 @@ public class JdbcClient {
                 || ckType.startsWith("FixedString")) {
             return ScalarType.createStringType();
         } else if (ckType.startsWith("DateTime")) {
-            return ScalarType.getDefaultDateType(Type.DATETIME);
+            return ScalarType.createDatetimeV2Type(6);
+        } else if (ckType.startsWith("Array")) {
+            String cktype = ckType.substring(6, ckType.length() - 1);
+            fieldSchema.setDataTypeName(cktype);
+            Type type = clickhouseTypeToDoris(fieldSchema);
+            return ArrayType.create(type, true);
         }
         switch (ckType) {
             case "Bool":
@@ -610,7 +616,6 @@ public class JdbcClient {
             default:
                 return Type.UNSUPPORTED;
         }
-        // Todo(zyk): Wait the JDBC external table support the array type then supported clickhouse array type
     }
 
     public Type oracleTypeToDoris(JdbcFieldSchema fieldSchema) {

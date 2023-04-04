@@ -628,4 +628,13 @@ suite("test_date_function") {
                 from ${tableName};
     """
     sql """ DROP TABLE IF EXISTS ${tableName}; """
+    test {
+        sql"""select current_timestamp(7);"""
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+    sql """ DROP TABLE IF EXISTS ${tableName}; """
+
 }

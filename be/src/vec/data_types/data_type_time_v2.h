@@ -89,6 +89,8 @@ private:
     UInt32 _scale;
 };
 
+DataTypePtr create_datetimev2(UInt64 scale);
+
 template <typename DataType>
 constexpr bool IsDataTypeDateTimeV2 = false;
 template <>

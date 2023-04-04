@@ -84,13 +84,6 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
                                   result_null_map_column);
 }
 
-namespace {
-
-struct NullPresence {
-    bool has_nullable = false;
-    bool has_null_constant = false;
-};
-
 NullPresence get_null_presence(const Block& block, const ColumnNumbers& args) {
     NullPresence res;
 
@@ -123,7 +116,6 @@ bool allArgumentsAreConstants(const Block& block, const ColumnNumbers& args) {
     }
     return true;
 }
-} // namespace
 
 Status PreparedFunctionImpl::default_implementation_for_constant_arguments(
         FunctionContext* context, Block& block, const ColumnNumbers& args, size_t result,

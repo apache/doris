@@ -26,6 +26,15 @@ suite("test_outfile_expr") {
     strBuilder.append("curl --location-trusted -u " + context.config.jdbcUser + ":" + context.config.jdbcPassword)
     strBuilder.append(" http://" + context.config.feHttpAddress + "/rest/v1/config/fe")
 
+    def get_outfile_path = { prefix, suffix ->
+        def file_prefix = prefix;
+        def index = file_prefix.indexOf("/tmp/");
+        file_prefix = file_prefix.substring(index);
+        def file_path = file_prefix + "0." + suffix;
+        logger.info("output file: " + file_path);
+        return file_path;
+    }
+
     String command = strBuilder.toString()
     def process = command.toString().execute()
     def code = process.waitFor()
@@ -49,8 +58,7 @@ suite("test_outfile_expr") {
         return
     }
     def tableName = "outfile_test_expr"
-    def uuid = UUID.randomUUID().toString()
-    def outFilePath = """/tmp/test_outfile_expr_${uuid}"""
+    def outFilePath = """/tmp/"""
     try {
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
@@ -87,19 +95,16 @@ suite("test_outfile_expr") {
             """
         qt_select_default """ SELECT user_id+1, age+sex, repeat(char_col, 10) FROM ${tableName} t ORDER BY user_id; """
 
-        // check outfile
-        File path = new File(outFilePath)
-        if (!path.exists()) {
-            assert path.mkdirs()
-        } else {
-            throw new IllegalStateException("""${outFilePath} already exists! """)
-        }
-        sql """
+        def result = sql """
             SELECT user_id+1, age+sex, repeat(char_col, 10) FROM ${tableName} t ORDER BY user_id INTO OUTFILE "file://${outFilePath}/";
         """
-        File[] files = path.listFiles()
-        assert files.length == 1
-        List<String> outLines = Files.readAllLines(Paths.get(files[0].getAbsolutePath()), StandardCharsets.UTF_8);
+        assertTrue(result.size() == 1)
+        assertTrue(result[0][0] == 1)
+        def file_path = get_outfile_path(result[0][3], "csv");
+        def path = new File(file_path)
+        assert path.exists()
+
+        List<String> outLines = Files.readAllLines(Paths.get(path.getAbsolutePath()), StandardCharsets.UTF_8);
         List<String> baseLines = Files.readAllLines(Paths.get("""${context.config.dataPath}/export_p0/test_outfile_expr.out"""), StandardCharsets.UTF_8)
         for (int j = 0; j < outLines.size(); j ++) {
             String[] outLine = outLines.get(j).split("\t")
@@ -119,14 +124,6 @@ suite("test_outfile_expr") {
             }
         }
     } finally {
-        try_sql("DROP TABLE IF EXISTS ${tableName}")
-        File path = new File(outFilePath)
-        if (path.exists()) {
-            for (File f: path.listFiles()) {
-                f.delete();
-            }
-            path.delete();
-        }
     }
 
 }

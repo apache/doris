@@ -202,7 +202,7 @@ Total: 1296.4 MB
 #### JEMALLOC HEAP PROFILE
 
 ##### 1. runtime heap dump by http 
-无需重启BE, 使用jemalloc heap dump http接口，jemalloc根据当前内存使用情况，在对应的BE机器上生成heap dump文件。
+在`start_be.sh` 中`JEMALLOC_CONF` 增加 `,prof:true,lg_prof_sample:10` 并重启BE，然后使用jemalloc heap dump http接口，在对应的BE机器上生成heap dump文件。
 
 heap dump文件所在目录可以在 ``be.conf`` 中通过``jeprofile_dir``变量进行配置，默认为``${DORIS_HOME}/log``
 

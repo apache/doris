@@ -1880,8 +1880,6 @@ Edit log type.
 
 ### tmp_dir
 
-Default：PaloFe.DORIS_HOME_DIR + "/temp_dir"
-
 temp dir is used to save intermediate results of some process, such as backup and restore process.  file in this dir will be cleaned after these process is finished.
 
 ### meta_dir

@@ -831,13 +831,6 @@ public class Config extends ConfigBase {
      */
     @ConfField public static String default_storage_medium = "HDD";
     /**
-     * When create a table(or partition), you can specify its storage medium(HDD or SSD).
-     * If set to SSD, this specifies the default duration that tablets will stay on SSD.
-     * After that, tablets will be moved to HDD automatically.
-     * You can set storage cooldown time in CREATE TABLE stmt.
-     */
-    @ConfField public static long storage_cooldown_second = 30 * 24 * 3600L; // 30 days
-    /**
      * After dropping database(table/partition), you can recover it by using RECOVER stmt.
      * And this specifies the maximal data retention time. After time, the data will be deleted permanently.
      */
@@ -1981,5 +1974,24 @@ public class Config extends ConfigBase {
      */
     @ConfField(masterOnly = true, mutable = true)
     public static int max_error_tablet_of_broker_load = 3;
+
+    /**
+     * If set to ture, doris will establish an encrypted channel based on the SSL protocol with mysql.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static boolean enable_ssl = false;
+
+    /**
+     * Default certificate file location for mysql ssl connection.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static String mysql_ssl_default_certificate = System.getenv("DORIS_HOME")
+            + "/mysql_ssl_default_certificate/certificate.p12";
+
+    /**
+     * Password for default certificate file.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static String mysql_ssl_default_certificate_password = "doris";
 }
 

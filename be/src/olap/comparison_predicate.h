@@ -36,7 +36,9 @@ public:
               _value(value) {}
 
     void clone(ColumnPredicate** to) const override {
-        *to = new ComparisonPredicateBase(_column_id, _value, _opposite);
+        auto* cloned = new ComparisonPredicateBase(_column_id, _value, _opposite);
+        cloned->_cache_code_enabled = true;
+        *to = cloned;
     }
 
     bool need_to_clone() const override { return true; }
@@ -628,7 +630,8 @@ private:
 
     __attribute__((flatten)) int32_t _find_code_from_dictionary_column(
             const vectorized::ColumnDictI32& column) const {
-        if (UNLIKELY(_cached_code == _InvalidateCodeValue)) {
+        /// if _cache_code_enabled is false, always find the code from dict.
+        if (UNLIKELY(!_cache_code_enabled || _cached_code == _InvalidateCodeValue)) {
             _cached_code = _is_range() ? column.find_code_by_bound(_value, _is_greater(), _is_eq())
                                        : column.find_code(_value);
         }
@@ -643,6 +646,7 @@ private:
 
     static constexpr int32_t _InvalidateCodeValue = std::numeric_limits<int32_t>::max();
     mutable int32_t _cached_code;
+    bool _cache_code_enabled = false;
     T _value;
 };
 
