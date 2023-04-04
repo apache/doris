@@ -126,8 +126,8 @@ void PrefetchBuffer::close() {
 }
 
 // buffered reader
-BufferedReader::BufferedReader(io::FileReaderSPtr reader, int64_t offset, int64_t length,
-                               int64_t buffer_size)
+PrefetchBufferedReader::PrefetchBufferedReader(io::FileReaderSPtr reader, int64_t offset,
+                                               int64_t length, int64_t buffer_size)
         : _reader(std::move(reader)), _start_offset(offset), _end_offset(offset + length) {
     if (buffer_size == -1L) {
         buffer_size = config::remote_storage_read_buffer_mb * 1024 * 1024;
@@ -144,13 +144,13 @@ BufferedReader::BufferedReader(io::FileReaderSPtr reader, int64_t offset, int64_
     }
 }
 
-BufferedReader::~BufferedReader() {
+PrefetchBufferedReader::~PrefetchBufferedReader() {
     close();
     _closed = true;
 }
 
-Status BufferedReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
-                                    const IOContext* io_ctx) {
+Status PrefetchBufferedReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                                            const IOContext* io_ctx) {
     if (!_initialized) {
         reset_all_buffer(offset);
         _initialized = true;
@@ -174,7 +174,7 @@ Status BufferedReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
     return Status::OK();
 }
 
-Status BufferedReader::close() {
+Status PrefetchBufferedReader::close() {
     std::for_each(_pre_buffers.begin(), _pre_buffers.end(),
                   [](std::shared_ptr<PrefetchBuffer>& buffer) { buffer->close(); });
     _reader->close();

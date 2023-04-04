@@ -40,10 +40,6 @@ HdfsFileReader::~HdfsFileReader() {
 }
 
 Status HdfsFileReader::close() {
-    if (_closed) {
-        return Status::OK();
-    }
-    std::lock_guard<std::mutex> lock(_lock);
     bool expected = false;
     if (_closed.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
         auto handle = _fs->get_handle();
@@ -68,7 +64,6 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
                                offset, _file_size, _path.native());
     }
 
-    std::lock_guard<std::mutex> lock(_lock);
     auto handle = _fs->get_handle();
     int res = hdfsSeek(handle->hdfs_fs, _hdfs_file, offset);
     if (res != 0) {

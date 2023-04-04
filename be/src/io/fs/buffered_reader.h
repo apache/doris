@@ -31,7 +31,7 @@
 namespace doris {
 namespace io {
 
-class BufferedReader;
+class PrefetchBufferedReader;
 struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer> {
     enum class BufferStatus { RESET, PENDING, PREFETCHED, CLOSED };
     PrefetchBuffer() = default;
@@ -85,11 +85,18 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer> {
     bool inline contains(size_t off) const { return _offset <= off && off < _offset + _size; }
 };
 
-class BufferedReader : public io::FileReader {
+/**
+ * A buffered reader that prefetch data in the daemon thread pool.
+ * The data is prefetched sequentially until the underlying buffers(4 * 4M as default) are full.
+ * When a buffer is read out, it will fetch data backward in daemon, so the underlying reader should be
+ * thread-safe, and the access mode of data needs to be sequential.
+ * Therefore, PrefetchBufferedReader now only support csv&json format when reading s3&broker file.
+ */
+class PrefetchBufferedReader : public io::FileReader {
 public:
-    BufferedReader(io::FileReaderSPtr reader, int64_t offset, int64_t length,
-                   int64_t buffer_size = -1L);
-    ~BufferedReader() override;
+    PrefetchBufferedReader(io::FileReaderSPtr reader, int64_t offset, int64_t length,
+                           int64_t buffer_size = -1L);
+    ~PrefetchBufferedReader() override;
 
     Status close() override;
 
