@@ -791,6 +791,27 @@ visible_functions = [
     
     [['array_zip'], 'ARRAY', ['ARRAY', '...'], ''],
 
+    [['array_clone_expr'], 'BOOLEAN', ['BOOLEAN'], 'ALWAYS_NULLABLE'],
+    [['array_clone_expr'], 'TINYINT', ['TINYINT'], 'ALWAYS_NULLABLE'],
+    [['array_clone_expr'], 'SMALLINT', ['SMALLINT'], 'ALWAYS_NULLABLE'],
+    [['array_clone_expr'], 'INT', ['INT'], 'ALWAYS_NULLABLE'],
+    [['array_clone_expr'], 'BIGINT', ['BIGINT'], 'ALWAYS_NULLABLE'],
+    [['array_clone_expr'], 'LARGEINT', ['LARGEINT'], 'ALWAYS_NULLABLE'],
+    [['array_clone_expr'], 'DATETIME', ['DATETIME'], 'ALWAYS_NULLABLE'],
+    [['array_clone_expr'], 'DATE', ['DATE'], 'ALWAYS_NULLABLE'],
+    [['array_clone_expr'], 'DATETIMEV2', ['DATETIMEV2'], 'ALWAYS_NULLABLE'],
+    [['array_clone_expr'], 'DATEV2', ['DATEV2'], 'ALWAYS_NULLABLE'],
+    [['array_clone_expr'], 'FLOAT', ['FLOAT'], 'ALWAYS_NULLABLE'],
+    [['array_clone_expr'], 'DOUBLE', ['DOUBLE'], 'ALWAYS_NULLABLE'],
+    [['array_clone_expr'], 'DECIMALV2', ['DECIMALV2'], 'ALWAYS_NULLABLE'],
+    [['array_clone_expr'], 'DECIMAL32', ['DECIMAL32'], 'ALWAYS_NULLABLE'],
+    [['array_clone_expr'], 'DECIMAL64', ['DECIMAL64'], 'ALWAYS_NULLABLE'],
+    [['array_clone_expr'], 'DECIMAL128', ['DECIMAL128'], 'ALWAYS_NULLABLE'],
+    [['array_clone_expr'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['array_clone_expr'], 'STRING', ['STRING'], 'ALWAYS_NULLABLE'],
+    [['array_clone_expr'], 'ARRAY<K>',['ARRAY<K>'], 'CUSTOM', ['K']],
+
+
     # reverse function for string builtin
     [['reverse'], 'VARCHAR', ['VARCHAR'], ''],
     # reverse function support the longtext

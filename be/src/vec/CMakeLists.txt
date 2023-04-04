@@ -175,6 +175,7 @@ set(VEC_FILES
   exprs/table_function/vexplode_bitmap.cpp
   exprs/lambda_function/varray_map_function.cpp
   exprs/lambda_function/varray_filter_function.cpp
+  exprs/lambda_function/varray_clone_expr_function.cpp
   functions/array/function_array_index.cpp
   functions/array/function_array_element.cpp
   functions/array/function_array_register.cpp
