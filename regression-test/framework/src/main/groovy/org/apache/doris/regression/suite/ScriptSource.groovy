@@ -88,7 +88,7 @@ class SqlFileSource implements ScriptSource {
                         try {
                             quickTest(tagName, singleSql, order)
                         } catch (Throwable e) {
-                            exceptionStr += "\n${e.getMessage()}\n"
+                            exceptionStr += "\n${e.getMessage(), sql is : ${singleSql}}\n"
                         }
                     }
                     if (exceptionStr.size() != 0) {
