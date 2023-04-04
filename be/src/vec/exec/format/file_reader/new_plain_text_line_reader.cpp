@@ -27,7 +27,8 @@
 //  larger than 300B for correct lzo header decompressing
 #define INPUT_CHUNK (2 * 1024 * 1024)
 // #define INPUT_CHUNK  (34)
-#define OUTPUT_CHUNK (8 * 1024 * 1024)
+// align with prefetch buffer size
+#define OUTPUT_CHUNK (4 * 1024 * 1024)
 // #define OUTPUT_CHUNK (32)
 // leave these 2 size small for debugging
 
