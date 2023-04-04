@@ -263,7 +263,7 @@ public class EsUtilTest extends EsTestCase {
     public void testDynamic() throws IOException, URISyntaxException {
         ObjectNode testFieldAlias = EsUtil.getRootSchema(
                 EsUtil.getMapping(loadJsonFromFile("data/es/es6_dynamic_mapping.json")), null, new ArrayList<>());
-        List<Column> parseColumns = EsUtil.genColumnsFromEs("customer_v2022", "customer_info", testFieldAlias, true, new ArrayList<>());
+        List<Column> parseColumns = EsUtil.genColumnsFromEs("test_dynamic", "dynamic_type", testFieldAlias, true, new ArrayList<>());
         System.out.println(parseColumns);
     }
 
