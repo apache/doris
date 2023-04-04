@@ -67,7 +67,12 @@ public:
             insert(HashUtil::murmur_hash3_32(key.data, key.size, _hash_seed));
         }
     }
-
+    // This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
+    void insert_new_hash(const Slice& key) noexcept {
+        if (key.data) {
+            insert(HashUtil::crc_hash(key.data, key.size, _hash_seed));
+        }
+    }
     // Finds an element in the BloomFilter, returning true if it is found and false (with
     // high probability) if it is not.
     bool find(uint32_t hash) const noexcept;
@@ -75,6 +80,15 @@ public:
     bool find(const Slice& key) const noexcept {
         if (key.data) {
             return find(HashUtil::murmur_hash3_32(key.data, key.size, _hash_seed));
+        } else {
+            return false;
+        }
+    }
+
+    // This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
+    bool find_new_hash(const Slice& key) const noexcept {
+        if (key.data) {
+            return find(HashUtil::crc_hash(key.data, key.size, _hash_seed));
         } else {
             return false;
         }
