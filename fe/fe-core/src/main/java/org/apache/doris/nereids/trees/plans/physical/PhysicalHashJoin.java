@@ -152,4 +152,17 @@ public class PhysicalHashJoin<
         return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint, markJoinSlotReference,
                 groupExpression, getLogicalProperties(), physicalProperties, statistics, left(), right());
     }
+
+    @Override
+    public String shapeInfo() {
+        StringBuilder builder = new StringBuilder();
+        builder.append("hashJoin[").append(joinType).append("]");
+        hashJoinConjuncts.forEach(expr -> {
+            builder.append(expr.shapeInfo());
+        });
+        otherJoinConjuncts.forEach(expr -> {
+            builder.append(expr.shapeInfo());
+        });
+        return builder.toString();
+    }
 }

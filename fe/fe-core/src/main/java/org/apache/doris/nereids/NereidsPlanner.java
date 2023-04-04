@@ -219,7 +219,10 @@ public class NereidsPlanner extends Planner {
                 LOG.info(tree);
             }
 
-            if (explainLevel == ExplainLevel.OPTIMIZED_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
+            System.out.println(physicalPlan.shape("  "));
+            if (explainLevel == ExplainLevel.OPTIMIZED_PLAN
+                    || explainLevel == ExplainLevel.ALL_PLAN
+                    || explainLevel == ExplainLevel.SHAPE_PLAN) {
                 optimizedPlan = physicalPlan;
             }
 
@@ -354,6 +357,8 @@ public class NereidsPlanner extends Planner {
                 return rewrittenPlan.treeString();
             case OPTIMIZED_PLAN:
                 return "cost = " + cost + "\n" + optimizedPlan.treeString();
+            case SHAPE_PLAN:
+                return optimizedPlan.shape("");
             case ALL_PLAN:
                 return "========== PARSED PLAN ==========\n"
                         + parsedPlan.treeString() + "\n\n"
