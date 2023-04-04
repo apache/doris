@@ -137,14 +137,10 @@ public:
                                  uint8_t* __restrict__ out);
 
     // Returns whether the Bloom filter is empty and hence would return false for all lookups.
-    bool always_false() const {
-        return _always_false;
-    }
+    bool always_false() const { return _always_false; }
 
     // Returns amount of space used in log2 bytes.
-    int log_space_bytes() const {
-        return _log_num_buckets + kLogBucketByteSize;
-    }
+    int log_space_bytes() const { return _log_num_buckets + kLogBucketByteSize; }
 
     // Returns the directory structure. Useful for serializing the BlockBloomFilter to
     // a custom protobuf message.
@@ -227,9 +223,7 @@ private:
 
 #endif
     // Size of the internal directory structure in bytes.
-    size_t directory_size() const {
-        return 1ULL << log_space_bytes();
-    }
+    size_t directory_size() const { return 1ULL << log_space_bytes(); }
 
     // kRehash is used as 8 odd 32-bit unsigned ints.  See Dietzfelbinger et al.'s "A
     // reliable randomized algorithm for the closest-pair problem".
