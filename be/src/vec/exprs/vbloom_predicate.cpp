@@ -67,16 +67,15 @@ Status VBloomPredicate::execute(VExprContext* context, Block* block, int* result
     auto ptr = ((ColumnVector<UInt8>*)res_data_column.get())->get_data().data();
     auto type = WhichDataType(remove_nullable(block->get_by_position(arguments[0]).type));
     if (type.is_string_or_fixed_string()) {
-
-        // When _be_exec_version is equal to or greater than 2, we use the new hash method. 
+        // When _be_exec_version is equal to or greater than 2, we use the new hash method.
         // This is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
-        if(_be_exec_version  >= 2){
+        if (_be_exec_version >= 2) {
             for (size_t i = 0; i < sz; i++) {
                 auto ele = argument_column->get_data_at(i);
                 const StringRef v(ele.data, ele.size);
                 ptr[i] = _filter->find_new_hash(reinterpret_cast<const void*>(&v));
             }
-        }else {
+        } else {
             for (size_t i = 0; i < sz; i++) {
                 auto ele = argument_column->get_data_at(i);
                 const StringRef v(ele.data, ele.size);
