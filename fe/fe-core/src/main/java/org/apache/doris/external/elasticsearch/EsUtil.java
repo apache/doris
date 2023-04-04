@@ -215,6 +215,9 @@ public class EsUtil {
     }
 
     private static ObjectNode replaceFieldAlias(ObjectNode mappingProps, ObjectNode fieldValue) {
+        if (!fieldValue.has("type")) {
+            return fieldValue;
+        }
         String typeStr = fieldValue.get("type").asText();
         if ("alias".equals(typeStr)) {
             String path = fieldValue.get("path").asText();
