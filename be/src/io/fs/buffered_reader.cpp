@@ -27,6 +27,12 @@
 namespace doris {
 namespace io {
 
+// add bvar to capture the download bytes per second by buffered reader
+bvar::Adder<uint64_t> g_bytes_downloaded("buffered_reader", "bytes_downloaded");
+bvar::PerSecond<bvar::Adder<uint64_t>> g_bytes_downloaded_per_second("buffered_reader",
+                                                                     "bytes_downloaded_per_second",
+                                                                     &g_bytes_downloaded, 60);
+
 // there exists occasions where the buffer is already closed but
 // some prior tasks are still queued in thread pool, so we have to check whether
 // the buffer is closed each time the condition variable is notified.
@@ -69,6 +75,7 @@ void PrefetchBuffer::prefetch_buffer() {
 
     size_t buf_size = _end_offset - _offset > _size ? _size : _end_offset - _offset;
     s = _reader->read_at(_offset, Slice {_buf.data(), buf_size}, &_len);
+    g_bytes_downloaded << _len;
     std::unique_lock lck {_lock};
     _prefetched.wait(lck, [this]() { return _buffer_status == BufferStatus::PENDING; });
     if (!s.ok() && _offset < _reader->size()) {
