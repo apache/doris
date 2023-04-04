@@ -367,22 +367,4 @@ void BackendService::check_storage_format(TCheckStorageFormatResult& result) {
     StorageEngine::instance()->tablet_manager()->get_all_tablets_storage_format(&result);
 }
 
-void BackendService::get_column_ids_by_tablet_ids(TFetchColIdsResponse& response,
-                                                  const TFetchColIdsRequest& request) {
-    TabletManager* tablet_mgr = StorageEngine::instance()->tablet_manager();
-    for (TTabletId tablet_id : request.tablet_ids) {
-        TabletSharedPtr tablet = tablet_mgr->get_tablet(tablet_id);
-        if (tablet == nullptr) {
-            LOG(WARNING) << "cannot get tablet by id:" << tablet_id;
-            continue;
-        }
-        const std::vector<TabletColumn>& columns = tablet->tablet_schema()->columns();
-        TFetchColIdsEntry entry;
-        entry.tablet_id = tablet_id;
-        for (const TabletColumn& column : columns) {
-            entry.col_name_to_id[column.name()] = column.unique_id();
-        }
-        response.result_list.push_back(entry);
-    }
-}
 } // namespace doris

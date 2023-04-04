@@ -18,8 +18,12 @@
 #include "service/internal_service.h"
 
 #include <butil/iobuf.h>
+#include <gen_cpp/Status_types.h>
 
+#include <set>
+#include <sstream>
 #include <string>
+#include <vector>
 
 #include "common/config.h"
 #include "common/consts.h"
@@ -33,6 +37,7 @@
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "olap/tablet_schema.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/exec_env.h"
 #include "runtime/fold_constant_executor.h"
@@ -554,6 +559,53 @@ void PInternalServiceImpl::tablet_fetch_data(google::protobuf::RpcController* co
         response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
         response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
     }
+}
+
+void PInternalServiceImpl::get_column_ids_by_tablet_ids(google::protobuf::RpcController* controller,
+                                                        const PFetchColIdsRequest* request,
+                                                        PFetchColIdsResponse* response,
+                                                        google::protobuf::Closure* done) {
+    brpc::ClosureGuard guard(done);
+    TabletManager* tablet_mgr = StorageEngine::instance()->tablet_manager();
+    const auto& params = request->params();
+    for (const auto& param : params) {
+        int64_t index_id = param.indexid();
+        auto tablet_ids = param.tablet_ids();
+        std::set<std::vector<TabletColumn>> filter_set;
+        for (const int64_t tablet_id : tablet_ids) {
+            TabletSharedPtr tablet = tablet_mgr->get_tablet(tablet_id);
+            if (tablet == nullptr) {
+                std::stringstream ss;
+                ss << "cannot get tablet by id:" << tablet_id;
+                LOG(WARNING) ss.str();
+                response->mutable_status()->set_status_code(TStatusCode::ILLEGAL_STATE);
+                response->mutable_status()->add_error_msgs(ss.str());
+                return;
+            }
+            // use a set<schema> to check schema consistency (name, id) should be the same
+            filter_set.insert(tablet->tablet_schema()->columns());
+        }
+        if (filter_set.size() > 1) {
+            // consistecy check failed
+            std::stringstream ss;
+            ss << "consistency check failed: index{" << index_id << "}"
+               << "got inconsistent shema";
+            LOG(WARNING) << ss.str();
+            response->mutable_status()->set_status_code(TStatusCode::ILLEGAL_STATE);
+            response->mutable_status()->add_error_msgs(ss.str());
+            return;
+        }
+        // consistency check passed, use the first tablet to be the representative
+        TabletSharedPtr tablet = tablet_mgr->get_tablet(tablet_ids[0]);
+        const auto& columns = tablet->tablet_schema()->columns();
+        auto entry = response->add_entries();
+        entry->set_index_id(index_id);
+        auto col_name_to_id = entry->mutable_col_name_to_id();
+        for (const auto& column : columns) {
+            (*col_name_to_id)[column.name()] = column.unique_id();
+        }
+    }
+    response->mutable_status()->set_status_code(TStatusCode::OK);
 }
 
 void PInternalServiceImpl::get_info(google::protobuf::RpcController* controller,

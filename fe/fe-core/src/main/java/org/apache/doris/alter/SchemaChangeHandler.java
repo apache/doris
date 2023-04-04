@@ -60,7 +60,6 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -75,24 +74,17 @@ import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.RemoveAlterJobV2OperationLog;
 import org.apache.doris.persist.TableAddOrDropColumnsInfo;
 import org.apache.doris.persist.TableAddOrDropInvertedIndicesInfo;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.ClearAlterTask;
 import org.apache.doris.task.UpdateTabletMetaInfoTask;
-import org.apache.doris.thrift.BackendService.Client;
-import org.apache.doris.thrift.TFetchColIdsEntry;
-import org.apache.doris.thrift.TFetchColIdsRequest;
-import org.apache.doris.thrift.TFetchColIdsResponse;
-import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTaskType;
@@ -1906,91 +1898,10 @@ public class SchemaChangeHandler extends AlterHandler {
         }
     }
 
-    /**
-     * 1. rpc read columnUniqueIds from BE
-     * 2. refresh table metadata
-     * 3. write edit log
-     */
+
     private void enableLightSchemaChange(Database db, OlapTable olapTable) throws DdlException {
-        Map<Long, MaterializedIndex> tabletIdToIdx = new HashMap<>();
-        final List<MaterializedIndex> materializedIndices = olapTable.getAllPartitions()
-                .stream()
-                .findFirst()
-                .orElseThrow(() -> new DdlException(String.format("No partition available for %s.%s",
-                        db.getFullName(), olapTable.getName())))
-                .getMaterializedIndices(IndexExtState.ALL);
-        materializedIndices.forEach(materializedIndex -> {
-            final long tabletId = materializedIndex.getTablets().get(0).getId();
-            tabletIdToIdx.put(tabletId, materializedIndex);
-        });
-
-        // select a suitable backend
-        final Tablet tablet = materializedIndices
-                .get(0)
-                .getTablets()
-                .get(0);
-        final Long backendId = tablet.getBackendIds()
-                .stream()
-                .findFirst()
-                .orElseThrow(() -> new DdlException("Fail to find one backend for " + tablet));
-        final Backend backend = Env.getCurrentSystemInfo().getIdToBackend().get(backendId);
-
-
-        // rpc for column meta from be
-        final TFetchColIdsResponse response;
-        try {
-            final Client client = ClientPool.backendPool.borrowObject(
-                    new TNetworkAddress(backend.getIp(), backend.getBePort()));
-            response = client.getColumnIdsByTabletIds(new TFetchColIdsRequest(tabletIdToIdx.keySet()));
-        } catch (Exception e) {
-            throw new DdlException("RPC for " + backend.toString() + "failed", e);
-        }
-        final List<TFetchColIdsEntry> resultList = response.getResultList();
-
-        // write meta
-        // update index-meta once and for all
-        // schema pair: <maxColId, columns>
-        final List<Pair<Integer, List<Column>>> schemaPairs = new ArrayList<>();
-        final List<Long> indexIds = new ArrayList<>();
-        resultList.forEach(entry -> {
-            final long tabletId = entry.getTabletId();
-            final Map<String, Integer> colNameToId = entry.getColNameToId();
-            final MaterializedIndex index = tabletIdToIdx.get(tabletId);
-            final List<Column> columns = olapTable.getSchemaByIndexId(index.getId(), true);
-            // we need a pre-check for all column metadata read from BE
-            Preconditions.checkState(columns.size() == colNameToId.size(),
-                    "size mismatch for columns meta from BE");
-            int maxColId = Column.COLUMN_UNIQUE_ID_INIT_VALUE;
-            final List<Column> newSchema = new ArrayList<>();
-            for (Column column : columns) {
-                final String columnName = column.getName();
-                final int columnId = Preconditions.checkNotNull(colNameToId.get(columnName),
-                        "failed to fetch column id of column:{" + columnName + "} from BE");
-                final Column newColumn = new Column(column);
-                newColumn.setUniqueId(columnId);
-                newSchema.add(newColumn);
-                maxColId = Math.max(columnId, maxColId);
-            }
-            schemaPairs.add(Pair.of(maxColId, newSchema));
-            indexIds.add(index.getId());
-        });
-        Preconditions.checkState(schemaPairs.size() == indexIds.size());
-        // update index-meta once and for all
-        for (int i = 0; i < indexIds.size(); i++) {
-            final MaterializedIndexMeta indexMeta = olapTable.getIndexMetaByIndexId(indexIds.get(i));
-            final Pair<Integer, List<Column>> schemaPair = schemaPairs.get(i);
-            indexMeta.setMaxColUniqueId(schemaPair.first);
-            indexMeta.setSchema(schemaPair.second);
-        }
-        olapTable.rebuildFullSchema();
-        // write table property
-        olapTable.setEnableLightSchemaChange(true);
-        //write edit log
-        ModifyTablePropertyOperationLog info =
-                new ModifyTablePropertyOperationLog(
-                        db.getId(), olapTable.getId(), olapTable.getTableProperty().getProperties()
-                );
-        Env.getCurrentEnv().getEditLog().logAlterLightSchemaChange(info);
+        final AlterLSCHelper alterLSCHelper = new AlterLSCHelper(db, olapTable);
+        alterLSCHelper.enableLightSchemaChange();
     }
 
     @Override

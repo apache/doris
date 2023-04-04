@@ -131,9 +131,6 @@ public:
 
     void check_storage_format(TCheckStorageFormatResult& result) override;
 
-    void get_column_ids_by_tablet_ids(TFetchColIdsResponse& response,
-                                      const TFetchColIdsRequest& request) override;
-
 private:
     Status start_plan_fragment_execution(const TExecPlanFragmentParams& exec_params);
     ExecEnv* _exec_env;
