@@ -115,7 +115,7 @@ suite("test_map_load_and_compaction", "p0") {
         def backendId_to_backendHttpPort = [:]
         for (String[] backend in backends) {
             backendId_to_backendIP.put(backend[0], backend[2])
-            backendId_to_backendHttpPort.put(backend[0], backend[5])
+            backendId_to_backendHttpPort.put(backend[0], backend[6])
         }
         String tablet_id = tablet[0]
         backend_id = tablet[2]
