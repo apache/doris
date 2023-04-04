@@ -108,7 +108,7 @@ struct StructImpl {
 // named_struct(name1, value1, name2, value2) -> {name1:value1, name2:value2}
 struct NamedStructImpl {
     static constexpr auto name = "named_struct";
-    static constexpr auto types_index = [](size_t i) { return i % 2 == 0; };
+    static constexpr auto types_index = [](size_t i) { return (i & 1) == 1; };
 
     static void check_number_of_arguments(size_t number_of_arguments) {
         DCHECK(number_of_arguments % 2 == 0)
