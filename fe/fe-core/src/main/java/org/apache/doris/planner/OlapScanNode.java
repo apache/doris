@@ -1436,9 +1436,4 @@ public class OlapScanNode extends ScanNode {
             }
         }
     }
-
-    @Override
-    public void setProjectList(List<Expr> projectList) {
-        this.projectList = projectList;
-    }
 }
