@@ -459,7 +459,7 @@ struct Dispatcher {
             const auto* const decimal_col = check_and_get_column<ColumnDecimal<T>>(col_general);
             const auto& vec_src = decimal_col->get_data();
 
-            auto col_res = ColumnDecimal<T>::create(vec_src.size(), decimal_col->get_scale());
+            auto col_res = ColumnDecimal<T>::create(vec_src.size(), scale_arg);
             auto& vec_res = col_res->get_data();
 
             if (!vec_res.empty()) {
