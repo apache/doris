@@ -45,7 +45,7 @@ public class FunctionTypeDeducers {
         public Type deduce(Type[] args) {
             List<Type> evenArgs = Lists.newArrayList();
             for (int i = 0; i < args.length; i++) {
-                if (i % 2 == 1) {
+                if ((i & 1) == 1) {
                     evenArgs.add(args[i]);
                 }
             }
