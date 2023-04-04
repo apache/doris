@@ -474,7 +474,9 @@ public class OlapScanNode extends ScanNode {
             if (mvColumn == null) {
                 boolean isBound = false;
                 for (Expr conjunct : conjuncts) {
-                    if (conjunct.isBound(slotDescriptor.getId())) {
+                    List<TupleId> tids = Lists.newArrayList();
+                    conjunct.getIds(tids, null);
+                    if (!tids.isEmpty() && conjunct.isBound(slotDescriptor.getId())) {
                         isBound = true;
                         break;
                     }
@@ -1433,5 +1435,10 @@ public class OlapScanNode extends ScanNode {
                 outputColumnUniqueIds.add(slot.getColumn().getUniqueId());
             }
         }
+    }
+
+    @Override
+    public void setProjectList(List<Expr> projectList) {
+        this.projectList = projectList;
     }
 }
