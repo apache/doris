@@ -407,6 +407,9 @@ class Suite implements GroovyInterceptable {
             result = sql(showTasks)
             if (!result.isEmpty()) {
                 status = result.last().get(index)
+            } else {
+                status = "SUCCESS"
+                break;
             }
             println "The state of ${showTasks} is ${status}"
             Thread.sleep(1000);
