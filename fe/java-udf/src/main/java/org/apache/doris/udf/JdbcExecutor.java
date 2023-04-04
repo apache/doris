@@ -1289,7 +1289,7 @@ public class JdbcExecutor {
             }
         }
         byte[] bytes = new byte[offsets[numRows - 1]];
-        long bytesAddr = JNINativeMethod.resizeColumn(charsAddr, offsets[numRows - 1]);
+        long bytesAddr = JNINativeMethod.resizeStringColumn(charsAddr, offsets[numRows - 1]);
         int dst = 0;
         for (int i = 0; i < numRows; i++) {
             for (int j = 0; j < byteRes[i].length; j++) {
@@ -1336,7 +1336,7 @@ public class JdbcExecutor {
             }
         }
         byte[] bytes = new byte[offsets[numRows - 1]];
-        long bytesAddr = JNINativeMethod.resizeColumn(charsAddr, offsets[numRows - 1]);
+        long bytesAddr = JNINativeMethod.resizeStringColumn(charsAddr, offsets[numRows - 1]);
         int dst = 0;
         for (int i = 0; i < numRows; i++) {
             for (int j = 0; j < byteRes[i].length; j++) {
