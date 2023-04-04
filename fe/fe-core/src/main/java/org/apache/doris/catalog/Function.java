@@ -493,6 +493,10 @@ public class Function implements Writable {
         }
     }
 
+    public boolean isInferenceFunction() {
+        return retType instanceof AnyType;
+    }
+
     public TFunction toThrift(Type realReturnType, Type[] realArgTypes) {
         TFunction fn = new TFunction();
         fn.setSignature(signatureString());
