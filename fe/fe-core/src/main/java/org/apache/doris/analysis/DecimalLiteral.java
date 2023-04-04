@@ -247,9 +247,7 @@ public class DecimalLiteral extends LiteralExpr {
     @Override
     public void checkValueValid() throws AnalysisException {
         if (type.isDecimalV3()) {
-            BigDecimal max = BigDecimal.valueOf((long) Math.pow(10, type.getPrecision()),
-                    ((ScalarType) type).getScalarScale());
-            if (value.abs().compareTo(max.abs()) >= 0) {
+            if (value.precision() > type.getPrecision()) {
                 throw new AnalysisException(String.format("Decimal literal %s is invalid! Required precision = %d,"
                         + "scale = %d", value, type.getPrecision(), ((ScalarType) type).getScalarScale()));
             }
