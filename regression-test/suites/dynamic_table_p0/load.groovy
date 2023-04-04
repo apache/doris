@@ -86,7 +86,7 @@ suite("regression_test_dynamic_table", "dynamic_table"){
             )
             UNIQUE KEY(`id`)
             DISTRIBUTED BY HASH(`id`) BUCKETS 5 
-            properties("replication_num" = "1", "enable_merge_on_write" = "true");
+            properties("replication_num" = "1", "enable_unique_key_merge_on_write" = "true");
         """
 
         //stream load src_json
