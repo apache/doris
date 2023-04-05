@@ -381,7 +381,9 @@ static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
         }
     }
     DorisMetrics::instance()->initialize(init_system_metrics, disk_devices, network_interfaces);
-    DorisBvarMetrics::instance()->initialize();
+    if (config::enable_bvar_metrics) {
+        DorisBvarMetrics::instance()->initialize();
+    }
 }
 
 void signal_handler(int signal) {
