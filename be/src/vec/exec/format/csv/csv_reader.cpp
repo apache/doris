@@ -145,7 +145,7 @@ Status CsvReader::init_reader(bool is_load) {
         io::FileCachePolicy cache_policy = FileFactory::get_cache_policy(_state);
         RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties,
                                                         _file_description, &_file_system,
-                                                        &_file_reader, cache_policy));
+                                                        &csv_file_reader, cache_policy));
     }
     if (typeid_cast<io::S3FileReader*>(csv_file_reader.get()) != nullptr ||
         typeid_cast<io::BrokerFileReader*>(csv_file_reader.get()) != nullptr) {
