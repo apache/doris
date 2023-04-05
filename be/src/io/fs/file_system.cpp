@@ -17,6 +17,8 @@
 
 #include "io/fs/file_system.h"
 
+#include <sys/stat.h>
+
 #include "olap/olap_define.h"
 #include "util/async_io.h"
 
@@ -42,6 +44,24 @@ Status FileSystem::create_directory(const Path& dir, bool failed_if_exists) {
 Status FileSystem::delete_file(const Path& file) {
     auto path = absolute_path(file);
     FILESYSTEM_M(delete_file_impl(path));
+}
+
+Status FileSystem::delete_directory_or_file(const Path& path) {
+    auto real_path = absolute_path(path);
+    if (is_dir(path)) {
+        FILESYSTEM_M(delete_directory_impl(path));
+    } else {
+        FILESYSTEM_M(delete_file_impl(path));
+    }
+}
+
+bool FileSystem::is_dir(const Path& path) {
+    struct stat path_stat;
+    if (stat(path.c_str(), &path_stat) != 0) {
+        return false;
+    } else {
+        return S_ISDIR(path_stat.st_mode);
+    }
 }
 
 Status FileSystem::delete_directory(const Path& dir) {

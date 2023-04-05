@@ -1160,7 +1160,7 @@ bool Tablet::check_rowset_id(const RowsetId& rowset_id) {
             return true;
         }
     }
-    if (RowsetMetaManager::check_rowset_meta(_data_dir->get_meta(), tablet_uid(), rowset_id)) {
+    if (RowsetMetaManager::exists(_data_dir->get_meta(), tablet_uid(), rowset_id)) {
         return true;
     }
     return false;
