@@ -290,6 +290,8 @@ struct DateTrunc {
                 null_map[i] = !dt.template datetime_trunc<MINUTE>();
             } else if (std::strncmp("second", str_data, 6) == 0) {
                 null_map[i] = !dt.template datetime_trunc<SECOND>();
+            } else if (std::strncmp("week", str_data, 4) == 0) {
+                null_map[i] = !dt.template datetime_trunc<WEEK>();
             } else {
                 null_map[i] = 1;
             }

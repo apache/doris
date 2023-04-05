@@ -126,7 +126,7 @@ Query:
 
 ## Query parameters
 
-* query_id
+* `query_id`
 
     指定的 query id
 

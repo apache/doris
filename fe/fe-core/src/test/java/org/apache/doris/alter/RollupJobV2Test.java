@@ -315,7 +315,7 @@ public class RollupJobV2Test {
 
     @Test
     public void testSerializeOfRollupJob(@Mocked CreateMaterializedViewStmt stmt)
-            throws IOException {
+            throws IOException, AnalysisException {
         // prepare file
         File file = new File(fileName);
         file.createNewFile();

@@ -179,10 +179,6 @@ public class StatisticsUtil {
                 return new DateLiteral(columnValue, type);
             case CHAR:
             case VARCHAR:
-                if (columnValue.length() > scalarType.getLength()) {
-                    throw new AnalysisException("Min/Max value is longer than length of column type: "
-                        + columnValue);
-                }
                 return new StringLiteral(columnValue);
             case HLL:
             case BITMAP:

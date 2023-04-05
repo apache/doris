@@ -296,6 +296,11 @@ public class BaseController {
     }
 
     protected String getCurrentFrontendURL() {
-        return "http://" + FrontendOptions.getLocalHostAddress() + ":" + Config.http_port;
+        if (Config.enable_https) {
+            // this could be the result of redirection.
+            return "https://" + FrontendOptions.getLocalHostAddress() + ":" + Config.https_port;
+        } else {
+            return "http://" + FrontendOptions.getLocalHostAddress() + ":" + Config.http_port;
+        }
     }
 }

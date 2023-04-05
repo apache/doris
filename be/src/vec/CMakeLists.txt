@@ -168,6 +168,7 @@ set(VEC_FILES
   functions/array/function_array_sort.cpp
   functions/array/function_array_sortby.cpp
   functions/array/function_array_utils.cpp
+  functions/array/function_array_shuffle.cpp
   functions/array/function_arrays_overlap.cpp
   functions/array/function_array_distinct.cpp
   functions/array/function_array_remove.cpp

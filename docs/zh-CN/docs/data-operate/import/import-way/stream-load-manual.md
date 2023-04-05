@@ -191,6 +191,12 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
 
   Stream load 导入可以开启两阶段事务提交模式：在Stream load过程中，数据写入完成即会返回信息给用户，此时数据不可见，事务状态为`PRECOMMITTED`，用户手动触发commit操作之后，数据才可见。
 
+- enable_profile
+  <version since="1.2.4">
+  </version>
+
+  当 `enable_profile` 为 true 时，Stream Load profile将会打印到日志中。否则不会打印。
+
   示例：
 
   1. 发起stream load预提交操作

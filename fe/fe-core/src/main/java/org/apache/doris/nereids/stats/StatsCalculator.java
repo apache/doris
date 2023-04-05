@@ -89,6 +89,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.statistics.ColumnLevelStatisticCache;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
@@ -577,7 +578,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 double rightRowCount = childStats.get(j).getRowCount();
                 ColumnStatistic estimatedColumnStatistics
                         = unionColumn(headStats.findColumnStatistics(headSlot),
-                        headStats.getRowCount(), rightStatistic, rightRowCount);
+                        headStats.getRowCount(), rightStatistic, rightRowCount, headSlot.getDataType());
                 headStats.addColumnStats(headSlot, estimatedColumnStatistics);
                 leftRowCount += childStats.get(j).getRowCount();
             }
@@ -692,12 +693,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     private ColumnStatistic unionColumn(ColumnStatistic leftStats, double leftRowCount, ColumnStatistic rightStats,
-            double rightRowCount) {
+            double rightRowCount, DataType dataType) {
         ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder();
         columnStatisticBuilder.setMaxValue(Math.max(leftStats.maxValue, rightStats.maxValue));
         columnStatisticBuilder.setMinValue(Math.min(leftStats.minValue, rightStats.minValue));
-        StatisticRange leftRange = StatisticRange.from(leftStats);
-        StatisticRange rightRange = StatisticRange.from(rightStats);
+        StatisticRange leftRange = StatisticRange.from(leftStats, dataType);
+        StatisticRange rightRange = StatisticRange.from(rightStats, dataType);
         StatisticRange newRange = leftRange.union(rightRange);
         double newRowCount = leftRowCount + rightRowCount;
         double leftSize = (leftRowCount - leftStats.numNulls) * leftStats.avgSizeByte;

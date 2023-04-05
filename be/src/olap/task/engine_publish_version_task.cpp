@@ -148,7 +148,7 @@ Status EnginePublishVersionTask::finish() {
             auto submit_st =
                     StorageEngine::instance()->tablet_publish_txn_thread_pool()->submit_func(
                             [=]() { tablet_publish_txn_ptr->handle(); });
-            CHECK(submit_st.ok());
+            CHECK(submit_st.ok()) << submit_st;
         }
     }
     // wait for all publish txn finished

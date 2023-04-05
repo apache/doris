@@ -184,7 +184,8 @@ public:
     virtual void insert_fixed_len(const char* data) = 0;
 
     virtual uint16_t find_fixed_len_olap_engine(const char* data, const uint8* nullmap,
-                                                uint16_t* offsets, int number) = 0;
+                                                uint16_t* offsets, int number,
+                                                bool is_parse_column) = 0;
 
     virtual void find_fixed_len(const char* data, const uint8* nullmap, int number,
                                 uint8* results) = 0;
@@ -213,17 +214,49 @@ struct CommonFindOp {
     }
 
     uint16_t find_batch_olap_engine(const BloomFilterAdaptor& bloom_filter, const char* data,
-                                    const uint8* nullmap, uint16_t* offsets, int number) const {
+                                    const uint8* nullmap, uint16_t* offsets, int number,
+                                    const bool is_parse_column) const {
         uint16_t new_size = 0;
-        for (int i = 0; i < number; i++) {
-            uint16_t idx = offsets[i];
-            if (nullmap != nullptr && nullmap[idx]) {
-                continue;
+        if (is_parse_column) {
+            if (nullmap == nullptr) {
+                for (int i = 0; i < number; i++) {
+                    uint16_t idx = offsets[i];
+                    if (!bloom_filter.test_element(*((T*)data + idx))) {
+                        continue;
+                    }
+                    offsets[new_size++] = idx;
+                }
+            } else {
+                for (int i = 0; i < number; i++) {
+                    uint16_t idx = offsets[i];
+                    if (nullmap[idx]) {
+                        continue;
+                    }
+                    if (!bloom_filter.test_element(*((T*)data + idx))) {
+                        continue;
+                    }
+                    offsets[new_size++] = idx;
+                }
             }
-            if (!bloom_filter.test_element(*((T*)data + idx))) {
-                continue;
+        } else {
+            if (nullmap == nullptr) {
+                for (int i = 0; i < number; i++) {
+                    if (!bloom_filter.test_element(*((T*)data + i))) {
+                        continue;
+                    }
+                    offsets[new_size++] = i;
+                }
+            } else {
+                for (int i = 0; i < number; i++) {
+                    if (nullmap[i]) {
+                        continue;
+                    }
+                    if (!bloom_filter.test_element(*((T*)data + i))) {
+                        continue;
+                    }
+                    offsets[new_size++] = i;
+                }
             }
-            offsets[new_size++] = idx;
         }
         return new_size;
     }
@@ -267,7 +300,8 @@ struct StringFindOp {
     }
 
     uint16_t find_batch_olap_engine(const BloomFilterAdaptor& bloom_filter, const char* data,
-                                    const uint8* nullmap, uint16_t* offsets, int number) const {
+                                    const uint8* nullmap, uint16_t* offsets, int number,
+                                    const bool is_parse_column) const {
         LOG(FATAL) << "StringFindOp does not support find_batch_olap_engine";
         return 0;
     }
@@ -414,8 +448,9 @@ public:
     }
 
     uint16_t find_fixed_len_olap_engine(const char* data, const uint8* nullmap, uint16_t* offsets,
-                                        int number) override {
-        return dummy.find_batch_olap_engine(*_bloom_filter, data, nullmap, offsets, number);
+                                        int number, const bool is_parse_column) override {
+        return dummy.find_batch_olap_engine(*_bloom_filter, data, nullmap, offsets, number,
+                                            is_parse_column);
     }
 
     void find_fixed_len(const char* data, const uint8* nullmap, int number,

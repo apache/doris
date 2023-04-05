@@ -17,66 +17,61 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.catalog.ColocateGroupSchema;
+import org.apache.doris.catalog.ColocateTableIndex;
+import org.apache.doris.catalog.ColocateTableIndex.GroupId;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QueryStatisticsItem;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.utframe.UtFrameUtils;
+import org.apache.doris.utframe.TestWithFeService;
 
 import org.apache.commons.lang.StringUtils;
-import org.junit.AfterClass;
 import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import java.io.File;
 import java.util.List;
-import java.util.UUID;
 
-public class ColocatePlanTest {
+public class ColocatePlanTest extends TestWithFeService {
     public static final String COLOCATE_ENABLE = "COLOCATE";
-    private static String runningDir = "fe/mocked/DemoTest/" + UUID.randomUUID().toString() + "/";
-    private static ConnectContext ctx;
+    private static final String GLOBAL_GROUP = "__global__group1";
+    private static final String GLOBAL_GROUP2 = "__global__group2";
 
-    @BeforeClass
-    public static void setUp() throws Exception {
+    @Override
+    protected void runBeforeAll() throws Exception {
         FeConstants.runningUnitTest = true;
-        UtFrameUtils.createDorisCluster(runningDir, 2);
-        ctx = UtFrameUtils.createDefaultCtx();
-        String createDbStmtStr = "create database db1;";
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
-        Env.getCurrentEnv().createDb(createDbStmt);
-        // create table test_colocate (k1 int ,k2 int, k3 int, k4 int)
-        // distributed by hash(k1, k2) buckets 10
-        // properties ("replication_num" = "2");
-        String createColocateTblStmtStr = "create table db1.test_colocate(k1 int, k2 int, k3 int, k4 int) "
+        createDatabase("db1");
+        createTable("create table db1.test_colocate(k1 int, k2 int, k3 int, k4 int) "
                 + "distributed by hash(k1, k2) buckets 10 properties('replication_num' = '2',"
-                + "'colocate_with' = 'group1');";
-        CreateTableStmt createColocateTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createColocateTblStmtStr, ctx);
-        Env.getCurrentEnv().createTable(createColocateTableStmt);
-        String createTblStmtStr = "create table db1.test(k1 int, k2 int, k3 int, k4 int)"
+                + "'colocate_with' = 'group1');");
+        createTable("create table db1.test(k1 int, k2 int, k3 int, k4 int)"
                 + "partition by range(k1) (partition p1 values less than (\"1\"), partition p2 values less than (\"2\"))"
-                + "distributed by hash(k1, k2) buckets 10 properties('replication_num' = '2')";
-        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
-        Env.getCurrentEnv().createTable(createTableStmt);
-
-        String createMultiPartitionTableStmt = "create table db1.test_multi_partition(k1 int, k2 int)"
+                + "distributed by hash(k1, k2) buckets 10 properties('replication_num' = '2')");
+        createTable("create table db1.test_multi_partition(k1 int, k2 int)"
                 + "partition by range(k1) (partition p1 values less than(\"1\"), partition p2 values less than (\"2\"))"
-                + "distributed by hash(k2) buckets 10 properties ('replication_num' = '2', 'colocate_with' = 'group2')";
-        CreateTableStmt createMultiTableStmt = (CreateTableStmt) UtFrameUtils
-                .parseAndAnalyzeStmt(createMultiPartitionTableStmt, ctx);
-        Env.getCurrentEnv().createTable(createMultiTableStmt);
+                + "distributed by hash(k2) buckets 10 properties ('replication_num' = '2', 'colocate_with' = 'group2')");
+
+        // global colocate tables
+        createDatabase("db2");
+        createTable("create table db1.test_global_colocate1(k1 varchar(10), k2 int, k3 int, k4 int) "
+                + "distributed by hash(k1, k2) buckets 10 properties('replication_num' = '2',"
+                + "'colocate_with' = '" + GLOBAL_GROUP + "');");
+        createTable("create table db2.test_global_colocate2(k1 varchar(20), k2 int, k3 int) "
+                + "distributed by hash(k1, k2) buckets 10 properties('replication_num' = '2',"
+                + "'colocate_with' = '" + GLOBAL_GROUP + "');");
+        createTable("create table db2.test_global_colocate3(k1 varchar(20), k2 int, k3 date) "
+                + "partition by range(k3) (partition p1 values less than(\"2020-01-01\"), partition p2 values less than (\"2020-02-01\")) "
+                + "distributed by hash(k1, k2) buckets 10 properties('replication_num' = '2',"
+                + "'colocate_with' = '" + GLOBAL_GROUP + "');");
     }
 
-    @AfterClass
-    public static void tearDown() {
-        File file = new File(runningDir);
-        file.delete();
+    @Override
+    protected int backendNum() {
+        return 2;
     }
 
     // without
@@ -84,9 +79,9 @@ public class ColocatePlanTest {
     // 2. join: src data has been redistributed
     @Test
     public void sqlDistributedSmallerThanData1() throws Exception {
-        String sql = "explain select * from (select k1 from db1.test_colocate group by k1) a , db1.test_colocate b "
-                + "where a.k1=b.k1";
-        String plan1 = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql);
+        String plan1 = getSQLPlanOrErrorMsg(
+                "explain select * from (select k1 from db1.test_colocate group by k1) a , db1.test_colocate b "
+                        + "where a.k1=b.k1");
         Assert.assertEquals(2, StringUtils.countMatches(plan1, "AGGREGATE"));
         Assert.assertTrue(plan1.contains(DistributedPlanColocateRule.REDISTRIBUTED_SRC_DATA));
     }
@@ -96,7 +91,7 @@ public class ColocatePlanTest {
     public void sqlDistributedSmallerThanData2() throws Exception {
         String sql = "explain select * from (select k1 from db1.test_colocate group by k1, k2) a , db1.test_colocate b "
                 + "where a.k1=b.k1";
-        String plan1 = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql);
+        String plan1 = getSQLPlanOrErrorMsg(sql);
         Assert.assertTrue(plan1.contains(DistributedPlanColocateRule.INCONSISTENT_DISTRIBUTION_OF_TABLE_AND_QUERY));
     }
 
@@ -105,9 +100,10 @@ public class ColocatePlanTest {
     // 2. hash columns = agg output columns = distributed columns
     @Test
     public void sqlAggAndJoinSameAsTableMeta() throws Exception {
-        String sql = "explain select * from (select k1, k2 from db1.test_colocate group by k1, k2) a , db1.test_colocate b "
-                + "where a.k1=b.k1 and a.k2=b.k2";
-        String plan1 = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql);
+        String sql =
+                "explain select * from (select k1, k2 from db1.test_colocate group by k1, k2) a , db1.test_colocate b "
+                        + "where a.k1=b.k1 and a.k2=b.k2";
+        String plan1 = getSQLPlanOrErrorMsg(sql);
         Assert.assertEquals(1, StringUtils.countMatches(plan1, "AGGREGATE"));
         Assert.assertTrue(plan1.contains(COLOCATE_ENABLE));
     }
@@ -119,7 +115,7 @@ public class ColocatePlanTest {
     public void sqlAggAndJoinMoreThanTableMeta() throws Exception {
         String sql = "explain select * from (select k1, k2, k3 from db1.test_colocate group by k1, k2, k3) a , "
                 + "db1.test_colocate b where a.k1=b.k1 and a.k2=b.k2 and a.k3=b.k3";
-        String plan1 = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql);
+        String plan1 = getSQLPlanOrErrorMsg(sql);
         Assert.assertEquals(1, StringUtils.countMatches(plan1, "AGGREGATE"));
         Assert.assertTrue(plan1.contains(COLOCATE_ENABLE));
     }
@@ -131,7 +127,7 @@ public class ColocatePlanTest {
     public void sqlAggMoreThanTableMeta() throws Exception {
         String sql = "explain select * from (select k1, k2, k3 from db1.test_colocate group by k1, k2, k3) a , "
                 + "db1.test_colocate b where a.k1=b.k1 and a.k2=b.k2";
-        String plan1 = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql);
+        String plan1 = getSQLPlanOrErrorMsg(sql);
         Assert.assertEquals(1, StringUtils.countMatches(plan1, "AGGREGATE"));
         Assert.assertTrue(plan1.contains(COLOCATE_ENABLE));
     }
@@ -144,7 +140,7 @@ public class ColocatePlanTest {
     @Test
     public void sqlAggWithNonColocateTable() throws Exception {
         String sql = "explain select k1, k2 from db1.test group by k1, k2";
-        String plan1 = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql);
+        String plan1 = getSQLPlanOrErrorMsg(sql);
         Assert.assertEquals(2, StringUtils.countMatches(plan1, "AGGREGATE"));
         Assert.assertFalse(plan1.contains(COLOCATE_ENABLE));
     }
@@ -156,7 +152,7 @@ public class ColocatePlanTest {
     @Test
     public void sqlAggWithColocateTable() throws Exception {
         String sql = "select k1, k2, count(*) from db1.test_multi_partition where k2 = 1 group by k1, k2";
-        StmtExecutor executor = UtFrameUtils.getSqlStmtExecutor(ctx, sql);
+        StmtExecutor executor = getSqlStmtExecutor(sql);
         Planner planner = executor.planner();
         Coordinator coordinator = Deencapsulation.getField(executor, "coord");
         List<ScanNode> scanNodeList = planner.getScanNodes();
@@ -173,8 +169,9 @@ public class ColocatePlanTest {
 
     @Test
     public void checkColocatePlanFragment() throws Exception {
-        String sql = "select a.k1 from db1.test_colocate a, db1.test_colocate b where a.k1=b.k1 and a.k2=b.k2 group by a.k1;";
-        StmtExecutor executor = UtFrameUtils.getSqlStmtExecutor(ctx, sql);
+        String sql
+                = "select a.k1 from db1.test_colocate a, db1.test_colocate b where a.k1=b.k1 and a.k2=b.k2 group by a.k1;";
+        StmtExecutor executor = getSqlStmtExecutor(sql);
         Planner planner = executor.planner();
         Coordinator coordinator = Deencapsulation.getField(executor, "coord");
         boolean isColocateFragment0 = Deencapsulation.invoke(coordinator, "isColocateFragment",
@@ -190,18 +187,120 @@ public class ColocatePlanTest {
     public void rollupAndMoreThanOneInstanceWithoutColocate() throws Exception {
         String createColocateTblStmtStr = "create table db1.test_colocate_one_backend(k1 int, k2 int, k3 int, k4 int) "
                 + "distributed by hash(k1, k2, k3) buckets 10 properties('replication_num' = '1');";
-        CreateTableStmt createColocateTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createColocateTblStmtStr, ctx);
-        Env.getCurrentEnv().createTable(createColocateTableStmt);
-
+        createTable(createColocateTblStmtStr);
         String sql = "select a.k1, a.k2, sum(a.k3) "
                 + "from db1.test_colocate_one_backend a join[shuffle] db1.test_colocate_one_backend b on a.k1=b.k1 "
                 + "group by rollup(a.k1, a.k2);";
-        Deencapsulation.setField(ctx.getSessionVariable(), "parallelExecInstanceNum", 2);
-        String plan1 = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql);
+        Deencapsulation.setField(connectContext.getSessionVariable(), "parallelExecInstanceNum", 2);
+        String plan1 = getSQLPlanOrErrorMsg(sql);
         Assert.assertEquals(2, StringUtils.countMatches(plan1, "AGGREGATE"));
         Assert.assertEquals(5, StringUtils.countMatches(plan1, "PLAN FRAGMENT"));
-
     }
 
+    @Test
+    public void testGlobalColocateGroup() throws Exception {
+        Database db1 = Env.getCurrentEnv().getInternalCatalog().getDbNullable("default_cluster:db1");
+        Database db2 = Env.getCurrentEnv().getInternalCatalog().getDbNullable("default_cluster:db2");
+        OlapTable tbl1 = (OlapTable) db1.getTableNullable("test_global_colocate1");
+        OlapTable tbl2 = (OlapTable) db2.getTableNullable("test_global_colocate2");
+        OlapTable tbl3 = (OlapTable) db2.getTableNullable("test_global_colocate3");
 
+        String sql = "explain select * from (select k1, k2 from "
+                + "db1.test_global_colocate1 group by k1, k2) a , db2.test_global_colocate2 b "
+                + "where a.k1=b.k1 and a.k2=b.k2";
+        String plan1 = getSQLPlanOrErrorMsg(sql);
+        Assert.assertEquals(1, StringUtils.countMatches(plan1, "AGGREGATE"));
+        Assert.assertTrue(plan1.contains(COLOCATE_ENABLE));
+        ColocateTableIndex colocateTableIndex = Env.getCurrentColocateIndex();
+        ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(
+                GroupId.getFullGroupName(1000, GLOBAL_GROUP));
+        Assert.assertNotNull(groupSchema);
+        GroupId groupId = groupSchema.getGroupId();
+        List<Long> tableIds = colocateTableIndex.getAllTableIds(groupId);
+        Assert.assertEquals(3, tableIds.size());
+        Assert.assertTrue(tableIds.contains(tbl1.getId()));
+        Assert.assertTrue(tableIds.contains(tbl2.getId()));
+        Assert.assertTrue(tableIds.contains(tbl3.getId()));
+        Assert.assertEquals(3, groupId.getTblId2DbIdSize());
+        Assert.assertEquals(db1.getId(), groupId.getDbIdByTblId(tbl1.getId()));
+        Assert.assertEquals(db2.getId(), groupId.getDbIdByTblId(tbl2.getId()));
+        Assert.assertEquals(db2.getId(), groupId.getDbIdByTblId(tbl3.getId()));
+
+        sql = "explain select * from (select k1, k2 from "
+                + "db1.test_global_colocate1 group by k1, k2) a , db2.test_global_colocate3 b "
+                + "where a.k1=b.k1 and a.k2=b.k2";
+        plan1 = getSQLPlanOrErrorMsg(sql);
+        Assert.assertEquals(1, StringUtils.countMatches(plan1, "AGGREGATE"));
+        Assert.assertTrue(plan1.contains(COLOCATE_ENABLE));
+
+        String addPartitionStmt
+                = "alter table db2.test_global_colocate3 add partition p3 values less than (\"2020-03-01\");";
+        alterTableSync(addPartitionStmt);
+
+        try {
+            createTable("create table db1.test_global_colocate4(k1 int, k2 int, k3 int, k4 int) "
+                    + "distributed by hash(k1, k2) buckets 10 properties('replication_num' = '2',"
+                    + "'colocate_with' = '" + GLOBAL_GROUP + "');");
+            Assert.fail();
+        } catch (Exception e) {
+            e.printStackTrace();
+            Assert.assertTrue(
+                    e.getMessage().contains("Colocate tables distribution columns must have the same data type"));
+            List<Long> tmpTableIds = colocateTableIndex.getAllTableIds(groupId);
+            Assert.assertEquals(3, tmpTableIds.size());
+            Assert.assertTrue(tmpTableIds.contains(tbl1.getId()));
+            Assert.assertTrue(tmpTableIds.contains(tbl2.getId()));
+            Assert.assertTrue(tmpTableIds.contains(tbl3.getId()));
+            Assert.assertEquals(3, groupId.getTblId2DbIdSize());
+            Assert.assertEquals(db1.getId(), groupId.getDbIdByTblId(tbl1.getId()));
+            Assert.assertEquals(db2.getId(), groupId.getDbIdByTblId(tbl2.getId()));
+            Assert.assertEquals(db2.getId(), groupId.getDbIdByTblId(tbl3.getId()));
+        }
+
+        // modify table's colocate group
+        String modifyStmt = "alter table db2.test_global_colocate3 set ('colocate_with' = '');";
+        alterTableSync(modifyStmt);
+        tableIds = colocateTableIndex.getAllTableIds(groupId);
+        Assert.assertEquals(2, tableIds.size());
+        Assert.assertTrue(tableIds.contains(tbl1.getId()));
+        Assert.assertTrue(tableIds.contains(tbl2.getId()));
+        Assert.assertEquals(2, groupId.getTblId2DbIdSize());
+        Assert.assertEquals(db1.getId(), groupId.getDbIdByTblId(tbl1.getId()));
+        Assert.assertEquals(db2.getId(), groupId.getDbIdByTblId(tbl2.getId()));
+
+        // change table's colocate group
+        modifyStmt = "alter table db2.test_global_colocate2 set ('colocate_with' = '" + GLOBAL_GROUP2 + "');";
+        alterTableSync(modifyStmt);
+        tableIds = colocateTableIndex.getAllTableIds(groupId);
+        Assert.assertEquals(1, tableIds.size());
+        Assert.assertTrue(tableIds.contains(tbl1.getId()));
+        Assert.assertEquals(1, groupId.getTblId2DbIdSize());
+        Assert.assertEquals(db1.getId(), groupId.getDbIdByTblId(tbl1.getId()));
+
+        GroupId groupId2 = colocateTableIndex.getGroupSchema(
+                GroupId.getFullGroupName(1000, GLOBAL_GROUP2)).getGroupId();
+        tableIds = colocateTableIndex.getAllTableIds(groupId2);
+        Assert.assertEquals(1, tableIds.size());
+        Assert.assertTrue(tableIds.contains(tbl2.getId()));
+        Assert.assertEquals(1, groupId2.getTblId2DbIdSize());
+        Assert.assertEquals(db2.getId(), groupId2.getDbIdByTblId(tbl2.getId()));
+
+        // checkpoint
+        // Get currentCatalog first
+        Env currentEnv = Env.getCurrentEnv();
+        // Save real ckptThreadId
+        long ckptThreadId = currentEnv.getCheckpointer().getId();
+        try {
+            // set checkpointThreadId to current thread id, so that when do checkpoint manually here,
+            // the Catalog.isCheckpointThread() will return true.
+            Deencapsulation.setField(Env.class, "checkpointThreadId", Thread.currentThread().getId());
+            currentEnv.getCheckpointer().doCheckpoint();
+        } catch (Throwable e) {
+            e.printStackTrace();
+            Assert.fail(e.getMessage());
+        } finally {
+            // Restore the ckptThreadId
+            Deencapsulation.setField(Env.class, "checkpointThreadId", ckptThreadId);
+        }
+    }
 }

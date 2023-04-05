@@ -153,7 +153,7 @@ Get query id by trance id.
 
 Before executing a Query, set a unique trace id:
 
-`set set session_context="trace_id:your_trace_id";`
+`set session_context="trace_id:your_trace_id";`
 
 After executing the Query within the same Session, the query id can be obtained through the trace id.
     

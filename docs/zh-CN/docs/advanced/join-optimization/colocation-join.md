@@ -90,6 +90,25 @@ PROPERTIES(
 
 如果指定的 Group 不存在，则 Doris 会自动创建一个只包含当前这张表的 Group。如果 Group 已存在，则 Doris 会检查当前表是否满足 Colocation Group Schema。如果满足，则会创建该表，并将该表加入 Group。同时，表会根据已存在的 Group 中的数据分布规则创建分片和副本。 Group 归属于一个 Database，Group 的名字在一个 Database 内唯一。在内部存储是 Group 的全名为 `dbId_groupName`，但用户只感知 groupName。
 
+<version since="dev">
+
+2.0 版本中，Doris 支持了跨Database的 Group。在建表时，需使用关键词 `__global__` 作为 Group 名称的前缀。如：
+
+```
+CREATE TABLE tbl (k1 int, v1 int sum)
+DISTRIBUTED BY HASH(k1)
+BUCKETS 8
+PROPERTIES(
+    "colocate_with" = "__global__group1"
+);
+```
+
+`__global__` 前缀的 Group 不再归属于一个 Database，其名称也是全局唯一的。
+
+通过创建 Global Group，可以实现跨 Database 的 Colocate Join。
+
+</version>
+
 ### 删表
 
 当 Group 中最后一张表彻底删除后（彻底删除是指从回收站中删除。通常，一张表通过 `DROP TABLE` 命令删除后，会在回收站默认停留一天的时间后，再删除），该 Group 也会被自动删除。

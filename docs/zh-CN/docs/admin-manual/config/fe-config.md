@@ -400,6 +400,19 @@ Doris FE 通过 mysql 协议查询连接端口
 
 FE http 端口，当前所有 FE http 端口都必须相同
 
+#### `https_port`
+
+默认值：8050
+
+FE https 端口，当前所有 FE https 端口都必须相同
+
+#### `enable_https`
+
+默认值：false
+
+FE https 使能标志位，false 表示支持 http，true 表示同时支持 http 与 https，并且会自动将 http 请求重定向到 https
+如果 enable_https 为 true，需要在 fe.conf 中配置 ssl 证书信息
+
 #### `qe_max_connection`
 
 默认值：1024
