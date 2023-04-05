@@ -55,15 +55,13 @@ public:
               is_persistent(is_presistent_),
               use_disposable_cache(use_disposable_cache_),
               read_segment_index(read_segment_index_),
-              file_cache_stats(stats_),
-              enable_file_cache(enable_file_cache) {}
+              file_cache_stats(stats_) {}
     ReaderType reader_type;
     const TUniqueId* query_id = nullptr;
     bool is_persistent = false;
     bool use_disposable_cache = false;
     bool read_segment_index = false;
     FileCacheStatistics* file_cache_stats = nullptr;
-    bool enable_file_cache = true;
 };
 
 } // namespace io

@@ -72,10 +72,12 @@ void ORCFileInputStream::read(void* buf, uint64_t length, uint64_t offset) {
     }
 }
 
-OrcReader::OrcReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                     const TFileRangeDesc& range, const std::vector<std::string>& column_names,
-                     size_t batch_size, const std::string& ctz, io::IOContext* io_ctx)
+OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
+                     const TFileScanRangeParams& params, const TFileRangeDesc& range,
+                     const std::vector<std::string>& column_names, size_t batch_size,
+                     const std::string& ctz, io::IOContext* io_ctx)
         : _profile(profile),
+          _state(state),
           _scan_params(params),
           _scan_range(range),
           _batch_size(std::max(batch_size, _MIN_BATCH_SIZE)),
@@ -153,8 +155,10 @@ void OrcReader::_init_profile() {
 Status OrcReader::_create_file_reader() {
     if (_file_input_stream == nullptr) {
         io::FileReaderSPtr inner_reader;
-        RETURN_IF_ERROR(FileFactory::create_file_reader(
-                _profile, _system_properties, _file_description, &_file_system, &inner_reader));
+        io::FileCachePolicy cache_policy = FileFactory::get_cache_policy(_state);
+        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties,
+                                                        _file_description, &_file_system,
+                                                        &inner_reader, cache_policy));
         _file_input_stream.reset(
                 new ORCFileInputStream(_scan_range.path, inner_reader, &_statistics, _io_ctx));
     }
