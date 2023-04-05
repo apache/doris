@@ -54,6 +54,8 @@ public:
                         size_t result, size_t input_rows_count) override {
         auto num = block.get_by_position(arguments[FunctionType::param_num_idx])
                            .column->convert_to_full_column_if_const();
+        num = num->is_nullable() ? assert_cast<const ColumnNullable*>(num.get())
+                ->get_nested_column_ptr() : num;
         auto value = block.get_by_position(arguments[FunctionType::param_val_idx])
                              .column->convert_to_full_column_if_const();
         auto offsets_col = ColumnVector<ColumnArray::Offset64>::create();
