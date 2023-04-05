@@ -172,6 +172,7 @@ set(UTIL_TEST_FILES
     util/lru_cache_util_test.cpp
     util/cidr_test.cpp
     util/metrics_test.cpp
+    util/bvar_metrics_test.cpp
     util/doris_metrics_test.cpp
     util/system_metrics_test.cpp
     util/string_util_test.cpp
