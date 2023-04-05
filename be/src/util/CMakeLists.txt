@@ -102,6 +102,7 @@ set(UTIL_FILES
   jni_native_method.cpp
   bvar_metrics.cpp
   doris_bvar_metrics.cpp
+  system_bvar_metrics.cpp
   )
 
 if (OS_MACOSX)
