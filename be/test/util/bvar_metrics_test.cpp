@@ -23,8 +23,8 @@ namespace doris {
 
 class MetricsTest : public testing::Test {
 public:
-    MetricsTest() {}
-    virtual ~MetricsTest() {}
+    MetricsTest() = default;
+    virtual ~MetricsTest() = default;
 };
 
 } // namespace doris
