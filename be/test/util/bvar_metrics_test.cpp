@@ -24,7 +24,7 @@ namespace doris {
 class MetricsTest : public testing::Test {
 public:
     MetricsTest() = default;
-    virtual ~MetricsTest() = default;
+    ~MetricsTest() override = default;
 };
 
 } // namespace doris
