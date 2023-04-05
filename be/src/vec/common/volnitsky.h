@@ -203,6 +203,10 @@ public:
 
         const auto* haystack_end = haystack + haystack_size;
 
+#ifdef __SSE4_1__
+        return fallback_searcher.search(haystack, haystack_end);
+#endif
+
         if (fallback || haystack_size <= needle_size || fallback_searcher.force_fallback)
             return fallback_searcher.search(haystack, haystack_end);
 

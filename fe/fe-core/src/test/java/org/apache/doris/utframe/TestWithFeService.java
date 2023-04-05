@@ -29,6 +29,7 @@ import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateViewStmt;
+import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.DropSqlBlockRuleStmt;
 import org.apache.doris.analysis.DropTableStmt;
@@ -485,6 +486,12 @@ public abstract class TestWithFeService {
         Env.getCurrentEnv().createDb(createDbStmt);
     }
 
+    public void dropDatabase(String db) throws Exception {
+        String createDbStmtStr = "DROP DATABASE " + db;
+        DropDbStmt createDbStmt = (DropDbStmt) parseAndAnalyzeStmt(createDbStmtStr);
+        Env.getCurrentEnv().dropDb(createDbStmt);
+    }
+
     public void useDatabase(String dbName) {
         connectContext.setDatabase(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName));
     }
@@ -607,6 +614,12 @@ public abstract class TestWithFeService {
         Env.getCurrentEnv().alterTable(alterTableStmt);
         // waiting alter job state: finished AND table state: normal
         checkAlterJob();
+        Thread.sleep(100);
+    }
+
+    protected void alterTableSync(String sql) throws Exception {
+        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        Env.getCurrentEnv().alterTable(alterTableStmt);
         Thread.sleep(100);
     }
 

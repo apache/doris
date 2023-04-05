@@ -139,7 +139,7 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
     
 6. Doris
 
-<version since="dev"></version>
+<version since="1.2.3"></version>
 
 Jdbc Catalog also support to connect another Doris database:
 
@@ -158,7 +158,7 @@ Currently, Jdbc Catalog only support to use 5.x version of JDBC jar package to c
 
 7. SAP_HANA
 
-<version since="dev"></version>
+<version since="1.2.3"></version>
 
 ```sql
 CREATE CATALOG hana_catalog PROPERTIES (

@@ -130,7 +130,7 @@ CREATE CATALOG iceberg PROPERTIES (
 
 ## Time Travel
 
-<version since="dev">
+<version since="1.2.2">
 
 支持读取 Iceberg 表指定的 Snapshot。
 

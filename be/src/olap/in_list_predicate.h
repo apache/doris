@@ -447,33 +447,21 @@ private:
                 LOG(FATAL) << "column_dictionary must use StringRef predicate.";
             }
         } else {
-            auto* nested_col_ptr = vectorized::check_and_get_column<
-                    vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>(column);
-            auto& data_array = nested_col_ptr->get_data();
+            auto& pred_col =
+                    vectorized::check_and_get_column<
+                            vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>(column)
+                            ->get_data();
+            auto pred_col_data = pred_col.data();
 
-            for (uint16_t i = 0; i < size; i++) {
-                uint16_t idx = sel[i];
-                if constexpr (is_nullable) {
-                    if ((*null_map)[idx]) {
-                        if constexpr (is_opposite) {
-                            sel[new_size++] = idx;
-                        }
-                        continue;
-                    }
-                }
-
-                if constexpr (!is_opposite) {
-                    if (_operator(_values->find(reinterpret_cast<const T*>(&data_array[idx])),
-                                  false)) {
-                        sel[new_size++] = idx;
-                    }
-                } else {
-                    if (!_operator(_values->find(reinterpret_cast<const T*>(&data_array[idx])),
-                                   false)) {
-                        sel[new_size++] = idx;
-                    }
-                }
-            }
+#define EVALUATE_WITH_NULL_IMPL(IDX) \
+    is_opposite ^                    \
+            (!(*null_map)[IDX] &&    \
+             _operator(_values->find(reinterpret_cast<const T*>(&pred_col_data[IDX])), false))
+#define EVALUATE_WITHOUT_NULL_IMPL(IDX) \
+    is_opposite ^ _operator(_values->find(reinterpret_cast<const T*>(&pred_col_data[IDX])), false)
+            EVALUATE_BY_SELECTOR(EVALUATE_WITH_NULL_IMPL, EVALUATE_WITHOUT_NULL_IMPL)
+#undef EVALUATE_WITH_NULL_IMPL
+#undef EVALUATE_WITHOUT_NULL_IMPL
         }
         return new_size;
     }

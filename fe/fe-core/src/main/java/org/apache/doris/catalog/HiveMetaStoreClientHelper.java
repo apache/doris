@@ -698,6 +698,13 @@ public class HiveMetaStoreClientHelper {
      * Convert hive type to doris type.
      */
     public static Type hiveTypeToDorisType(String hiveType) {
+        return hiveTypeToDorisType(hiveType, 0);
+    }
+
+    /**
+     * Convert hive type to doris type with timescale.
+     */
+    public static Type hiveTypeToDorisType(String hiveType, int timeScale) {
         String lowerCaseType = hiveType.toLowerCase();
         switch (lowerCaseType) {
             case "boolean":
@@ -713,7 +720,7 @@ public class HiveMetaStoreClientHelper {
             case "date":
                 return ScalarType.createDateV2Type();
             case "timestamp":
-                return ScalarType.createDatetimeV2Type(0);
+                return ScalarType.createDatetimeV2Type(timeScale);
             case "float":
                 return Type.FLOAT;
             case "double":

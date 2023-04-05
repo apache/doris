@@ -420,8 +420,6 @@ CONF_mInt32(stream_load_record_batch_size, "50");
 CONF_Int32(stream_load_record_expire_time_secs, "28800");
 // time interval to clean expired stream load records
 CONF_mInt64(clean_stream_load_record_interval_secs, "1800");
-// Whether to enable stream load profile to be printed to the log, the default is false.
-CONF_mBool(enable_stream_load_profile_log, "false");
 
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.
@@ -878,8 +876,6 @@ CONF_Int32(segcompaction_threshold_segment_num, "10");
 
 // The segment whose row number above the threshold will be compacted during segcompaction
 CONF_Int32(segcompaction_small_threshold, "1048576");
-
-CONF_String(jvm_max_heap_size, "1024M");
 
 // enable java udf and jdbc scannode
 CONF_Bool(enable_java_support, "true");

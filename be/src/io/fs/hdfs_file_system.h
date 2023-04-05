@@ -18,13 +18,13 @@
 #pragma once
 
 #include <gen_cpp/PlanNodes_types.h>
-#include <hdfs/hdfs.h>
 
 #include <atomic>
 
+#include "io/fs/hdfs.h"
 #include "io/fs/remote_file_system.h"
-namespace doris {
 
+namespace doris {
 namespace io {
 
 class HdfsFileSystemHandle {

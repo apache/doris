@@ -83,18 +83,7 @@ private:
     Status _register_func_id(JNIEnv* env);
     Status _check_column_type();
     Status _check_type(SlotDescriptor*, const std::string& type_str, int column_index);
-    Status _convert_column_data(JNIEnv* env, jobject jobj, const SlotDescriptor* slot_desc,
-                                vectorized::IColumn* column_ptr, int column_index,
-                                std::string_view column_name);
-    Status _insert_column_data(JNIEnv* env, jobject jobj, const TypeDescriptor& type,
-                               vectorized::IColumn* column_ptr, int column_index,
-                               std::string_view column_name);
-    Status _insert_arr_column_data(JNIEnv* env, jobject jobj, const TypeDescriptor& type, int nums,
-                                   vectorized::IColumn* column_ptr, int column_index,
-                                   std::string_view column_name);
     std::string _jobject_to_string(JNIEnv* env, jobject jobj);
-    int64_t _jobject_to_date(JNIEnv* env, jobject jobj, bool is_date_v2);
-    int64_t _jobject_to_datetime(JNIEnv* env, jobject jobj, bool is_datetime_v2);
     Status _cast_string_to_array(const SlotDescriptor* slot_desc, Block* block, int column_index,
                                  int rows);
     Status _convert_batch_result_set(JNIEnv* env, jobject jobj, const SlotDescriptor* slot_desc,
@@ -102,11 +91,6 @@ private:
                                      int column_index);
 
     const JdbcConnectorParam& _conn_param;
-    //java.sql.Types: https://docs.oracle.com/javase/7/docs/api/constant-values.html#java.sql.Types.INTEGER
-    std::map<int, PrimitiveType> _arr_jdbc_map {
-            {-7, TYPE_BOOLEAN}, {-6, TYPE_TINYINT},  {5, TYPE_SMALLINT}, {4, TYPE_INT},
-            {-5, TYPE_BIGINT},  {12, TYPE_STRING},   {7, TYPE_FLOAT},    {8, TYPE_DOUBLE},
-            {91, TYPE_DATE},    {93, TYPE_DATETIME}, {2, TYPE_DECIMALV2}};
     bool _closed = false;
     jclass _executor_clazz;
     jclass _executor_list_clazz;
@@ -137,39 +121,21 @@ private:
     jmethodID _executor_get_decimal32_result;
     jmethodID _executor_get_decimal64_result;
     jmethodID _executor_get_decimal128_result;
+    jmethodID _executor_get_array_result;
     jmethodID _executor_get_types_id;
-    jmethodID _executor_get_arr_list_id;
-    jmethodID _executor_get_arr_type_id;
     jmethodID _executor_close_id;
     jmethodID _executor_get_list_id;
-    jmethodID _executor_get_list_size_id;
-    jmethodID _executor_convert_date_id;
-    jmethodID _executor_convert_datetime_id;
-    jmethodID _executor_convert_array_id;
     jmethodID _get_bytes_id;
     jmethodID _to_string_id;
     jmethodID _executor_begin_trans_id;
     jmethodID _executor_finish_trans_id;
     jmethodID _executor_abort_trans_id;
-    bool _need_cast_array_type = false;
     std::map<int, int> _map_column_idx_to_cast_idx;
     std::vector<DataTypePtr> _input_array_string_types;
     std::vector<MutableColumnPtr>
             str_array_cols; // for array type to save data like big string [1,2,3]
 
     JdbcStatistic _jdbc_statistic;
-
-#define FUNC_VARI_DECLARE(RETURN_TYPE)                                \
-    RETURN_TYPE _jobject_to_##RETURN_TYPE(JNIEnv* env, jobject jobj); \
-    jclass _executor_##RETURN_TYPE##_clazz;
-
-    FUNC_VARI_DECLARE(uint8_t)
-    FUNC_VARI_DECLARE(int8_t)
-    FUNC_VARI_DECLARE(int16_t)
-    FUNC_VARI_DECLARE(int32_t)
-    FUNC_VARI_DECLARE(int64_t)
-    FUNC_VARI_DECLARE(float)
-    FUNC_VARI_DECLARE(double)
 };
 
 } // namespace vectorized

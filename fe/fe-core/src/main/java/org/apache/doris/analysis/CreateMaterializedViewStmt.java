@@ -497,7 +497,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         return new MVColumnItem(type, mvAggregateType, defineExpr, mvColumnBuilder(defineExpr.toSql()));
     }
 
-    public Map<String, Expr> parseDefineExprWithoutAnalyze() throws AnalysisException {
+    public Map<String, Expr> parseDefineExpr(Analyzer analyzer) throws AnalysisException {
         Map<String, Expr> result = Maps.newHashMap();
         SelectList selectList = selectStmt.getSelectList();
         for (SelectListItem selectListItem : selectList.getItems()) {
@@ -513,7 +513,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                     case FunctionSet.BITMAP_UNION:
                     case FunctionSet.HLL_UNION:
                     case FunctionSet.COUNT:
-                        MVColumnItem item = buildMVColumnItem(null, functionCallExpr);
+                        MVColumnItem item = buildMVColumnItem(analyzer, functionCallExpr);
                         expr = item.getDefineExpr();
                         name = item.getName();
                         break;

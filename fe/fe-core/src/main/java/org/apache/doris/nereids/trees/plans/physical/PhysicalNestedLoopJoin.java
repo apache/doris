@@ -167,4 +167,12 @@ public class PhysicalNestedLoopJoin<
     public boolean isBitMapRuntimeFilterConditionsEmpty() {
         return bitMapRuntimeFilterConditions.isEmpty();
     }
+
+    @Override
+    public String shapeInfo() {
+        StringBuilder builder = new StringBuilder("NestedLoopJoin");
+        builder.append("[").append(joinType).append("]");
+        otherJoinConjuncts.forEach(expr -> builder.append(expr.shapeInfo()));
+        return builder.toString();
+    }
 }

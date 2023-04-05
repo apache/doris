@@ -23,6 +23,7 @@ import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.PlanNode;
+import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TRuntimeProfileNode;
@@ -141,5 +142,10 @@ public class StatsErrorEstimator {
 
     public String toJson() {
         return GsonUtils.GSON.toJson(this);
+    }
+
+    // For test only.
+    public void setExactReturnedRow(PlanNodeId planNodeId, Double d) {
+        legacyPlanIdStats.get(planNodeId.asInt()).second += d;
     }
 }

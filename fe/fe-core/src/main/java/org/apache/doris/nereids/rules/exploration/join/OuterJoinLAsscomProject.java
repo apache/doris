@@ -99,7 +99,7 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                     aProjects.addAll(forceToNullable(c.getOutputSet()));
 
                     /* ********** new Plan ********** */
-                    LogicalJoin newBottomJoin = (LogicalJoin) topJoin.withChildren(a, c);
+                    LogicalJoin newBottomJoin = topJoin.withChildrenNoContext(a, c);
                     newBottomJoin.getJoinReorderContext().copyFrom(bottomJoin.getJoinReorderContext());
                     newBottomJoin.getJoinReorderContext().setHasLAsscom(false);
                     newBottomJoin.getJoinReorderContext().setHasCommute(false);
@@ -107,7 +107,7 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                     Plan left = JoinReorderUtils.projectOrSelf(aProjects, newBottomJoin);
                     Plan right = JoinReorderUtils.projectOrSelf(bProjects, b);
 
-                    LogicalJoin newTopJoin = (LogicalJoin) bottomJoin.withChildren(left, right);
+                    LogicalJoin newTopJoin = bottomJoin.withChildrenNoContext(left, right);
                     newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());
                     newTopJoin.getJoinReorderContext().setHasLAsscom(true);
 

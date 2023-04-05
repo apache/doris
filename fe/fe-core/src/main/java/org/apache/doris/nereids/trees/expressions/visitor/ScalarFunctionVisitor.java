@@ -269,11 +269,13 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByChar;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitPart;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sqrt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StAngle;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAngleSphere;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAreaSquareKm;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAreaSquareMeters;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAstext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAswkt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StAzimuth;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StCircle;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDistanceSphere;
@@ -1371,6 +1373,14 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitStAngleSphere(StAngleSphere stAngleSphere, C context) {
         return visitScalarFunction(stAngleSphere, context);
+    }
+
+    default R visitStAngle(StAngle stAngle, C context) {
+        return visitScalarFunction(stAngle, context);
+    }
+
+    default R visitStAzimuth(StAzimuth stAzimuth, C context) {
+        return visitScalarFunction(stAzimuth, context);
     }
 
     default R visitStAreaSquareMeters(StAreaSquareMeters stAreaSquareMeters, C context) {

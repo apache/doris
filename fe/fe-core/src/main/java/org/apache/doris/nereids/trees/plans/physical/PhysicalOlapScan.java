@@ -155,4 +155,12 @@ public class PhysicalOlapScan extends PhysicalRelation implements OlapScan {
                 selectedPartitionIds, distributionSpec, preAggStatus, groupExpression,
                 getLogicalProperties(), physicalProperties, statistics);
     }
+
+    @Override
+    public String shapeInfo() {
+        StringBuilder builder = new StringBuilder();
+        builder.append(this.getClass().getSimpleName()).append("[").append(olapTable.getName()).append("]");
+        return builder.toString();
+    }
+
 }
