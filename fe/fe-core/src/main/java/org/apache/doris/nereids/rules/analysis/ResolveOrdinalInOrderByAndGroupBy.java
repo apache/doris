@@ -68,13 +68,13 @@ public class ResolveOrdinalInOrderByAndGroupBy implements AnalysisRuleFactory {
                             return sort.withOrderKeys(orderKeysWithoutOrd);
                         })
                 ))
-                .add(RuleType.RESOLVE_ORDINAL_IN_GROUP_BY.build(
-                        logicalAggregate().whenNot(agg -> agg.isOrdinalIsResolved()).thenApply(ctx -> {
+                .add(RuleType.RESOLVE_ORDINAL_IN_GROUP_BY.build(logicalAggregate()
+                        .when(a -> a.getGroupByExpressions().stream().anyMatch(e -> e instanceof IntegerLikeLiteral))
+                        .thenApply(ctx -> {
                             LogicalAggregate<Plan> agg = ctx.root;
                             List<NamedExpression> aggOutput = agg.getOutputExpressions();
                             List<Expression> groupByWithoutOrd = new ArrayList<>();
                             ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
-                            boolean ordExists = false;
                             for (Expression groupByExpr : agg.getGroupByExpressions()) {
                                 groupByExpr = FoldConstantRule.INSTANCE.rewrite(groupByExpr, context);
                                 if (groupByExpr instanceof IntegerLikeLiteral) {
@@ -86,17 +86,17 @@ public class ResolveOrdinalInOrderByAndGroupBy implements AnalysisRuleFactory {
                                         aggExpr = ((Alias) aggExpr).child();
                                     }
                                     groupByWithoutOrd.add(aggExpr);
-                                    ordExists = true;
                                 } else {
                                     groupByWithoutOrd.add(groupByExpr);
                                 }
                             }
-                            if (ordExists) {
-                                return new LogicalAggregate(groupByWithoutOrd, agg.getOutputExpressions(), true,
-                                        agg.child());
-                            } else {
-                                return agg;
+
+                            LogicalAggregate<Plan> newAgg = new LogicalAggregate<>(groupByWithoutOrd,
+                                    agg.getOutputExpressions(), agg.child());
+                            if (newAgg.equals(agg)) {
+                                return null;
                             }
+                            return newAgg;
                         }))).build();
     }
 
