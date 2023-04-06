@@ -118,7 +118,7 @@ vectorized::IColumn::MutablePtr Schema::get_column_by_field(const Field& field) 
 }
 
 vectorized::IColumn::MutablePtr Schema::get_predicate_column_ptr(const Field& field,
-                                                                 bool is_nullable) {
+                                                                 const ReaderType reader_type) {
     vectorized::IColumn::MutablePtr ptr = nullptr;
     switch (field.type()) {
     case OLAP_FIELD_TYPE_BOOL:
@@ -160,7 +160,7 @@ vectorized::IColumn::MutablePtr Schema::get_predicate_column_ptr(const Field& fi
     case OLAP_FIELD_TYPE_CHAR:
     case OLAP_FIELD_TYPE_VARCHAR:
     case OLAP_FIELD_TYPE_STRING:
-        if (config::enable_low_cardinality_optimize) {
+        if (config::enable_low_cardinality_optimize && reader_type == ReaderType::READER_QUERY) {
             ptr = doris::vectorized::ColumnDictionary<doris::vectorized::Int32>::create(
                     field.type());
         } else {
@@ -181,29 +181,29 @@ vectorized::IColumn::MutablePtr Schema::get_predicate_column_ptr(const Field& fi
         break;
     case OLAP_FIELD_TYPE_ARRAY:
         ptr = doris::vectorized::ColumnArray::create(
-                get_predicate_column_ptr(*field.get_sub_field(0)),
+                get_predicate_column_ptr(*field.get_sub_field(0), reader_type),
                 doris::vectorized::ColumnArray::ColumnOffsets::create());
         break;
     case OLAP_FIELD_TYPE_STRUCT: {
         size_t field_size = field.get_sub_field_count();
         doris::vectorized::MutableColumns columns(field_size);
         for (size_t i = 0; i < field_size; i++) {
-            columns[i] = get_predicate_column_ptr(*field.get_sub_field(i));
+            columns[i] = get_predicate_column_ptr(*field.get_sub_field(i), reader_type);
         }
         ptr = doris::vectorized::ColumnStruct::create(std::move(columns));
         break;
     }
     case OLAP_FIELD_TYPE_MAP:
         ptr = doris::vectorized::ColumnMap::create(
-                get_predicate_column_ptr(*field.get_sub_field(0)),
-                get_predicate_column_ptr(*field.get_sub_field(1)),
+                get_predicate_column_ptr(*field.get_sub_field(0), reader_type),
+                get_predicate_column_ptr(*field.get_sub_field(1), reader_type),
                 doris::vectorized::ColumnArray::ColumnOffsets::create());
         break;
     default:
         LOG(FATAL) << "Unexpected type when choosing predicate column, type=" << field.type();
     }
 
-    if (field.is_nullable() || is_nullable) {
+    if (field.is_nullable()) {
         return doris::vectorized::ColumnNullable::create(std::move(ptr),
                                                          doris::vectorized::ColumnUInt8::create());
     }
