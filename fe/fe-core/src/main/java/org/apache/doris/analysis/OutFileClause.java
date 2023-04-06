@@ -653,6 +653,7 @@ public class OutFileClause {
                 brokerProps.put(PropertyConverter.USE_PATH_STYLE, properties.get(PropertyConverter.USE_PATH_STYLE));
                 processedPropKeys.add(PropertyConverter.USE_PATH_STYLE);
             }
+            S3Properties.convertToStdProperties(brokerProps);
             S3Properties.requiredS3Properties(brokerProps);
         } else if (storageType == StorageBackend.StorageType.HDFS) {
             if (!brokerProps.containsKey(HdfsResource.HADOOP_FS_NAME)) {
