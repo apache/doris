@@ -1058,8 +1058,24 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(HashTableTyp
         };
 
         if (visited_iter.ok()) {
-            for (; visited_iter.ok() && block_size < _batch_size; ++visited_iter) {
-                insert_from_hash_table(visited_iter->block_offset, visited_iter->row_num);
+            if constexpr (std::is_same_v<Mapped, RowRefListWithFlag>) {
+                for (; visited_iter.ok() && block_size < _batch_size; ++visited_iter) {
+                    insert_from_hash_table(visited_iter->block_offset, visited_iter->row_num);
+                }
+            } else {
+                for (; visited_iter.ok() && block_size < _batch_size; ++visited_iter) {
+                    if constexpr (JoinOpType == TJoinOp::RIGHT_SEMI_JOIN) {
+                        if (visited_iter->visited) {
+                            insert_from_hash_table(visited_iter->block_offset,
+                                                   visited_iter->row_num);
+                        }
+                    } else {
+                        if (!visited_iter->visited) {
+                            insert_from_hash_table(visited_iter->block_offset,
+                                                   visited_iter->row_num);
+                        }
+                    }
+                }
             }
             if (!visited_iter.ok()) {
                 ++iter;
@@ -1070,16 +1086,16 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(HashTableTyp
             auto& mapped = iter->get_second();
             if constexpr (std::is_same_v<Mapped, RowRefListWithFlag>) {
                 if (mapped.visited) {
-                    visited_iter = mapped.begin();
-                    for (; visited_iter.ok() && block_size < _batch_size; ++visited_iter) {
-                        if constexpr (JoinOpType == TJoinOp::RIGHT_SEMI_JOIN) {
+                    if constexpr (JoinOpType == TJoinOp::RIGHT_SEMI_JOIN) {
+                        visited_iter = mapped.begin();
+                        for (; visited_iter.ok() && block_size < _batch_size; ++visited_iter) {
                             insert_from_hash_table(visited_iter->block_offset,
                                                    visited_iter->row_num);
                         }
-                    }
-                    if (visited_iter.ok()) {
-                        // block_size >= _batch_size, quit for loop
-                        break;
+                        if (visited_iter.ok()) {
+                            // block_size >= _batch_size, quit for loop
+                            break;
+                        }
                     }
                 } else {
                     if constexpr (JoinOpType != TJoinOp::RIGHT_SEMI_JOIN) {
