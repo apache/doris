@@ -59,6 +59,13 @@ public class ReplaceAliasFunction extends DefaultExpressionRewriter<CascadesCont
                             .map(ne -> ((NamedExpression) ne.accept(this, ctx.cascadesContext)))
                             .collect(Collectors.toList());
                     return project.withProjects(exprs);
+                }).toRule(RuleType.REPLACE_ALIAS_FUNCTION),
+                unboundOneRowRelation().thenApply(ctx -> {
+                    UnboundOneRowRelation relation = ctx.root;
+                    List<NamedExpression> exprs = relation.getProjects().stream()
+                            .map(ne -> ((NamedExpression) ne.accept(this, ctx.cascadesContext)))
+                            .collect(Collectors.toList());
+                    return new UnboundOneRowRelation(relation.getId(), exprs);
                 }).toRule(RuleType.REPLACE_ALIAS_FUNCTION)
         );
     }
