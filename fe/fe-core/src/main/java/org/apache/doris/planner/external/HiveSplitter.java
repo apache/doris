@@ -23,7 +23,6 @@ import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.external.HMSExternalTable;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.HMSExternalCatalog;
@@ -34,6 +33,7 @@ import org.apache.doris.planner.ColumnRange;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.Split;
 import org.apache.doris.planner.Splitter;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
@@ -174,13 +174,14 @@ public class HiveSplitter implements Splitter {
             }
             return splits.toArray(new FileSplit[splits.size()]);
         }
-        long splitSize = Config.file_split_size;
-        boolean useDefaultBlockSize = (splitSize <= 0);
+        long splitSize = ConnectContext.get().getSessionVariable().getFileSplitSize();
         while (locatedFileStatusRemoteIterator.hasNext()) {
             LocatedFileStatus status = locatedFileStatusRemoteIterator.next();
-            if (useDefaultBlockSize) {
-                splitSize = status.getBlockSize() > 0 ? status.getBlockSize() : DEFAULT_SPLIT_SIZE;
+            if (splitSize <= 0) {
+                splitSize = status.getBlockSize();
             }
+            // Min split size is DEFAULT_SPLIT_SIZE(128MB).
+            splitSize = splitSize > DEFAULT_SPLIT_SIZE ? splitSize : DEFAULT_SPLIT_SIZE;
             BlockLocation[] blockLocations = status.getBlockLocations();
             long length = status.getLen();
             long bytesRemaining;

@@ -407,8 +407,8 @@ public class LoadStmt extends DdlStmt {
             }
             if (brokerDesc != null && !brokerDesc.isMultiLoadBroker()) {
                 for (int i = 0; i < dataDescription.getFilePaths().size(); i++) {
-                    dataDescription.getFilePaths().set(i,
-                            brokerDesc.convertPathToS3(dataDescription.getFilePaths().get(i)));
+                    String location = brokerDesc.getFileLocation(dataDescription.getFilePaths().get(i));
+                    dataDescription.getFilePaths().set(i, location);
                     dataDescription.getFilePaths().set(i,
                             ExportStmt.checkPath(dataDescription.getFilePaths().get(i), brokerDesc.getStorageType()));
                 }

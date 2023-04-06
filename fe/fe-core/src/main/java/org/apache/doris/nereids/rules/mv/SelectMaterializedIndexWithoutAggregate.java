@@ -24,15 +24,20 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Set;
@@ -111,7 +116,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
      * @param predicatesSupplier Supplier to get pushdown predicates.
      * @return Result scan node.
      */
-    private LogicalOlapScan select(
+    private LogicalPlan select(
             LogicalOlapScan scan,
             Supplier<Set<Slot>> requiredScanOutputSupplier,
             Supplier<Set<Expression>> predicatesSupplier) {
@@ -132,13 +137,17 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
         }
         if (scan.getTable().isDupKeysOrMergeOnWrite()) {
             // Set pre-aggregation to `on` to keep consistency with legacy logic.
-            List<MaterializedIndex> candidate = scan.getTable().getVisibleIndex().stream()
+            List<MaterializedIndex> candidates = scan.getTable().getVisibleIndex().stream()
                     .filter(index -> !indexHasAggregate(index, scan))
                     .filter(index -> containAllRequiredColumns(index, scan,
                             requiredScanOutputSupplier.get()))
                     .collect(Collectors.toList());
-            return scan.withMaterializedIndexSelected(PreAggStatus.on(),
-                    selectBestIndex(candidate, scan, predicatesSupplier.get()));
+            long bestIndex = selectBestIndex(candidates, scan, predicatesSupplier.get());
+            if (bestIndex == baseIndexId) {
+                return scan.withMaterializedIndexSelected(PreAggStatus.on(), bestIndex);
+            } else {
+                return createProjectForMv(scan.withMaterializedIndexSelected(PreAggStatus.on(), bestIndex));
+            }
         } else {
             final PreAggStatus preAggStatus;
             if (preAggEnabledByHint(scan)) {
@@ -163,8 +172,8 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                 // `candidates` only have base index.
                 return scan.withMaterializedIndexSelected(preAggStatus, baseIndexId);
             } else {
-                return scan.withMaterializedIndexSelected(preAggStatus,
-                        selectBestIndex(candidates, scan, predicatesSupplier.get()));
+                return createProjectForMv(scan.withMaterializedIndexSelected(preAggStatus,
+                        selectBestIndex(candidates, scan, predicatesSupplier.get())));
             }
         }
     }
@@ -173,5 +182,29 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
         return scan.getTable().getSchemaByIndexId(index.getId())
                 .stream()
                 .anyMatch(Column::isAggregated);
+    }
+
+    private LogicalProject createProjectForMv(LogicalOlapScan scan) {
+        Preconditions.checkArgument(scan.getSelectedIndexId() != scan.getTable().getBaseIndexId());
+        List<Slot> mvSlots = scan.getOutputByMvIndex(scan.getSelectedIndexId());
+        List<Slot> baseSlots = scan.getOutputByMvIndex(scan.getTable().getBaseIndexId());
+        List<Alias> aliases = Lists.newArrayList();
+        List<String> baseColumnNames = mvSlots.stream()
+                .map(slot -> org.apache.doris.analysis.CreateMaterializedViewStmt.mvColumnBreaker(slot.getName()))
+                .collect(Collectors.toList());
+        boolean isMvName = org.apache.doris.analysis.CreateMaterializedViewStmt.isMVColumn(mvSlots.get(0).getName());
+        for (int i = 0; i < baseColumnNames.size(); ++i) {
+            for (Slot slot : baseSlots) {
+                if (((SlotReference) slot).getColumn().get().getName()
+                        .equals(baseColumnNames.get(i))) {
+                    aliases.add(
+                            new Alias(slot.getExprId(), isMvName ? mvSlots.get(i) : slot, baseColumnNames.get(i)));
+                    break;
+                }
+            }
+        }
+        return new LogicalProject(aliases,
+                isMvName ? scan.withOutput(scan.getOutputByMvIndex(scan.getSelectedIndexId()))
+                        : scan);
     }
 }
