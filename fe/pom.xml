@@ -70,6 +70,25 @@ under the License.
                 <version>1.2.5</version>
             </plugin>
             <plugin>
+                <groupId>org.owasp</groupId>
+                <artifactId>dependency-check-maven</artifactId>
+                <version>7.1.2</version>
+                <configuration>
+                    <skip>true</skip>
+                    <skipProvidedScope>true</skipProvidedScope>
+                    <skipRuntimeScope>true</skipRuntimeScope>
+                    <skipSystemScope>true</skipSystemScope>
+                    <failBuildOnCVSS>7</failBuildOnCVSS>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>aggregate</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-dependency-plugin</artifactId>
                 <version>3.1.1</version>
@@ -534,6 +553,8 @@ under the License.
                 <groupId>org.apache.doris</groupId>
                 <artifactId>thrift-shade-0.13</artifactId>
                 <version>${doris.shade.version}</version>
+                <scope>system</scope>
+                <systemPath>${basedir}/../lib/thrift-shade-0.13-${doris.shade.version}.jar</systemPath>
             </dependency>
             <dependency>
                 <groupId>org.apache.logging.log4j</groupId>
@@ -882,12 +903,16 @@ under the License.
                 <groupId>org.apache.doris</groupId>
                 <artifactId>spring-shade-5</artifactId>
                 <version>${doris.shade.version}</version>
+                <scope>system</scope>
+                <systemPath>${basedir}/../lib/spring-shade-5-${doris.shade.version}.jar</systemPath>
             </dependency>
 
             <dependency>
                 <groupId>org.apache.doris</groupId>
                 <artifactId>hive-shade-3</artifactId>
                 <version>${doris.shade.version}</version>
+                <scope>system</scope>
+                <systemPath>${basedir}/../lib/hive-shade-3-${doris.shade.version}.jar</systemPath>
             </dependency>
 
             <dependency>
@@ -998,6 +1023,8 @@ under the License.
                 <groupId>org.apache.doris</groupId>
                 <artifactId>hudi-mr-shade-0.13</artifactId>
                 <version>${doris.shade.version}</version>
+                <scope>system</scope>
+                <systemPath>${basedir}/../lib/hudi-mr-shade-0.13-${doris.shade.version}.jar</systemPath>
             </dependency>
 
             <dependency>

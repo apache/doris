@@ -103,6 +103,8 @@ under the License.
                 <groupId>org.apache.doris</groupId>
                 <artifactId>hadoop-shade-2</artifactId>
                 <version>${doris.shade.version}</version>
+                <scope>system</scope>
+                <systemPath>${project.basedir}/lib/hadoop-shade-2-${doris.shade.version}.jar</systemPath>
             </dependency>
 
         </dependencies>
@@ -245,7 +247,7 @@ under the License.
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
-            <version>2.14.1</version>
+            <version>2.14.2</version>
         </dependency>
         <!-- https://mvnrepository.com/artifact/io.netty/netty-all -->
         <dependency>
@@ -270,6 +272,9 @@ under the License.
             <groupId>org.apache.doris</groupId>
             <artifactId>thrift-shade-0.13</artifactId>
             <version>${doris.shade.version}</version>
+            <scope>system</scope>
+            <systemPath>${basedir}/lib/thrift-shade-0.13-${doris.shade.version}.jar</systemPath>
+
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.apache.logging.log4j/log4j-api -->
         <dependency>
