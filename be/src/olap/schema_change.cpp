@@ -1765,7 +1765,9 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
                 column_new.frac() != column_old.frac() ||
                 column_new.length() != column_old.length() ||
                 column_new.is_bf_column() != column_old.is_bf_column() ||
-                column_new.has_bitmap_index() != column_old.has_bitmap_index()) {
+                column_new.has_bitmap_index() != column_old.has_bitmap_index() ||
+                new_tablet_schema->has_inverted_index(column_new.unique_id()) !=
+                        base_tablet_schema->has_inverted_index(column_old.unique_id())) {
                 *sc_directly = true;
                 return Status::OK();
             }
