@@ -88,9 +88,7 @@ public class ReplaceAliasFunction extends DefaultExpressionRewriter<CascadesCont
             throw new AnalysisException(String.format("unsupported type of originalFunction in aliasFunction: %s",
                     originalFunction.getType()));
         }
-        Expression expr = translateToNereidsFunction(((FunctionCallExpr) originalFunction));
-        System.out.println(expr);
-        return function;
+        return translateToNereidsFunction(((FunctionCallExpr) originalFunction));
     }
 
     private AliasFunction getAliasFunction(UnboundFunction function, Database database) {
