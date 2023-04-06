@@ -116,7 +116,7 @@ suite ("test_agg_mv_schema_change") {
         sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
 
         def mvName2 = "mv2"
-        sql "create materialized view ${mvName2} as select user_id, date, city, max(age), cost from ${tableName} group by user_id, date, city, age, sex;"
+        sql "create materialized view ${mvName2} as select user_id, date, city, cost, max(age) from ${tableName} group by user_id, date, city, cost, sex;"
 
         waitForJob(tableName, 3000)
 
