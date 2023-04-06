@@ -53,7 +53,7 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
         this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
     }
 
-    public PhysicalProject(List<NamedExpression> projects, Optional<GroupExpression> groupExpression,
+    private PhysicalProject(List<NamedExpression> projects, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
             Statistics statistics, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_PROJECT, groupExpression, logicalProperties, physicalProperties, statistics,
@@ -121,21 +121,5 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
             Statistics statistics) {
         return new PhysicalProject<>(projects, groupExpression, getLogicalProperties(), physicalProperties,
                 statistics, child());
-    }
-
-    /**
-     * replace projections and child, it is used for merge consecutive projections.
-     * @param projections new projections
-     * @param child new child
-     * @return new project
-     */
-    public PhysicalProject<Plan> withProjectionsAndChild(List<NamedExpression> projections, Plan child) {
-        return new PhysicalProject<Plan>(ImmutableList.copyOf(projections),
-                groupExpression,
-                getLogicalProperties(),
-                physicalProperties,
-                statistics,
-                child
-                );
     }
 }
