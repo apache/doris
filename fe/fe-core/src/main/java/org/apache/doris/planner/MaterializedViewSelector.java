@@ -43,6 +43,7 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
@@ -455,6 +456,14 @@ public class MaterializedViewSelector {
                 aggExpr.getTableIdToColumnNames(tableIdToAggColumnNames);
                 // count(*): tableIdToAggColumnNames is empty which must forbidden the SPJG MV.
                 // TODO(ml): support count(*)
+                List<SlotRef> slots = new ArrayList<>();
+                aggExpr.collect(SlotRef.class, slots);
+                if (!slots.isEmpty()) {
+                    SlotDescriptor desc = ((SlotRef) slots.get(0)).getDesc();
+                    if (desc != null && !desc.isMaterialized()) {
+                        continue;
+                    }
+                }
                 if (tableIdToAggColumnNames.size() != 1) {
                     reasonOfDisable = "aggExpr[" + aggExpr.debugString() + "] should involved only one column";
                     disableSPJGView = true;
