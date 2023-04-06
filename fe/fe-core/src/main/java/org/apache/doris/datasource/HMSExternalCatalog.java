@@ -163,6 +163,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
         for (Map.Entry<String, String> kv : catalogProperty.getHadoopProperties().entrySet()) {
             hiveConf.set(kv.getKey(), kv.getValue());
         }
+        hiveConf.set(HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
+                String.valueOf(Config.hive_metastore_client_timeout_second));
         String authentication = catalogProperty.getOrDefault(
                 HdfsResource.HADOOP_SECURITY_AUTHENTICATION, "");
         if (AuthType.KERBEROS.getDesc().equals(authentication)) {

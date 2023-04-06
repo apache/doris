@@ -54,7 +54,7 @@ public:
 
     bool can_be_inside_nullable() const override { return true; }
     MutableColumnPtr create_column() const override;
-    Field get_default() const override { return Map(); };
+    Field get_default() const override;
     bool equals(const IDataType& rhs) const override;
     bool get_is_parametric() const override { return true; }
     bool have_subtypes() const override { return true; }

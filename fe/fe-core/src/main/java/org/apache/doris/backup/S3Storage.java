@@ -103,7 +103,7 @@ public class S3Storage extends BlobStorage {
             S3Properties.convertToStdProperties(caseInsensitiveProperties);
         }
         try {
-            S3Properties.requiredS3Properties(properties);
+            S3Properties.requiredS3Properties(caseInsensitiveProperties);
         } catch (DdlException e) {
             throw new IllegalArgumentException(e);
         }
