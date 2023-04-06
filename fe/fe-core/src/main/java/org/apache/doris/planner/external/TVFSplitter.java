@@ -18,10 +18,10 @@
 package org.apache.doris.planner.external;
 
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.Split;
 import org.apache.doris.planner.Splitter;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.thrift.TBrokerFileStatus;
 
@@ -50,10 +50,12 @@ public class TVFSplitter implements Splitter {
             long fileLength = fileStatus.getSize();
             Path path = new Path(fileStatus.getPath());
             if (fileStatus.isSplitable) {
-                long splitSize = Config.file_split_size;
+                long splitSize = ConnectContext.get().getSessionVariable().getFileSplitSize();
                 if (splitSize <= 0) {
-                    splitSize = fileStatus.getBlockSize() > 0 ? fileStatus.getBlockSize() : DEFAULT_SPLIT_SIZE;
+                    splitSize = fileStatus.getBlockSize();
                 }
+                // Min split size is DEFAULT_SPLIT_SIZE(128MB).
+                splitSize = splitSize > DEFAULT_SPLIT_SIZE ? splitSize : DEFAULT_SPLIT_SIZE;
                 addFileSplits(path, fileLength, splitSize, splits);
             } else {
                 Split split = new FileSplit(path, 0, fileLength, fileLength, new String[0]);

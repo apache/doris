@@ -22,6 +22,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.ColocatePersistInfo;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
 
@@ -52,16 +53,23 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 /**
- * maintain the colocate table related indexes and meta
+ * maintain the colocation table related indexes and meta
  */
 public class ColocateTableIndex implements Writable {
     private static final Logger LOG = LogManager.getLogger(ColocateTableIndex.class);
 
-    public static class GroupId implements Writable {
+    public static class GroupId implements Writable, GsonPostProcessable {
+        public static final String GLOBAL_COLOCATE_PREFIX = "__global__";
+
         @SerializedName(value = "dbId")
         public Long dbId;
         @SerializedName(value = "grpId")
         public Long grpId;
+        // only available when dbId = 0
+        // because for global colocate table, the dbId is 0, so we do not know which db the table belongs to,
+        // so we use tblId2DbId to record the dbId of each table
+        @SerializedName(value = "tblId2DbId")
+        private Map<Long, Long> tblId2DbId = Maps.newHashMap();
 
         private GroupId() {
         }
@@ -69,6 +77,23 @@ public class ColocateTableIndex implements Writable {
         public GroupId(long dbId, long grpId) {
             this.dbId = dbId;
             this.grpId = grpId;
+        }
+
+        public void addTblId2DbId(long tblId, long dbId) {
+            Preconditions.checkState(this.dbId == 0);
+            tblId2DbId.put(tblId, dbId);
+        }
+
+        public void removeTblId2DbId(long tblId) {
+            tblId2DbId.remove(tblId);
+        }
+
+        public long getDbIdByTblId(long tblId) {
+            return tblId2DbId.get(tblId);
+        }
+
+        public int getTblId2DbIdSize() {
+            return tblId2DbId.size();
         }
 
         public static GroupId read(DataInput in) throws IOException {
@@ -103,6 +128,13 @@ public class ColocateTableIndex implements Writable {
         }
 
         @Override
+        public void gsonPostProcess() throws IOException {
+            if (tblId2DbId == null) {
+                tblId2DbId = Maps.newHashMap();
+            }
+        }
+
+        @Override
         public int hashCode() {
             int result = 17;
             result = 31 * result + dbId.hashCode();
@@ -113,6 +145,18 @@ public class ColocateTableIndex implements Writable {
         @Override
         public String toString() {
             return dbId + "." + grpId;
+        }
+
+        public static String getFullGroupName(long dbId, String colocateGroup) {
+            if (colocateGroup.startsWith(GLOBAL_COLOCATE_PREFIX)) {
+                return colocateGroup;
+            } else {
+                return dbId + "_" + colocateGroup;
+            }
+        }
+
+        public static boolean isGlobalGroupName(String groupName) {
+            return groupName.startsWith(GLOBAL_COLOCATE_PREFIX);
         }
     }
 
@@ -155,11 +199,10 @@ public class ColocateTableIndex implements Writable {
 
     // NOTICE: call 'addTableToGroup()' will not modify 'group2BackendsPerBucketSeq'
     // 'group2BackendsPerBucketSeq' need to be set manually before or after, if necessary.
-    public GroupId addTableToGroup(long dbId, OlapTable tbl, String groupName, GroupId assignedGroupId) {
+    public GroupId addTableToGroup(long dbId, OlapTable tbl, String fullGroupName, GroupId assignedGroupId) {
         writeLock();
         try {
             GroupId groupId = null;
-            String fullGroupName = dbId + "_" + groupName;
             if (groupName2Id.containsKey(fullGroupName)) {
                 groupId = groupName2Id.get(fullGroupName);
             } else {
@@ -168,7 +211,11 @@ public class ColocateTableIndex implements Writable {
                     groupId = assignedGroupId;
                 } else {
                     // generate a new one
-                    groupId = new GroupId(dbId, Env.getCurrentEnv().getNextId());
+                    if (GroupId.isGlobalGroupName(fullGroupName)) {
+                        groupId = new GroupId(0, Env.getCurrentEnv().getNextId());
+                    } else {
+                        groupId = new GroupId(dbId, Env.getCurrentEnv().getNextId());
+                    }
                 }
                 HashDistributionInfo distributionInfo = (HashDistributionInfo) tbl.getDefaultDistributionInfo();
                 ColocateGroupSchema groupSchema = new ColocateGroupSchema(groupId,
@@ -177,6 +224,10 @@ public class ColocateTableIndex implements Writable {
                 groupName2Id.put(fullGroupName, groupId);
                 group2Schema.put(groupId, groupSchema);
                 group2ErrMsgs.put(groupId, "");
+            }
+            // for global colocate table, dbId is 0, and we need to save the real dbId of the table
+            if (groupId.dbId == 0) {
+                groupId.addTblId2DbId(tbl.getId(), dbId);
             }
             group2Tables.put(groupId, tbl.getId());
             table2Group.put(tbl.getId(), groupId);
@@ -252,6 +303,7 @@ public class ColocateTableIndex implements Writable {
             }
 
             GroupId groupId = table2Group.remove(tableId);
+            groupId.removeTblId2DbId(tableId);
             group2Tables.remove(groupId, tableId);
             if (!group2Tables.containsKey(groupId)) {
                 // all tables of this group are removed, remove the group
@@ -514,14 +566,19 @@ public class ColocateTableIndex implements Writable {
                 // remove from old group
                 removeTable(tbl.getId());
             }
-            return addTableToGroup(dbId, tbl, newGroup, assignedGroupId);
+            String fullNewGroupName = GroupId.getFullGroupName(dbId, newGroup);
+            return addTableToGroup(dbId, tbl, fullNewGroupName, assignedGroupId);
         } finally {
             writeUnlock();
         }
     }
 
     public void replayAddTableToGroup(ColocatePersistInfo info) throws MetaNotFoundException {
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(info.getGroupId().dbId);
+        long dbId = info.getGroupId().dbId;
+        if (dbId == 0) {
+            dbId = info.getGroupId().getDbIdByTblId(info.getTableId());
+        }
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         OlapTable tbl = (OlapTable) db.getTableOrMetaException(info.getTableId(),
                 org.apache.doris.catalog.Table.TableType.OLAP);
         writeLock();
@@ -530,7 +587,8 @@ public class ColocateTableIndex implements Writable {
             for (Map.Entry<Tag, List<List<Long>>> entry : map.entrySet()) {
                 group2BackendsPerBucketSeq.put(info.getGroupId(), entry.getKey(), entry.getValue());
             }
-            addTableToGroup(info.getGroupId().dbId, tbl, tbl.getColocateGroup(), info.getGroupId());
+            String fullGroupName = GroupId.getFullGroupName(dbId, tbl.getColocateGroup());
+            addTableToGroup(dbId, tbl, fullGroupName, info.getGroupId());
         } finally {
             writeUnlock();
         }

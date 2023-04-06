@@ -587,4 +587,8 @@ public abstract class DataType implements AbstractDataType {
             return (Map) ImmutableMap.copyOf(promotionMap);
         }
     }
+
+    public double rangeLength(double high, double low) {
+        return high - low;
+    }
 }

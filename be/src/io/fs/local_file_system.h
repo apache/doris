@@ -50,8 +50,6 @@ public:
     Status delete_and_create_directory(const Path& dir);
     // return disk available space where the given path is.
     Status get_space_info(const Path& path, size_t* capacity, size_t* available);
-    // changes the size of the regular file
-    Status resize_file(const Path& file, size_t new_size);
     // copy src dir to dest dir, recursivly
     Status copy_dirs(const Path& src, const Path& dest);
     // return true if parent path contain sub path
@@ -78,7 +76,6 @@ protected:
     Status mtime_impl(const Path& file, time_t* m_time);
     Status delete_and_create_directory_impl(const Path& dir);
     Status get_space_info_impl(const Path& path, size_t* capacity, size_t* available);
-    Status resize_file_impl(const Path& file, size_t new_size);
     Status copy_dirs_impl(const Path& src, const Path& dest);
 
 private:

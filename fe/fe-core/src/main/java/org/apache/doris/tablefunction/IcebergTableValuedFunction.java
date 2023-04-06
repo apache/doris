@@ -48,10 +48,7 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
     private static final String TABLE = "table";
     private static final String QUERY_TYPE = "query_type";
 
-    private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
-            .add(TABLE)
-            .add(QUERY_TYPE)
-            .build();
+    private static final ImmutableSet<String> PROPERTIES_SET = ImmutableSet.of(TABLE, QUERY_TYPE);
 
     private TIcebergQueryType queryType;
 

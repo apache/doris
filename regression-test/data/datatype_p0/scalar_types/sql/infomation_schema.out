@@ -9,7 +9,7 @@ internal	regression_test_datatype_p0_scalar_types	tbl_scalar_types_dup	c_bigint	
 internal	regression_test_datatype_p0_scalar_types	tbl_scalar_types_dup	c_largeint	7	\N	YES	bigint unsigned	\N	\N	39	\N	\N	\N	\N	largeint					39	\N	\N	\N
 internal	regression_test_datatype_p0_scalar_types	tbl_scalar_types_dup	c_float	8	\N	YES	float	\N	\N	7	7	\N	\N	\N	float					7	7	\N	\N
 internal	regression_test_datatype_p0_scalar_types	tbl_scalar_types_dup	c_double	9	\N	YES	double	\N	\N	15	15	\N	\N	\N	double					15	15	\N	\N
-internal	regression_test_datatype_p0_scalar_types	tbl_scalar_types_dup	c_decimal	10	\N	YES	decimal	\N	\N	20	3	\N	\N	\N	decimal(20,3)					20	3	\N	\N
+internal	regression_test_datatype_p0_scalar_types	tbl_scalar_types_dup	c_decimal	10	\N	YES	decimal	\N	\N	20	3	\N	\N	\N	decimal(20, 3)					20	3	\N	\N
 internal	regression_test_datatype_p0_scalar_types	tbl_scalar_types_dup	c_decimalv3	11	\N	YES	decimal	\N	\N	20	3	\N	\N	\N	decimalv3(20, 3)					20	3	\N	\N
 internal	regression_test_datatype_p0_scalar_types	tbl_scalar_types_dup	c_date	12	\N	YES	date	\N	\N	\N	\N	\N	\N	\N	date					\N	\N	\N	\N
 internal	regression_test_datatype_p0_scalar_types	tbl_scalar_types_dup	c_datetime	13	\N	YES	datetime	\N	\N	\N	\N	\N	\N	\N	datetime					\N	\N	\N	\N

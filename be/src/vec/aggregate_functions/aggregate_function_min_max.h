@@ -447,12 +447,10 @@ struct AggregateFunctionMaxData : public Data {
     using Self = AggregateFunctionMaxData;
     using Data::IsFixedLength;
 
-    bool change_if_better(const IColumn& column, size_t row_num, Arena* arena) {
-        return this->change_if_greater(column, row_num, arena);
+    void change_if_better(const IColumn& column, size_t row_num, Arena* arena) {
+        this->change_if_greater(column, row_num, arena);
     }
-    bool change_if_better(const Self& to, Arena* arena) {
-        return this->change_if_greater(to, arena);
-    }
+    void change_if_better(const Self& to, Arena* arena) { this->change_if_greater(to, arena); }
 
     static const char* name() { return "max"; }
 };
@@ -462,10 +460,10 @@ struct AggregateFunctionMinData : Data {
     using Self = AggregateFunctionMinData;
     using Data::IsFixedLength;
 
-    bool change_if_better(const IColumn& column, size_t row_num, Arena* arena) {
-        return this->change_if_less(column, row_num, arena);
+    void change_if_better(const IColumn& column, size_t row_num, Arena* arena) {
+        this->change_if_less(column, row_num, arena);
     }
-    bool change_if_better(const Self& to, Arena* arena) { return this->change_if_less(to, arena); }
+    void change_if_better(const Self& to, Arena* arena) { this->change_if_less(to, arena); }
 
     static const char* name() { return "min"; }
 };
@@ -475,12 +473,10 @@ struct AggregateFunctionAnyData : Data {
     using Self = AggregateFunctionAnyData;
     using Data::IsFixedLength;
 
-    bool change_if_better(const IColumn& column, size_t row_num, Arena* arena) {
-        return this->change_first_time(column, row_num, arena);
+    void change_if_better(const IColumn& column, size_t row_num, Arena* arena) {
+        this->change_first_time(column, row_num, arena);
     }
-    bool change_if_better(const Self& to, Arena* arena) {
-        return this->change_first_time(to, arena);
-    }
+    void change_if_better(const Self& to, Arena* arena) { this->change_first_time(to, arena); }
 
     static const char* name() { return "any"; }
 };

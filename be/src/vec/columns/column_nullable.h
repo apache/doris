@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include "vec/columns/column_vector.h"
+#include "vec/core/types.h"
 #ifdef __aarch64__
 #include <sse2neon.h>
 #endif
@@ -368,5 +370,7 @@ private:
 
 ColumnPtr make_nullable(const ColumnPtr& column, bool is_nullable = false);
 ColumnPtr remove_nullable(const ColumnPtr& column);
-
+// check if argument column is nullable. If so, extract its concrete column and set null_map.
+//TODO: use this to replace inner usages.
+void check_set_nullable(ColumnPtr&, ColumnVector<UInt8>::MutablePtr&);
 } // namespace doris::vectorized

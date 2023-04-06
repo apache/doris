@@ -64,13 +64,16 @@ planType
     | ANALYZED
     | REWRITTEN | LOGICAL  // same type
     | OPTIMIZED | PHYSICAL   // same type
+    | SHAPE
     | ALL // default type
     ;
 
 //  -----------------Query-----------------
+// add queryOrganization for parse (q1) union (q2) union (q3) order by keys, otherwise 'order' will be recognized to be
+// identifier.
 query
     : {!doris_legacy_SQL_syntax}? cte? queryTerm queryOrganization
-    | {doris_legacy_SQL_syntax}? queryTerm
+    | {doris_legacy_SQL_syntax}? queryTerm queryOrganization
     ;
 
 queryTerm
@@ -186,7 +189,7 @@ queryOrganization
     ;
 
 sortClause
-    : (ORDER BY sortItem (COMMA sortItem)*)
+    : ORDER BY sortItem (COMMA sortItem)*
     ;
 
 sortItem

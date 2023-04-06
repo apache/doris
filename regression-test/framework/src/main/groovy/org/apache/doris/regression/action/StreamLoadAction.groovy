@@ -148,7 +148,9 @@ class StreamLoadAction implements SuiteAction {
             ex = t
         }
         long endTime = System.currentTimeMillis()
-        log.info("Stream load elapsed ${endTime - startTime} ms".toString())
+
+        log.info("Stream load elapsed ${endTime - startTime} ms, response: ${responseText}".toString() +
+                 ex.toString())
         checkResult(responseText, ex, startTime, endTime)
     }
 
@@ -193,6 +195,7 @@ class StreamLoadAction implements SuiteAction {
         int code = resp.getStatusLine().getStatusCode()
         if (code != HttpStatus.SC_OK) {
             String streamBody = EntityUtils.toString(resp.getEntity())
+            log.info("Fail to download data ${url}, code: ${code}, body:\n${streamBody}")
             throw new IllegalStateException("Get http stream failed, status code is ${code}, body:\n${streamBody}")
         }
 

@@ -37,6 +37,7 @@ public:
     String get_name() const override { return name; }
 
     size_t get_number_of_arguments() const override { return 3; }
+    ColumnNumbers get_arguments_that_are_always_constant() const override { return {1, 2}; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DCHECK(is_array(arguments[0]))
@@ -63,10 +64,7 @@ public:
         auto nested_type = assert_cast<const DataTypeArray&>(*src_column_type).get_nested_type();
         const std::string& condition =
                 block.get_by_position(arguments[1]).column->get_data_at(0).to_string();
-        if (!is_column_const(*block.get_by_position(arguments[2]).column)) {
-            return Status::RuntimeError(
-                    "execute failed or unsupported column, only support const column");
-        }
+
         const ColumnConst& rhs_value_column =
                 static_cast<const ColumnConst&>(*block.get_by_position(arguments[2]).column.get());
         ColumnPtr result_ptr;
@@ -137,7 +135,9 @@ private:
         size_t out_pos = 0;
         for (size_t i = 0; i < src_offsets.size(); ++i) {
             for (; in_pos < src_offsets[i]; ++in_pos) {
-                if (filter[in_pos]) ++out_pos;
+                if (filter[in_pos]) {
+                    ++out_pos;
+                }
             }
             dst_offsets[i] = out_pos;
         }

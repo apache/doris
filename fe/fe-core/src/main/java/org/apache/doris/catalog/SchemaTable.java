@@ -243,6 +243,13 @@ public class SchemaTable extends Table {
                             .column("COMMENT", ScalarType.createVarchar(16))
                             // for datagrip
                             .column("INDEX_COMMENT", ScalarType.createVarchar(1024)).build()))
+            // Compatible with mysql for mysqldump
+            .put("column_statistics",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "column_statistics", TableType.SCHEMA,
+                    builder().column("SCHEMA_NAME", ScalarType.createVarchar(64))
+                            .column("TABLE_NAME", ScalarType.createVarchar(64))
+                            .column("COLUMN_NAME", ScalarType.createVarchar(64))
+                            .column("HISTOGRAM", ScalarType.createJsonbType()).build()))
             .put("files",
                     new SchemaTable(SystemIdGenerator.getNextId(), "files", TableType.SCHEMA,
                             builder().column("FILE_ID", ScalarType.createType(PrimitiveType.BIGINT))

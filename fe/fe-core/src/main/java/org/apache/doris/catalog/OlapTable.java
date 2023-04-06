@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.analysis.AggregateInfo;
+import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DataSortInfo;
@@ -288,14 +289,15 @@ public class OlapTable extends Table {
 
     public void setIndexMeta(long indexId, String indexName, List<Column> schema, int schemaVersion, int schemaHash,
             short shortKeyColumnCount, TStorageType storageType, KeysType keysType) {
-        setIndexMeta(indexId, indexName, schema, null, schemaVersion, schemaHash, shortKeyColumnCount, storageType,
+        setIndexMeta(indexId, indexName, schema, schemaVersion, schemaHash, shortKeyColumnCount, storageType,
                 keysType,
-                null);
+                null, null);
     }
 
-    public void setIndexMeta(long indexId, String indexName, List<Column> schema, Column whereColumn, int schemaVersion,
+    public void setIndexMeta(long indexId, String indexName, List<Column> schema, int schemaVersion,
             int schemaHash,
-            short shortKeyColumnCount, TStorageType storageType, KeysType keysType, OriginStatement origStmt) {
+            short shortKeyColumnCount, TStorageType storageType, KeysType keysType, OriginStatement origStmt,
+            Analyzer analyzer) {
         // Nullable when meta comes from schema change log replay.
         // The replay log only save the index id, so we need to get name by id.
         if (indexName == null) {
@@ -319,8 +321,10 @@ public class OlapTable extends Table {
 
         MaterializedIndexMeta indexMeta = new MaterializedIndexMeta(indexId, schema, schemaVersion,
                 schemaHash, shortKeyColumnCount, storageType, keysType, origStmt);
-        if (whereColumn != null) {
-            indexMeta.setWhereClause(whereColumn.getDefineExpr());
+        try {
+            indexMeta.parseStmt(analyzer);
+        } catch (Exception e) {
+            LOG.warn("parse meta stmt failed", e);
         }
 
         indexIdToMeta.put(indexId, indexMeta);

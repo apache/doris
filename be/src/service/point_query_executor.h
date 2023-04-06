@@ -23,6 +23,7 @@
 #include "common/status.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "gutil/int128.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
 #include "olap/tablet.h"
 #include "util/runtime_profile.h"
@@ -234,6 +235,7 @@ struct Metrics {
     RuntimeProfile::Counter lookup_key_ns;
     RuntimeProfile::Counter lookup_data_ns;
     RuntimeProfile::Counter output_data_ns;
+    OlapReaderStatistics read_stats;
 };
 
 // An util to do tablet lookup

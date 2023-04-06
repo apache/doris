@@ -295,6 +295,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DRY_RUN_QUERY = "dry_run_query";
 
+    // Split size for ExternalFileScanNode. Default value 0 means use the block size of HDFS/S3.
+    public static final String FILE_SPLIT_SIZE = "file_split_size";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -789,6 +792,9 @@ public class SessionVariable implements Serializable, Writable {
     // If set to true, all query will be executed without returning result
     @VariableMgr.VarAttr(name = DRY_RUN_QUERY, needForward = true)
     public boolean dryRunQuery = false;
+
+    @VariableMgr.VarAttr(name = FILE_SPLIT_SIZE, needForward = true)
+    public long fileSplitSize = 0;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -1361,6 +1367,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getEnableCboStatistics() {
         return enableCboStatistics;
+    }
+
+    public long getFileSplitSize() {
+        return fileSplitSize;
+    }
+
+    public void setFileSplitSize(long fileSplitSize) {
+        this.fileSplitSize = fileSplitSize;
     }
 
     /**

@@ -36,6 +36,7 @@ import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExprOpcode;
 
@@ -148,7 +149,7 @@ public class HiveMetaStoreClientHelper {
         hiveConf.set(ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
                 String.valueOf(Config.hive_metastore_client_timeout_second));
         IMetaStoreClient metaStoreClient = null;
-        String type = hiveConf.get(HMSResource.HIVE_METASTORE_TYPE);
+        String type = hiveConf.get(HMSProperties.HIVE_METASTORE_TYPE);
         try {
             if ("dlf".equalsIgnoreCase(type)) {
                 // For aliyun DLF
@@ -180,7 +181,7 @@ public class HiveMetaStoreClientHelper {
         List<RemoteIterator<LocatedFileStatus>> remoteIterators = new ArrayList<>();
         try {
             if (remoteHiveTbl.getPartitionKeys().size() > 0) {
-                String metaStoreUris = hiveTable.getHiveProperties().get(HMSResource.HIVE_METASTORE_URIS);
+                String metaStoreUris = hiveTable.getHiveProperties().get(HMSProperties.HIVE_METASTORE_URIS);
                 // hive partitioned table, get file iterator from table partition sd info
                 List<Partition> hivePartitions = getHivePartitions(metaStoreUris, remoteHiveTbl,
                         hivePartitionPredicate);
@@ -285,7 +286,7 @@ public class HiveMetaStoreClientHelper {
     }
 
     public static Table getTable(HiveTable hiveTable) throws DdlException {
-        IMetaStoreClient client = getClient(hiveTable.getHiveProperties().get(HMSResource.HIVE_METASTORE_URIS));
+        IMetaStoreClient client = getClient(hiveTable.getHiveProperties().get(HMSProperties.HIVE_METASTORE_URIS));
         Table table;
         try {
             table = client.getTable(hiveTable.getHiveDb(), hiveTable.getHiveTable());
@@ -698,6 +699,13 @@ public class HiveMetaStoreClientHelper {
      * Convert hive type to doris type.
      */
     public static Type hiveTypeToDorisType(String hiveType) {
+        return hiveTypeToDorisType(hiveType, 0);
+    }
+
+    /**
+     * Convert hive type to doris type with timescale.
+     */
+    public static Type hiveTypeToDorisType(String hiveType, int timeScale) {
         String lowerCaseType = hiveType.toLowerCase();
         switch (lowerCaseType) {
             case "boolean":
@@ -713,7 +721,7 @@ public class HiveMetaStoreClientHelper {
             case "date":
                 return ScalarType.createDateV2Type();
             case "timestamp":
-                return ScalarType.createDatetimeV2Type(0);
+                return ScalarType.createDatetimeV2Type(timeScale);
             case "float":
                 return Type.FLOAT;
             case "double":
@@ -884,7 +892,7 @@ public class HiveMetaStoreClientHelper {
         hiveCatalog.setConf(conf);
         // initialize hive catalog
         Map<String, String> catalogProperties = new HashMap<>();
-        catalogProperties.put(HMSResource.HIVE_METASTORE_URIS, metastoreUri);
+        catalogProperties.put(HMSProperties.HIVE_METASTORE_URIS, metastoreUri);
         catalogProperties.put("uri", metastoreUri);
         hiveCatalog.initialize("hive", catalogProperties);
 

@@ -1435,6 +1435,13 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 && (this.type.isStringType() || this.type.isHllType())) {
             return this;
         }
+
+        if (targetType.getPrimitiveType() == PrimitiveType.DECIMALV2
+                && this.type.getPrimitiveType() == PrimitiveType.DECIMALV2) {
+            this.type = targetType;
+            return this;
+        }
+
         // Preconditions.checkState(PrimitiveType.isImplicitCast(type, targetType),
         // "cast %s to %s", this.type, targetType);
         // TODO(zc): use implicit cast
@@ -2201,6 +2208,12 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
 
     public boolean matchExprs(List<Expr> exprs, SelectStmt stmt, boolean ignoreAlias, String tableName)
             throws AnalysisException {
+        List<SlotRef> slots = new ArrayList<>();
+        collect(SlotRef.class, slots);
+        if (slots.size() == 0) {
+            return true;
+        }
+
         String name = MaterializedIndexMeta.normalizeName(toSqlWithoutTbl());
         for (Expr expr : exprs) {
             if (CreateMaterializedViewStmt.isMVColumnNormal(name)

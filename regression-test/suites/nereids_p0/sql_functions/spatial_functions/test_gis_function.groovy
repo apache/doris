@@ -50,4 +50,14 @@ suite("test_gis_function") {
     qt_sql "SELECT ST_Area_Square_Km(ST_Circle(0, 0, 1));"
     qt_sql "SELECT ST_Area_Square_Meters(ST_Polygon(\"POLYGON ((0 0, 1 0, 1 1, 0 1, 0 0))\"));"
     qt_sql "SELECT ST_Area_Square_Km(ST_Polygon(\"POLYGON ((0 0, 1 0, 1 1, 0 1, 0 0))\"));"
+
+    qt_sql "SELECT ST_Angle(ST_Point(1, 0),ST_Point(0, 0),ST_Point(0, 1));"
+    qt_sql "SELECT ST_Angle(ST_Point(0, 0),ST_Point(1, 0),ST_Point(0, 1));"
+    qt_sql "SELECT ST_Angle(ST_Point(1, 0),ST_Point(0, 0),ST_Point(1, 0));"
+    qt_sql "SELECT ST_Angle(ST_Point(1, 0),ST_Point(-30, 0),ST_Point(150, 0));"
+
+    qt_sql "SELECT St_Azimuth(ST_Point(1, 0),ST_Point(0, 0));"
+    qt_sql "SELECT St_Azimuth(ST_Point(0, 0),ST_Point(1, 0));"
+    qt_sql "SELECT St_Azimuth(ST_Point(0, 0),ST_Point(0, 1));"
+    qt_sql "SELECT St_Azimuth(ST_Point(-30, 0),ST_Point(150, 0));"
 }

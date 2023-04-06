@@ -17,11 +17,22 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.datasource.property.constants.CosProperties;
+import org.apache.doris.datasource.property.constants.DLFProperties;
+import org.apache.doris.datasource.property.constants.GlueProperties;
+import org.apache.doris.datasource.property.constants.ObsProperties;
+import org.apache.doris.datasource.property.constants.OssProperties;
+import org.apache.doris.datasource.property.constants.S3Properties;
+
 import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 
 public class PrintableMap<K, V> {
     private Map<K, V> map;
@@ -32,6 +43,7 @@ public class PrintableMap<K, V> {
     private String entryDelimiter = ",";
 
     public static final Set<String> SENSITIVE_KEY;
+    public static final Set<String> HIDDEN_KEY;
     public static final String PASSWORD_MASK = "*XXX";
 
     static {
@@ -41,6 +53,11 @@ public class PrintableMap<K, V> {
         SENSITIVE_KEY.add("bos_secret_accesskey");
         SENSITIVE_KEY.add("jdbc.password");
         SENSITIVE_KEY.add("elasticsearch.password");
+        SENSITIVE_KEY.addAll(Arrays.asList(S3Properties.SECRET_KEY,  ObsProperties.SECRET_KEY, OssProperties.SECRET_KEY,
+                CosProperties.SECRET_KEY, GlueProperties.SECRET_KEY, DLFProperties.SECRET_KEY));
+        HIDDEN_KEY = Sets.newHashSet();
+        HIDDEN_KEY.addAll(S3Properties.Env.FS_KEYS);
+        HIDDEN_KEY.addAll(GlueProperties.META_KEYS);
     }
 
     public PrintableMap(Map<K, V> map, String keyValueSeparator,
@@ -64,40 +81,65 @@ public class PrintableMap<K, V> {
         this.hidePassword = hidePassword;
     }
 
+    public PrintableMap(Map<K, V> map, String keyValueSeparator,
+                        boolean withQuotation, boolean wrap, boolean hidePassword, boolean sorted) {
+        this(sorted ? new TreeMap<>(map).descendingMap() : map, keyValueSeparator, withQuotation, wrap);
+        this.hidePassword = hidePassword;
+    }
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
-        Iterator<Map.Entry<K, V>> iter = map.entrySet().iterator();
+        Iterator<Map.Entry<K, V>> iter = showEntries().iterator();
         while (iter.hasNext()) {
-            Map.Entry<K, V> entry = iter.next();
-            if (withQuotation) {
-                sb.append("\"");
-            }
-            sb.append(entry.getKey());
-            if (withQuotation) {
-                sb.append("\"");
-            }
-            sb.append(" ").append(keyValueSeparator).append(" ");
-            if (withQuotation) {
-                sb.append("\"");
-            }
-            if (hidePassword && SENSITIVE_KEY.contains(entry.getKey())) {
-                sb.append(PASSWORD_MASK);
-            } else {
-                sb.append(entry.getValue());
-            }
-            if (withQuotation) {
-                sb.append("\"");
-            }
+            appendEntry(sb, iter.next());
             if (iter.hasNext()) {
-                sb.append(entryDelimiter);
-                if (wrap) {
-                    sb.append("\n");
-                } else {
-                    sb.append(" ");
-                }
+                appendDelimiter(sb);
             }
         }
         return sb.toString();
+    }
+
+    private List<Map.Entry<K, V>> showEntries() {
+        Iterator<Map.Entry<K, V>> iter = map.entrySet().iterator();
+        List<Map.Entry<K, V>> entries = new ArrayList<>();
+        while (iter.hasNext()) {
+            Map.Entry<K, V> entry = iter.next();
+            if (!HIDDEN_KEY.contains(entry.getKey())) {
+                entries.add(entry);
+            }
+        }
+        return entries;
+    }
+
+    private void appendEntry(StringBuilder sb, Map.Entry<K, V> entry) {
+        if (withQuotation) {
+            sb.append("\"");
+        }
+        sb.append(entry.getKey());
+        if (withQuotation) {
+            sb.append("\"");
+        }
+        sb.append(" ").append(keyValueSeparator).append(" ");
+        if (withQuotation) {
+            sb.append("\"");
+        }
+        if (hidePassword && SENSITIVE_KEY.contains(entry.getKey())) {
+            sb.append(PASSWORD_MASK);
+        } else {
+            sb.append(entry.getValue());
+        }
+        if (withQuotation) {
+            sb.append("\"");
+        }
+    }
+
+    private void appendDelimiter(StringBuilder sb) {
+        sb.append(entryDelimiter);
+        if (wrap) {
+            sb.append("\n");
+        } else {
+            sb.append(" ");
+        }
     }
 }

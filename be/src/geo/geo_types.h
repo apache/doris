@@ -78,7 +78,10 @@ public:
     static bool ComputeDistance(double x_lng, double x_lat, double y_lng, double y_lat,
                                 double* distance);
 
-    static bool ComputeAngle(double x_lng, double x_lat, double y_lng, double y_lat, double* angle);
+    static bool ComputeAngleSphere(double x_lng, double x_lat, double y_lng, double y_lat,
+                                   double* angle);
+    static bool ComputeAngle(GeoPoint* p1, GeoPoint* p2, GeoPoint* p3, double* angle);
+    static bool ComputeAzimuth(GeoPoint* p1, GeoPoint* p2, double* angle);
 
     std::string to_string() const override;
     std::string as_wkt() const override;

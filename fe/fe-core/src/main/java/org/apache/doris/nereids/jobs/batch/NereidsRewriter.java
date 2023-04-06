@@ -62,6 +62,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.NormalizeSort;
 import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanTablet;
 import org.apache.doris.nereids.rules.rewrite.logical.PushFilterInsideJoin;
+import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownLimit;
 import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinAggTranspose;
@@ -227,18 +228,24 @@ public class NereidsRewriter extends BatchRewriteJob {
             ),
 
             // TODO: I think these rules should be implementation rules, and generate alternative physical plans.
-            topic("Table/MV/Physical optimization",
+            topic("Table/Physical optimization",
                 topDown(
                     // TODO: the logical plan should not contains any phase information,
                     //       we should refactor like AggregateStrategies, e.g. LimitStrategies,
                     //       generate one PhysicalLimit if current distribution is gather or two
                     //       PhysicalLimits with gather exchange
                     new SplitLimit(),
+                    new PruneOlapScanPartition()
+                )
+            ),
 
+            topic("MV optimization",
+                topDown(
                     new SelectMaterializedIndexWithAggregate(),
                     new SelectMaterializedIndexWithoutAggregate(),
-                    new PruneOlapScanTablet(),
-                    new PruneOlapScanPartition()
+                    new PushdownFilterThroughProject(),
+                    new MergeProjects(),
+                    new PruneOlapScanTablet()
                 )
             ),
 

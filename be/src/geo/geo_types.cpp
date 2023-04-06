@@ -302,11 +302,12 @@ bool GeoPoint::ComputeDistance(double x_lng, double x_lat, double y_lng, double 
     if (!y.is_valid()) {
         return false;
     }
-    *distance = S2Earth::ToMeters(x.GetDistance(y));
+    *distance = S2Earth::GetDistanceMeters(x, y);
     return true;
 }
 
-bool GeoPoint::ComputeAngle(double x_lng, double x_lat, double y_lng, double y_lat, double* angle) {
+bool GeoPoint::ComputeAngleSphere(double x_lng, double x_lat, double y_lng, double y_lat,
+                                  double* angle) {
     S2LatLng x = S2LatLng::FromDegrees(x_lat, x_lng);
     if (!x.is_valid()) {
         return false;
@@ -317,6 +318,44 @@ bool GeoPoint::ComputeAngle(double x_lng, double x_lat, double y_lng, double y_l
     }
     *angle = (x.GetDistance(y)).degrees();
     return true;
+}
+
+bool GeoPoint::ComputeAngle(GeoPoint* point1, GeoPoint* point2, GeoPoint* point3, double* angle) {
+    S2LatLng latLng1 = S2LatLng::FromDegrees(point1->x(), point1->y());
+    S2LatLng latLng2 = S2LatLng::FromDegrees(point2->x(), point2->y());
+    S2LatLng latLng3 = S2LatLng::FromDegrees(point3->x(), point3->y());
+
+    //If points 2 and 3 are the same or points 2 and 1 are the same, returns NULL.
+    if (latLng2.operator==(latLng1) || latLng2.operator==(latLng3)) {
+        return false;
+    }
+    double x = 0;
+    double y = 0;
+    //If points 2 and 3 are exactly antipodal or points 2 and 1 are exactly antipodal, returns NULL.
+    if (GeoPoint::ComputeAngleSphere(point1->x(), point1->y(), point2->x(), point2->y(), &x) &&
+        GeoPoint::ComputeAngleSphere(point3->x(), point3->y(), point2->x(), point2->y(), &y)) {
+        if (x == 180 || y == 180) {
+            return false;
+        }
+    } else {
+        return false;
+    }
+    //Computes the initial bearing (radians) from latLng2 to latLng3
+    double a = S2Earth::GetInitialBearing(latLng2, latLng3).radians();
+    //Computes the initial bearing (radians) from latLng2 to latLng1
+    double b = S2Earth::GetInitialBearing(latLng2, latLng1).radians();
+    //range [0, 2pi)
+    if (b - a < 0) {
+        *angle = b - a + 2 * M_PI;
+    } else {
+        *angle = b - a;
+    }
+    return true;
+}
+bool GeoPoint::ComputeAzimuth(GeoPoint* p1, GeoPoint* p2, double* angle) {
+    GeoPoint north;
+    north.from_coord(0, 90);
+    return GeoPoint::ComputeAngle(&north, p1, p2, angle);
 }
 
 GeoParseStatus GeoLine::from_coords(const GeoCoordinateList& list) {
@@ -472,6 +511,14 @@ bool GeoShape::ComputeArea(GeoShape* rhs, double* area, std::string square_unit)
         const GeoPolygon* polygon = (const GeoPolygon*)rhs;
         steradians = polygon->getArea();
         break;
+    }
+    case GEO_SHAPE_POINT: {
+        *area = 0;
+        return true;
+    }
+    case GEO_SHAPE_LINE_STRING: {
+        *area = 0;
+        return true;
     }
     default:
         return false;

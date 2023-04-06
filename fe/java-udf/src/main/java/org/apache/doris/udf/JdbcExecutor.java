@@ -22,6 +22,10 @@ import org.apache.doris.thrift.TJdbcOperation;
 import org.apache.doris.thrift.TOdbcTableType;
 
 import com.alibaba.druid.pool.DruidDataSource;
+import com.clickhouse.data.value.UnsignedByte;
+import com.clickhouse.data.value.UnsignedInteger;
+import com.clickhouse.data.value.UnsignedLong;
+import com.clickhouse.data.value.UnsignedShort;
 import com.google.common.base.Preconditions;
 import org.apache.log4j.Logger;
 import org.apache.thrift.TDeserializer;
@@ -62,7 +66,6 @@ public class JdbcExecutor {
     private ResultSet resultSet = null;
     private ResultSetMetaData resultSetMetaData = null;
     private List<String> resultColumnTypeNames = null;
-    private int baseTypeInt = 0;
     private List<Object[]> block = null;
     private int batchSizeNum = 0;
     private int curBlockRows = 0;
@@ -123,20 +126,6 @@ public class JdbcExecutor {
 
     public List<String> getResultColumnTypeNames() {
         return resultColumnTypeNames;
-    }
-
-    public List<Object> getArrayColumnData(Object object) throws UdfRuntimeException {
-        try {
-            java.sql.Array obj = (java.sql.Array) object;
-            baseTypeInt = obj.getBaseType();
-            return Arrays.asList((Object[]) obj.getArray());
-        } catch (SQLException e) {
-            throw new UdfRuntimeException("JDBC executor getArrayColumnData has error: ", e);
-        }
-    }
-
-    public int getBaseTypeInt() {
-        return baseTypeInt;
     }
 
     public void openTrans() throws UdfRuntimeException {
@@ -200,22 +189,11 @@ public class JdbcExecutor {
         }
     }
 
-    public Object convertArrayToObject(Object obj, int idx) {
-        Object[] columnData = (Object[]) obj;
-        if (columnData[idx] instanceof String) {
-            return (String) columnData[idx];
-        } else if (columnData[idx] instanceof java.sql.Array) {
-            return (java.sql.Array) columnData[idx];
-        } else {
-            //For the ClickHouse array type, we need the concatenated string after toString
-            return convertClickHouseArray(columnData[idx]);
-        }
-    }
-
     private static final Map<Class<?>, Function<Object, String>> CK_ARRAY_CONVERTERS = new HashMap<>();
 
     static {
         CK_ARRAY_CONVERTERS.put(String[].class, res -> Arrays.toString((String[]) res));
+        CK_ARRAY_CONVERTERS.put(boolean[].class, res -> Arrays.toString((boolean[]) res));
         CK_ARRAY_CONVERTERS.put(byte[].class, res -> Arrays.toString((byte[]) res));
         CK_ARRAY_CONVERTERS.put(Byte[].class, res -> Arrays.toString((Byte[]) res));
         CK_ARRAY_CONVERTERS.put(LocalDate[].class, res -> Arrays.toString((LocalDate[]) res));
@@ -242,7 +220,7 @@ public class JdbcExecutor {
         try {
             ClassLoader parent = getClass().getClassLoader();
             ClassLoader classLoader = UdfUtils.getClassLoader(driverUrl, parent);
-            druidDataSource = JdbcDataSource.getDataSource().getSource(jdbcUrl);
+            druidDataSource = JdbcDataSource.getDataSource().getSource(jdbcUrl + jdbcUser + jdbcPassword);
             if (druidDataSource == null) {
                 DruidDataSource ds = new DruidDataSource();
                 ds.setDriverClassLoader(classLoader);
@@ -253,8 +231,9 @@ public class JdbcExecutor {
                 ds.setMinIdle(1);
                 ds.setInitialSize(2);
                 ds.setMaxActive(5);
+                ds.setMaxWait(5000);
                 druidDataSource = ds;
-                JdbcDataSource.getDataSource().putSource(jdbcUrl, ds);
+                JdbcDataSource.getDataSource().putSource(jdbcUrl + jdbcUser + jdbcPassword, ds);
             }
             conn = druidDataSource.getConnection();
             if (op == TJdbcOperation.READ) {
@@ -350,6 +329,23 @@ public class JdbcExecutor {
         }
     }
 
+    private void bytePutToByte(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+            long columnAddr, int startRowForNullable) {
+        if (isNullable) {
+            for (int i = startRowForNullable; i < numRows; i++) {
+                if (column[i] == null) {
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+                } else {
+                    UdfUtils.UNSAFE.putByte(columnAddr + i, (Byte) column[i]);
+                }
+            }
+        } else {
+            for (int i = 0; i < numRows; i++) {
+                UdfUtils.UNSAFE.putByte(columnAddr + i, (Byte) column[i]);
+            }
+        }
+    }
+
     public void copyBatchTinyIntResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr) {
         Object[] column = (Object[]) columnObj;
@@ -366,6 +362,8 @@ public class JdbcExecutor {
             integerPutToByte(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         } else if (column[firstNotNullIndex] instanceof Short) {
             shortPutToByte(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
+        } else if (column[firstNotNullIndex] instanceof Byte) {
+            bytePutToByte(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         }
     }
 
@@ -420,6 +418,23 @@ public class JdbcExecutor {
         }
     }
 
+    public void clickHouseUInt8ToInt(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+            long columnAddr, int startRowForNullable) {
+        if (isNullable) {
+            for (int i = startRowForNullable; i < numRows; i++) {
+                if (column[i] == null) {
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+                } else {
+                    UdfUtils.UNSAFE.putShort(columnAddr + (i * 2L), (short) ((UnsignedByte) column[i]).intValue());
+                }
+            }
+        } else {
+            for (int i = 0; i < numRows; i++) {
+                UdfUtils.UNSAFE.putShort(columnAddr + (i * 2L), (short) ((UnsignedByte) column[i]).intValue());
+            }
+        }
+    }
+
     public void copyBatchSmallIntResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr) {
         Object[] column = (Object[]) columnObj;
@@ -436,9 +451,10 @@ public class JdbcExecutor {
             integerPutToShort(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         } else if (column[firstNotNullIndex] instanceof Short) {
             shortPutToShort(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
+        } else if (column[firstNotNullIndex] instanceof com.clickhouse.data.value.UnsignedByte) {
+            clickHouseUInt8ToInt(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         }
     }
-
 
     private void bigDecimalPutToInt(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr, int startRowForNullable) {
@@ -474,6 +490,23 @@ public class JdbcExecutor {
         }
     }
 
+    public void clickHouseUInt16ToInt(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+            long columnAddr, int startRowForNullable) {
+        if (isNullable) {
+            for (int i = startRowForNullable; i < numRows; i++) {
+                if (column[i] == null) {
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+                } else {
+                    UdfUtils.UNSAFE.putInt(columnAddr + (i * 4L), ((UnsignedShort) column[i]).intValue());
+                }
+            }
+        } else {
+            for (int i = 0; i < numRows; i++) {
+                UdfUtils.UNSAFE.putInt(columnAddr + (i * 4L), ((UnsignedShort) column[i]).intValue());
+            }
+        }
+    }
+
     public void copyBatchIntResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr) {
         Object[] column = (Object[]) columnObj;
@@ -488,6 +521,8 @@ public class JdbcExecutor {
             bigDecimalPutToInt(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         } else if (column[firstNotNullIndex] instanceof Integer) {
             integerPutToInt(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
+        } else if (column[firstNotNullIndex] instanceof com.clickhouse.data.value.UnsignedShort) {
+            clickHouseUInt16ToInt(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         }
     }
 
@@ -525,6 +560,23 @@ public class JdbcExecutor {
         }
     }
 
+    private void clickHouseUInt32ToLong(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+            long columnAddr, int startRowForNullable) {
+        if (isNullable) {
+            for (int i = startRowForNullable; i < numRows; i++) {
+                if (column[i] == null) {
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+                } else {
+                    UdfUtils.UNSAFE.putLong(columnAddr + (i * 8L), ((UnsignedInteger) column[i]).longValue());
+                }
+            }
+        } else {
+            for (int i = 0; i < numRows; i++) {
+                UdfUtils.UNSAFE.putLong(columnAddr + (i * 8L), ((UnsignedInteger) column[i]).longValue());
+            }
+        }
+    }
+
     public void copyBatchBigIntResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr) {
         Object[] column = (Object[]) columnObj;
@@ -539,6 +591,8 @@ public class JdbcExecutor {
             bigDecimalPutToLong(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         } else if (column[firstNotNullIndex] instanceof Long) {
             longPutToLong(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
+        } else if (column[firstNotNullIndex] instanceof com.clickhouse.data.value.UnsignedInteger) {
+            clickHouseUInt32ToLong(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         }
     }
 
@@ -591,6 +645,23 @@ public class JdbcExecutor {
         }
     }
 
+    private void clickHouseUInt64ToLong(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+            long columnAddr, int startRowForNullable) {
+        if (isNullable) {
+            for (int i = startRowForNullable; i < numRows; i++) {
+                if (column[i] == null) {
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+                } else {
+                    UdfUtils.UNSAFE.putLong(columnAddr + (i * 16L), ((UnsignedLong) column[i]).longValue());
+                }
+            }
+        } else {
+            for (int i = 0; i < numRows; i++) {
+                UdfUtils.UNSAFE.putLong(columnAddr + (i * 16L), ((UnsignedLong) column[i]).longValue());
+            }
+        }
+    }
+
     public void copyBatchLargeIntResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr) {
         Object[] column = (Object[]) columnObj;
@@ -605,6 +676,8 @@ public class JdbcExecutor {
             bigDecimalPutToBigInteger(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         } else if (column[firstNotNullIndex] instanceof BigInteger) {
             bigIntegerPutToByte(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
+        } else if (column[firstNotNullIndex] instanceof com.clickhouse.data.value.UnsignedLong) {
+            clickHouseUInt64ToLong(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         }
     }
 
@@ -643,7 +716,6 @@ public class JdbcExecutor {
         }
     }
 
-
     private void doublePutToDouble(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr, int startRowForNullable) {
         if (isNullable) {
@@ -676,21 +748,6 @@ public class JdbcExecutor {
         } else if (column[firstNotNullIndex] instanceof Double) {
             doublePutToDouble(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         }
-    }
-
-    //TODO: now array type need this function, can remove after refactor read array type
-    public long convertDateToLong(Object obj, boolean isDateV2) {
-        LocalDate date;
-        if (obj instanceof LocalDate) {
-            date = (LocalDate) obj;
-        } else {
-            date = ((Date) obj).toLocalDate();
-        }
-        if (isDateV2) {
-            return UdfUtils.convertToDateV2(date.getYear(), date.getMonthValue(), date.getDayOfMonth());
-        }
-        return UdfUtils.convertToDateTime(date.getYear(), date.getMonthValue(), date.getDayOfMonth(),
-                0, 0, 0, true);
     }
 
     private void localDatePutToLong(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
@@ -815,30 +872,6 @@ public class JdbcExecutor {
         } else if (column[firstNotNullIndex] instanceof Date) {
             datePutToInt(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         }
-    }
-
-    //TODO: now array type need this function, can remove after refactor read array type
-    public long convertDateTimeToLong(Object obj, boolean isDateTimeV2) throws UdfRuntimeException {
-        LocalDateTime date = null;
-        // TODO: not for sure: https://bugs.mysql.com/bug.php?id=101413
-        if (obj instanceof LocalDateTime) {
-            date = (LocalDateTime) obj;
-        } else if (obj instanceof java.sql.Timestamp) {
-            date = ((java.sql.Timestamp) obj).toLocalDateTime();
-        } else if (obj instanceof oracle.sql.TIMESTAMP) {
-            try {
-                date = ((oracle.sql.TIMESTAMP) obj).timestampValue().toLocalDateTime();
-            } catch (SQLException e) {
-                throw new UdfRuntimeException("Convert oracle.sql.TIMESTAMP"
-                        + " to LocalDateTime failed: ", e);
-            }
-        }
-        if (isDateTimeV2) {
-            return UdfUtils.convertToDateTimeV2(date.getYear(), date.getMonthValue(), date.getDayOfMonth(),
-                    date.getHour(), date.getMinute(), date.getSecond());
-        }
-        return UdfUtils.convertToDateTime(date.getYear(), date.getMonthValue(), date.getDayOfMonth(),
-                date.getHour(), date.getMinute(), date.getSecond(), false);
     }
 
     private void localDateTimePutToLong(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
@@ -1071,7 +1104,7 @@ public class JdbcExecutor {
             }
         }
         byte[] bytes = new byte[offsets[numRows - 1]];
-        long bytesAddr = JNINativeMethod.resizeColumn(charsAddr, offsets[numRows - 1]);
+        long bytesAddr = JNINativeMethod.resizeStringColumn(charsAddr, offsets[numRows - 1]);
         int dst = 0;
         for (int i = 0; i < numRows; i++) {
             for (int j = 0; j < byteRes[i].length; j++) {
@@ -1106,7 +1139,7 @@ public class JdbcExecutor {
             }
         }
         byte[] bytes = new byte[offsets[numRows - 1]];
-        long bytesAddr = JNINativeMethod.resizeColumn(charsAddr, offsets[numRows - 1]);
+        long bytesAddr = JNINativeMethod.resizeStringColumn(charsAddr, offsets[numRows - 1]);
         int dst = 0;
         for (int i = 0; i < numRows; i++) {
             for (int j = 0; j < byteRes[i].length; j++) {
@@ -1130,8 +1163,9 @@ public class JdbcExecutor {
         if (column[firstNotNullIndex] instanceof String) {
             stringPutToString(column, isNullable, numRows, nullMapAddr, offsetsAddr, charsAddr);
         } else {
-            //object like in pg type point, polygon, jsonb..... get object is org.postgresql.util.PGobject.....
-            //here object put to string, so the object must have impl toString() function
+            // object like in pg type point, polygon, jsonb..... get object is
+            // org.postgresql.util.PGobject.....
+            // here object put to string, so the object must have impl toString() function
             objectPutToString(column, isNullable, numRows, nullMapAddr, offsetsAddr, charsAddr);
         }
     }
@@ -1226,6 +1260,112 @@ public class JdbcExecutor {
                 UdfUtils.copyMemory(value, UdfUtils.BYTE_ARRAY_OFFSET, null, columnAddr + ((long) i * typeLen),
                         typeLen);
             }
+        }
+    }
+
+    private void ckArrayPutToString(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+            long offsetsAddr, long charsAddr) {
+        int[] offsets = new int[numRows];
+        byte[][] byteRes = new byte[numRows][];
+        int offset = 0;
+        if (isNullable == true) {
+            // Here can not loop from startRowForNullable,
+            // because byteRes will be used later
+            for (int i = 0; i < numRows; i++) {
+                if (column[i] == null) {
+                    byteRes[i] = emptyBytes;
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+                } else {
+                    byteRes[i] = ((String) convertClickHouseArray(column[i])).getBytes(StandardCharsets.UTF_8);
+                }
+                offset += byteRes[i].length;
+                offsets[i] = offset;
+            }
+        } else {
+            for (int i = 0; i < numRows; i++) {
+                byteRes[i] = ((String) convertClickHouseArray(column[i])).getBytes(StandardCharsets.UTF_8);
+                offset += byteRes[i].length;
+                offsets[i] = offset;
+            }
+        }
+        byte[] bytes = new byte[offsets[numRows - 1]];
+        long bytesAddr = JNINativeMethod.resizeStringColumn(charsAddr, offsets[numRows - 1]);
+        int dst = 0;
+        for (int i = 0; i < numRows; i++) {
+            for (int j = 0; j < byteRes[i].length; j++) {
+                bytes[dst++] = byteRes[i][j];
+            }
+        }
+        UdfUtils.copyMemory(offsets, UdfUtils.INT_ARRAY_OFFSET, null, offsetsAddr, numRows * 4L);
+        UdfUtils.copyMemory(bytes, UdfUtils.BYTE_ARRAY_OFFSET, null, bytesAddr, offsets[numRows - 1]);
+    }
+
+    private void arrayPutToString(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+            long offsetsAddr, long charsAddr) {
+        int[] offsets = new int[numRows];
+        byte[][] byteRes = new byte[numRows][];
+        int offset = 0;
+        if (isNullable == true) {
+            // Here can not loop from startRowForNullable,
+            // because byteRes will be used later
+            for (int i = 0; i < numRows; i++) {
+                if (column[i] == null) {
+                    byteRes[i] = emptyBytes;
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+                } else {
+                    try {
+                        byteRes[i] = Arrays.toString((Object[]) ((java.sql.Array) column[i]).getArray())
+                                .getBytes(StandardCharsets.UTF_8);
+                    } catch (SQLException e) {
+                        LOG.info("arrayPutToString have error when convert " + e.getMessage());
+                    }
+                }
+                offset += byteRes[i].length;
+                offsets[i] = offset;
+            }
+        } else {
+            for (int i = 0; i < numRows; i++) {
+                try {
+                    byteRes[i] = Arrays.toString((Object[]) ((java.sql.Array) column[i]).getArray())
+                            .getBytes(StandardCharsets.UTF_8);
+                } catch (SQLException e) {
+                    LOG.info("arrayPutToString have error when convert " + e.getMessage());
+                }
+                offset += byteRes[i].length;
+                offsets[i] = offset;
+            }
+        }
+        byte[] bytes = new byte[offsets[numRows - 1]];
+        long bytesAddr = JNINativeMethod.resizeStringColumn(charsAddr, offsets[numRows - 1]);
+        int dst = 0;
+        for (int i = 0; i < numRows; i++) {
+            for (int j = 0; j < byteRes[i].length; j++) {
+                bytes[dst++] = byteRes[i][j];
+            }
+        }
+        UdfUtils.copyMemory(offsets, UdfUtils.INT_ARRAY_OFFSET, null, offsetsAddr, numRows * 4L);
+        UdfUtils.copyMemory(bytes, UdfUtils.BYTE_ARRAY_OFFSET, null, bytesAddr, offsets[numRows - 1]);
+    }
+
+    public void copyBatchArrayResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
+            long offsetsAddr, long charsAddr) {
+        Object[] column = (Object[]) columnObj;
+        int firstNotNullIndex = 0;
+        if (isNullable) {
+            firstNotNullIndex = getFirstNotNullObject(column, numRows, nullMapAddr);
+        }
+        if (firstNotNullIndex == numRows) {
+            return;
+        }
+        // for doris array
+        if (column[firstNotNullIndex] instanceof String) {
+            stringPutToString(column, isNullable, numRows, nullMapAddr, offsetsAddr, charsAddr);
+        } else if (column[firstNotNullIndex] instanceof java.sql.Array) {
+            // for PG array
+            arrayPutToString(column, isNullable, numRows, nullMapAddr, offsetsAddr, charsAddr);
+        } else {
+            // For the ClickHouse array type
+            ckArrayPutToString(column, isNullable, numRows, nullMapAddr, offsetsAddr, charsAddr);
         }
     }
 

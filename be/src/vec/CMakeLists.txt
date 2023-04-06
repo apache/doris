@@ -30,7 +30,8 @@ set(VEC_FILES
   aggregate_functions/aggregate_function_sum.cpp
   aggregate_functions/aggregate_function_sort.cpp
   aggregate_functions/aggregate_function_min_max.cpp
-  aggregate_functions/aggregate_function_min_max_by.cpp
+  aggregate_functions/aggregate_function_min_by.cpp
+  aggregate_functions/aggregate_function_max_by.cpp
   aggregate_functions/aggregate_function_uniq.cpp
   aggregate_functions/aggregate_function_hll_union_agg.cpp
   aggregate_functions/aggregate_function_bit.cpp
@@ -168,6 +169,7 @@ set(VEC_FILES
   functions/array/function_array_sort.cpp
   functions/array/function_array_sortby.cpp
   functions/array/function_array_utils.cpp
+  functions/array/function_array_shuffle.cpp
   functions/array/function_arrays_overlap.cpp
   functions/array/function_array_distinct.cpp
   functions/array/function_array_remove.cpp
@@ -189,6 +191,7 @@ set(VEC_FILES
   functions/array/function_array_concat.cpp
   functions/array/function_array_zip.cpp
   functions/array/function_array_pushfront.cpp
+  functions/array/function_array_first_index.cpp
   functions/function_map.cpp
   exprs/table_function/vexplode_json_array.cpp
   functions/math.cpp
@@ -324,6 +327,8 @@ set(VEC_FILES
   exec/format/file_reader/new_plain_binary_line_reader.cpp
   exec/format/parquet/delta_bit_pack_decoder.cpp
   exec/format/parquet/bool_rle_decoder.cpp
+  exec/jni_connector.cpp
+  exec/scan/jni_reader.cpp
   )
 
 if (WITH_MYSQL)

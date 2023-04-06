@@ -47,6 +47,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConnectionId;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentCatalog;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
@@ -189,6 +190,12 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
     @Override
     public Expression visitCurrentUser(CurrentUser currentUser, ExpressionRewriteContext context) {
         String res = context.connectContext.get().getCurrentUserIdentity().toString();
+        return new VarcharLiteral(res);
+    }
+
+    @Override
+    public Expression visitCurrentCatalog(CurrentCatalog currentCatalog, ExpressionRewriteContext context) {
+        String res = context.connectContext.get().getDefaultCatalog();
         return new VarcharLiteral(res);
     }
 

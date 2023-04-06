@@ -19,7 +19,6 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.AuthType;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
@@ -27,6 +26,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
+import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.property.constants.HMSProperties;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -54,7 +55,9 @@ public class HMSExternalCatalog extends ExternalCatalog {
     private static final int MAX_CLIENT_POOL_SIZE = 8;
     protected PooledHiveMetaStoreClient client;
     // Record the latest synced event id when processing hive events
-    private long lastSyncedEventId;
+    // Must set to -1 otherwise client.getNextNotification will throw exception
+    // Reference to https://github.com/apache/doris/issues/18251
+    private long lastSyncedEventId = -1L;
     public static final String ENABLE_SELF_SPLITTER = "enable.self.splitter";
     public static final String FILE_META_CACHE_TTL_SECOND = "file.meta.cache.ttl-second";
 
@@ -69,8 +72,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     public HMSExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
         super(catalogId, name);
         this.type = "hms";
-        props = HMSResource.getPropertiesFromDLF(props);
-        props = HMSResource.getPropertiesFromGlue(props);
+        props = PropertyConverter.convertToMetaProperties(props);
         catalogProperty = new CatalogProperty(resource, props);
     }
 
@@ -117,7 +119,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     public String getHiveMetastoreUris() {
-        return catalogProperty.getOrDefault(HMSResource.HIVE_METASTORE_URIS, "");
+        return catalogProperty.getOrDefault(HMSProperties.HIVE_METASTORE_URIS, "");
     }
 
     @Override
@@ -161,7 +163,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
         for (Map.Entry<String, String> kv : catalogProperty.getHadoopProperties().entrySet()) {
             hiveConf.set(kv.getKey(), kv.getValue());
         }
-
+        hiveConf.set(HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
+                String.valueOf(Config.hive_metastore_client_timeout_second));
         String authentication = catalogProperty.getOrDefault(
                 HdfsResource.HADOOP_SECURITY_AUTHENTICATION, "");
         if (AuthType.KERBEROS.getDesc().equals(authentication)) {

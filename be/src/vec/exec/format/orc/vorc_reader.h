@@ -45,7 +45,7 @@ public:
         int64_t decode_null_map_time = 0;
     };
 
-    OrcReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
+    OrcReader(RuntimeProfile* profile, RuntimeState* state, const TFileScanRangeParams& params,
               const TFileRangeDesc& range, const std::vector<std::string>& column_names,
               size_t batch_size, const std::string& ctz, io::IOContext* io_ctx);
 
@@ -147,13 +147,19 @@ private:
     Status _decode_explicit_decimal_column(const std::string& col_name,
                                            const MutableColumnPtr& data_column,
                                            const DataTypePtr& data_type,
-                                           DecimalScaleParams& scale_params,
                                            orc::ColumnVectorBatch* cvb, size_t num_values) {
         OrcColumnType* data = dynamic_cast<OrcColumnType*>(cvb);
         if (data == nullptr) {
             return Status::InternalError("Wrong data type for colum '{}'", col_name);
         }
-        _init_decimal_converter<DecimalPrimitiveType>(data_type, scale_params, data->scale);
+        if (_decimal_scale_params_index >= _decimal_scale_params.size()) {
+            DecimalScaleParams temp_scale_params;
+            _init_decimal_converter<DecimalPrimitiveType>(data_type, temp_scale_params,
+                                                          data->scale);
+            _decimal_scale_params.emplace_back(std::move(temp_scale_params));
+        }
+        DecimalScaleParams& scale_params = _decimal_scale_params[_decimal_scale_params_index];
+        ++_decimal_scale_params_index;
 
         auto* cvb_data = data->values.data();
         auto& column_data =
@@ -183,16 +189,16 @@ private:
 
     template <typename DecimalPrimitiveType>
     Status _decode_decimal_column(const std::string& col_name, const MutableColumnPtr& data_column,
-                                  const DataTypePtr& data_type, DecimalScaleParams& scale_params,
-                                  orc::ColumnVectorBatch* cvb, size_t num_values) {
+                                  const DataTypePtr& data_type, orc::ColumnVectorBatch* cvb,
+                                  size_t num_values) {
         SCOPED_RAW_TIMER(&_statistics.decode_value_time);
         if (dynamic_cast<orc::Decimal64VectorBatch*>(cvb) != nullptr) {
             return _decode_explicit_decimal_column<DecimalPrimitiveType, orc::Decimal64VectorBatch>(
-                    col_name, data_column, data_type, scale_params, cvb, num_values);
+                    col_name, data_column, data_type, cvb, num_values);
         } else {
             return _decode_explicit_decimal_column<DecimalPrimitiveType,
                                                    orc::Decimal128VectorBatch>(
-                    col_name, data_column, data_type, scale_params, cvb, num_values);
+                    col_name, data_column, data_type, cvb, num_values);
         }
     }
 
@@ -241,7 +247,8 @@ private:
     void _collect_profile_on_close();
 
 private:
-    RuntimeProfile* _profile;
+    RuntimeProfile* _profile = nullptr;
+    RuntimeState* _state = nullptr;
     const TFileScanRangeParams& _scan_params;
     const TFileRangeDesc& _scan_range;
     FileSystemProperties _system_properties;
@@ -279,8 +286,8 @@ private:
 
     io::IOContext* _io_ctx;
 
-    // only for decimal
-    DecimalScaleParams _decimal_scale_params;
+    std::vector<DecimalScaleParams> _decimal_scale_params;
+    size_t _decimal_scale_params_index;
 };
 
 class ORCFileInputStream : public orc::InputStream {
