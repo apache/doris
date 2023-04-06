@@ -376,6 +376,8 @@ CONF_Int32(webserver_num_workers, "48");
 CONF_mInt32(periodic_counter_update_period_ms, "500");
 
 CONF_Bool(enable_single_replica_load, "false");
+// Number of download workers for single replica load
+CONF_Int32(single_replica_load_download_num_workers, "64");
 
 // Used for mini Load. mini load data file will be removed after this time.
 CONF_Int64(load_data_reserve_hours, "4");
