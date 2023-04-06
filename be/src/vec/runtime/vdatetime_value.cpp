@@ -1054,7 +1054,7 @@ static bool str_to_int64(const char* ptr, const char** endptr, int64_t* ret) {
         return false;
     }
     // Skip '0'
-    while (ptr < end && *ptr == '0') {
+    while (ptr < end && * ptr == '0') {
         ptr++;
     }
     const char* n_end = ptr + 9;
@@ -1095,7 +1095,7 @@ static int find_in_lib(const char* lib[], const char* str, const char* end) {
     for (; lib[pos] != NULL; ++pos) {
         const char* i = str;
         const char* j = lib[pos];
-        while (i < end && *j) {
+        while (i < end && * j) {
             if (toupper(*i) != toupper(*j)) {
                 break;
             }
@@ -1845,11 +1845,23 @@ bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale) {
         }
         if (field_idx == 6) {
             // Microsecond
-            temp_val *= std::pow(10, 6 - (end - start));
+            const auto ms_part = end - start;
+            temp_val *= std::pow(10, std::max(0L, 6 - ms_part));
             if constexpr (is_datetime) {
                 if (scale >= 0) {
-                    temp_val /= std::pow(10, 6 - scale);
-                    temp_val *= std::pow(10, 6 - scale);
+                    if (scale == 6 && ms_part > 6) {
+                        if (ptr < end && isdigit(*ptr) && *ptr >= '5') {
+                            temp_val += 1;
+                        }
+                    } else {
+                        const int divisor = std::pow(10, 6 - scale);
+                        int remainder = temp_val % divisor;
+                        temp_val /= divisor;
+                        if (std::abs(remainder) >= (divisor >> 1)) {
+                            temp_val += 1;
+                        }
+                        temp_val *= divisor;
+                    }
                 }
             }
         }

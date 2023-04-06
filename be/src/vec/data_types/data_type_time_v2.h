@@ -90,6 +90,8 @@ public:
 
     UInt32 get_scale() const { return _scale; }
 
+    void to_pb_column_meta(PColumnMeta* col_meta) const override;
+
     static void cast_to_date(const UInt64 from, Int64& to);
     static void cast_to_date_time(const UInt64 from, Int64& to);
     static void cast_to_date_v2(const UInt64 from, UInt32& to);
