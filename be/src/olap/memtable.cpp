@@ -448,7 +448,6 @@ Status MemTable::_generate_delete_bitmap(int64_t atomic_num_segments_before_flus
 }
 
 Status MemTable::flush() {
-    SCOPED_CONSUME_MEM_TRACKER(_flush_mem_tracker);
     VLOG_CRITICAL << "begin to flush memtable for tablet: " << tablet_id()
                   << ", memsize: " << memory_usage() << ", rows: " << _rows;
     int64_t duration_ns = 0;
@@ -470,6 +469,7 @@ Status MemTable::flush() {
 }
 
 Status MemTable::_do_flush(int64_t& duration_ns) {
+    SCOPED_CONSUME_MEM_TRACKER(_flush_mem_tracker);
     SCOPED_RAW_TIMER(&duration_ns);
     if (_skip_list) {
         Status st = _rowset_writer->flush_single_memtable(this, &_flush_size);

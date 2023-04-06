@@ -15,34 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("agg_on_view") {
+suite("test_decimalv3_where") {
 
-    sql """
-        drop table if exists agg_on_view_test;
-    """
-    sql """
-    create table agg_on_view_test (
-            id int,
-                    user_id int,
-            name varchar(20)
-    ) ENGINE=OLAP
-    UNIQUE KEY(`id`)
-    DISTRIBUTED BY HASH(`id`) BUCKETS 1
-    PROPERTIES (
-            "replication_allocation" = "tag.location.default: 1"
-    );
-    """
 
-    qt_sql """
-    select user_id,null_or_empty(tag) = 1,count(*)
-    from (
-            select *,
-            "abc" as tag
-            from agg_on_view_test limit 10)t
-    group by user_id,tag
-    """
-
-    sql """
-        drop table agg_on_view_test;
-    """
+    def tableName = "test_decimalv3_demo"
+	sql """drop table if exists ${tableName}"""
+	sql """CREATE TABLE ${tableName} ( `id` varchar(11) NULL COMMENT '唯一标识', `name` varchar(10) NULL COMMENT '采集时间', `age` int(11) NULL, `dr` decimalv3(10, 0) ) ENGINE=OLAP UNIQUE KEY(`id`) COMMENT 'test' DISTRIBUTED BY HASH(`id`) BUCKETS 10 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "in_memory" = "false", "storage_format" = "V2", "light_schema_change" = "true", "disable_auto_compaction" = "false" );"""
+	sql """insert into ${tableName} values (1,'doris',20,324.10),(2,'spark',10,95.5),(3,'flink',9,20)"""
+	qt_decimalv3 "select * from ${tableName} where dr != 1  order by age;"
 }

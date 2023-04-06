@@ -2093,6 +2093,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         // create partition
         try {
             if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
+                if (storagePolicy.equals("") && properties != null && !properties.isEmpty()) {
+                    // here, all properties should be checked
+                    throw new DdlException("Unknown properties: " + properties);
+                }
                 // this is a 1-level partitioned table
                 // use table name as partition name
                 DistributionInfo partitionDistributionInfo = distributionDesc.toDistributionInfo(baseSchema);
