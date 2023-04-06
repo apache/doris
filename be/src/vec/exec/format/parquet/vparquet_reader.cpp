@@ -205,6 +205,7 @@ Status ParquetReader::_open_file() {
                                          _file_description.path);
         }
         _column_statistics.read_bytes += meta_size;
+        // read twice: parse magic number & parse meta data
         _column_statistics.read_calls += 2;
     }
     return Status::OK();
@@ -631,6 +632,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
     RETURN_IF_ERROR(
             _file_reader->read_at(page_index._offset_index_start, res, &bytes_read, _io_ctx));
     _column_statistics.read_bytes += bytes_read;
+    // read twice: parse column index & parse offset index
     _column_statistics.read_calls += 2;
     for (auto& read_col : _read_columns) {
         auto conjunct_iter = _colname_to_value_range->find(read_col._file_slot_name);
