@@ -309,6 +309,7 @@ terminal String
     KW_CROSS,
     KW_CUBE,
     KW_CURRENT,
+    KW_CURRENT_CATALOG,
     KW_CURRENT_TIMESTAMP,
     KW_CURRENT_USER,
     KW_DATA,
@@ -6271,6 +6272,8 @@ non_pred_expr ::=
   {: RESULT = new InformationFunction("USER"); :}
   | KW_CURRENT_USER LPAREN RPAREN
   {: RESULT = new InformationFunction("CURRENT_USER"); :}
+  | KW_CURRENT_CATALOG LPAREN RPAREN
+  {: RESULT = new InformationFunction("CURRENT_CATALOG"); :}
   | KW_CONNECTION_ID LPAREN RPAREN
   {: RESULT = new InformationFunction("CONNECTION_ID"); :}
   | KW_PASSWORD LPAREN STRING_LITERAL:text RPAREN
@@ -7310,6 +7313,8 @@ keyword ::=
     | KW_IGNORE:id
     {: RESULT = id; :}
     | KW_HISTOGRAM:id
+    {: RESULT = id; :}
+    | KW_CURRENT_CATALOG:id
     {: RESULT = id; :}
     ;
 
