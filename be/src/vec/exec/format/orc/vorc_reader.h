@@ -247,8 +247,8 @@ private:
     void _collect_profile_on_close();
 
 private:
-    RuntimeProfile* _profile;
-    RuntimeState* _state;
+    RuntimeProfile* _profile = nullptr;
+    RuntimeState* _state = nullptr;
     const TFileScanRangeParams& _scan_params;
     const TFileRangeDesc& _scan_range;
     FileSystemProperties _system_properties;
