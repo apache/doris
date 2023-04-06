@@ -144,10 +144,14 @@ public class ColumnStatistic {
             }
             String min = resultRow.getColumnValue("min");
             String max = resultRow.getColumnValue("max");
-            columnStatisticBuilder.setMinValue(StatisticsUtil.convertToDouble(col.getType(), min));
-            columnStatisticBuilder.setMaxValue(StatisticsUtil.convertToDouble(col.getType(), max));
-            columnStatisticBuilder.setMaxExpr(StatisticsUtil.readableValue(col.getType(), max));
-            columnStatisticBuilder.setMinExpr(StatisticsUtil.readableValue(col.getType(), min));
+            if (!StatisticsUtil.isNullOrEmpty(min)) {
+                columnStatisticBuilder.setMinValue(StatisticsUtil.convertToDouble(col.getType(), min));
+                columnStatisticBuilder.setMinExpr(StatisticsUtil.readableValue(col.getType(), min));
+            }
+            if (!StatisticsUtil.isNullOrEmpty(max)) {
+                columnStatisticBuilder.setMaxValue(StatisticsUtil.convertToDouble(col.getType(), max));
+                columnStatisticBuilder.setMaxExpr(StatisticsUtil.readableValue(col.getType(), max));
+            }
             columnStatisticBuilder.setSelectivity(1.0);
             columnStatisticBuilder.setOriginalNdv(ndv);
             Histogram histogram = Env.getCurrentEnv().getStatisticsCache().getHistogram(tblId, idxId, colName);
