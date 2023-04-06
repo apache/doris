@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.catalog.AliasFunction;
 import org.apache.doris.catalog.Database;
@@ -26,15 +28,19 @@ import org.apache.doris.catalog.Function.CompareMode;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
+import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -57,11 +63,26 @@ public class ReplaceAliasFunction extends DefaultExpressionRewriter<CascadesCont
         );
     }
 
+    /**
+     * In the rule, we change alias function to builtin function.
+     * Firstly, when we find an unbound function and check whether it's an alias function.
+     * Secondly, we ensure it is an alias function, it's a original planner style expression, we get its sql-style,
+     * but the NereidsParser cannot parser an expression, so we parse a one-row relation sql like:
+     *      select {the alias function}
+     * Thirdly, handle the unbound function's children recursively by the two steps above.
+     */
+
     @Override
     public Expression visitUnboundFunction(UnboundFunction function, CascadesContext context) {
         Database db = getDb(context);
         AliasFunction aliasFunction = getAliasFunction(function, db);
-        System.out.println(aliasFunction.getOriginFunction());
+        Expr originalFunction = aliasFunction.getOriginFunction();
+        if (!(originalFunction instanceof FunctionCallExpr)) {
+            throw new AnalysisException(String.format("unsupported type of originalFunction in aliasFunction: %s",
+                    originalFunction.getType()));
+        }
+        Expression expr = translateToNereidsFunction(((FunctionCallExpr) originalFunction));
+        System.out.println(expr);
         return function;
     }
 
@@ -85,4 +106,10 @@ public class ReplaceAliasFunction extends DefaultExpressionRewriter<CascadesCont
         return env.getInternalCatalog().getDbNullable(dbName);
     }
 
+    private Expression translateToNereidsFunction(FunctionCallExpr function) {
+        String functionSql = function.toSql();
+        LogicalPlan containerPlan = new NereidsParser().parseSingle(String.format("select %s", functionSql));
+        Preconditions.checkArgument(containerPlan instanceof UnboundOneRowRelation);
+        return ((UnboundOneRowRelation) containerPlan).getProjects().get(0);
+    }
 }
