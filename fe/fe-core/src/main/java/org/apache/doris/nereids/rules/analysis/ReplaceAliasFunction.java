@@ -29,12 +29,14 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -42,8 +44,11 @@ import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableMap.Builder;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -88,7 +93,8 @@ public class ReplaceAliasFunction extends DefaultExpressionRewriter<CascadesCont
             throw new AnalysisException(String.format("unsupported type of originalFunction in aliasFunction: %s",
                     originalFunction.getType()));
         }
-        return translateToNereidsFunction(((FunctionCallExpr) originalFunction));
+        Expression nereidsFunction = translateToNereidsFunction(((FunctionCallExpr) originalFunction));
+        return replaceParameter(nereidsFunction, aliasFunction.getParameters(), function.children());
     }
 
     private AliasFunction getAliasFunction(UnboundFunction function, Database database) {
@@ -113,8 +119,36 @@ public class ReplaceAliasFunction extends DefaultExpressionRewriter<CascadesCont
 
     private Expression translateToNereidsFunction(FunctionCallExpr function) {
         String functionSql = function.toSql();
-        LogicalPlan containerPlan = new NereidsParser().parseSingle(String.format("select %s", functionSql));
+        LogicalPlan containerPlan = new NereidsParser().parseSingle(
+                String.format("select %s from virt_tbl", functionSql));
         Preconditions.checkArgument(containerPlan instanceof UnboundOneRowRelation);
         return ((UnboundOneRowRelation) containerPlan).getProjects().get(0);
+    }
+
+    private Expression replaceParameter(Expression nereidsFunction,
+            List<String> parameters, List<Expression> realParameters) {
+        Preconditions.checkArgument(parameters.size() == realParameters.size());
+        return new ParameterRewriter(parameters, realParameters).replace(nereidsFunction);
+    }
+
+    private static class ParameterRewriter extends DefaultExpressionRewriter<Void> {
+        private final Map<String, Expression> placeHolderToRealParams;
+
+        public ParameterRewriter(List<String> params, List<Expression> real) {
+            ImmutableMap.Builder<String, Expression> builder = new Builder<>();
+            for (int i = 0; i < params.size(); ++i) {
+                builder.put(params.get(i), real.get(i));
+            }
+            placeHolderToRealParams = builder.build();
+        }
+
+        public Expression replace(Expression expression) {
+            return expression.accept(this, null);
+        }
+
+        @Override
+        public Expression visitUnboundSlot(UnboundSlot slot, Void unused) {
+            return placeHolderToRealParams.getOrDefault(slot.getName(), slot);
+        }
     }
 }
