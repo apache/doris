@@ -51,13 +51,13 @@ public class RefreshCatalogTest extends TestWithFeService {
         auth = env.getAuth();
         // 1. create test catalog
         CreateCatalogStmt testCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt(
-            "create catalog test1 properties(\n"
-                + "    \"type\" = \"test\",\n"
-                + "    \"metadata_refresh_interval_sec\" = \"1\",\n"
-                + "    \"catalog_provider.class\" "
-                + "= \"org.apache.doris.datasource.RefreshCatalogTest$RefreshCatalogProvider\"\n"
-                + ");",
-            rootCtx);
+                "create catalog test1 properties(\n"
+                        + "    \"type\" = \"test\",\n"
+                        + "    \"metadata_refresh_interval_sec\" = \"1\",\n"
+                        + "    \"catalog_provider.class\" "
+                        + "= \"org.apache.doris.datasource.RefreshCatalogTest$RefreshCatalogProvider\"\n"
+                        + ");",
+                rootCtx);
         env.getCatalogMgr().createCatalog(testCatalog);
     }
 
@@ -92,20 +92,20 @@ public class RefreshCatalogTest extends TestWithFeService {
             Map<String, List<Column>> tblSchemaMap1 = Maps.newHashMap();
             // db1
             tblSchemaMap1.put("tbl11", Lists.newArrayList(
-                new Column("a11", PrimitiveType.BIGINT),
-                new Column("a12", PrimitiveType.STRING),
-                new Column("a13", PrimitiveType.FLOAT)));
+                    new Column("a11", PrimitiveType.BIGINT),
+                    new Column("a12", PrimitiveType.STRING),
+                    new Column("a13", PrimitiveType.FLOAT)));
             tblSchemaMap1.put("tbl12", Lists.newArrayList(
-                new Column("b21", PrimitiveType.BIGINT),
-                new Column("b22", PrimitiveType.STRING),
-                new Column("b23", PrimitiveType.FLOAT)));
+                    new Column("b21", PrimitiveType.BIGINT),
+                    new Column("b22", PrimitiveType.STRING),
+                    new Column("b23", PrimitiveType.FLOAT)));
             MOCKED_META.put("db1", tblSchemaMap1);
             // db2
             Map<String, List<Column>> tblSchemaMap2 = Maps.newHashMap();
             tblSchemaMap2.put("tbl21", Lists.newArrayList(
-                new Column("c11", PrimitiveType.BIGINT),
-                new Column("c12", PrimitiveType.STRING),
-                new Column("c13", PrimitiveType.FLOAT)));
+                    new Column("c11", PrimitiveType.BIGINT),
+                    new Column("c12", PrimitiveType.STRING),
+                    new Column("c13", PrimitiveType.FLOAT)));
             MOCKED_META.put("db2", tblSchemaMap2);
         }
 
@@ -118,9 +118,9 @@ public class RefreshCatalogTest extends TestWithFeService {
             // db3
             Map<String, List<Column>> tblSchemaMap3 = Maps.newHashMap();
             tblSchemaMap3.put("tbl31", Lists.newArrayList(
-                new Column("c11", PrimitiveType.BIGINT),
-                new Column("c12", PrimitiveType.STRING),
-                new Column("c13", PrimitiveType.FLOAT)));
+                    new Column("c11", PrimitiveType.BIGINT),
+                    new Column("c12", PrimitiveType.STRING),
+                    new Column("c13", PrimitiveType.FLOAT)));
             MOCKED_META.put("db3", tblSchemaMap3);
         }
     }

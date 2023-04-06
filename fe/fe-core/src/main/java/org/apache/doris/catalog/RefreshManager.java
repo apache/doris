@@ -42,20 +42,15 @@ import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 // Manager for refresh database and table action
-public class RefreshManager implements Runnable {
+public class RefreshManager {
     private static final Logger LOG = LogManager.getLogger(RefreshManager.class);
-
-    private static final ScheduledThreadPoolExecutor REFRESH_TIMER = ThreadPoolManager.newDaemonScheduledThreadPool(1,
-        "catalog-refresh-timer-pool", true);
+    private ScheduledThreadPoolExecutor refreshScheduler = ThreadPoolManager.newDaemonScheduledThreadPool(1,
+            "catalog-refresh-timer-pool", true);
     // Unit:SECONDS
     private static final int REFRESH_TIME = 5;
     // key is the name of a catalog, value is an array of length 2, used to store
     // the original refresh time and the current remaining time of the catalog
-    private Map<String, Integer[]> refreshMap = Maps.newConcurrentMap();
-
-    public RefreshManager() {
-        REFRESH_TIMER.scheduleAtFixedRate(this::run, 0, REFRESH_TIME, TimeUnit.SECONDS);
-    }
+    private Map<Long, Integer[]> refreshMap = Maps.newConcurrentMap();
 
     public void handleRefreshTable(RefreshTableStmt stmt) throws UserException {
         String catalogName = stmt.getCtl();
@@ -165,34 +160,43 @@ public class RefreshManager implements Runnable {
         env.createTable(createTableStmt);
     }
 
-    public void registerIntoRefreshMap(String catalogName, Integer[] sec) {
-        refreshMap.put(catalogName, sec);
+    public void addToRefreshMap(long catalogId, Integer[] sec) {
+        refreshMap.put(catalogId, sec);
     }
 
-    public void logOutOfRefreshMap(String catalogName) {
-        refreshMap.remove(catalogName);
+    public void removeFromRefreshMap(long catalogId) {
+        refreshMap.remove(catalogId);
     }
 
-    @Override
-    public void run() {
-        for (Map.Entry<String, Integer[]> entry : refreshMap.entrySet()) {
-            String catalogName = entry.getKey();
-            Integer[] timeGroup = entry.getValue();
-            Integer original = timeGroup[0];
-            Integer current = timeGroup[1];
-            if (current - REFRESH_TIME > 0) {
-                timeGroup[1] = current - REFRESH_TIME;
-                refreshMap.put(catalogName, timeGroup);
-            } else {
-                RefreshCatalogStmt refreshCatalogStmt = new RefreshCatalogStmt(catalogName, null);
-                try {
-                    DdlExecutor.execute(Env.getCurrentEnv(), refreshCatalogStmt);
-                } catch (Exception e) {
-                    e.printStackTrace();
+    public void start() {
+        TaskRefresh taskRefresh = new TaskRefresh();
+        this.refreshScheduler.scheduleAtFixedRate(taskRefresh, 0, REFRESH_TIME,
+                TimeUnit.SECONDS);
+    }
+
+    private class TaskRefresh implements Runnable {
+        @Override
+        public void run() {
+            for (Map.Entry<Long, Integer[]> entry : refreshMap.entrySet()) {
+                Long catalogId = entry.getKey();
+                Integer[] timeGroup = entry.getValue();
+                Integer original = timeGroup[0];
+                Integer current = timeGroup[1];
+                if (current - REFRESH_TIME > 0) {
+                    timeGroup[1] = current - REFRESH_TIME;
+                    refreshMap.put(catalogId, timeGroup);
+                } else {
+                    String catalogName = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId).getName();
+                    RefreshCatalogStmt refreshCatalogStmt = new RefreshCatalogStmt(catalogName, null);
+                    try {
+                        DdlExecutor.execute(Env.getCurrentEnv(), refreshCatalogStmt);
+                    } catch (Exception e) {
+                        LOG.warn("failed to refresh catalog {}", catalogName, e);
+                    }
+                    // reset
+                    timeGroup[1] = original;
+                    refreshMap.put(catalogId, timeGroup);
                 }
-                // reset
-                timeGroup[1] = original;
-                refreshMap.put(catalogName, timeGroup);
             }
         }
     }

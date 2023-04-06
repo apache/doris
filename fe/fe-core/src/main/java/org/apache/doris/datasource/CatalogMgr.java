@@ -124,7 +124,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (catalog != null) {
             catalog.onClose();
             nameToCatalog.remove(catalog.getName());
-            Env.getCurrentEnv().getRefreshManager().logOutOfRefreshMap(catalog.getName());
             lastDBOfCatalog.remove(catalog.getName());
             Env.getCurrentEnv().getExtMetaCacheMgr().removeCache(catalog.getName());
             if (!Strings.isNullOrEmpty(catalog.getResource())) {
@@ -464,22 +463,16 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         writeLock();
         try {
             CatalogIf catalog = CatalogFactory.constructorFromLog(log);
+            if (!isReplay && catalog instanceof ExternalCatalog) {
+                ((ExternalCatalog) catalog).checkProperties();
+            }
             Map<String, String> props = log.getProps();
             if (props.containsKey(METADATA_REFRESH_INTERVAL_SEC)) {
                 // need refresh
-                String catalogName = log.getCatalogName();
-                Integer metadataRefreshIntervalSec = null;
-                try {
-                    metadataRefreshIntervalSec = Integer.valueOf(props.get(METADATA_REFRESH_INTERVAL_SEC));
-                } catch (NumberFormatException e) {
-                    throw new DdlException("Invalid properties: " + METADATA_REFRESH_INTERVAL_SEC);
-                }
+                long catalogId = log.getCatalogId();
+                Integer metadataRefreshIntervalSec = Integer.valueOf(props.get(METADATA_REFRESH_INTERVAL_SEC));
                 Integer[] sec = {metadataRefreshIntervalSec, metadataRefreshIntervalSec};
-                Env.getCurrentEnv().getRefreshManager().registerIntoRefreshMap(catalogName, sec);
-
-            }
-            if (!isReplay && catalog instanceof ExternalCatalog) {
-                ((ExternalCatalog) catalog).checkProperties();
+                Env.getCurrentEnv().getRefreshManager().addToRefreshMap(catalogId, sec);
             }
             addCatalog(catalog);
             return catalog;
@@ -977,6 +970,12 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     public void gsonPostProcess() throws IOException {
         for (CatalogIf catalog : idToCatalog.values()) {
             nameToCatalog.put(catalog.getName(), catalog);
+            Map properties = catalog.getProperties();
+            if (properties.containsKey(METADATA_REFRESH_INTERVAL_SEC)) {
+                Integer metadataRefreshIntervalSec = (Integer) properties.get(METADATA_REFRESH_INTERVAL_SEC);
+                Integer[] sec = {metadataRefreshIntervalSec, metadataRefreshIntervalSec};
+                Env.getCurrentEnv().getRefreshManager().addToRefreshMap(catalog.getId(), sec);
+            }
         }
         internalCatalog = (InternalCatalog) idToCatalog.get(InternalCatalog.INTERNAL_CATALOG_ID);
     }

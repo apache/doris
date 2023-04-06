@@ -155,6 +155,15 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
 
     // check if all required properties are set when creating catalog
     public void checkProperties() throws DdlException {
+        // check refresh parameter of catalog
+        Map<String, String> properties = getCatalogProperty().getProperties();
+        if (properties.containsKey(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC)) {
+            try {
+                Integer.valueOf(properties.get(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC));
+            } catch (NumberFormatException e) {
+                throw new DdlException("Invalid properties: " + CatalogMgr.METADATA_REFRESH_INTERVAL_SEC);
+            }
+        }
     }
 
     /**
