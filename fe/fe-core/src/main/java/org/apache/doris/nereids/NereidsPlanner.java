@@ -218,8 +218,6 @@ public class NereidsPlanner extends Planner {
                 String tree = physicalPlan.treeString();
                 LOG.info(tree);
             }
-
-            System.out.println(physicalPlan.shape("  "));
             if (explainLevel == ExplainLevel.OPTIMIZED_PLAN
                     || explainLevel == ExplainLevel.ALL_PLAN
                     || explainLevel == ExplainLevel.SHAPE_PLAN) {
