@@ -1108,8 +1108,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         // check if db exists
         Database db = (Database) getDbOrDdlException(dbName);
         // InfoSchemaDb can not create table
-        if(db instanceof InfoSchemaDb){
-            ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName, ErrorCode.ERR_CANT_CREATE_TABLE.getCode(), "not supported create table in this database");
+        if (db instanceof InfoSchemaDb) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName,
+                    ErrorCode.ERR_CANT_CREATE_TABLE.getCode(), "not supported create table in this database");
         }
 
         // only internal table should check quota and cluster capacity
