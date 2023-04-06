@@ -567,7 +567,22 @@ void PInternalServiceImpl::get_column_ids_by_tablet_ids(google::protobuf::RpcCon
                                                         const PFetchColIdsRequest* request,
                                                         PFetchColIdsResponse* response,
                                                         google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
+        _get_column_ids_by_tablet_ids(controller, request, response, done);
+    });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+    }
+}
+
+void PInternalServiceImpl::_get_column_ids_by_tablet_ids(
+        google::protobuf::RpcController* controller, const PFetchColIdsRequest* request,
+        PFetchColIdsResponse* response, google::protobuf::Closure* done) {
     brpc::ClosureGuard guard(done);
+    [[maybe_unused]] brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
     TabletManager* tablet_mgr = StorageEngine::instance()->tablet_manager();
     const auto& params = request->params();
     for (const auto& param : params) {
