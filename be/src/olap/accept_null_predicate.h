@@ -50,6 +50,8 @@ public:
         return _nested->evaluate(schema, iterator, num_rows, bitmap);
     }
 
+    bool support_short_circuit_evaluate() const override { return false; }
+
     uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel,
                       uint16_t size) const override {
         LOG(FATAL) << "evaluate without flags not supported";
