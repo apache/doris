@@ -35,7 +35,6 @@ import org.apache.doris.planner.Split;
 import org.apache.doris.planner.Splitter;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import org.apache.hadoop.fs.BlockLocation;
 import org.apache.hadoop.fs.FileSystem;
@@ -51,7 +50,6 @@ import java.io.IOException;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 public class HiveSplitter implements Splitter {
 
@@ -81,11 +79,11 @@ public class HiveSplitter implements Splitter {
                     partitionColumnTypes);
             }
             Map<String, String> properties = hmsTable.getCatalog().getCatalogProperty().getProperties();
-            boolean useSelfSplitter = false;
+            boolean useSelfSplitter = true;
             if (properties.containsKey(HMSExternalCatalog.ENABLE_SELF_SPLITTER)
-                    && properties.get(HMSExternalCatalog.ENABLE_SELF_SPLITTER).equalsIgnoreCase("true")) {
+                    && properties.get(HMSExternalCatalog.ENABLE_SELF_SPLITTER).equalsIgnoreCase("false")) {
                 LOG.debug("Using self splitter for hmsTable {}", hmsTable.getName());
-                useSelfSplitter = true;
+                useSelfSplitter = false;
             }
 
             List<Split> allFiles = Lists.newArrayList();
@@ -135,15 +133,53 @@ public class HiveSplitter implements Splitter {
     }
 
     private void getFileSplitByPartitions(HiveMetaStoreCache cache, List<HivePartition> partitions,
-                                          List<Split> allFiles, boolean useSelfSplitter) {
-        List<FileSplit> files = cache.getFilesByPartitions(partitions, useSelfSplitter);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("get #{} files from #{} partitions: {}", files.size(), partitions.size(),
-                    Joiner.on(",")
-                    .join(files.stream().limit(10).map(f -> ((FileSplit) f).getPath())
-                        .collect(Collectors.toList())));
+                                          List<Split> allFiles, boolean useSelfSplitter) throws IOException {
+        for (HiveMetaStoreCache.FileCacheValue fileCacheValue :
+                cache.getFilesByPartitions(partitions, useSelfSplitter)) {
+            if (fileCacheValue.getSplits() != null) {
+                allFiles.addAll(fileCacheValue.getSplits());
+            }
+            if (fileCacheValue.getFiles() != null) {
+                boolean isSplittable = fileCacheValue.isSplittable();
+                for (HiveMetaStoreCache.HiveFileStatus status : fileCacheValue.getFiles()) {
+                    allFiles.addAll(splitFile(status, isSplittable));
+                }
+            }
         }
-        allFiles.addAll(files);
+    }
+
+    private List<Split> splitFile(HiveMetaStoreCache.HiveFileStatus status, boolean splittable) throws IOException {
+        List<Split> result = Lists.newArrayList();
+        if (!splittable) {
+            LOG.debug("Path {} is not splittable.", status.getPath());
+            BlockLocation block = status.getBlockLocations()[0];
+            result.add(new FileSplit(status.getPath(), 0, status.getLength(),
+                    status.getLength(), block.getHosts()));
+            return result;
+        }
+        long splitSize = ConnectContext.get().getSessionVariable().getFileSplitSize();
+        if (splitSize <= 0) {
+            splitSize = status.getBlockSize();
+        }
+        // Min split size is DEFAULT_SPLIT_SIZE(128MB).
+        splitSize = splitSize > DEFAULT_SPLIT_SIZE ? splitSize : DEFAULT_SPLIT_SIZE;
+        BlockLocation[] blockLocations = status.getBlockLocations();
+        long length = status.getLength();
+        long bytesRemaining;
+        for (bytesRemaining = length; (double) bytesRemaining / (double) splitSize > 1.1D;
+                bytesRemaining -= splitSize) {
+            int location = getBlockIndex(blockLocations, length - bytesRemaining);
+            result.add(new FileSplit(status.getPath(), length - bytesRemaining,
+                    splitSize, length, blockLocations[location].getHosts()));
+        }
+        if (bytesRemaining != 0L) {
+            int location = getBlockIndex(blockLocations, length - bytesRemaining);
+            result.add(new FileSplit(status.getPath(), length - bytesRemaining,
+                    bytesRemaining, length, blockLocations[location].getHosts()));
+        }
+
+        LOG.debug("Path {} includes {} splits.", status.getPath(), result.size());
+        return result;
     }
 
     public int getTotalPartitionNum() {
@@ -154,52 +190,18 @@ public class HiveSplitter implements Splitter {
         return readPartitionNum;
     }
 
-    // Get splits by using FileSystem API, the splits are blocks in HDFS or S3 like storage system.
-    public static FileSplit[] getHiveSplits(Path path, InputFormat<?, ?> inputFormat,
-                                             JobConf jobConf) throws IOException {
+    // Get File Status by using FileSystem API.
+    public static HiveMetaStoreCache.FileCacheValue getFileCache(Path path, InputFormat<?, ?> inputFormat,
+                                                                  JobConf jobConf) throws IOException {
         FileSystem fs = path.getFileSystem(jobConf);
         boolean splittable = HiveUtil.isSplittable(inputFormat, fs, path);
-        List<FileSplit> splits = Lists.newArrayList();
         RemoteIterator<LocatedFileStatus> locatedFileStatusRemoteIterator = fs.listFiles(path, true);
-        if (!locatedFileStatusRemoteIterator.hasNext()) {
-            LOG.debug("File status for path {} is empty.", path);
-            return new FileSplit[0];
-        }
-        if (!splittable) {
-            LOG.debug("Path {} is not splittable.", path);
-            while (locatedFileStatusRemoteIterator.hasNext()) {
-                LocatedFileStatus status = locatedFileStatusRemoteIterator.next();
-                BlockLocation block = status.getBlockLocations()[0];
-                splits.add(new FileSplit(status.getPath(), 0, status.getLen(), status.getLen(), block.getHosts()));
-            }
-            return splits.toArray(new FileSplit[splits.size()]);
-        }
-        long splitSize = ConnectContext.get().getSessionVariable().getFileSplitSize();
+        HiveMetaStoreCache.FileCacheValue result = new HiveMetaStoreCache.FileCacheValue();
+        result.setSplittable(splittable);
         while (locatedFileStatusRemoteIterator.hasNext()) {
-            LocatedFileStatus status = locatedFileStatusRemoteIterator.next();
-            if (splitSize <= 0) {
-                splitSize = status.getBlockSize();
-            }
-            // Min split size is DEFAULT_SPLIT_SIZE(128MB).
-            splitSize = splitSize > DEFAULT_SPLIT_SIZE ? splitSize : DEFAULT_SPLIT_SIZE;
-            BlockLocation[] blockLocations = status.getBlockLocations();
-            long length = status.getLen();
-            long bytesRemaining;
-            for (bytesRemaining = length; (double) bytesRemaining / (double) splitSize > 1.1D;
-                    bytesRemaining -= splitSize) {
-                int location = getBlockIndex(blockLocations, length - bytesRemaining);
-                splits.add(new FileSplit(status.getPath(), length - bytesRemaining,
-                        splitSize, length, blockLocations[location].getHosts()));
-            }
-            if (bytesRemaining != 0L) {
-                int location = getBlockIndex(blockLocations, length - bytesRemaining);
-                splits.add(new FileSplit(status.getPath(), length - bytesRemaining,
-                        bytesRemaining, length, blockLocations[location].getHosts()));
-            }
+            result.addFile(locatedFileStatusRemoteIterator.next());
         }
-
-        LOG.debug("Path {} includes {} splits.", path, splits.size());
-        return splits.toArray(new FileSplit[splits.size()]);
+        return result;
     }
 
     private static int getBlockIndex(BlockLocation[] blkLocations, long offset) {
