@@ -389,8 +389,6 @@ public:
 
     int32_t daynr() const { return calc_daynr(_year, _month, _day); }
 
-    int32_t time_to_sec() const { return _hour * 3600 + _minute * 60 + _second; }
-
     int year() const { return _year; }
     int month() const { return _month; }
     int quarter() const { return (_month - 1) / 3 + 1; }
@@ -1036,14 +1034,6 @@ public:
     uint32_t hash(int seed) const { return ::doris::HashUtil::hash(this, sizeof(*this), seed); }
 
     int day_of_year() const { return daynr() - calc_daynr(this->year(), 1, 1) + 1; }
-
-    int32_t time_to_sec() const {
-        if constexpr (is_datetime) {
-            return date_v2_value_.hour_ * 3600 + date_v2_value_.minute_ * 60 +
-                   date_v2_value_.second_;
-        }
-        return 0;
-    }
 
     std::string debug_string() const {
         char buf[64];

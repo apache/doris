@@ -71,7 +71,6 @@ TIME_FUNCTION_IMPL(DayOfWeekImpl, dayofweek, day_of_week());
 TIME_FUNCTION_IMPL(WeekDayImpl, weekday, weekday());
 // TODO: the method should be always not nullable
 TIME_FUNCTION_IMPL(ToDaysImpl, to_days, daynr());
-TIME_FUNCTION_IMPL(TimeToSecImpl, time_to_sec, time_to_sec());
 
 #define TIME_FUNCTION_ONE_ARG_IMPL(CLASS, UNIT, FUNCTION)                        \
     template <typename ArgType>                                                  \
