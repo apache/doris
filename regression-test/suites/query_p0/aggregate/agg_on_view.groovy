@@ -16,8 +16,9 @@
 // under the License.
 
 suite("agg_on_view") {
+    sql """ DROP TABLE IF EXISTS test """
     sql """
-    create table test (
+    create table if not exists test (
             id int,
                     user_id int,
             name varchar(20)
