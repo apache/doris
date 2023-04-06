@@ -54,6 +54,7 @@ static const std::string HTTP_HIDDEN_COLUMNS = "hidden_columns";
 static const std::string HTTP_TRIM_DOUBLE_QUOTES = "trim_double_quotes";
 static const std::string HTTP_SKIP_LINES = "skip_lines";
 static const std::string HTTP_COMMENT = "comment";
+static const std::string HTTP_ENABLE_PROFILE = "enable_profile";
 
 static const std::string HTTP_TWO_PHASE_COMMIT = "two_phase_commit";
 static const std::string HTTP_TXN_ID_KEY = "txn_id";

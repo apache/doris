@@ -24,6 +24,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ProfileWriter;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TReportExecStatusResult;
 import org.apache.doris.thrift.TStatus;
@@ -169,6 +170,7 @@ public final class QeProcessorImpl implements QeProcessor {
                     .user(context.getQualifiedUser())
                     .connId(String.valueOf(context.getConnectionId()))
                     .db(context.getDatabase())
+                    .catalog(context.getDefaultCatalog())
                     .fragmentInstanceInfos(info.getCoord().getFragmentInstanceInfos())
                     .profile(info.getCoord().getQueryProfile())
                     .isReportSucc(context.getSessionVariable().enableProfile()).build();
@@ -189,8 +191,14 @@ public final class QeProcessorImpl implements QeProcessor {
         final QueryInfo info = coordinatorMap.get(params.query_id);
 
         if (info == null) {
-            result.setStatus(new TStatus(TStatusCode.RUNTIME_ERROR));
-            LOG.info("ReportExecStatus() runtime error, query {} does not exist", DebugUtil.printId(params.query_id));
+            // There is no QueryInfo for StreamLoad, so we return OK
+            if (params.query_type == TQueryType.LOAD) {
+                result.setStatus(new TStatus(TStatusCode.OK));
+            } else {
+                result.setStatus(new TStatus(TStatusCode.RUNTIME_ERROR));
+            }
+            LOG.info("ReportExecStatus() runtime error, query {} with type {} does not exist",
+                    DebugUtil.printId(params.query_id), params.query_type);
             return result;
         }
         try {

@@ -107,7 +107,7 @@ public class NereidsPlanner extends Planner {
         PhysicalPlan physicalPlan = (PhysicalPlan) resultPlan;
         PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
         PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator(planTranslatorContext,
-                ConnectContext.get().getStatsErrorEstimator());
+                statementContext.getConnectContext().getStatsErrorEstimator());
         if (ConnectContext.get().getSessionVariable().isEnableNereidsTrace()) {
             CounterEvent.clearCounter();
         }
@@ -218,8 +218,9 @@ public class NereidsPlanner extends Planner {
                 String tree = physicalPlan.treeString();
                 LOG.info(tree);
             }
-
-            if (explainLevel == ExplainLevel.OPTIMIZED_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
+            if (explainLevel == ExplainLevel.OPTIMIZED_PLAN
+                    || explainLevel == ExplainLevel.ALL_PLAN
+                    || explainLevel == ExplainLevel.SHAPE_PLAN) {
                 optimizedPlan = physicalPlan;
             }
 
@@ -354,6 +355,8 @@ public class NereidsPlanner extends Planner {
                 return rewrittenPlan.treeString();
             case OPTIMIZED_PLAN:
                 return "cost = " + cost + "\n" + optimizedPlan.treeString();
+            case SHAPE_PLAN:
+                return optimizedPlan.shape("");
             case ALL_PLAN:
                 return "========== PARSED PLAN ==========\n"
                         + parsedPlan.treeString() + "\n\n"

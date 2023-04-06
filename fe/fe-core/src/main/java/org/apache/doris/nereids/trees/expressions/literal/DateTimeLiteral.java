@@ -248,6 +248,11 @@ public class DateTimeLiteral extends DateLiteral {
     }
 
     @Override
+    public double getDouble() {
+        return (double) getValue();
+    }
+
+    @Override
     public String toSql() {
         return toString();
     }

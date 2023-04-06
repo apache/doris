@@ -80,9 +80,10 @@ Status VArrowScanner::_open_next_reader() {
         io::FileReaderSPtr file_reader;
         _init_system_properties(range);
         _init_file_description(range);
-        // no use
-        RETURN_IF_ERROR(FileFactory::create_file_reader(
-                _profile, _system_properties, _file_description, &_file_system, &file_reader));
+        io::FileCachePolicy cache_policy = FileFactory::get_cache_policy(_state);
+        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties,
+                                                        _file_description, &_file_system,
+                                                        &file_reader, cache_policy));
 
         if (file_reader->size() == 0) {
             continue;

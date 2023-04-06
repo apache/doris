@@ -218,16 +218,110 @@ struct StAngleSphere {
 
         for (int row = 0; row < size; ++row) {
             double angle = 0;
-            if (!GeoPoint::ComputeAngle(x_lng->operator[](row).get<Float64>(),
-                                        x_lat->operator[](row).get<Float64>(),
-                                        y_lng->operator[](row).get<Float64>(),
-                                        y_lat->operator[](row).get<Float64>(), &angle)) {
+            if (!GeoPoint::ComputeAngleSphere(x_lng->operator[](row).get<Float64>(),
+                                              x_lat->operator[](row).get<Float64>(),
+                                              y_lng->operator[](row).get<Float64>(),
+                                              y_lat->operator[](row).get<Float64>(), &angle)) {
                 res->insert_data(nullptr, 0);
                 continue;
             }
             res->insert_data(const_cast<const char*>((char*)&angle), 0);
         }
 
+        block.replace_by_position(result, std::move(res));
+        return Status::OK();
+    }
+};
+
+struct StAngle {
+    static constexpr auto NEED_CONTEXT = false;
+    static constexpr auto NAME = "st_angle";
+    static const size_t NUM_ARGS = 3;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 3);
+        auto return_type = block.get_data_type(result);
+        MutableColumnPtr res = return_type->create_column();
+
+        auto p1 = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto p2 = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        auto p3 = block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
+        const auto size = p1->size();
+
+        GeoPoint point1;
+        GeoPoint point2;
+        GeoPoint point3;
+
+        for (int row = 0; row < size; ++row) {
+            auto shape_value1 = p1->get_data_at(row);
+            auto pt1 = point1.decode_from(shape_value1.data, shape_value1.size);
+            if (!pt1) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+
+            auto shape_value2 = p2->get_data_at(row);
+            auto pt2 = point2.decode_from(shape_value2.data, shape_value2.size);
+            if (!pt2) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+            auto shape_value3 = p3->get_data_at(row);
+            auto pt3 = point3.decode_from(shape_value3.data, shape_value3.size);
+            if (!pt3) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+
+            double angle = 0;
+            if (!GeoPoint::ComputeAngle(&point1, &point2, &point3, &angle)) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+            res->insert_data(const_cast<const char*>((char*)&angle), 0);
+        }
+        block.replace_by_position(result, std::move(res));
+        return Status::OK();
+    }
+};
+
+struct StAzimuth {
+    static constexpr auto NEED_CONTEXT = false;
+    static constexpr auto NAME = "st_azimuth";
+    static const size_t NUM_ARGS = 2;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 2);
+        auto return_type = block.get_data_type(result);
+        MutableColumnPtr res = return_type->create_column();
+
+        auto p1 = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto p2 = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        const auto size = p1->size();
+
+        GeoPoint point1;
+        GeoPoint point2;
+
+        for (int row = 0; row < size; ++row) {
+            auto shape_value1 = p1->get_data_at(row);
+            auto pt1 = point1.decode_from(shape_value1.data, shape_value1.size);
+            if (!pt1) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+
+            auto shape_value2 = p2->get_data_at(row);
+            auto pt2 = point2.decode_from(shape_value2.data, shape_value2.size);
+            if (!pt2) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+
+            double angle = 0;
+            if (!GeoPoint::ComputeAzimuth(&point1, &point2, &angle)) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+            res->insert_data(const_cast<const char*>((char*)&angle), 0);
+        }
         block.replace_by_position(result, std::move(res));
         return Status::OK();
     }
@@ -481,6 +575,8 @@ void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StY, DataTypeFloat64>>();
     factory.register_function<GeoFunction<StDistanceSphere, DataTypeFloat64>>();
     factory.register_function<GeoFunction<StAngleSphere, DataTypeFloat64>>();
+    factory.register_function<GeoFunction<StAngle, DataTypeFloat64>>();
+    factory.register_function<GeoFunction<StAzimuth, DataTypeFloat64>>();
     factory.register_function<GeoFunction<StContains, DataTypeUInt8>>();
     factory.register_function<GeoFunction<StCircle>>();
     factory.register_function<GeoFunction<StGeoFromText<StGeometryFromText>>>();

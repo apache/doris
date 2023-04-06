@@ -54,6 +54,7 @@ import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.planner.ColumnBound;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PartitionPrunerV2Base.UniqueId;
+import org.apache.doris.planner.external.FileSplit;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.system.SystemInfoService;
@@ -66,7 +67,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.RangeMap;
-import org.apache.hadoop.mapred.InputSplit;
 import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -678,7 +678,7 @@ public class CatalogMgrTest extends TestWithFeService {
 
         HMSExternalCatalog hiveCatalog = (HMSExternalCatalog) mgr.getCatalog(catalogName);
         HiveMetaStoreCache metaStoreCache = externalMetaCacheMgr.getMetaStoreCache(hiveCatalog);
-        LoadingCache<FileCacheKey, ImmutableList<InputSplit>> preFileCache = metaStoreCache.getFileCacheRef().get();
+        LoadingCache<FileCacheKey, ImmutableList<FileSplit>> preFileCache = metaStoreCache.getFileCacheRef().get();
 
 
         // 1. properties contains `file.meta.cache.ttl-second`, it should not be equal

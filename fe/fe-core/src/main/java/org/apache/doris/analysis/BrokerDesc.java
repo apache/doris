@@ -22,6 +22,8 @@ import org.apache.doris.backup.BlobStorage;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.datasource.property.S3ClientBEProperties;
+import org.apache.doris.datasource.property.constants.BosProperties;
 import org.apache.doris.thrift.TFileType;
 
 import com.google.common.collect.Maps;
@@ -47,6 +49,7 @@ public class BrokerDesc extends StorageDesc implements Writable {
     // just for multi load
     public static final String MULTI_LOAD_BROKER = "__DORIS_MULTI_LOAD_BROKER__";
     public static final String MULTI_LOAD_BROKER_BACKEND_KEY = "__DORIS_MULTI_LOAD_BROKER_BACKEND__";
+    private boolean convertedToS3 = false;
 
     // Only used for recovery
     private BrokerDesc() {
@@ -72,7 +75,11 @@ public class BrokerDesc extends StorageDesc implements Writable {
         } else {
             this.storageType = StorageBackend.StorageType.BROKER;
         }
-        tryConvertToS3();
+        this.properties.putAll(S3ClientBEProperties.getBeFSProperties(this.properties));
+        this.convertedToS3 = BosProperties.tryConvertBosToS3(this.properties, this.storageType);
+        if (this.convertedToS3) {
+            this.storageType = StorageBackend.StorageType.S3;
+        }
     }
 
     public BrokerDesc(String name, StorageBackend.StorageType storageType, Map<String, String> properties) {
@@ -82,24 +89,20 @@ public class BrokerDesc extends StorageDesc implements Writable {
             this.properties = Maps.newHashMap();
         }
         this.storageType = storageType;
-        tryConvertToS3();
+        this.properties.putAll(S3ClientBEProperties.getBeFSProperties(this.properties));
+        this.convertedToS3 = BosProperties.tryConvertBosToS3(this.properties, this.storageType);
+        if (this.convertedToS3) {
+            this.storageType = StorageBackend.StorageType.S3;
+        }
+    }
+
+    public String getFileLocation(String location) {
+        return this.convertedToS3 ? BosProperties.convertPathToS3(location) : location;
     }
 
     public static BrokerDesc createForStreamLoad() {
         BrokerDesc brokerDesc = new BrokerDesc("", StorageType.STREAM, null);
         return brokerDesc;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public Map<String, String> getProperties() {
-        return properties;
-    }
-
-    public StorageBackend.StorageType getStorageType() {
-        return storageType;
     }
 
     public boolean isMultiLoadBroker() {

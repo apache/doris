@@ -769,13 +769,6 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * Default value: 100
 * Dynamically modifiable: Yes
 
-#### `enable_stream_load_profile_log`
-
-* Type: bool
-* Description: Whether to enable stream load profile to be printed to the log.
-* Default value: false
-* Dynamically modifiable: Yes
-
 ### Thread
 
 #### `delete_worker_count`
@@ -1198,7 +1191,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 #### `tablet_map_shard_size`
 
 * Description: tablet_map_lock fragment size, the value is 2^n, n=0,1,2,3,4, this is for better tablet management
-* Default value: 1
+* Default value: 4
 
 #### `tablet_meta_checkpoint_min_interval_secs`
 

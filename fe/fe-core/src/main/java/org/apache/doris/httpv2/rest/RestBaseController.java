@@ -20,6 +20,7 @@ package org.apache.doris.httpv2.rest;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.Config;
 import org.apache.doris.httpv2.controller.BaseController;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
 import org.apache.doris.qe.ConnectContext;
@@ -30,6 +31,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.servlet.view.RedirectView;
 
 import java.io.BufferedInputStream;
@@ -171,5 +173,21 @@ public class RestBaseController extends BaseController {
             fullDbName = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName);
         }
         return fullDbName;
+    }
+
+    public boolean needRedirect(String scheme) {
+        return Config.enable_https && "http".equalsIgnoreCase(scheme);
+    }
+
+    public Object redirectToHttps(HttpServletRequest request) {
+        String serverName = request.getServerName();
+        String uri = request.getRequestURI();
+        String query = request.getQueryString();
+        query = query == null ? "" : query;
+        String newUrl = "https://" + serverName + ":" + Config.https_port + uri + "?" + query;
+        LOG.info("redirect to new url: {}", newUrl);
+        RedirectView redirectView = new RedirectView(newUrl);
+        redirectView.setStatusCode(HttpStatus.TEMPORARY_REDIRECT);
+        return redirectView;
     }
 }

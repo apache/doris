@@ -19,6 +19,8 @@
 
 #include "common/logging.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/aggregate_functions/aggregate_function_min_max.h"
+#include "vec/aggregate_functions/helpers.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
@@ -52,21 +54,17 @@ public:
 template <typename VT, typename KT>
 struct AggregateFunctionMaxByData : public AggregateFunctionMinMaxByBaseData<VT, KT> {
     using Self = AggregateFunctionMaxByData;
-    bool change_if_better(const IColumn& value_column, const IColumn& key_column, size_t row_num,
+    void change_if_better(const IColumn& value_column, const IColumn& key_column, size_t row_num,
                           Arena* arena) {
         if (this->key.change_if_greater(key_column, row_num, arena)) {
             this->value.change(value_column, row_num, arena);
-            return true;
         }
-        return false;
     }
 
-    bool change_if_better(const Self& to, Arena* arena) {
+    void change_if_better(const Self& to, Arena* arena) {
         if (this->key.change_if_greater(to.key, arena)) {
             this->value.change(to.value, arena);
-            return true;
         }
-        return false;
     }
 
     static const char* name() { return "max_by"; }
@@ -75,21 +73,17 @@ struct AggregateFunctionMaxByData : public AggregateFunctionMinMaxByBaseData<VT,
 template <typename VT, typename KT>
 struct AggregateFunctionMinByData : public AggregateFunctionMinMaxByBaseData<VT, KT> {
     using Self = AggregateFunctionMinByData;
-    bool change_if_better(const IColumn& value_column, const IColumn& key_column, size_t row_num,
+    void change_if_better(const IColumn& value_column, const IColumn& key_column, size_t row_num,
                           Arena* arena) {
         if (this->key.change_if_less(key_column, row_num, arena)) {
             this->value.change(value_column, row_num, arena);
-            return true;
         }
-        return false;
     }
 
-    bool change_if_better(const Self& to, Arena* arena) {
+    void change_if_better(const Self& to, Arena* arena) {
         if (this->key.change_if_less(to.key, arena)) {
             this->value.change(to.value, arena);
-            return true;
         }
-        return false;
     }
 
     static const char* name() { return "min_by"; }
@@ -144,12 +138,94 @@ public:
     }
 };
 
-AggregateFunctionPtr create_aggregate_function_max_by(const std::string& name,
-                                                      const DataTypes& argument_types,
-                                                      const bool result_is_nullable);
+template <template <typename> class AggregateFunctionTemplate,
+          template <typename, typename> class Data, typename VT>
+AggregateFunctionPtr create_aggregate_function_min_max_by_impl(const DataTypes& argument_types,
+                                                               const bool result_is_nullable) {
+    WhichDataType which(remove_nullable(argument_types[1]));
 
-AggregateFunctionPtr create_aggregate_function_min_by(const std::string& name,
-                                                      const DataTypes& argument_types,
-                                                      const bool result_is_nullable);
+#define DISPATCH(TYPE)                                                            \
+    if (which.idx == TypeIndex::TYPE)                                             \
+        return creator_without_type::create<                                      \
+                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<TYPE>>>>( \
+                argument_types, result_is_nullable);
+    FOR_NUMERIC_TYPES(DISPATCH)
+#undef DISPATCH
+
+#define DISPATCH(TYPE)                                                              \
+    if (which.idx == TypeIndex::TYPE)                                               \
+        return creator_without_type::create<                                        \
+                AggregateFunctionTemplate<Data<VT, SingleValueDataDecimal<TYPE>>>>( \
+                argument_types, result_is_nullable);
+    FOR_DECIMAL_TYPES(DISPATCH)
+#undef DISPATCH
+
+    if (which.idx == TypeIndex::String) {
+        return creator_without_type::create<
+                AggregateFunctionTemplate<Data<VT, SingleValueDataString>>>(argument_types,
+                                                                            result_is_nullable);
+    }
+    if (which.idx == TypeIndex::DateTime || which.idx == TypeIndex::Date) {
+        return creator_without_type::create<
+                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<Int64>>>>(
+                argument_types, result_is_nullable);
+    }
+    if (which.idx == TypeIndex::DateV2) {
+        return creator_without_type::create<
+                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<UInt32>>>>(
+                argument_types, result_is_nullable);
+    }
+    if (which.idx == TypeIndex::DateTimeV2) {
+        return creator_without_type::create<
+                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<UInt64>>>>(
+                argument_types, result_is_nullable);
+    }
+    return nullptr;
+}
+
+template <template <typename> class AggregateFunctionTemplate,
+          template <typename, typename> class Data>
+AggregateFunctionPtr create_aggregate_function_min_max_by(const String& name,
+                                                          const DataTypes& argument_types,
+                                                          const bool result_is_nullable) {
+    WhichDataType which(remove_nullable(argument_types[0]));
+#define DISPATCH(TYPE)                                                                    \
+    if (which.idx == TypeIndex::TYPE)                                                     \
+        return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data, \
+                                                         SingleValueDataFixed<TYPE>>(     \
+                argument_types, result_is_nullable);
+    FOR_NUMERIC_TYPES(DISPATCH)
+#undef DISPATCH
+
+#define DISPATCH(TYPE)                                                                    \
+    if (which.idx == TypeIndex::TYPE)                                                     \
+        return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data, \
+                                                         SingleValueDataDecimal<TYPE>>(   \
+                argument_types, result_is_nullable);
+    FOR_DECIMAL_TYPES(DISPATCH)
+#undef DISPATCH
+
+    if (which.idx == TypeIndex::String) {
+        return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
+                                                         SingleValueDataString>(argument_types,
+                                                                                result_is_nullable);
+    }
+    if (which.idx == TypeIndex::DateTime || which.idx == TypeIndex::Date) {
+        return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
+                                                         SingleValueDataFixed<Int64>>(
+                argument_types, result_is_nullable);
+    }
+    if (which.idx == TypeIndex::DateV2) {
+        return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
+                                                         SingleValueDataFixed<UInt32>>(
+                argument_types, result_is_nullable);
+    }
+    if (which.idx == TypeIndex::DateTimeV2) {
+        return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
+                                                         SingleValueDataFixed<UInt64>>(
+                argument_types, result_is_nullable);
+    }
+    return nullptr;
+}
 
 } // namespace doris::vectorized

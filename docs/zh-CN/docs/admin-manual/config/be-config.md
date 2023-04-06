@@ -783,13 +783,6 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * 默认值： 100
 * 可动态修改：是
 
-#### `enable_stream_load_profile_log`
-
-* 类型：bool
-* 描述：是否将 stream load profile 打印到日志。
-* 默认值： false
-* 可动态修改：是
-
 ### 线程
 
 #### `delete_worker_count`
@@ -1214,7 +1207,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 #### `tablet_map_shard_size`
 
 * 描述：tablet_map_lock 分片大小，值为 2^n, n=0,1,2,3,4 ，这是为了更好地管理tablet
-* 默认值：1
+* 默认值：4
 
 #### `tablet_meta_checkpoint_min_interval_secs`
 

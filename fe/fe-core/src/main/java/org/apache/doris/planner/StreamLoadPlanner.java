@@ -47,7 +47,6 @@ import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.planner.external.ExternalFileScanNode;
-import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
@@ -276,7 +275,7 @@ public class StreamLoadPlanner {
         queryOptions.setEnableVectorizedEngine(Config.enable_vectorized_load);
         queryOptions.setEnablePipelineEngine(Config.enable_pipeline_load);
         queryOptions.setBeExecVersion(Config.be_exec_version);
-        queryOptions.setIsReportSuccess(VariableMgr.newSessionVariable().enableProfile());
+        queryOptions.setIsReportSuccess(taskInfo.getEnableProfile());
 
         params.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();

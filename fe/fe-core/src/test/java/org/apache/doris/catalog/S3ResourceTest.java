@@ -23,6 +23,7 @@ import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -64,7 +65,7 @@ public class S3ResourceTest {
     public void setUp() {
         name = "s3";
         type = "s3";
-        s3Endpoint = "aaa";
+        s3Endpoint = "http://aaa";
         s3Region = "bj";
         s3RootPath = "/path/to/root";
         s3AccessKey = "xxx";
@@ -104,34 +105,34 @@ public class S3ResourceTest {
         S3Resource s3Resource = (S3Resource) Resource.fromStmt(stmt);
         Assert.assertEquals(name, s3Resource.getName());
         Assert.assertEquals(type, s3Resource.getType().name().toLowerCase());
-        Assert.assertEquals(s3Endpoint, s3Resource.getProperty("AWS_ENDPOINT"));
-        Assert.assertEquals(s3Region, s3Resource.getProperty("AWS_REGION"));
-        Assert.assertEquals(s3RootPath, s3Resource.getProperty("AWS_ROOT_PATH"));
-        Assert.assertEquals(s3AccessKey, s3Resource.getProperty("AWS_ACCESS_KEY"));
-        Assert.assertEquals(s3SecretKey, s3Resource.getProperty("AWS_SECRET_KEY"));
-        Assert.assertEquals(s3MaxConnections, s3Resource.getProperty("AWS_MAX_CONNECTIONS"));
-        Assert.assertEquals(s3ReqTimeoutMs, s3Resource.getProperty("AWS_REQUEST_TIMEOUT_MS"));
-        Assert.assertEquals(s3ConnTimeoutMs, s3Resource.getProperty("AWS_CONNECTION_TIMEOUT_MS"));
+        Assert.assertEquals(s3Endpoint, s3Resource.getProperty(S3Properties.ENDPOINT));
+        Assert.assertEquals(s3Region, s3Resource.getProperty(S3Properties.REGION));
+        Assert.assertEquals(s3RootPath, s3Resource.getProperty(S3Properties.ROOT_PATH));
+        Assert.assertEquals(s3AccessKey, s3Resource.getProperty(S3Properties.ACCESS_KEY));
+        Assert.assertEquals(s3SecretKey, s3Resource.getProperty(S3Properties.SECRET_KEY));
+        Assert.assertEquals(s3MaxConnections, s3Resource.getProperty(S3Properties.MAX_CONNECTIONS));
+        Assert.assertEquals(s3ReqTimeoutMs, s3Resource.getProperty(S3Properties.REQUEST_TIMEOUT_MS));
+        Assert.assertEquals(s3ConnTimeoutMs, s3Resource.getProperty(S3Properties.CONNECTION_TIMEOUT_MS));
 
         // with no default settings
-        s3Properties.put("AWS_MAX_CONNECTIONS", "100");
-        s3Properties.put("AWS_REQUEST_TIMEOUT_MS", "2000");
-        s3Properties.put("AWS_CONNECTION_TIMEOUT_MS", "2000");
-        s3Properties.put("s3_validity_check", "false");
+        s3Properties.put(S3Properties.MAX_CONNECTIONS, "100");
+        s3Properties.put(S3Properties.REQUEST_TIMEOUT_MS, "2000");
+        s3Properties.put(S3Properties.CONNECTION_TIMEOUT_MS, "2000");
+        s3Properties.put(S3Properties.VALIDITY_CHECK, "false");
         stmt = new CreateResourceStmt(true, false, name, s3Properties);
         stmt.analyze(analyzer);
 
         s3Resource = (S3Resource) Resource.fromStmt(stmt);
         Assert.assertEquals(name, s3Resource.getName());
         Assert.assertEquals(type, s3Resource.getType().name().toLowerCase());
-        Assert.assertEquals(s3Endpoint, s3Resource.getProperty("AWS_ENDPOINT"));
-        Assert.assertEquals(s3Region, s3Resource.getProperty("AWS_REGION"));
-        Assert.assertEquals(s3RootPath, s3Resource.getProperty("AWS_ROOT_PATH"));
-        Assert.assertEquals(s3AccessKey, s3Resource.getProperty("AWS_ACCESS_KEY"));
-        Assert.assertEquals(s3SecretKey, s3Resource.getProperty("AWS_SECRET_KEY"));
-        Assert.assertEquals("100", s3Resource.getProperty("AWS_MAX_CONNECTIONS"));
-        Assert.assertEquals("2000", s3Resource.getProperty("AWS_REQUEST_TIMEOUT_MS"));
-        Assert.assertEquals("2000", s3Resource.getProperty("AWS_CONNECTION_TIMEOUT_MS"));
+        Assert.assertEquals(s3Endpoint, s3Resource.getProperty(S3Properties.ENDPOINT));
+        Assert.assertEquals(s3Region, s3Resource.getProperty(S3Properties.REGION));
+        Assert.assertEquals(s3RootPath, s3Resource.getProperty(S3Properties.ROOT_PATH));
+        Assert.assertEquals(s3AccessKey, s3Resource.getProperty(S3Properties.ACCESS_KEY));
+        Assert.assertEquals(s3SecretKey, s3Resource.getProperty(S3Properties.SECRET_KEY));
+        Assert.assertEquals("100", s3Resource.getProperty(S3Properties.MAX_CONNECTIONS));
+        Assert.assertEquals("2000", s3Resource.getProperty(S3Properties.REQUEST_TIMEOUT_MS));
+        Assert.assertEquals("2000", s3Resource.getProperty(S3Properties.CONNECTION_TIMEOUT_MS));
     }
 
     @Test(expected = DdlException.class)
@@ -158,7 +159,8 @@ public class S3ResourceTest {
         metaContext.setThreadLocalInfo();
 
         // 1. write
-        Path path = Files.createFile(Paths.get("./s3Resource"));
+        // Path path = Files.createFile(Paths.get("./s3Resource"));
+        Path path = Paths.get("./s3Resource");
         DataOutputStream s3Dos = new DataOutputStream(Files.newOutputStream(path));
 
         S3Resource s3Resource1 = new S3Resource("s3_1");
@@ -187,14 +189,14 @@ public class S3ResourceTest {
         Assert.assertEquals("s3_1", rS3Resource1.getName());
         Assert.assertEquals("s3_2", rS3Resource2.getName());
 
-        Assert.assertEquals(rS3Resource2.getProperty("AWS_ENDPOINT"), "aaa");
-        Assert.assertEquals(rS3Resource2.getProperty("AWS_REGION"), "bbb");
-        Assert.assertEquals(rS3Resource2.getProperty("AWS_ROOT_PATH"), "/path/to/root");
-        Assert.assertEquals(rS3Resource2.getProperty("AWS_ACCESS_KEY"), "xxx");
-        Assert.assertEquals(rS3Resource2.getProperty("AWS_SECRET_KEY"), "yyy");
-        Assert.assertEquals(rS3Resource2.getProperty("AWS_MAX_CONNECTIONS"), "50");
-        Assert.assertEquals(rS3Resource2.getProperty("AWS_REQUEST_TIMEOUT_MS"), "3000");
-        Assert.assertEquals(rS3Resource2.getProperty("AWS_CONNECTION_TIMEOUT_MS"), "1000");
+        Assert.assertEquals(rS3Resource2.getProperty(S3Properties.ENDPOINT), "http://aaa");
+        Assert.assertEquals(rS3Resource2.getProperty(S3Properties.REGION), "bbb");
+        Assert.assertEquals(rS3Resource2.getProperty(S3Properties.ROOT_PATH), "/path/to/root");
+        Assert.assertEquals(rS3Resource2.getProperty(S3Properties.ACCESS_KEY), "xxx");
+        Assert.assertEquals(rS3Resource2.getProperty(S3Properties.SECRET_KEY), "yyy");
+        Assert.assertEquals(rS3Resource2.getProperty(S3Properties.MAX_CONNECTIONS), "50");
+        Assert.assertEquals(rS3Resource2.getProperty(S3Properties.REQUEST_TIMEOUT_MS), "3000");
+        Assert.assertEquals(rS3Resource2.getProperty(S3Properties.CONNECTION_TIMEOUT_MS), "1000");
 
         // 3. delete
         s3Dis.close();
