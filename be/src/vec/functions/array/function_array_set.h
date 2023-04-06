@@ -162,15 +162,15 @@ public:
         }
         ColumnPtr res_column;
         if (left_const) {
-            if (_execute_internal_lconst<ALL_COLUMNS_SIMPLE>(dst, left_data, right_data)) {
+            if (_execute_internal<true, false, ALL_COLUMNS_SIMPLE>(dst, left_data, right_data)) {
                 res_column = assemble_column_array(dst);
             }
         } else if (right_const) {
-            if (_execute_internal_rconst<ALL_COLUMNS_SIMPLE>(dst, left_data, right_data)) {
+            if (_execute_internal<false, true, ALL_COLUMNS_SIMPLE>(dst, left_data, right_data)) {
                 res_column = assemble_column_array(dst);
             }
         } else {
-            if (_execute_internal<ALL_COLUMNS_SIMPLE>(dst, left_data, right_data)) {
+            if (_execute_internal<false, false, ALL_COLUMNS_SIMPLE>(dst, left_data, right_data)) {
                 res_column = assemble_column_array(dst);
             }
         }
@@ -183,7 +183,7 @@ public:
     }
 
 private:
-    template <typename ColumnType>
+    template <bool LCONST, bool RCONST, typename ColumnType>
     static bool _execute_internal(ColumnArrayMutableData& dst,
                                   const ColumnArrayExecutionData& left_data,
                                   const ColumnArrayExecutionData& right_data) {
@@ -196,10 +196,10 @@ private:
         Impl impl;
         for (size_t row = 0; row < left_data.offsets_ptr->size(); ++row) {
             size_t count = 0;
-            size_t left_off = (*left_data.offsets_ptr)[row - 1];
-            size_t left_len = (*left_data.offsets_ptr)[row] - left_off;
-            size_t right_off = (*right_data.offsets_ptr)[row - 1];
-            size_t right_len = (*right_data.offsets_ptr)[row] - right_off;
+            size_t left_off = (*left_data.offsets_ptr)[index_check_const(row, LCONST) - 1];
+            size_t left_len = (*left_data.offsets_ptr)[index_check_const(row, LCONST) ] - left_off;
+            size_t right_off = (*right_data.offsets_ptr)[index_check_const(row, RCONST)  - 1];
+            size_t right_len = (*right_data.offsets_ptr)[index_check_const(row, RCONST) ] - right_off;
             if constexpr (execute_left_column_first) {
                 impl.template apply<true>(left_data, left_off, left_len, dst, &count);
                 impl.template apply<false>(right_data, right_off, right_len, dst, &count);
@@ -213,87 +213,13 @@ private:
         }
         return true;
     }
-    template <typename ColumnType>
-    static bool _execute_internal_lconst(ColumnArrayMutableData& dst,
-                                         const ColumnArrayExecutionData& left_data,
-                                         const ColumnArrayExecutionData& right_data) {
-        using Impl = OpenSetImpl<operation, ColumnType>;
-        if (!check_column<ColumnType>(*left_data.nested_col)) {
-            return false;
-        }
-        constexpr auto execute_left_column_first = Impl::Action::execute_left_column_first;
-        size_t current = 0;
-        Impl impl;
-        size_t left_off = (*left_data.offsets_ptr)[-1];
-        size_t left_len = (*left_data.offsets_ptr)[0] - left_off;
-        for (size_t row = 0; row < left_data.offsets_ptr->size(); ++row) {
-            size_t count = 0;
-            size_t right_off = (*right_data.offsets_ptr)[row - 1];
-            size_t right_len = (*right_data.offsets_ptr)[row] - right_off;
-            if constexpr (execute_left_column_first) {
-                impl.template apply<true>(left_data, left_off, left_len, dst, &count);
-                impl.template apply<false>(right_data, right_off, right_len, dst, &count);
-            } else {
-                impl.template apply<false>(right_data, right_off, right_len, dst, &count);
-                impl.template apply<true>(left_data, left_off, left_len, dst, &count);
-            }
-            current += count;
-            dst.offsets_ptr->push_back(current);
-            impl.reset();
-        }
-        return true;
-    }
-    template <typename ColumnType>
-    static bool _execute_internal_rconst(ColumnArrayMutableData& dst,
-                                         const ColumnArrayExecutionData& left_data,
-                                         const ColumnArrayExecutionData& right_data) {
-        using Impl = OpenSetImpl<operation, ColumnType>;
-        if (!check_column<ColumnType>(*left_data.nested_col)) {
-            return false;
-        }
-        constexpr auto execute_left_column_first = Impl::Action::execute_left_column_first;
-        size_t current = 0;
-        Impl impl;
-        size_t right_off = (*right_data.offsets_ptr)[-1];
-        size_t right_len = (*right_data.offsets_ptr)[0] - right_off;
-        for (size_t row = 0; row < left_data.offsets_ptr->size(); ++row) {
-            size_t count = 0;
-            size_t left_off = (*left_data.offsets_ptr)[row - 1];
-            size_t left_len = (*left_data.offsets_ptr)[row] - left_off;
-            if constexpr (execute_left_column_first) {
-                impl.template apply<true>(left_data, left_off, left_len, dst, &count);
-                impl.template apply<false>(right_data, right_off, right_len, dst, &count);
-            } else {
-                impl.template apply<false>(right_data, right_off, right_len, dst, &count);
-                impl.template apply<true>(left_data, left_off, left_len, dst, &count);
-            }
-            current += count;
-            dst.offsets_ptr->push_back(current);
-            impl.reset();
-        }
-        return true;
-    }
-
-    template <typename T, typename... Ts, std::enable_if_t<(sizeof...(Ts) > 0), int> = 0>
+    template <bool LCONST, bool RCONST, typename T, typename... Ts,
+              std::enable_if_t<(sizeof...(Ts) > 0), int> = 0>
     static bool _execute_internal(ColumnArrayMutableData& dst,
                                   const ColumnArrayExecutionData& left_data,
                                   const ColumnArrayExecutionData& right_data) {
-        return _execute_internal<T>(dst, left_data, right_data) ||
-               _execute_internal<Ts...>(dst, left_data, right_data);
-    }
-    template <typename T, typename... Ts, std::enable_if_t<(sizeof...(Ts) > 0), int> = 0>
-    static bool _execute_internal_lconst(ColumnArrayMutableData& dst,
-                                         const ColumnArrayExecutionData& left_data,
-                                         const ColumnArrayExecutionData& right_data) {
-        return _execute_internal_lconst<T>(dst, left_data, right_data) ||
-               _execute_internal_lconst<Ts...>(dst, left_data, right_data);
-    }
-    template <typename T, typename... Ts, std::enable_if_t<(sizeof...(Ts) > 0), int> = 0>
-    static bool _execute_internal_rconst(ColumnArrayMutableData& dst,
-                                         const ColumnArrayExecutionData& left_data,
-                                         const ColumnArrayExecutionData& right_data) {
-        return _execute_internal_rconst<T>(dst, left_data, right_data) ||
-               _execute_internal_rconst<Ts...>(dst, left_data, right_data);
+        return _execute_internal<LCONST, RCONST, T>(dst, left_data, right_data) ||
+               _execute_internal<LCONST, RCONST, Ts...>(dst, left_data, right_data);
     }
 };
 

@@ -20,6 +20,7 @@
 #include <rapidjson/writer.h>
 
 #include <boost/token_functions.hpp>
+#include <string_view>
 #include <vector>
 
 #include "exprs/json_functions.h"
@@ -30,6 +31,7 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/string_ref.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/function_string.h"
@@ -234,6 +236,21 @@ struct GetJsonNumberType {
     using ReturnType = typename NumberType::ReturnType;
     using ColumnType = typename NumberType::ColumnType;
     using Container = typename ColumnType::Container;
+
+    static void get_json_impl(rapidjson::Value*& root, const std::string_view& json_string,
+                              const std::string_view& path_string, rapidjson::Document& document,
+                              typename NumberType::T& res, UInt8& null_map) {
+        if constexpr (std::is_same_v<double, typename NumberType::T>) {
+            root = get_json_object<JSON_FUN_DOUBLE>(json_string, path_string, &document);
+            handle_result<double>(root, res, null_map);
+        } else if constexpr (std::is_same_v<int32_t, typename NumberType::T>) {
+            root = get_json_object<JSON_FUN_DOUBLE>(json_string, path_string, &document);
+            handle_result<int32_t>(root, res, null_map);
+        } else if constexpr (std::is_same_v<int64_t, typename NumberType::T>) {
+            root = get_json_object<JSON_FUN_DOUBLE>(json_string, path_string, &document);
+            handle_result<int64_t>(root, res, null_map);
+        }
+    }
     static void vector_vector(FunctionContext* context, const ColumnString::Chars& ldata,
                               const ColumnString::Offsets& loffsets,
                               const ColumnString::Chars& rdata,
@@ -256,16 +273,7 @@ struct GetJsonNumberType {
             rapidjson::Document document;
             rapidjson::Value* root = nullptr;
 
-            if constexpr (std::is_same_v<double, typename NumberType::T>) {
-                root = get_json_object<JSON_FUN_DOUBLE>(json_string, path_string, &document);
-                handle_result<double>(root, res[i], null_map[i]);
-            } else if constexpr (std::is_same_v<int32_t, typename NumberType::T>) {
-                root = get_json_object<JSON_FUN_DOUBLE>(json_string, path_string, &document);
-                handle_result<int32_t>(root, res[i], null_map[i]);
-            } else if constexpr (std::is_same_v<int64_t, typename NumberType::T>) {
-                root = get_json_object<JSON_FUN_DOUBLE>(json_string, path_string, &document);
-                handle_result<int64_t>(root, res[i], null_map[i]);
-            }
+            get_json_impl(root, json_string, path_string, document, res[i], null_map[i]);
         }
     }
     static void vector_scalar(FunctionContext* context, const ColumnString::Chars& ldata,
@@ -286,16 +294,7 @@ struct GetJsonNumberType {
             rapidjson::Document document;
             rapidjson::Value* root = nullptr;
 
-            if constexpr (std::is_same_v<double, typename NumberType::T>) {
-                root = get_json_object<JSON_FUN_DOUBLE>(json_string, path_string, &document);
-                handle_result<double>(root, res[i], null_map[i]);
-            } else if constexpr (std::is_same_v<int32_t, typename NumberType::T>) {
-                root = get_json_object<JSON_FUN_DOUBLE>(json_string, path_string, &document);
-                handle_result<int32_t>(root, res[i], null_map[i]);
-            } else if constexpr (std::is_same_v<int64_t, typename NumberType::T>) {
-                root = get_json_object<JSON_FUN_DOUBLE>(json_string, path_string, &document);
-                handle_result<int64_t>(root, res[i], null_map[i]);
-            }
+            get_json_impl(root, json_string, path_string, document, res[i], null_map[i]);
         }
     }
     static void scalar_vector(FunctionContext* context, const StringRef& ldata,
@@ -316,16 +315,7 @@ struct GetJsonNumberType {
             rapidjson::Document document;
             rapidjson::Value* root = nullptr;
 
-            if constexpr (std::is_same_v<double, typename NumberType::T>) {
-                root = get_json_object<JSON_FUN_DOUBLE>(json_string, path_string, &document);
-                handle_result<double>(root, res[i], null_map[i]);
-            } else if constexpr (std::is_same_v<int32_t, typename NumberType::T>) {
-                root = get_json_object<JSON_FUN_DOUBLE>(json_string, path_string, &document);
-                handle_result<int32_t>(root, res[i], null_map[i]);
-            } else if constexpr (std::is_same_v<int64_t, typename NumberType::T>) {
-                root = get_json_object<JSON_FUN_DOUBLE>(json_string, path_string, &document);
-                handle_result<int64_t>(root, res[i], null_map[i]);
-            }
+            get_json_impl(root, json_string, path_string, document, res[i], null_map[i]);
         }
     }
 

@@ -95,17 +95,12 @@ public:
     }
 
 private:
-    static bool _check_set_oob(const Int8 src_base, const Int8 dst_base,
-                               ColumnString* result_column, UInt8& result_null) {
-        if (std::abs(src_base) < MathFunctions::MIN_BASE ||
-            std::abs(src_base) > MathFunctions::MAX_BASE ||
-            std::abs(dst_base) < MathFunctions::MIN_BASE ||
-            std::abs(dst_base) > MathFunctions::MAX_BASE) { //out of bound
-            result_null = true;
-            result_column->insert_default();
-            return true;
-        }
-        return false;
+    // check out of bound.
+    static bool _check_oob(const Int8 src_base, const Int8 dst_base) {
+        return std::abs(src_base) < MathFunctions::MIN_BASE ||
+               std::abs(src_base) > MathFunctions::MAX_BASE ||
+               std::abs(dst_base) < MathFunctions::MIN_BASE ||
+               std::abs(dst_base) > MathFunctions::MAX_BASE;
     }
     static void execute_straight(FunctionContext* context,
                                  const typename Impl::DataType::ColumnType* data_column,
@@ -119,7 +114,10 @@ private:
             }
             Int8 src_base = src_base_column->get_element(i);
             Int8 dst_base = dst_base_column->get_element(i);
-            if (!_check_set_oob(src_base, dst_base, result_column, result_null_map[i])) {
+            if (_check_oob(src_base, dst_base)) {
+                result_null_map[i] = true;
+                result_column->insert_default();
+            } else {
                 Impl::calculate_cell(context, data_column, src_base, dst_base, result_column,
                                      result_null_map, i);
             }
@@ -130,14 +128,9 @@ private:
                                     const Int8 src_base, const Int8 dst_base,
                                     ColumnString* result_column, NullMap& result_null_map,
                                     size_t input_rows_count) {
-        if (std::abs(src_base) < MathFunctions::MIN_BASE ||
-            std::abs(src_base) > MathFunctions::MAX_BASE ||
-            std::abs(dst_base) < MathFunctions::MIN_BASE ||
-            std::abs(dst_base) > MathFunctions::MAX_BASE) { //out of bound
-            for (int i = 0; i < input_rows_count; i++) {
-                result_null_map[i] = true;
-                result_column->insert_default();
-            }
+        if (_check_oob(src_base, dst_base)) {
+            result_null_map.assign(input_rows_count, UInt8 {true});
+            result_column->insert_many_defaults(input_rows_count);
             return;
         }
         for (size_t i = 0; i < input_rows_count; i++) {
