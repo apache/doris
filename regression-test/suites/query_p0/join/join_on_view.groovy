@@ -15,34 +15,52 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("agg_on_view") {
-
+suite("join_on_view") {
     sql """
-        drop table if exists agg_on_view_test;
+        drop table if exists jov_t1;
     """
     sql """
-    create table agg_on_view_test (
-            id int,
-                    user_id int,
-            name varchar(20)
-    ) ENGINE=OLAP
-    UNIQUE KEY(`id`)
-    DISTRIBUTED BY HASH(`id`) BUCKETS 1
-    PROPERTIES (
-            "replication_allocation" = "tag.location.default: 1"
+        drop table if exists jov_t2;
+    """
+    sql """
+        CREATE TABLE jov_t1 (
+        id int(11) NOT NULL COMMENT ''
+        ) ENGINE=OLAP
+        UNIQUE KEY(id)
+        COMMENT "OLAP"
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
     );
     """
-
+    sql """
+    CREATE TABLE jov_t2 (
+    name varchar(128) COMMENT ''
+    ) ENGINE=OLAP
+    UNIQUE KEY(name)
+    COMMENT "OLAP"
+    DISTRIBUTED BY HASH(name) BUCKETS 1
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+    
     qt_sql """
-    select user_id,null_or_empty(tag) = 1,count(*)
-    from (
-            select *,
-            "abc" as tag
-            from agg_on_view_test limit 10)t
-    group by user_id,tag
+        SELECT cd
+        FROM
+        (SELECT CURDATE() cd
+        FROM jov_t1) tbl1
+        JOIN
+        (select cast(now() as string) td
+        from jov_t2 b
+        GROUP BY now()) tbl2
+        ON tbl1.cd = tbl2.td;
     """
 
     sql """
-        drop table agg_on_view_test;
+        drop table jov_t1;
+    """
+    sql """
+        drop table jov_t2;
     """
 }
