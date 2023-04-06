@@ -31,7 +31,7 @@ suite("alter_policy") {
     // create resource
     def create_source = { resource_name ->
         sql """
-        CREATE RESOURCE "${resource_name}"
+        CREATE RESOURCE IF NOT EXISTS "${resource_name}"
         PROPERTIES(
             "type"="s3",
             "AWS_ENDPOINT" = "bj.s3.comaaaa",
@@ -188,7 +188,7 @@ suite("alter_policy") {
     check_resource_delete_if_exist(has_resource_policy_alter)
     create_source(has_resource_policy_alter)
     sql """
-        CREATE STORAGE POLICY has_resouce_policy_alter_policy
+        CREATE STORAGE POLICY IF NOT EXISTS has_resouce_policy_alter_policy
         PROPERTIES(
             "storage_resource" = "${has_resource_policy_alter}",
             "cooldown_ttl" = "1d"
