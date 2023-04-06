@@ -27,7 +27,6 @@ import org.apache.doris.analysis.CreateIndexClause;
 import org.apache.doris.analysis.DropColumnClause;
 import org.apache.doris.analysis.DropIndexClause;
 import org.apache.doris.analysis.IndexDef;
-import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.analysis.ModifyColumnClause;
 import org.apache.doris.analysis.ModifyTablePropertiesClause;
 import org.apache.doris.analysis.ReorderColumnsClause;
@@ -1827,32 +1826,32 @@ public class SchemaChangeHandler extends AlterHandler {
                         return;
                     }
                     lightSchemaChange = false;
-                    CreateIndexClause createIndexClause = (CreateIndexClause) alterClause;
-                    if (createIndexClause.getIndexDef().isInvertedIndex()) {
-                        alterInvertedIndexes.add(createIndexClause.getIndex());
-                        isDropInvertedIndex = false;
-                        lightSchemaChangeWithInvertedIndex = true;
-                    }
+                    // CreateIndexClause createIndexClause = (CreateIndexClause) alterClause;
+                    // if (createIndexClause.getIndexDef().isInvertedIndex()) {
+                    //     alterInvertedIndexes.add(createIndexClause.getIndex());
+                    //     isDropInvertedIndex = false;
+                    //     lightSchemaChangeWithInvertedIndex = true;
+                    // }
                 } else if (alterClause instanceof DropIndexClause) {
                     if (processDropIndex((DropIndexClause) alterClause, olapTable, newIndexes)) {
                         return;
                     }
                     lightSchemaChange = false;
-                    DropIndexClause dropIndexClause = (DropIndexClause) alterClause;
-                    List<Index> existedIndexes = olapTable.getIndexes();
-                    Index found = null;
-                    for (Index existedIdx : existedIndexes) {
-                        if (existedIdx.getIndexName().equalsIgnoreCase(dropIndexClause.getIndexName())) {
-                            found = existedIdx;
-                            break;
-                        }
-                    }
-                    IndexDef.IndexType indexType = found.getIndexType();
-                    if (indexType == IndexType.INVERTED) {
-                        alterInvertedIndexes.add(found);
-                        isDropInvertedIndex = true;
-                        lightSchemaChangeWithInvertedIndex = true;
-                    }
+                    // DropIndexClause dropIndexClause = (DropIndexClause) alterClause;
+                    // List<Index> existedIndexes = olapTable.getIndexes();
+                    // Index found = null;
+                    // for (Index existedIdx : existedIndexes) {
+                    //     if (existedIdx.getIndexName().equalsIgnoreCase(dropIndexClause.getIndexName())) {
+                    //         found = existedIdx;
+                    //         break;
+                    //     }
+                    // }
+                    // IndexDef.IndexType indexType = found.getIndexType();
+                    // if (indexType == IndexType.INVERTED) {
+                    //     alterInvertedIndexes.add(found);
+                    //     isDropInvertedIndex = true;
+                    //     lightSchemaChangeWithInvertedIndex = true;
+                    // }
                 } else {
                     Preconditions.checkState(false);
                 }
