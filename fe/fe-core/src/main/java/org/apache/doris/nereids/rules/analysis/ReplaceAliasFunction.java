@@ -120,8 +120,8 @@ public class ReplaceAliasFunction extends DefaultExpressionRewriter<CascadesCont
         String functionSql = function.toSql();
         LogicalPlan containerPlan = new NereidsParser().parseSingle(
                 String.format("select %s from virt_tbl", functionSql));
-        Preconditions.checkArgument(containerPlan instanceof UnboundOneRowRelation);
-        return ((UnboundOneRowRelation) containerPlan).getProjects().get(0);
+        Preconditions.checkArgument(containerPlan instanceof LogicalProject);
+        return ((LogicalProject<?>) containerPlan).getProjects().get(0);
     }
 
     private Expression replaceParameter(Expression nereidsFunction,
