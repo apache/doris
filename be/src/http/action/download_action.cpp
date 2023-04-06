@@ -53,7 +53,7 @@ DownloadAction::DownloadAction(ExecEnv* exec_env, const std::vector<std::string>
         _allow_paths.emplace_back(std::move(p));
     }
     if (num_workers > 0) {
-        ThreadPoolBuilder("EvHttpServer")
+        ThreadPoolBuilder("DownloadThreadPool")
                 .set_min_threads(num_workers)
                 .set_max_threads(num_workers)
                 .build(&_download_workers);
