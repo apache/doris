@@ -26,16 +26,23 @@
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/hdfs_file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "io/fs/local_file_writer.h"
-#include "io/fs/remote_file_system.h"
 #include "io/fs/s3_file_system.h"
-#include "io/fs/s3_file_writer.h"
 #include "runtime/exec_env.h"
+#include "runtime/runtime_state.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
+#include "util/runtime_profile.h"
 #include "util/s3_uri.h"
 
 namespace doris {
+io::FileCachePolicy FileFactory::get_cache_policy(RuntimeState* state) {
+    if (state != nullptr) {
+        if (config::enable_file_cache && state->query_options().enable_file_cache) {
+            return io::FileCachePolicy::FILE_BLOCK_CACHE;
+        }
+    }
+    return io::FileCachePolicy::NO_CACHE;
+}
 
 Status FileFactory::create_file_writer(TFileType::type type, ExecEnv* env,
                                        const std::vector<TNetworkAddress>& broker_addresses,
@@ -78,16 +85,13 @@ Status FileFactory::create_file_writer(TFileType::type type, ExecEnv* env,
     return Status::OK();
 }
 
-Status FileFactory::create_file_reader(RuntimeProfile* /*profile*/,
+Status FileFactory::create_file_reader(RuntimeProfile* profile,
                                        const FileSystemProperties& system_properties,
                                        const FileDescription& file_description,
                                        std::shared_ptr<io::FileSystem>* file_system,
-                                       io::FileReaderSPtr* file_reader) {
+                                       io::FileReaderSPtr* file_reader,
+                                       io::FileCachePolicy cache_policy) {
     TFileType::type type = system_properties.system_type;
-    auto cache_policy = io::FileCachePolicy::NO_CACHE;
-    if (config::enable_file_cache) {
-        cache_policy = io::FileCachePolicy::FILE_BLOCK_CACHE;
-    }
     io::FileBlockCachePathPolicy file_block_cache;
     io::FileReaderOptions reader_options(cache_policy, file_block_cache);
     reader_options.file_size = file_description.file_size;

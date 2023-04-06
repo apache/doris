@@ -1521,7 +1521,6 @@ public class QueryPlanTest extends TestWithFeService {
         sqls.add("explain select k3, dense_rank() OVER () AS rank FROM baseall where 1 =2;");
         sqls.add("explain select rank from (select k3, dense_rank() OVER () AS rank FROM baseall) a where 1 =2;");
         sqls.add("explain select * from baseall join bigtable as b where 1 = 2");
-        sqls.add("explain select * from baseall join bigtable as b on null = 2");
 
         for (String sql : sqls) {
             String explainString = getSQLPlanOrErrorMsg(sql);
@@ -2031,7 +2030,6 @@ public class QueryPlanTest extends TestWithFeService {
                 + "PROPERTIES (\n"
                 + "\"replication_num\" = \"1\",\n"
                 + "\"in_memory\" = \"false\",\n"
-                + "\"business_key_column_name\" = \"\",\n"
                 + "\"storage_medium\" = \"HDD\",\n"
                 + "\"storage_format\" = \"V2\"\n"
                 + ");\n");

@@ -420,8 +420,6 @@ CONF_mInt32(stream_load_record_batch_size, "50");
 CONF_Int32(stream_load_record_expire_time_secs, "28800");
 // time interval to clean expired stream load records
 CONF_mInt64(clean_stream_load_record_interval_secs, "1800");
-// Whether to enable stream load profile to be printed to the log, the default is false.
-CONF_mBool(enable_stream_load_profile_log, "false");
 
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.
@@ -615,7 +613,7 @@ CONF_mInt64(max_runnings_transactions_per_txn_map, "100");
 
 // tablet_map_lock shard size, the value is 2^n, n=0,1,2,3,4
 // this is a an enhancement for better performance to manage tablet
-CONF_Int32(tablet_map_shard_size, "1");
+CONF_Int32(tablet_map_shard_size, "4");
 
 // txn_map_lock shard size, the value is 2^n, n=0,1,2,3,4
 // this is a an enhancement for better performance to manage txn

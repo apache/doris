@@ -117,19 +117,10 @@ public:
                 }
             }
 
-            unsigned long start = key_offsets[row - 1];
-            unsigned long end = key_offsets[row];
-            for (unsigned long off = start; off + 1 < end; ++off) {
-                for (unsigned long move = off + 1; move < end; ++move) {
-                    //Compares (*this)[off] and rhs[move], if (*this)[off] > rhs[move] return 1
-                    int result = key_nested_nullable_column.compare_at(
-                            key_permutation[off], key_permutation[move], key_nested_nullable_column,
-                            -1);
-                    if (result > 0) {
-                        std::swap(key_permutation[off], key_permutation[move]);
-                    }
-                }
-            }
+            auto start = key_offsets[row - 1];
+            auto end = key_offsets[row];
+            std::sort(&key_permutation[start], &key_permutation[end],
+                      Less(key_nested_nullable_column));
 
             for (unsigned long pos = start; pos < end; ++pos) {
                 src_selector.push_back(key_permutation[pos] + null_step);
@@ -148,6 +139,16 @@ public:
         }
         return Status::OK();
     }
+
+    struct Less {
+        const IColumn& column;
+
+        explicit Less(const IColumn& column_) : column(column_) {}
+
+        bool operator()(size_t lhs, size_t rhs) const {
+            return column.compare_at(lhs, rhs, column, -1) < 0;
+        }
+    };
 };
 
 void register_function_array_sortby(SimpleFunctionFactory& factory) {

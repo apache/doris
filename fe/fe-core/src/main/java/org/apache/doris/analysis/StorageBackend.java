@@ -22,46 +22,37 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.datasource.property.constants.BosProperties;
 import org.apache.doris.thrift.TStorageBackendType;
 
 import com.google.common.base.Strings;
 import org.apache.commons.lang3.StringUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 
-public class StorageBackend extends StorageDesc implements ParseNode {
-    private static final Logger LOG = LoggerFactory.getLogger(StorageBackend.class);
-
+public class StorageBackend implements ParseNode {
     private String location;
-    private StorageType storageType;
-    private Map<String, String> properties;
+    private StorageDesc storageDesc;
 
     public StorageBackend(String storageName, String location,
             StorageType storageType, Map<String, String> properties) {
-        this.name = storageName;
+        this.storageDesc = new StorageDesc(storageName, storageType, properties);
         this.location = location;
-        this.storageType = storageType;
-        this.properties = properties;
-        tryConvertToS3();
-        this.location = convertPathToS3(location);
+        boolean convertedToS3 = BosProperties.tryConvertBosToS3(properties, storageType);
+        if (convertedToS3) {
+            this.storageDesc.setStorageType(StorageBackend.StorageType.S3);
+            this.location = BosProperties.convertPathToS3(location);
+        } else {
+            this.location = location;
+        }
     }
 
-    public StorageType getStorageType() {
-        return storageType;
+    public void setStorageDesc(StorageDesc storageDesc) {
+        this.storageDesc = storageDesc;
     }
 
-    public void setStorageType(StorageType storageType) {
-        this.storageType = storageType;
-    }
-
-    public String getStorageName() {
-        return name;
-    }
-
-    public void setStorageName(String storageName) {
-        this.name = storageName;
+    public StorageDesc getStorageDesc() {
+        return storageDesc;
     }
 
     public String getLocation() {
@@ -72,24 +63,17 @@ public class StorageBackend extends StorageDesc implements ParseNode {
         this.location = location;
     }
 
-    public Map<String, String> getProperties() {
-        return properties;
-    }
-
-    public void setProperties(Map<String, String> properties) {
-        this.properties = properties;
-    }
-
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
-        if (this.storageType != StorageType.BROKER && StringUtils.isEmpty(name)) {
-            name = this.storageType.name();
+        StorageBackend.StorageType storageType = storageDesc.getStorageType();
+        if (storageType != StorageType.BROKER && StringUtils.isEmpty(storageDesc.getName())) {
+            storageDesc.setName(storageType.name());
         }
-        if (this.storageType != StorageType.BROKER && this.storageType != StorageType.S3
-                && this.storageType != StorageType.HDFS) {
-            throw new NotImplementedException(this.storageType.toString() + " is not support now.");
+        if (storageType != StorageType.BROKER && storageType != StorageType.S3
+                && storageType != StorageType.HDFS) {
+            throw new NotImplementedException(storageType.toString() + " is not support now.");
         }
-        FeNameFormat.checkCommonName("repository", name);
+        FeNameFormat.checkCommonName("repository", storageDesc.getName());
 
         if (Strings.isNullOrEmpty(location)) {
             throw new AnalysisException("You must specify a location on the repository");
@@ -100,12 +84,14 @@ public class StorageBackend extends StorageDesc implements ParseNode {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
+        StorageBackend.StorageType storageType = storageDesc.getStorageType();
         sb.append(storageType.name());
         if (storageType == StorageType.BROKER) {
-            sb.append(" `").append(name).append("`");
+            sb.append(" `").append(storageDesc.getName()).append("`");
         }
         sb.append(" ON LOCATION ").append(location).append(" PROPERTIES(")
-            .append(new PrintableMap<>(properties, " = ", true, false)).append(")");
+            .append(new PrintableMap<>(storageDesc.getProperties(), " = ", true, false))
+            .append(")");
         return sb.toString();
     }
 

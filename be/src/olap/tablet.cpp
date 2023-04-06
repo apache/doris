@@ -308,14 +308,17 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
             CHECK_EQ(to_add_min_version, 0) << "to_add_min_version is: " << to_add_min_version;
             calc_delete_bitmap_ver = Version(to_add_max_version + 1, max_version().second);
         }
-        Status res =
-                capture_consistent_rowsets(calc_delete_bitmap_ver, &calc_delete_bitmap_rowsets);
-        // Because the data in memory has been changed, can't return an error.
-        CHECK(res.ok()) << "fail to capture_consistent_rowsets, res: " << res;
 
-        for (auto rs : calc_delete_bitmap_rowsets) {
-            res = update_delete_bitmap_without_lock(rs);
-            CHECK(res.ok()) << "fail to update_delete_bitmap_without_lock, res: " << res;
+        if (calc_delete_bitmap_ver.first <= calc_delete_bitmap_ver.second) {
+            Status res =
+                    capture_consistent_rowsets(calc_delete_bitmap_ver, &calc_delete_bitmap_rowsets);
+            // Because the data in memory has been changed, can't return an error.
+            CHECK(res.ok()) << "fail to capture_consistent_rowsets, res: " << res;
+
+            for (auto rs : calc_delete_bitmap_rowsets) {
+                res = update_delete_bitmap_without_lock(rs);
+                CHECK(res.ok()) << "fail to update_delete_bitmap_without_lock, res: " << res;
+            }
         }
     }
     // clear stale rowset
@@ -2519,7 +2522,11 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
                 if (specified_rowset_ids != nullptr && !specified_rowset_ids->empty()) {
                     auto st = lookup_row_key(key, specified_rowset_ids, &loc,
                                              dummy_version.first - 1);
-                    CHECK(st.ok() || st.is<NOT_FOUND>() || st.is<ALREADY_EXIST>());
+                    bool expected_st = st.ok() || st.is<NOT_FOUND>() || st.is<ALREADY_EXIST>();
+                    DCHECK(expected_st) << "unexpected error status while lookup_row_key:" << st;
+                    if (!expected_st) {
+                        return st;
+                    }
                     if (st.is<NOT_FOUND>()) {
                         ++row_id;
                         continue;
@@ -2562,7 +2569,8 @@ Status Tablet::_check_pk_in_pre_segments(
         const Slice& key, DeleteBitmapPtr delete_bitmap, RowLocation* loc) {
     for (auto it = pre_segments.rbegin(); it != pre_segments.rend(); ++it) {
         auto st = (*it)->lookup_row_key(key, loc);
-        CHECK(st.ok() || st.is<NOT_FOUND>() || st.is<ALREADY_EXIST>());
+        DCHECK(st.ok() || st.is<NOT_FOUND>() || st.is<ALREADY_EXIST>())
+                << "unexpected error status while lookup_row_key:" << st;
         if (st.is<NOT_FOUND>()) {
             continue;
         } else if (st.ok() && _schema->has_sequence_col() &&

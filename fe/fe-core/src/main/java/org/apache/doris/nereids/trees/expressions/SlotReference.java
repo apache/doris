@@ -125,6 +125,15 @@ public class SlotReference extends Slot {
     }
 
     @Override
+    public String shapeInfo() {
+        if (qualifier.isEmpty()) {
+            return name;
+        } else {
+            return qualifier.get(qualifier.size() - 1) + "." + name;
+        }
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;

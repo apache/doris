@@ -19,11 +19,11 @@ package org.apache.doris.tablefunction;
 
 import org.apache.doris.alter.DecommissionType;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.HMSExternalCatalog;
+import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TBackendsMetadataParams;
@@ -348,7 +348,7 @@ public class MetadataGenerator {
         }
         hiveCatalog.setConf(conf);
         Map<String, String> catalogProperties = new HashMap<>();
-        catalogProperties.put(HMSResource.HIVE_METASTORE_URIS, catalog.getHiveMetastoreUris());
+        catalogProperties.put(HMSProperties.HIVE_METASTORE_URIS, catalog.getHiveMetastoreUris());
         catalogProperties.put("uri", catalog.getHiveMetastoreUris());
         hiveCatalog.initialize("hive", catalogProperties);
         return hiveCatalog.loadTable(TableIdentifier.of(db, tbl));

@@ -53,12 +53,13 @@ uint16_t NullPredicate::evaluate(const vectorized::IColumn& column, uint16_t* se
         if (!nullable->has_null()) {
             return _is_null ? 0 : size;
         }
-        auto& null_map = nullable->get_null_map_data();
-        for (uint16_t i = 0; i < size; ++i) {
-            uint16_t idx = sel[i];
-            sel[new_size] = idx;
-            new_size += (null_map[idx] == _is_null);
-        }
+        auto& pred_col = nullable->get_null_map_data();
+        constexpr bool is_nullable = true;
+#define EVALUATE_WITH_NULL_IMPL(IDX) pred_col[IDX] == _is_null
+#define EVALUATE_WITHOUT_NULL_IMPL(IDX) true
+        EVALUATE_BY_SELECTOR(EVALUATE_WITH_NULL_IMPL, EVALUATE_WITHOUT_NULL_IMPL)
+#undef EVALUATE_WITH_NULL_IMPL
+#undef EVALUATE_WITHOUT_NULL_IMPL
         return new_size;
     } else {
         if (_is_null) return 0;

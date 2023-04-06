@@ -30,7 +30,8 @@ set(VEC_FILES
   aggregate_functions/aggregate_function_sum.cpp
   aggregate_functions/aggregate_function_sort.cpp
   aggregate_functions/aggregate_function_min_max.cpp
-  aggregate_functions/aggregate_function_min_max_by.cpp
+  aggregate_functions/aggregate_function_min_by.cpp
+  aggregate_functions/aggregate_function_max_by.cpp
   aggregate_functions/aggregate_function_uniq.cpp
   aggregate_functions/aggregate_function_hll_union_agg.cpp
   aggregate_functions/aggregate_function_bit.cpp
@@ -168,6 +169,7 @@ set(VEC_FILES
   functions/array/function_array_sort.cpp
   functions/array/function_array_sortby.cpp
   functions/array/function_array_utils.cpp
+  functions/array/function_array_shuffle.cpp
   functions/array/function_arrays_overlap.cpp
   functions/array/function_array_distinct.cpp
   functions/array/function_array_remove.cpp

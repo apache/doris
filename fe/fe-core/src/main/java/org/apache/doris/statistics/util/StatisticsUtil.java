@@ -64,6 +64,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -122,6 +123,7 @@ public class StatisticsUtil {
         sessionVariable.setMaxExecMemByte(StatisticConstants.STATISTICS_MAX_MEM_PER_QUERY_IN_BYTES);
         sessionVariable.setEnableInsertStrict(true);
         sessionVariable.parallelExecInstanceNum = StatisticConstants.STATISTIC_PARALLEL_EXEC_INSTANCE_NUM;
+        sessionVariable.setEnableNereidsPlanner(false);
         sessionVariable.enableProfile = false;
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
@@ -279,5 +281,13 @@ public class StatisticsUtil {
             }
         }
         return tblIf.getColumn(columnName);
+    }
+
+    public static boolean isNullOrEmpty(String str) {
+        return Optional.ofNullable(str)
+                .map(String::trim)
+                .map(String::toLowerCase)
+                .map(s -> "null".equalsIgnoreCase(s) || s.isEmpty())
+                .orElse(true);
     }
 }

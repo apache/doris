@@ -17,8 +17,8 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -73,7 +73,7 @@ public class IcebergAnalysisTask extends HMSAnalysisTask {
         }
         hiveCatalog.setConf(conf);
         Map<String, String> catalogProperties = new HashMap<>();
-        catalogProperties.put(HMSResource.HIVE_METASTORE_URIS, table.getMetastoreUri());
+        catalogProperties.put(HMSProperties.HIVE_METASTORE_URIS, table.getMetastoreUri());
         catalogProperties.put("uri", table.getMetastoreUri());
         hiveCatalog.initialize("hive", catalogProperties);
         return hiveCatalog.loadTable(TableIdentifier.of(table.getDbName(), table.getName()));

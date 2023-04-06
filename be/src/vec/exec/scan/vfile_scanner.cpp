@@ -81,7 +81,6 @@ Status VFileScanner::prepare(
     _io_ctx.reset(new io::IOContext());
     _io_ctx->file_cache_stats = _file_cache_statistics.get();
     _io_ctx->query_id = &_state->query_id();
-    _io_ctx->enable_file_cache = _state->query_options().enable_file_cache;
 
     if (_is_load) {
         _src_row_desc.reset(new RowDescriptor(_state->desc_tbl(),
@@ -566,7 +565,7 @@ Status VFileScanner::_get_next_reader() {
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
-            _cur_reader.reset(new OrcReader(_profile, _params, range, _file_col_names,
+            _cur_reader.reset(new OrcReader(_profile, _state, _params, range, _file_col_names,
                                             _state->query_options().batch_size, _state->timezone(),
                                             _io_ctx.get()));
             init_status = ((OrcReader*)(_cur_reader.get()))->init_reader(_colname_to_value_range);
@@ -832,7 +831,7 @@ Status VFileScanner::close(RuntimeState* state) {
         }
     }
 
-    if (config::enable_file_cache) {
+    if (config::enable_file_cache && _state->query_options().enable_file_cache) {
         io::FileCacheProfileReporter cache_profile(_profile);
         cache_profile.update(_file_cache_statistics.get());
     }

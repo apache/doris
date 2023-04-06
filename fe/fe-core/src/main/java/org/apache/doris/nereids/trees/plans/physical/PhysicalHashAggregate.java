@@ -272,4 +272,11 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
                 aggregateParam, maybeUsingStream, Optional.empty(), getLogicalProperties(),
                 requireProperties, physicalProperties, statistics, newChild);
     }
+
+    @Override
+    public String shapeInfo() {
+        StringBuilder builder = new StringBuilder("hashAgg[");
+        builder.append(getAggPhase()).append("]");
+        return builder.toString();
+    }
 }
