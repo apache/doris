@@ -208,26 +208,6 @@ suite("create_policy") {
         def failed_create_2 = try_sql """
         CREATE RESOURCE "crete_policy_2"
         PROPERTIES(
-            "type" = "s3",
-            "AWS_ENDPOINT" = "bj.s3.comaaaa",
-            "AWS_ROOT_PATH" = "path/to/rootaaaa",
-            "AWS_ACCESS_KEY" = "bbba",
-            "AWS_SECRET_KEY" = "aaaa",
-            "AWS_MAX_CONNECTIONS" = "50",
-            "AWS_REQUEST_TIMEOUT_MS" = "3000",
-            "AWS_CONNECTION_TIMEOUT_MS" = "1000",
-            "AWS_BUCKET" = "test-bucket",
-            "s3_validity_check" = "false"
-        );
-        """
-        // errCode = 2, detailMessage = Missing [AWS_REGION] in properties.
-        assertEquals(failed_create_2, null)
-    }
-
-    if (has_created_2.size() == 0) {
-        def failed_create_2 = try_sql """
-        CREATE RESOURCE "crete_policy_2"
-        PROPERTIES(
             "type"="s3",
             "AWS_ENDPOINT" = "bj.s3.comaaaa",
             "AWS_REGION" = "bj",
