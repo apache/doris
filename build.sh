@@ -300,6 +300,10 @@ if [[ -z "${USE_DWARF}" ]]; then
     USE_DWARF='OFF'
 fi
 
+if [[ -z "${DISPLAY_BUILD_TIME}" ]]; then
+    DISPLAY_BUILD_TIME='OFF'
+fi
+
 if [[ -z "${OUTPUT_BE_BINARY}" ]]; then
     OUTPUT_BE_BINARY=${BUILD_BE}
 fi
@@ -362,6 +366,7 @@ echo "Get params:
     USE_BTHREAD_SCANNER -- ${USE_BTHREAD_SCANNER}
     ENABLE_STACKTRACE   -- ${ENABLE_STACKTRACE}
     DENABLE_CLANG_COVERAGE -- ${DENABLE_CLANG_COVERAGE}
+    DISPLAY_BUILD_TIME  -- ${DISPLAY_BUILD_TIME}
 "
 
 # Clean and build generated code
@@ -429,6 +434,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DBUILD_META_TOOL="${BUILD_META_TOOL}" \
         -DSTRIP_DEBUG_INFO="${STRIP_DEBUG_INFO}" \
         -DUSE_DWARF="${USE_DWARF}" \
+        -DDISPLAY_BUILD_TIME="${DISPLAY_BUILD_TIME}" \
         -DUSE_MEM_TRACKER="${USE_MEM_TRACKER}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
         -DUSE_BTHREAD_SCANNER="${USE_BTHREAD_SCANNER}" \
