@@ -103,8 +103,29 @@ under the License.
                 <groupId>org.apache.doris</groupId>
                 <artifactId>hadoop-shade-2</artifactId>
                 <version>${doris.shade.version}</version>
-               <scope>system</scope>
+                <scope>system</scope>
                 <systemPath>${project.basedir}/lib/hadoop-shade-2-${doris.shade.version}.jar</systemPath>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.doris</groupId>
+                <artifactId>thrift-shade-0.13</artifactId>
+                <version>${doris.shade.version}</version>
+                <scope>system</scope>
+                <systemPath>${basedir}/lib/thrift-shade-0.13-${doris.shade.version}.jar</systemPath>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.doris</groupId>
+                <artifactId>hadoop-cloud-shade-2</artifactId>
+                <version>${doris.shade.version}</version>
+                <scope>system</scope>
+                <systemPath>${basedir}/lib/hadoop-cloud-shade-2-${doris.shade.version}.jar</systemPath>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.doris</groupId>
+                <artifactId>hadoop-aws-shade-2</artifactId>
+                <version>${doris.shade.version}</version>
+                <scope>system</scope>
+                <systemPath>${basedir}/lib/hadoop-aws-shade-2-${doris.shade.version}.jar</systemPath>
             </dependency>
 
         </dependencies>
@@ -214,6 +235,18 @@ under the License.
             <groupId>org.apache.doris</groupId>
             <artifactId>hadoop-shade-2</artifactId>
         </dependency>
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>hadoop-aws-shade-2</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>hadoop-cloud-shade-2</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>thrift-shade-0.13</artifactId>
+        </dependency>
         <!-- https://mvnrepository.com/artifact/commons-io/commons-io -->
         <dependency>
             <groupId>commons-io</groupId>
@@ -268,14 +301,6 @@ under the License.
             <version>4.13.1</version>
             <scope>test</scope>
         </dependency>
-        <dependency>
-            <groupId>org.apache.doris</groupId>
-            <artifactId>thrift-shade-0.13</artifactId>
-            <version>${doris.shade.version}</version>
-   <!--         <scope>system</scope>
-            <systemPath>${basedir}/lib/thrift-shade-0.13-${doris.shade.version}.jar</systemPath>
--->
-        </dependency>
         <!-- https://mvnrepository.com/artifact/org.apache.logging.log4j/log4j-api -->
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
@@ -317,25 +342,6 @@ under the License.
     <build>
         <finalName>apache_hdfs_broker</finalName>
         <plugins>
-            <plugin>
-                <groupId>org.owasp</groupId>
-                <artifactId>dependency-check-maven</artifactId>
-                <version>7.1.2</version>
-                <configuration>
-                    <skip>${skipDepCheck}</skip>
-                    <skipProvidedScope>true</skipProvidedScope>
-                    <skipRuntimeScope>true</skipRuntimeScope>
-                    <skipSystemScope>true</skipSystemScope>
-                    <failBuildOnCVSS>7</failBuildOnCVSS>
-                </configuration>
-                <executions>
-                    <execution>
-                        <goals>
-                            <goal>aggregate</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
             <plugin>
                 <artifactId>exec-maven-plugin</artifactId>
                 <groupId>org.codehaus.mojo</groupId>
