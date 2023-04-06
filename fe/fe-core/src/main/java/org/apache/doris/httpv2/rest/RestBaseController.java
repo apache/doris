@@ -108,10 +108,13 @@ public class RestBaseController extends BaseController {
         return redirectView;
     }
 
-    public RedirectView redirectToMaster(HttpServletRequest request, HttpServletResponse response) {
+    public RedirectView redirectToMaster(HttpServletRequest request, HttpServletResponse response) throws Exception {
         Env env = Env.getCurrentEnv();
         if (env.isMaster()) {
             return null;
+        }
+        if (!env.isReady()) {
+            throw new Exception("Node catalog is not ready, please wait for a while.");
         }
         return redirectTo(request, new TNetworkAddress(env.getMasterIp(), env.getMasterHttpPort()));
     }

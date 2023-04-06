@@ -77,9 +77,13 @@ public class GetLoadInfoAction extends RestBaseController {
             return new RestBaseResult("No cluster selected");
         }
 
-        RedirectView redirectView = redirectToMaster(request, response);
-        if (redirectView != null) {
-            return redirectView;
+        try {
+            RedirectView redirectView = redirectToMaster(request, response);
+            if (redirectView != null) {
+                return redirectView;
+            }
+        } catch (Exception e) {
+            return new RestBaseResult(e.getMessage());
         }
 
         try {

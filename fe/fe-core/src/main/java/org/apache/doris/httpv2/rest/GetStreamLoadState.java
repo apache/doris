@@ -40,9 +40,13 @@ public class GetStreamLoadState extends RestBaseController {
                           HttpServletRequest request, HttpServletResponse response) {
         executeCheckPassword(request, response);
 
-        RedirectView redirectView = redirectToMaster(request, response);
-        if (redirectView != null) {
-            return redirectView;
+        try {
+            RedirectView redirectView = redirectToMaster(request, response);
+            if (redirectView != null) {
+                return redirectView;
+            }
+        } catch (Exception e) {
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
 
         String label = request.getParameter(LABEL_KEY);
