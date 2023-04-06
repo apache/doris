@@ -54,10 +54,10 @@ public class ArithmeticFunctionBinder {
             .build();
 
     public boolean isBinaryArithmetic(String functionName) {
-        return FUNCTION_TO_EXPRESSION.containsKey(functionName);
+        return FUNCTION_TO_EXPRESSION.containsKey(functionName.toLowerCase());
     }
 
     public Expression bindBinaryArithmetic(String functionName, List<Expression> children) {
-        return FUNCTION_TO_EXPRESSION.get(functionName).withChildren(children);
+        return FUNCTION_TO_EXPRESSION.get(functionName.toLowerCase()).withChildren(children);
     }
 }
