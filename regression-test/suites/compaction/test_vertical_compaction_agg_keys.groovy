@@ -251,6 +251,6 @@ suite("test_vertical_compaction_agg_keys") {
         qt_select_default3 """ SELECT * FROM ${tableName} t ORDER BY user_id; """
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
-        reset_be_config.call()
+        //reset_be_config.call()
     }
 }
