@@ -305,19 +305,7 @@ struct InitcapImpl {
         return Status::OK();
     }
 };
-
-struct NameTrim {
-    static constexpr auto name = "trim";
-};
-
-struct NameLTrim {
-    static constexpr auto name = "ltrim";
-};
-
-struct NameRTrim {
-    static constexpr auto name = "rtrim";
-};
-
+// This is an implementation of a parameter for the Trim function.
 template <bool is_ltrim, bool is_rtrim>
 struct TrimImpl {
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
@@ -339,6 +327,133 @@ struct TrimImpl {
                                         res_offsets);
         }
         return Status::OK();
+    }
+};
+
+// This is an implementation of two parameters for the Trim function.
+template <bool is_ltrim, bool is_rtrim>
+struct TrimImpl2 {
+    static Status vector(const ColumnString::Chars& str_data,
+                         const ColumnString::Offsets& str_offsets,
+                         const ColumnString::Chars& rhs_data,
+                         const ColumnString::Offsets& rhs_offsets, ColumnString::Chars& res_data,
+                         ColumnString::Offsets& res_offsets) {
+        DCHECK_EQ(str_offsets.size(), rhs_offsets.size());
+        size_t offset_size = str_offsets.size();
+        res_offsets.resize(str_offsets.size());
+        for (size_t i = 0; i < offset_size; ++i) {
+            const char* raw_str = reinterpret_cast<const char*>(&str_data[str_offsets[i - 1]]);
+            ColumnString::Offset size = str_offsets[i] - str_offsets[i - 1];
+            StringRef str(raw_str, size);
+            const char* raw_rhs = reinterpret_cast<const char*>(&rhs_data[rhs_offsets[i - 1]]);
+            ColumnString::Offset rhs_size = rhs_offsets[i] - rhs_offsets[i - 1];
+            StringRef rhs(raw_rhs, rhs_size);
+            if constexpr (is_ltrim) {
+                str = simd::VStringFunctions::ltrim(str, rhs);
+            }
+            if constexpr (is_rtrim) {
+                str = simd::VStringFunctions::rtrim(str, rhs);
+            }
+            StringOP::push_value_string(std::string_view((char*)str.data, str.size), i, res_data,
+                                        res_offsets);
+        }
+        return Status::OK();
+    }
+};
+// Choose a specific name for the trim function.
+template <bool is_ltrim, bool is_rtrim>
+struct TrimNameChoose;
+
+template <>
+struct TrimNameChoose<true, false> {
+    static constexpr auto name = "ltrim";
+};
+
+template <>
+struct TrimNameChoose<false, true> {
+    static constexpr auto name = "rtrim";
+};
+
+template <>
+struct TrimNameChoose<true, true> {
+    static constexpr auto name = "trim";
+};
+
+template <bool is_ltrim, bool is_rtrim, bool has_Second_Parameter>
+class FunctionTrimBase : public IFunction {
+public:
+    static constexpr auto name = TrimNameChoose<is_ltrim, is_rtrim>::name;
+    using Impl1 = TrimImpl<is_ltrim, is_rtrim>;
+    using Impl2 = TrimImpl2<is_ltrim, is_rtrim>;
+    static FunctionPtr create() {
+        return std::make_shared<FunctionTrimBase<is_ltrim, is_rtrim, has_Second_Parameter>>();
+    }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override {
+        if constexpr (has_Second_Parameter) {
+            return 2;
+        } else {
+            return 1;
+        }
+    }
+
+    bool get_is_injective(const Block&) override { return false; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeString>());
+    }
+
+    bool use_default_implementation_for_constants() const override { return true; }
+
+    DataTypes get_variadic_argument_types_impl() const override {
+        if constexpr (has_Second_Parameter) {
+            return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()};
+        } else {
+            return {std::make_shared<DataTypeString>()};
+        }
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        if constexpr (has_Second_Parameter) {
+            const ColumnPtr column = block.get_by_position(arguments[0]).column;
+            const auto& right = block.get_by_position(arguments[1]);
+            auto rcol = right.column->convert_to_full_column_if_const();
+            if (const ColumnString* col = check_and_get_column<ColumnString>(column.get())) {
+                if (auto col_right = check_and_get_column<ColumnString>(rcol.get())) {
+                    auto col_res = ColumnString::create();
+                    Impl2::vector(col->get_chars(), col->get_offsets(), col_right->get_chars(),
+                                  col_right->get_offsets(), col_res->get_chars(),
+                                  col_res->get_offsets());
+                    block.replace_by_position(result, std::move(col_res));
+                } else {
+                    return Status::RuntimeError(
+                            "Illegal column {} of argument of function {}",
+                            block.get_by_position(arguments[1]).column->get_name(), get_name());
+                }
+
+            } else {
+                return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                            block.get_by_position(arguments[0]).column->get_name(),
+                                            get_name());
+            }
+            return Status::OK();
+        } else {
+            const ColumnPtr column = block.get_by_position(arguments[0]).column;
+            if (const ColumnString* col = check_and_get_column<ColumnString>(column.get())) {
+                auto col_res = ColumnString::create();
+                Impl1::vector(col->get_chars(), col->get_offsets(), col_res->get_chars(),
+                              col_res->get_offsets());
+                block.replace_by_position(result, std::move(col_res));
+            } else {
+                return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                            block.get_by_position(arguments[0]).column->get_name(),
+                                            get_name());
+            }
+            return Status::OK();
+        }
     }
 };
 
@@ -631,11 +746,19 @@ using FunctionToUpper = FunctionStringToString<TransferImpl<NameToUpper>, NameTo
 
 using FunctionToInitcap = FunctionStringToString<InitcapImpl, NameToInitcap>;
 
-using FunctionLTrim = FunctionStringToString<TrimImpl<true, false>, NameLTrim>;
+// FunctionTrim1 : SELECT TRIM('   appleaa   ') ->  appleaa
+// FunctionTrim2 : SELECT TRIM('appleaa', 'a')  ->  pple
+using FunctionLTrim1 = FunctionTrimBase<true, false, false>;
 
-using FunctionRTrim = FunctionStringToString<TrimImpl<false, true>, NameRTrim>;
+using FunctionRTrim1 = FunctionTrimBase<false, true, false>;
 
-using FunctionTrim = FunctionStringToString<TrimImpl<true, true>, NameTrim>;
+using FunctionTrim1 = FunctionTrimBase<true, true, false>;
+
+using FunctionLTrim2 = FunctionTrimBase<true, false, true>;
+
+using FunctionRTrim2 = FunctionTrimBase<false, true, true>;
+
+using FunctionTrim2 = FunctionTrimBase<true, true, true>;
 
 using FunctionToBase64 = FunctionStringOperateToNullType<ToBase64Impl>;
 
@@ -663,9 +786,12 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionToLower>();
     factory.register_function<FunctionToUpper>();
     factory.register_function<FunctionToInitcap>();
-    factory.register_function<FunctionLTrim>();
-    factory.register_function<FunctionRTrim>();
-    factory.register_function<FunctionTrim>();
+    factory.register_function<FunctionTrim1>();
+    factory.register_function<FunctionLTrim1>();
+    factory.register_function<FunctionRTrim1>();
+    factory.register_function<FunctionTrim2>();
+    factory.register_function<FunctionLTrim2>();
+    factory.register_function<FunctionRTrim2>();
     factory.register_function<FunctionConvertTo>();
     factory.register_function<FunctionSubstring<Substr3Impl>>();
     factory.register_function<FunctionSubstring<Substr2Impl>>();
