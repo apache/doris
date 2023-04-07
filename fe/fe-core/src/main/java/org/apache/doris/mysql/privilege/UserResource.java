@@ -28,9 +28,9 @@ import java.io.IOException;
 public class UserResource {
     public static void write(DataOutput out) throws IOException {
         // resouce count
-        out.write(0);
+        out.writeInt(0);
         // group count
-        out.write(0);
+        out.writeInt(0);
     }
 
     public static void readIn(DataInput in) throws IOException {
