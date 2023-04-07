@@ -35,7 +35,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
@@ -202,13 +201,6 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
         scan.getOutput().forEach(slot -> ctx.getAliasTransferMap().put(slot, Pair.of(scan.getId(), slot)));
         return scan;
-    }
-
-    @Override
-    public PhysicalStorageLayerAggregate visitPhysicalStorageLayerAggregate(
-            PhysicalStorageLayerAggregate storageLayerAggregate, CascadesContext context) {
-        storageLayerAggregate.getRelation().accept(this, context);
-        return storageLayerAggregate;
     }
 
     private static Slot checkTargetChild(Expression leftChild) {
