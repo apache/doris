@@ -80,7 +80,6 @@ public:
     Status rename(const Path& orig_name, const Path& new_name);
     Status rename_dir(const Path& orig_name, const Path& new_name);
     bool is_dir(const Path& path);
-    Status delete_directory_or_file(const Path& path);
 
     std::shared_ptr<FileSystem> getSPtr() { return shared_from_this(); }
 

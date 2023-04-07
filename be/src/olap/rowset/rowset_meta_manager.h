@@ -31,7 +31,7 @@ namespace doris {
 class RowsetMetaManager {
 public:
     static bool check_rowset_meta(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id);
-    static bool exists(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id);
+    static Status exists(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id);
 
     static Status get_rowset_meta(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
                                   RowsetMetaSharedPtr rowset_meta);

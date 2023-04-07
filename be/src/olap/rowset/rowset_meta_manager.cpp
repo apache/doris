@@ -42,15 +42,11 @@ bool RowsetMetaManager::check_rowset_meta(OlapMeta* meta, TabletUid tablet_uid,
     return meta->key_may_exist(META_COLUMN_FAMILY_INDEX, key, &value);
 }
 
-bool RowsetMetaManager::exists(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id) {
+Status RowsetMetaManager::exists(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id) {
     std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();
     std::string value;
     Status s = meta->get(META_COLUMN_FAMILY_INDEX, key, &value);
-    if (s.is<META_KEY_NOT_FOUND>()) {
-        return false;
-    } else {
-        return true;
-    }
+    return s;
 }
 
 Status RowsetMetaManager::get_rowset_meta(OlapMeta* meta, TabletUid tablet_uid,
