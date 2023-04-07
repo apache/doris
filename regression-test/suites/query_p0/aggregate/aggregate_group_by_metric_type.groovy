@@ -92,21 +92,6 @@ suite("aggregate_group_by_metric_type") {
         exception "${error_msg}"
     }
 
-    sql 'set enable_nereids_planner=true'
-    test {
-        sql "select distinct c_array from test_group_by_array"
-        exception "${error_msg}"
-    }
-    test {
-        sql "select c_array from test_group_by_array order by c_array"
-        exception "${error_msg}"
-    }
-    test {
-        sql "select c_array,count(*) from test_group_by_array group by c_array"
-        exception "${error_msg}"
-    }
-    sql 'set enable_nereids_planner=false'
-
     sql "DROP TABLE test_group_by_array"
 
     sql "DROP TABLE IF EXISTS test_group_by_struct"

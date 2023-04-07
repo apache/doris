@@ -99,6 +99,7 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -2367,7 +2368,11 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
         //update base index schema
-        updateBaseIndexSchema(olapTable, indexSchemaMap, indexes);
+        try {
+            updateBaseIndexSchema(olapTable, indexSchemaMap, indexes);
+        } catch (Exception e) {
+            throw new DdlException(e.getMessage());
+        }
 
         if (!isReplay) {
             TableAddOrDropColumnsInfo info = new TableAddOrDropColumnsInfo(db.getId(), olapTable.getId(),
@@ -2486,7 +2491,7 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     public void updateBaseIndexSchema(OlapTable olapTable, Map<Long, LinkedList<Column>> indexSchemaMap,
-            List<Index> indexes) {
+            List<Index> indexes) throws IOException {
         long baseIndexId = olapTable.getBaseIndexId();
         List<Long> indexIds = new ArrayList<Long>();
         indexIds.add(baseIndexId);
@@ -2545,8 +2550,12 @@ public class SchemaChangeHandler extends AlterHandler {
             throw new DdlException("Nothing is changed. please check your alter stmt.");
         }
 
-        //update base index schema
-        updateBaseIndexSchema(olapTable, indexSchemaMap, indexes);
+        // update base index schema
+        try {
+            updateBaseIndexSchema(olapTable, indexSchemaMap, indexes);
+        } catch (Exception e) {
+            throw new UserException(e.getMessage());
+        }
 
         if (!isReplay) {
             TableAddOrDropInvertedIndicesInfo info = new TableAddOrDropInvertedIndicesInfo(db.getId(),

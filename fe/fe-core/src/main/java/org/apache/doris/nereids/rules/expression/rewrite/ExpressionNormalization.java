@@ -21,6 +21,7 @@ import org.apache.doris.nereids.rules.expression.rewrite.rules.BetweenToCompound
 import org.apache.doris.nereids.rules.expression.rewrite.rules.CharacterLiteralTypeCoercion;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.DigitalMaskingConvert;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.FoldConstantRule;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.InPredicateDedup;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.InPredicateToEqualToRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.NormalizeBinaryPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyArithmeticComparisonRule;
@@ -45,6 +46,7 @@ public class ExpressionNormalization extends ExpressionRewrite {
             SupportJavaDateFormatter.INSTANCE,
             NormalizeBinaryPredicatesRule.INSTANCE,
             BetweenToCompoundRule.INSTANCE,
+            InPredicateDedup.INSTANCE,
             InPredicateToEqualToRule.INSTANCE,
             SimplifyNotExprRule.INSTANCE,
             // TODO(morrySnow): remove type coercion from here after we could process subquery type coercion when bind
