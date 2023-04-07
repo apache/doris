@@ -37,6 +37,11 @@ public class InPredicateDedup extends AbstractExpressionRewriteRule {
 
     @Override
     public Expression visitInPredicate(InPredicate inPredicate, ExpressionRewriteContext context) {
+        // In many BI scenarios, the sql is auto-generated, and hence there may be thousands of options.
+        // It takes a long time to apply this rule. So set a threshold for the max number.
+        if (inPredicate.getOptions().size() > 200) {
+            return inPredicate;
+        }
         Set<Expression> dedupExpr = new HashSet<>();
         List<Expression> newOptions = new ArrayList<>();
         for (Expression option : inPredicate.getOptions()) {
