@@ -407,7 +407,7 @@ private:
     const std::vector<StringRef>& needles;
     /// searchers
     std::vector<StringSearcher> searchers;
-    /// last index of offsets that was not processed
+    /// last index of needles that was not processed
     size_t last;
 
 public:
