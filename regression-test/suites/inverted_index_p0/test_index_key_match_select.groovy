@@ -44,6 +44,6 @@ suite("test_index_key_match_select", "inverted_index_select"){
         ("u3", ["u1"]),
         ("u4", ["u3"])
     """
-    qt_sql "SELECT * FROM ${indexTbName1} WHERE user MATCH_ANY 'u1, u2' LIMIT 10;"
-    qt_sql "SELECT * FROM ${indexTbName1} WHERE user MATCH_ANY 'u1, u2, u3' LIMIT 10;"
+    qt_sql "SELECT * FROM ${indexTbName1} WHERE user MATCH_ANY 'u1, u2' ORDER BY user LIMIT 10;"
+    qt_sql "SELECT * FROM ${indexTbName1} WHERE user MATCH_ANY 'u1, u2, u3' ORDER BY user LIMIT 10;"
 }
