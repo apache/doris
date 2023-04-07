@@ -188,7 +188,7 @@ public class RefreshManager {
                 } else {
                     CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
                     if (catalog != null) {
-                        String catalogName =catalog.getName();
+                        String catalogName = catalog.getName();
                         RefreshCatalogStmt refreshCatalogStmt = new RefreshCatalogStmt(catalogName, null);
                         try {
                             DdlExecutor.execute(Env.getCurrentEnv(), refreshCatalogStmt);
