@@ -339,15 +339,50 @@ public class Config extends ConfigBase {
     @ConfField public static long max_bdbje_clock_delta_ms = 5000; // 5s
 
     /**
+     * Whether to enable all http interface authentication
+     */
+    @ConfField public static boolean enable_all_http_auth = false;
+
+    /**
      * Fe http port
      * Currently, all FEs' http port must be same.
      */
     @ConfField public static int http_port = 8030;
 
     /**
-     * Whether to enable all http interface authentication
+     * Fe https port
+     * Currently, all FEs' https port must be same.
      */
-    @ConfField public static boolean enable_all_http_auth = false;
+    @ConfField public static int https_port = 8050;
+
+    /**
+     * ssl key store path.
+     * If you want to change the path, you need to create corresponding directory.
+     */
+    @ConfField public static String key_store_path = System.getenv("DORIS_HOME")
+        + "/conf/ssl/doris_ssl_certificate.keystore";
+
+    /**
+     * ssl key store password. Null by default.
+     */
+    @ConfField public static String key_store_password = "";
+
+    /**
+     * ssl key store type. "JKS" by default.
+     */
+    @ConfField public static String key_store_type = "JKS";
+
+    /**
+     * ssl key store alias. "doris_ssl_certificate" by default.
+     */
+    @ConfField public static String key_store_alias = "doris_ssl_certificate";
+
+    /**
+     * https enable flag. false by default.
+     * If the value is false, http is supported. Otherwise, https is supported.
+     * Currently doris uses many ports, so http and https are not supported at the same time.
+     */
+    @ConfField public static boolean enable_https = false;
 
     /**
      * Jetty container default configuration
@@ -1701,15 +1736,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = true)
     public static int backend_rpc_timeout_ms = 60000; // 1 min
 
-    @ConfField(mutable = true, masterOnly = false)
-    public static long file_scan_node_split_size = 256 * 1024 * 1024; // 256mb
-
-    @ConfField(mutable = true, masterOnly = false)
-    public static long file_scan_node_split_num = 128;
-
-    @ConfField(mutable = true, masterOnly = false)
-    public static long file_split_size = 0; // 0 means use the block size in HDFS/S3 as split size
-
     /**
      * If set to TRUE, FE will:
      * 1. divide BE into high load and low load(no mid load) to force triggering tablet scheduling;
@@ -1905,6 +1931,13 @@ public class Config extends ConfigBase {
     public static long max_hive_partition_cache_num = 100000;
 
     /**
+     * Max cache loader thread-pool size.
+     * Max thread pool size for loading external meta cache
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static int max_external_cache_loader_thread_pool_size = 10;
+
+    /**
      * Max cache num of external catalog's file
      * Decrease this value if FE's memory is small
      */
@@ -2004,7 +2037,7 @@ public class Config extends ConfigBase {
      * If set to ture, doris will establish an encrypted channel based on the SSL protocol with mysql.
      */
     @ConfField(mutable = false, masterOnly = false)
-    public static boolean enable_ssl = false;
+    public static boolean enable_ssl = true;
 
     /**
      * Default certificate file location for mysql ssl connection.
@@ -2053,6 +2086,8 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = false)
     public static String mysql_load_server_secure_path = "";
 
+    @ConfField(mutable = false, masterOnly = false)
+    public static int mysql_load_in_memory_record = 20;
 
     @ConfField(mutable = false, masterOnly = false)
     public static int mysql_load_thread_pool = 4;

@@ -107,6 +107,8 @@ public abstract class Type {
     public static final ScalarType ALL = new ScalarType(PrimitiveType.ALL);
     public static final MapType MAP = new MapType();
     public static final ArrayType ARRAY = ArrayType.create();
+    public static final StructType GENERIC_STRUCT = new StructType(Lists.newArrayList(
+            new StructField("generic_struct", new ScalarType(PrimitiveType.NULL_TYPE))));
     public static final StructType STRUCT = new StructType();
     public static final VariantType VARIANT = new VariantType();
 
@@ -529,7 +531,12 @@ public abstract class Type {
         return false;
     }
 
-    // return a new type without template type, by specialize tempalte type in this type
+    // only used for struct type and variadic template type
+    public boolean needExpandTemplateType() {
+        return false;
+    }
+
+    // return a new type without template type, by specialize template type in this type
     public Type specializeTemplateType(Type specificType, Map<String, Type> specializedTypeMap,
                                        boolean useSpecializedType) throws TypeException {
         if (hasTemplateType()) {
@@ -538,6 +545,22 @@ public abstract class Type {
         } else {
             return this;
         }
+    }
+
+    /**
+     * Only used for struct type and variadic template type,
+     * collect variadic template's expand size based on the input arguments
+     */
+    public void collectTemplateExpandSize(Type[] args, Map<String, Integer> expandSizeMap)
+            throws TypeException {
+    }
+
+    /**
+     * Only used for struct type and variadic template type,
+     * Do expand variadic template type
+     */
+    public List<Type> expandVariadicTemplateType(Map<String, Integer> expandSizeMap) {
+        return Lists.newArrayList(this);
     }
 
     /**

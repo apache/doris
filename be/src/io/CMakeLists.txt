@@ -42,6 +42,7 @@ set(IO_FILES
     fs/broker_file_writer.cpp
     fs/buffered_reader.cpp
     fs/stream_load_pipe.cpp
+    fs/err_utils.cpp
     fs/fs_utils.cpp
     cache/dummy_file_cache.cpp
     cache/file_cache.cpp

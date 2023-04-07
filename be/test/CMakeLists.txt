@@ -24,7 +24,6 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/test")
 set(AGENT_TEST_FILES
     agent/utils_test.cpp
     # agent/agent_server_test.cpp
-    # agent/cgroups_mgr_test.cpp
     # agent/heartbeat_server_test.cpp
 )
 set(COMMON_TEST_FILES
@@ -32,9 +31,6 @@ set(COMMON_TEST_FILES
     common/status_test.cpp
     common/config_test.cpp
     common/exception_test.cpp
-)
-set(ENV_TEST_FILES
-    env/env_posix_test.cpp
 )
 
 set(EXEC_TEST_FILES
@@ -72,7 +68,8 @@ set(HTTP_TEST_FILES
 set(IO_TEST_FILES
     io/cache/remote_file_cache_test.cpp
     io/cache/file_block_cache_test.cpp
-    io/fs/file_system_test.cpp
+    io/fs/local_file_system_test.cpp
+    io/fs/remote_file_system_test.cpp
 )
 set(OLAP_TEST_FILES
     olap/engine_storage_migration_task_test.cpp
@@ -84,7 +81,7 @@ set(OLAP_TEST_FILES
     olap/bloom_filter_test.cpp
     olap/itoken_extractor_test.cpp
     olap/file_header_test.cpp
-    olap/file_utils_test.cpp
+    #olap/file_utils_test.cpp
     olap/cumulative_compaction_policy_test.cpp
     #olap/row_cursor_test.cpp
     olap/skiplist_test.cpp
@@ -137,9 +134,8 @@ set(RUNTIME_TEST_FILES
     # runtime/result_buffer_mgr_test.cpp
     # runtime/parallel_executor_test.cpp
     # runtime/dpp_sink_test.cpp
-    # runtime/tmp_file_mgr_test.cpp
     # runtime/export_task_mgr_test.cpp
-    runtime/mem_pool_test.cpp
+    runtime/arena_test.cpp
     runtime/decimalv2_value_test.cpp
     runtime/large_int_value_test.cpp
     runtime/string_value_test.cpp
@@ -172,7 +168,6 @@ set(UTIL_TEST_FILES
     util/coding_test.cpp
     util/crc32c_test.cpp
     util/lru_cache_util_test.cpp
-    util/filesystem_util_test.cpp
     util/cidr_test.cpp
     util/metrics_test.cpp
     util/doris_metrics_test.cpp
@@ -197,7 +192,6 @@ set(UTIL_TEST_FILES
     util/utf8_check_test.cpp
     util/cgroup_util_test.cpp
     util/path_util_test.cpp
-    util/file_cache_test.cpp
     util/parse_util_test.cpp
     util/countdown_latch_test.cpp
     util/scoped_cleanup_test.cpp
@@ -273,7 +267,6 @@ set(VEC_TEST_FILES
 add_executable(doris_be_test
     ${AGENT_TEST_FILES}
     ${COMMON_TEST_FILES}
-    ${ENV_TEST_FILES}
     ${EXEC_TEST_FILES}
     ${EXPRS_TEST_FILES}
     ${GEO_TEST_FILES}

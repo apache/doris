@@ -185,6 +185,9 @@ private:
     // Number of rows returned by this fragment
     RuntimeProfile::Counter* _rows_produced_counter;
 
+    // Number of blocks returned by this fragment
+    RuntimeProfile::Counter* _blocks_produced_counter;
+
     RuntimeProfile::Counter* _fragment_cpu_timer;
 
     // It is shared with BufferControlBlock and will be called in two different

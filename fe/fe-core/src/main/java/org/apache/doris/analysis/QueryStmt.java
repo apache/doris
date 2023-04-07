@@ -272,6 +272,9 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
     }
 
     public boolean isDisableTuplesMVRewriter(Expr expr) {
+        if (disableTuplesMVRewriter.isEmpty()) {
+            return false;
+        }
         return expr.isBoundByTupleIds(disableTuplesMVRewriter.stream().collect(Collectors.toList()));
     }
 
@@ -840,5 +843,9 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
     public String toSqlWithHint() {
         toSQLWithHint = true;
         return toSql();
+    }
+
+    public void setToSQLWithHint(boolean enableSqlSqlWithHint) {
+        this.toSQLWithHint = enableSqlSqlWithHint;
     }
 }

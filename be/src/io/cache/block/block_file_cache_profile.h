@@ -35,13 +35,8 @@ namespace doris {
 namespace io {
 
 struct AtomicStatistics {
-    std::atomic<int64_t> num_io_total = 0;
-    std::atomic<int64_t> num_io_hit_cache = 0;
-    std::atomic<int64_t> num_io_bytes_read_total = 0;
-    std::atomic<int64_t> num_io_bytes_read_from_file_cache = 0;
-    std::atomic<int64_t> num_io_bytes_read_from_write_cache = 0;
-    std::atomic<int64_t> num_io_written_in_file_cache = 0;
-    std::atomic<int64_t> num_io_bytes_written_in_file_cache = 0;
+    std::atomic<int64_t> num_io_bytes_read_from_cache = 0;
+    std::atomic<int64_t> num_io_bytes_read_from_remote = 0;
 };
 
 struct FileCacheProfile;
@@ -66,13 +61,9 @@ struct FileCacheMetric {
     int64_t table_id = -1;
     int64_t partition_id = -1;
     std::shared_ptr<MetricEntity> entity;
-    IntAtomicCounter* file_cache_num_io_total = nullptr;
-    IntAtomicCounter* file_cache_num_io_hit_cache = nullptr;
-    IntAtomicCounter* file_cache_num_io_bytes_read_total = nullptr;
-    IntAtomicCounter* file_cache_num_io_bytes_read_from_file_cache = nullptr;
-    IntAtomicCounter* file_cache_num_io_bytes_read_from_write_cache = nullptr;
-    IntAtomicCounter* file_cache_num_io_written_in_file_cache = nullptr;
-    IntAtomicCounter* file_cache_num_io_bytes_written_in_file_cache = nullptr;
+    IntAtomicCounter* num_io_bytes_read_total = nullptr;
+    IntAtomicCounter* num_io_bytes_read_from_cache = nullptr;
+    IntAtomicCounter* num_io_bytes_read_from_remote = nullptr;
 };
 
 struct FileCacheProfile {
@@ -108,51 +99,51 @@ struct FileCacheProfile {
     std::unordered_map<int64_t, std::shared_ptr<FileCacheMetric>> _table_metrics;
     std::unordered_map<int64_t, std::unordered_map<int64_t, std::shared_ptr<FileCacheMetric>>>
             _partition_metrics;
-    FileCacheStatistics report(int64_t table_id);
-    FileCacheStatistics report(int64_t table_id, int64_t partition_id);
+    std::shared_ptr<AtomicStatistics> report(int64_t table_id);
+    std::shared_ptr<AtomicStatistics> report(int64_t table_id, int64_t partition_id);
 };
 
 struct FileCacheProfileReporter {
-    RuntimeProfile::Counter* num_io_total;
-    RuntimeProfile::Counter* num_io_hit_cache;
-    RuntimeProfile::Counter* num_io_bytes_read_total;
-    RuntimeProfile::Counter* num_io_bytes_read_from_file_cache;
-    RuntimeProfile::Counter* num_io_bytes_read_from_write_cache;
-    RuntimeProfile::Counter* num_io_written_in_file_cache;
-    RuntimeProfile::Counter* num_io_bytes_written_in_file_cache;
-    RuntimeProfile::Counter* num_io_bytes_skip_cache;
+    RuntimeProfile::Counter* num_local_io_total = nullptr;
+    RuntimeProfile::Counter* num_remote_io_total = nullptr;
+    RuntimeProfile::Counter* local_io_timer = nullptr;
+    RuntimeProfile::Counter* bytes_scanned_from_cache = nullptr;
+    RuntimeProfile::Counter* bytes_scanned_from_remote = nullptr;
+    RuntimeProfile::Counter* remote_io_timer = nullptr;
+    RuntimeProfile::Counter* write_cache_io_timer = nullptr;
+    RuntimeProfile::Counter* bytes_write_into_cache = nullptr;
+    RuntimeProfile::Counter* num_skip_cache_io_total = nullptr;
 
     FileCacheProfileReporter(RuntimeProfile* profile) {
         static const char* cache_profile = "FileCache";
         ADD_TIMER(profile, cache_profile);
-        num_io_total = ADD_CHILD_COUNTER(profile, "IOTotalNum", TUnit::UNIT, cache_profile);
-        num_io_hit_cache = ADD_CHILD_COUNTER(profile, "IOHitCacheNum", TUnit::UNIT, cache_profile);
-        num_io_bytes_read_total =
-                ADD_CHILD_COUNTER(profile, "ReadTotalBytes", TUnit::BYTES, cache_profile);
-        num_io_bytes_read_from_file_cache =
-                ADD_CHILD_COUNTER(profile, "ReadFromFileCacheBytes", TUnit::BYTES, cache_profile);
-        num_io_bytes_read_from_write_cache =
-                ADD_CHILD_COUNTER(profile, "ReadFromWriteCacheBytes", TUnit::BYTES, cache_profile);
-        num_io_written_in_file_cache =
-                ADD_CHILD_COUNTER(profile, "WriteInFileCacheNum", TUnit::UNIT, cache_profile);
-        num_io_bytes_written_in_file_cache =
-                ADD_CHILD_COUNTER(profile, "WriteInFileCacheBytes", TUnit::BYTES, cache_profile);
-        num_io_bytes_skip_cache =
-                ADD_CHILD_COUNTER(profile, "SkipCacheBytes", TUnit::BYTES, cache_profile);
+        num_local_io_total =
+                ADD_CHILD_COUNTER(profile, "NumLocalIOTotal", TUnit::UNIT, cache_profile);
+        num_remote_io_total =
+                ADD_CHILD_COUNTER(profile, "NumRemoteIOTotal", TUnit::UNIT, cache_profile);
+        local_io_timer = ADD_CHILD_TIMER(profile, "LocalIOUseTimer", cache_profile);
+        remote_io_timer = ADD_CHILD_TIMER(profile, "RemoteIOUseTimer", cache_profile);
+        write_cache_io_timer = ADD_CHILD_TIMER(profile, "WriteCacheIOUseTimer", cache_profile);
+        bytes_write_into_cache =
+                ADD_CHILD_COUNTER(profile, "BytesWriteIntoCache", TUnit::BYTES, cache_profile);
+        num_skip_cache_io_total =
+                ADD_CHILD_COUNTER(profile, "NumSkipCacheIOTotal", TUnit::UNIT, cache_profile);
+        bytes_scanned_from_cache =
+                ADD_CHILD_COUNTER(profile, "BytesScannedFromCache", TUnit::BYTES, cache_profile);
+        bytes_scanned_from_remote =
+                ADD_CHILD_COUNTER(profile, "BytesScannedFromRemote", TUnit::BYTES, cache_profile);
     }
 
-    void update(FileCacheStatistics* statistics) {
-        COUNTER_UPDATE(num_io_total, statistics->num_io_total);
-        COUNTER_UPDATE(num_io_hit_cache, statistics->num_io_hit_cache);
-        COUNTER_UPDATE(num_io_bytes_read_total, statistics->num_io_bytes_read_total);
-        COUNTER_UPDATE(num_io_bytes_read_from_file_cache,
-                       statistics->num_io_bytes_read_from_file_cache);
-        COUNTER_UPDATE(num_io_bytes_read_from_write_cache,
-                       statistics->num_io_bytes_read_from_write_cache);
-        COUNTER_UPDATE(num_io_written_in_file_cache, statistics->num_io_written_in_file_cache);
-        COUNTER_UPDATE(num_io_bytes_written_in_file_cache,
-                       statistics->num_io_bytes_written_in_file_cache);
-        COUNTER_UPDATE(num_io_bytes_skip_cache, statistics->num_io_bytes_skip_cache);
+    void update(const FileCacheStatistics* statistics) {
+        COUNTER_UPDATE(num_local_io_total, statistics->num_local_io_total);
+        COUNTER_UPDATE(num_remote_io_total, statistics->num_remote_io_total);
+        COUNTER_UPDATE(local_io_timer, statistics->local_io_timer);
+        COUNTER_UPDATE(remote_io_timer, statistics->remote_io_timer);
+        COUNTER_UPDATE(write_cache_io_timer, statistics->write_cache_io_timer);
+        COUNTER_UPDATE(bytes_write_into_cache, statistics->bytes_write_into_cache);
+        COUNTER_UPDATE(num_skip_cache_io_total, statistics->num_skip_cache_io_total);
+        COUNTER_UPDATE(bytes_scanned_from_cache, statistics->bytes_read_from_local);
+        COUNTER_UPDATE(bytes_scanned_from_remote, statistics->bytes_read_from_remote);
     }
 };
 

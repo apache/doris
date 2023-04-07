@@ -36,6 +36,8 @@ import java.util.List;
 
 public class IcebergExternalTable extends ExternalTable {
 
+    public static final int ICEBERG_DATETIME_SCALE_MS = 3;
+
     public IcebergExternalTable(long id, String name, String dbName, IcebergExternalCatalog catalog) {
         super(id, name, catalog, dbName, TableType.ICEBERG_EXTERNAL_TABLE);
     }
@@ -88,7 +90,7 @@ public class IcebergExternalTable extends ExternalTable {
             case DATE:
                 return ScalarType.createDateV2Type();
             case TIMESTAMP:
-                return ScalarType.createDatetimeV2Type(0);
+                return ScalarType.createDatetimeV2Type(ICEBERG_DATETIME_SCALE_MS);
             case TIME:
                 return Type.UNSUPPORTED;
             default:

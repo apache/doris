@@ -104,11 +104,9 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
         } else if (locationType == TFileType.FILE_S3) {
             context.params.setProperties(locationProperties);
         }
-        TScanRangeLocations curLocations = newLocations(context.params, backendPolicy);
-
-        FileSplitStrategy fileSplitStrategy = new FileSplitStrategy();
 
         for (Split split : inputSplits) {
+            TScanRangeLocations curLocations = newLocations(context.params, backendPolicy);
             FileSplit fileSplit = (FileSplit) split;
             List<String> pathPartitionKeys = getPathPartitionKeys();
             List<String> partitionValuesFromPath = BrokerUtil.parseColumnsFromPath(fileSplit.getPath().toString(),
@@ -124,18 +122,8 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
             LOG.debug("assign to backend {} with table split: {} ({}, {}), location: {}",
                     curLocations.getLocations().get(0).getBackendId(), fileSplit.getPath(), fileSplit.getStart(),
                     fileSplit.getLength(), Joiner.on("|").join(fileSplit.getHosts()));
-
-            fileSplitStrategy.update(fileSplit);
-            // Add a new location when it's can be split
-            if (fileSplitStrategy.hasNext()) {
-                scanRangeLocations.add(curLocations);
-                curLocations = newLocations(context.params, backendPolicy);
-                fileSplitStrategy.next();
-            }
-            this.inputFileSize += fileSplit.getLength();
-        }
-        if (curLocations.getScanRange().getExtScanRange().getFileScanRange().getRangesSize() > 0) {
             scanRangeLocations.add(curLocations);
+            this.inputFileSize += fileSplit.getLength();
         }
         LOG.debug("create #{} ScanRangeLocations cost: {} ms",
                 scanRangeLocations.size(), (System.currentTimeMillis() - start));
@@ -183,7 +171,7 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
         rangeDesc.setSize(fileSplit.getLength());
         // fileSize only be used when format is orc or parquet and TFileType is broker
         // When TFileType is other type, it is not necessary
-        rangeDesc.setFileSize(fileSplit.getLength());
+        rangeDesc.setFileSize(fileSplit.getFileLength());
         rangeDesc.setColumnsFromPath(columnsFromPath);
         rangeDesc.setColumnsFromPathKeys(columnsFromPathKeys);
 

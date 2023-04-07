@@ -34,7 +34,7 @@ const std::vector<int64_t> RowGroupReader::NO_DELETE = {};
 RowGroupReader::RowGroupReader(io::FileReaderSPtr file_reader,
                                const std::vector<ParquetReadColumn>& read_columns,
                                const int32_t row_group_id, const tparquet::RowGroup& row_group,
-                               cctz::time_zone* ctz,
+                               cctz::time_zone* ctz, io::IOContext* io_ctx,
                                const PositionDeleteContext& position_delete_ctx,
                                const LazyReadContext& lazy_read_ctx, RuntimeState* state)
         : _file_reader(file_reader),
@@ -43,6 +43,7 @@ RowGroupReader::RowGroupReader(io::FileReaderSPtr file_reader,
           _row_group_meta(row_group),
           _remaining_rows(row_group.num_rows),
           _ctz(ctz),
+          _io_ctx(io_ctx),
           _position_delete_ctx(position_delete_ctx),
           _lazy_read_ctx(lazy_read_ctx),
           _state(state),
@@ -85,7 +86,8 @@ Status RowGroupReader::init(
         auto field = const_cast<FieldSchema*>(schema.get_column(read_col._file_slot_name));
         std::unique_ptr<ParquetColumnReader> reader;
         RETURN_IF_ERROR(ParquetColumnReader::create(_file_reader, field, _row_group_meta,
-                                                    _read_ranges, _ctz, reader, max_buf_size));
+                                                    _read_ranges, _ctz, _io_ctx, reader,
+                                                    max_buf_size));
         auto col_iter = col_offsets.find(read_col._parquet_col_id);
         if (col_iter != col_offsets.end()) {
             tparquet::OffsetIndex oi = col_iter->second;
@@ -157,7 +159,6 @@ bool RowGroupReader::_can_filter_by_dict(int slot_id,
             }
         }
     }
-
     return true;
 }
 // This function is copied from
@@ -844,7 +845,8 @@ Status RowGroupReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes,
             node.__set_is_nullable(false);
 
             root = _obj_pool->add(new vectorized::VDirectInPredicate(node));
-            std::shared_ptr<HybridSetBase> hybrid_set(create_set(PrimitiveType::TYPE_INT));
+            std::shared_ptr<HybridSetBase> hybrid_set(
+                    create_set(PrimitiveType::TYPE_INT, dict_codes.size()));
             for (int j = 0; j < dict_codes.size(); ++j) {
                 hybrid_set->insert(&dict_codes[j]);
             }

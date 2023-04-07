@@ -24,25 +24,6 @@ suite("test_cast_function") {
     qt_sql """ select cast ("0.0000031417" as datetime) """
     qt_sql """ select cast (NULL AS CHAR(1)); """
     qt_sql """ select cast ('20190101' AS CHAR(2)); """
-
-    test {
-        sql """
-        select
-            ref_0.`k0` as c1
-        from
-            `test_query_db`.`baseall` as ref_0
-        where
-            cast(
-                case
-                    when BITMAP_EMPTY() is NULL then null
-                    else null
-                end as bitmap
-            ) is NULL
-        """
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-    }
+    qt_sql_null_cast_bitmap """ select cast (case when BITMAP_EMPTY() is NULL then null else null end as bitmap) is NULL; """
 }
 

@@ -21,7 +21,6 @@
 #include <set>
 #include <system_error>
 
-#include "env/env.h"
 #include "gen_cpp/BackendService.h"
 #include "gen_cpp/Types_constants.h"
 #include "gutil/strings/split.h"
@@ -164,17 +163,11 @@ Status EngineCloneTask::_do_clone() {
                   << " src_file_path: " << src_file_path;
         string header_path =
                 TabletMeta::construct_header_file_path(tablet_dir, _clone_req.tablet_id);
-        status = TabletMeta::reset_tablet_uid(header_path);
-        if (!status.ok()) {
-            return status;
-        }
-        status = StorageEngine::instance()->tablet_manager()->load_tablet_from_dir(
-                store, _clone_req.tablet_id, _clone_req.schema_hash, tablet_dir, false);
-        if (!status.ok()) {
-            return status;
-        }
+        RETURN_IF_ERROR(TabletMeta::reset_tablet_uid(header_path));
+        RETURN_IF_ERROR(StorageEngine::instance()->tablet_manager()->load_tablet_from_dir(
+                store, _clone_req.tablet_id, _clone_req.schema_hash, tablet_dir, false));
         // clone success, delete .hdr file because tablet meta is stored in rocksdb
-        FileUtils::remove(header_path);
+        RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(header_path));
     }
     return _set_tablet_info(is_new_tablet);
 }
@@ -311,7 +304,10 @@ Status EngineCloneTask::_make_snapshot(const std::string& ip, int port, TTableId
     request.__set_version(_clone_req.committed_version);
     // TODO: missing version composed of singleton delta.
     // if not, this place should be rewrote.
-    request.__isset.missing_version = (!missed_versions.empty());
+    // we make every TSnapshotRequest sent from be with __isset.missing_version = true
+    // then if one be received one req with __isset.missing_version = false it means
+    // this req is sent from FE(FE would never set this field)
+    request.__isset.missing_version = true;
     for (auto& version : missed_versions) {
         request.missing_version.push_back(version.first);
     }
@@ -363,8 +359,8 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
     // for example, BE clone from BE 1 to download file 1 with version (2,2), but clone from BE 1 failed
     // then it will try to clone from BE 2, but it will find the file 1 already exist, but file 1 with same
     // name may have different versions.
-    RETURN_IF_ERROR(FileUtils::remove_all(local_path));
-    RETURN_IF_ERROR(FileUtils::create_dir(local_path));
+    RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(local_path));
+    RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(local_path));
 
     // Get remote dir file list
     string file_list_str;
@@ -474,7 +470,9 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
     Defer remove_clone_dir {[&]() { std::filesystem::remove_all(clone_dir); }};
 
     // check clone dir existed
-    if (!FileUtils::check_exist(clone_dir)) {
+    bool exists = true;
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(clone_dir, &exists));
+    if (!exists) {
         return Status::InternalError("clone dir not existed. clone_dir={}", clone_dir);
     }
 
@@ -486,28 +484,40 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
     RETURN_IF_ERROR(cloned_tablet_meta->create_from_file(cloned_tablet_meta_file));
 
     // remove the cloned meta file
-    FileUtils::remove(cloned_tablet_meta_file);
+    RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(cloned_tablet_meta_file));
 
     // check all files in /clone and /tablet
-    set<string> clone_files;
-    RETURN_IF_ERROR(FileUtils::list_dirs_files(clone_dir, nullptr, &clone_files, Env::Default()));
+    std::vector<io::FileInfo> clone_files;
+    RETURN_IF_ERROR(io::global_local_filesystem()->list(clone_dir, true, &clone_files, &exists));
+    std::unordered_set<std::string> clone_file_names;
+    for (auto& file : clone_files) {
+        clone_file_names.insert(file.file_name);
+    }
 
-    set<string> local_files;
+    std::vector<io::FileInfo> local_files;
     const auto& tablet_dir = tablet->tablet_path();
-    RETURN_IF_ERROR(FileUtils::list_dirs_files(tablet_dir, nullptr, &local_files, Env::Default()));
+    RETURN_IF_ERROR(io::global_local_filesystem()->list(tablet_dir, true, &local_files, &exists));
+    std::unordered_set<std::string> local_file_names;
+    for (auto& file : local_files) {
+        local_file_names.insert(file.file_name);
+    }
 
     Status status;
     std::vector<string> linked_success_files;
     Defer remove_linked_files {[&]() { // clear linked files if errors happen
         if (!status.ok()) {
-            FileUtils::remove_paths(linked_success_files);
+            std::vector<io::Path> paths;
+            for (auto& file : linked_success_files) {
+                paths.emplace_back(file);
+            }
+            io::global_local_filesystem()->batch_delete(paths);
         }
     }};
     /// Traverse all downloaded clone files in CLONE dir.
     /// If it does not exist in local tablet dir, link the file to local tablet dir
     /// And save all linked files in linked_success_files.
-    for (const string& clone_file : clone_files) {
-        if (local_files.find(clone_file) != local_files.end()) {
+    for (const string& clone_file : clone_file_names) {
+        if (local_file_names.find(clone_file) != local_file_names.end()) {
             VLOG_NOTICE << "find same file when clone, skip it. "
                         << "tablet=" << tablet->full_name() << ", clone_file=" << clone_file;
             continue;
@@ -515,10 +525,7 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
 
         auto from = fmt::format("{}/{}", clone_dir, clone_file);
         auto to = fmt::format("{}/{}", tablet_dir, clone_file);
-        if (link(from.c_str(), to.c_str()) != 0) {
-            status = Status::InternalError("failed to create hard link. from={}, to={}", from, to);
-            return status;
-        }
+        RETURN_IF_ERROR(io::global_local_filesystem()->link_file(from, to));
         linked_success_files.emplace_back(std::move(to));
     }
 

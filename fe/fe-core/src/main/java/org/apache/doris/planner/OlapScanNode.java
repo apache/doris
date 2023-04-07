@@ -333,8 +333,11 @@ public class OlapScanNode extends ScanNode {
         return selectedIndexId;
     }
 
-    public void ignoreConjuncts() {
-        vconjunct = null;
+    public void ignoreConjuncts(Expr whereExpr) throws AnalysisException {
+        if (whereExpr == null) {
+            return;
+        }
+        vconjunct = vconjunct.replaceSubPredicate(whereExpr);
     }
 
     /**
@@ -471,7 +474,9 @@ public class OlapScanNode extends ScanNode {
             if (mvColumn == null) {
                 boolean isBound = false;
                 for (Expr conjunct : conjuncts) {
-                    if (conjunct.isBound(slotDescriptor.getId())) {
+                    List<TupleId> tids = Lists.newArrayList();
+                    conjunct.getIds(tids, null);
+                    if (!tids.isEmpty() && conjunct.isBound(slotDescriptor.getId())) {
                         isBound = true;
                         break;
                     }
@@ -1001,7 +1006,9 @@ public class OlapScanNode extends ScanNode {
         // olap order by key: a.b.c.d
         // sort key: (a) (a,b) (a,b,c) (a,b,c,d) is ok
         //           (a,c) (a,c,d), (a,c,b) (a,c,f) (a,b,c,d,e)is NOT ok
-        List<Expr> sortExprs = sortNode.getSortInfo().getMaterializedOrderingExprs();
+        List<Expr> sortExprs = sortNode.getSortInfo().getOrigOrderingExprs();
+        List<Boolean> nullsFirsts = sortNode.getSortInfo().getNullsFirst();
+        List<Boolean> isAscOrders = sortNode.getSortInfo().getIsAscOrder();
         if (sortExprs.size() > olapTable.getDataSortInfo().getColNum()) {
             return false;
         }
@@ -1010,7 +1017,18 @@ public class OlapScanNode extends ScanNode {
             Column tableKey = olapTable.getFullSchema().get(i);
             // sort slot.
             Expr sortExpr = sortExprs.get(i);
-            if (!(sortExpr instanceof SlotRef) || !tableKey.equals(((SlotRef) sortExpr).getColumn())) {
+            if (sortExpr instanceof SlotRef) {
+                SlotRef slotRef = (SlotRef) sortExpr;
+                if (tableKey.equals(slotRef.getColumn())) {
+                    // ORDER BY DESC NULLS FIRST can not be optimized to only read file tail,
+                    // since NULLS is at file head but data is at tail
+                    if (tableKey.isAllowNull() && nullsFirsts.get(i) && !isAscOrders.get(i)) {
+                        return false;
+                    }
+                } else {
+                    return false;
+                }
+            } else {
                 return false;
             }
         }
@@ -1103,8 +1121,8 @@ public class OlapScanNode extends ScanNode {
         if (useTopnOpt) {
             output.append(prefix).append("TOPN OPT\n");
         }
-        if (!conjuncts.isEmpty()) {
-            output.append(prefix).append("PREDICATES: ").append(getExplainString(conjuncts)).append("\n");
+        if (vconjunct != null) {
+            output.append(prefix).append("PREDICATES: ").append(vconjunct.toSql()).append("\n");
         }
         if (!runtimeFilters.isEmpty()) {
             output.append(prefix).append("runtime filters: ");

@@ -430,6 +430,24 @@ true
 -- !sql --
 0
 
+-- !sql_orthogonal_bitmap_intersect_count2 --
+0
+
+-- !sql_orthogonal_bitmap_intersect_count3_1 --
+2
+
+-- !sql_orthogonal_bitmap_intersect_count3_2 --
+2
+
+-- !sql_orthogonal_bitmap_intersect_count4 --
+1
+
+-- !sql_orthogonal_bitmap_union_count2 --
+0
+
+-- !sql_orthogonal_bitmap_union_count3 --
+4
+
 -- !sql --
 1,2,3
 

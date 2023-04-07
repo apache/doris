@@ -170,18 +170,6 @@ void BlockBloomFilter::insert(const uint32_t hash) noexcept {
 #endif
 }
 
-bool BlockBloomFilter::find(const uint32_t hash) const noexcept {
-    if (_always_false) {
-        return false;
-    }
-    const uint32_t bucket_idx = rehash32to32(hash) & _directory_mask;
-#ifdef __AVX2__
-    return bucket_find_avx2(bucket_idx, hash);
-#else
-    return bucket_find(bucket_idx, hash);
-#endif
-}
-
 void BlockBloomFilter::or_equal_array_internal(size_t n, const uint8_t* __restrict__ in,
                                                uint8_t* __restrict__ out) {
 #ifdef __AVX2__

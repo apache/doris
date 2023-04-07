@@ -27,7 +27,8 @@
 //  larger than 300B for correct lzo header decompressing
 #define INPUT_CHUNK (2 * 1024 * 1024)
 // #define INPUT_CHUNK  (34)
-#define OUTPUT_CHUNK (8 * 1024 * 1024)
+// align with prefetch buffer size
+#define OUTPUT_CHUNK (4 * 1024 * 1024)
 // #define OUTPUT_CHUNK (32)
 // leave these 2 size small for debugging
 
@@ -186,8 +187,8 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
     while (!done()) {
         // find line delimiter in current decompressed data
         uint8_t* cur_ptr = _output_buf + _output_buf_pos;
-        uint8_t* pos = update_field_pos_and_find_line_delimiter(
-                cur_ptr + offset, output_buf_read_remaining() - offset);
+        uint8_t* pos =
+                update_field_pos_and_find_line_delimiter(cur_ptr, output_buf_read_remaining());
 
         if (pos == nullptr) {
             // didn't find line delimiter, read more data from decompressor

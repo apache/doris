@@ -31,7 +31,6 @@
 #include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/schema.h"
-#include "util/file_cache.h"
 #include "vec/exprs/vexpr.h"
 
 namespace doris {
@@ -87,13 +86,14 @@ public:
     SegmentIterator(std::shared_ptr<Segment> segment, const Schema& _schema);
     ~SegmentIterator() override;
 
-    Status init(const StorageReadOptions& opts) override;
-    Status next_batch(vectorized::Block* block) override;
+    [[nodiscard]] Status init(const StorageReadOptions& opts) override;
+    [[nodiscard]] Status next_batch(vectorized::Block* block) override;
 
     // Get current block row locations. This function should be called
     // after the `next_batch` function.
     // Only vectorized version is supported.
-    Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) override;
+    [[nodiscard]] Status current_block_row_locations(
+            std::vector<RowLocation>* block_row_locations) override;
 
     const Schema& schema() const override { return _schema; }
     bool is_lazy_materialization_read() const override { return _lazy_materialization_read; }
@@ -130,49 +130,50 @@ private:
         return true;
     }
 
-    Status _init();
+    [[nodiscard]] Status _init();
 
-    Status _init_return_column_iterators();
-    Status _init_bitmap_index_iterators();
-    Status _init_inverted_index_iterators();
+    [[nodiscard]] Status _init_return_column_iterators();
+    [[nodiscard]] Status _init_bitmap_index_iterators();
+    [[nodiscard]] Status _init_inverted_index_iterators();
 
     // calculate row ranges that fall into requested key ranges using short key index
-    Status _get_row_ranges_by_keys();
-    Status _prepare_seek(const StorageReadOptions::KeyRange& key_range);
-    Status _lookup_ordinal(const RowCursor& key, bool is_include, rowid_t upper_bound,
-                           rowid_t* rowid);
-    // lookup the ordinal of given key from short key index
-    Status _lookup_ordinal_from_sk_index(const RowCursor& key, bool is_include, rowid_t upper_bound,
+    [[nodiscard]] Status _get_row_ranges_by_keys();
+    [[nodiscard]] Status _prepare_seek(const StorageReadOptions::KeyRange& key_range);
+    [[nodiscard]] Status _lookup_ordinal(const RowCursor& key, bool is_include, rowid_t upper_bound,
                                          rowid_t* rowid);
+    // lookup the ordinal of given key from short key index
+    [[nodiscard]] Status _lookup_ordinal_from_sk_index(const RowCursor& key, bool is_include,
+                                                       rowid_t upper_bound, rowid_t* rowid);
     // lookup the ordinal of given key from primary key index
-    Status _lookup_ordinal_from_pk_index(const RowCursor& key, bool is_include, rowid_t* rowid);
-    Status _seek_and_peek(rowid_t rowid);
+    [[nodiscard]] Status _lookup_ordinal_from_pk_index(const RowCursor& key, bool is_include,
+                                                       rowid_t* rowid);
+    [[nodiscard]] Status _seek_and_peek(rowid_t rowid);
 
     // calculate row ranges that satisfy requested column conditions using various column index
-    Status _get_row_ranges_by_column_conditions();
-    Status _get_row_ranges_from_conditions(RowRanges* condition_row_ranges);
-    Status _apply_bitmap_index();
-    Status _apply_inverted_index();
-    Status _apply_inverted_index_on_column_predicate(
+    [[nodiscard]] Status _get_row_ranges_by_column_conditions();
+    [[nodiscard]] Status _get_row_ranges_from_conditions(RowRanges* condition_row_ranges);
+    [[nodiscard]] Status _apply_bitmap_index();
+    [[nodiscard]] Status _apply_inverted_index();
+    [[nodiscard]] Status _apply_inverted_index_on_column_predicate(
             ColumnPredicate* pred, std::vector<ColumnPredicate*>& remaining_predicates,
             bool* continue_apply);
-    Status _apply_inverted_index_on_block_column_predicate(
+    [[nodiscard]] Status _apply_inverted_index_on_block_column_predicate(
             ColumnId column_id, MutilColumnBlockPredicate* pred,
             std::set<const ColumnPredicate*>& no_need_to_pass_column_predicate_set,
             bool* continue_apply);
-    Status _apply_index_except_leafnode_of_andnode();
-    Status _apply_bitmap_index_except_leafnode_of_andnode(ColumnPredicate* pred,
-                                                          roaring::Roaring* output_result);
-    Status _apply_inverted_index_except_leafnode_of_andnode(ColumnPredicate* pred,
-                                                            roaring::Roaring* output_result);
+    [[nodiscard]] Status _apply_index_except_leafnode_of_andnode();
+    [[nodiscard]] Status _apply_bitmap_index_except_leafnode_of_andnode(
+            ColumnPredicate* pred, roaring::Roaring* output_result);
+    [[nodiscard]] Status _apply_inverted_index_except_leafnode_of_andnode(
+            ColumnPredicate* pred, roaring::Roaring* output_result);
     bool _column_has_fulltext_index(int32_t unique_id);
     inline bool _inverted_index_not_support_pred_type(const PredicateType& type);
     bool _can_filter_by_preds_except_leafnode_of_andnode();
-    Status _execute_predicates_except_leafnode_of_andnode(vectorized::VExpr* expr);
-    Status _execute_compound_fn(const std::string& function_name);
+    [[nodiscard]] Status _execute_predicates_except_leafnode_of_andnode(vectorized::VExpr* expr);
+    [[nodiscard]] Status _execute_compound_fn(const std::string& function_name);
     bool _is_literal_node(const TExprNodeType::type& node_type);
 
-    void _vec_init_lazy_materialization();
+    Status _vec_init_lazy_materialization();
     // TODO: Fix Me
     // CHAR type in storage layer padding the 0 in length. But query engine need ignore the padding 0.
     // so segment iterator need to shrink char column before output it. only use in vec query engine.
@@ -181,26 +182,28 @@ private:
     uint32_t segment_id() const { return _segment->id(); }
     uint32_t num_rows() const { return _segment->num_rows(); }
 
-    Status _seek_columns(const std::vector<ColumnId>& column_ids, rowid_t pos);
+    [[nodiscard]] Status _seek_columns(const std::vector<ColumnId>& column_ids, rowid_t pos);
     // read `nrows` of columns specified by `column_ids` into `block` at `row_offset`.
     // for vectorization implementation
-    Status _read_columns(const std::vector<ColumnId>& column_ids,
-                         vectorized::MutableColumns& column_block, size_t nrows);
-    Status _read_columns_by_index(uint32_t nrows_read_limit, uint32_t& nrows_read,
-                                  bool set_block_rowid);
+    [[nodiscard]] Status _read_columns(const std::vector<ColumnId>& column_ids,
+                                       vectorized::MutableColumns& column_block, size_t nrows);
+    [[nodiscard]] Status _read_columns_by_index(uint32_t nrows_read_limit, uint32_t& nrows_read,
+                                                bool set_block_rowid);
     void _replace_version_col(size_t num_rows);
     void _init_current_block(vectorized::Block* block,
                              std::vector<vectorized::MutableColumnPtr>& non_pred_vector);
     uint16_t _evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
     uint16_t _evaluate_short_circuit_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
     void _output_non_pred_columns(vectorized::Block* block);
-    Status _read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
-                                   std::vector<rowid_t>& rowid_vector, uint16_t* sel_rowid_idx,
-                                   size_t select_size, vectorized::MutableColumns* mutable_columns);
+    [[nodiscard]] Status _read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
+                                                 std::vector<rowid_t>& rowid_vector,
+                                                 uint16_t* sel_rowid_idx, size_t select_size,
+                                                 vectorized::MutableColumns* mutable_columns);
 
     template <class Container>
-    Status _output_column_by_sel_idx(vectorized::Block* block, const Container& column_ids,
-                                     uint16_t* sel_rowid_idx, uint16_t select_size) {
+    [[nodiscard]] Status _output_column_by_sel_idx(vectorized::Block* block,
+                                                   const Container& column_ids,
+                                                   uint16_t* sel_rowid_idx, uint16_t select_size) {
         SCOPED_RAW_TIMER(&_opts.stats->output_col_ns);
         for (auto cid : column_ids) {
             int block_cid = _schema_block_id_map[cid];
@@ -213,9 +216,9 @@ private:
 
     bool _can_evaluated_by_vectorized(ColumnPredicate* predicate);
 
-    Status _extract_common_expr_columns(vectorized::VExpr* expr);
-    Status _execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& selected_size,
-                                vectorized::Block* block);
+    [[nodiscard]] Status _extract_common_expr_columns(vectorized::VExpr* expr);
+    [[nodiscard]] Status _execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& selected_size,
+                                              vectorized::Block* block);
     uint16_t _evaluate_common_expr_filter(uint16_t* sel_rowid_idx, uint16_t selected_size,
                                           const vectorized::IColumn::Filter& filter);
 
@@ -246,7 +249,6 @@ private:
     bool _check_column_pred_all_push_down(const std::string& column_name, bool in_compound = false);
     void _calculate_pred_in_remaining_vconjunct_root(const vectorized::VExpr* expr);
 
-private:
     // todo(wb) remove this method after RowCursor is removed
     void _convert_rowcursor_to_short_key(const RowCursor& key, size_t num_keys) {
         if (_short_key.capacity() == 0) {

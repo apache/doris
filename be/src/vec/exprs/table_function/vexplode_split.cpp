@@ -32,15 +32,7 @@ Status VExplodeSplitTableFunction::open() {
     return Status::OK();
 }
 
-Status VExplodeSplitTableFunction::reset() {
-    _eos = false;
-    if (!_is_current_empty) {
-        _cur_offset = 0;
-    }
-    return Status::OK();
-}
-
-Status VExplodeSplitTableFunction::process_init(vectorized::Block* block) {
+Status VExplodeSplitTableFunction::process_init(Block* block) {
     CHECK(_vexpr_context->root()->children().size() == 2)
             << "VExplodeSplitTableFunction must be have 2 children but have "
             << _vexpr_context->root()->children().size();
@@ -77,14 +69,9 @@ Status VExplodeSplitTableFunction::process_init(vectorized::Block* block) {
 }
 
 Status VExplodeSplitTableFunction::process_row(size_t row_idx) {
-    _is_current_empty = false;
-    _eos = false;
+    RETURN_IF_ERROR(TableFunction::process_row(row_idx));
 
-    if ((_test_null_map and _test_null_map[row_idx]) || _delimiter.data == nullptr) {
-        _is_current_empty = true;
-        _cur_size = 0;
-        _cur_offset = 0;
-    } else {
+    if (!(_test_null_map && _test_null_map[row_idx]) && _delimiter.data != nullptr) {
         // TODO: use the function to be better string_view/StringRef split
         auto split = [](std::string_view strv, std::string_view delims = " ") {
             std::vector<std::string_view> output;
@@ -113,8 +100,6 @@ Status VExplodeSplitTableFunction::process_row(size_t row_idx) {
         _backup = split(_real_text_column->get_data_at(row_idx), _delimiter);
 
         _cur_size = _backup.size();
-        _cur_offset = 0;
-        _is_current_empty = (_cur_size == 0);
     }
     return Status::OK();
 }
@@ -127,22 +112,13 @@ Status VExplodeSplitTableFunction::process_close() {
     return Status::OK();
 }
 
-Status VExplodeSplitTableFunction::get_value(void** output) {
-    if (_is_current_empty) {
-        *output = nullptr;
+void VExplodeSplitTableFunction::get_value(MutableColumnPtr& column) {
+    if (current_empty()) {
+        column->insert_default();
     } else {
-        *output = const_cast<char*>(_backup[_cur_offset].data());
+        column->insert_data(const_cast<char*>(_backup[_cur_offset].data()),
+                            _backup[_cur_offset].length());
     }
-    return Status::OK();
-}
-
-Status VExplodeSplitTableFunction::get_value_length(int64_t* length) {
-    if (_is_current_empty) {
-        *length = -1;
-    } else {
-        *length = _backup[_cur_offset].length();
-    }
-    return Status::OK();
 }
 
 } // namespace doris::vectorized

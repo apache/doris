@@ -20,14 +20,13 @@
 #include <map>
 #include <roaring/roaring.hh>
 
-#include "env/env.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
 #include "olap/rowset/segment_v2/indexed_column_writer.h"
 #include "olap/types.h"
-#include "runtime/mem_pool.h"
 #include "util/faststring.h"
 #include "util/slice.h"
+#include "vec/common/arena.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -64,7 +63,7 @@ public:
     using MemoryIndexType = typename BitmapIndexTraits<CppType>::MemoryIndexType;
 
     explicit BitmapIndexWriterImpl(const TypeInfo* type_info)
-            : _type_info(type_info), _reverted_index_size(0), _pool() {}
+            : _type_info(type_info), _reverted_index_size(0) {}
 
     ~BitmapIndexWriterImpl() override = default;
 
@@ -86,7 +85,7 @@ public:
         } else {
             // new value, copy value and insert new key->bitmap pair
             CppType new_value;
-            _type_info->deep_copy(&new_value, &value, &_pool);
+            _type_info->deep_copy(&new_value, &value, &_arena);
             _mem_index.insert({new_value, roaring::Roaring::bitmapOf(1, _rid)});
             it = _mem_index.find(new_value);
         }
@@ -169,7 +168,7 @@ public:
         size += _null_bitmap.getSizeInBytes(false);
         size += _reverted_index_size;
         size += _mem_index.size() * sizeof(CppType);
-        size += _pool.total_allocated_bytes();
+        size += _arena.used_size();
         return size;
     }
 
@@ -181,7 +180,7 @@ private:
     roaring::Roaring _null_bitmap;
     // unique value to its row id list
     MemoryIndexType _mem_index;
-    MemPool _pool;
+    vectorized::Arena _arena;
 };
 
 } // namespace

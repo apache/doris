@@ -685,7 +685,14 @@ Doris 支持一些外部署数据源的查询。所以回归框架也提供了�
         * `sqlserver.yaml.tpl`：Docker compose 文件模板。无需修改。
         * `sqlserver.env`：配置 SQLServer 对外端口，默认为 1433。
 
-    7. Iceberg
+   7. ClickHouse
+
+      提供 ClickHouse 22 镜像，存放在 docker/thirdparties/docker-compose/clickhouse/ 下。
+
+       * `clickhouse.yaml.tpl`：Docker compose 文件模板。无需修改。
+       * `clickhouse.env`：配置 ClickHouse 对外端口，默认为 8123。
+
+    8. Iceberg
 
         提供 Iceberg + Spark + Minio 镜像组合。存放在 docker/thirdparties/docker-compose/iceberg/ 下。
 

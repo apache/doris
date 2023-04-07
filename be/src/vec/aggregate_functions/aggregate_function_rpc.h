@@ -21,7 +21,6 @@
 #include <memory>
 
 #include "common/status.h"
-#include "exprs/rpc_fn_comm.h"
 #include "gen_cpp/Exprs_types.h"
 #include "json2pb/json_to_pb.h"
 #include "json2pb/pb_to_json.h"
@@ -39,6 +38,7 @@
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/functions/function_rpc.h"
 #include "vec/io/io_helper.h"
 namespace doris::vectorized {
 
@@ -158,13 +158,14 @@ public:
                 auto data_type = std::reinterpret_pointer_cast<const vectorized::DataTypeNullable>(
                         argument_types[i]);
                 data_col->get_data_at(0);
-                convert_nullable_col_to_pvalue(data_col->convert_to_full_column_if_const(),
-                                               data_type->get_nested_type(), null_col, arg, start,
-                                               end);
+                RPCFnImpl::convert_nullable_col_to_pvalue(
+                        data_col->convert_to_full_column_if_const(), data_type->get_nested_type(),
+                        null_col, arg, start, end);
 
             } else {
-                convert_col_to_pvalue<false>(columns[i]->convert_to_full_column_if_const(),
-                                             argument_types[i], arg, start, end);
+                RPCFnImpl::convert_col_to_pvalue<false>(
+                        columns[i]->convert_to_full_column_if_const(), argument_types[i], arg,
+                        start, end);
             }
         }
         return Status::OK();

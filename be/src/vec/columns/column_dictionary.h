@@ -289,8 +289,8 @@ public:
 
     uint32_t get_hash_value(uint32_t idx) const { return _dict.get_hash_value(_codes[idx], _type); }
 
-    void find_codes(const phmap::flat_hash_set<StringRef>& values,
-                    std::vector<vectorized::UInt8>& selected) const {
+    template <typename HybridSetType>
+    void find_codes(const HybridSetType* values, std::vector<vectorized::UInt8>& selected) const {
         return _dict.find_codes(values, selected);
     }
 
@@ -423,13 +423,14 @@ public:
             return greater ? bound - greater + eq : bound - eq;
         }
 
-        void find_codes(const phmap::flat_hash_set<StringRef>& values,
+        template <typename HybridSetType>
+        void find_codes(const HybridSetType* values,
                         std::vector<vectorized::UInt8>& selected) const {
             size_t dict_word_num = _dict_data->size();
             selected.resize(dict_word_num);
             selected.assign(dict_word_num, false);
             for (size_t i = 0; i < _dict_data->size(); i++) {
-                if (values.find((*_dict_data)[i]) != values.end()) {
+                if (values->find(&((*_dict_data)[i]))) {
                     selected[i] = true;
                 }
             }

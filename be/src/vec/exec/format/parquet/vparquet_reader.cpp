@@ -170,23 +170,27 @@ Status ParquetReader::_open_file() {
     if (_file_reader == nullptr) {
         SCOPED_RAW_TIMER(&_statistics.open_file_time);
         ++_statistics.open_file_num;
-        RETURN_IF_ERROR(FileFactory::create_file_reader(
-                _profile, _system_properties, _file_description, &_file_system, &_file_reader));
+        io::FileCachePolicy cache_policy = FileFactory::get_cache_policy(_state);
+        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties,
+                                                        _file_description, &_file_system,
+                                                        &_file_reader, cache_policy));
     }
     if (_file_metadata == nullptr) {
         SCOPED_RAW_TIMER(&_statistics.parse_footer_time);
         if (_file_reader->size() == 0) {
             return Status::EndOfFile("open file failed, empty parquet file: " + _scan_range.path);
         }
+        size_t meta_size = 0;
         if (_kv_cache == nullptr) {
             _is_file_metadata_owned = true;
-            RETURN_IF_ERROR(parse_thrift_footer(_file_reader, &_file_metadata));
+            RETURN_IF_ERROR(
+                    parse_thrift_footer(_file_reader, &_file_metadata, &meta_size, _io_ctx));
         } else {
             _is_file_metadata_owned = false;
             _file_metadata = _kv_cache->get<FileMetaData>(
                     _meta_cache_key(_file_reader->path()), [&]() -> FileMetaData* {
                         FileMetaData* meta;
-                        Status st = parse_thrift_footer(_file_reader, &meta);
+                        Status st = parse_thrift_footer(_file_reader, &meta, &meta_size, _io_ctx);
                         if (!st) {
                             LOG(INFO) << "failed to parse parquet footer for "
                                       << _file_description.path << ", err: " << st;
@@ -200,6 +204,9 @@ Status ParquetReader::_open_file() {
             return Status::InternalError("failed to get file meta data: {}",
                                          _file_description.path);
         }
+        _column_statistics.read_bytes += meta_size;
+        // read twice: parse magic number & parse meta data
+        _column_statistics.read_calls += 2;
     }
     return Status::OK();
 }
@@ -519,9 +526,9 @@ Status ParquetReader::_next_row_group_reader() {
 
     RowGroupReader::PositionDeleteContext position_delete_ctx =
             _get_position_delete_ctx(row_group, row_group_index);
-    _current_group_reader.reset(new RowGroupReader(_file_reader, _read_columns,
-                                                   row_group_index.row_group_id, row_group, _ctz,
-                                                   position_delete_ctx, _lazy_read_ctx, _state));
+    _current_group_reader.reset(
+            new RowGroupReader(_file_reader, _read_columns, row_group_index.row_group_id, row_group,
+                               _ctz, _io_ctx, position_delete_ctx, _lazy_read_ctx, _state));
     _row_group_eof = false;
     return _current_group_reader->init(_file_metadata->schema(), candidate_row_ranges, _col_offsets,
                                        _tuple_descriptor, _row_descriptor, _colname_to_slot_id,
@@ -617,12 +624,16 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
     Slice result(col_index_buff, page_index._column_index_size);
     RETURN_IF_ERROR(
             _file_reader->read_at(page_index._column_index_start, result, &bytes_read, _io_ctx));
+    _column_statistics.read_bytes += bytes_read;
     auto& schema_desc = _file_metadata->schema();
     std::vector<RowRange> skipped_row_ranges;
     uint8_t off_index_buff[page_index._offset_index_size];
     Slice res(off_index_buff, page_index._offset_index_size);
     RETURN_IF_ERROR(
             _file_reader->read_at(page_index._offset_index_start, res, &bytes_read, _io_ctx));
+    _column_statistics.read_bytes += bytes_read;
+    // read twice: parse column index & parse offset index
+    _column_statistics.read_calls += 2;
     for (auto& read_col : _read_columns) {
         auto conjunct_iter = _colname_to_value_range->find(read_col._file_slot_name);
         if (_colname_to_value_range->end() == conjunct_iter) {

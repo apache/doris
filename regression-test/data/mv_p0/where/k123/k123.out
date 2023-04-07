@@ -35,3 +35,15 @@
 1	2
 1	2
 
+-- !select_mv --
+2	4
+2	4
+
+-- !select_mv_constant --
+\N
+\N
+\N
+\N
+\N
+\N
+

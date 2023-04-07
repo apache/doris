@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+
 #include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
@@ -35,6 +37,11 @@ public:
     DataTypeArray(const DataTypePtr& nested_);
 
     TypeIndex get_type_id() const override { return TypeIndex::Array; }
+
+    PrimitiveType get_type_as_primitive_type() const override { return TYPE_ARRAY; }
+    TPrimitiveType::type get_type_as_tprimitive_type() const override {
+        return TPrimitiveType::ARRAY;
+    }
 
     std::string do_get_name() const override { return "Array(" + nested->get_name() + ")"; }
 

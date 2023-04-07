@@ -21,10 +21,19 @@
 
 namespace doris {
 
-jlong JavaNativeMethods::resizeColumn(JNIEnv* env, jclass clazz, jlong columnAddr, jint length) {
+jlong JavaNativeMethods::resizeStringColumn(JNIEnv* env, jclass clazz, jlong columnAddr,
+                                            jint length) {
     auto column = reinterpret_cast<vectorized::ColumnString::Chars*>(columnAddr);
     column->resize(length);
     return reinterpret_cast<jlong>(column->data());
+}
+
+jlong JavaNativeMethods::memoryMalloc(JNIEnv* env, jclass clazz, jlong bytes) {
+    return reinterpret_cast<long>(malloc(bytes));
+}
+
+void JavaNativeMethods::memoryFree(JNIEnv* env, jclass clazz, jlong address) {
+    free(reinterpret_cast<void*>(address));
 }
 
 } // namespace doris

@@ -1749,7 +1749,7 @@ public class SchemaChangeHandler extends AlterHandler {
                         if (!olapTable.dynamicPartitionExists()) {
                             try {
                                 DynamicPartitionUtil.checkInputDynamicPartitionProperties(properties,
-                                        olapTable.getPartitionInfo());
+                                        olapTable);
                             } catch (DdlException e) {
                                 // This table is not a dynamic partition table
                                 // and didn't supply all dynamic partition properties

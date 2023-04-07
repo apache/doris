@@ -242,7 +242,7 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
                            const std::vector<RowsetMetaSharedPtr>& delete_preds, int64_t version) {
     DCHECK(!_is_inited) << "reinitialize delete handler.";
     DCHECK(version >= 0) << "invalid parameters. version=" << version;
-    _predicate_mem_pool.reset(new MemPool());
+    _predicate_arena.reset(new vectorized::Arena());
 
     for (const auto& delete_pred : delete_preds) {
         // Skip the delete condition with large version
@@ -263,7 +263,7 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
             condition.__set_column_unique_id(
                     delete_pred_related_schema->column(condition.column_name).unique_id());
             auto predicate =
-                    parse_to_predicate(tablet_schema, condition, _predicate_mem_pool.get(), true);
+                    parse_to_predicate(tablet_schema, condition, _predicate_arena.get(), true);
             if (predicate != nullptr) {
                 temp.column_predicate_vec.push_back(predicate);
             }
@@ -283,7 +283,7 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
                 condition.condition_values.push_back(value);
             }
             temp.column_predicate_vec.push_back(
-                    parse_to_predicate(tablet_schema, condition, _predicate_mem_pool.get(), true));
+                    parse_to_predicate(tablet_schema, condition, _predicate_arena.get(), true));
         }
 
         _del_conds.emplace_back(std::move(temp));

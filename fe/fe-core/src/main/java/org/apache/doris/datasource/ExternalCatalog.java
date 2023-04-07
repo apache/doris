@@ -19,6 +19,7 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.external.EsExternalDatabase;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.ExternalTable;
@@ -30,6 +31,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -159,7 +161,7 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     /**
      * eg:
      * (
-     * ""access_controller.class" = "org.apache.doris.mysql.privilege.RangerAccessControllerFactory",
+     * ""access_controller.class" = "org.apache.doris.mysql.privilege.RangerHiveAccessControllerFactory",
      * "access_controller.properties.prop1" = "xxx",
      * "access_controller.properties.prop2" = "yyy",
      * )
@@ -296,7 +298,7 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
 
     @Override
     public Map<String, String> getProperties() {
-        return catalogProperty.getProperties();
+        return PropertyConverter.convertToMetaProperties(catalogProperty.getProperties());
     }
 
     @Override
@@ -307,7 +309,7 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     @Override
     public void modifyCatalogProps(Map<String, String> props) {
         catalogProperty.modifyCatalogProps(props);
-        notifyPropertiesUpdated();
+        notifyPropertiesUpdated(props);
     }
 
     @Override
@@ -416,5 +418,22 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
 
     public void createDatabase(long dbId, String dbName) {
         throw new NotImplementedException();
+    }
+
+    public Map getSpecifiedDatabaseMap() {
+        String specifiedDatabaseList = catalogProperty.getOrDefault(Resource.SPECIFIED_DATABASE_LIST, "");
+        Map<String, Boolean> specifiedDatabaseMap = Maps.newHashMap();
+        specifiedDatabaseList = specifiedDatabaseList.trim();
+        if (specifiedDatabaseList.isEmpty()) {
+            return specifiedDatabaseMap;
+        }
+        String[] databaseList = specifiedDatabaseList.split(",");
+        for (int i = 0; i < databaseList.length; i++) {
+            String dbname = databaseList[i].trim();
+            if (!dbname.isEmpty()) {
+                specifiedDatabaseMap.put(dbname, true);
+            }
+        }
+        return specifiedDatabaseMap;
     }
 }

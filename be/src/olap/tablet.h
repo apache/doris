@@ -382,7 +382,8 @@ public:
     // Lookup a row with TupleDescriptor and fill Block
     Status lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
                            RowsetSharedPtr rowset, const TupleDescriptor* desc,
-                           vectorized::Block* block, bool write_to_cache = false);
+                           OlapReaderStatistics& stats, vectorized::Block* block,
+                           bool write_to_cache = false);
 
     // calc delete bitmap when flush memtable, use a fake version to calc
     // For example, cur max version is 5, and we use version 6 to calc but
@@ -398,9 +399,10 @@ public:
 
     Status update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset);
     Status update_delete_bitmap(const RowsetSharedPtr& rowset, const TabletTxnInfo* load_info);
-    uint64_t calc_compaction_output_rowset_delete_bitmap(
+    void calc_compaction_output_rowset_delete_bitmap(
             const std::vector<RowsetSharedPtr>& input_rowsets,
             const RowIdConversion& rowid_conversion, uint64_t start_version, uint64_t end_version,
+            std::set<RowLocation>* missed_rows,
             std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>* location_map,
             DeleteBitmap* output_rowset_delete_bitmap);
     void merge_delete_bitmap(const DeleteBitmap& delete_bitmap);

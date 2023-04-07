@@ -20,6 +20,8 @@
 
 #include "string_ref.h"
 
+#include "common/compiler_util.h"
+
 namespace doris {
 
 StringRef StringRef::trim() const {
@@ -51,6 +53,19 @@ StringRef StringRef::min_string_val() {
 
 StringRef StringRef::max_string_val() {
     return StringRef((char*)(&StringRef::MAX_CHAR), 1);
+}
+
+bool StringRef::start_with(char ch) const {
+    if (UNLIKELY(size == 0)) {
+        return false;
+    }
+    return data[0] == ch;
+}
+bool StringRef::end_with(char ch) const {
+    if (UNLIKELY(size == 0)) {
+        return false;
+    }
+    return data[size - 1] == ch;
 }
 
 bool StringRef::start_with(const StringRef& search_string) const {

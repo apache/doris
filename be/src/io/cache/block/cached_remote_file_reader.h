@@ -58,12 +58,13 @@ private:
     CloudFileCachePtr _disposable_cache;
 
     struct ReadStatistics {
-        bool hit_cache = false;
+        bool hit_cache = true;
+        bool skip_cache = false;
         int64_t bytes_read = 0;
-        int64_t bytes_read_from_file_cache = 0;
-        int64_t bytes_write_in_file_cache = 0;
-        int64_t write_in_file_cache = 0;
-        int64_t bytes_skip_cache = 0;
+        int64_t bytes_write_into_file_cache = 0;
+        int64_t remote_read_timer = 0;
+        int64_t local_read_timer = 0;
+        int64_t local_write_timer = 0;
     };
     void _update_state(const ReadStatistics& stats, FileCacheStatistics* state) const;
 };

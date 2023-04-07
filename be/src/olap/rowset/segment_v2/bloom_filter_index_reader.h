@@ -26,7 +26,6 @@
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/rowset/segment_v2/row_ranges.h"
-#include "runtime/mem_pool.h"
 
 namespace doris {
 
@@ -66,9 +65,7 @@ private:
 class BloomFilterIndexIterator {
 public:
     explicit BloomFilterIndexIterator(BloomFilterIndexReader* reader)
-            : _reader(reader),
-              _bloom_filter_iter(reader->_bloom_filter_reader.get()),
-              _pool(new MemPool()) {}
+            : _reader(reader), _bloom_filter_iter(reader->_bloom_filter_reader.get()) {}
 
     // Read bloom filter at the given ordinal into `bf`.
     Status read_bloom_filter(rowid_t ordinal, std::unique_ptr<BloomFilter>* bf);
@@ -78,7 +75,6 @@ public:
 private:
     BloomFilterIndexReader* _reader;
     IndexedColumnIterator _bloom_filter_iter;
-    std::unique_ptr<MemPool> _pool;
 };
 
 } // namespace segment_v2

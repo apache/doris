@@ -1435,6 +1435,13 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 && (this.type.isStringType() || this.type.isHllType())) {
             return this;
         }
+
+        if (targetType.getPrimitiveType() == PrimitiveType.DECIMALV2
+                && this.type.getPrimitiveType() == PrimitiveType.DECIMALV2) {
+            this.type = targetType;
+            return this;
+        }
+
         // Preconditions.checkState(PrimitiveType.isImplicitCast(type, targetType),
         // "cast %s to %s", this.type, targetType);
         // TODO(zc): use implicit cast
@@ -2072,6 +2079,15 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return false;
     }
 
+    public boolean hasAggregateSlot() {
+        for (Expr expr : children) {
+            if (expr.hasAggregateSlot()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * For excute expr the result is nullable
      * TODO: Now only SlotRef and LiteralExpr overwrite the method, each child of Expr should
@@ -2151,6 +2167,9 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             }
             return false;
         }
+        if (fn.functionName().equalsIgnoreCase("array_sortby")) {
+            return children.get(0).isNullable();
+        }
         return true;
     }
 
@@ -2189,6 +2208,12 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
 
     public boolean matchExprs(List<Expr> exprs, SelectStmt stmt, boolean ignoreAlias, String tableName)
             throws AnalysisException {
+        List<SlotRef> slots = new ArrayList<>();
+        collect(SlotRef.class, slots);
+        if (slots.size() == 0) {
+            return true;
+        }
+
         String name = MaterializedIndexMeta.normalizeName(toSqlWithoutTbl());
         for (Expr expr : exprs) {
             if (CreateMaterializedViewStmt.isMVColumnNormal(name)
@@ -2212,6 +2237,20 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             }
         }
         return true;
+    }
+
+    public boolean containsSubPredicate(Expr subExpr) throws AnalysisException {
+        if (toSqlWithoutTbl().equals(subExpr.toSqlWithoutTbl())) {
+            return true;
+        }
+        return false;
+    }
+
+    public Expr replaceSubPredicate(Expr subExpr) throws AnalysisException {
+        if (toSqlWithoutTbl().equals(subExpr.toSqlWithoutTbl())) {
+            return null;
+        }
+        return this;
     }
 
     protected Type[] getActualArgTypes(Type[] originType) {
@@ -2270,6 +2309,15 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
         for (Expr expr : children) {
             if (expr.refToCountStar()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public boolean haveFunction(String functionName) {
+        for (Expr expr : children) {
+            if (expr.haveFunction(functionName)) {
                 return true;
             }
         }

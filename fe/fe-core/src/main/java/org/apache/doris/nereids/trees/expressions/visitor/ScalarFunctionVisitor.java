@@ -23,7 +23,9 @@ import org.apache.doris.nereids.trees.expressions.StringRegexPredicate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Acos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AesDecrypt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AesDecryptV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AesEncrypt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AesEncryptV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AppendTrailingCharIfAbsent;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayAvg;
@@ -91,6 +93,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTo;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTz;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CountEqual;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentCatalog;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
@@ -259,15 +262,21 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm3;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm3sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm4Decrypt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm4DecryptV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm4Encrypt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm4EncryptV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Space;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByChar;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitPart;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sqrt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StAngle;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAngleSphere;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StAreaSquareKm;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StAreaSquareMeters;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAstext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAswkt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StAzimuth;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StCircle;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDistanceSphere;
@@ -343,8 +352,16 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(aesDecrypt, context);
     }
 
+    default R visitAesDecryptV2(AesDecryptV2 aesDecryptV2, C context) {
+        return visitScalarFunction(aesDecryptV2, context);
+    }
+
     default R visitAesEncrypt(AesEncrypt aesEncrypt, C context) {
         return visitScalarFunction(aesEncrypt, context);
+    }
+
+    default R visitAesEncryptV2(AesEncryptV2 aesEncryptV2, C context) {
+        return visitScalarFunction(aesEncryptV2, context);
     }
 
     default R visitAppendTrailingCharIfAbsent(AppendTrailingCharIfAbsent function, C context) {
@@ -629,6 +646,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitCurrentUser(CurrentUser currentUser, C context) {
         return visitScalarFunction(currentUser, context);
+    }
+
+    default R visitCurrentCatalog(CurrentCatalog currentCatalog, C context) {
+        return visitScalarFunction(currentCatalog, context);
     }
 
     default R visitUser(User user, C context) {
@@ -1303,8 +1324,16 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(sm4Decrypt, context);
     }
 
+    default R visitSm4DecryptV2(Sm4DecryptV2 sm4DecryptV2, C context) {
+        return visitScalarFunction(sm4DecryptV2, context);
+    }
+
     default R visitSm4Encrypt(Sm4Encrypt sm4Encrypt, C context) {
         return visitScalarFunction(sm4Encrypt, context);
+    }
+
+    default R visitSm4EncryptV2(Sm4EncryptV2 sm4EncryptV2, C context) {
+        return visitScalarFunction(sm4EncryptV2, context);
     }
 
     default R visitSpace(Space space, C context) {
@@ -1349,6 +1378,22 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitStAngleSphere(StAngleSphere stAngleSphere, C context) {
         return visitScalarFunction(stAngleSphere, context);
+    }
+
+    default R visitStAngle(StAngle stAngle, C context) {
+        return visitScalarFunction(stAngle, context);
+    }
+
+    default R visitStAzimuth(StAzimuth stAzimuth, C context) {
+        return visitScalarFunction(stAzimuth, context);
+    }
+
+    default R visitStAreaSquareMeters(StAreaSquareMeters stAreaSquareMeters, C context) {
+        return visitScalarFunction(stAreaSquareMeters, context);
+    }
+
+    default R visitStAreaSquareKm(StAreaSquareKm stAreaSquareKm, C context) {
+        return visitScalarFunction(stAreaSquareKm, context);
     }
 
     default R visitStGeometryfromtext(StGeometryfromtext stGeometryfromtext, C context) {

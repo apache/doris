@@ -51,6 +51,11 @@ CREATE CATALOG iceberg PROPERTIES (
 );
 ```
 
+> `specified_database_list`:
+> 
+> 支持只同步指定的同步多个database，以','分隔。默认为''，同步所有database。db名称是大小写敏感的。
+> 
+
 ### 基于Iceberg API创建Catalog
 
 <version since="dev">
@@ -125,7 +130,7 @@ CREATE CATALOG iceberg PROPERTIES (
 
 ## Time Travel
 
-<version since="dev">
+<version since="1.2.2">
 
 支持读取 Iceberg 表指定的 Snapshot。
 

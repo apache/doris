@@ -19,7 +19,6 @@
 
 #include <iostream>
 
-#include "env/env.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
@@ -30,9 +29,7 @@
 #include "olap/rowset/segment_v2/column_writer.h"
 #include "olap/tablet_schema_helper.h"
 #include "olap/types.h"
-#include "runtime/mem_pool.h"
 #include "testutil/test_util.h"
-#include "util/file_utils.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
@@ -56,20 +53,15 @@ public:
 protected:
     void SetUp() override {
         config::disable_storage_page_cache = true;
-        if (FileUtils::check_exist(TEST_DIR)) {
-            EXPECT_TRUE(FileUtils::remove_all(TEST_DIR).ok());
-        }
-        EXPECT_TRUE(FileUtils::create_dir(TEST_DIR).ok());
+        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(TEST_DIR).ok());
     }
 
     void TearDown() override {
-        if (FileUtils::check_exist(TEST_DIR)) {
-            EXPECT_TRUE(FileUtils::remove_all(TEST_DIR).ok());
-        }
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(TEST_DIR).ok());
     }
 
 private:
-    MemPool _pool;
+    vectorized::Arena _pool;
 };
 
 template <FieldType type, EncodingTypePB encoding>
@@ -153,7 +145,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
             st = iter->seek_to_first();
             EXPECT_TRUE(st.ok()) << st.to_string();
 
-            MemPool pool;
+            vectorized::Arena pool;
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(0, true, type_info, nullptr, &cvb);
             cvb->resize(1024);
@@ -204,7 +196,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
             st = iter->init(iter_opts);
             EXPECT_TRUE(st.ok());
 
-            MemPool pool;
+            vectorized::Arena pool;
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(0, true, type_info, nullptr, &cvb);
             cvb->resize(1024);
@@ -328,7 +320,7 @@ void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, i
             st = iter->seek_to_first();
             EXPECT_TRUE(st.ok()) << st.to_string();
 
-            MemPool pool;
+            vectorized::Arena pool;
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(0, true, type_info.get(), field, &cvb);
             cvb->resize(1024);
@@ -354,7 +346,7 @@ void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, i
         }
         // seek read
         {
-            MemPool pool;
+            vectorized::Arena pool;
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(0, true, type_info.get(), field, &cvb);
             cvb->resize(1024);
@@ -462,7 +454,7 @@ void test_read_default_value(string value, void* result) {
             st = iter.seek_to_first();
             EXPECT_TRUE(st.ok()) << st.to_string();
 
-            MemPool pool;
+            vectorized::Arena pool;
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(0, true, scalar_type_info, nullptr, &cvb);
             cvb->resize(1024);
@@ -490,7 +482,7 @@ void test_read_default_value(string value, void* result) {
         }
 
         {
-            MemPool pool;
+            vectorized::Arena pool;
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(0, true, scalar_type_info, nullptr, &cvb);
             cvb->resize(1024);

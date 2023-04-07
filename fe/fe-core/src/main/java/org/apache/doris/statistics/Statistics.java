@@ -117,12 +117,11 @@ public class Statistics {
      */
     public void fix(double newRowCount, double originRowCount) {
         double sel = newRowCount / originRowCount;
-
         for (Entry<Expression, ColumnStatistic> entry : expressionToColumnStats.entrySet()) {
             ColumnStatistic columnStatistic = entry.getValue();
             ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(columnStatistic);
             columnStatisticBuilder.setNdv(computeNdv(columnStatistic.ndv, newRowCount, originRowCount));
-            columnStatisticBuilder.setNumNulls(Math.min(columnStatistic.numNulls * sel, rowCount));
+            columnStatisticBuilder.setNumNulls(Math.min(columnStatistic.numNulls * sel, newRowCount));
             columnStatisticBuilder.setCount(newRowCount);
             expressionToColumnStats.put(entry.getKey(), columnStatisticBuilder.build());
         }
@@ -176,5 +175,13 @@ public class Statistics {
 
     public int getBENumber() {
         return 1;
+    }
+
+    public static Statistics zero(Statistics statistics) {
+        Statistics zero = new Statistics(0, new HashMap<>());
+        for (Map.Entry<Expression, ColumnStatistic> entry : statistics.expressionToColumnStats.entrySet()) {
+            zero.addColumnStats(entry.getKey(), ColumnStatistic.ZERO);
+        }
+        return zero;
     }
 }

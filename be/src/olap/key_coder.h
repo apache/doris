@@ -24,7 +24,6 @@
 #include "gutil/endian.h"
 #include "gutil/strings/substitute.h"
 #include "olap/types.h"
-#include "runtime/mem_pool.h"
 
 namespace doris {
 

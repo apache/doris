@@ -34,7 +34,7 @@ namespace doris {
 struct FileStat {
     std::string name;
     std::string md5;
-    size_t size;
+    int64_t size;
 };
 class ExecEnv;
 class StorageBackend;

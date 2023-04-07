@@ -95,11 +95,10 @@ class ReorderJoinTest implements MemoPatternMatchSupported {
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan2)
                 .rewrite()
-                .printlnTree()
                 .matchesFromRoot(
                         logicalJoin(
                                 logicalJoin().whenNot(join -> join.getJoinType().isCrossJoin()),
-                                logicalProject(logicalOlapScan())
+                                logicalOlapScan()
                         ).whenNot(join -> join.getJoinType().isCrossJoin())
                 );
     }

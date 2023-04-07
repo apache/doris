@@ -29,7 +29,6 @@
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
 #include "olap/types.h"
-#include "runtime/mem_pool.h"
 #include "testutil/test_util.h"
 #include "util/debug_util.h"
 
@@ -95,7 +94,7 @@ public:
         EXPECT_EQ(slices.size(), page_decoder.count());
 
         //check values
-        MemPool pool;
+        vectorized::Arena pool;
         auto type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
         size_t size = slices.size();
         std::unique_ptr<ColumnVectorBatch> cvb;
@@ -199,7 +198,7 @@ public:
             EXPECT_TRUE(status.ok());
 
             //check values
-            MemPool pool;
+            vectorized::Arena pool;
             auto type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(1, false, type_info, nullptr, &cvb);

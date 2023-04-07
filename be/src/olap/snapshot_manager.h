@@ -36,7 +36,6 @@
 #include "olap/tablet.h"
 #include "olap/tablet_meta_manager.h"
 #include "util/doris_metrics.h"
-#include "util/file_utils.h"
 
 namespace doris {
 

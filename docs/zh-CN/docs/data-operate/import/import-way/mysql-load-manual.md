@@ -56,6 +56,14 @@ MySQL Load 支持数据格式：CSV（文本）。
 
 ## 基本操作举例
 
+### 客户端连接
+```bash
+mysql --local-infile  -h 127.0.0.1 -P 9030 -u root -D testdb
+```
+
+注意: 执行MySQL Load语句的时候, 客户端命令必须带有`--local-infile`, 否则执行可能会出现错误. 如果是通过JDBC方式连接的话, 需要在URL中需要加入配置`allowLoadLocalInfile=true`
+
+
 ### 创建测试表
 ```sql
 CREATE TABLE testdb.t1 (pk INT, v1 INT SUM) AGGREGATE KEY (pk) DISTRIBUTED BY hash (pk) PROPERTIES ('replication_num' = '1');
@@ -115,9 +123,25 @@ Query OK, 1 row affected (0.17 sec)
 Records: 1  Deleted: 0  Skipped: 0  Warnings: 0
 ```
 
+### 异常结果
+如果执行出现异常, 会在客户端中出现如下异常显示
+```text
+ERROR 1105 (HY000): errCode = 2, detailMessage = [INTERNAL_ERROR]too many filtered rows with load id b612907c-ccf4-4ac2-82fe-107ece655f0f
+```
+
+当遇到这类异常错误, 可以找到其中的`loadId`, 可以通过`show load warnings`命令在客户端中展示详细的异常信息.
+```sql
+show load warnings where label='b612907c-ccf4-4ac2-82fe-107ece655f0f';
+```
+
+异常信息中的LoadId即为Warning命令中的label字段.
+
+
 ### 配置项
-1. `mysql_load_thread_pool`控制单个FE中MySQL Load并发执行线程个数, 默认为4. 线程池的排队对接大小为`mysql_load_thread_pool`的5倍, 因此默认情况下, 可以并发提交的任务为 4 + 4*5 = 24个. 如果并发个数超过24时, 可以调大该配置项.
+1. `mysql_load_thread_pool`控制单个FE中MySQL Load并发执行线程个数, 默认为4. 线程池的排队对接大小为`mysql_load_thread_pool`的5倍, 因此默认情况下, 可以并发提交的任务为 4 + 4\*5 = 24个. 如果并发个数超过24时, 可以调大该配置项.
 2. `mysql_load_server_secure_path`服务端导入的安全路径, 默认为空, 即不允许服务端导入. 如需开启这个功能, 建议在`DORIS_HOME`目录下创建一个`local_import_data`目录, 用于导入数据.
+3. `mysql_load_in_memory_record`失败的任务记录个数, 该记录会保留在内存中, 默认只会保留最近的20. 如果有需要可以调大该配置. 在内存中的记录, 有效期为1天, 异步清理线程会固定一天清理一次过期数据.
+
 
 ## 注意事项
 

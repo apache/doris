@@ -18,7 +18,6 @@
 #pragma once
 
 #include "olap/types.h"
-#include "runtime/mem_pool.h"
 #include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -192,8 +191,8 @@ private:
         const void* get_data() const override { return _values.data(); }
         const void* get_data_at(size_t offset) const override {
             UInt8 null_flag = 0;
-            if (_nullmap) {
-                null_flag = _nullmap[offset];
+            if (get_nullmap()) {
+                null_flag = get_nullmap()[offset];
             }
             return null_flag ? nullptr : _values.data() + offset;
         }
@@ -234,8 +233,8 @@ private:
         const void* get_data_at(size_t offset) const override {
             assert(offset < _num_rows);
             UInt8 null_flag = 0;
-            if (_nullmap) {
-                null_flag = _nullmap[offset];
+            if (get_nullmap()) {
+                null_flag = get_nullmap()[offset];
             }
             return null_flag ? nullptr : _values + offset;
         }
@@ -276,8 +275,8 @@ private:
         const void* get_data_at(size_t offset) const override {
             assert(offset < _num_rows);
             UInt8 null_flag = 0;
-            if (_nullmap) {
-                null_flag = _nullmap[offset];
+            if (get_nullmap()) {
+                null_flag = get_nullmap()[offset];
             }
             return null_flag ? nullptr : values_ + offset;
         }
@@ -318,8 +317,8 @@ private:
         const void* get_data_at(size_t offset) const override {
             assert(offset < _num_rows);
             UInt8 null_flag = 0;
-            if (_nullmap) {
-                null_flag = _nullmap[offset];
+            if (get_nullmap()) {
+                null_flag = get_nullmap()[offset];
             }
             return null_flag ? nullptr : values_ + offset;
         }

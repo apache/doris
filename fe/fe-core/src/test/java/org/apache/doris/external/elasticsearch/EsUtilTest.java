@@ -259,4 +259,13 @@ public class EsUtilTest extends EsTestCase {
         Assertions.assertEquals("text", parseColumns.get(4).getType().toSql());
     }
 
+    @Test
+    public void testComplexType() throws IOException, URISyntaxException {
+        ObjectNode testFieldAlias = EsUtil.getRootSchema(
+                EsUtil.getMapping(loadJsonFromFile("data/es/es6_dynamic_complex_type.json")), null, new ArrayList<>());
+        List<Column> columns = EsUtil.genColumnsFromEs("test_complex_type", "complex_type", testFieldAlias, true,
+                new ArrayList<>());
+        Assertions.assertEquals(3, columns.size());
+    }
+
 }
