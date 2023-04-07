@@ -107,11 +107,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
      * @return stale planner's expr
      */
     public static Expr translate(Expression expression, PlanTranslatorContext context) {
-        Expr staleExpr = expression.accept(INSTANCE, context);
-        if (staleExpr.getType() instanceof ScalarType) {
-            ((ScalarType) staleExpr.getType()).setByteSize(expression.getDataType().width());
-        }
-        return staleExpr;
+        return expression.accept(INSTANCE, context);
     }
 
     @Override
