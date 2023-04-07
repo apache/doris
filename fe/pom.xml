@@ -74,7 +74,7 @@ under the License.
                 <artifactId>dependency-check-maven</artifactId>
                 <version>7.1.2</version>
                 <configuration>
-                    <skip>true</skip>
+                    <skip>false</skip>
                     <skipProvidedScope>true</skipProvidedScope>
                     <skipRuntimeScope>true</skipRuntimeScope>
                     <skipSystemScope>true</skipSystemScope>
@@ -476,7 +476,6 @@ under the License.
                 <groupId>javax.servlet</groupId>
                 <artifactId>javax.servlet-api</artifactId>
                 <version>${javax.servlet-api.version}</version>
-                <scope>provided</scope>
             </dependency>
             <dependency>
                 <groupId>org.apache.doris</groupId>
@@ -505,6 +504,11 @@ under the License.
                 <groupId>com.googlecode.json-simple</groupId>
                 <artifactId>json-simple</artifactId>
                 <version>${json-simple.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.doris</groupId>
+                <artifactId>kerby-shade-1.0</artifactId>
+                <version>${doris.shade.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.oracle.database.jdbc</groupId>
@@ -553,8 +557,6 @@ under the License.
                 <groupId>org.apache.doris</groupId>
                 <artifactId>thrift-shade-0.13</artifactId>
                 <version>${doris.shade.version}</version>
-                <scope>system</scope>
-                <systemPath>${basedir}/../lib/thrift-shade-0.13-${doris.shade.version}.jar</systemPath>
             </dependency>
             <dependency>
                 <groupId>org.apache.logging.log4j</groupId>
@@ -903,23 +905,18 @@ under the License.
                 <groupId>org.apache.doris</groupId>
                 <artifactId>spring-shade-5</artifactId>
                 <version>${doris.shade.version}</version>
-                <scope>system</scope>
-                <systemPath>${basedir}/../lib/spring-shade-5-${doris.shade.version}.jar</systemPath>
             </dependency>
 
             <dependency>
                 <groupId>org.apache.doris</groupId>
                 <artifactId>hive-shade-3</artifactId>
                 <version>${doris.shade.version}</version>
-                <scope>system</scope>
-                <systemPath>${basedir}/../lib/hive-shade-3-${doris.shade.version}.jar</systemPath>
             </dependency>
 
             <dependency>
                 <groupId>org.apache.hadoop</groupId>
                 <artifactId>hadoop-hdfs</artifactId>
                 <version>${hadoop.version}</version>
-                <scope>provided</scope>
                 <exclusions>
                     <exclusion>
                         <artifactId>servlet-api</artifactId>
@@ -959,11 +956,14 @@ under the License.
                 <groupId>org.apache.hadoop</groupId>
                 <artifactId>hadoop-common</artifactId>
                 <version>${hadoop.version}</version>
-                <scope>provided</scope>
                 <exclusions>
                     <exclusion>
                         <groupId>jdk.tools</groupId>
                         <artifactId>jdk.tools</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.apache.kerby</groupId>
+                        <artifactId>*</artifactId>
                     </exclusion>
                     <exclusion>
                         <groupId>org.eclipse.jetty</groupId>
@@ -974,6 +974,10 @@ under the License.
                         <artifactId>jetty-servlet</artifactId>
                     </exclusion>
                 </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.doris</groupId>
+                <artifactId>kerby-shade-1.0</artifactId>
             </dependency>
 
             <!-- https://mvnrepository.com/artifact/org.apache.iceberg/iceberg-core -->
@@ -1023,27 +1027,22 @@ under the License.
                 <groupId>org.apache.doris</groupId>
                 <artifactId>hudi-mr-shade-0.13</artifactId>
                 <version>${doris.shade.version}</version>
-                <scope>system</scope>
-                <systemPath>${basedir}/../lib/hudi-mr-shade-0.13-${doris.shade.version}.jar</systemPath>
             </dependency>
 
             <dependency>
                 <groupId>org.apache.parquet</groupId>
                 <artifactId>parquet-column</artifactId>
                 <version>${parquet.version}</version>
-                <scope>provided</scope>
             </dependency>
             <dependency>
                 <groupId>org.apache.parquet</groupId>
                 <artifactId>parquet-hadoop</artifactId>
                 <version>${parquet.version}</version>
-                <scope>provided</scope>
             </dependency>
             <dependency>
                 <groupId>org.apache.parquet</groupId>
                 <artifactId>parquet-common</artifactId>
                 <version>${parquet.version}</version>
-                <scope>provided</scope>
             </dependency>
             <dependency>
                 <groupId>commons-collections</groupId>

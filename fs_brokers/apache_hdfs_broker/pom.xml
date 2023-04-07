@@ -117,15 +117,11 @@ under the License.
                 <groupId>org.apache.doris</groupId>
                 <artifactId>hadoop-cloud-shade-2</artifactId>
                 <version>${doris.shade.version}</version>
-                <scope>system</scope>
-                <systemPath>${basedir}/lib/hadoop-cloud-shade-2-${doris.shade.version}.jar</systemPath>
             </dependency>
             <dependency>
                 <groupId>org.apache.doris</groupId>
                 <artifactId>hadoop-aws-shade-2</artifactId>
                 <version>${doris.shade.version}</version>
-                <scope>system</scope>
-                <systemPath>${basedir}/lib/hadoop-aws-shade-2-${doris.shade.version}.jar</systemPath>
             </dependency>
 
         </dependencies>
