@@ -57,6 +57,9 @@ import java.util.stream.Collectors;
 
 /**
  * function binder
+ * binding function algorithm:
+ * bottom-up travel the expression tree, when we meet a non-leaf node(inner node) we:
+ *      1. bind its children, now all of its children are bound.
  */
 public class FunctionBinder extends AbstractExpressionRewriteRule {
 
