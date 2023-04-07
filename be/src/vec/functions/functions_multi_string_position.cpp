@@ -25,7 +25,7 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/pod_array.h"
-#include "vec/common/volnitsky.h"
+#include "vec/common/string_searcher.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
@@ -221,7 +221,7 @@ struct FunctionMultiSearchAllPositionsImpl {
 };
 
 struct MultiSearcherImpl {
-    using MultiSearcher = MultiVolnitsky;
+    using MultiSearcher = MultiStringSearcher;
 
     static MultiSearcher create_multi_searcher(const std::vector<StringRef>& needles) {
         return MultiSearcher(needles);

@@ -27,6 +27,7 @@
 #include <limits>
 #include <vector>
 
+#include "vec/common/string_ref.h"
 #include "vec/common/string_utils/string_utils.h"
 
 #ifdef __SSE2__
@@ -45,7 +46,6 @@ namespace doris {
 // }
 
 /** Variants for searching a substring in a string.
-  * In most cases, performance is less than Volnitsky (see Volnitsky.h).
   */
 
 class StringSearcherBase {
@@ -399,5 +399,70 @@ struct LibCASCIICaseInsensitiveStringSearcher : public StringSearcherBase {
         return search(haystack, haystack + haystack_size);
     }
 };
+
+template <typename StringSearcher>
+class MultiStringSearcherBase {
+private:
+    /// needles
+    const std::vector<StringRef>& needles;
+    /// searchers
+    std::vector<StringSearcher> searchers;
+    /// last index of offsets that was not processed
+    size_t last;
+
+public:
+    explicit MultiStringSearcherBase(const std::vector<StringRef>& needles_)
+            : needles {needles_}, last {0} {
+        searchers.reserve(needles.size());
+
+        size_t size = needles.size();
+        for (int i = 0; i < size; ++i) {
+            const char* cur_needle_data = needles[i].data;
+            const size_t cur_needle_size = needles[i].size;
+
+            searchers.emplace_back(cur_needle_data, cur_needle_size);
+        }
+    }
+
+    /**
+     * while (hasMoreToSearch())
+     * {
+     *     search inside the haystack with the known needles
+     * }
+     */
+    bool hasMoreToSearch() {
+        if (last >= needles.size()) {
+            return false;
+        }
+
+        return true;
+    }
+
+    bool searchOne(const uint8_t* haystack, const uint8_t* haystack_end) {
+        const size_t size = needles.size();
+        if (last >= size) {
+            return false;
+        }
+
+        if (searchers[++last].search(haystack, haystack_end) != haystack_end) {
+            return true;
+        }
+        return false;
+    }
+
+    template <typename CountCharsCallback, typename AnsType>
+    void searchOneAll(const uint8_t* haystack, const uint8_t* haystack_end, AnsType* answer,
+                      const CountCharsCallback& count_chars) {
+        const size_t size = needles.size();
+        for (; last < size; ++last) {
+            const uint8_t* ptr = searchers[last].search(haystack, haystack_end);
+            if (ptr != haystack_end) {
+                answer[last] = count_chars(haystack, ptr);
+            }
+        }
+    }
+};
+
+using MultiStringSearcher = MultiStringSearcherBase<ASCIICaseSensitiveStringSearcher>;
 
 } // namespace doris
