@@ -16,6 +16,7 @@
 #include "olap/olap_common.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/thread_context.h"
+#include "util/doris_metrics.h"
 #include "util/metrics.h"
 #include "util/slice.h"
 
@@ -260,6 +261,7 @@ typedef struct LRUHandle {
     void free() {
         (*deleter)(key(), value);
         THREAD_MEM_TRACKER_TRANSFER_FROM(bytes, mem_tracker);
+        DorisMetrics::instance()->lru_cache_memory_bytes->increment(-bytes);
         ::free(this);
     }
 

@@ -19,6 +19,7 @@
 
 #include "gutil/macros.h" // for DISALLOW_COPY_AND_ASSIGN
 #include "olap/page_cache.h"
+#include "runtime/exec_env.h"
 #include "util/slice.h" // for Slice
 
 namespace doris {
@@ -35,7 +36,9 @@ public:
 
     // This class will take the ownership of input data's memory. It will
     // free it when deconstructs.
-    PageHandle(const Slice& data) : _is_data_owner(true), _data(data) {}
+    PageHandle(const Slice& data) : _is_data_owner(true), _data(data) {
+        ExecEnv::GetInstance()->page_no_cache_mem_tracker()->consume(_data.size);
+    }
 
     // This class will take the content of cache data, and will make input
     // cache_data to a invalid cache handle.
@@ -61,6 +64,7 @@ public:
     ~PageHandle() {
         if (_is_data_owner && _data.size > 0) {
             delete[] _data.data;
+            ExecEnv::GetInstance()->page_no_cache_mem_tracker()->consume(-_data.size);
         }
     }
 
