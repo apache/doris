@@ -41,10 +41,9 @@ struct MultiplyImpl {
         return a * b;
     }
 
-    static void vector_vector(const ColumnDecimal128::Container& a,
-                              const ColumnDecimal128::Container& b,
-                              ColumnDecimal128::Container& c) {
-        size_t size = c.size();
+    static void vector_vector(const ColumnDecimal128::Container::value_type* __restrict a,
+                              const ColumnDecimal128::Container::value_type* __restrict b,
+                              ColumnDecimal128::Container::value_type* c, size_t size) {
         int8 sgn[size];
 
         for (int i = 0; i < size; i++) {
