@@ -132,7 +132,7 @@ public:
     static vectorized::IColumn::MutablePtr get_column_by_field(const Field& field);
 
     static vectorized::IColumn::MutablePtr get_predicate_column_ptr(const Field& field,
-                                                                    bool is_nullable = false);
+                                                                    const ReaderType reader_type);
 
     const std::vector<Field*>& columns() const { return _cols; }
 

@@ -46,10 +46,6 @@ public class ShowFrontendsStmt extends ShowStmt {
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         for (String title : FrontendsProcNode.TITLE_NAMES) {
-            // hide hostname for SHOW FRONTENDS stmt
-            if (title.equals("HostName")) {
-                continue;
-            }
             builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
         }
         return builder.build();

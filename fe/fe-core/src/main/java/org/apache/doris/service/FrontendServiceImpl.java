@@ -1340,8 +1340,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TFetchSchemaTableDataResult fetchSchemaTableData(TFetchSchemaTableDataRequest request) throws TException {
         switch (request.getSchemaTableName()) {
-            case BACKENDS:
-                return MetadataGenerator.getBackendsSchemaTable(request);
             case METADATA_TABLE:
                 return MetadataGenerator.getMetadataTable(request);
             default:

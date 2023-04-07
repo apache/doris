@@ -72,6 +72,7 @@ public class DescribeStmt extends ShowStmt {
                     .addColumn(new Column("Default", ScalarType.createVarchar(30)))
                     .addColumn(new Column("Extra", ScalarType.createVarchar(30)))
                     .addColumn(new Column("Visible", ScalarType.createVarchar(10)))
+                    .addColumn(new Column("DefineExpr", ScalarType.createVarchar(30)))
                     .addColumn(new Column("WhereClause", ScalarType.createVarchar(30)))
                     .build();
 
@@ -121,7 +122,7 @@ public class DescribeStmt extends ShowStmt {
             List<Column> columns = tableValuedFunctionRef.getTable().getBaseSchema();
             for (Column column : columns) {
                 List<String> row = Arrays.asList(
-                        column.getDisplayName(),
+                        column.getName(),
                         column.getOriginType().toString(),
                         column.isAllowNull() ? "Yes" : "No",
                         ((Boolean) column.isKey()).toString(),
@@ -202,7 +203,7 @@ public class DescribeStmt extends ShowStmt {
                             List<String> row = Arrays.asList(
                                     "",
                                     "",
-                                    column.getDisplayName(),
+                                    column.getName(),
                                     column.getOriginType().toString(),
                                     column.isAllowNull() ? "Yes" : "No",
                                     ((Boolean) column.isKey()).toString(),
@@ -211,6 +212,7 @@ public class DescribeStmt extends ShowStmt {
                                             : column.getDefaultValue(),
                                     extraStr,
                                     ((Boolean) column.isVisible()).toString(),
+                                    column.getDefineExpr() == null ? "" : column.getDefineExpr().toSql(),
                                     "");
 
                             if (j == 0) {

@@ -24,9 +24,9 @@ suite("http_test_action") {
     def backendIdToBackendIP = [:]
     def backendIdToBackendBrpcPort = [:]
     for (String[] backend in backends) {
-        if (backend[9].equals("true")) {
+        if (backend[10].equals("true")) {
             backendIdToBackendIP.put(backend[0], backend[2])
-            backendIdToBackendBrpcPort.put(backend[0], backend[6])
+            backendIdToBackendBrpcPort.put(backend[0], backend[7])
         }
     }
 
