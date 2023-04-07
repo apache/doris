@@ -43,6 +43,7 @@ import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.base.Preconditions;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -199,7 +200,7 @@ public class AlterLSCHelper {
         return builder.build();
     }
 
-    private void updateTableMeta(PFetchColIdsResponse response) {
+    private void updateTableMeta(PFetchColIdsResponse response) throws DdlException {
         Preconditions.checkState(response.isInitialized());
         // update index-meta once and for all
         // schema pair: <maxColId, columns>
@@ -227,11 +228,15 @@ public class AlterLSCHelper {
         });
         Preconditions.checkState(schemaPairs.size() == indexIds.size());
         // update index-meta once and for all
-        for (int i = 0; i < indexIds.size(); i++) {
-            final MaterializedIndexMeta indexMeta = olapTable.getIndexMetaByIndexId(indexIds.get(i));
-            final Pair<Integer, List<Column>> schemaPair = schemaPairs.get(i);
-            indexMeta.setMaxColUniqueId(schemaPair.first);
-            indexMeta.setSchema(schemaPair.second);
+        try {
+            for (int i = 0; i < indexIds.size(); i++) {
+                final MaterializedIndexMeta indexMeta = olapTable.getIndexMetaByIndexId(indexIds.get(i));
+                final Pair<Integer, List<Column>> schemaPair = schemaPairs.get(i);
+                indexMeta.setMaxColUniqueId(schemaPair.first);
+                indexMeta.setSchema(schemaPair.second);
+            }
+        } catch (IOException e) {
+            throw new DdlException("fail to reset index schema", e);
         }
     }
 
