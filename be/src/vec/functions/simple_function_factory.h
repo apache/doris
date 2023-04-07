@@ -140,8 +140,11 @@ public:
     }
 
     /// @TEMPORARY: for be_exec_version=2
-    void register_to_replace(const std::string& fe_token, const std::string& replacement) {
-        function_to_replace[fe_token] = replacement;
+    template <class Function>
+    void register_alternative_function() {
+        static std::string suffix {"_old_for_version_before_2_0"};
+        function_to_replace[Function::name] = Function::name + suffix;
+        register_function(Function::name + suffix, &createDefaultFunction<Function>);
     }
 
     FunctionBasePtr get_function(const std::string& name, const ColumnsWithTypeAndName& arguments,

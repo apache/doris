@@ -100,25 +100,21 @@ void register_function_time_of_function(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDateTimeV2YearWeek>();
     factory.register_function<FunctionDateTimeV2WeekDay>();
 
-/// @TEMPORARY: for be_exec_version=2
-#define REGISTER_OLD_VERSION(FUNC, FUNC_NAME)                                      \
-    factory.register_function<FUNC##Old>(std::string {#FUNC_NAME}.append("_old")); \
-    factory.register_to_replace(#FUNC_NAME, std::string {#FUNC_NAME}.append("_old"));
-
-    REGISTER_OLD_VERSION(FunctionWeekOfYear, weekofyear);
-    REGISTER_OLD_VERSION(FunctionWeekOfYearV2, weekofyear);
-    REGISTER_OLD_VERSION(FunctionDateTimeV2WeekOfYear, weekofyear);
-    REGISTER_OLD_VERSION(FunctionDayOfYear, dayofyear);
-    REGISTER_OLD_VERSION(FunctionDayOfYearV2, dayofyear);
-    REGISTER_OLD_VERSION(FunctionDateTimeV2DayOfYear, dayofyear);
-    REGISTER_OLD_VERSION(FunctionDayOfWeek, dayofweek);
-    REGISTER_OLD_VERSION(FunctionDayOfWeekV2, dayofweek);
-    REGISTER_OLD_VERSION(FunctionDateTimeV2DayOfWeek, dayofweek);
-    REGISTER_OLD_VERSION(FunctionDayOfMonth, dayofmonth);
-    REGISTER_OLD_VERSION(FunctionDayOfMonthV2, dayofmonth);
-    REGISTER_OLD_VERSION(FunctionDateTimeV2DayOfMonth, dayofmonth);
-    REGISTER_OLD_VERSION(FunctionWeekDay, weekday);
-    REGISTER_OLD_VERSION(FunctionWeekDayV2, weekday);
-    REGISTER_OLD_VERSION(FunctionDateTimeV2WeekDay, weekday);
+    /// @TEMPORARY: for be_exec_version=2
+    factory.register_alternative_function<FunctionWeekOfYearOld>();
+    factory.register_alternative_function<FunctionWeekOfYearV2Old>();
+    factory.register_alternative_function<FunctionDateTimeV2WeekOfYearOld>();
+    factory.register_alternative_function<FunctionDayOfYearOld>();
+    factory.register_alternative_function<FunctionDayOfYearV2Old>();
+    factory.register_alternative_function<FunctionDateTimeV2DayOfYearOld>();
+    factory.register_alternative_function<FunctionDayOfWeekOld>();
+    factory.register_alternative_function<FunctionDayOfWeekV2Old>();
+    factory.register_alternative_function<FunctionDateTimeV2DayOfWeekOld>();
+    factory.register_alternative_function<FunctionDayOfMonthOld>();
+    factory.register_alternative_function<FunctionDayOfMonthV2Old>();
+    factory.register_alternative_function<FunctionDateTimeV2DayOfMonthOld>();
+    factory.register_alternative_function<FunctionWeekDayOld>();
+    factory.register_alternative_function<FunctionWeekDayV2Old>();
+    factory.register_alternative_function<FunctionDateTimeV2WeekDayOld>();
 }
 } // namespace doris::vectorized

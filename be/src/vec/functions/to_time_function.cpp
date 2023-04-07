@@ -31,8 +31,8 @@ using FunctionMonth = FunctionDateOrDateTimeToSomething<DataTypeInt8, ToMonthImp
 using FunctionMonthV2 = FunctionDateOrDateTimeToSomething<DataTypeInt8, ToMonthImpl<UInt32>>;
 using FunctionDay = FunctionDateOrDateTimeToSomething<DataTypeInt8, ToDayImpl<Int64>>;
 using FunctionDayV2 = FunctionDateOrDateTimeToSomething<DataTypeInt8, ToDayImpl<UInt32>>;
-using FunctionWeek = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToWeekOneArgImpl<Int64>>;
-using FunctionWeekV2 = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToWeekOneArgImpl<UInt32>>;
+using FunctionWeek = FunctionDateOrDateTimeToSomething<DataTypeInt8, ToWeekOneArgImpl<Int64>>;
+using FunctionWeekV2 = FunctionDateOrDateTimeToSomething<DataTypeInt8, ToWeekOneArgImpl<UInt32>>;
 using FunctionHour = FunctionDateOrDateTimeToSomething<DataTypeInt8, ToHourImpl<Int64>>;
 using FunctionHourV2 = FunctionDateOrDateTimeToSomething<DataTypeInt8, ToHourImpl<UInt32>>;
 using FunctionMinute = FunctionDateOrDateTimeToSomething<DataTypeInt8, ToMinuteImpl<Int64>>;
@@ -53,7 +53,7 @@ using FunctionDateTimeV2Month =
         FunctionDateOrDateTimeToSomething<DataTypeInt8, ToMonthImpl<UInt64>>;
 using FunctionDateTimeV2Day = FunctionDateOrDateTimeToSomething<DataTypeInt8, ToDayImpl<UInt64>>;
 using FunctionDateTimeV2Week =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToWeekOneArgImpl<UInt64>>;
+        FunctionDateOrDateTimeToSomething<DataTypeInt8, ToWeekOneArgImpl<UInt64>>;
 using FunctionDateTimeV2Hour = FunctionDateOrDateTimeToSomething<DataTypeInt8, ToHourImpl<UInt64>>;
 using FunctionDateTimeV2Minute =
         FunctionDateOrDateTimeToSomething<DataTypeInt8, ToMinuteImpl<UInt64>>;
@@ -77,6 +77,9 @@ using FunctionQuarterV2Old =
         FunctionDateOrDateTimeToSomething<DataTypeInt32, ToQuarterImpl<UInt32>>;
 using FunctionMonthOld = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToMonthImpl<Int64>>;
 using FunctionMonthV2Old = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToMonthImpl<UInt32>>;
+using FunctionWeekOld = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToWeekOneArgImpl<Int64>>;
+using FunctionWeekV2Old =
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToWeekOneArgImpl<UInt32>>;
 using FunctionDayOld = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToDayImpl<Int64>>;
 using FunctionDayV2Old = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToDayImpl<UInt32>>;
 using FunctionHourOld = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToHourImpl<Int64>>;
@@ -91,6 +94,8 @@ using FunctionDateTimeV2QuarterOld =
         FunctionDateOrDateTimeToSomething<DataTypeInt32, ToQuarterImpl<UInt64>>;
 using FunctionDateTimeV2MonthOld =
         FunctionDateOrDateTimeToSomething<DataTypeInt32, ToMonthImpl<UInt64>>;
+using FunctionDateTimeV2WeekOld =
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToWeekOneArgImpl<UInt64>>;
 using FunctionDateTimeV2DayOld =
         FunctionDateOrDateTimeToSomething<DataTypeInt32, ToDayImpl<UInt64>>;
 using FunctionDateTimeV2HourOld =
@@ -139,32 +144,31 @@ void register_function_to_time_function(SimpleFunctionFactory& factory) {
     factory.register_alias("date", "datev2");
     factory.register_alias("to_date", "to_datev2");
 
-/// @TEMPORARY: for be_exec_version=2
-#define REGISTER_OLD_VERSION(FUNC, FUNC_NAME)                                      \
-    factory.register_function<FUNC##Old>(std::string {#FUNC_NAME}.append("_old")); \
-    factory.register_to_replace(#FUNC_NAME, std::string {#FUNC_NAME}.append("_old"));
-
-    REGISTER_OLD_VERSION(FunctionYear, year);
-    REGISTER_OLD_VERSION(FunctionQuarter, quarter);
-    REGISTER_OLD_VERSION(FunctionMonth, month);
-    REGISTER_OLD_VERSION(FunctionDay, day);
-    REGISTER_OLD_VERSION(FunctionHour, hour);
-    REGISTER_OLD_VERSION(FunctionMinute, minute);
-    REGISTER_OLD_VERSION(FunctionSecond, second);
-    REGISTER_OLD_VERSION(FunctionYearV2, year);
-    REGISTER_OLD_VERSION(FunctionQuarterV2, quarter);
-    REGISTER_OLD_VERSION(FunctionMonthV2, month);
-    REGISTER_OLD_VERSION(FunctionDayV2, day);
-    REGISTER_OLD_VERSION(FunctionHourV2, hour);
-    REGISTER_OLD_VERSION(FunctionMinuteV2, minute);
-    REGISTER_OLD_VERSION(FunctionSecondV2, second);
-    REGISTER_OLD_VERSION(FunctionDateTimeV2Year, year);
-    REGISTER_OLD_VERSION(FunctionDateTimeV2Quarter, quarter);
-    REGISTER_OLD_VERSION(FunctionDateTimeV2Month, month);
-    REGISTER_OLD_VERSION(FunctionDateTimeV2Day, day);
-    REGISTER_OLD_VERSION(FunctionDateTimeV2Hour, hour);
-    REGISTER_OLD_VERSION(FunctionDateTimeV2Minute, minute);
-    REGISTER_OLD_VERSION(FunctionDateTimeV2Second, second);
+    /// @TEMPORARY: for be_exec_version=2
+    factory.register_alternative_function<FunctionYearOld>();
+    factory.register_alternative_function<FunctionQuarterOld>();
+    factory.register_alternative_function<FunctionMonthOld>();
+    factory.register_alternative_function<FunctionDayOld>();
+    factory.register_alternative_function<FunctionWeekOld>();
+    factory.register_alternative_function<FunctionHourOld>();
+    factory.register_alternative_function<FunctionMinuteOld>();
+    factory.register_alternative_function<FunctionSecondOld>();
+    factory.register_alternative_function<FunctionYearV2Old>();
+    factory.register_alternative_function<FunctionQuarterV2Old>();
+    factory.register_alternative_function<FunctionMonthV2Old>();
+    factory.register_alternative_function<FunctionWeekV2Old>();
+    factory.register_alternative_function<FunctionDayV2Old>();
+    factory.register_alternative_function<FunctionHourV2Old>();
+    factory.register_alternative_function<FunctionMinuteV2Old>();
+    factory.register_alternative_function<FunctionSecondV2Old>();
+    factory.register_alternative_function<FunctionDateTimeV2YearOld>();
+    factory.register_alternative_function<FunctionDateTimeV2QuarterOld>();
+    factory.register_alternative_function<FunctionDateTimeV2MonthOld>();
+    factory.register_alternative_function<FunctionDateTimeV2WeekOld>();
+    factory.register_alternative_function<FunctionDateTimeV2DayOld>();
+    factory.register_alternative_function<FunctionDateTimeV2HourOld>();
+    factory.register_alternative_function<FunctionDateTimeV2MinuteOld>();
+    factory.register_alternative_function<FunctionDateTimeV2SecondOld>();
 }
 
 } // namespace doris::vectorized
