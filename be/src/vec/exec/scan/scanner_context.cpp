@@ -114,14 +114,17 @@ Status ScannerContext::init() {
     return Status::OK();
 }
 
-vectorized::BlockUPtr ScannerContext::get_free_block(bool* has_free_block) {
+vectorized::BlockUPtr ScannerContext::get_free_block(bool* has_free_block,
+                                                     bool get_block_not_empty) {
     {
         std::lock_guard l(_free_blocks_lock);
         if (!_free_blocks.empty()) {
-            auto block = std::move(_free_blocks.back());
-            _free_blocks.pop_back();
-            _free_blocks_memory_usage->add(-block->allocated_bytes());
-            return block;
+            if (!get_block_not_empty || _free_blocks.back()->mem_reuse()) {
+                auto block = std::move(_free_blocks.back());
+                _free_blocks.pop_back();
+                _free_blocks_memory_usage->add(-block->allocated_bytes());
+                return block;
+            }
         }
     }
     *has_free_block = false;
@@ -319,6 +322,7 @@ void ScannerContext::push_back_scanner_and_reschedule(VScanner* scanner) {
     // same scanner.
     if (scanner->need_to_close() && scanner->set_counted_down() &&
         (--_num_unfinished_scanners) == 0) {
+        _dispose_coloate_blocks_not_in_queue();
         _is_finished = true;
         _blocks_queue_added_cv.notify_one();
     }
