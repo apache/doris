@@ -874,8 +874,7 @@ public class StmtExecutor implements ProfileWriter {
 
         if (parsedStmt instanceof QueryStmt
                 || parsedStmt instanceof InsertStmt
-                || parsedStmt instanceof CreateTableAsSelectStmt
-                || parsedStmt instanceof LogicalPlanAdapter) {
+                || parsedStmt instanceof CreateTableAsSelectStmt) {
             if (Config.enable_resource_group && context.sessionVariable.enablePipelineEngine()) {
                 analyzer.setResourceGroups(analyzer.getEnv().getResourceGroupMgr()
                         .getResourceGroup(context.sessionVariable.resourceGroup));
