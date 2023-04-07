@@ -282,8 +282,10 @@ public:
     virtual void check_number_of_arguments(size_t number_of_arguments) const = 0;
 
     /// Check arguments and return IFunctionBase.
+    /// @TEMPORARY: last bool for be_exec_version=2
     virtual FunctionBasePtr build(const ColumnsWithTypeAndName& arguments,
-                                  const DataTypePtr& return_type) const = 0;
+                                  const DataTypePtr& return_type,
+                                  const bool skip_type_check = false) const = 0;
 
     /// For higher-order functions (functions, that have lambda expression as at least one argument).
     /// You pass data types with empty DataTypeFunction for lambda arguments.
@@ -300,12 +302,16 @@ public:
 
 using FunctionBuilderPtr = std::shared_ptr<IFunctionBuilder>;
 
+/// used in function_factory. when we register a function, save a builder. to get a function, to get a builder.
+/// will use DefaultFunctionBuilder as the default builder in function's registration if we didn't explicitly specify.
 class FunctionBuilderImpl : public IFunctionBuilder {
 public:
-    FunctionBasePtr build(const ColumnsWithTypeAndName& arguments,
-                          const DataTypePtr& return_type) const final {
+    FunctionBasePtr build(const ColumnsWithTypeAndName& arguments, const DataTypePtr& return_type,
+                          const bool skip_type_check = false) const final {
         const DataTypePtr& func_return_type = get_return_type(arguments);
-        DCHECK(return_type->equals(*func_return_type) ||
+        // check return types equal.
+        DCHECK(skip_type_check /*iff we did function replacement in exec_version 2*/ ||
+               return_type->equals(*func_return_type) ||
                // For null constant argument, `get_return_type` would return
                // Nullable<DataTypeNothing> when `use_default_implementation_for_nulls` is true.
                (return_type->is_nullable() && func_return_type->is_nullable() &&
@@ -371,6 +377,7 @@ protected:
     /// If it isn't, will convert all ColumnLowCardinality arguments to full columns.
     virtual bool can_be_executed_on_low_cardinality_dictionary() const { return true; }
 
+    /// return a real function object to execute. called in build(...).
     virtual FunctionBasePtr build_impl(const ColumnsWithTypeAndName& arguments,
                                        const DataTypePtr& return_type) const = 0;
 
@@ -449,7 +456,7 @@ protected:
     }
 };
 
-/// Wrappers over IFunction.
+/// Wrappers over IFunction. If we (default)use DefaultFunction as wrapper, all function execution will go through this.
 
 class DefaultExecutable final : public PreparedFunctionImpl {
 public:
@@ -485,6 +492,10 @@ private:
     std::shared_ptr<IFunction> function;
 };
 
+/*
+ * when we register a function which didn't specify its base(i.e. inherited from IFunction), actually we use this as a wrapper.
+ * it saves real implementation as `function`. 
+*/
 class DefaultFunction final : public IFunctionBase {
 public:
     DefaultFunction(std::shared_ptr<IFunction> function_, DataTypes arguments_,
@@ -498,6 +509,7 @@ public:
     const DataTypes& get_argument_types() const override { return arguments; }
     const DataTypePtr& get_return_type() const override { return return_type; }
 
+    // return a default wrapper for IFunction.
     PreparedFunctionPtr prepare(FunctionContext* context, const Block& /*sample_block*/,
                                 const ColumnNumbers& /*arguments*/,
                                 size_t /*result*/) const override {
@@ -599,7 +611,9 @@ protected:
     FunctionBasePtr build_impl(const ColumnsWithTypeAndName& arguments,
                                const DataTypePtr& return_type) const override {
         DataTypes data_types(arguments.size());
-        for (size_t i = 0; i < arguments.size(); ++i) data_types[i] = arguments[i].type;
+        for (size_t i = 0; i < arguments.size(); ++i) {
+            data_types[i] = arguments[i].type;
+        }
         return std::make_shared<DefaultFunction>(function, data_types, return_type);
     }
 
