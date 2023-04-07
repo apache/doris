@@ -13,6 +13,7 @@
 // <http://creativecommons.org/publicdomain/zero/1.0/>.
 ///
 
+// NOLINTBEGIN
 #ifndef TL_EXPECTED_HPP
 #define TL_EXPECTED_HPP
 
@@ -2442,3 +2443,4 @@ void swap(expected<T, E> &lhs,
 } // namespace tl
 
 #endif
+// NOLINTEND
