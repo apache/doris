@@ -305,9 +305,24 @@ struct InitcapImpl {
         return Status::OK();
     }
 };
+
+struct TrimName {
+    static constexpr auto name = "trim";
+};
+struct LTrimName {
+    static constexpr auto name = "ltrim";
+};
+struct RTrimName {
+    static constexpr auto name = "rtrim";
+};
+
 // This is an implementation of a parameter for the Trim function.
-template <bool is_ltrim, bool is_rtrim>
-struct TrimImpl {
+template <bool is_ltrim, bool is_rtrim, typename Name>
+struct Trim1Impl {
+    static constexpr auto name = Name::name;
+
+    static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeString>()}; }
+
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
         size_t offset_size = offsets.size();
@@ -328,11 +343,31 @@ struct TrimImpl {
         }
         return Status::OK();
     }
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          size_t result, size_t input_rows_count) {
+        const ColumnPtr column = block.get_by_position(arguments[0]).column;
+        if (const ColumnString* col = check_and_get_column<ColumnString>(column.get())) {
+            auto col_res = ColumnString::create();
+            vector(col->get_chars(), col->get_offsets(), col_res->get_chars(),
+                   col_res->get_offsets());
+            block.replace_by_position(result, std::move(col_res));
+        } else {
+            return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                        block.get_by_position(arguments[0]).column->get_name(),
+                                        name);
+        }
+        return Status::OK();
+    }
 };
 
 // This is an implementation of two parameters for the Trim function.
-template <bool is_ltrim, bool is_rtrim>
-struct TrimImpl2 {
+template <bool is_ltrim, bool is_rtrim, typename Name>
+struct Trim2Impl {
+    static constexpr auto name = Name::name;
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()};
+    }
+
     static Status vector(const ColumnString::Chars& str_data,
                          const ColumnString::Offsets& str_offsets,
                          const ColumnString::Chars& rhs_data,
@@ -359,44 +394,41 @@ struct TrimImpl2 {
         }
         return Status::OK();
     }
-};
-// Choose a specific name for the trim function.
-template <bool is_ltrim, bool is_rtrim>
-struct TrimNameChoose;
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          size_t result, size_t input_rows_count) {
+        const ColumnPtr column = block.get_by_position(arguments[0]).column;
+        const auto& right = block.get_by_position(arguments[1]);
+        auto rcol = right.column->convert_to_full_column_if_const();
+        if (const ColumnString* col = check_and_get_column<ColumnString>(column.get())) {
+            if (auto col_right = check_and_get_column<ColumnString>(rcol.get())) {
+                auto col_res = ColumnString::create();
+                vector(col->get_chars(), col->get_offsets(), col_right->get_chars(),
+                       col_right->get_offsets(), col_res->get_chars(), col_res->get_offsets());
+                block.replace_by_position(result, std::move(col_res));
+            } else {
+                return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                            block.get_by_position(arguments[1]).column->get_name(),
+                                            name);
+            }
 
-template <>
-struct TrimNameChoose<true, false> {
-    static constexpr auto name = "ltrim";
-};
-
-template <>
-struct TrimNameChoose<false, true> {
-    static constexpr auto name = "rtrim";
-};
-
-template <>
-struct TrimNameChoose<true, true> {
-    static constexpr auto name = "trim";
-};
-
-template <bool is_ltrim, bool is_rtrim, bool has_Second_Parameter>
-class FunctionTrimBase : public IFunction {
-public:
-    static constexpr auto name = TrimNameChoose<is_ltrim, is_rtrim>::name;
-    using Impl1 = TrimImpl<is_ltrim, is_rtrim>;
-    using Impl2 = TrimImpl2<is_ltrim, is_rtrim>;
-    static FunctionPtr create() {
-        return std::make_shared<FunctionTrimBase<is_ltrim, is_rtrim, has_Second_Parameter>>();
+        } else {
+            return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                        block.get_by_position(arguments[0]).column->get_name(),
+                                        name);
+        }
+        return Status::OK();
     }
+};
 
-    String get_name() const override { return name; }
+template <typename impl>
+class FunctionTrim : public IFunction {
+public:
+    static constexpr auto name = impl::name;
+    static FunctionPtr create() { return std::make_shared<FunctionTrim<impl>>(); }
+    String get_name() const override { return impl::name; }
 
     size_t get_number_of_arguments() const override {
-        if constexpr (has_Second_Parameter) {
-            return 2;
-        } else {
-            return 1;
-        }
+        return get_variadic_argument_types_impl().size();
     }
 
     bool get_is_injective(const Block&) override { return false; }
@@ -408,52 +440,12 @@ public:
     bool use_default_implementation_for_constants() const override { return true; }
 
     DataTypes get_variadic_argument_types_impl() const override {
-        if constexpr (has_Second_Parameter) {
-            return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()};
-        } else {
-            return {std::make_shared<DataTypeString>()};
-        }
+        return impl::get_variadic_argument_types();
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        if constexpr (has_Second_Parameter) {
-            const ColumnPtr column = block.get_by_position(arguments[0]).column;
-            const auto& right = block.get_by_position(arguments[1]);
-            auto rcol = right.column->convert_to_full_column_if_const();
-            if (const ColumnString* col = check_and_get_column<ColumnString>(column.get())) {
-                if (auto col_right = check_and_get_column<ColumnString>(rcol.get())) {
-                    auto col_res = ColumnString::create();
-                    Impl2::vector(col->get_chars(), col->get_offsets(), col_right->get_chars(),
-                                  col_right->get_offsets(), col_res->get_chars(),
-                                  col_res->get_offsets());
-                    block.replace_by_position(result, std::move(col_res));
-                } else {
-                    return Status::RuntimeError(
-                            "Illegal column {} of argument of function {}",
-                            block.get_by_position(arguments[1]).column->get_name(), get_name());
-                }
-
-            } else {
-                return Status::RuntimeError("Illegal column {} of argument of function {}",
-                                            block.get_by_position(arguments[0]).column->get_name(),
-                                            get_name());
-            }
-            return Status::OK();
-        } else {
-            const ColumnPtr column = block.get_by_position(arguments[0]).column;
-            if (const ColumnString* col = check_and_get_column<ColumnString>(column.get())) {
-                auto col_res = ColumnString::create();
-                Impl1::vector(col->get_chars(), col->get_offsets(), col_res->get_chars(),
-                              col_res->get_offsets());
-                block.replace_by_position(result, std::move(col_res));
-            } else {
-                return Status::RuntimeError("Illegal column {} of argument of function {}",
-                                            block.get_by_position(arguments[0]).column->get_name(),
-                                            get_name());
-            }
-            return Status::OK();
-        }
+        return impl::execute(context, block, arguments, result, input_rows_count);
     }
 };
 
@@ -746,20 +738,6 @@ using FunctionToUpper = FunctionStringToString<TransferImpl<NameToUpper>, NameTo
 
 using FunctionToInitcap = FunctionStringToString<InitcapImpl, NameToInitcap>;
 
-// FunctionTrim1 : SELECT TRIM('   appleaa   ') ->  appleaa
-// FunctionTrim2 : SELECT TRIM('appleaa', 'a')  ->  pple
-using FunctionLTrim1 = FunctionTrimBase<true, false, false>;
-
-using FunctionRTrim1 = FunctionTrimBase<false, true, false>;
-
-using FunctionTrim1 = FunctionTrimBase<true, true, false>;
-
-using FunctionLTrim2 = FunctionTrimBase<true, false, true>;
-
-using FunctionRTrim2 = FunctionTrimBase<false, true, true>;
-
-using FunctionTrim2 = FunctionTrimBase<true, true, true>;
-
 using FunctionToBase64 = FunctionStringOperateToNullType<ToBase64Impl>;
 
 using FunctionFromBase64 = FunctionStringOperateToNullType<FromBase64Impl>;
@@ -786,12 +764,12 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionToLower>();
     factory.register_function<FunctionToUpper>();
     factory.register_function<FunctionToInitcap>();
-    factory.register_function<FunctionTrim1>();
-    factory.register_function<FunctionLTrim1>();
-    factory.register_function<FunctionRTrim1>();
-    factory.register_function<FunctionTrim2>();
-    factory.register_function<FunctionLTrim2>();
-    factory.register_function<FunctionRTrim2>();
+    factory.register_function<FunctionTrim<Trim1Impl<true, true, TrimName>>>();
+    factory.register_function<FunctionTrim<Trim1Impl<true, false, LTrimName>>>();
+    factory.register_function<FunctionTrim<Trim1Impl<false, true, RTrimName>>>();
+    factory.register_function<FunctionTrim<Trim2Impl<true, true, TrimName>>>();
+    factory.register_function<FunctionTrim<Trim2Impl<true, false, LTrimName>>>();
+    factory.register_function<FunctionTrim<Trim2Impl<false, true, RTrimName>>>();
     factory.register_function<FunctionConvertTo>();
     factory.register_function<FunctionSubstring<Substr3Impl>>();
     factory.register_function<FunctionSubstring<Substr2Impl>>();
