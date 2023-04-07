@@ -405,12 +405,10 @@ public class DeployManager extends MasterDaemon {
         switch (nodeType) {
             case ELECTABLE:
                 List<Frontend> localElectableFeAddrs = env.getFrontends(FrontendNodeType.FOLLOWER);
-                return this
-                        .convertFesToHostInfos(localElectableFeAddrs);
+                return this.convertFesToHostInfos(localElectableFeAddrs);
             case OBSERVER:
                 List<Frontend> localObserverFeAddrs = env.getFrontends(FrontendNodeType.OBSERVER);
-                return this
-                        .convertFesToHostInfos(localObserverFeAddrs);
+                return this.convertFesToHostInfos(localObserverFeAddrs);
             case BACKEND:
                 List<Backend> localBackends = Env.getCurrentSystemInfo()
                         .getClusterMixBackends(SystemInfoService.DEFAULT_CLUSTER);
@@ -477,6 +475,14 @@ public class DeployManager extends MasterDaemon {
             List<HostInfo> localHostInfos,
             NodeType nodeType) {
 
+        for (HostInfo hostInfo : remoteHostInfos) {
+            LOG.info("inspectNodeChange: remote host info: {}", hostInfo);
+        }
+
+        for (HostInfo hostInfo : localHostInfos) {
+            LOG.info("inspectNodeChange: local host info: {}", hostInfo);
+        }
+
         // 2.1 Find local node which need to be dropped.
         for (HostInfo localHostInfo : localHostInfos) {
             HostInfo foundHostInfo = getFromHostInfos(remoteHostInfos, localHostInfo);
@@ -499,10 +505,11 @@ public class DeployManager extends MasterDaemon {
         String localIp = localHostInfo.getIp();
         Integer localPort = localHostInfo.getPort();
         String localHostName = localHostInfo.getHostName();
-        // Double check if is it self
+        // Double check if is itself
         if (isSelf(localHostInfo)) {
-            // This is it self. Shut down now.
-            LOG.error("self host {}:{} does not exist in remote hosts. Showdown.");
+            // This is itself. Shut down now.
+            LOG.error("self host {} does not exist in remote hosts. master is: {}:{}. Showdown.",
+                    localHostInfo, env.getMasterIp(), Config.edit_log_port);
             System.exit(-1);
         }
 
@@ -572,8 +579,7 @@ public class DeployManager extends MasterDaemon {
 
     // Get host port pair from pair list. Return null if not found
     // when hostName,compare hostname,otherwise compare ip
-    private HostInfo getFromHostInfos(List<HostInfo> hostInfos,
-            HostInfo hostInfo) {
+    private HostInfo getFromHostInfos(List<HostInfo> hostInfos, HostInfo hostInfo) {
         for (HostInfo h : hostInfos) {
             if (StringUtils.isEmpty(hostInfo.hostName) || StringUtils.isEmpty(h.hostName)) {
                 if (hostInfo.getIp().equals(h.getIp()) && hostInfo.getPort() == (h.getPort())) {

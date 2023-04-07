@@ -300,6 +300,7 @@ public class K8sDeployManager extends DeployManager {
             //can see https://www.cnblogs.com/xiaokantianse/p/14267987.html#_label1_4
             String domainName = getDomainName(statefulsetName + "-" + i, serviceName);
             hostInfos.add(new HostInfo(getIpByDomain(domainName), domainName, servicePort));
+            LOG.info("get hostInfo from domainName: {}, hostInfo: {}", domainName, hostInfos.get(i).toString());
         }
         return hostInfos;
     }
