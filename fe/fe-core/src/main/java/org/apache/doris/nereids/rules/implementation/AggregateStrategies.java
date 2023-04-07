@@ -64,6 +64,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggrega
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate.PushDownAggOp;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -303,6 +304,35 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         }
     }
 
+    private boolean aggregateOnUniqueColumn(
+            LogicalAggregate<? extends Plan> logicalAgg) {
+        if (logicalAgg.child() instanceof GroupPlan) {
+            Statistics childStats = ((GroupPlan) logicalAgg.child()).getGroup().getStatistics();
+            if (childStats != null) {
+                return logicalAgg.getGroupByExpressions().stream().anyMatch(
+                        expression ->
+                            childStats.almostUniqueExpression(expression)
+                );
+            }
+        }
+        return false;
+    }
+
+    private boolean aggregateOnStatsUnknownColumn(LogicalAggregate<? extends Plan> logicalAgg) {
+        if (logicalAgg.child() instanceof GroupPlan) {
+            Statistics childStats = ((GroupPlan) logicalAgg.child()).getGroup().getStatistics();
+            if (childStats != null) {
+                return logicalAgg.getGroupByExpressions().stream().anyMatch(
+                        expression ->
+                                childStats.isStatsUnknown(expression)
+                );
+            } else {
+                return true;
+            }
+        }
+        return true;
+    }
+
     /**
      * sql: select count(*) from tbl group by id
      *
@@ -331,6 +361,12 @@ public class AggregateStrategies implements ImplementationRuleFactory {
      */
     private List<PhysicalHashAggregate<Plan>> onePhaseAggregateWithoutDistinct(
             LogicalAggregate<? extends Plan> logicalAgg, ConnectContext connectContext) {
+        if (!logicalAgg.getGroupByExpressions().isEmpty()
+                && !aggregateOnUniqueColumn(logicalAgg)
+                && !aggregateOnStatsUnknownColumn(logicalAgg)) {
+            // twoPhaseAggregate beats onePhaseAggregate
+            return null;
+        }
         RequireProperties requireGather = RequireProperties.of(PhysicalProperties.GATHER);
         AggregateParam inputToResultParam = AggregateParam.localResult();
         List<NamedExpression> newOutput = ExpressionUtils.rewriteDownShortCircuit(
@@ -757,6 +793,11 @@ public class AggregateStrategies implements ImplementationRuleFactory {
      */
     private List<PhysicalHashAggregate<? extends Plan>> twoPhaseAggregateWithDistinct(
             LogicalAggregate<? extends Plan> logicalAgg, ConnectContext connectContext) {
+        if (!logicalAgg.getGroupByExpressions().isEmpty()
+                && !aggregateOnUniqueColumn(logicalAgg) && !aggregateOnStatsUnknownColumn(logicalAgg)) {
+            // threePhaseAggregate beats twoPhaseAggregate
+            return null;
+        }
         Set<AggregateFunction> aggregateFunctions = logicalAgg.getAggregateFunctions();
 
         Set<Expression> distinctArguments = aggregateFunctions.stream()
