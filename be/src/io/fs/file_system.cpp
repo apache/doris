@@ -46,15 +46,6 @@ Status FileSystem::delete_file(const Path& file) {
     FILESYSTEM_M(delete_file_impl(path));
 }
 
-bool FileSystem::is_dir(const Path& path) {
-    struct stat path_stat;
-    if (stat(path.c_str(), &path_stat) != 0) {
-        return false;
-    } else {
-        return S_ISDIR(path_stat.st_mode);
-    }
-}
-
 Status FileSystem::delete_directory(const Path& dir) {
     auto path = absolute_path(dir);
     FILESYSTEM_M(delete_directory_impl(path));
