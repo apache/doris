@@ -42,7 +42,7 @@ MutableColumnPtr DataTypeArray::create_column() const {
 }
 
 Field DataTypeArray::get_default() const {
-    Array a = Array(1);
+    Array a;
     a.push_back(nested->get_default());
     return a;
 }
