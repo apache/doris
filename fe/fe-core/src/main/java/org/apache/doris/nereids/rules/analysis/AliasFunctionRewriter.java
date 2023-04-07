@@ -56,13 +56,17 @@ public class AliasFunctionRewriter extends DefaultExpressionRewriter<CascadesCon
      * Secondly, we ensure it is an alias function, it's a original planner style expression, we get its sql-style,
      * but the NereidsParser cannot parser an expression, so we parse a one-row relation sql like:
      *      select {the alias function}
+     * TODO: cache the catalog type of alias function object.
      */
 
     public Expression rewriteFunction(UnboundFunction function, CascadesContext context) {
         Database db = getDb(context);
+        if (db == null) {
+            return null;
+        }
         AliasFunction aliasFunction = getAliasFunction(function, db);
         if (aliasFunction == null) {
-            return function;
+            return null;
         }
         Expr originalFunction = aliasFunction.getOriginFunction();
         if (!(originalFunction instanceof FunctionCallExpr)) {

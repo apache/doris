@@ -56,11 +56,11 @@ public class FunctionRegistry {
 
 
     public FunctionBuilder findFunctionBuilder(String name, Object argument) {
-        return findFunctionBuilderRaw(name, ImmutableList.of(argument));
+        return findFunctionBuilder(name, ImmutableList.of(argument));
     }
 
     // currently we only find function by name and arity and args' types.
-    public FunctionBuilder findFunctionBuilderRaw(String name, List<?> arguments) {
+    public FunctionBuilder findFunctionBuilder(String name, List<?> arguments) {
         int arity = arguments.size();
         List<FunctionBuilder> functionBuilders = name2Builders.get(name.toLowerCase());
         if (CollectionUtils.isEmpty(functionBuilders) && AggStateFunctionBuilder.isAggStateCombinator(name)) {
