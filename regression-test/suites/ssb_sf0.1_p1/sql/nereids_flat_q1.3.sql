@@ -17,7 +17,7 @@
 --Q1.3
 
 SET enable_nereids_planner=true;
-SET enable_vectorized_engine=true;
+
 SET enable_fallback_to_original_planner=false;
 
 SELECT SUM(LO_EXTENDEDPRICE * LO_DISCOUNT) AS revenue
