@@ -17,29 +17,33 @@
 
 package org.apache.doris.resource.resourcegroup;
 
-import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.io.DeepCopy;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TPipelineResourceGroup;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import org.apache.commons.lang.StringUtils;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Map;
-import java.util.Set;
 
 public class ResourceGroup implements Writable {
 
-    private static final Logger LOG = LogManager.getLogger(ResourceGroup.class);
+    public static final String CPU_SHARE = "cpu_share";
+
+    private static final ImmutableSet<String> REQUIRED_PROPERTIES_NAME = new ImmutableSet.Builder<String>().add(
+            CPU_SHARE).build();
+
+    private static final ImmutableSet<String> ALL_PROPERTIES_NAME = new ImmutableSet.Builder<String>().add(
+            CPU_SHARE).build();
 
     @SerializedName(value = "id")
     private long id;
@@ -54,21 +58,34 @@ public class ResourceGroup implements Writable {
     @SerializedName(value = "version")
     private long version;
 
-    // Not used yet, for future expansion
-    @SerializedName(value = "parentId")
-    private long parentId;
-
-    // Not used yet, for future expansion
-    @SerializedName(value = "childrenIds")
-    private Set<Long> childrenIds;
-
-    public ResourceGroup(long id, String name, Map<String, String> properties, long parentId) {
+    private ResourceGroup(long id, String name, Map<String, String> properties) {
         this.id = id;
         this.name = name;
         this.properties = properties;
-        this.parentId = parentId;
-        this.childrenIds = Sets.newHashSet();
         this.version = 0;
+    }
+
+    public static ResourceGroup createResourceGroup(String name, Map<String, String> properties) throws DdlException {
+        checkProperties(properties);
+        return new ResourceGroup(Env.getCurrentEnv().getNextId(), name, properties);
+    }
+
+    private static void checkProperties(Map<String, String> properties) throws DdlException {
+        for (String propertyName : properties.keySet()) {
+            if (!ALL_PROPERTIES_NAME.contains(propertyName)) {
+                throw new DdlException("Property " + propertyName + " is not supported.");
+            }
+        }
+        for (String propertyName : REQUIRED_PROPERTIES_NAME) {
+            if (!properties.containsKey(propertyName)) {
+                throw new DdlException("Property " + propertyName + " is required.");
+            }
+        }
+
+        String cpuSchedulingWeight = properties.get(CPU_SHARE);
+        if (!StringUtils.isNumeric(cpuSchedulingWeight) || Long.parseLong(cpuSchedulingWeight) <= 0) {
+            throw new DdlException(CPU_SHARE + " requires a positive integer.");
+        }
     }
 
     public long getId() {
@@ -92,16 +109,6 @@ public class ResourceGroup implements Writable {
     @Override
     public String toString() {
         return GsonUtils.GSON.toJson(this);
-    }
-
-    @Override
-    public ResourceGroup clone() {
-        ResourceGroup copied = DeepCopy.copy(this, ResourceGroup.class, FeConstants.meta_version);
-        if (copied == null) {
-            LOG.warn("failed to clone resource group: " + getName());
-            return null;
-        }
-        return copied;
     }
 
     public TPipelineResourceGroup toThrift() {

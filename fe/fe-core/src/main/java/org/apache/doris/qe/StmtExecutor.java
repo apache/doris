@@ -876,10 +876,9 @@ public class StmtExecutor implements ProfileWriter {
                 || parsedStmt instanceof InsertStmt
                 || parsedStmt instanceof CreateTableAsSelectStmt
                 || parsedStmt instanceof LogicalPlanAdapter) {
-            if (context.sessionVariable.enablePipelineEngine()) {
-                analyzer.setResourceGroups(
-                        analyzer.getEnv().getResourceGroupMgr()
-                                .getResourceGroup(context.sessionVariable.resourceGroup));
+            if (Config.enable_resource_group && context.sessionVariable.enablePipelineEngine()) {
+                analyzer.setResourceGroups(analyzer.getEnv().getResourceGroupMgr()
+                        .getResourceGroup(context.sessionVariable.resourceGroup));
             }
             Map<Long, TableIf> tableMap = Maps.newTreeMap();
             QueryStmt queryStmt;

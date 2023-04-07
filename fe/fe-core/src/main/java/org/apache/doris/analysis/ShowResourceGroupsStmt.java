@@ -24,19 +24,9 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.resource.resourcegroup.ResourceGroupMgr;
 
-import java.util.List;
-
 public class ShowResourceGroupsStmt extends ShowStmt {
 
-    private Expr whereClause;
-    private LimitElement limitElement;
-    private List<OrderByElement> orderByElements;
-
-    public ShowResourceGroupsStmt(Expr labelExpr, List<OrderByElement> orderByElements, LimitElement limitElement) {
-        this.whereClause = labelExpr;
-        this.orderByElements = orderByElements;
-        this.limitElement = limitElement;
-    }
+    public ShowResourceGroupsStmt() {}
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {

@@ -581,7 +581,6 @@ struct TPipelineResourceGroup {
   2: optional string name
   3: optional map<string, string> properties
   4: optional i64 version
-  5: optional i64 parent_id
 }
 
 // ExecPlanFragment

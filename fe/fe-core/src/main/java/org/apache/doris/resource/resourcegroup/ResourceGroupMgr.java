@@ -19,6 +19,7 @@ package org.apache.doris.resource.resourcegroup;
 
 import org.apache.doris.analysis.CreateResourceGroupStmt;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
@@ -31,11 +32,9 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TPipelineResourceGroup;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -52,17 +51,9 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
 
     public static final String DEFAULT_GROUP_NAME = "normal";
 
-    private static final String CPU_SHARE = "cpu_share";
-
     public static final ImmutableList<String> RESOURCE_GROUP_PROC_NODE_TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("Id").add("Name").add("Item").add("Value")
             .build();
-
-    private static final ImmutableSet<String> REQUIRED_PROPERTIES_NAME = new ImmutableSet.Builder<String>().add(
-            CPU_SHARE).build();
-
-    private static final ImmutableSet<String> ALL_PROPERTIES_NAME = new ImmutableSet.Builder<String>().add(
-            CPU_SHARE).build();
 
     @SerializedName(value = "idToResourceGroup")
     private final Map<Long, ResourceGroup> idToResourceGroup = Maps.newHashMap();
@@ -93,7 +84,9 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
     }
 
     public void init() {
-        checkAndCreateDefaultGroup();
+        if (Config.enable_resource_group) {
+            checkAndCreateDefaultGroup();
+        }
     }
 
     public List<TPipelineResourceGroup> getResourceGroup(String groupName) throws UserException {
@@ -113,19 +106,20 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
     }
 
     private void checkAndCreateDefaultGroup() {
-        ResourceGroup defaultResourceGroup;
+        ResourceGroup defaultResourceGroup = null;
         writeLock();
         try {
             if (nameToResourceGroup.containsKey(DEFAULT_GROUP_NAME)) {
                 return;
             }
             Map<String, String> properties = Maps.newHashMap();
-            properties.put(CPU_SHARE, "10");
-            defaultResourceGroup = new ResourceGroup(Env.getCurrentEnv().getNextId(),
-                    DEFAULT_GROUP_NAME, properties, -1);
+            properties.put(ResourceGroup.CPU_SHARE, "10");
+            defaultResourceGroup = ResourceGroup.createResourceGroup(DEFAULT_GROUP_NAME, properties);
             nameToResourceGroup.put(DEFAULT_GROUP_NAME, defaultResourceGroup);
             idToResourceGroup.put(defaultResourceGroup.getId(), defaultResourceGroup);
             Env.getCurrentEnv().getEditLog().logCreateResourceGroup(defaultResourceGroup);
+        } catch (DdlException e) {
+            LOG.warn("Create resource group " + DEFAULT_GROUP_NAME + " fail");
         } finally {
             writeUnlock();
         }
@@ -133,10 +127,8 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
     }
 
     public void createResourceGroup(CreateResourceGroupStmt stmt) throws DdlException {
-        checkProperties(stmt.getProperties());
-        ResourceGroup resourceGroup = new ResourceGroup(Env.getCurrentEnv().getNextId(),
-                stmt.getResourceGroupName(),
-                stmt.getProperties(), -1);
+        ResourceGroup resourceGroup = ResourceGroup.createResourceGroup(stmt.getResourceGroupName(),
+                stmt.getProperties());
         String resourceGroupNameName = resourceGroup.getName();
         writeLock();
         try {
@@ -152,24 +144,6 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
             writeUnlock();
         }
         LOG.info("Create resource group success: {}", resourceGroup);
-    }
-
-    private void checkProperties(Map<String, String> properties) throws DdlException {
-        for (String propertyName : properties.keySet()) {
-            if (!ALL_PROPERTIES_NAME.contains(propertyName)) {
-                throw new DdlException("Property " + propertyName + " is not supported.");
-            }
-        }
-        for (String propertyName : REQUIRED_PROPERTIES_NAME) {
-            if (!properties.containsKey(propertyName)) {
-                throw new DdlException("Property " + propertyName + " is required.");
-            }
-        }
-
-        String cpuSchedulingWeight = properties.get(CPU_SHARE);
-        if (!StringUtils.isNumeric(cpuSchedulingWeight) || Long.parseLong(cpuSchedulingWeight) <= 0) {
-            throw new DdlException("cpu_scheduling_weight requires a positive integer.");
-        }
     }
 
     public void replayCreateResourceGroup(ResourceGroup resourceGroup) {
