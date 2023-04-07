@@ -230,6 +230,10 @@ public class SelectStmt extends QueryStmt {
         if (havingClauseAfterAnaylzed != null) {
             exprs.add(havingClauseAfterAnaylzed);
         }
+        if (orderByElementsAfterAnalyzed != null) {
+            exprs.addAll(orderByElementsAfterAnalyzed.stream().map(orderByElement -> orderByElement.getExpr())
+                    .collect(Collectors.toList()));
+        }
         return exprs;
     }
 
