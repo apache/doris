@@ -104,6 +104,7 @@ public class HistogramTask extends BaseAnalysisTask {
         LOG.info("SQL to collect the histogram:\n {}", histogramSql);
 
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+            r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
             this.stmtExecutor = new StmtExecutor(r.connectContext, histogramSql);
             this.stmtExecutor.execute();
         }
