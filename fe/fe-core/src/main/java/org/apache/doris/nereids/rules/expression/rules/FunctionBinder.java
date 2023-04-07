@@ -87,6 +87,7 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
 
         // bind function
         FunctionRegistry functionRegistry = context.cascadesContext.getConnectContext().getFunctionRegistry();
+        // bind function, we select builtin function first, if not found, consider it's an alias function.
         // FunctionRegistry only support builtin functions.
         FunctionRegistry functionRegistry = context.getConnectContext().getEnv().getFunctionRegistry();
         String functionName = unboundFunction.getName();

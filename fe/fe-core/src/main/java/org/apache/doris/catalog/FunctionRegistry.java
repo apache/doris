@@ -59,7 +59,7 @@ public class FunctionRegistry {
         return findFunctionBuilderRaw(name, ImmutableList.of(argument));
     }
 
-    // currently we only find function by name and arity
+    // currently we only find function by name and arity and args' types.
     public FunctionBuilder findFunctionBuilderRaw(String name, List<?> arguments) {
         int arity = arguments.size();
         List<FunctionBuilder> functionBuilders = name2Builders.get(name.toLowerCase());

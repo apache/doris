@@ -53,40 +53,21 @@ import java.util.stream.Collectors;
 /**
  * replace alias function to builtin function expression
  */
-public class ReplaceAliasFunction extends DefaultExpressionRewriter<CascadesContext> implements AnalysisRuleFactory {
-    @Override
-    public List<Rule> buildRules() {
-        return ImmutableList.of(
-                logicalProject().thenApply(ctx -> {
-                    LogicalProject<?> project = ctx.root;
-                    List<NamedExpression> exprs = project.getProjects().stream()
-                            .map(ne -> ((NamedExpression) ne.accept(this, ctx.cascadesContext)))
-                            .collect(Collectors.toList());
-                    return project.withProjects(exprs);
-                }).toRule(RuleType.REPLACE_ALIAS_FUNCTION),
-                unboundOneRowRelation().thenApply(ctx -> {
-                    UnboundOneRowRelation relation = ctx.root;
-                    List<NamedExpression> exprs = relation.getProjects().stream()
-                            .map(ne -> ((NamedExpression) ne.accept(this, ctx.cascadesContext)))
-                            .collect(Collectors.toList());
-                    return new UnboundOneRowRelation(relation.getId(), exprs);
-                }).toRule(RuleType.REPLACE_ALIAS_FUNCTION)
-        );
-    }
-
+public class AliasFunctionRewriter extends DefaultExpressionRewriter<CascadesContext> {
     /**
      * In the rule, we change alias function to builtin function.
      * Firstly, when we find an unbound function and check whether it's an alias function.
      * Secondly, we ensure it is an alias function, it's a original planner style expression, we get its sql-style,
      * but the NereidsParser cannot parser an expression, so we parse a one-row relation sql like:
      *      select {the alias function}
-     * Thirdly, handle the unbound function's children recursively by the two steps above.
      */
 
-    @Override
-    public Expression visitUnboundFunction(UnboundFunction function, CascadesContext context) {
+    public Expression rewriteFunction(UnboundFunction function, CascadesContext context) {
         Database db = getDb(context);
         AliasFunction aliasFunction = getAliasFunction(function, db);
+        if (aliasFunction == null) {
+            return function;
+        }
         Expr originalFunction = aliasFunction.getOriginFunction();
         if (!(originalFunction instanceof FunctionCallExpr)) {
             throw new AnalysisException(String.format("unsupported type of originalFunction in aliasFunction: %s",
