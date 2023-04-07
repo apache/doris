@@ -861,6 +861,7 @@ Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
     }
     RETURN_IF_ERROR(get_block_compression_codec(_reader->get_compression(), &_compress_codec));
     if (config::enable_low_cardinality_optimize &&
+        opts.io_ctx.reader_type == ReaderType::READER_QUERY &&
         _reader->encoding_info()->encoding() == DICT_ENCODING) {
         auto dict_encoding_type = _reader->get_dict_encoding_type();
         if (dict_encoding_type == ColumnReader::UNKNOWN_DICT_ENCODING) {
