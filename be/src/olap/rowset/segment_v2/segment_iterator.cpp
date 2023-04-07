@@ -1773,12 +1773,12 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                 auto col_const =
                         vectorized::ColumnConst::create(std::move(res_column), selected_size);
                 block->replace_by_position(0, std::move(col_const));
-                _output_index_result_column(nullptr, 0, block);
+                _output_index_result_column(sel_rowid_idx, selected_size, block);
                 block->shrink_char_type_column_suffix_zero(_char_type_idx_no_0);
                 RETURN_IF_ERROR(_execute_common_expr(sel_rowid_idx, selected_size, block));
                 block->replace_by_position(0, std::move(col0));
             } else {
-                _output_index_result_column(nullptr, 0, block);
+                _output_index_result_column(sel_rowid_idx, selected_size, block);
                 block->shrink_char_type_column_suffix_zero(_char_type_idx);
                 RETURN_IF_ERROR(_execute_common_expr(sel_rowid_idx, selected_size, block));
             }
@@ -1951,6 +1951,7 @@ void SegmentIterator::_output_index_result_column(uint16_t* sel_rowid_idx, uint1
     }
 
     for (auto& iter : _rowid_result_for_index) {
+        _columns_to_filter.push_back(block->columns());
         block->insert({vectorized::ColumnUInt8::create(),
                        std::make_shared<vectorized::DataTypeUInt8>(), iter.first});
         if (!iter.second.first) {

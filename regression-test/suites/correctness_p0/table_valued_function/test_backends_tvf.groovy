@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// This suit test the `backends` information_schema table
-suite("test_backends_table") {
-    List<List<Object>> table =  sql """ select * from information_schema.backends; """
+// This suit test the `backends` tvf
+suite("test_backends_tvf") {
+    List<List<Object>> table =  sql """ select * from backends(); """
     assertTrue(table.size() > 0) // row should > 0
-    assertTrue(table[0].size == 23) // column should be 23
+    assertTrue(table[0].size == 26) // column should be 26
 }
