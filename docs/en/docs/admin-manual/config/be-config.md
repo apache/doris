@@ -1314,7 +1314,7 @@ Log printing module, writing olap will only print the log under the olap module
 
 ### `tablet_map_shard_size`
 
-Default: 1
+Default: 4
 
 tablet_map_lock fragment size, the value is 2^n, n=0,1,2,3,4, this is for better tablet management
 
