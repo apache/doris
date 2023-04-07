@@ -110,7 +110,7 @@ public class StmtRewriter {
         if (result.hasWhereClause()) {
             // Push negation to leaf operands.
             result.whereClause = Expr.pushNegationToOperands(result.whereClause);
-            if (ConnectContext.get() == null || !ConnectContext.get().getSessionVariable().enableVectorizedEngine()) {
+            if (ConnectContext.get() == null) {
                 // Check if we can equal the subqueries in the WHERE clause. OR predicates with
                 // subqueries are not supported.
                 if (hasSubqueryInDisjunction(result.whereClause)) {

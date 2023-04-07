@@ -711,7 +711,6 @@ public class SelectStmt extends QueryStmt {
         // only vectorized mode and session opt variable enabled
         if (ConnectContext.get() == null
                 || ConnectContext.get().getSessionVariable() == null
-                || !ConnectContext.get().getSessionVariable().enableVectorizedEngine
                 || !ConnectContext.get().getSessionVariable().enableTwoPhaseReadOpt) {
             return false;
         }
