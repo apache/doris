@@ -119,6 +119,7 @@ public class MTMVTaskProcessor {
         ctx.setThreadLocalInfo();
         ctx.getState().reset();
         try {
+            ctx.getSessionVariable().disableNereidsPlannerOnce();
             StmtExecutor executor = new StmtExecutor(ctx, sql);
             ctx.setExecutor(executor);
             executor.execute();
