@@ -31,7 +31,7 @@ using unexpected = tl::unexpected<E>;
 template <class E>
 using bad_expected_access = tl::bad_expected_access<E>;
 using unexpect_t = tl::unexpect_t;
-using tl::unexpect;
+using tl::unexpect; // NOLINT
 } // namespace doris
 #else
 #include <expected>
@@ -43,6 +43,6 @@ using unexpected = std::unexpected<E>;
 template <class E>
 using bad_expected_access = std::bad_expected_access<E>;
 using unexpect_t = std::unexpect_t;
-using std::unexpect;
+using std::unexpect; // NOLINT
 } // namespace doris
 #endif
