@@ -20,6 +20,11 @@
 
 #pragma once
 
+#ifdef __AVX2__
+#include <immintrin.h>
+
+#include "gutil/macros.h"
+#endif
 #include "common/status.h"
 #include "fmt/format.h"
 #include "util/hash_util.hpp"
@@ -38,6 +43,11 @@ namespace doris {
 // speed up the implementation.
 
 // BlockBloomFilter will not store null values, and will always return a false if the input is null.
+
+// Some constants used in hashing. #defined for efficiency reasons.
+#define BLOOM_HASH_CONSTANTS                                                                   \
+    0x47b6137bU, 0x44974d91U, 0x8824ad5bU, 0xa2b7289dU, 0x705495c7U, 0x2df1424bU, 0x9efc4947U, \
+            0x5c6bfb31U
 
 class BlockBloomFilter {
 public:
@@ -68,13 +78,64 @@ public:
         }
     }
 
+    // This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
+    void insert_new_hash(const Slice& key) noexcept {
+        if (key.data) {
+            insert(HashUtil::crc_hash(key.data, key.size, _hash_seed));
+        }
+    }
+
+#ifdef __AVX2__
+
+    static inline ATTRIBUTE_ALWAYS_INLINE __attribute__((__target__("avx2"))) __m256i make_mark(
+            const uint32_t hash) {
+        const __m256i ones = _mm256_set1_epi32(1);
+        const __m256i rehash = _mm256_setr_epi32(BLOOM_HASH_CONSTANTS);
+        // Load hash into a YMM register, repeated eight times
+        __m256i hash_data = _mm256_set1_epi32(hash);
+        // Multiply-shift hashing ala Dietzfelbinger et al.: multiply 'hash' by eight different
+        // odd constants, then keep the 5 most significant bits from each product.
+        hash_data = _mm256_mullo_epi32(rehash, hash_data);
+        hash_data = _mm256_srli_epi32(hash_data, 27);
+        // Use these 5 bits to shift a single bit to a location in each 32-bit lane
+        return _mm256_sllv_epi32(ones, hash_data);
+    }
+#endif
+
     // Finds an element in the BloomFilter, returning true if it is found and false (with
     // high probability) if it is not.
-    bool find(uint32_t hash) const noexcept;
+    ALWAYS_INLINE bool find(uint32_t hash) const noexcept {
+        if (_always_false) {
+            return false;
+        }
+        const uint32_t bucket_idx = rehash32to32(hash) & _directory_mask;
+#ifdef __AVX2__
+        const __m256i mask = make_mark(hash);
+        const __m256i bucket = reinterpret_cast<__m256i*>(_directory)[bucket_idx];
+        // We should return true if 'bucket' has a one wherever 'mask' does. _mm256_testc_si256
+        // takes the negation of its first argument and ands that with its second argument. In
+        // our case, the result is zero everywhere iff there is a one in 'bucket' wherever
+        // 'mask' is one. testc returns 1 if the result is 0 everywhere and returns 0 otherwise.
+        const bool result = _mm256_testc_si256(bucket, mask);
+        _mm256_zeroupper();
+        return result;
+#else
+        return bucket_find(bucket_idx, hash);
+#endif
+    }
     // Same as above with convenience of hashing the key.
     bool find(const Slice& key) const noexcept {
         if (key.data) {
             return find(HashUtil::murmur_hash3_32(key.data, key.size, _hash_seed));
+        } else {
+            return false;
+        }
+    }
+
+    // This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
+    bool find_new_hash(const Slice& key) const noexcept {
+        if (key.data) {
+            return find(HashUtil::crc_hash(key.data, key.size, _hash_seed));
         } else {
             return false;
         }
@@ -172,10 +233,6 @@ private:
     void bucket_insert_avx2(uint32_t bucket_idx, uint32_t hash) noexcept
             __attribute__((__target__("avx2")));
 
-    // A faster SIMD version of BucketFind().
-    bool bucket_find_avx2(uint32_t bucket_idx, uint32_t hash) const noexcept
-            __attribute__((__target__("avx2")));
-
     // Computes out[i] |= in[i] for the arrays 'in' and 'out' of length 'n' using AVX2
     // instructions. 'n' must be a multiple of 32.
     static void or_equal_array_avx2(size_t n, const uint8_t* __restrict__ in,
@@ -184,11 +241,6 @@ private:
 #endif
     // Size of the internal directory structure in bytes.
     size_t directory_size() const { return 1ULL << log_space_bytes(); }
-
-    // Some constants used in hashing. #defined for efficiency reasons.
-#define BLOOM_HASH_CONSTANTS                                                                   \
-    0x47b6137bU, 0x44974d91U, 0x8824ad5bU, 0xa2b7289dU, 0x705495c7U, 0x2df1424bU, 0x9efc4947U, \
-            0x5c6bfb31U
 
     // kRehash is used as 8 odd 32-bit unsigned ints.  See Dietzfelbinger et al.'s "A
     // reliable randomized algorithm for the closest-pair problem".
