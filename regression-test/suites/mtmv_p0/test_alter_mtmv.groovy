@@ -19,9 +19,6 @@ suite("test_alter_mtmv") {
     def tableName = "t_test_alter_mtmv_user"
     def tableNamePv = "t_test_alter_mtmv_pv"
     def mvName = "multi_mv_test_alter_mtmv"
-    sql """
-        ADMIN SET FRONTEND CONFIG("enable_mtmv_scheduler_framework"="true");
-        """
 
     sql """drop table if exists `${tableName}`"""
     sql """drop table if exists `${tableNamePv}`"""
