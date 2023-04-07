@@ -201,7 +201,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 scan = scan.withPreAggStatus(PreAggStatus.off(
                         Column.DELETE_SIGN + " is used as conjuncts."));
             }
-            return new LogicalFilter(Sets.newHashSet(conjunct), scan);
+            return new LogicalFilter<>(Sets.newHashSet(conjunct), scan);
         }
         return scan;
     }
