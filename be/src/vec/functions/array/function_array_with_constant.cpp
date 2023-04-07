@@ -19,6 +19,7 @@
 #include "vec/columns/column_const.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
 #include "vec/functions/simple_function_factory.h"
