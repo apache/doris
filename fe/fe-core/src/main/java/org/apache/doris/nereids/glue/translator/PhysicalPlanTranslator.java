@@ -543,8 +543,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         context.addScanNode(olapScanNode);
         // translate runtime filter
         context.getRuntimeTranslator().ifPresent(
-                runtimeFilterGenerator -> runtimeFilterGenerator.getTargetOnScanNode(olapScan.getId()).forEach(
-                        expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, olapScanNode, context)
+                runtimeFilterTranslator -> runtimeFilterTranslator.getTargetOnScanNode(olapScan.getId()).forEach(
+                        expr -> runtimeFilterTranslator.translateRuntimeFilterTarget(expr, olapScanNode, context)
                 )
         );
         olapScanNode.finalizeForNereids();
