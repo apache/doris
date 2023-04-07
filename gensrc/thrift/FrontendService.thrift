@@ -719,7 +719,7 @@ struct TInitExternalCtlMetaResult {
 }
 
 enum TSchemaTableName {
-  BACKENDS = 0,
+  // BACKENDS = 0,
   METADATA_TABLE = 1,
 }
 
