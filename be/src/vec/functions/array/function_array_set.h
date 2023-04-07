@@ -197,9 +197,10 @@ private:
         for (size_t row = 0; row < left_data.offsets_ptr->size(); ++row) {
             size_t count = 0;
             size_t left_off = (*left_data.offsets_ptr)[index_check_const(row, LCONST) - 1];
-            size_t left_len = (*left_data.offsets_ptr)[index_check_const(row, LCONST) ] - left_off;
-            size_t right_off = (*right_data.offsets_ptr)[index_check_const(row, RCONST)  - 1];
-            size_t right_len = (*right_data.offsets_ptr)[index_check_const(row, RCONST) ] - right_off;
+            size_t left_len = (*left_data.offsets_ptr)[index_check_const(row, LCONST)] - left_off;
+            size_t right_off = (*right_data.offsets_ptr)[index_check_const(row, RCONST) - 1];
+            size_t right_len =
+                    (*right_data.offsets_ptr)[index_check_const(row, RCONST)] - right_off;
             if constexpr (execute_left_column_first) {
                 impl.template apply<true>(left_data, left_off, left_len, dst, &count);
                 impl.template apply<false>(right_data, right_off, right_len, dst, &count);
