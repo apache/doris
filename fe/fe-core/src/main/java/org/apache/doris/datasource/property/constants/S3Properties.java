@@ -155,6 +155,9 @@ public class S3Properties extends BaseProperties {
     }
 
     public static void requiredS3Properties(Map<String, String> properties) throws DdlException {
+        // Try to convert env properties to uniform properties
+        // compatible with old version
+        S3Properties.convertToStdProperties(properties);
         if (properties.containsKey(S3Properties.Env.ENDPOINT)) {
             for (String field : S3Properties.Env.REQUIRED_FIELDS) {
                 checkRequiredProperty(properties, field);
