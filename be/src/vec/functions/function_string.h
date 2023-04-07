@@ -368,8 +368,9 @@ private:
                             const char lower, const char number) {
         result.get_chars().resize(source.get_chars().size());
         result.get_offsets().resize(source.get_offsets().size());
-        memcpy_small_allow_read_write_overflow15(result.get_offsets().data(), source.get_offsets().data(),
-               source.get_offsets().size() * sizeof(ColumnString::Offset));
+        memcpy_small_allow_read_write_overflow15(
+                result.get_offsets().data(), source.get_offsets().data(),
+                source.get_offsets().size() * sizeof(ColumnString::Offset));
 
         const unsigned char* src = source.get_chars().data();
         const size_t size = source.get_chars().size();
@@ -452,8 +453,9 @@ private:
         auto* offsets = src.get_offsets().data();
         result.get_chars().resize(src.get_chars().size());
         result.get_offsets().resize(src.get_offsets().size());
-        memcpy_small_allow_read_write_overflow15(result.get_offsets().data(), src.get_offsets().data(),
-               src.get_offsets().size() * sizeof(ColumnString::Offset));
+        memcpy_small_allow_read_write_overflow15(
+                result.get_offsets().data(), src.get_offsets().data(),
+                src.get_offsets().size() * sizeof(ColumnString::Offset));
         auto* res = result.get_chars().data();
 
         for (ssize_t i = 0; i != num_rows; ++i) {
@@ -710,8 +712,9 @@ public:
 
                 int size = current_offsets[i] - current_offsets[i - 1];
                 if (size > 0) {
-                    memcpy_small_allow_read_write_overflow15(&res_data[res_offset[i - 1]] + current_length,
-                        &current_chars[current_offsets[i - 1]], size);
+                    memcpy_small_allow_read_write_overflow15(
+                            &res_data[res_offset[i - 1]] + current_length,
+                            &current_chars[current_offsets[i - 1]], size);
                     current_length += size;
                 }
             }
