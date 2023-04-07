@@ -1008,14 +1008,23 @@ struct TimeToSecImpl {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           size_t result, size_t input_rows_count) {
         auto res_col = ColumnVector<Int32>::create();
-        auto argument_column =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const auto& [argument_column, arg_is_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
         const auto& column_data = assert_cast<const ColumnFloat64&>(*argument_column);
-        for (int i = 0; i < input_rows_count; ++i) {
-            double time = column_data.get_element(i);
+        if (arg_is_const) {
+            double time = column_data.get_element(0);
             res_col->insert_value(static_cast<int>(time));
+            block.replace_by_position(result,
+                                      ColumnConst::create(std::move(res_col), input_rows_count));
+        } else {
+            auto& res_data = res_col->get_data();
+            res_data.resize(input_rows_count);
+            for (int i = 0; i < input_rows_count; ++i) {
+                double time = column_data.get_element(i);
+                res_data[i] = static_cast<int>(time);
+            }
+            block.replace_by_position(result, std::move(res_col));
         }
-        block.get_by_position(result).column = std::move(res_col);
         return Status::OK();
     }
 };

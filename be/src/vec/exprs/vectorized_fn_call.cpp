@@ -114,7 +114,6 @@ doris::Status VectorizedFnCall::execute(VExprContext* context, doris::vectorized
     RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), *block, arguments,
                                        num_columns_without_result, block->rows(), false));
     *result_column_id = num_columns_without_result;
-    LOG(INFO)<<block->dump_data();
     return Status::OK();
 }
 
