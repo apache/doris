@@ -109,9 +109,15 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
                     .accept(this, context);
         }
 
-        FunctionBuilder builder = functionRegistry.findFunctionBuilder(functionName, arguments);
-        BoundFunction boundFunction = builder.build(functionName, arguments);
-        return TypeCoercionUtils.processBoundFunction(boundFunction);
+        try {
+            FunctionBuilder builder = functionRegistry.findFunctionBuilder(functionName, arguments);
+            BoundFunction boundFunction = builder.build(functionName, arguments);
+            return TypeCoercionUtils.processBoundFunction(boundFunction);
+        } catch (AnalysisException e) {
+            AliasFunctionRewriter rewriter = new AliasFunctionRewriter();
+            Expression aliasFunction = rewriter.rewriteFunction(unboundFunction, context);
+            return this.bind(aliasFunction, context);
+        }
     }
 
     /**
