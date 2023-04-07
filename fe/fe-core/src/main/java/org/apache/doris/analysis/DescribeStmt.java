@@ -67,6 +67,7 @@ public class DescribeStmt extends ShowStmt {
                     .addColumn(new Column("IndexKeysType", ScalarType.createVarchar(20)))
                     .addColumn(new Column("Field", ScalarType.createVarchar(20)))
                     .addColumn(new Column("Type", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("ColumnType", ScalarType.createVarchar(20)))
                     .addColumn(new Column("Null", ScalarType.createVarchar(10)))
                     .addColumn(new Column("Key", ScalarType.createVarchar(10)))
                     .addColumn(new Column("Default", ScalarType.createVarchar(30)))
@@ -130,6 +131,11 @@ public class DescribeStmt extends ShowStmt {
                                 ? FeConstants.null_string : column.getDefaultValue(),
                         "NONE"
                 );
+                if (column.getOriginType().isDatetimeV2()) {
+                    row.set(1, "DATETIME");
+                } else if (column.getOriginType().isDateV2()) {
+                    row.set(1, "DATE");
+                }
                 totalRows.add(row);
             }
             return;
@@ -205,6 +211,7 @@ public class DescribeStmt extends ShowStmt {
                                     "",
                                     column.getName(),
                                     column.getOriginType().toString(),
+                                    column.getOriginType().toString(),
                                     column.isAllowNull() ? "Yes" : "No",
                                     ((Boolean) column.isKey()).toString(),
                                     column.getDefaultValue() == null
@@ -214,6 +221,12 @@ public class DescribeStmt extends ShowStmt {
                                     ((Boolean) column.isVisible()).toString(),
                                     column.getDefineExpr() == null ? "" : column.getDefineExpr().toSql(),
                                     "");
+
+                            if (column.getOriginType().isDatetimeV2()) {
+                                row.set(3, "DATETIME");
+                            } else if (column.getOriginType().isDateV2()) {
+                                row.set(3, "DATE");
+                            }
 
                             if (j == 0) {
                                 row.set(0, indexName);
@@ -288,6 +301,13 @@ public class DescribeStmt extends ShowStmt {
             List<List<String>> rows = node.fetchResult().getRows();
             List<List<String>> res = new ArrayList<>();
             for (List<String> row : rows) {
+                // show DATEV2/DATETIMEV2 to DATE/DATETIME for compatibility
+                if (row.get(1).length() >= 6 && row.get(1).substring(0, 6).equals("DATEV2")) {
+                    row.set(1, "DATE");
+                }
+                if (row.get(1).length() >= 10 && row.get(1).substring(0, 10).equals("DATETIMEV2")) {
+                    row.set(1, "DATETIME");
+                }
                 try {
                     Env.getCurrentEnv().getAccessManager()
                             .checkColumnsPriv(ConnectContext.get().getCurrentUserIdentity(), dbTableName.getCtl(),

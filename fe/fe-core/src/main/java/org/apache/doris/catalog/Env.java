@@ -2788,7 +2788,8 @@ public class Env {
                 // There MUST BE 2 space in front of each column description line
                 // sqlalchemy requires this to parse SHOW CREATE TABLE stmt.
                 if (table.getType() == TableType.OLAP) {
-                    sb.append("  ").append(column.toSql(((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS));
+                    sb.append("  ").append(
+                            column.toSql(((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS, true));
                 } else {
                     sb.append("  ").append(column.toSql());
                 }
