@@ -66,8 +66,6 @@ public:
 
     int32_t next_operator_builder_id() { return _next_operator_builder_id++; }
 
-    Status prepare(const doris::TExecPlanFragmentParams& request);
-
     Status prepare(const doris::TPipelineFragmentParams& request, const size_t idx);
 
     Status submit();
@@ -75,10 +73,6 @@ public:
     void close_if_prepare_failed();
 
     void set_is_report_success(bool is_report_success) { _is_report_success = is_report_success; }
-
-    ExecNode*& plan() { return _root_plan; }
-
-    void set_need_wait_execution_trigger() { _need_wait_execution_trigger = true; }
 
     void cancel(const PPlanFragmentCancelReason& reason = PPlanFragmentCancelReason::INTERNAL_ERROR,
                 const std::string& msg = "");
@@ -115,7 +109,6 @@ public:
 private:
     Status _create_sink(const TDataSink& t_data_sink);
     Status _build_pipelines(ExecNode*, PipelinePtr);
-    Status _build_pipeline_tasks(const doris::TExecPlanFragmentParams& request);
     Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request);
     template <bool is_intersect>
     Status _build_operators_for_set_operation_node(ExecNode*, PipelinePtr);
@@ -162,8 +155,6 @@ private:
 
     std::shared_ptr<QueryFragmentsCtx> _query_ctx;
 
-    // If set the true, this plan fragment will be executed only after FE send execution start rpc.
-    bool _need_wait_execution_trigger = false;
     std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
 
     MonotonicStopWatch _fragment_watcher;
