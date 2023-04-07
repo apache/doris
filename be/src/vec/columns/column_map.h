@@ -133,6 +133,8 @@ public:
     const ColumnPtr& get_offsets_ptr() const { return offsets_column; }
     ColumnPtr& get_offsets_ptr() { return offsets_column; }
 
+    size_t ALWAYS_INLINE offset_at(ssize_t i) const { return get_offsets()[i - 1]; }
+
     size_t size() const override { return get_offsets().size(); }
     void reserve(size_t n) override;
     size_t byte_size() const override;
@@ -172,8 +174,6 @@ private:
     WrappedPtr keys_column;    // nullable
     WrappedPtr values_column;  // nullable
     WrappedPtr offsets_column; // offset
-
-    size_t ALWAYS_INLINE offset_at(ssize_t i) const { return get_offsets()[i - 1]; }
 
     ColumnMap(MutableColumnPtr&& keys, MutableColumnPtr&& values, MutableColumnPtr&& offsets);
 
