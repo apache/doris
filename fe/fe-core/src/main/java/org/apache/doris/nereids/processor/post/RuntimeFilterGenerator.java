@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
@@ -75,6 +76,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
      * plan translation:
      * third step: generate nereids runtime filter target at olap scan node fragment.
      * forth step: generate legacy runtime filter target and runtime filter at hash join node fragment.
+     * NOTICE: bottom-up travel the plan tree!!!
      */
     // TODO: current support inner join, cross join, right outer join, and will support more join type.
     @Override
@@ -125,13 +127,13 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
     public PhysicalPlan visitPhysicalNestedLoopJoin(PhysicalNestedLoopJoin<? extends Plan, ? extends Plan> join,
             CascadesContext context) {
         // TODO: we need to support all type join
+        join.right().accept(this, context);
+        join.left().accept(this, context);
         if (join.getJoinType() != JoinType.LEFT_SEMI_JOIN && join.getJoinType() != JoinType.CROSS_JOIN) {
             return join;
         }
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
         Map<NamedExpression, Pair<ObjectId, Slot>> aliasTransferMap = ctx.getAliasTransferMap();
-        join.right().accept(this, context);
-        join.left().accept(this, context);
 
         if ((ctx.getSessionVariable().getRuntimeFilterType() & TRuntimeFilterType.BITMAP.getValue()) == 0) {
             //only generate BITMAP filter for nested loop join
@@ -200,6 +202,13 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
         scan.getOutput().forEach(slot -> ctx.getAliasTransferMap().put(slot, Pair.of(scan.getId(), slot)));
         return scan;
+    }
+
+    @Override
+    public PhysicalStorageLayerAggregate visitPhysicalStorageLayerAggregate(
+            PhysicalStorageLayerAggregate storageLayerAggregate, CascadesContext context) {
+        storageLayerAggregate.getRelation().accept(this, context);
+        return storageLayerAggregate;
     }
 
     private static Slot checkTargetChild(Expression leftChild) {
