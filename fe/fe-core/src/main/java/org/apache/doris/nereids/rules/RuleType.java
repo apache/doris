@@ -85,6 +85,7 @@ public enum RuleType {
     // check analysis rule
     CHECK_AGGREGATE_ANALYSIS(RuleTypeClass.CHECK),
     CHECK_ANALYSIS(RuleTypeClass.CHECK),
+    CHECK_DATATYPES(RuleTypeClass.CHECK),
 
     // rewrite rules
     NORMALIZE_AGGREGATE(RuleTypeClass.REWRITE),

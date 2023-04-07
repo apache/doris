@@ -67,9 +67,13 @@ public class UnsupportedTypeTest extends TestWithFeService {
                 "select karr from type_tb",
                 "select array_range(10)",
                 "select kmap from type_tb1",
+                "select * from type_tb",
+                "select * from type_tb1",
         };
         Class[] exceptions = {
                 null,
+                AnalysisException.class,
+                AnalysisException.class,
                 AnalysisException.class,
                 AnalysisException.class,
                 AnalysisException.class,
