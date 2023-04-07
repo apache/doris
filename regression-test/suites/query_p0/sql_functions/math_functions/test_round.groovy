@@ -62,6 +62,7 @@ suite("test_round") {
     qt_nereids_round_bankers_arg2 "SELECT round_bankers(10.12345, 2)"
 
     def tableName1 = "test_round1"
+    sql """ DROP TABLE IF EXISTS `${tableName1}` """
     sql """ CREATE TABLE `${tableName1}` (
           `TENANT_ID` varchar(50) NOT NULL,
           `PUBONLN_PRC` decimalv3(18, 4) NULL,
@@ -80,6 +81,7 @@ suite("test_round") {
         ); """
 
     def tableName2 = "test_round2"
+    sql """ DROP TABLE IF EXISTS `${tableName2}` """
     sql """ CREATE TABLE `${tableName2}` (
           `tenant_id` varchar(50) NOT NULL COMMENT '租户ID',
           `prodentp_code` varchar(50) NULL COMMENT '生产企业代码',
