@@ -57,6 +57,8 @@ Status ScannerContext::init() {
     // should find a more reasonable value.
     _max_thread_num = _state->shared_scan_opt() ? config::doris_scanner_thread_pool_thread_num
                                                 : config::doris_scanner_thread_pool_thread_num / 4;
+    _max_thread_num = _max_thread_num == 0 ? 1 : _max_thread_num;
+    DCHECK(_max_thread_num > 0);
     _max_thread_num = std::min(_max_thread_num, (int32_t)_scanners.size());
     // For select * from table limit 10; should just use one thread.
     if (_parent->should_run_serial()) {
