@@ -27,22 +27,18 @@ import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.CompareMode;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
-import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMap.Builder;
 
@@ -129,6 +125,12 @@ public class AliasFunctionRewriter extends DefaultExpressionRewriter<CascadesCon
         @Override
         public Expression visitUnboundSlot(UnboundSlot slot, Void unused) {
             return placeHolderToRealParams.getOrDefault(slot.getName(), slot);
+        }
+
+        @Override
+        public Expression visitUnboundAlias(UnboundAlias alias, Void unused) {
+            alias = ((UnboundAlias) super.visit(alias, null));
+            return alias.child();
         }
     }
 }

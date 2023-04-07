@@ -35,6 +35,8 @@ public class AliasFunctionRewriteTest extends TestWithFeService implements MemoP
         createFunction("CREATE ALIAS FUNCTION f2(DATETIMEV2(3), INT)\n"
                 + " with PARAMETER (datetime1, int1) as DATE_FORMAT(HOURS_ADD(date_trunc(datetime1, 'day'),\n"
                 + " add(multiply(floor(divide(HOUR(datetime1), divide(24, int1))), 1), 1)), '%Y%m%d:%H')");
+        createFunction("CREATE ALIAS FUNCTION f3(INT)"
+                + " with PARAMETER (int1) as f2(f1(now(3), 2), int1)");
     }
 
     @Test
@@ -53,7 +55,7 @@ public class AliasFunctionRewriteTest extends TestWithFeService implements MemoP
 
     @Test
     public void testNestedWithBuiltinFunction() {
-        String sql = "select f1(now('2023-04-04'), 3);";
+        String sql = "select f1(now(3), 3);";
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .matches(
@@ -67,6 +69,29 @@ public class AliasFunctionRewriteTest extends TestWithFeService implements MemoP
 
     @Test
     public void testNestedWithAliasFunction() {
+        String sql = "select f2(f1(now(3), 2), 3);";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .matches(
+                        logicalOneRowRelation()
+                                .when(relation -> relation.getProjects().size() == 1)
+                                .when(relation -> relation.getProjects().get(0)
+                                        .anyMatch(expr -> expr instanceof BoundFunction
+                                                && "date_trunc".equals(((BoundFunction) expr).getName())))
+                );
+    }
 
+    @Test
+    public void testNestedAliasFunctionWithNestedFunction() {
+        String sql = "select f3(3);";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .matches(
+                        logicalOneRowRelation()
+                                .when(relation -> relation.getProjects().size() == 1)
+                                .when(relation -> relation.getProjects().get(0)
+                                        .anyMatch(expr -> expr instanceof BoundFunction
+                                                && "date_trunc".equals(((BoundFunction) expr).getName())))
+                );
     }
 }
