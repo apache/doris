@@ -47,8 +47,8 @@ public class RefreshManager {
     private ScheduledThreadPoolExecutor refreshScheduler = ThreadPoolManager.newDaemonScheduledThreadPool(1,
             "catalog-refresh-timer-pool", true);
     // Unit:SECONDS
-    private static final int REFRESH_TIME = 5;
-    // key is the name of a catalog, value is an array of length 2, used to store
+    private static final int REFRESH_TIME_SEC = 5;
+    // key is the id of a catalog, value is an array of length 2, used to store
     // the original refresh time and the current remaining time of the catalog
     private Map<Long, Integer[]> refreshMap = Maps.newConcurrentMap();
 
@@ -169,12 +169,12 @@ public class RefreshManager {
     }
 
     public void start() {
-        TaskRefresh taskRefresh = new TaskRefresh();
-        this.refreshScheduler.scheduleAtFixedRate(taskRefresh, 0, REFRESH_TIME,
+        RefreshTask refreshTask = new RefreshTask();
+        this.refreshScheduler.scheduleAtFixedRate(refreshTask, 0, REFRESH_TIME_SEC,
                 TimeUnit.SECONDS);
     }
 
-    private class TaskRefresh implements Runnable {
+    private class RefreshTask implements Runnable {
         @Override
         public void run() {
             for (Map.Entry<Long, Integer[]> entry : refreshMap.entrySet()) {
@@ -182,20 +182,23 @@ public class RefreshManager {
                 Integer[] timeGroup = entry.getValue();
                 Integer original = timeGroup[0];
                 Integer current = timeGroup[1];
-                if (current - REFRESH_TIME > 0) {
-                    timeGroup[1] = current - REFRESH_TIME;
+                if (current - REFRESH_TIME_SEC > 0) {
+                    timeGroup[1] = current - REFRESH_TIME_SEC;
                     refreshMap.put(catalogId, timeGroup);
                 } else {
-                    String catalogName = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId).getName();
-                    RefreshCatalogStmt refreshCatalogStmt = new RefreshCatalogStmt(catalogName, null);
-                    try {
-                        DdlExecutor.execute(Env.getCurrentEnv(), refreshCatalogStmt);
-                    } catch (Exception e) {
-                        LOG.warn("failed to refresh catalog {}", catalogName, e);
+                    CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
+                    if (catalog != null) {
+                        String catalogName =catalog.getName();
+                        RefreshCatalogStmt refreshCatalogStmt = new RefreshCatalogStmt(catalogName, null);
+                        try {
+                            DdlExecutor.execute(Env.getCurrentEnv(), refreshCatalogStmt);
+                        } catch (Exception e) {
+                            LOG.warn("failed to refresh catalog {}", catalogName, e);
+                        }
+                        // reset
+                        timeGroup[1] = original;
+                        refreshMap.put(catalogId, timeGroup);
                     }
-                    // reset
-                    timeGroup[1] = original;
-                    refreshMap.put(catalogId, timeGroup);
                 }
             }
         }
