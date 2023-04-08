@@ -475,12 +475,14 @@ public class DeployManager extends MasterDaemon {
             List<HostInfo> localHostInfos,
             NodeType nodeType) {
 
-        for (HostInfo hostInfo : remoteHostInfos) {
-            LOG.info("inspectNodeChange: remote host info: {}", hostInfo);
-        }
+        if (LOG.isDebugEnabled()) {
+            for (HostInfo hostInfo : remoteHostInfos) {
+                LOG.debug("inspectNodeChange: remote host info: {}", hostInfo);
+            }
 
-        for (HostInfo hostInfo : localHostInfos) {
-            LOG.info("inspectNodeChange: local host info: {}", hostInfo);
+            for (HostInfo hostInfo : localHostInfos) {
+                LOG.debug("inspectNodeChange: local host info: {}", hostInfo);
+            }
         }
 
         // 2.1 Find local node which need to be dropped.
@@ -667,7 +669,7 @@ public class DeployManager extends MasterDaemon {
     protected class NodeTypeAttr {
         private boolean hasService;
         private String serviceName;
-        private String subAttr1;
+        private String subAttr;
 
         public NodeTypeAttr(boolean hasService) {
             this.hasService = hasService;
@@ -689,12 +691,12 @@ public class DeployManager extends MasterDaemon {
             this.serviceName = serviceName;
         }
 
-        public String getSubAttr1() {
-            return subAttr1;
+        public String getSubAttr() {
+            return subAttr;
         }
 
-        public void setSubAttr1(String subAttr1) {
-            this.subAttr1 = subAttr1;
+        public void setSubAttr(String subAttr) {
+            this.subAttr = subAttr;
         }
     }
 }

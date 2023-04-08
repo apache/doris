@@ -134,6 +134,7 @@ import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
 import org.apache.doris.deploy.DeployManager;
+import org.apache.doris.deploy.DeployManager.NodeType;
 import org.apache.doris.deploy.impl.AmbariDeployManager;
 import org.apache.doris.deploy.impl.K8sDeployManager;
 import org.apache.doris.deploy.impl.LocalFileDeployManager;
@@ -1085,12 +1086,20 @@ public class Env {
                 clusterId, isElectable, role.name(), nodeName);
     }
 
-    public static String genFeNodeName(String host, int port, boolean isOldStyle) {
-        String name = host + "_" + port;
-        if (isOldStyle) {
-            return name;
+    public String genFeNodeName(String host, int port, boolean isOldStyle) {
+        if (Config.enable_deploy_manager.equalsIgnoreCase("k8s") && Config.enable_fqdn_mode) {
+            // If we are in k8s mode, we should get name from k8s deploy manager.
+            // Otherwise, when k8s deploy manager inspect nodes from remote, the names it got will be different from
+            // the names we generate here.
+            // And the first FE is always with the first index: 0.
+            return ((K8sDeployManager) deployManager).getDomainName(NodeType.ELECTABLE, 0);
         } else {
-            return name + "_" + System.currentTimeMillis();
+            String name = host + "_" + port;
+            if (isOldStyle) {
+                return name;
+            } else {
+                return name + "_" + System.currentTimeMillis();
+            }
         }
     }
 
