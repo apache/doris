@@ -129,7 +129,9 @@ public class PropertyConverter {
         properties.put(S3Properties.REGION, credential.getRegion());
         properties.put(S3Properties.ACCESS_KEY, credential.getAccessKey());
         properties.put(S3Properties.SECRET_KEY, credential.getSecretKey());
-        properties.put(S3Properties.SESSION_TOKEN, credential.getSessionToken());
+        if (properties.containsKey(S3Properties.Env.TOKEN)) {
+            properties.put(S3Properties.SESSION_TOKEN, credential.getSessionToken());
+        }
         if (properties.containsKey(S3Properties.Env.MAX_CONNECTIONS)) {
             properties.put(S3Properties.MAX_CONNECTIONS, properties.get(S3Properties.Env.MAX_CONNECTIONS));
         }
@@ -158,6 +160,7 @@ public class PropertyConverter {
             s3Properties.put(Constants.SOCKET_TIMEOUT, properties.get(S3Properties.CONNECTION_TIMEOUT_MS));
         }
         setS3FsAccess(s3Properties, properties, credential);
+        s3Properties.putAll(properties);
         return s3Properties;
     }
 
@@ -315,7 +318,6 @@ public class PropertyConverter {
             String endpoint = props.get(GlueProperties.ENDPOINT);
             props.put(AWSGlueConfig.AWS_GLUE_ENDPOINT, endpoint);
             String region = S3Properties.getRegionOfEndpoint(endpoint);
-            props.put(GlueProperties.REGION, region);
             props.put(AWSGlueConfig.AWS_REGION, region);
             if (credential.isWhole()) {
                 props.put(AWSGlueConfig.AWS_GLUE_ACCESS_KEY, credential.getAccessKey());
@@ -357,7 +359,7 @@ public class PropertyConverter {
         //  "s3.secret_key" = "yy"
         // )
         String endpoint = props.get(GlueProperties.ENDPOINT);
-        String region = props.getOrDefault(GlueProperties.REGION, S3Properties.getRegionOfEndpoint(endpoint));
+        String region = S3Properties.getRegionOfEndpoint(endpoint);
         if (!Strings.isNullOrEmpty(region)) {
             props.put(S3Properties.REGION, region);
             String s3Endpoint = "s3." + region + ".amazonaws.com";

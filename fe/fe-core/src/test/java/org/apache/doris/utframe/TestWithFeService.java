@@ -177,6 +177,11 @@ public abstract class TestWithFeService {
         return statementContext;
     }
 
+    protected  <T extends StatementBase> T createStmt(String showSql)
+            throws Exception {
+        return (T) parseAndAnalyzeStmt(showSql, connectContext);
+    }
+
     protected CascadesContext createCascadesContext(String sql) {
         StatementContext statementCtx = createStatementCtx(sql);
         return MemoTestUtils.createCascadesContext(statementCtx, sql);
