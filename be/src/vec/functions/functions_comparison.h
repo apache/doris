@@ -211,15 +211,23 @@ struct StringEqualsImpl {
                                                  ColumnString::Offset b_size,
                                                  PaddedPODArray<UInt8>& c) {
         size_t size = a_offsets.size();
-        ColumnString::Offset prev_a_offset = 0;
-
-        for (size_t i = 0; i < size; ++i) {
-            auto a_size = a_offsets[i] - prev_a_offset;
-
-            c[i] = positive == memequal_small_allow_overflow15(a_data.data() + prev_a_offset,
-                                                               a_size, b_data.data(), b_size);
-
-            prev_a_offset = a_offsets[i];
+        if (b_size == 0) {
+            auto* __restrict data = c.data();
+            auto* __restrict offsets = a_offsets.data();
+            for (size_t i = 0; i < size; ++i) {
+                data[i] =
+                        positive ? (offsets[i] == offsets[i - 1]) : (offsets[i] != offsets[i - 1]);
+            }
+        } else {
+            ColumnString::Offset prev_a_offset = 0;
+            const auto* a_pos = a_data.data();
+            const auto* b_pos = b_data.data();
+            for (size_t i = 0; i < size; ++i) {
+                auto a_size = a_offsets[i] - prev_a_offset;
+                c[i] = positive == memequal_small_allow_overflow15(a_pos + prev_a_offset, a_size,
+                                                                   b_pos, b_size);
+                prev_a_offset = a_offsets[i];
+            }
         }
     }
 
