@@ -6,7 +6,7 @@ test_rollup_agg	AGG_KEYS	siteid	INT	INT	No	true	\N		true
 		pv	BIGINT	BIGINT	No	false	0	SUM	true		
 		uv	BIGINT	BIGINT	No	false	0	SUM	true		
 		vv	BIGINT	BIGINT	Yes	false	0	SUM	true		
-										
+											
 rollup_city	AGG_KEYS	citycode	SMALLINT	SMALLINT	No	true	\N		true		
 		pv	BIGINT	BIGINT	No	false	0	SUM	true		
 		vv	BIGINT	BIGINT	Yes	false	0	SUM	true		
