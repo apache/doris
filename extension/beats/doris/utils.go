@@ -20,19 +20,19 @@
 package doris
 
 import (
-	"net/url"
-	"strings"
+    "net/url"
+    "strings"
 )
 
 func parseURL(raw string) (*url.URL, error) {
-	if raw == "" {
-		return nil, nil
-	}
-	parsedUrl, err := url.Parse(raw)
-	if err == nil && strings.HasPrefix(parsedUrl.Scheme, "http") {
-		return parsedUrl, err
-	}
-	// Proxy was bogus. Try prepending "http://" to it and
-	// see if that parses correctly.
-	return url.Parse("http://" + raw)
+    if raw == "" {
+        return nil, nil
+    }
+    parsedUrl, err := url.Parse(raw)
+    if err == nil && strings.HasPrefix(parsedUrl.Scheme, "http") {
+        return parsedUrl, err
+    }
+    // Proxy was bogus. Try prepending "http://" to it and
+    // see if that parses correctly.
+    return url.Parse("http://" + raw)
 }

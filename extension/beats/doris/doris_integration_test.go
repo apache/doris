@@ -20,268 +20,269 @@
 package doris
 
 import (
-	"context"
-	"encoding/base64"
-	"encoding/json"
-	"fmt"
-	"gotest.tools/assert"
-	"io/ioutil"
-	"net/http"
-	"strings"
-	"testing"
-	"time"
+    "context"
+    "encoding/base64"
+    "encoding/json"
+    "fmt"
+    "io/ioutil"
+    "net/http"
+    "strings"
+    "testing"
+    "time"
 
-	"github.com/elastic/beats/v7/libbeat/beat"
-	"github.com/elastic/beats/v7/libbeat/common"
-	"github.com/elastic/beats/v7/libbeat/outputs"
-	_ "github.com/elastic/beats/v7/libbeat/outputs/codec/format"
-	_ "github.com/elastic/beats/v7/libbeat/outputs/codec/json"
-	"github.com/elastic/beats/v7/libbeat/outputs/outest"
+    "gotest.tools/assert"
+
+    "github.com/elastic/beats/v7/libbeat/beat"
+    "github.com/elastic/beats/v7/libbeat/common"
+    "github.com/elastic/beats/v7/libbeat/outputs"
+    _ "github.com/elastic/beats/v7/libbeat/outputs/codec/format"
+    _ "github.com/elastic/beats/v7/libbeat/outputs/codec/json"
+    "github.com/elastic/beats/v7/libbeat/outputs/outest"
 )
 
 func TestDorisPublish(t *testing.T) {
-	dorisConfig := map[string]interface{}{
-		"fenodes":  [...]string{"http://localhost:8030"},
-		"user":     "root",
-		"password": "",
-	}
-	testDorisPublishMessage(t, dorisConfig)
+    dorisConfig := map[string]interface{}{
+        "fenodes":  [...]string{"http://localhost:8030"},
+        "user":     "root",
+        "password": "",
+    }
+    testDorisPublishMessage(t, dorisConfig)
 }
 
 type eventInfo struct {
-	events []beat.Event
+    events []beat.Event
 }
 
 func makeConfig(t *testing.T, in map[string]interface{}) *common.Config {
-	cfg, err := common.NewConfigFrom(in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return cfg
+    cfg, err := common.NewConfigFrom(in)
+    if err != nil {
+        t.Fatal(err)
+    }
+    return cfg
 }
 
 func flatten(infos []eventInfo) []beat.Event {
-	var out []beat.Event
-	for _, info := range infos {
-		out = append(out, info.events...)
-	}
-	return out
+    var out []beat.Event
+    for _, info := range infos {
+        out = append(out, info.events...)
+    }
+    return out
 }
 
 func testDorisPublishMessage(t *testing.T, cfg map[string]interface{}) {
-	tests := []struct {
-		title  string
-		config map[string]interface{}
-		events []eventInfo
-	}{
-		{
-			"test csv events",
-			map[string]interface{}{
-				"database":            "test",
-				"table":               "test_beats_csv",
-				"codec_format_string": "%{[message]},%{[@timestamp]},%{[@metadata.type]}",
-				"header": map[string]interface{}{
-					"column_separator": ",",
-				},
-			},
-			[]eventInfo{
-				{
-					events: []beat.Event{
-						{
-							Timestamp: time.Now(),
-							Meta: common.MapStr{
-								"beat":    "filebeat",
-								"type":    "_doc",
-								"version": "7.4.2",
-							},
-							Fields: common.MapStr{
-								"message": "1,A",
-							},
-						},
-						{
-							Timestamp: time.Now(),
-							Meta: common.MapStr{
-								"beat":    "filebeat",
-								"type":    "_doc",
-								"version": "7.4.2",
-							},
-							Fields: common.MapStr{
-								"message": "2,B",
-							},
-						},
-					},
-				},
-			},
-		},
-		{
-			"test json events",
-			map[string]interface{}{
-				"database":            "test",
-				"table":               "test_beats_json",
-				"codec_format_string": "%{[message]}",
-				"header": map[string]interface{}{
-					"format":            "json",
-					"read_json_by_line": true,
-				},
-			},
-			[]eventInfo{
-				{
-					events: []beat.Event{
-						{
-							Timestamp: time.Now(),
-							Meta: common.MapStr{
-								"beat":    "filebeat",
-								"type":    "_doc",
-								"version": "7.4.2",
-							},
-							Fields: common.MapStr{
-								"message": "{\"id\": 1, \"name\": \"A\"}",
-							},
-						},
-						{
-							Timestamp: time.Now(),
-							Meta: common.MapStr{
-								"beat":    "filebeat",
-								"type":    "_doc",
-								"version": "7.4.2",
-							},
-							Fields: common.MapStr{
-								"message": "{\"id\": 2, \"name\": \"B\"}",
-							},
-						},
-					},
-				},
-			},
-		},
-		{
-			"test codec events",
-			map[string]interface{}{
-				"database":            "test",
-				"table":               "test_beats_codec",
-				"codec_format_string": "{\"id\": %{[fields.id]}, \"name\": \"%{[fields.name]}\", \"timestamp\": %{[@timestamp]}, \"type\": \"%{[@metadata.type]}\"}",
-				"header": map[string]interface{}{
-					"format":            "json",
-					"read_json_by_line": true,
-				},
-			},
-			[]eventInfo{
-				{
-					events: []beat.Event{
-						{
-							Timestamp: time.Now(),
-							Meta: common.MapStr{
-								"beat":    "filebeat",
-								"type":    "_doc",
-								"version": "7.4.2",
-							},
-							Fields: common.MapStr{
-								"fields": common.MapStr{
-									"id":   1,
-									"name": "A",
-								},
-							},
-						},
-						{
-							Timestamp: time.Now(),
-							Meta: common.MapStr{
-								"beat":    "filebeat",
-								"type":    "_doc",
-								"version": "7.4.2",
-							},
-							Fields: common.MapStr{
-								"fields": common.MapStr{
-									"id":   2,
-									"name": "B",
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-	for i, test := range tests {
-		config := makeConfig(t, cfg)
-		if test.config != nil {
-			config.Merge(makeConfig(t, test.config))
-		}
+    tests := []struct {
+        title  string
+        config map[string]interface{}
+        events []eventInfo
+    }{
+        {
+            "test csv events",
+            map[string]interface{}{
+                "database":            "test",
+                "table":               "test_beats_csv",
+                "codec_format_string": "%{[message]},%{[@timestamp]},%{[@metadata.type]}",
+                "header": map[string]interface{}{
+                    "column_separator": ",",
+                },
+            },
+            []eventInfo{
+                {
+                    events: []beat.Event{
+                        {
+                            Timestamp: time.Now(),
+                            Meta: common.MapStr{
+                                "beat":    "filebeat",
+                                "type":    "_doc",
+                                "version": "7.4.2",
+                            },
+                            Fields: common.MapStr{
+                                "message": "1,A",
+                            },
+                        },
+                        {
+                            Timestamp: time.Now(),
+                            Meta: common.MapStr{
+                                "beat":    "filebeat",
+                                "type":    "_doc",
+                                "version": "7.4.2",
+                            },
+                            Fields: common.MapStr{
+                                "message": "2,B",
+                            },
+                        },
+                    },
+                },
+            },
+        },
+        {
+            "test json events",
+            map[string]interface{}{
+                "database":            "test",
+                "table":               "test_beats_json",
+                "codec_format_string": "%{[message]}",
+                "header": map[string]interface{}{
+                    "format":            "json",
+                    "read_json_by_line": true,
+                },
+            },
+            []eventInfo{
+                {
+                    events: []beat.Event{
+                        {
+                            Timestamp: time.Now(),
+                            Meta: common.MapStr{
+                                "beat":    "filebeat",
+                                "type":    "_doc",
+                                "version": "7.4.2",
+                            },
+                            Fields: common.MapStr{
+                                "message": "{\"id\": 1, \"name\": \"A\"}",
+                            },
+                        },
+                        {
+                            Timestamp: time.Now(),
+                            Meta: common.MapStr{
+                                "beat":    "filebeat",
+                                "type":    "_doc",
+                                "version": "7.4.2",
+                            },
+                            Fields: common.MapStr{
+                                "message": "{\"id\": 2, \"name\": \"B\"}",
+                            },
+                        },
+                    },
+                },
+            },
+        },
+        {
+            "test codec events",
+            map[string]interface{}{
+                "database":            "test",
+                "table":               "test_beats_codec",
+                "codec_format_string": "{\"id\": %{[fields.id]}, \"name\": \"%{[fields.name]}\", \"timestamp\": %{[@timestamp]}, \"type\": \"%{[@metadata.type]}\"}",
+                "header": map[string]interface{}{
+                    "format":            "json",
+                    "read_json_by_line": true,
+                },
+            },
+            []eventInfo{
+                {
+                    events: []beat.Event{
+                        {
+                            Timestamp: time.Now(),
+                            Meta: common.MapStr{
+                                "beat":    "filebeat",
+                                "type":    "_doc",
+                                "version": "7.4.2",
+                            },
+                            Fields: common.MapStr{
+                                "fields": common.MapStr{
+                                    "id":   1,
+                                    "name": "A",
+                                },
+                            },
+                        },
+                        {
+                            Timestamp: time.Now(),
+                            Meta: common.MapStr{
+                                "beat":    "filebeat",
+                                "type":    "_doc",
+                                "version": "7.4.2",
+                            },
+                            Fields: common.MapStr{
+                                "fields": common.MapStr{
+                                    "id":   2,
+                                    "name": "B",
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    }
+    for i, test := range tests {
+        config := makeConfig(t, cfg)
+        if test.config != nil {
+            config.Merge(makeConfig(t, test.config))
+        }
 
-		name := fmt.Sprintf("run test(%v): %v", i, test.title)
-		t.Run(name, func(t *testing.T) {
-			grp, err := makeDoris(nil, beat.Info{Beat: "libbeat"}, outputs.NewNilObserver(), config)
-			if err != nil {
-				t.Fatal(err)
-			}
+        name := fmt.Sprintf("run test(%v): %v", i, test.title)
+        t.Run(name, func(t *testing.T) {
+            grp, err := makeDoris(nil, beat.Info{Beat: "libbeat"}, outputs.NewNilObserver(), config)
+            if err != nil {
+                t.Fatal(err)
+            }
 
-			output := grp.Clients[0].(outputs.NetworkClient)
-			if err := output.Connect(); err != nil {
-				t.Fatal(err)
-			}
-			defer output.Close()
-			// publish test events
-			for i := range test.events {
-				batch := outest.NewBatch(test.events[i].events...)
+            output := grp.Clients[0].(outputs.NetworkClient)
+            if err := output.Connect(); err != nil {
+                t.Fatal(err)
+            }
+            defer output.Close()
+            // publish test events
+            for i := range test.events {
+                batch := outest.NewBatch(test.events[i].events...)
 
-				output.Publish(context.Background(), batch)
-			}
+                output.Publish(context.Background(), batch)
+            }
 
-			expected := flatten(test.events)
-			stored := testReadFromDoris(t, config)
-			assert.Equal(t, len(expected), stored)
-		})
-	}
+            expected := flatten(test.events)
+            stored := testReadFromDoris(t, config)
+            assert.Equal(t, len(expected), stored)
+        })
+    }
 }
 
 type httpResponse struct {
-	data httpResponseData `json:"data"`
+    data httpResponseData `json:"data"`
 }
 
 type httpResponseData struct {
-	size   int64 `json:"size"`
-	status int32 `json:"status"`
+    size   int64 `json:"size"`
+    status int32 `json:"status"`
 }
 
 func testReadFromDoris(t *testing.T, config *common.Config) int64 {
-	fenodes, err := config.String("fenodes", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	user, err := config.String("user", -1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	password, err := config.String("password", -1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	database, err := config.String("database", -1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	table, err := config.String("table", -1)
-	if err != nil {
-		t.Fatal(err)
-	}
+    fenodes, err := config.String("fenodes", 0)
+    if err != nil {
+        t.Fatal(err)
+    }
+    user, err := config.String("user", -1)
+    if err != nil {
+        t.Fatal(err)
+    }
+    password, err := config.String("password", -1)
+    if err != nil {
+        t.Fatal(err)
+    }
+    database, err := config.String("database", -1)
+    if err != nil {
+        t.Fatal(err)
+    }
+    table, err := config.String("table", -1)
+    if err != nil {
+        t.Fatal(err)
+    }
 
-	getTableCountURL := fmt.Sprintf("%s/api/%s/%s/_count", fenodes, database, table)
-	request, requestErr := http.NewRequest(http.MethodGet, getTableCountURL, strings.NewReader(""))
-	request.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(user+":"+password)))
-	if requestErr != nil {
-		t.Fatal(requestErr)
-	}
-	resp, responseErr := http.DefaultClient.Do(request)
-	if responseErr != nil || resp.StatusCode >= 300 || resp.StatusCode < 200 {
-		t.Fatal(err)
-	}
+    getTableCountURL := fmt.Sprintf("%s/api/%s/%s/_count", fenodes, database, table)
+    request, requestErr := http.NewRequest(http.MethodGet, getTableCountURL, strings.NewReader(""))
+    request.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(user+":"+password)))
+    if requestErr != nil {
+        t.Fatal(requestErr)
+    }
+    resp, responseErr := http.DefaultClient.Do(request)
+    if responseErr != nil || resp.StatusCode >= 300 || resp.StatusCode < 200 {
+        t.Fatal(err)
+    }
 
-	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var response httpResponse
-	if err := json.Unmarshal(body, &response); err != nil {
-		t.Fatal(err)
-	}
-	return response.data.size
+    defer resp.Body.Close()
+    body, err := ioutil.ReadAll(resp.Body)
+    if err != nil {
+        t.Fatal(err)
+    }
+    var response httpResponse
+    if err := json.Unmarshal(body, &response); err != nil {
+        t.Fatal(err)
+    }
+    return response.data.size
 }

@@ -20,20 +20,21 @@
 package main
 
 import (
-	_ "github.com/apache/doris/extension/beats/doris"
-	"github.com/elastic/beats/v7/auditbeat/cmd"
-	"os"
+    "os"
 
-	// Register modules.
-	_ "github.com/elastic/beats/v7/auditbeat/module/auditd"
-	_ "github.com/elastic/beats/v7/auditbeat/module/file_integrity"
+    _ "github.com/apache/doris/extension/beats/doris"
+    "github.com/elastic/beats/v7/auditbeat/cmd"
 
-	// Register includes.
-	_ "github.com/elastic/beats/v7/auditbeat/include"
+    // Register modules.
+    _ "github.com/elastic/beats/v7/auditbeat/module/auditd"
+    _ "github.com/elastic/beats/v7/auditbeat/module/file_integrity"
+
+    // Register includes.
+    _ "github.com/elastic/beats/v7/auditbeat/include"
 )
 
 func main() {
-	if err := cmd.RootCmd.Execute(); err != nil {
-		os.Exit(1)
-	}
+    if err := cmd.RootCmd.Execute(); err != nil {
+        os.Exit(1)
+    }
 }

@@ -18,13 +18,13 @@
 #
 
 filebeat.inputs:
-- type: log
-  enabled: true
-  paths:
-    - /tmp/beats/example.log
+  - type: log
+    enabled: true
+    paths:
+      - /tmp/beats/example.log
 
 output.doris:
-  fenodes: ["http://localhost:8030"] # your doris fe address
+  fenodes: [ "http://localhost:8030" ] # your doris fe address
   user: root # your doris user
   #password: root # your doris password
   database: example_db # your doris database

@@ -20,13 +20,14 @@
 package main
 
 import (
-	_ "github.com/apache/doris/extension/beats/doris"
-	"github.com/elastic/beats/v7/metricbeat/cmd"
-	"os"
+    "os"
+
+    _ "github.com/apache/doris/extension/beats/doris"
+    "github.com/elastic/beats/v7/metricbeat/cmd"
 )
 
 func main() {
-	if err := cmd.RootCmd.Execute(); err != nil {
-		os.Exit(1)
-	}
+    if err := cmd.RootCmd.Execute(); err != nil {
+        os.Exit(1)
+    }
 }
