@@ -79,6 +79,7 @@ protected:
     Status delete_and_create_directory_impl(const Path& dir);
     Status get_space_info_impl(const Path& path, size_t* capacity, size_t* available);
     Status copy_dirs_impl(const Path& src, const Path& dest);
+    Status delete_directory_or_file_impl(const Path& path);
 
 private:
     LocalFileSystem(Path&& root_path, std::string&& id = "");
