@@ -78,6 +78,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
     public static final String ACCESS_CONTROLLER_CLASS_PROP = "access_controller.class";
     public static final String ACCESS_CONTROLLER_PROPERTY_PREFIX_PROP = "access_controller.properties.";
+    public static final String METADATA_REFRESH_INTERVAL_SEC = "metadata_refresh_interval_sec";
     public static final String CATALOG_TYPE_PROP = "type";
 
     private static final String YES = "yes";
@@ -467,6 +468,14 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             CatalogIf catalog = CatalogFactory.constructorFromLog(log);
             if (!isReplay && catalog instanceof ExternalCatalog) {
                 ((ExternalCatalog) catalog).checkProperties();
+            }
+            Map<String, String> props = log.getProps();
+            if (props.containsKey(METADATA_REFRESH_INTERVAL_SEC)) {
+                // need refresh
+                long catalogId = log.getCatalogId();
+                Integer metadataRefreshIntervalSec = Integer.valueOf(props.get(METADATA_REFRESH_INTERVAL_SEC));
+                Integer[] sec = {metadataRefreshIntervalSec, metadataRefreshIntervalSec};
+                Env.getCurrentEnv().getRefreshManager().addToRefreshMap(catalogId, sec);
             }
             addCatalog(catalog);
             return catalog;
@@ -964,6 +973,12 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     public void gsonPostProcess() throws IOException {
         for (CatalogIf catalog : idToCatalog.values()) {
             nameToCatalog.put(catalog.getName(), catalog);
+            Map properties = catalog.getProperties();
+            if (properties.containsKey(METADATA_REFRESH_INTERVAL_SEC)) {
+                Integer metadataRefreshIntervalSec = (Integer) properties.get(METADATA_REFRESH_INTERVAL_SEC);
+                Integer[] sec = {metadataRefreshIntervalSec, metadataRefreshIntervalSec};
+                Env.getCurrentEnv().getRefreshManager().addToRefreshMap(catalog.getId(), sec);
+            }
         }
         internalCatalog = (InternalCatalog) idToCatalog.get(InternalCatalog.INTERNAL_CATALOG_ID);
     }

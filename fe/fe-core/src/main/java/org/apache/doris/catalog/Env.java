@@ -1430,6 +1430,7 @@ public class Env {
         }
         // start mtmv jobManager
         mtmvJobManager.start();
+        getRefreshManager().start();
     }
 
     // start threads that should running on all FE
