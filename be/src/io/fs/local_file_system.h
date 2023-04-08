@@ -54,6 +54,8 @@ public:
     Status copy_dirs(const Path& src, const Path& dest);
     // return true if parent path contain sub path
     static bool contain_path(const Path& parent, const Path& sub);
+    // delete dir or file
+    Status delete_directory_or_file(const Path& path);
 
 protected:
     Status create_file_impl(const Path& file, FileWriterPtr* writer) override;

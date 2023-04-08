@@ -724,9 +724,9 @@ void DataDir::_process_garbage_path(const std::string& path) {
         return;
     }
     if (exists) {
-        LOG(INFO) << "collect garbage dir path: " << path;
-        WARN_IF_ERROR(io::global_local_filesystem()->delete_directory(path),
-                      "remove garbage dir failed");
+        LOG(INFO) << "collect garbage path: " << path;
+        WARN_IF_ERROR(io::global_local_filesystem()->delete_directory_or_file(path),
+                      "remove garbage failed");
     }
 }
 
