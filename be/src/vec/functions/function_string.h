@@ -1737,37 +1737,38 @@ private:
                     column_string_offsets.push_back(string_pos);
                 }
             } else {
+                StringSearch search(&delimiter_ref);
                 for (size_t str_pos = 0; str_pos <= str_ref.size;) {
                     const size_t str_offset = str_pos;
                     const size_t old_size = column_string_chars.size();
-                    const size_t split_part_size = split_str(str_pos, str_ref, delimiter_ref);
-                    str_pos += delimiter_ref.size;
-                    const size_t new_size = old_size + split_part_size;
-                    column_string_chars.resize(new_size);
+                    // search first match delimter_ref index from src string among str_offset to end
+                    const char* result_start =
+                            search.search(str_ref.data + str_offset, str_ref.size - str_offset);
+                    // compute split part size
+                    const size_t split_part_size = result_start - str_ref.data - str_offset;
+                    // save dist string split part
                     if (split_part_size > 0) {
-                        memcpy(column_string_chars.data() + old_size, str_ref.data + str_offset,
-                               split_part_size);
+                        const size_t new_size = old_size + split_part_size;
+                        column_string_chars.resize(new_size);
+                        memcpy_small_allow_read_write_overflow15(
+                                column_string_chars.data() + old_size, str_ref.data + str_offset,
+                                split_part_size);
                     }
-                    (*dest_nested_null_map).push_back(false);
+                    // add dist string offset
                     string_pos += split_part_size;
-                    dest_pos++;
                     column_string_offsets.push_back(string_pos);
+                    // not null
+                    (*dest_nested_null_map).push_back(false);
+                    // array offset + 1
+                    dest_pos++;
+                    // add src string str_pos to next search start
+                    str_pos += split_part_size + delimiter_ref.size;
                 }
             }
             dest_offsets.push_back(dest_pos);
         }
     }
 
-    //TODO: need to be rewrited in a more efficient way. compare BMH/KMP/...
-    size_t split_str(size_t& pos, const StringRef str_ref, StringRef delimiter_ref) {
-        size_t old_size = pos;
-        size_t str_size = str_ref.size;
-        while (pos < str_size &&
-               memcmp(str_ref.data + pos, delimiter_ref.data, delimiter_ref.size)) {
-            pos++;
-        }
-        return pos - old_size;
-    }
 };
 
 struct SM3Sum {
