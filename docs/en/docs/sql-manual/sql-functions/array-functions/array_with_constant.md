@@ -36,9 +36,10 @@ array_with_constant
 
 ```
 ARRAY<T> array_with_constant(n, T)
+ARRAY<T> array_repeat(T, n)
 ```
 
-get array of constants with n length
+get array of constants with n length, array_repeat has the same function as array_with_constant and is used to be compatible with the hive syntax format
 ### notice
 
 `Only supported in vectorized engine`
@@ -48,32 +49,31 @@ get array of constants with n length
 ```
 mysql> set enable_vectorized_engine=true;
 
-mysql> select array_with_constant(2, "hello");
-+---------------------------------+
-| array_with_constant(2, 'hello') |
-+---------------------------------+
-| ['hello', 'hello']              |
-+---------------------------------+
+mysql> select array_with_constant(2, "hello"), array_repeat("hello", 2);
++---------------------------------+--------------------------+
+| array_with_constant(2, 'hello') | array_repeat('hello', 2) |
++---------------------------------+--------------------------+
+| ['hello', 'hello']              | ['hello', 'hello']       |
++---------------------------------+--------------------------+
 1 row in set (0.04 sec)
 
-mysql> select array_with_constant(3, 12345);
-+-------------------------------+
-| array_with_constant(3, 12345) |
-+-------------------------------+
-| [12345, 12345, 12345]         |
-+-------------------------------+
+mysql> select array_with_constant(3, 12345), array_repeat(12345, 3);
++-------------------------------+------------------------+
+| array_with_constant(3, 12345) | array_repeat(12345, 3) | 
++-------------------------------+------------------------+
+| [12345, 12345, 12345]         | [12345, 12345, 12345]  |
++-------------------------------+------------------------+
 1 row in set (0.01 sec)
 
-mysql> select array_with_constant(3, null);
-+------------------------------+
-| array_with_constant(3, NULL) |
-+------------------------------+
-| [NULL, NULL, NULL]           |
-+------------------------------+
+mysql> select array_with_constant(3, null), array_repeat(null, 3);
++------------------------------+-----------------------+
+| array_with_constant(3, NULL) | array_repeat(NULL, 3) |
++------------------------------+-----------------------+
+| [NULL, NULL, NULL]           |  [NULL, NULL, NULL]   |
++------------------------------+-----------------------+
 1 row in set (0.01 sec)
-
 ```
 
 ### keywords
 
-ARRAY,WITH_CONSTANT,ARRAY_WITH_CONSTANT
+ARRAY,WITH_CONSTANT,ARRAY_WITH_CONSTANT,ARRAY_REPEAT
