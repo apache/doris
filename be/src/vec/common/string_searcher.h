@@ -119,8 +119,36 @@ public:
 
     template <typename CharT>
     // requires (sizeof(CharT) == 1)
-    ALWAYS_INLINE bool compare(const CharT* /*haystack*/, const CharT* /*haystack_end*/,
-                               const CharT* pos) const {
+    const CharT* search(const CharT* haystack, size_t haystack_size) const {
+        // cast to unsigned int8 to be consitent with needle type
+        // ensure unsigned type compare
+        return reinterpret_cast<const CharT*>(
+                _search(reinterpret_cast<const uint8_t*>(haystack), haystack_size));
+    }
+
+    template <typename CharT>
+    // requires (sizeof(CharT) == 1)
+    const CharT* search(const CharT* haystack, const CharT* haystack_end) const {
+        // cast to unsigned int8 to be consitent with needle type
+        // ensure unsigned type compare
+        return reinterpret_cast<const CharT*>(
+                _search(reinterpret_cast<const uint8_t*>(haystack),
+                        reinterpret_cast<const uint8_t*>(haystack_end)));
+    }
+
+    template <typename CharT>
+    // requires (sizeof(CharT) == 1)
+    ALWAYS_INLINE bool compare(const CharT* haystack, const CharT* haystack_end, CharT* pos) const {
+        // cast to unsigned int8 to be consitent with needle type
+        // ensure unsigned type compare
+        return _compare(reinterpret_cast<const uint8_t*>(haystack),
+                        reinterpret_cast<const uint8_t*>(haystack_end),
+                        reinterpret_cast<const uint8_t*>(pos));
+    }
+
+private:
+    ALWAYS_INLINE bool _compare(uint8_t* /*haystack*/, uint8_t* /*haystack_end*/,
+                                uint8_t* pos) const {
 #ifdef __SSE4_1__
         if (needle_end - needle > n && page_safe(pos)) {
             const auto v_haystack = _mm_loadu_si128(reinterpret_cast<const __m128i*>(pos));
@@ -155,9 +183,7 @@ public:
         return false;
     }
 
-    template <typename CharT>
-    // requires (sizeof(CharT) == 1)
-    const CharT* search(const CharT* haystack, const CharT* const haystack_end) const {
+    const uint8_t* _search(const uint8_t* haystack, const uint8_t* haystack_end) const {
         if (needle == needle_end) return haystack;
 
         const auto needle_size = needle_end - needle;
@@ -265,10 +291,8 @@ public:
         return haystack_end;
     }
 
-    template <typename CharT>
-    // requires (sizeof(CharT) == 1)
-    const CharT* search(const CharT* haystack, const size_t haystack_size) const {
-        return search(haystack, haystack + haystack_size);
+    const uint8_t* _search(const uint8_t* haystack, const size_t haystack_size) const {
+        return _search(haystack, haystack + haystack_size);
     }
 };
 
