@@ -56,7 +56,7 @@ public:
     template <typename T>
     bool test_new_hash(T data) const {
         if constexpr (std::is_same_v<T, Slice>) {
-            return _bloom_filter->find_new_hash(data);
+            return _bloom_filter->find_crc32_hash(data);
         } else {
             return _bloom_filter->find(data);
         }
@@ -66,7 +66,7 @@ public:
 
     // This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
     void add_bytes_new_hash(const char* data, size_t len) {
-        _bloom_filter->insert_new_hash(Slice(data, len));
+        _bloom_filter->insert_crc32_hash(Slice(data, len));
     }
 
     // test_element/find_element only used on vectorized engine
@@ -189,12 +189,12 @@ public:
     virtual void insert(const void* data) = 0;
 
     // This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
-    virtual void insert_new_hash(const void* data) = 0;
+    virtual void insert_crc32_hash(const void* data) = 0;
 
     virtual bool find(const void* data) const = 0;
 
     // This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
-    virtual bool find_new_hash(const void* data) const = 0;
+    virtual bool find_crc32_hash(const void* data) const = 0;
 
     virtual bool find_olap_engine(const void* data) const = 0;
 
@@ -340,7 +340,7 @@ struct StringFindOp {
     }
 
     // This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
-    void insert_new_hash(BloomFilterAdaptor& bloom_filter, const void* data) const {
+    void insert_crc32_hash(BloomFilterAdaptor& bloom_filter, const void* data) const {
         const auto* value = reinterpret_cast<const StringRef*>(data);
         if (value) {
             bloom_filter.add_bytes_new_hash(value->data, value->size);
@@ -356,7 +356,7 @@ struct StringFindOp {
     }
 
     //This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
-    bool find_new_hash(const BloomFilterAdaptor& bloom_filter, const void* data) const {
+    bool find_crc32_hash(const BloomFilterAdaptor& bloom_filter, const void* data) const {
         const auto* value = reinterpret_cast<const StringRef*>(data);
         if (value == nullptr) {
             return false;
@@ -478,10 +478,10 @@ public:
     }
 
     // This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
-    void insert_new_hash(const void* data) override {
+    void insert_crc32_hash(const void* data) override {
         if constexpr (std::is_same_v<typename BloomFilterTypeTraits<type>::FindOp, StringFindOp>) {
             DCHECK(_bloom_filter != nullptr);
-            dummy.insert_new_hash(*_bloom_filter, data);
+            dummy.insert_crc32_hash(*_bloom_filter, data);
         }
     }
 
@@ -512,10 +512,10 @@ public:
     }
 
     // This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
-    bool find_new_hash(const void* data) const override {
+    bool find_crc32_hash(const void* data) const override {
         if constexpr (std::is_same_v<typename BloomFilterTypeTraits<type>::FindOp, StringFindOp>) {
             DCHECK(_bloom_filter != nullptr);
-            return dummy.find_new_hash(*_bloom_filter, data);
+            return dummy.find_crc32_hash(*_bloom_filter, data);
         }
         return false;
     }

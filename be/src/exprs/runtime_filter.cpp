@@ -436,7 +436,7 @@ public:
         case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
             if (_is_bloomfilter) {
                 if (_use_new_hash) {
-                    _context.bloom_filter_func->insert_new_hash(data);
+                    _context.bloom_filter_func->insert_crc32_hash(data);
                 } else {
                     _context.bloom_filter_func->insert(data);
                 }

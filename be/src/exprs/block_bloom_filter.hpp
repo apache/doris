@@ -79,7 +79,7 @@ public:
     }
 
     // This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
-    void insert_new_hash(const Slice& key) noexcept {
+    void insert_crc32_hash(const Slice& key) noexcept {
         if (key.data) {
             insert(HashUtil::crc_hash(key.data, key.size, _hash_seed));
         }
@@ -132,7 +132,7 @@ public:
     }
 
     // This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
-    bool find_new_hash(const Slice& key) const noexcept {
+    bool find_crc32_hash(const Slice& key) const noexcept {
         if (key.data) {
             return find(HashUtil::crc_hash(key.data, key.size, _hash_seed));
         } else {

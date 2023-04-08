@@ -73,7 +73,7 @@ Status VBloomPredicate::execute(VExprContext* context, Block* block, int* result
             for (size_t i = 0; i < sz; i++) {
                 auto ele = argument_column->get_data_at(i);
                 const StringRef v(ele.data, ele.size);
-                ptr[i] = _filter->find_new_hash(reinterpret_cast<const void*>(&v));
+                ptr[i] = _filter->find_crc32_hash(reinterpret_cast<const void*>(&v));
             }
         } else {
             for (size_t i = 0; i < sz; i++) {
