@@ -259,6 +259,12 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
             const std::vector<TScanRangeParams>& scan_ranges = find_with_default(
                     local_params.per_node_scan_ranges, scan_node->id(), no_scan_ranges);
             scan_node->set_scan_ranges(scan_ranges);
+        } else {
+            ScanNode* scan_node = static_cast<ScanNode*>(node);
+            const std::vector<TScanRangeParams>& scan_ranges = find_with_default(
+                    local_params.per_node_scan_ranges, scan_node->id(), no_scan_ranges);
+            scan_node->set_scan_ranges(scan_ranges);
+            VLOG_CRITICAL << "scan_node_Id=" << scan_node->id() << " size=" << scan_ranges.size();
         }
     }
 
