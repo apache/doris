@@ -340,7 +340,6 @@ MutableColumnPtr DataTypeStruct::create_column() const {
     for (size_t i = 0; i < size; ++i) {
         tuple_columns[i] = elems[i]->create_column();
     }
-    LOG(INFO) << "struct columns " << tuple_columns.size();
     return ColumnStruct::create(std::move(tuple_columns));
 }
 
@@ -350,7 +349,6 @@ Field DataTypeStruct::get_default() const {
     for (size_t i = 0; i < size; ++i) {
         t.push_back(elems[i]->get_default());
     }
-    LOG(INFO) << "default struct " << size << ", tuple size" << t.size();
     return t;
 }
 
