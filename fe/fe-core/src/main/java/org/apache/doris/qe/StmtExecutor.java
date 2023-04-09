@@ -464,14 +464,8 @@ public class StmtExecutor implements ProfileWriter {
     }
 
     private boolean checkBlockRules() throws AnalysisException {
-        try {
-            Env.getCurrentEnv().getSqlBlockRuleMgr().matchSql(
-                    originStmt.originStmt, context.getSqlHash(), context.getQualifiedUser());
-        } catch (AnalysisException e) {
-            LOG.warn(e.getMessage());
-            context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
-            return true;
-        }
+        Env.getCurrentEnv().getSqlBlockRuleMgr().matchSql(
+                originStmt.originStmt, context.getSqlHash(), context.getQualifiedUser());
 
         // limitations: partition_num, tablet_num, cardinality
         List<ScanNode> scanNodeList = planner.getScanNodes();
