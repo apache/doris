@@ -49,5 +49,5 @@ suite ("testAggQueryOnAggMV10") {
         sql("select deptno, commission, sum(salary) + 1 from emps group by rollup (deptno, commission);")
         contains "(emps_mv)"
     }
-    qt_select_mv "select deptno, commission, sum(salary) + 1 from emps group by rollup (deptno, commission) order by 1;"
+    qt_select_mv "select deptno, commission, sum(salary) + 1 from emps group by rollup (deptno, commission) order by 1,2;"
 }
