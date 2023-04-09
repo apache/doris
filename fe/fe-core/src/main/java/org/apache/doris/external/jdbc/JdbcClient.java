@@ -856,7 +856,7 @@ public class JdbcClient {
             case "varchar":
                 return ScalarType.createStringType();
             case "date":
-                return ScalarType.createDateV2Type();、
+                return ScalarType.createDateV2Type();
             default:
                 return Type.UNSUPPORTED;
         }

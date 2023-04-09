@@ -109,7 +109,7 @@ public class OdbcTable extends Table {
 
     private static String trinoProperName(String name) {
         List<String> list = Arrays.asList(name.split("\\."));
-        return list.stream().map(s -> "\"" + s.toUpperCase() + "\"").collect(Collectors.joining("."));
+        return list.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining("."));
     }
 
     public static String databaseProperName(TOdbcTableType tableType, String name) {
