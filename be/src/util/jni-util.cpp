@@ -24,6 +24,8 @@
 #include <cstdlib>
 #include <filesystem>
 #include <sstream>
+#include <string>
+#include <vector>
 
 #include "common/config.h"
 #include "gutil/once.h"
@@ -37,10 +39,10 @@ namespace doris {
 
 namespace {
 JavaVM* g_vm;
-GoogleOnceType g_vm_once = GOOGLE_ONCE_INIT;
+[[maybe_unused]] GoogleOnceType g_vm_once = GOOGLE_ONCE_INIT;
 
 const std::string GetDorisJNIClasspath() {
-    const auto* classpath = getenv("DORIS_JNI_CLASSPATH_PARAMETER");
+    const auto* classpath = getenv("DORIS_CLASSPATH");
     if (classpath) {
         return classpath;
     } else {
@@ -66,84 +68,50 @@ const std::string GetDorisJNIClasspath() {
     }
 }
 
-void FindOrCreateJavaVM() {
+// Only used on non-x86 platform
+[[maybe_unused]] void FindOrCreateJavaVM() {
     int num_vms;
-    int rv = LibJVMLoader::JNI_GetCreatedJavaVMs(&g_vm, 1, &num_vms);
+    int rv = JNI_GetCreatedJavaVMs(&g_vm, 1, &num_vms);
     if (rv == 0) {
-        JavaVMOption* options;
-        auto classpath = GetDorisJNIClasspath();
-        // The following 4 opts are default opts,
-        // they can be override by JAVA_OPTS env var.
-        std::string heap_size = fmt::format("-Xmx{}", config::jvm_max_heap_size);
-        std::string log_path = fmt::format("-DlogPath={}/log/udf-jdbc.log", getenv("DORIS_HOME"));
-        std::string critical_jni = "-XX:-CriticalJNINatives";
-        std::string max_fd_limit = "-XX:-MaxFDLimit";
+        std::vector<std::string> options;
 
         char* java_opts = getenv("JAVA_OPTS");
-        int no_args;
         if (java_opts == nullptr) {
-            no_args = 4; // classpath, heapsize, log path, critical
+            options = {
+                    GetDorisJNIClasspath(), fmt::format("-Xmx{}", "1g"),
+                    fmt::format("-DlogPath={}/log/jni.log", getenv("DORIS_HOME")),
+                    fmt::format("-Dsun.java.command={}", "DorisBE"), "-XX:-CriticalJNINatives",
 #ifdef __APPLE__
-            no_args++; // -XX:-MaxFDLimit
+                    // On macOS, we should disable MaxFDLimit, otherwise the RLIMIT_NOFILE
+                    // will be assigned the minimum of OPEN_MAX (10240) and rlim_cur (See src/hotspot/os/bsd/os_bsd.cpp)
+                    // and it can not pass the check performed by storage engine.
+                    // The newer JDK has fixed this issue.
+                    "-XX:-MaxFDLimit"
 #endif
-            options = (JavaVMOption*)calloc(no_args, sizeof(JavaVMOption));
-            options[0].optionString = const_cast<char*>(classpath.c_str());
-            options[1].optionString = const_cast<char*>(heap_size.c_str());
-            options[2].optionString = const_cast<char*>(log_path.c_str());
-            options[3].optionString = const_cast<char*>(critical_jni.c_str());
-#ifdef __APPLE__
-            // On macOS, we should disable MaxFDLimit, otherwise the RLIMIT_NOFILE
-            // will be assigned the minimum of OPEN_MAX (10240) and rlim_cur (See src/hotspot/os/bsd/os_bsd.cpp)
-            // and it can not pass the check performed by storage engine.
-            // The newer JDK has fixed this issue.
-            options[4].optionString = const_cast<char*>(max_fd_limit.c_str());
-#endif
+            };
         } else {
-            // user specified opts
-            // 1. find the number of args
-            java_opts = strdup(java_opts);
-            char *str, *token, *save_ptr;
-            char jvm_arg_delims[] = " ";
-            for (no_args = 1, str = java_opts;; no_args++, str = nullptr) {
-                token = strtok_r(str, jvm_arg_delims, &save_ptr);
-                if (token == nullptr) {
-                    break;
-                }
-            }
-            free(java_opts);
-            // 2. set args
-            options = (JavaVMOption*)calloc(no_args, sizeof(JavaVMOption));
-            options[0].optionString = const_cast<char*>(classpath.c_str());
-            java_opts = getenv("JAVA_OPTS");
-            if (java_opts != NULL) {
-                java_opts = strdup(java_opts);
-                for (no_args = 1, str = java_opts;; no_args++, str = nullptr) {
-                    token = strtok_r(str, jvm_arg_delims, &save_ptr);
-                    if (token == nullptr) {
-                        break;
-                    }
-                    options[no_args].optionString = token;
-                }
-            }
+            std::istringstream stream(java_opts);
+            options = std::vector<std::string>(std::istream_iterator<std::string> {stream},
+                                               std::istream_iterator<std::string>());
+            options.push_back(GetDorisJNIClasspath());
+        }
+        std::unique_ptr<JavaVMOption[]> jvm_options(new JavaVMOption[options.size()]);
+        for (int i = 0; i < options.size(); ++i) {
+            jvm_options[i] = {const_cast<char*>(options[i].c_str()), nullptr};
         }
 
         JNIEnv* env;
         JavaVMInitArgs vm_args;
         vm_args.version = JNI_VERSION_1_8;
-        vm_args.options = options;
-        vm_args.nOptions = no_args;
+        vm_args.options = jvm_options.get();
+        vm_args.nOptions = options.size();
         // Set it to JNI_FALSE because JNI_TRUE will let JVM ignore the max size config.
         vm_args.ignoreUnrecognized = JNI_FALSE;
 
-        jint res = LibJVMLoader::JNI_CreateJavaVM(&g_vm, (void**)&env, &vm_args);
+        jint res = JNI_CreateJavaVM(&g_vm, (void**)&env, &vm_args);
         if (JNI_OK != res) {
             DCHECK(false) << "Failed to create JVM, code= " << res;
         }
-
-        if (java_opts != nullptr) {
-            free(java_opts);
-        }
-        free(options);
     } else {
         CHECK_EQ(rv, 0) << "Could not find any created Java VM";
         CHECK_EQ(num_vms, 1) << "No VMs returned";
@@ -196,7 +164,8 @@ Status JniLocalFrame::push(JNIEnv* env, int max_local_ref) {
 Status JniUtil::GetJNIEnvSlowPath(JNIEnv** env) {
     DCHECK(!tls_env_) << "Call GetJNIEnv() fast path";
 
-    GoogleOnceInit(&g_vm_once, &FindOrCreateJavaVM);
+#ifdef USE_LIBHDFS3
+    std::call_once(g_vm_once, FindOrCreateJavaVM);
     int rc = g_vm->GetEnv(reinterpret_cast<void**>(&tls_env_), JNI_VERSION_1_8);
     if (rc == JNI_EDETACHED) {
         rc = g_vm->AttachCurrentThread((void**)&tls_env_, nullptr);
@@ -204,6 +173,10 @@ Status JniUtil::GetJNIEnvSlowPath(JNIEnv** env) {
     if (rc != 0 || tls_env_ == nullptr) {
         return Status::InternalError("Unable to get JVM: {}", rc);
     }
+#else
+    // the hadoop libhdfs will do all the stuff
+    tls_env_ = getJNIEnv();
+#endif
     *env = tls_env_;
     return Status::OK();
 }

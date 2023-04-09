@@ -26,6 +26,7 @@
 #include "util/string_util.h"
 #include "util/uid_util.h"
 #include "util/url_coding.h"
+
 namespace doris {
 
 Status HDFSCommonBuilder::init_hdfs_builder() {
@@ -36,6 +37,7 @@ Status HDFSCommonBuilder::init_hdfs_builder() {
         return Status::InternalError(
                 "failed to init HDFSCommonBuilder, please check be/conf/hdfs-site.xml and be.out");
     }
+    hdfsBuilderSetForceNewInstance(hdfs_builder);
     return Status::OK();
 }
 
@@ -54,7 +56,10 @@ Status HDFSCommonBuilder::run_kinit() {
     if (!rc) {
         return Status::InternalError("Kinit failed, errMsg: " + msg);
     }
+#ifdef USE_LIBHDFS3
+    hdfsBuilderSetPrincipal(hdfs_builder, hdfs_kerberos_principal.c_str());
     hdfsBuilderSetKerbTicketCachePath(hdfs_builder, ticket_path.c_str());
+#endif
     return Status::OK();
 }
 
@@ -93,15 +98,10 @@ THdfsParams parse_properties(const std::map<std::string, std::string>& propertie
 Status createHDFSBuilder(const THdfsParams& hdfsParams, HDFSCommonBuilder* builder) {
     RETURN_IF_ERROR(builder->init_hdfs_builder());
     hdfsBuilderSetNameNode(builder->get(), hdfsParams.fs_name.c_str());
-    // set hdfs user
-    if (hdfsParams.__isset.user) {
-        hdfsBuilderSetUserName(builder->get(), hdfsParams.user.c_str());
-    }
     // set kerberos conf
     if (hdfsParams.__isset.hdfs_kerberos_principal) {
         builder->need_kinit = true;
         builder->hdfs_kerberos_principal = hdfsParams.hdfs_kerberos_principal;
-        hdfsBuilderSetPrincipal(builder->get(), hdfsParams.hdfs_kerberos_principal.c_str());
     }
     if (hdfsParams.__isset.hdfs_kerberos_keytab) {
         builder->need_kinit = true;
@@ -116,6 +116,8 @@ Status createHDFSBuilder(const THdfsParams& hdfsParams, HDFSCommonBuilder* build
 
     if (builder->is_need_kinit()) {
         RETURN_IF_ERROR(builder->run_kinit());
+    } else if (hdfsParams.__isset.user) {
+        hdfsBuilderSetUserName(builder->get(), hdfsParams.user.c_str());
     }
 
     return Status::OK();
