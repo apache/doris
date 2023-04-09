@@ -1816,34 +1816,34 @@ private:
                 for (size_t str_pos = 0; str_pos <= str_ref.size;) {
                     const size_t str_offset = str_pos;
                     const size_t old_size = column_string_chars.size();
-                    // search first match delimter_ref index from src string among str_offset to end
-                    const char* result_start = reinterpret_cast<char*>(
-                            memmem(str_ref.data + str_offset, str_ref.size - str_offset,
-                                   delimiter_ref.data, delimiter_ref.size));
-                    size_t split_part_size = 0;
-                    if (result_start != nullptr) {
-                        // compute split part size
-                        split_part_size = result_start - str_ref.data - str_offset;
-                        // save dist string split part
-                        const size_t new_size = old_size + split_part_size;
-                        column_string_chars.resize(new_size);
+                    const size_t split_part_size = split_str(str_pos, str_ref, delimiter_ref);
+                    str_pos += delimiter_ref.size;
+                    const size_t new_size = old_size + split_part_size;
+                    column_string_chars.resize(new_size);
+                    if (split_part_size > 0) {
                         memcpy_small_allow_read_write_overflow15(
                                 column_string_chars.data() + old_size, str_ref.data + str_offset,
                                 split_part_size);
-                        // add dist string offset
-                        string_pos += split_part_size;
                     }
-                    column_string_offsets.push_back(string_pos);
-                    // not null
                     (*dest_nested_null_map).push_back(false);
-                    // array offset + 1
+                    string_pos += split_part_size;
                     dest_pos++;
-                    // add src string str_pos to next search start
-                    str_pos += split_part_size + delimiter_ref.size;
+                    column_string_offsets.push_back(string_pos);
                 }
             }
             dest_offsets.push_back(dest_pos);
         }
+    }
+
+    size_t split_str(size_t& pos, const StringRef str_ref, StringRef delimiter_ref) {
+        size_t old_size = pos;
+        size_t str_size = str_ref.size;
+        while (pos < str_size &&
+               memcmp_small_allow_overflow15(str_ref.data + pos, delimiter_ref.data,
+                                             delimiter_ref.size)) {
+            pos++;
+        }
+        return pos - old_size;
     }
 };
 
