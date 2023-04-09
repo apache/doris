@@ -119,8 +119,8 @@ void ColumnStruct::insert(const Field& x) {
     const auto& tuple = x.get<const Tuple&>();
     const size_t tuple_size = columns.size();
     if (tuple.size() != tuple_size) {
-        LOG(FATAL) << "Cannot insert tuple size: " << tuple.size()
-                   << " different from origin tuple size: " << tuple_size;
+        LOG(FATAL) << "Cannot insert value of different size into tuple. field tuple size"
+                   << tuple.size() << ", columns size " << tuple_size;
     }
 
     for (size_t i = 0; i < tuple_size; ++i) {
