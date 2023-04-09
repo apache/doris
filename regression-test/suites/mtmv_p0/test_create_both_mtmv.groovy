@@ -19,9 +19,6 @@ suite("test_create_both_mtmv") {
     def tableName = "t_test_create_both_mtmv_user"
     def tableNamePv = "t_test_create_both_mtmv_user_pv"
     def mvName = "multi_mv_test_create_both_mtmv"
-    sql """
-        ADMIN SET FRONTEND CONFIG("enable_mtmv_scheduler_framework"="true");
-        """
 
     sql """drop table if exists `${tableName}`"""
     sql """drop table if exists `${tableNamePv}`"""
