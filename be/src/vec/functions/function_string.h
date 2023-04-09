@@ -1569,17 +1569,17 @@ public:
                     }
                 }
             } else {
-                // If delimiter is a string, use memmem to split
+                StringRef delimiter_ref(delimiter);
+                StringSearch search(&delimiter_ref);
                 for (size_t i = 0; i < input_rows_count; ++i) {
                     auto str = str_col->get_data_at(i);
                     int32_t offset = -delimiter_size;
                     int32_t num = 0;
                     while (num < part_number) {
                         size_t n = str.size - offset - delimiter_size;
-                        char* pos = reinterpret_cast<char*>(
-                                memmem(str.data + offset + delimiter_size, n, delimiter.c_str(),
-                                       delimiter_size));
-                        if (pos != nullptr) {
+                        // search first match delimter_ref index from src string among str_offset to end
+                        const char* pos = search.search(str.data + offset + delimiter_size, n);
+                        if (pos < str.data + str.size) {
                             offset = pos - str.data;
                             num++;
                         } else {
@@ -1677,8 +1677,6 @@ public:
 
         ColumnPtr src_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        ColumnPtr delimiter_column =
-                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
 
         DataTypePtr src_column_type = block.get_by_position(arguments[0]).type;
         auto dest_column_ptr = ColumnArray::create(make_nullable(src_column_type)->create_column(),
@@ -1695,16 +1693,94 @@ public:
         dest_nested_column = dest_nullable_col->get_nested_column_ptr();
         dest_nested_null_map = &dest_nullable_col->get_null_map_column().get_data();
 
-        _execute(*src_column, *delimiter_column, *dest_nested_column, dest_offsets,
-                 dest_nested_null_map);
+        ColumnPtr delimiter_column = block.get_by_position(arguments[1]).column;
+        bool is_delimiter_const = is_column_const(*delimiter_column);
+        if (is_delimiter_const) {
+            _execute_constant(*src_column, *delimiter_column, *dest_nested_column, dest_offsets,
+                              dest_nested_null_map);
+        } else {
+            delimiter_column = delimiter_column->convert_to_full_column_if_const();
+            _execute_vector(*src_column, *delimiter_column, *dest_nested_column, dest_offsets,
+                            dest_nested_null_map);
+        }
         block.replace_by_position(result, std::move(dest_column_ptr));
         return Status::OK();
     }
 
 private:
-    void _execute(const IColumn& src_column, const IColumn& delimiter_column,
-                  IColumn& dest_nested_column, ColumnArray::Offsets64& dest_offsets,
-                  NullMapType* dest_nested_null_map) {
+    void _execute_constant(const IColumn& src_column, const IColumn& delimiter_column,
+                           IColumn& dest_nested_column, ColumnArray::Offsets64& dest_offsets,
+                           NullMapType* dest_nested_null_map) {
+        ColumnString& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
+        ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
+        ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
+        column_string_chars.reserve(0);
+
+        ColumnArray::Offset64 string_pos = 0;
+        ColumnArray::Offset64 dest_pos = 0;
+        const ColumnString* src_column_string = reinterpret_cast<const ColumnString*>(&src_column);
+        ColumnArray::Offset64 src_offsets_size = src_column_string->get_offsets().size();
+
+        auto delimiter =
+                assert_cast<const ColumnConst&>(delimiter_column).get_field().get<String>();
+        const StringRef delimiter_ref(delimiter);
+        StringSearch search(&delimiter_ref);
+
+        for (size_t i = 0; i < src_offsets_size; i++) {
+            const StringRef str_ref = src_column_string->get_data_at(i);
+
+            if (str_ref.size == 0) {
+                dest_offsets.push_back(dest_pos);
+                continue;
+            }
+            if (delimiter_ref.size == 0) {
+                for (size_t str_pos = 0; str_pos < str_ref.size;) {
+                    const size_t str_offset = str_pos;
+                    const size_t old_size = column_string_chars.size();
+                    str_pos++;
+                    const size_t new_size = old_size + 1;
+                    column_string_chars.resize(new_size);
+                    memcpy(column_string_chars.data() + old_size, str_ref.data + str_offset, 1);
+                    (*dest_nested_null_map).push_back(false);
+                    string_pos++;
+                    dest_pos++;
+                    column_string_offsets.push_back(string_pos);
+                }
+            } else {
+                for (size_t str_pos = 0; str_pos <= str_ref.size;) {
+                    const size_t str_offset = str_pos;
+                    const size_t old_size = column_string_chars.size();
+                    // search first match delimter_ref index from src string among str_offset to end
+                    const char* result_start =
+                            search.search(str_ref.data + str_offset, str_ref.size - str_offset);
+                    // compute split part size
+                    const size_t split_part_size = result_start - str_ref.data - str_offset;
+                    // save dist string split part
+                    if (split_part_size > 0) {
+                        const size_t new_size = old_size + split_part_size;
+                        column_string_chars.resize(new_size);
+                        memcpy_small_allow_read_write_overflow15(
+                                column_string_chars.data() + old_size, str_ref.data + str_offset,
+                                split_part_size);
+                        // add dist string offset
+                        string_pos += split_part_size;
+                    }
+                    column_string_offsets.push_back(string_pos);
+                    // not null
+                    (*dest_nested_null_map).push_back(false);
+                    // array offset + 1
+                    dest_pos++;
+                    // add src string str_pos to next search start
+                    str_pos += split_part_size + delimiter_ref.size;
+                }
+            }
+            dest_offsets.push_back(dest_pos);
+        }
+    }
+
+    void _execute_vector(const IColumn& src_column, const IColumn& delimiter_column,
+                         IColumn& dest_nested_column, ColumnArray::Offsets64& dest_offsets,
+                         NullMapType* dest_nested_null_map) {
         ColumnString& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
         ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
         ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
@@ -1737,25 +1813,26 @@ private:
                     column_string_offsets.push_back(string_pos);
                 }
             } else {
-                StringSearch search(&delimiter_ref);
                 for (size_t str_pos = 0; str_pos <= str_ref.size;) {
                     const size_t str_offset = str_pos;
                     const size_t old_size = column_string_chars.size();
                     // search first match delimter_ref index from src string among str_offset to end
-                    const char* result_start =
-                            search.search(str_ref.data + str_offset, str_ref.size - str_offset);
-                    // compute split part size
-                    const size_t split_part_size = result_start - str_ref.data - str_offset;
-                    // save dist string split part
-                    if (split_part_size > 0) {
+                    const char* result_start = reinterpret_cast<char*>(
+                            memmem(str_ref.data + str_offset, str_ref.size - str_offset,
+                                   delimiter_ref.data, delimiter_ref.size));
+                    size_t split_part_size = 0;
+                    if (result_start != nullptr) {
+                        // compute split part size
+                        split_part_size = result_start - str_ref.data - str_offset;
+                        // save dist string split part
                         const size_t new_size = old_size + split_part_size;
                         column_string_chars.resize(new_size);
                         memcpy_small_allow_read_write_overflow15(
                                 column_string_chars.data() + old_size, str_ref.data + str_offset,
                                 split_part_size);
+                        // add dist string offset
+                        string_pos += split_part_size;
                     }
-                    // add dist string offset
-                    string_pos += split_part_size;
                     column_string_offsets.push_back(string_pos);
                     // not null
                     (*dest_nested_null_map).push_back(false);
@@ -1768,7 +1845,6 @@ private:
             dest_offsets.push_back(dest_pos);
         }
     }
-
 };
 
 struct SM3Sum {
