@@ -174,9 +174,9 @@ PROPERTIES (
 | 22           | clickhouse-jdbc-0.3.2-patch11-all.jar |
 | 22           | clickhouse-jdbc-0.4.1-all.jar         |
 
-#### 6.Sap_Hana测试
+#### 6.Sap Hana测试
 
-| Sap_Hana版本 | Sap_Hana JDBC驱动版本 |
+| Sap Hana版本 | Sap Hana JDBC驱动版本 |
 |------------|-------------------|
 | 2.0        | ngdbc.jar         |
 
@@ -198,6 +198,33 @@ PROPERTIES (
     "resource" = "jdbc_hana",
     "table" = "TEST.HANA",
     "table_type"="sap_hana"
+);
+```
+
+#### 7.Trino测试
+
+| Trino版本 | Trino JDBC驱动版本     |
+|----------|--------------------|
+| 389      | trino-jdbc-389.jar |
+
+```sql
+CREATE EXTERNAL RESOURCE jdbc_trino
+properties (
+    "type"="jdbc",
+    "user"="hadoop",
+    "password"="",
+    "jdbc_url" = "jdbc:trino://localhost:8080/hive",
+    "driver_url" = "file:///path/to/trino-jdbc-389.jar",
+    "driver_class" = "io.trino.jdbc.TrinoDriver"
+);
+
+CREATE EXTERNAL TABLE `ext_trino` (
+  `k1` int
+) ENGINE=JDBC
+PROPERTIES (
+    "resource" = "jdbc_trino",
+    "table" = "hive.test",
+    "table_type"="trino"
 );
 ```
 
@@ -317,6 +344,26 @@ PROPERTIES (
 |  SHORTTEXT   |        TEXT         |
 |     CHAR     |        CHAR         |
 |    NCHAR     |        CHAR         |
+
+### Trino
+
+|   Trino   |        Doris        |
+|:---------:|:-------------------:|
+|  boolean  |       BOOLEAN       |
+|  tinyint  |       TINYINT       |
+| smallint  |      SMALLINT       |
+|  integer  |         INT         |
+|  bigint   |       BIGINT        |
+|  decimal  |  DECIMAL/DECIMALV3  |
+|   real    |        FLOAT        |
+|  double   |       DOUBLE        |
+|   date    |     DATE/DATEV2     |
+| timestamp | DATETIME/DATETIMEV2 |
+|  varchar  |        TEXT         |
+|   char    |        CHAR         |
+|   array   |        ARRAY        |
+|  others   |     UNSUPPORTED     |
+
 
 ## Q&A
 
