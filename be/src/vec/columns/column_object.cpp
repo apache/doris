@@ -66,7 +66,7 @@ size_t getNumberOfDimensions(const IDataType& type) {
 DataTypePtr get_data_type_by_column(const IColumn& column) {
     auto idx = column.get_data_type();
     if (WhichDataType(idx).is_simple()) {
-        return DataTypeFactory::instance().get(String(getTypeName(idx)));
+        return DataTypeFactory::instance().create_data_type(idx);
     }
     if (WhichDataType(idx).is_nothing()) {
         return std::make_shared<DataTypeNothing>();

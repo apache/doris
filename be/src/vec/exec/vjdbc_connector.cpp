@@ -643,9 +643,14 @@ Status JdbcConnector::_register_func_id(JNIEnv* env) {
 Status JdbcConnector::_cast_string_to_array(const SlotDescriptor* slot_desc, Block* block,
                                             int column_index, int rows) {
     DataTypePtr _target_data_type = slot_desc->get_data_type_ptr();
-    std::string _target_data_type_name = DataTypeFactory::instance().get(_target_data_type);
-    DataTypePtr _cast_param_data_type = std::make_shared<DataTypeString>();
-    ColumnPtr _cast_param = _cast_param_data_type->create_column_const(1, _target_data_type_name);
+    std::string _target_data_type_name = _target_data_type->get_name();
+    DataTypePtr _cast_param_data_type = std::make_shared<DataTypeInt16>();
+    ColumnPtr _cast_param = _cast_param_data_type->create_column_const(
+            1, static_cast<int16_t>(_target_data_type->is_nullable()
+                                            ? ((DataTypeNullable*)(_target_data_type.get()))
+                                                      ->get_nested_type()
+                                                      ->get_type_id()
+                                            : _target_data_type->get_type_id()));
 
     ColumnsWithTypeAndName argument_template;
     argument_template.reserve(2);

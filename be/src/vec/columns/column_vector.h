@@ -295,6 +295,12 @@ public:
 
     Int64 get_int(size_t n) const override { return Int64(data[n]); }
 
+    // For example, during create column_const(1, uint8), will use NearestFieldType
+    // to cast a uint8 to int64, so that the Field is int64, but the column is created
+    // using data_type, so that T == uint8. After the field is created, it will be inserted
+    // into the column, but its type is different from column's data type, so that during column
+    // insert method, should use NearestFieldType<T> to get the Field and get it actual
+    // uint8 value and then insert into column.
     void insert(const Field& x) override {
         data.push_back(doris::vectorized::get<NearestFieldType<T>>(x));
     }

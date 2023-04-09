@@ -81,33 +81,6 @@ Status VSchemaChangeExpr::execute(VExprContext* context, doris::vectorized::Bloc
                                                                       full_base_schema_view.get()));
     }
 
-    // TODO: make sure the dynamic generated columns's types matched with schema in full_base_schema_view
-    // handle dynamic generated columns
-    // if (_full_base_schema_view && !_full_base_schema_view->empty()) {
-    //     CHECK(_is_dynamic_schema);
-    //     for (size_t i = block->columns(); i < _src_block.columns(); ++i) {
-    //         auto& column_type_name = _src_block.get_by_position(i);
-    //         // Column from schema change response
-    //         const TColumn& tcolumn =
-    //                 _full_base_schema_view->column_name_to_column[column_type_name.name];
-    //         auto original_type = vectorized::DataTypeFactory::instance().create_data_type(tcolumn);
-    //         // Detect type conflict, there may exist another load procedure, whitch has already added some columns
-    //         // but, this load detects different type, we go type conflict free path, always cast to original type
-    //         // TODO need to add type conflict abort feature
-    //         if (!column_type_name.type->equals(*original_type)) {
-    //             vectorized::ColumnPtr column_ptr;
-    //             RETURN_IF_ERROR(vectorized::schema_util::cast_column(column_type_name,
-    //                                                                  original_type, &column_ptr));
-    //             column_type_name.column = column_ptr;
-    //             column_type_name.type = original_type;
-    //         }
-    //         DCHECK(column_type_name.column != nullptr);
-    //         block->insert(vectorized::ColumnWithTypeAndName(std::move(column_type_name.column),
-    //                                                         std::move(column_type_name.type),
-    //                                                         column_type_name.name));
-    //     }
-    // }
-
     *result_column_id = _column_id;
     return Status::OK();
 }
