@@ -255,8 +255,9 @@ struct TransferImpl {
         }
 
         res_offsets.resize(offset_size);
-        memcpy(res_offsets.data(), offsets.data(),
-               offset_size * sizeof(ColumnString::Offsets::value_type));
+        memcpy_small_allow_read_write_overflow15(
+                res_offsets.data(), offsets.data(),
+                offset_size * sizeof(ColumnString::Offsets::value_type));
 
         size_t data_length = data.size();
         res_data.resize(data_length);
@@ -279,8 +280,9 @@ struct InitcapImpl {
                          ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
         size_t offset_size = offsets.size();
         res_offsets.resize(offsets.size());
-        memcpy(res_offsets.data(), offsets.data(),
-               offset_size * sizeof(ColumnString::Offsets::value_type));
+        memcpy_small_allow_read_write_overflow15(
+                res_offsets.data(), offsets.data(),
+                offset_size * sizeof(ColumnString::Offsets::value_type));
 
         size_t data_length = data.size();
         res_data.resize(data_length);

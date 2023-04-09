@@ -1325,6 +1325,7 @@ bool SegmentIterator::_can_evaluated_by_vectorized(ColumnPredicate* predicate) {
         if (field_type == OLAP_FIELD_TYPE_VARCHAR || field_type == OLAP_FIELD_TYPE_CHAR ||
             field_type == OLAP_FIELD_TYPE_STRING) {
             return config::enable_low_cardinality_optimize &&
+                   _opts.io_ctx.reader_type == ReaderType::READER_QUERY &&
                    _column_iterators[_schema.unique_id(cid)]->is_all_dict_encoding();
         } else if (field_type == OLAP_FIELD_TYPE_DECIMAL) {
             return false;
@@ -1625,7 +1626,8 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             auto cid = _schema.column_id(i);
             auto column_desc = _schema.column(cid);
             if (_is_pred_column[cid]) {
-                _current_return_columns[cid] = Schema::get_predicate_column_ptr(*column_desc);
+                _current_return_columns[cid] =
+                        Schema::get_predicate_column_ptr(*column_desc, _opts.io_ctx.reader_type);
                 _current_return_columns[cid]->set_rowset_segment_id(
                         {_segment->rowset_id(), _segment->id()});
                 _current_return_columns[cid]->reserve(_opts.block_row_max);

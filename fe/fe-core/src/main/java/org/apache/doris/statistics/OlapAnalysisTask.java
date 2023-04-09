@@ -107,6 +107,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     @VisibleForTesting
     public void execSQL(String sql) throws Exception {
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+            r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
             this.stmtExecutor = new StmtExecutor(r.connectContext, sql);
             this.stmtExecutor.execute();
         }

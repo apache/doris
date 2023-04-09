@@ -1,4 +1,3 @@
-set enable_vectorized_engine=true;
 set exec_mem_limit=8G;
 SELECT count() from gharchive;
 SELECT `repo.name`, count() AS stars FROM gharchive WHERE `type` = 'WatchEvent' GROUP BY `repo.name` ORDER BY stars DESC, `repo.name` LIMIT 5;

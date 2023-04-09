@@ -61,7 +61,6 @@ public:
     TaskScheduler(ExecEnv* exec_env, std::shared_ptr<BlockedTaskScheduler> b_scheduler,
                   std::shared_ptr<TaskQueue> task_queue)
             : _task_queue(std::move(task_queue)),
-              _exec_env(exec_env),
               _blocked_task_scheduler(std::move(b_scheduler)),
               _shutdown(false) {}
 
@@ -73,13 +72,10 @@ public:
 
     void shutdown();
 
-    ExecEnv* exec_env() { return _exec_env; }
-
 private:
     std::unique_ptr<ThreadPool> _fix_thread_pool;
     std::shared_ptr<TaskQueue> _task_queue;
     std::vector<std::unique_ptr<std::atomic<bool>>> _markers;
-    ExecEnv* _exec_env;
     std::shared_ptr<BlockedTaskScheduler> _blocked_task_scheduler;
     std::atomic<bool> _shutdown;
 

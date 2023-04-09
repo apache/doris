@@ -35,6 +35,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.logical.AggScalarSubQueryToWindowFunction;
 import org.apache.doris.nereids.rules.rewrite.logical.BuildAggForUnion;
 import org.apache.doris.nereids.rules.rewrite.logical.CheckAndStandardizeWindowFunctionAndFrame;
+import org.apache.doris.nereids.rules.rewrite.logical.CheckDataTypes;
 import org.apache.doris.nereids.rules.rewrite.logical.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.logical.ConvertInnerOrCrossJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.CountDistinctRewrite;
@@ -207,6 +208,8 @@ public class NereidsRewriter extends BatchRewriteJob {
                     new PushFilterInsideJoin()
                 )
             ),
+
+            custom(RuleType.CHECK_DATATYPES, CheckDataTypes::new),
 
             // this rule should invoke after ColumnPruning
             custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),

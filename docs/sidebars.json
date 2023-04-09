@@ -163,6 +163,7 @@
                     ]
                 },
                 "advanced/pipeline-execution-engine",
+                "advanced/autobucket",
                 "advanced/materialized-view",
                 "advanced/broker",
                 {

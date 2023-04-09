@@ -368,8 +368,9 @@ private:
                             const char lower, const char number) {
         result.get_chars().resize(source.get_chars().size());
         result.get_offsets().resize(source.get_offsets().size());
-        memcpy(result.get_offsets().data(), source.get_offsets().data(),
-               source.get_offsets().size() * sizeof(ColumnString::Offset));
+        memcpy_small_allow_read_write_overflow15(
+                result.get_offsets().data(), source.get_offsets().data(),
+                source.get_offsets().size() * sizeof(ColumnString::Offset));
 
         const unsigned char* src = source.get_chars().data();
         const size_t size = source.get_chars().size();
@@ -452,8 +453,9 @@ private:
         auto* offsets = src.get_offsets().data();
         result.get_chars().resize(src.get_chars().size());
         result.get_offsets().resize(src.get_offsets().size());
-        memcpy(result.get_offsets().data(), src.get_offsets().data(),
-               src.get_offsets().size() * sizeof(ColumnString::Offset));
+        memcpy_small_allow_read_write_overflow15(
+                result.get_offsets().data(), src.get_offsets().data(),
+                src.get_offsets().size() * sizeof(ColumnString::Offset));
         auto* res = result.get_chars().data();
 
         for (ssize_t i = 0; i != num_rows; ++i) {
@@ -709,9 +711,12 @@ public:
                 auto& current_chars = *chars_list[j];
 
                 int size = current_offsets[i] - current_offsets[i - 1];
-                memcpy(&res_data[res_offset[i - 1]] + current_length,
-                       &current_chars[current_offsets[i - 1]], size);
-                current_length += size;
+                if (size > 0) {
+                    memcpy_small_allow_read_write_overflow15(
+                            &res_data[res_offset[i - 1]] + current_length,
+                            &current_chars[current_offsets[i - 1]], size);
+                    current_length += size;
+                }
             }
             res_offset[i] = res_offset[i - 1] + current_length;
         }
@@ -2530,7 +2535,7 @@ public:
 
     void _utf8_to_pinyin(const char* in, size_t in_len, char* out, size_t* out_len) {
         auto do_memcpy = [](char*& dest, const char*& from, size_t size) {
-            memcpy(dest, from, size);
+            memcpy_small_allow_read_write_overflow15(dest, from, size);
             dest += size;
             from += size;
         };
