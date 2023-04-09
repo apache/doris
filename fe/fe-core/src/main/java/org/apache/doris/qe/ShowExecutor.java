@@ -36,6 +36,7 @@ import org.apache.doris.analysis.ShowCatalogRecycleBinStmt;
 import org.apache.doris.analysis.ShowCatalogStmt;
 import org.apache.doris.analysis.ShowClusterStmt;
 import org.apache.doris.analysis.ShowCollationStmt;
+import org.apache.doris.analysis.ShowColumnHistStmt;
 import org.apache.doris.analysis.ShowColumnStatsStmt;
 import org.apache.doris.analysis.ShowColumnStmt;
 import org.apache.doris.analysis.ShowCreateCatalogStmt;
@@ -88,6 +89,7 @@ import org.apache.doris.analysis.ShowStreamLoadStmt;
 import org.apache.doris.analysis.ShowSyncJobStmt;
 import org.apache.doris.analysis.ShowTableCreationStmt;
 import org.apache.doris.analysis.ShowTableIdStmt;
+import org.apache.doris.analysis.ShowTableStatsStmt;
 import org.apache.doris.analysis.ShowTableStatusStmt;
 import org.apache.doris.analysis.ShowTableStmt;
 import org.apache.doris.analysis.ShowTabletStmt;
@@ -183,7 +185,10 @@ import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.mtmv.metadata.MTMVTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.Histogram;
 import org.apache.doris.statistics.StatisticsRepository;
+import org.apache.doris.statistics.TableStatistic;
+import org.apache.doris.statistics.TableStatisticBuilder;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Diagnoser;
 import org.apache.doris.system.SystemInfoService;
@@ -213,11 +218,13 @@ import java.io.InputStreamReader;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLConnection;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
@@ -370,8 +377,12 @@ public class ShowExecutor {
             handleShowSyncJobs();
         } else if (stmt instanceof ShowSqlBlockRuleStmt) {
             handleShowSqlBlockRule();
+        } else if (stmt instanceof ShowTableStatsStmt) {
+            handleShowTableStats();
         } else if (stmt instanceof ShowColumnStatsStmt) {
             handleShowColumnStats();
+        } else if (stmt instanceof ShowColumnHistStmt) {
+            handleShowColumnHist();
         } else if (stmt instanceof ShowTableCreationStmt) {
             handleShowTableCreation();
         } else if (stmt instanceof ShowLastInsertStmt) {
@@ -2272,24 +2283,58 @@ public class ShowExecutor {
 
     }
 
+    private void handleShowTableStats() {
+        ShowTableStatsStmt showTableStatsStmt = (ShowTableStatsStmt) stmt;
+        TableIf tableIf = showTableStatsStmt.getTable();
+        List<String> partitionNames = showTableStatsStmt.getPartitionNames();
+
+        TableStatistic tableStatistic;
+
+        if (partitionNames == null || partitionNames.isEmpty()) {
+            tableStatistic = StatisticsRepository.queryTableStatisticById(tableIf.getId());
+            if (tableStatistic == TableStatistic.UNKNOWN) {
+                TableStatisticBuilder statisticBuilder = new TableStatisticBuilder(tableStatistic);
+                statisticBuilder.setRowCount(tableIf.getRowCount());
+                statisticBuilder.setDataSizeInBytes(tableIf.getDataLength());
+                SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+                String updateTimeStr = format.format(new Date(tableIf.getUpdateTime()));
+                statisticBuilder.setUpdateTime(updateTimeStr);
+                tableStatistic = statisticBuilder.build();
+            }
+        } else {
+            Partition partition = showTableStatsStmt.getFirstPartition();
+            tableStatistic = StatisticsRepository.queryTableStatisticById(tableIf.getId(), partition.getId());
+            if (tableStatistic == TableStatistic.UNKNOWN) {
+                TableStatisticBuilder statisticBuilder = new TableStatisticBuilder(tableStatistic);
+                MaterializedIndex baseIndex = partition.getBaseIndex();
+                long ptRowCount = baseIndex.getRowCount();
+                long ptDataSize = baseIndex.getDataSize();
+                statisticBuilder.setRowCount(ptRowCount);
+                statisticBuilder.setDataSizeInBytes(ptDataSize);
+                long visibleVersionTime = partition.getVisibleVersionTime();
+                SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+                String updateTimeStr = format.format(new Date(visibleVersionTime));
+                statisticBuilder.setUpdateTime(updateTimeStr);
+                tableStatistic = statisticBuilder.build();
+            }
+        }
+
+        resultSet = showTableStatsStmt.constructResultSet(tableStatistic);
+    }
+
     private void handleShowColumnStats() throws AnalysisException {
         ShowColumnStatsStmt showColumnStatsStmt = (ShowColumnStatsStmt) stmt;
         TableName tableName = showColumnStatsStmt.getTableName();
         TableIf tableIf = showColumnStatsStmt.getTable();
-        if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.SHOW)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "Permission denied",
-                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                    tableName.getDb() + ": " + tableName.getTbl());
-        }
         List<Pair<String, ColumnStatistic>> columnStatistics = new ArrayList<>();
+        Set<String> columnNames = showColumnStatsStmt.getColumnNames();
         PartitionNames partitionNames = showColumnStatsStmt.getPartitionNames();
-        for (Column column : tableIf.getColumns()) {
-            String colName = column.getName();
+
+        for (String colName : columnNames) {
             if (partitionNames == null) {
                 ColumnStatistic columnStatistic =
                         StatisticsRepository.queryColumnStatisticsByName(tableIf.getId(), colName);
-                columnStatistics.add(Pair.of(column.getName(), columnStatistic));
+                columnStatistics.add(Pair.of(colName, columnStatistic));
             } else {
                 columnStatistics.addAll(StatisticsRepository.queryColumnStatisticsByPartitions(tableName,
                                 colName, showColumnStatsStmt.getPartitionNames().getPartitionNames())
@@ -2299,6 +2344,19 @@ public class ShowExecutor {
 
         }
         resultSet = showColumnStatsStmt.constructResultSet(columnStatistics);
+    }
+
+    public void handleShowColumnHist() {
+        ShowColumnHistStmt showColumnHistStmt = (ShowColumnHistStmt) stmt;
+        TableIf tableIf = showColumnHistStmt.getTable();
+        Set<String> columnNames = showColumnHistStmt.getColumnNames();
+
+        List<Pair<String, Histogram>> columnStatistics = columnNames.stream()
+                .map(colName -> Pair.of(colName,
+                        StatisticsRepository.queryColumnHistogramByName(tableIf.getId(), colName)))
+                .collect(Collectors.toList());
+
+        resultSet = showColumnHistStmt.constructResultSet(columnStatistics);
     }
 
     public void handleShowSqlBlockRule() throws AnalysisException {

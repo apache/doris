@@ -100,7 +100,7 @@ public class StatisticsTableCleaner extends MasterDaemon {
     private void deleteExpired(String colName, List<String> constants) {
         // TODO: must promise count of children of predicate is less than the FE limits.
         String deleteTemplate = "DELETE FROM " + FeConstants.INTERNAL_DB_NAME
-                + "." + StatisticConstants.STATISTIC_TBL_NAME + "WHERE ${colName} NOT IN ${predicate}";
+                + "." + StatisticConstants.COL_STATISTIC_TBL_NAME + "WHERE ${colName} NOT IN ${predicate}";
         StringJoiner predicateBuilder = new StringJoiner(",", "(", ")");
         constants.forEach(predicateBuilder::add);
         Map<String, String> map = new HashMap<String, String>() {

@@ -212,6 +212,7 @@ import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.statistics.AnalysisHelper;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.AnalysisTaskScheduler;
 import org.apache.doris.statistics.StatisticsCache;
@@ -441,6 +442,8 @@ public class Env {
 
     private AnalysisManager analysisManager;
 
+    private AnalysisHelper analysisHelper;
+
     private ExternalMetaCacheMgr extMetaCacheMgr;
 
     private FQDNManager fqdnManager;
@@ -647,6 +650,7 @@ public class Env {
         this.fqdnManager = new FQDNManager(systemInfo);
         if (!isCheckpointCatalog) {
             this.analysisManager = new AnalysisManager();
+            this.analysisHelper = new AnalysisHelper();
         }
         this.globalFunctionMgr = new GlobalFunctionMgr();
     }
@@ -1431,6 +1435,9 @@ public class Env {
         // start mtmv jobManager
         mtmvJobManager.start();
         getRefreshManager().start();
+
+        // for statistics
+        analysisHelper.start();
     }
 
     // start threads that should running on all FE
@@ -5326,6 +5333,9 @@ public class Env {
         return analysisManager;
     }
 
+    public AnalysisHelper getAnalysisHelper() {
+        return analysisHelper;
+    }
 
     public GlobalFunctionMgr getGlobalFunctionMgr() {
         return globalFunctionMgr;

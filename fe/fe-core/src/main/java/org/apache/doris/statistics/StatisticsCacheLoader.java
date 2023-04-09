@@ -41,11 +41,11 @@ public class StatisticsCacheLoader implements AsyncCacheLoader<StatisticsCacheKe
     private static final Logger LOG = LogManager.getLogger(StatisticsCacheLoader.class);
 
     private static final String QUERY_COLUMN_STATISTICS = "SELECT * FROM " + FeConstants.INTERNAL_DB_NAME
-            + "." + StatisticConstants.STATISTIC_TBL_NAME + " WHERE "
+            + "." + StatisticConstants.COL_STATISTIC_TBL_NAME + " WHERE "
             + "id = CONCAT('${tblId}', '-', ${idxId}, '-', '${colId}')";
 
     private static final String QUERY_HISTOGRAM_STATISTICS = "SELECT * FROM " + FeConstants.INTERNAL_DB_NAME
-            + "." + StatisticConstants.HISTOGRAM_TBL_NAME + " WHERE "
+            + "." + StatisticConstants.COL_HISTOGRAM_TBL_NAME + " WHERE "
             + "id = CONCAT('${tblId}', '-', ${idxId}, '-', '${colId}')";
 
     // TODO: Maybe we should trigger a analyze job when the required ColumnStatistic doesn't exists.

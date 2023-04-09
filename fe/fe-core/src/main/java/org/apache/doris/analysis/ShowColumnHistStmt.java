@@ -22,7 +22,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.AnalysisException;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
@@ -33,7 +33,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
-import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.Histogram;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -45,31 +45,26 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-public class ShowColumnStatsStmt extends ShowStmt {
+public class ShowColumnHistStmt extends ShowStmt {
 
     private static final ImmutableList<String> TITLE_NAMES =
             new ImmutableList.Builder<String>()
                     .add("column_name")
-                    .add("count")
-                    .add("ndv")
-                    .add("num_null")
-                    .add("data_size")
-                    .add("avg_size_byte")
-                    .add("min")
-                    .add("max")
+                    .add("data_type")
+                    .add("sample_rate")
+                    .add("num_buckets")
+                    .add("buckets")
                     .build();
 
     private final TableName tableName;
 
     private final List<String> columnNames;
-    private final PartitionNames partitionNames;
 
     private TableIf table;
 
-    public ShowColumnStatsStmt(TableName tableName, List<String> columnNames, PartitionNames partitionNames) {
+    public ShowColumnHistStmt(TableName tableName, List<String> columnNames) {
         this.tableName = tableName;
         this.columnNames = columnNames;
-        this.partitionNames = partitionNames;
     }
 
     public TableName getTableName() {
@@ -80,12 +75,7 @@ public class ShowColumnStatsStmt extends ShowStmt {
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         tableName.analyze(analyzer);
-        if (partitionNames != null) {
-            partitionNames.analyze(analyzer);
-            if (partitionNames.getPartitionNames().size() > 1) {
-                throw new AnalysisException("Only one partition name could be specified");
-            }
-        }
+
         // disallow external catalog
         Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
         CatalogIf<DatabaseIf> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(tableName.getCtl());
@@ -133,28 +123,22 @@ public class ShowColumnStatsStmt extends ShowStmt {
         return table;
     }
 
-    public ShowResultSet constructResultSet(List<Pair<String, ColumnStatistic>> columnStatistics) {
+    public ShowResultSet constructResultSet(List<Pair<String, Histogram>> columnStatistics) {
         List<List<String>> result = Lists.newArrayList();
         columnStatistics.forEach(p -> {
-            if (p.second == ColumnStatistic.UNKNOWN) {
+            if (p.second == null || p.second.dataType == Type.NULL) {
                 return;
             }
             List<String> row = Lists.newArrayList();
             row.add(p.first);
-            row.add(String.valueOf(p.second.count));
-            row.add(String.valueOf(p.second.ndv));
-            row.add(String.valueOf(p.second.numNulls));
-            row.add(String.valueOf(p.second.dataSize));
-            row.add(String.valueOf(p.second.avgSizeByte));
-            row.add(String.valueOf(p.second.minExpr == null ? "N/A" : p.second.minExpr.toSql()));
-            row.add(String.valueOf(p.second.maxExpr == null ? "N/A" : p.second.maxExpr.toSql()));
+            row.add(String.valueOf(p.second.dataType));
+            row.add(String.valueOf(p.second.sampleRate));
+            row.add(String.valueOf(p.second.numBuckets));
+            row.add(Histogram.getBucketsJson(p.second.buckets).toString());
             result.add(row);
         });
-        return new ShowResultSet(getMetaData(), result);
-    }
 
-    public PartitionNames getPartitionNames() {
-        return partitionNames;
+        return new ShowResultSet(getMetaData(), result);
     }
 
     public Set<String> getColumnNames() {

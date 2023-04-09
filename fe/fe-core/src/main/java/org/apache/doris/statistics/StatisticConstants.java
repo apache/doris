@@ -20,9 +20,11 @@ package org.apache.doris.statistics;
 import java.util.concurrent.TimeUnit;
 
 public class StatisticConstants {
-    public static final String STATISTIC_TBL_NAME = "column_statistics";
+    public static final String TBL_STATISTIC_TBL_NAME = "table_statistics";
 
-    public static final String HISTOGRAM_TBL_NAME = "histogram_statistics";
+    public static final String COL_STATISTIC_TBL_NAME = "column_statistics";
+
+    public static final String COL_HISTOGRAM_TBL_NAME = "histogram_statistics";
 
     public static final String ANALYSIS_JOB_TABLE = "analysis_jobs";
 

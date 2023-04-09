@@ -20,12 +20,12 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
@@ -33,42 +33,34 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
-import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.TableStatistic;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
-import java.util.stream.Collectors;
 
-public class ShowColumnStatsStmt extends ShowStmt {
+public class ShowTableStatsStmt extends ShowStmt {
 
     private static final ImmutableList<String> TITLE_NAMES =
             new ImmutableList.Builder<String>()
-                    .add("column_name")
-                    .add("count")
-                    .add("ndv")
-                    .add("num_null")
+                    .add("row_count")
+                    .add("update_rows")
+                    .add("healthy")
                     .add("data_size")
-                    .add("avg_size_byte")
-                    .add("min")
-                    .add("max")
+                    .add("update_time")
+                    .add("last_analyze_time")
                     .build();
 
     private final TableName tableName;
 
-    private final List<String> columnNames;
     private final PartitionNames partitionNames;
 
     private TableIf table;
 
-    public ShowColumnStatsStmt(TableName tableName, List<String> columnNames, PartitionNames partitionNames) {
+    public ShowTableStatsStmt(TableName tableName, PartitionNames partitionNames) {
         this.tableName = tableName;
-        this.columnNames = columnNames;
         this.partitionNames = partitionNames;
     }
 
@@ -107,16 +99,6 @@ public class ShowColumnStatsStmt extends ShowStmt {
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
                     tableName.getDb() + ": " + tableName.getTbl());
         }
-
-        if (columnNames != null) {
-            Optional<Column> nullColumn = columnNames.stream()
-                    .map(table::getColumn)
-                    .filter(Objects::isNull)
-                    .findFirst();
-            if (nullColumn.isPresent()) {
-                ErrorReport.reportAnalysisException("Column: {} not exists", nullColumn.get());
-            }
-        }
     }
 
     @Override
@@ -133,35 +115,35 @@ public class ShowColumnStatsStmt extends ShowStmt {
         return table;
     }
 
-    public ShowResultSet constructResultSet(List<Pair<String, ColumnStatistic>> columnStatistics) {
-        List<List<String>> result = Lists.newArrayList();
-        columnStatistics.forEach(p -> {
-            if (p.second == ColumnStatistic.UNKNOWN) {
-                return;
-            }
-            List<String> row = Lists.newArrayList();
-            row.add(p.first);
-            row.add(String.valueOf(p.second.count));
-            row.add(String.valueOf(p.second.ndv));
-            row.add(String.valueOf(p.second.numNulls));
-            row.add(String.valueOf(p.second.dataSize));
-            row.add(String.valueOf(p.second.avgSizeByte));
-            row.add(String.valueOf(p.second.minExpr == null ? "N/A" : p.second.minExpr.toSql()));
-            row.add(String.valueOf(p.second.maxExpr == null ? "N/A" : p.second.maxExpr.toSql()));
-            result.add(row);
-        });
-        return new ShowResultSet(getMetaData(), result);
-    }
-
-    public PartitionNames getPartitionNames() {
-        return partitionNames;
-    }
-
-    public Set<String> getColumnNames() {
-        if (columnNames != null) {
-            return  Sets.newHashSet(columnNames);
+    public List<String> getPartitionNames() {
+        if (partitionNames == null) {
+            return  Lists.newArrayList();
         }
-        return table.getColumns().stream()
-                .map(Column::getName).collect(Collectors.toSet());
+
+        return partitionNames.getPartitionNames();
+    }
+
+    public Partition getFirstPartition() {
+        if (partitionNames == null) {
+            return null;
+        }
+        Optional<Partition> firstPartition = getPartitionNames()
+                .stream()
+                .map(name -> table.getPartition(name))
+                .findFirst();
+        return firstPartition.orElse(null);
+    }
+
+    public ShowResultSet constructResultSet(TableStatistic tableStatistic) {
+        List<List<String>> result = Lists.newArrayList();
+        List<String> row = Lists.newArrayList();
+        row.add(String.valueOf(tableStatistic.rowCount));
+        row.add(String.valueOf(tableStatistic.updateRows));
+        row.add(String.valueOf(tableStatistic.healthy));
+        row.add(String.valueOf(tableStatistic.dataSizeInBytes));
+        row.add(String.valueOf(tableStatistic.updateTime));
+        row.add(String.valueOf(tableStatistic.lastAnalyzeTime));
+        result.add(row);
+        return new ShowResultSet(getMetaData(), result);
     }
 }
