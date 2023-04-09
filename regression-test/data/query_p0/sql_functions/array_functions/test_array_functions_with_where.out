@@ -15,8 +15,8 @@
 1	3
 2	1
 
--- !select --
-\N	[NULL, NULL, NULL, NULL, NULL]
+-- !select_array_with_constant --
+\N	[NULL, NULL, NULL, NULL, NULL]	[NULL, NULL, NULL, NULL, NULL]
 
 -- !select --
 1	[5, 1]

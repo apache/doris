@@ -445,7 +445,8 @@ public class OlapScanNode extends ScanNode {
                 mvColumn = meta.getColumnByName(CreateMaterializedViewStmt.mvColumnBuilder(baseColumn.getName()));
             }
             if (mvColumn == null) {
-                throw new UserException("updateColumnType: Do not found mvColumn " + baseColumn.getName());
+                throw new UserException("updateColumnType: Do not found mvColumn=" + baseColumn.getName()
+                        + " from index=" + olapTable.getIndexNameById(selectedIndexId));
             }
 
             if (mvColumn.getType() != baseColumn.getType()) {
@@ -474,7 +475,9 @@ public class OlapScanNode extends ScanNode {
             if (mvColumn == null) {
                 boolean isBound = false;
                 for (Expr conjunct : conjuncts) {
-                    if (conjunct.isBound(slotDescriptor.getId())) {
+                    List<TupleId> tids = Lists.newArrayList();
+                    conjunct.getIds(tids, null);
+                    if (!tids.isEmpty() && conjunct.isBound(slotDescriptor.getId())) {
                         isBound = true;
                         break;
                     }
@@ -482,7 +485,8 @@ public class OlapScanNode extends ScanNode {
                 if (isBound) {
                     slotDescriptor.setIsMaterialized(false);
                 } else {
-                    throw new UserException("updateSlotUniqueId: Do not found mvColumn " + baseColumn.getName());
+                    throw new UserException("updateSlotUniqueId: Do not found mvColumn=" + baseColumn.getName()
+                            + " from index=" + olapTable.getIndexNameById(selectedIndexId));
                 }
             } else {
                 slotDescriptor.setColumn(mvColumn);

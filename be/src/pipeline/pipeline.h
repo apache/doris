@@ -72,8 +72,6 @@ public:
 
     RuntimeProfile* pipeline_profile() { return _pipeline_profile.get(); }
 
-    bool can_steal() const { return _can_steal; }
-
     void disable_task_steal() { _can_steal = false; }
 
 private:

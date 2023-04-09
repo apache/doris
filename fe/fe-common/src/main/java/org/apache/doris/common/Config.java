@@ -1827,7 +1827,7 @@ public class Config extends ConfigBase {
     /*
      * mtmv scheduler framework is still under dev, remove this config when it is graduate.
      */
-    @ConfField(mutable = true)
+    @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_mtmv_scheduler_framework = false;
 
     /* Max running task num at the same time, otherwise the submitted task will still be keep in pending poll*/

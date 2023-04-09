@@ -115,8 +115,8 @@ struct ConvertImpl {
                 }
                 if constexpr (IsDataTypeDecimal<FromDataType> && IsDataTypeDecimal<ToDataType>) {
                     convert_decimal_cols<FromDataType, ToDataType>(
-                            vec_from, vec_to, vec_from.get_scale(), vec_to.get_scale(),
-                            vec_null_map_to);
+                            vec_from.data(), vec_to.data(), vec_from.get_scale(),
+                            vec_to.get_scale(), vec_from.size(), vec_null_map_to);
                 } else {
                     for (size_t i = 0; i < size; ++i) {
                         if constexpr (IsDataTypeDecimal<FromDataType> &&

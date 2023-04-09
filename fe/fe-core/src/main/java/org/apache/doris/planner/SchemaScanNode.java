@@ -122,8 +122,6 @@ public class SchemaScanNode extends ScanNode {
 
         TUserIdentity tCurrentUser = ConnectContext.get().getCurrentUserIdentity().toThrift();
         msg.schema_scan_node.setCurrentUserIdent(tCurrentUser);
-
-        msg.schema_scan_node.setTableStructure(SchemaTable.getTableStructure(tableName));
     }
 
     /**

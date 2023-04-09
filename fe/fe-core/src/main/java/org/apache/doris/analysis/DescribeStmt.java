@@ -67,11 +67,13 @@ public class DescribeStmt extends ShowStmt {
                     .addColumn(new Column("IndexKeysType", ScalarType.createVarchar(20)))
                     .addColumn(new Column("Field", ScalarType.createVarchar(20)))
                     .addColumn(new Column("Type", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("InternalType", ScalarType.createVarchar(20)))
                     .addColumn(new Column("Null", ScalarType.createVarchar(10)))
                     .addColumn(new Column("Key", ScalarType.createVarchar(10)))
                     .addColumn(new Column("Default", ScalarType.createVarchar(30)))
                     .addColumn(new Column("Extra", ScalarType.createVarchar(30)))
                     .addColumn(new Column("Visible", ScalarType.createVarchar(10)))
+                    .addColumn(new Column("DefineExpr", ScalarType.createVarchar(30)))
                     .addColumn(new Column("WhereClause", ScalarType.createVarchar(30)))
                     .build();
 
@@ -121,7 +123,7 @@ public class DescribeStmt extends ShowStmt {
             List<Column> columns = tableValuedFunctionRef.getTable().getBaseSchema();
             for (Column column : columns) {
                 List<String> row = Arrays.asList(
-                        column.getDisplayName(),
+                        column.getName(),
                         column.getOriginType().toString(),
                         column.isAllowNull() ? "Yes" : "No",
                         ((Boolean) column.isKey()).toString(),
@@ -129,6 +131,11 @@ public class DescribeStmt extends ShowStmt {
                                 ? FeConstants.null_string : column.getDefaultValue(),
                         "NONE"
                 );
+                if (column.getOriginType().isDatetimeV2()) {
+                    row.set(1, "DATETIME");
+                } else if (column.getOriginType().isDateV2()) {
+                    row.set(1, "DATE");
+                }
                 totalRows.add(row);
             }
             return;
@@ -202,7 +209,8 @@ public class DescribeStmt extends ShowStmt {
                             List<String> row = Arrays.asList(
                                     "",
                                     "",
-                                    column.getDisplayName(),
+                                    column.getName(),
+                                    column.getOriginType().toString(),
                                     column.getOriginType().toString(),
                                     column.isAllowNull() ? "Yes" : "No",
                                     ((Boolean) column.isKey()).toString(),
@@ -211,7 +219,14 @@ public class DescribeStmt extends ShowStmt {
                                             : column.getDefaultValue(),
                                     extraStr,
                                     ((Boolean) column.isVisible()).toString(),
+                                    column.getDefineExpr() == null ? "" : column.getDefineExpr().toSql(),
                                     "");
+
+                            if (column.getOriginType().isDatetimeV2()) {
+                                row.set(3, "DATETIME");
+                            } else if (column.getOriginType().isDateV2()) {
+                                row.set(3, "DATE");
+                            }
 
                             if (j == 0) {
                                 row.set(0, indexName);

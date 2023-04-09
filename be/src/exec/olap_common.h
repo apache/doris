@@ -1135,6 +1135,7 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
         _end_include = true;
         *exact_value = false;
         // not empty, do nothing
+        return Status::OK();
     }
 
     // 3.1 extend ScanKey with FixedValueRange

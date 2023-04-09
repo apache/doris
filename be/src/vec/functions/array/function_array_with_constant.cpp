@@ -25,12 +25,14 @@
 
 namespace doris::vectorized {
 
-/* array_with_constant(num, T) - return array of constants with length num.
+/* array_with_constant(num, T) / array_repeat(T, num)  - return array of constants with length num.
  * array_with_constant(2, 'xxx') = ['xxx', 'xxx']
+ * array_repeat('xxx', 2) = ['xxx', 'xxx']
  */
+template <typename FunctionType>
 class FunctionArrayWithConstant : public IFunction {
 public:
-    static constexpr auto name = "array_with_constant";
+    static constexpr auto name = FunctionType::name;
     static FunctionPtr create() { return std::make_shared<FunctionArrayWithConstant>(); }
 
     /// Get function name.
@@ -44,13 +46,16 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeArray>(make_nullable(arguments[1]));
+        return std::make_shared<DataTypeArray>(
+                make_nullable(arguments[FunctionType::param_val_idx]));
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        auto num = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        auto value = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        auto num = block.get_by_position(arguments[FunctionType::param_num_idx])
+                           .column->convert_to_full_column_if_const();
+        auto value = block.get_by_position(arguments[FunctionType::param_val_idx])
+                             .column->convert_to_full_column_if_const();
         auto offsets_col = ColumnVector<ColumnArray::Offset64>::create();
         ColumnArray::Offsets64& offsets = offsets_col->get_data();
         offsets.reserve(input_rows_count);
@@ -79,8 +84,25 @@ public:
     }
 };
 
+struct NameArrayWithConstant {
+    static constexpr auto name = "array_with_constant";
+
+    static constexpr auto param_num_idx = 0;
+
+    static constexpr auto param_val_idx = 1;
+};
+
+struct NameArrayRepeat {
+    static constexpr auto name = "array_repeat";
+
+    static constexpr auto param_num_idx = 1;
+
+    static constexpr auto param_val_idx = 0;
+};
+
 void register_function_array_with_constant(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionArrayWithConstant>();
+    factory.register_function<FunctionArrayWithConstant<NameArrayWithConstant>>();
+    factory.register_function<FunctionArrayWithConstant<NameArrayRepeat>>();
 }
 
 } // namespace doris::vectorized

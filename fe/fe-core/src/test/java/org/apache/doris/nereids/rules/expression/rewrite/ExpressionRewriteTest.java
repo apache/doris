@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.expression.rewrite;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.BetweenToCompoundRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.DistinctPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.ExtractCommonFactorRule;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.InPredicateDedup;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.InPredicateToEqualToRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.NormalizeBinaryPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyCastRule;
@@ -193,6 +194,13 @@ public class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
+    public void testInPredicateDedup() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(InPredicateDedup.INSTANCE));
+
+        assertRewrite("a in (1, 2, 1, 2)", "a in (1, 2)");
+    }
+
+    @Test
     public void testSimplifyCastRule() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(SimplifyCastRule.INSTANCE));
 
@@ -233,7 +241,7 @@ public class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
         Expression dv2 = new DateV2Literal(1, 1, 1);
         Expression dv2PlusOne = new DateV2Literal(1, 1, 2);
         Expression d = new DateLiteral(1, 1, 1);
-        //Expression dPlusOne = new DateLiteral(1, 1, 2);
+        // Expression dPlusOne = new DateLiteral(1, 1, 2);
 
         // DateTimeV2 -> DateTime
         assertRewrite(

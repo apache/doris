@@ -208,6 +208,7 @@ public:
 
     IntCounter* tablet_schema_cache_count;
     UIntGauge* tablet_schema_cache_memory_bytes;
+    IntGauge* lru_cache_memory_bytes;
 
     UIntGauge* scanner_thread_pool_queue_size;
     UIntGauge* add_batch_task_queue_size;

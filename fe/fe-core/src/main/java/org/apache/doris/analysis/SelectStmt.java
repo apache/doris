@@ -230,6 +230,10 @@ public class SelectStmt extends QueryStmt {
         if (havingClauseAfterAnaylzed != null) {
             exprs.add(havingClauseAfterAnaylzed);
         }
+        if (orderByElementsAfterAnalyzed != null) {
+            exprs.addAll(orderByElementsAfterAnalyzed.stream().map(orderByElement -> orderByElement.getExpr())
+                    .collect(Collectors.toList()));
+        }
         return exprs;
     }
 
@@ -707,7 +711,6 @@ public class SelectStmt extends QueryStmt {
         // only vectorized mode and session opt variable enabled
         if (ConnectContext.get() == null
                 || ConnectContext.get().getSessionVariable() == null
-                || !ConnectContext.get().getSessionVariable().enableVectorizedEngine
                 || !ConnectContext.get().getSessionVariable().enableTwoPhaseReadOpt) {
             return false;
         }

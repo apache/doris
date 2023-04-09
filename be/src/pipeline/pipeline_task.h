@@ -126,9 +126,6 @@ public:
     void pop_out_runnable_queue() { _wait_worker_watcher.stop(); }
     void start_schedule_watcher() { _wait_schedule_watcher.start(); }
     void stop_schedule_watcher() { _wait_schedule_watcher.stop(); }
-
-    int pipeline_id() const { return _pipeline->_pipeline_id; }
-
     PipelineTaskState get_state() { return _cur_state; }
     void set_state(PipelineTaskState state);
 
@@ -172,8 +169,6 @@ public:
     }
 
     bool has_dependency();
-
-    uint32_t index() const { return _index; }
 
     OperatorPtr get_root() { return _root; }
 

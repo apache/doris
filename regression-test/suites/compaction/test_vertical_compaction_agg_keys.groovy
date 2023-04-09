@@ -28,7 +28,7 @@ suite("test_vertical_compaction_agg_keys") {
             setConfigCommand.append("curl -X POST http://")
             setConfigCommand.append(backend[2])
             setConfigCommand.append(":")
-            setConfigCommand.append(backend[5])
+            setConfigCommand.append(backend[6])
             setConfigCommand.append("/api/update_config?")
             String command1 = setConfigCommand.toString() + "enable_vertical_compaction=true"
             logger.info(command1)
@@ -45,7 +45,7 @@ suite("test_vertical_compaction_agg_keys") {
             setConfigCommand.append("curl -X POST http://")
             setConfigCommand.append(backend[2])
             setConfigCommand.append(":")
-            setConfigCommand.append(backend[5])
+            setConfigCommand.append(backend[6])
             setConfigCommand.append("/api/update_config?")
             String command1 = setConfigCommand.toString() + "enable_vertical_compaction=false"
             logger.info(command1)
@@ -64,7 +64,7 @@ suite("test_vertical_compaction_agg_keys") {
         def backendId_to_backendHttpPort = [:]
         for (String[] backend in backends) {
             backendId_to_backendIP.put(backend[0], backend[2])
-            backendId_to_backendHttpPort.put(backend[0], backend[5])
+            backendId_to_backendHttpPort.put(backend[0], backend[6])
         }
 
         backend_id = backendId_to_backendIP.keySet()[0]
@@ -251,6 +251,6 @@ suite("test_vertical_compaction_agg_keys") {
         qt_select_default3 """ SELECT * FROM ${tableName} t ORDER BY user_id; """
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
-        reset_be_config.call()
+        //reset_be_config.call()
     }
 }
