@@ -17,9 +17,6 @@
 
 suite("test_mtmv_ssb_ddl") {
     def ssb_tables = ["customer", "lineorder", "part", "date", "supplier"]
-    sql """
-    ADMIN SET FRONTEND CONFIG("enable_mtmv_scheduler_framework"="true");
-    """
 
     for (String table in ssb_tables) {
         sql new File("""${context.file.parent}/ddl/${table}_create.sql""").text
