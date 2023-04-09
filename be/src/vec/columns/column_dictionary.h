@@ -326,7 +326,7 @@ public:
 
     inline StringRef get_shrink_value(value_type code) const {
         StringRef result = _dict.get_value(code);
-        if (_type == OLAP_FIELD_TYPE_CHAR) {
+        if (_type == FieldType::OLAP_FIELD_TYPE_CHAR) {
             result.size = strnlen(result.data, result.size);
         }
         return result;
@@ -386,7 +386,7 @@ public:
                 // For dictionary data of char type, sv.size is the schema length,
                 // so use strnlen to remove the 0 at the end to get the actual length.
                 int32_t len = sv.size;
-                if (type == OLAP_FIELD_TYPE_CHAR) {
+                if (type == FieldType::OLAP_FIELD_TYPE_CHAR) {
                     len = strnlen(sv.data, sv.size);
                 }
                 uint32_t hash_val = HashUtil::murmur_hash3_32(sv.data, len, 0);

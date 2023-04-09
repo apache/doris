@@ -113,7 +113,7 @@ Status TypedZoneMapIndexWriter<Type>::finish(io::FileWriter* file_writer,
     _segment_zone_map.to_proto(meta->mutable_segment_zone_map(), _field);
 
     // write out zone map for each data pages
-    const auto* type_info = get_scalar_type_info<OLAP_FIELD_TYPE_OBJECT>();
+    const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_OBJECT>();
     IndexedColumnWriterOptions options;
     options.write_ordinal_index = true;
     options.write_value_index = false;
@@ -140,8 +140,8 @@ Status ZoneMapIndexReader::load(bool use_page_cache, bool kept_in_memory) {
     // read and cache all page zone maps
     for (int i = 0; i < reader.num_values(); ++i) {
         size_t num_to_read = 1;
-        // The type of reader is OLAP_FIELD_TYPE_OBJECT.
-        // ColumnBitmap will be created when using OLAP_FIELD_TYPE_OBJECT.
+        // The type of reader is FieldType::OLAP_FIELD_TYPE_OBJECT.
+        // ColumnBitmap will be created when using FieldType::OLAP_FIELD_TYPE_OBJECT.
         // But what we need actually is ColumnString.
         vectorized::MutableColumnPtr column = vectorized::ColumnString::create();
 
@@ -180,17 +180,17 @@ Status ZoneMapIndexReader::load(bool use_page_cache, bool kept_in_memory) {
 Status ZoneMapIndexWriter::create(Field* field, std::unique_ptr<ZoneMapIndexWriter>& res) {
     switch (field->type()) {
 #define M(NAME)                                              \
-    case OLAP_FIELD_##NAME: {                                \
+    case FieldType::OLAP_FIELD_##NAME: {                     \
         res.reset(new TypedZoneMapIndexWriter<NAME>(field)); \
         return Status::OK();                                 \
     }
         APPLY_FOR_PRIMITITYPE(M)
 #undef M
-    case OLAP_FIELD_TYPE_DECIMAL: {
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL: {
         res.reset(new TypedZoneMapIndexWriter<TYPE_DECIMALV2>(field));
         return Status::OK();
     }
-    case OLAP_FIELD_TYPE_BOOL: {
+    case FieldType::OLAP_FIELD_TYPE_BOOL: {
         res.reset(new TypedZoneMapIndexWriter<TYPE_BOOLEAN>(field));
         return Status::OK();
     }

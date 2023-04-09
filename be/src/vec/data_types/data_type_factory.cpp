@@ -31,15 +31,15 @@ namespace doris::vectorized {
 
 DataTypePtr DataTypeFactory::create_data_type(const doris::Field& col_desc) {
     DataTypePtr nested = nullptr;
-    if (col_desc.type() == OLAP_FIELD_TYPE_ARRAY) {
+    if (col_desc.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
         DCHECK(col_desc.get_sub_field_count() == 1);
         nested = std::make_shared<DataTypeArray>(create_data_type(*col_desc.get_sub_field(0)));
-    } else if (col_desc.type() == OLAP_FIELD_TYPE_MAP) {
+    } else if (col_desc.type() == FieldType::OLAP_FIELD_TYPE_MAP) {
         DCHECK(col_desc.get_sub_field_count() == 2);
         nested = std::make_shared<vectorized::DataTypeMap>(
                 create_data_type(*col_desc.get_sub_field(0)),
                 create_data_type(*col_desc.get_sub_field(1)));
-    } else if (col_desc.type() == OLAP_FIELD_TYPE_STRUCT) {
+    } else if (col_desc.type() == FieldType::OLAP_FIELD_TYPE_STRUCT) {
         DCHECK(col_desc.get_sub_field_count() >= 1);
         size_t field_size = col_desc.get_sub_field_count();
         DataTypes dataTypes;
@@ -64,15 +64,15 @@ DataTypePtr DataTypeFactory::create_data_type(const doris::Field& col_desc) {
 
 DataTypePtr DataTypeFactory::create_data_type(const TabletColumn& col_desc, bool is_nullable) {
     DataTypePtr nested = nullptr;
-    if (col_desc.type() == OLAP_FIELD_TYPE_ARRAY) {
+    if (col_desc.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
         DCHECK(col_desc.get_subtype_count() == 1);
         nested = std::make_shared<DataTypeArray>(create_data_type(col_desc.get_sub_column(0)));
-    } else if (col_desc.type() == OLAP_FIELD_TYPE_MAP) {
+    } else if (col_desc.type() == FieldType::OLAP_FIELD_TYPE_MAP) {
         DCHECK(col_desc.get_subtype_count() == 2);
         nested = std::make_shared<vectorized::DataTypeMap>(
                 create_data_type(col_desc.get_sub_column(0)),
                 create_data_type(col_desc.get_sub_column(1)));
-    } else if (col_desc.type() == OLAP_FIELD_TYPE_STRUCT) {
+    } else if (col_desc.type() == FieldType::OLAP_FIELD_TYPE_STRUCT) {
         DCHECK(col_desc.get_subtype_count() >= 1);
         size_t col_size = col_desc.get_subtype_count();
         DataTypes dataTypes;
@@ -309,65 +309,65 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
                                                          int scale) const {
     DataTypePtr result = nullptr;
     switch (type) {
-    case OLAP_FIELD_TYPE_BOOL:
+    case FieldType::OLAP_FIELD_TYPE_BOOL:
         result = std::make_shared<vectorized::DataTypeUInt8>();
         break;
-    case OLAP_FIELD_TYPE_TINYINT:
+    case FieldType::OLAP_FIELD_TYPE_TINYINT:
         result = std::make_shared<vectorized::DataTypeInt8>();
         break;
-    case OLAP_FIELD_TYPE_SMALLINT:
+    case FieldType::OLAP_FIELD_TYPE_SMALLINT:
         result = std::make_shared<vectorized::DataTypeInt16>();
         break;
-    case OLAP_FIELD_TYPE_INT:
+    case FieldType::OLAP_FIELD_TYPE_INT:
         result = std::make_shared<vectorized::DataTypeInt32>();
         break;
-    case OLAP_FIELD_TYPE_FLOAT:
+    case FieldType::OLAP_FIELD_TYPE_FLOAT:
         result = std::make_shared<vectorized::DataTypeFloat32>();
         break;
-    case OLAP_FIELD_TYPE_BIGINT:
+    case FieldType::OLAP_FIELD_TYPE_BIGINT:
         result = std::make_shared<vectorized::DataTypeInt64>();
         break;
-    case OLAP_FIELD_TYPE_LARGEINT:
+    case FieldType::OLAP_FIELD_TYPE_LARGEINT:
         result = std::make_shared<vectorized::DataTypeInt128>();
         break;
-    case OLAP_FIELD_TYPE_DATE:
+    case FieldType::OLAP_FIELD_TYPE_DATE:
         result = std::make_shared<vectorized::DataTypeDate>();
         break;
-    case OLAP_FIELD_TYPE_DATEV2:
+    case FieldType::OLAP_FIELD_TYPE_DATEV2:
         result = std::make_shared<vectorized::DataTypeDateV2>();
         break;
-    case OLAP_FIELD_TYPE_DATETIMEV2:
+    case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
         result = vectorized::create_datetimev2(scale);
         break;
-    case OLAP_FIELD_TYPE_DATETIME:
+    case FieldType::OLAP_FIELD_TYPE_DATETIME:
         result = std::make_shared<vectorized::DataTypeDateTime>();
         break;
-    case OLAP_FIELD_TYPE_DOUBLE:
+    case FieldType::OLAP_FIELD_TYPE_DOUBLE:
         result = std::make_shared<vectorized::DataTypeFloat64>();
         break;
-    case OLAP_FIELD_TYPE_CHAR:
-    case OLAP_FIELD_TYPE_VARCHAR:
-    case OLAP_FIELD_TYPE_STRING:
+    case FieldType::OLAP_FIELD_TYPE_CHAR:
+    case FieldType::OLAP_FIELD_TYPE_VARCHAR:
+    case FieldType::OLAP_FIELD_TYPE_STRING:
         result = std::make_shared<vectorized::DataTypeString>();
         break;
-    case OLAP_FIELD_TYPE_JSONB:
+    case FieldType::OLAP_FIELD_TYPE_JSONB:
         result = std::make_shared<vectorized::DataTypeJsonb>();
         break;
-    case OLAP_FIELD_TYPE_HLL:
+    case FieldType::OLAP_FIELD_TYPE_HLL:
         result = std::make_shared<vectorized::DataTypeHLL>();
         break;
-    case OLAP_FIELD_TYPE_OBJECT:
+    case FieldType::OLAP_FIELD_TYPE_OBJECT:
         result = std::make_shared<vectorized::DataTypeBitMap>();
         break;
-    case OLAP_FIELD_TYPE_DECIMAL:
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL:
         result = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128>>(27, 9);
         break;
-    case OLAP_FIELD_TYPE_QUANTILE_STATE:
+    case FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE:
         result = std::make_shared<vectorized::DataTypeQuantileStateDouble>();
         break;
-    case OLAP_FIELD_TYPE_DECIMAL32:
-    case OLAP_FIELD_TYPE_DECIMAL64:
-    case OLAP_FIELD_TYPE_DECIMAL128I:
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL32:
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL64:
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL128I:
         result = vectorized::create_decimal(precision, scale, false);
         break;
     default:

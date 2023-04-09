@@ -91,19 +91,22 @@ bool is_conversion_required_between_integers(const IDataType& lhs, const IDataTy
 bool is_conversion_required_between_integers(FieldType lhs, FieldType rhs) {
     // We only support signed integers for semi-structure data at present
     // TODO add unsigned integers
-    if (lhs == OLAP_FIELD_TYPE_BIGINT) {
-        return !(rhs == OLAP_FIELD_TYPE_TINYINT || rhs == OLAP_FIELD_TYPE_SMALLINT ||
-                 rhs == OLAP_FIELD_TYPE_INT || rhs == OLAP_FIELD_TYPE_BIGINT);
+    if (lhs == FieldType::OLAP_FIELD_TYPE_BIGINT) {
+        return !(rhs == FieldType::OLAP_FIELD_TYPE_TINYINT ||
+                 rhs == FieldType::OLAP_FIELD_TYPE_SMALLINT ||
+                 rhs == FieldType::OLAP_FIELD_TYPE_INT || rhs == FieldType::OLAP_FIELD_TYPE_BIGINT);
     }
-    if (lhs == OLAP_FIELD_TYPE_INT) {
-        return !(rhs == OLAP_FIELD_TYPE_TINYINT || rhs == OLAP_FIELD_TYPE_SMALLINT ||
-                 rhs == OLAP_FIELD_TYPE_INT);
+    if (lhs == FieldType::OLAP_FIELD_TYPE_INT) {
+        return !(rhs == FieldType::OLAP_FIELD_TYPE_TINYINT ||
+                 rhs == FieldType::OLAP_FIELD_TYPE_SMALLINT ||
+                 rhs == FieldType::OLAP_FIELD_TYPE_INT);
     }
-    if (lhs == OLAP_FIELD_TYPE_SMALLINT) {
-        return !(rhs == OLAP_FIELD_TYPE_TINYINT || rhs == OLAP_FIELD_TYPE_SMALLINT);
+    if (lhs == FieldType::OLAP_FIELD_TYPE_SMALLINT) {
+        return !(rhs == FieldType::OLAP_FIELD_TYPE_TINYINT ||
+                 rhs == FieldType::OLAP_FIELD_TYPE_SMALLINT);
     }
-    if (lhs == OLAP_FIELD_TYPE_TINYINT) {
-        return !(rhs == OLAP_FIELD_TYPE_TINYINT);
+    if (lhs == FieldType::OLAP_FIELD_TYPE_TINYINT) {
+        return !(rhs == FieldType::OLAP_FIELD_TYPE_TINYINT);
     }
     return true;
 }
