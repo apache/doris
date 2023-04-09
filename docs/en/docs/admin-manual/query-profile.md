@@ -28,6 +28,11 @@ under the License.
 
 This document focuses on introducing the **Running Profile** which recorded runtime status of Doris in query execution. Using these statistical information, we can understand the execution of frgment to become a expert of Doris's **debugging and tuning**.
 
+You can also refer to following statements to view profile in command line:
+
+- [SHOW QUERY PROFILE](../sql-manual/sql-reference/Show-Statements/SHOW-QUERY-PROFILE.md)
+- [SHOW LOAD PROFILE](../sql-manual/sql-reference/Show-Statements/SHOW-LOAD-PROFILE.md)
+
 ## Noun Interpretation
 
 * **FE**: Frontend, frontend node of Doris. Responsible for metadata management and request access.
@@ -39,6 +44,7 @@ This document focuses on introducing the **Running Profile** which recorded runt
 ## Basic concepts
 
 FE splits the query plan into fragments and distributes them to BE for task execution. BE records the statistics of **Running State** when executing fragment. BE print the outputs statistics of fragment execution into the log. FE can also collect these statistics recorded by each fragment and print the results on FE's web page.
+
 ## Specific operation
 
 Turn on the report switch on FE through MySQL command
