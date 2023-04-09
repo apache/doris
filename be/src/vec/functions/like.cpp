@@ -67,7 +67,7 @@ Status LikeSearchState::clone(LikeSearchState& cloned) {
         if (!cloned.regex->ok()) {
             return Status::InternalError("Invalid regex expression: {}", re_pattern);
         }
-     }
+    }
 
     return Status::OK();
 }
@@ -211,7 +211,7 @@ Status FunctionLikeBase::constant_regex_fn_scalar(LikeSearchState* state, const 
                                                   unsigned char* result) {
     if (state->hs_database) { // use hyperscan
         auto ret = hs_scan(state->hs_database.get(), val.data, val.size, 0, state->hs_scratch.get(),
-                        state->hs_match_handler, (void*)result);
+                           state->hs_match_handler, (void*)result);
         if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
             return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
         }
@@ -230,7 +230,7 @@ Status FunctionLikeBase::regexp_fn_scalar(LikeSearchState* state, const StringRe
     hs_scratch_t* scratch = nullptr;
     if (hs_prepare(nullptr, re_pattern.c_str(), &database, &scratch).ok()) { // use hyperscan
         auto ret = hs_scan(database, val.data, val.size, 0, scratch, state->hs_match_handler,
-                        (void*)result);
+                           (void*)result);
         if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
             return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
         }
@@ -247,7 +247,7 @@ Status FunctionLikeBase::regexp_fn_scalar(LikeSearchState* state, const StringRe
         } else {
             return Status::RuntimeError("Invalid pattern: {}", pattern.debug_string());
         }
-    }    
+    }
 
     return Status::OK();
 }
@@ -260,8 +260,8 @@ Status FunctionLikeBase::constant_regex_fn(LikeSearchState* state, const ColumnS
         for (size_t i = 0; i < sz; i++) {
             const auto& str_ref = val.get_data_at(i);
             auto ret = hs_scan(state->hs_database.get(), str_ref.data, str_ref.size, 0,
-                            state->hs_scratch.get(), state->hs_match_handler,
-                            (void*)(result.data() + i));
+                               state->hs_scratch.get(), state->hs_match_handler,
+                               (void*)(result.data() + i));
             if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
                 return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
             }
@@ -288,7 +288,7 @@ Status FunctionLikeBase::regexp_fn(LikeSearchState* state, const ColumnString& v
         for (size_t i = 0; i < sz; i++) {
             const auto& str_ref = val.get_data_at(i);
             auto ret = hs_scan(database, str_ref.data, str_ref.size, 0, scratch,
-                            state->hs_match_handler, (void*)(result.data() + i));
+                               state->hs_match_handler, (void*)(result.data() + i));
             if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
                 return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
             }
@@ -324,9 +324,9 @@ Status FunctionLikeBase::constant_regex_fn_predicate(LikeSearchState* state,
     auto data_ptr = reinterpret_cast<const StringRef*>(val.get_data().data());
     if (state->hs_database) { // use hyperscan
         for (size_t i = 0; i < sz; i++) {
-            auto ret = hs_scan(state->hs_database.get(), data_ptr[sel[i]].data, data_ptr[sel[i]].size,
-                            0, state->hs_scratch.get(), state->hs_match_handler,
-                            (void*)(result.data() + i));
+            auto ret = hs_scan(state->hs_database.get(), data_ptr[sel[i]].data,
+                               data_ptr[sel[i]].size, 0, state->hs_scratch.get(),
+                               state->hs_match_handler, (void*)(result.data() + i));
             if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
                 return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
             }
@@ -355,7 +355,7 @@ Status FunctionLikeBase::regexp_fn_predicate(LikeSearchState* state,
         auto data_ptr = reinterpret_cast<const StringRef*>(val.get_data().data());
         for (size_t i = 0; i < sz; i++) {
             auto ret = hs_scan(database, data_ptr[sel[i]].data, data_ptr[sel[i]].size, 0, scratch,
-                            state->hs_match_handler, (void*)(result.data() + i));
+                               state->hs_match_handler, (void*)(result.data() + i));
             if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
                 return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
             }
