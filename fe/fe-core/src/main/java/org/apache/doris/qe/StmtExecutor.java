@@ -1856,7 +1856,7 @@ public class StmtExecutor implements ProfileWriter {
         for (Column col : metaData.getColumns()) {
             serializer.reset();
             // TODO(zhaochun): only support varchar type
-            serializer.writeField(col.getName(), col.getType().getPrimitiveType());
+            serializer.writeField(col.getName(), col.getType());
             context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         }
         // send EOF
@@ -1889,7 +1889,7 @@ public class StmtExecutor implements ProfileWriter {
         context.getState().setOk();
     }
 
-    private void sendFields(List<String> colNames, List<PrimitiveType> types) throws IOException {
+    private void sendFields(List<String> colNames, List<Type> types) throws IOException {
         // sends how many columns
         serializer.reset();
         serializer.writeVInt(colNames.size());
@@ -2141,8 +2141,8 @@ public class StmtExecutor implements ProfileWriter {
         return statisticsForAuditLog.build();
     }
 
-    private List<PrimitiveType> exprToType(List<Expr> exprs) {
-        return exprs.stream().map(e -> e.getType().getPrimitiveType()).collect(Collectors.toList());
+    private List<Type> exprToType(List<Expr> exprs) {
+        return exprs.stream().map(e -> e.getType()).collect(Collectors.toList());
     }
 
     public StatementBase setParsedStmt(StatementBase parsedStmt) {
