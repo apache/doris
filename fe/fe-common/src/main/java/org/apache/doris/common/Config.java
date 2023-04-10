@@ -2043,17 +2043,36 @@ public class Config extends ConfigBase {
     public static boolean enable_ssl = true;
 
     /**
-     * Default certificate file location for mysql ssl connection.
+     * If set to ture, ssl connection needs to authenticate client's certificate.
      */
     @ConfField(mutable = false, masterOnly = false)
-    public static String mysql_ssl_default_certificate = System.getenv("DORIS_HOME")
-            + "/mysql_ssl_default_certificate/certificate.p12";
+    public static boolean ssl_force_client_auth = false;
 
     /**
-     * Password for default certificate file.
+     * Default CA certificate file location for mysql ssl connection.
      */
     @ConfField(mutable = false, masterOnly = false)
-    public static String mysql_ssl_default_certificate_password = "doris";
+    public static String mysql_ssl_default_ca_certificate = System.getenv("DORIS_HOME")
+            + "/mysql_ssl_default_certificate/ca_certificate.p12";
+
+    /**
+     * Default server certificate file location for mysql ssl connection.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static String mysql_ssl_default_server_certificate = System.getenv("DORIS_HOME")
+            + "/mysql_ssl_default_certificate/server_certificate.p12";
+
+    /**
+     * Password for default CA certificate file.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static String mysql_ssl_default_ca_certificate_password = "doris";
+
+    /**
+     * Password for default CA certificate file.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static String mysql_ssl_default_server_certificate_password = "doris";
 
     /**
      * Used to set session variables randomly to check more issues in github workflow
