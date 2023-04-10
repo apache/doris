@@ -41,7 +41,7 @@ public:
         byteOrder = order;
     };
 
-    unsigned char readByte() // throws ParseException
+    unsigned char readByte()
     {
         if(size() < 1) {
             return GEO_PARSE_WKB_SYNTAX_ERROR;
@@ -54,7 +54,7 @@ public:
     int32_t readInt()
     {
         if(size() < 4) {
-            return GEO_PARSE_WKB_SYNTAX_ERROR;//throw ParseException("Unexpected EOF parsing WKB");
+            return GEO_PARSE_WKB_SYNTAX_ERROR;
         }
         auto ret =  ByteOrderValues::getInt(buf , byteOrder);
         buf += 4;
@@ -64,7 +64,7 @@ public:
     uint32_t readUnsigned()
     {
         if(size() < 4) {
-            return GEO_PARSE_WKB_SYNTAX_ERROR;//throw ParseException("Unexpected EOF parsing WKB");
+            return GEO_PARSE_WKB_SYNTAX_ERROR;
         }
         auto ret =  ByteOrderValues::getUnsigned(buf , byteOrder);
         buf += 4;
@@ -74,7 +74,7 @@ public:
     int64_t readLong()
     {
         if(size() < 8) {
-            return GEO_PARSE_WKB_SYNTAX_ERROR;//throw ParseException("Unexpected EOF parsing WKB");
+            return GEO_PARSE_WKB_SYNTAX_ERROR;
         }
 
         auto ret = ByteOrderValues::getLong(buf, byteOrder);
@@ -85,7 +85,7 @@ public:
     double readDouble()
     {
         if(size() < 8) {
-            return GEO_PARSE_WKB_SYNTAX_ERROR;//throw  ParseException("Unexpected EOF parsing WKB");
+            return GEO_PARSE_WKB_SYNTAX_ERROR;
         }
         auto ret = ByteOrderValues::getDouble(buf, byteOrder);
         buf += 8;
