@@ -19,13 +19,7 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
-import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.catalog.AliasFunction;
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Function;
-import org.apache.doris.catalog.Function.CompareMode;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
@@ -36,7 +30,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
@@ -44,7 +37,6 @@ import com.google.common.collect.ImmutableMap.Builder;
 
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * replace alias function to builtin function expression
@@ -67,26 +59,6 @@ public class AliasFunctionRewriter extends DefaultExpressionRewriter<CascadesCon
         }
         Expression nereidsFunction = translateToNereidsFunction(((FunctionCallExpr) originalFunction));
         return replaceParameter(nereidsFunction, catalogFunction.getParameters(), unboundFunction.children());
-    }
-
-    private AliasFunction getAliasFunction(UnboundFunction function, Database database) {
-        List<Type> types = function.getArgumentsTypes().stream()
-                .map(AbstractDataType::toCatalogDataType).collect(Collectors.toList());
-        Function desc = new Function(new FunctionName(database.getFullName(), function.getName()),
-                types, Type.INVALID, false);
-        AliasFunction udf;
-        try {
-            udf = ((AliasFunction) database.getFunction(desc, CompareMode.IS_NONSTRICT_SUPERTYPE_OF));
-        } catch (Exception e) {
-            throw new AnalysisException(e.getMessage());
-        }
-        return udf;
-    }
-
-    private Database getDb(CascadesContext context) {
-        Env env = context.getConnectContext().getEnv();
-        String dbName = context.getConnectContext().getDatabase();
-        return env.getInternalCatalog().getDbNullable(dbName);
     }
 
     private Expression translateToNereidsFunction(FunctionCallExpr function) {
