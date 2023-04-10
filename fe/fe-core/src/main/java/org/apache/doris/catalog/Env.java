@@ -960,7 +960,11 @@ public class Env {
                 storage.writeClusterIdAndToken();
 
                 isFirstTimeStartUp = true;
-                Frontend self = new Frontend(role, nodeName, selfNode.getIp(), selfNode.getHostName(),
+                String hostName = selfNode.getHostName();
+                if (Config.enable_deploy_manager.equalsIgnoreCase("k8s") && Config.enable_fqdn_mode) {
+                    hostName = nodeName;
+                }
+                Frontend self = new Frontend(role, nodeName, selfNode.getIp(), hostName,
                         selfNode.getPort());
                 // We don't need to check if frontends already contains self.
                 // frontends must be empty cause no image is loaded and no journal is replayed yet.
