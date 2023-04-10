@@ -339,7 +339,7 @@ public:
             size_t size = _null_bitmap.getSizeInBytes(false);
             if (size > 0) {
                 faststring buf;
-                buf.reserve(size);
+                buf.resize(size);
                 _null_bitmap.write(reinterpret_cast<char*>(buf.data()), false);
                 null_bitmap_out->writeBytes(reinterpret_cast<uint8_t*>(buf.data()), size);
             }
