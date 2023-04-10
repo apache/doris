@@ -101,29 +101,21 @@ public class UdfBinder {
     }
 
     private Expression handleJavaUdf(UnboundFunction nereidsFunction, ScalarFunction catalogFunction) {
-        Type retType = catalogFunction.getReturnType();
-        Type[] argTypes = catalogFunction.getArgs();
-        Type varArgTypes = catalogFunction.getVarArgsType();
-        boolean hasVarArgs = catalogFunction.hasVarArgs();
-        FunctionSignature signature;
-        FuncSigBuilder sigBuilder = FunctionSignature
-                .ret(DataType.fromCatalogType(retType));
-        if (hasVarArgs) {
-            List<DataType> dataTypes = Arrays.stream(argTypes).map(DataType::fromCatalogType)
-                    .collect(Collectors.toList());
-            dataTypes.add(DataType.fromCatalogType(varArgTypes));
-            signature = sigBuilder.varArgs(dataTypes.toArray(new AbstractDataType[0]));
-        } else {
-            signature = sigBuilder.args(Arrays.stream(argTypes).map(DataType::fromCatalogType)
-                    .toArray(AbstractDataType[]::new));
-        }
         return TypeCoercionUtils.processBoundFunction(new JavaUdf(catalogFunction,
-                signature,
+                getFunctionSignature(catalogFunction),
                 nereidsFunction.getName(),
                 nereidsFunction.children().toArray(new Expression[0])));
     }
 
     private Expression handleJavaUDAF(UnboundFunction nereidsFunction, AggregateFunction catalogFunction) {
+        return TypeCoercionUtils.processBoundFunction(new JavaUdaf(catalogFunction,
+                getFunctionSignature(catalogFunction),
+                nereidsFunction.getName(),
+                !catalogFunction.ignoresDistinct() && nereidsFunction.isDistinct(),
+                nereidsFunction.children().toArray(new Expression[0])));
+    }
+
+    private FunctionSignature getFunctionSignature(Function catalogFunction) {
         Type retType = catalogFunction.getReturnType();
         Type[] argTypes = catalogFunction.getArgs();
         Type varArgTypes = catalogFunction.getVarArgsType();
@@ -140,10 +132,6 @@ public class UdfBinder {
             signature = sigBuilder.args(Arrays.stream(argTypes).map(DataType::fromCatalogType)
                     .toArray(AbstractDataType[]::new));
         }
-        return TypeCoercionUtils.processBoundFunction(new JavaUdaf(catalogFunction,
-                signature,
-                nereidsFunction.getName(),
-                false,
-                nereidsFunction.children().toArray(new Expression[0])));
+        return signature;
     }
 }
