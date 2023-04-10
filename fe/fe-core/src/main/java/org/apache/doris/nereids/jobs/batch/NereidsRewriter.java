@@ -175,12 +175,12 @@ public class NereidsRewriter extends BatchRewriteJob {
                 ),
 
                 // pushdown SEMI Join
-                topDown(
-                        // new SemiJoinCommute(),
-                        new SemiJoinLogicalJoinTranspose(),
-                        new SemiJoinLogicalJoinTransposeProject(),
-                        new SemiJoinAggTranspose(),
-                        new SemiJoinAggTransposeProject()
+                bottomUp(
+                    // new SemiJoinCommute(),
+                    new SemiJoinLogicalJoinTranspose(),
+                    new SemiJoinLogicalJoinTransposeProject(),
+                    new SemiJoinAggTranspose(),
+                    new SemiJoinAggTransposeProject()
                 ),
 
                 topDown(
