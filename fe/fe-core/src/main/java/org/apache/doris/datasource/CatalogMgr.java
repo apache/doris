@@ -963,6 +963,17 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                         log.getPartitionNames());
     }
 
+    public void registerCatalogRefreshListener(Env env) {
+        for (CatalogIf catalog : idToCatalog.values()) {
+            Map<String, String> properties = catalog.getProperties();
+            if (properties.containsKey(METADATA_REFRESH_INTERVAL_SEC)) {
+                Integer metadataRefreshIntervalSec = Integer.valueOf(properties.get(METADATA_REFRESH_INTERVAL_SEC));
+                Integer[] sec = {metadataRefreshIntervalSec, metadataRefreshIntervalSec};
+                env.getRefreshManager().addToRefreshMap(catalog.getId(), sec);
+            }
+        }
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this);
@@ -973,12 +984,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     public void gsonPostProcess() throws IOException {
         for (CatalogIf catalog : idToCatalog.values()) {
             nameToCatalog.put(catalog.getName(), catalog);
-            Map properties = catalog.getProperties();
-            if (properties.containsKey(METADATA_REFRESH_INTERVAL_SEC)) {
-                Integer metadataRefreshIntervalSec = (Integer) properties.get(METADATA_REFRESH_INTERVAL_SEC);
-                Integer[] sec = {metadataRefreshIntervalSec, metadataRefreshIntervalSec};
-                Env.getCurrentEnv().getRefreshManager().addToRefreshMap(catalog.getId(), sec);
-            }
+            // ATTN: can not call catalog.getProperties() here, because ResourceMgr is not replayed yet.
         }
         internalCatalog = (InternalCatalog) idToCatalog.get(InternalCatalog.INTERNAL_CATALOG_ID);
     }

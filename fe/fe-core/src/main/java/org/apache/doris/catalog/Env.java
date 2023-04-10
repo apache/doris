@@ -1317,7 +1317,7 @@ public class Env {
         // for master, the 'isReady' is set behind.
         // but we are sure that all metadata is replayed if we get here.
         // so no need to check 'isReady' flag in this method
-        fixBugAfterMetadataReplayed(false);
+        postProcessAfterMetadataReplayed(false);
 
         // start all daemon threads that only running on MASTER FE
         startMasterOnlyDaemonThreads();
@@ -1338,9 +1338,12 @@ public class Env {
     }
 
     /*
-     * Add anything necessary here if there is meta data need to be fixed.
+     * There are something need to do after metadata is replayed, such as
+     * 1. bug fix for metadata
+     * 2. register some hook.
+     * If there is, add them here.
      */
-    public void fixBugAfterMetadataReplayed(boolean waitCatalogReady) {
+    public void postProcessAfterMetadataReplayed(boolean waitCatalogReady) {
         if (waitCatalogReady) {
             while (!isReady()) {
                 try {
@@ -1352,6 +1355,7 @@ public class Env {
         }
 
         auth.rectifyPrivs();
+        catalogMgr.registerCatalogRefreshListener(this);
     }
 
     // start all daemon threads only running on Master
@@ -1464,7 +1468,7 @@ public class Env {
         }
 
         // 'isReady' will be set to true in 'setCanRead()' method
-        fixBugAfterMetadataReplayed(true);
+        postProcessAfterMetadataReplayed(true);
 
         checkLowerCaseTableNames();
 
