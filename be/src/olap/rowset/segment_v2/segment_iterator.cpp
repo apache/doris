@@ -1322,11 +1322,13 @@ bool SegmentIterator::_can_evaluated_by_vectorized(ColumnPredicate* predicate) {
     case PredicateType::LT:
     case PredicateType::GE:
     case PredicateType::GT: {
-        if (field_type == OLAP_FIELD_TYPE_VARCHAR || field_type == OLAP_FIELD_TYPE_CHAR ||
-            field_type == OLAP_FIELD_TYPE_STRING) {
+        if (field_type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
+            field_type == FieldType::OLAP_FIELD_TYPE_CHAR ||
+            field_type == FieldType::OLAP_FIELD_TYPE_STRING) {
             return config::enable_low_cardinality_optimize &&
+                   _opts.io_ctx.reader_type == ReaderType::READER_QUERY &&
                    _column_iterators[_schema.unique_id(cid)]->is_all_dict_encoding();
-        } else if (field_type == OLAP_FIELD_TYPE_DECIMAL) {
+        } else if (field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL) {
             return false;
         }
         return true;
@@ -1342,13 +1344,13 @@ void SegmentIterator::_vec_init_char_column_id() {
         auto column_desc = _schema.column(cid);
 
         do {
-            if (column_desc->type() == OLAP_FIELD_TYPE_CHAR) {
+            if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
                 _char_type_idx.emplace_back(i);
                 if (i != 0) {
                     _char_type_idx_no_0.emplace_back(i);
                 }
                 break;
-            } else if (column_desc->type() != OLAP_FIELD_TYPE_ARRAY) {
+            } else if (column_desc->type() != FieldType::OLAP_FIELD_TYPE_ARRAY) {
                 break;
             }
             // for Array<Char> or Array<Array<Char>>
@@ -1408,11 +1410,11 @@ void SegmentIterator::_init_current_block(
         } else { // non-predicate column
             current_columns[cid] = std::move(*block->get_by_position(i).column).mutate();
 
-            if (column_desc->type() == OLAP_FIELD_TYPE_DATE) {
+            if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_DATE) {
                 current_columns[cid]->set_date_type();
-            } else if (column_desc->type() == OLAP_FIELD_TYPE_DATETIME) {
+            } else if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_DATETIME) {
                 current_columns[cid]->set_datetime_type();
-            } else if (column_desc->type() == OLAP_FIELD_TYPE_DECIMAL) {
+            } else if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_DECIMAL) {
                 current_columns[cid]->set_decimalv2_type();
             }
             current_columns[cid]->reserve(_opts.block_row_max);
@@ -1625,7 +1627,8 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             auto cid = _schema.column_id(i);
             auto column_desc = _schema.column(cid);
             if (_is_pred_column[cid]) {
-                _current_return_columns[cid] = Schema::get_predicate_column_ptr(*column_desc);
+                _current_return_columns[cid] =
+                        Schema::get_predicate_column_ptr(*column_desc, _opts.io_ctx.reader_type);
                 _current_return_columns[cid]->set_rowset_segment_id(
                         {_segment->rowset_id(), _segment->id()});
                 _current_return_columns[cid]->reserve(_opts.block_row_max);
@@ -1773,12 +1776,12 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                 auto col_const =
                         vectorized::ColumnConst::create(std::move(res_column), selected_size);
                 block->replace_by_position(0, std::move(col_const));
-                _output_index_result_column(nullptr, 0, block);
+                _output_index_result_column(sel_rowid_idx, selected_size, block);
                 block->shrink_char_type_column_suffix_zero(_char_type_idx_no_0);
                 RETURN_IF_ERROR(_execute_common_expr(sel_rowid_idx, selected_size, block));
                 block->replace_by_position(0, std::move(col0));
             } else {
-                _output_index_result_column(nullptr, 0, block);
+                _output_index_result_column(sel_rowid_idx, selected_size, block);
                 block->shrink_char_type_column_suffix_zero(_char_type_idx);
                 RETURN_IF_ERROR(_execute_common_expr(sel_rowid_idx, selected_size, block));
             }
@@ -1951,6 +1954,7 @@ void SegmentIterator::_output_index_result_column(uint16_t* sel_rowid_idx, uint1
     }
 
     for (auto& iter : _rowid_result_for_index) {
+        _columns_to_filter.push_back(block->columns());
         block->insert({vectorized::ColumnUInt8::create(),
                        std::make_shared<vectorized::DataTypeUInt8>(), iter.first});
         if (!iter.second.first) {

@@ -97,43 +97,44 @@ static void fill_array_offset(FieldSchema* field, ColumnArray::Offsets64& offset
 Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
                                    const tparquet::RowGroup& row_group,
                                    const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
+                                   io::IOContext* io_ctx,
                                    std::unique_ptr<ParquetColumnReader>& reader,
                                    size_t max_buf_size) {
     if (field->type.type == TYPE_ARRAY) {
         std::unique_ptr<ParquetColumnReader> element_reader;
-        RETURN_IF_ERROR(create(file, &field->children[0], row_group, row_ranges, ctz,
+        RETURN_IF_ERROR(create(file, &field->children[0], row_group, row_ranges, ctz, io_ctx,
                                element_reader, max_buf_size));
         element_reader->set_nested_column();
-        ArrayColumnReader* array_reader = new ArrayColumnReader(row_ranges, ctz);
+        ArrayColumnReader* array_reader = new ArrayColumnReader(row_ranges, ctz, io_ctx);
         RETURN_IF_ERROR(array_reader->init(std::move(element_reader), field));
         reader.reset(array_reader);
     } else if (field->type.type == TYPE_MAP) {
         std::unique_ptr<ParquetColumnReader> key_reader;
         std::unique_ptr<ParquetColumnReader> value_reader;
         RETURN_IF_ERROR(create(file, &field->children[0].children[0], row_group, row_ranges, ctz,
-                               key_reader, max_buf_size));
+                               io_ctx, key_reader, max_buf_size));
         RETURN_IF_ERROR(create(file, &field->children[0].children[1], row_group, row_ranges, ctz,
-                               value_reader, max_buf_size));
+                               io_ctx, value_reader, max_buf_size));
         key_reader->set_nested_column();
         value_reader->set_nested_column();
-        MapColumnReader* map_reader = new MapColumnReader(row_ranges, ctz);
+        MapColumnReader* map_reader = new MapColumnReader(row_ranges, ctz, io_ctx);
         RETURN_IF_ERROR(map_reader->init(std::move(key_reader), std::move(value_reader), field));
         reader.reset(map_reader);
     } else if (field->type.type == TYPE_STRUCT) {
         std::vector<std::unique_ptr<ParquetColumnReader>> child_readers;
         for (int i = 0; i < field->children.size(); ++i) {
             std::unique_ptr<ParquetColumnReader> child_reader;
-            RETURN_IF_ERROR(create(file, &field->children[i], row_group, row_ranges, ctz,
+            RETURN_IF_ERROR(create(file, &field->children[i], row_group, row_ranges, ctz, io_ctx,
                                    child_reader, max_buf_size));
             child_reader->set_nested_column();
             child_readers.emplace_back(std::move(child_reader));
         }
-        StructColumnReader* struct_reader = new StructColumnReader(row_ranges, ctz);
+        StructColumnReader* struct_reader = new StructColumnReader(row_ranges, ctz, io_ctx);
         RETURN_IF_ERROR(struct_reader->init(std::move(child_readers), field));
         reader.reset(struct_reader);
     } else {
         const tparquet::ColumnChunk& chunk = row_group.columns[field->physical_column_index];
-        ScalarColumnReader* scalar_reader = new ScalarColumnReader(row_ranges, chunk, ctz);
+        ScalarColumnReader* scalar_reader = new ScalarColumnReader(row_ranges, chunk, ctz, io_ctx);
         RETURN_IF_ERROR(scalar_reader->init(file, field, max_buf_size));
         reader.reset(scalar_reader);
     }
@@ -173,8 +174,8 @@ Status ScalarColumnReader::init(io::FileReaderSPtr file, FieldSchema* field, siz
     size_t chunk_len = chunk_meta.total_compressed_size;
     _stream_reader = std::make_unique<io::BufferedFileStreamReader>(
             file, chunk_start, chunk_len, std::min(chunk_len, max_buf_size));
-    _chunk_reader =
-            std::make_unique<ColumnChunkReader>(_stream_reader.get(), &_chunk_meta, field, _ctz);
+    _chunk_reader = std::make_unique<ColumnChunkReader>(_stream_reader.get(), &_chunk_meta, field,
+                                                        _ctz, _io_ctx);
     RETURN_IF_ERROR(_chunk_reader->init());
     return Status::OK();
 }

@@ -100,6 +100,11 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
 
     init_download_cache_required_components();
 
+    ThreadPoolBuilder("BufferedReaderPrefetchThreadPool")
+            .set_min_threads(16)
+            .set_max_threads(64)
+            .build(&_buffered_reader_prefetch_thread_pool);
+
     // min num equal to fragment pool's min num
     // max num is useless because it will start as many as requested in the past
     // queue size is useless because the max thread num is very large
@@ -291,6 +296,8 @@ void ExecEnv::init_mem_tracker() {
     _orphan_mem_tracker_raw = _orphan_mem_tracker.get();
     _experimental_mem_tracker = std::make_shared<MemTrackerLimiter>(
             MemTrackerLimiter::Type::EXPERIMENTAL, "ExperimentalSet");
+    _page_no_cache_mem_tracker =
+            std::make_shared<MemTracker>("PageNoCache", _orphan_mem_tracker_raw);
 }
 
 void ExecEnv::init_download_cache_buf() {

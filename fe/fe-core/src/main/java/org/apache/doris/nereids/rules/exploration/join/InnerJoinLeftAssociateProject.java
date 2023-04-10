@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -77,13 +78,11 @@ public class InnerJoinLeftAssociateProject extends OneExplorationRuleFactory {
                             newBottomHashConjuncts, newBottomOtherConjuncts, a, b);
 
                     // new Project.
-                    // Set<ExprId> topUsedExprIds = new HashSet<>(topJoin.getOutputExprIdSet());
-                    // newTopHashConjuncts.forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
-                    // newTopOtherConjuncts.forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
-                    // Plan left = JoinReorderUtils.newProject(topUsedExprIds, newBottomJoin);
-                    // Plan right = JoinReorderUtils.newProject(topUsedExprIds, c);
-                    Plan left = newBottomJoin;
-                    Plan right = c;
+                    Set<ExprId> topUsedExprIds = new HashSet<>(topJoin.getOutputExprIdSet());
+                    newTopHashConjuncts.forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
+                    newTopOtherConjuncts.forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
+                    Plan left = JoinReorderUtils.newProject(topUsedExprIds, newBottomJoin);
+                    Plan right = JoinReorderUtils.newProject(topUsedExprIds, c);
 
                     LogicalJoin<Plan, Plan> newTopJoin = bottomJoin.withConjunctsChildren(
                             newTopHashConjuncts, newTopOtherConjuncts, left, right);

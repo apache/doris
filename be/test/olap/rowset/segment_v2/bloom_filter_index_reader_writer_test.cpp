@@ -159,8 +159,8 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_int) {
 
     std::string file_name = "bloom_filter_int";
     int not_exist_value = 18888;
-    test_bloom_filter_index_reader_writer_template<OLAP_FIELD_TYPE_INT>(file_name, val, num, 1,
-                                                                        &not_exist_value);
+    test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_INT>(
+            file_name, val, num, 1, &not_exist_value);
     delete[] val;
 }
 
@@ -174,8 +174,8 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_bigint) {
 
     std::string file_name = "bloom_filter_bigint";
     int64_t not_exist_value = 18888;
-    test_bloom_filter_index_reader_writer_template<OLAP_FIELD_TYPE_BIGINT>(file_name, val, num, 1,
-                                                                           &not_exist_value);
+    test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_BIGINT>(
+            file_name, val, num, 1, &not_exist_value);
     delete[] val;
 }
 
@@ -189,8 +189,8 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_largeint) {
 
     std::string file_name = "bloom_filter_largeint";
     int128_t not_exist_value = 18888;
-    test_bloom_filter_index_reader_writer_template<OLAP_FIELD_TYPE_LARGEINT>(file_name, val, num, 1,
-                                                                             &not_exist_value);
+    test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_LARGEINT>(
+            file_name, val, num, 1, &not_exist_value);
     delete[] val;
 }
 
@@ -208,7 +208,7 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_varchar_type) {
     }
     std::string file_name = "bloom_filter_varchar";
     Slice not_exist_value("value_not_exist");
-    test_bloom_filter_index_reader_writer_template<OLAP_FIELD_TYPE_VARCHAR>(
+    test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_VARCHAR>(
             file_name, slices, num, 1, &not_exist_value, true);
     delete[] val;
     delete[] slices;
@@ -228,8 +228,8 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_char) {
     }
     std::string file_name = "bloom_filter_char";
     Slice not_exist_value("char_value_not_exist");
-    test_bloom_filter_index_reader_writer_template<OLAP_FIELD_TYPE_CHAR>(file_name, slices, num, 1,
-                                                                         &not_exist_value, true);
+    test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_CHAR>(
+            file_name, slices, num, 1, &not_exist_value, true);
     delete[] val;
     delete[] slices;
 }
@@ -244,8 +244,8 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_date) {
 
     std::string file_name = "bloom_filter_date";
     uint24_t not_exist_value = 18888;
-    test_bloom_filter_index_reader_writer_template<OLAP_FIELD_TYPE_DATE>(file_name, val, num, 1,
-                                                                         &not_exist_value);
+    test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_DATE>(
+            file_name, val, num, 1, &not_exist_value);
     delete[] val;
 }
 
@@ -259,8 +259,8 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_datetime) {
 
     std::string file_name = "bloom_filter_datetime";
     int64_t not_exist_value = 18888;
-    test_bloom_filter_index_reader_writer_template<OLAP_FIELD_TYPE_DATETIME>(file_name, val, num, 1,
-                                                                             &not_exist_value);
+    test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_DATETIME>(
+            file_name, val, num, 1, &not_exist_value);
     delete[] val;
 }
 
@@ -274,8 +274,8 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_decimal) {
 
     std::string file_name = "bloom_filter_decimal";
     decimal12_t not_exist_value = {666, 666};
-    test_bloom_filter_index_reader_writer_template<OLAP_FIELD_TYPE_DECIMAL>(file_name, val, num, 1,
-                                                                            &not_exist_value);
+    test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_DECIMAL>(
+            file_name, val, num, 1, &not_exist_value);
     delete[] val;
 }
 

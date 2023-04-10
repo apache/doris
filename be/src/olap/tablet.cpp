@@ -270,6 +270,8 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
     LOG(INFO) << "begin to revise tablet. tablet_id=" << tablet_id();
     delete_rowsets(to_delete, false);
     add_rowsets(to_add);
+    // reconstruct from tablet meta
+    _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas());
     if (keys_type() == UNIQUE_KEYS && enable_unique_key_merge_on_write()) {
         auto new_rowset_tree = std::make_unique<RowsetTree>();
         ModifyRowSetTree(*_rowset_tree, to_delete, to_add, new_rowset_tree.get());
@@ -306,18 +308,19 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
             CHECK_EQ(to_add_min_version, 0) << "to_add_min_version is: " << to_add_min_version;
             calc_delete_bitmap_ver = Version(to_add_max_version + 1, max_version().second);
         }
-        Status res =
-                capture_consistent_rowsets(calc_delete_bitmap_ver, &calc_delete_bitmap_rowsets);
-        // Because the data in memory has been changed, can't return an error.
-        CHECK(res.ok()) << "fail to capture_consistent_rowsets, res: " << res;
 
-        for (auto rs : calc_delete_bitmap_rowsets) {
-            res = update_delete_bitmap_without_lock(rs);
-            CHECK(res.ok()) << "fail to update_delete_bitmap_without_lock, res: " << res;
+        if (calc_delete_bitmap_ver.first <= calc_delete_bitmap_ver.second) {
+            Status res =
+                    capture_consistent_rowsets(calc_delete_bitmap_ver, &calc_delete_bitmap_rowsets);
+            // Because the data in memory has been changed, can't return an error.
+            CHECK(res.ok()) << "fail to capture_consistent_rowsets, res: " << res;
+
+            for (auto rs : calc_delete_bitmap_rowsets) {
+                res = update_delete_bitmap_without_lock(rs);
+                CHECK(res.ok()) << "fail to update_delete_bitmap_without_lock, res: " << res;
+            }
         }
     }
-    // reconstruct from tablet meta
-    _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas());
     // clear stale rowset
     for (auto& [v, rs] : _stale_rs_version_map) {
         StorageEngine::instance()->add_unused_rowset(rs);
@@ -1160,7 +1163,8 @@ bool Tablet::check_rowset_id(const RowsetId& rowset_id) {
             return true;
         }
     }
-    if (RowsetMetaManager::check_rowset_meta(_data_dir->get_meta(), tablet_uid(), rowset_id)) {
+    Status s = RowsetMetaManager::exists(_data_dir->get_meta(), tablet_uid(), rowset_id);
+    if (!s.is<META_KEY_NOT_FOUND>()) {
         return true;
     }
     return false;
@@ -2329,7 +2333,8 @@ TabletSchemaSPtr Tablet::get_max_version_schema(std::lock_guard<std::shared_mute
 
 Status Tablet::lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
                                RowsetSharedPtr input_rowset, const TupleDescriptor* desc,
-                               vectorized::Block* block, bool write_to_cache) {
+                               OlapReaderStatistics& stats, vectorized::Block* block,
+                               bool write_to_cache) {
     // read row data
     BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(input_rowset);
     if (!rowset) {
@@ -2366,7 +2371,6 @@ Status Tablet::lookup_row_data(const Slice& encoded_key, const RowLocation& row_
                                                      &column_iterator));
         std::unique_ptr<segment_v2::ColumnIterator> ptr_guard(column_iterator);
         segment_v2::ColumnIteratorOptions opt;
-        OlapReaderStatistics stats;
         opt.file_reader = segment->file_reader().get();
         opt.stats = &stats;
         opt.use_page_cache = !config::disable_storage_page_cache;
@@ -2519,7 +2523,11 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
                 if (specified_rowset_ids != nullptr && !specified_rowset_ids->empty()) {
                     auto st = lookup_row_key(key, specified_rowset_ids, &loc,
                                              dummy_version.first - 1);
-                    CHECK(st.ok() || st.is<NOT_FOUND>() || st.is<ALREADY_EXIST>());
+                    bool expected_st = st.ok() || st.is<NOT_FOUND>() || st.is<ALREADY_EXIST>();
+                    DCHECK(expected_st) << "unexpected error status while lookup_row_key:" << st;
+                    if (!expected_st) {
+                        return st;
+                    }
                     if (st.is<NOT_FOUND>()) {
                         ++row_id;
                         continue;
@@ -2562,7 +2570,8 @@ Status Tablet::_check_pk_in_pre_segments(
         const Slice& key, DeleteBitmapPtr delete_bitmap, RowLocation* loc) {
     for (auto it = pre_segments.rbegin(); it != pre_segments.rend(); ++it) {
         auto st = (*it)->lookup_row_key(key, loc);
-        CHECK(st.ok() || st.is<NOT_FOUND>() || st.is<ALREADY_EXIST>());
+        DCHECK(st.ok() || st.is<NOT_FOUND>() || st.is<ALREADY_EXIST>())
+                << "unexpected error status while lookup_row_key:" << st;
         if (st.is<NOT_FOUND>()) {
             continue;
         } else if (st.ok() && _schema->has_sequence_col() &&

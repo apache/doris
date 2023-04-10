@@ -31,6 +31,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -155,6 +156,15 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
 
     // check if all required properties are set when creating catalog
     public void checkProperties() throws DdlException {
+        // check refresh parameter of catalog
+        Map<String, String> properties = getCatalogProperty().getProperties();
+        if (properties.containsKey(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC)) {
+            try {
+                Integer.valueOf(properties.get(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC));
+            } catch (NumberFormatException e) {
+                throw new DdlException("Invalid properties: " + CatalogMgr.METADATA_REFRESH_INTERVAL_SEC);
+            }
+        }
     }
 
     /**
@@ -297,7 +307,7 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
 
     @Override
     public Map<String, String> getProperties() {
-        return catalogProperty.getProperties();
+        return PropertyConverter.convertToMetaProperties(catalogProperty.getProperties());
     }
 
     @Override

@@ -210,6 +210,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLConnection;
 import java.util.ArrayList;
@@ -1284,6 +1285,22 @@ public class ShowExecutor {
         }
 
         Env env = Env.getCurrentEnv();
+        // try to fetch load id from mysql load first and mysql load only support find by label.
+        if (showWarningsStmt.isFindByLabel()) {
+            String label = showWarningsStmt.getLabel();
+            String urlString = env.getLoadManager().getMysqlLoadManager().getErrorUrlByLoadId(label);
+            if (urlString != null && !urlString.isEmpty()) {
+                URL url;
+                try {
+                    url = new URL(urlString);
+                } catch (MalformedURLException e) {
+                    throw new AnalysisException("Invalid url: " + e.getMessage());
+                }
+                handleShowLoadWarningsFromURL(showWarningsStmt, url);
+                return;
+            }
+        }
+
         Database db = env.getInternalCatalog().getDbOrAnalysisException(showWarningsStmt.getDbName());
 
         long dbId = db.getId();
@@ -1803,9 +1820,6 @@ public class ShowExecutor {
         final ShowBackendsStmt showStmt = (ShowBackendsStmt) stmt;
         List<List<String>> backendInfos = BackendsProcDir.getClusterBackendInfos(showStmt.getClusterName());
 
-        for (List<String> row : backendInfos) {
-            row.remove(BackendsProcDir.HOSTNAME_INDEX);
-        }
         backendInfos.sort(new Comparator<List<String>>() {
             @Override
             public int compare(List<String> o1, List<String> o2) {
@@ -1820,10 +1834,6 @@ public class ShowExecutor {
         final ShowFrontendsStmt showStmt = (ShowFrontendsStmt) stmt;
         List<List<String>> infos = Lists.newArrayList();
         FrontendsProcNode.getFrontendsInfo(Env.getCurrentEnv(), infos);
-
-        for (List<String> row : infos) {
-            row.remove(FrontendsProcNode.HOSTNAME_INDEX);
-        }
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
     }
@@ -1850,7 +1860,7 @@ public class ShowExecutor {
         Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(showStmt.getDbName());
 
         List<AbstractJob> jobs = Env.getCurrentEnv().getBackupHandler()
-                .getJobs(db.getId(), showStmt.getLabelPredicate());
+                .getJobs(db.getId(), showStmt.getSnapshotPredicate());
 
         List<BackupJob> backupJobs = jobs.stream().filter(job -> job instanceof BackupJob)
                 .map(job -> (BackupJob) job).collect(Collectors.toList());
@@ -2074,7 +2084,7 @@ public class ShowExecutor {
             case QUERY_IDS:
                 rows = ProfileManager.getInstance().getQueryWithType(ProfileManager.ProfileType.QUERY);
                 break;
-            case FRAGMETNS: {
+            case FRAGMENTS: {
                 ProfileTreeNode treeRoot = ProfileManager.getInstance().getFragmentProfileTree(showStmt.getQueryId(),
                         showStmt.getQueryId());
                 if (treeRoot == null) {
@@ -2133,12 +2143,22 @@ public class ShowExecutor {
                 rows = ProfileManager.getInstance().getLoadJobTaskList(showStmt.getJobId());
                 break;
             }
+            case FRAGMENTS: {
+                ProfileTreeNode treeRoot = ProfileManager.getInstance().getFragmentProfileTree(showStmt.getJobId(),
+                        showStmt.getJobId());
+                if (treeRoot == null) {
+                    throw new AnalysisException("Failed to get fragment tree for load: " + showStmt.getJobId());
+                }
+                List<String> row = Lists.newArrayList(ProfileTreePrinter.printFragmentTree(treeRoot));
+                rows.add(row);
+                break;
+            }
             case INSTANCES: {
                 // For load profile, there should be only one fragment in each execution profile
                 // And the fragment id is 0.
                 List<Triple<String, String, Long>> instanceList
                         = ProfileManager.getInstance().getFragmentInstanceList(showStmt.getJobId(),
-                        showStmt.getTaskId(), "0");
+                        showStmt.getTaskId(), ((ShowLoadProfileStmt) stmt).getFragmentId());
                 if (instanceList == null) {
                     throw new AnalysisException("Failed to get instance list for task: " + showStmt.getTaskId());
                 }
@@ -2153,7 +2173,7 @@ public class ShowExecutor {
                 // For load profile, there should be only one fragment in each execution profile.
                 // And the fragment id is 0.
                 ProfileTreeNode treeRoot = ProfileManager.getInstance().getInstanceProfileTree(showStmt.getJobId(),
-                        showStmt.getTaskId(), "0", showStmt.getInstanceId());
+                        showStmt.getTaskId(), showStmt.getFragmentId(), showStmt.getInstanceId());
                 if (treeRoot == null) {
                     throw new AnalysisException("Failed to get instance tree for instance: "
                             + showStmt.getInstanceId());
@@ -2634,3 +2654,4 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showMetaData, resultRowSet);
     }
 }
+

@@ -110,7 +110,9 @@ private:
                 if (right_nested_null_map && right_nested_null_map[row] && nested_null_map &&
                     nested_null_map[pos + off]) {
                     ConcreteAction::apply(res, pos);
-                    break;
+                    if constexpr (!ConcreteAction::resume_execution) {
+                        break;
+                    }
                 }
                 // some is null while another is not
                 if (right_nested_null_map && nested_null_map &&
@@ -127,7 +129,9 @@ private:
                 // StringRef operator == using vec impl
                 if (StringRef(left_raw_v, str_len) == StringRef(right_raw_v, right_len)) {
                     ConcreteAction::apply(res, pos);
-                    break;
+                    if constexpr (!ConcreteAction::resume_execution) {
+                        break;
+                    }
                 }
             }
             dst_data[row] = res;
@@ -167,7 +171,9 @@ private:
                 if (right_nested_null_map && right_nested_null_map[row] && nested_null_map &&
                     nested_null_map[pos + off]) {
                     ConcreteAction::apply(res, pos);
-                    break;
+                    if constexpr (!ConcreteAction::resume_execution) {
+                        break;
+                    }
                 }
                 // some is null while another is not
                 if (right_nested_null_map && nested_null_map &&
@@ -179,7 +185,9 @@ private:
                 }
                 if (nested_data[pos + off] == right_data[row]) {
                     ConcreteAction::apply(res, pos);
-                    break;
+                    if constexpr (!ConcreteAction::resume_execution) {
+                        break;
+                    }
                 }
             }
             dst_data[row] = res;

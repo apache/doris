@@ -17,6 +17,7 @@
 
 #include "vec/exec/scan/new_olap_scanner.h"
 
+#include "io/cache/block/block_file_cache_profile.h"
 #include "olap/storage_engine.h"
 #include "vec/exec/scan/new_olap_scan_node.h"
 #include "vec/olap/block_reader.h"
@@ -43,6 +44,10 @@ NewOlapScanner::NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int
 
 static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
                                           const std::vector<uint32_t>& read_columns) {
+    // avoid too long for one line,
+    // it is hard to display in `show profile` stmt if one line is too long.
+    const int col_per_line = 10;
+    int i = 0;
     std::string read_columns_string;
     read_columns_string += "[";
     for (auto it = read_columns.cbegin(); it != read_columns.cend(); it++) {
@@ -50,6 +55,12 @@ static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
             read_columns_string += ", ";
         }
         read_columns_string += tablet_schema->columns().at(*it).name();
+        if (i >= col_per_line) {
+            read_columns_string += "\n";
+            i = 0;
+        } else {
+            ++i;
+        }
     }
     read_columns_string += "]";
     return read_columns_string;
@@ -347,6 +358,8 @@ Status NewOlapScanner::_init_tablet_reader_params(
 
     if (!_state->skip_storage_engine_merge()) {
         TOlapScanNode& olap_scan_node = ((NewOlapScanNode*)_parent)->_olap_scan_node;
+        // order by table keys optimization for topn
+        // will only read head/tail of data file since it's already sorted by keys
         if (olap_scan_node.__isset.sort_info && olap_scan_node.sort_info.is_asc_order.size() > 0) {
             _limit = _parent->_limit_per_scanner;
             _tablet_reader_params.read_orderby_key = true;
@@ -538,6 +551,11 @@ void NewOlapScanner::_update_counters_before_close() {
                    stats.inverted_index_searcher_open_timer);
     COUNTER_UPDATE(olap_parent->_inverted_index_searcher_search_timer,
                    stats.inverted_index_searcher_search_timer);
+
+    if (config::enable_file_cache) {
+        io::FileCacheProfileReporter cache_profile(olap_parent->_segment_profile.get());
+        cache_profile.update(&stats.file_cache_stats);
+    }
 
     COUNTER_UPDATE(olap_parent->_output_index_result_column_timer,
                    stats.output_index_result_column_timer);

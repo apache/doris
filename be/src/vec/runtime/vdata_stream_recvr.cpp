@@ -373,6 +373,11 @@ void VDataStreamRecvr::add_block(Block* block, int sender_id, bool use_move) {
     _sender_queues[use_sender_id]->add_block(block, use_move);
 }
 
+bool VDataStreamRecvr::sender_queue_empty(int sender_id) {
+    int use_sender_id = _is_merging ? sender_id : 0;
+    return _sender_queues[use_sender_id]->queue_empty();
+}
+
 bool VDataStreamRecvr::ready_to_read() {
     for (size_t i = 0; i < _sender_queues.size(); i++) {
         if (_sender_queues[i]->should_wait()) {

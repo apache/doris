@@ -140,9 +140,9 @@ public class CreateFunctionTest {
 
         queryStr = "select db1.decimal(k3, 4, 1) from db1.tbl1;";
         if (Config.enable_decimal_conversion) {
-            Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k3` AS DECIMALV3(4,1))"));
+            Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k3` AS DECIMALV3(4, 1))"));
         } else {
-            Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k3` AS DECIMAL(4,1))"));
+            Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k3` AS DECIMAL(4, 1))"));
         }
 
         // cast any type to varchar with fixed length
@@ -249,9 +249,9 @@ public class CreateFunctionTest {
 
         queryStr = "select decimal(k3, 4, 1) from db2.tbl1;";
         if (Config.enable_decimal_conversion) {
-            Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k3` AS DECIMALV3(4,1))"));
+            Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k3` AS DECIMALV3(4, 1))"));
         } else {
-            Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k3` AS DECIMAL(4,1))"));
+            Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k3` AS DECIMAL(4, 1))"));
         }
 
         // 5. cast any type to varchar with fixed length

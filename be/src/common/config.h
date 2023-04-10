@@ -67,6 +67,15 @@ CONF_String(mem_limit, "auto");
 // Soft memory limit as a fraction of hard memory limit.
 CONF_Double(soft_mem_limit_frac, "0.9");
 
+// When hash table capacity is greater than 2^double_grow_degree(default 2G), grow when 75% of the capacity is satisfied.
+// Increase can reduce the number of hash table resize, but may waste more memory.
+CONF_mInt32(hash_table_double_grow_degree, "31");
+
+// Expand the hash table before inserting data, the maximum expansion size.
+// There are fewer duplicate keys, reducing the number of resize hash tables
+// There are many duplicate keys, and the hash table filled bucket is far less than the hash table build bucket.
+CONF_mInt64(hash_table_pre_expanse_max_rows, "65535");
+
 // The maximum low water mark of the system `/proc/meminfo/MemAvailable`, Unit byte, default 1.6G,
 // actual low water mark=min(1.6G, MemTotal * 10%), avoid wasting too much memory on machines
 // with large memory larger than 16G.
@@ -411,8 +420,6 @@ CONF_mInt32(stream_load_record_batch_size, "50");
 CONF_Int32(stream_load_record_expire_time_secs, "28800");
 // time interval to clean expired stream load records
 CONF_mInt64(clean_stream_load_record_interval_secs, "1800");
-// Whether to enable stream load profile to be printed to the log, the default is false.
-CONF_mBool(enable_stream_load_profile_log, "false");
 
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.
@@ -606,7 +613,7 @@ CONF_mInt64(max_runnings_transactions_per_txn_map, "100");
 
 // tablet_map_lock shard size, the value is 2^n, n=0,1,2,3,4
 // this is a an enhancement for better performance to manage tablet
-CONF_Int32(tablet_map_shard_size, "1");
+CONF_Int32(tablet_map_shard_size, "4");
 
 // txn_map_lock shard size, the value is 2^n, n=0,1,2,3,4
 // this is a an enhancement for better performance to manage txn
@@ -870,8 +877,6 @@ CONF_Int32(segcompaction_threshold_segment_num, "10");
 // The segment whose row number above the threshold will be compacted during segcompaction
 CONF_Int32(segcompaction_small_threshold, "1048576");
 
-CONF_String(jvm_max_heap_size, "1024M");
-
 // enable java udf and jdbc scannode
 CONF_Bool(enable_java_support, "true");
 
@@ -927,6 +932,9 @@ CONF_Int32(max_depth_of_expr_tree, "600");
 
 // Report a tablet as bad when io errors occurs more than this value.
 CONF_mInt64(max_tablet_io_errors, "-1");
+
+// Page size of row column, default 4KB
+CONF_mInt64(row_column_page_size, "4096");
 
 #ifdef BE_TEST
 // test s3

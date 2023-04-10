@@ -47,7 +47,6 @@ struct SchemaScannerParam {
     const std::string* ip;                   // frontend ip
     int32_t port;                            // frontend thrift port
     int64_t thread_id;
-    const std::vector<TSchemaTableStructure>* table_structure;
     const std::string* catalog;
     std::unique_ptr<RuntimeProfile> profile;
 

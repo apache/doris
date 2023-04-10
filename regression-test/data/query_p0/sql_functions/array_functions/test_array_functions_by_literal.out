@@ -605,17 +605,17 @@ any_any_1_2___any
 -- !sql --
 _
 
--- !sql --
-['_', '_', '_']
+-- !sql_array_with_constant1 --
+['_', '_', '_']	['_', '_', '_']
 
--- !sql --
-['1', '1']
+-- !sql_array_with_constant2 --
+['1', '1']	['1', '1']
 
--- !sql --
-[1223, 1223, 1223, 1223]
+-- !sql_array_with_constant3 --
+[1223, 1223, 1223, 1223]	[1223, 1223, 1223, 1223]
 
--- !sql --
-[NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL]
+-- !sql_array_with_constant4 --
+[NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL]	[NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL]
 
 -- !sql --
 [1, 2, 3, NULL, 4]
@@ -688,6 +688,18 @@ _
 
 -- !sql --
 [2023-03-05 12:23:24.999, 2023-03-05 15:23:23.997]
+
+-- !select_array_shuffle1 --
+17	[1, 3, 2, NULL, 3, 4, NULL, 4]	[1, 3, 2, NULL, 3, 4, NULL, 4]
+
+-- !select_array_shuffle2 --
+6.666000000	[3.333, 2.222, 1.111]	[3.333, 2.222, 1.111]
+
+-- !select_array_shuffle3 --
+4	['aaa', 'bbb', NULL, 'fff']	['aaa', 'bbb', NULL, 'fff']
+
+-- !select_array_shuffle4 --
+4	['2020-01-02', '2021-01-01', '2022-01-03', '1996-04-17']	['2020-01-02', '2021-01-01', '2022-01-03', '1996-04-17']
 
 -- !sql --
 [{'a', 'd'}, {'b', 'e'}, {'c', 'f'}]

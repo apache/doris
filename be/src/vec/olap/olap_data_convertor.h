@@ -191,8 +191,8 @@ private:
         const void* get_data() const override { return _values.data(); }
         const void* get_data_at(size_t offset) const override {
             UInt8 null_flag = 0;
-            if (_nullmap) {
-                null_flag = _nullmap[offset];
+            if (get_nullmap()) {
+                null_flag = get_nullmap()[offset];
             }
             return null_flag ? nullptr : _values.data() + offset;
         }
@@ -233,8 +233,8 @@ private:
         const void* get_data_at(size_t offset) const override {
             assert(offset < _num_rows);
             UInt8 null_flag = 0;
-            if (_nullmap) {
-                null_flag = _nullmap[offset];
+            if (get_nullmap()) {
+                null_flag = get_nullmap()[offset];
             }
             return null_flag ? nullptr : _values + offset;
         }
@@ -275,8 +275,8 @@ private:
         const void* get_data_at(size_t offset) const override {
             assert(offset < _num_rows);
             UInt8 null_flag = 0;
-            if (_nullmap) {
-                null_flag = _nullmap[offset];
+            if (get_nullmap()) {
+                null_flag = get_nullmap()[offset];
             }
             return null_flag ? nullptr : values_ + offset;
         }
@@ -317,8 +317,8 @@ private:
         const void* get_data_at(size_t offset) const override {
             assert(offset < _num_rows);
             UInt8 null_flag = 0;
-            if (_nullmap) {
-                null_flag = _nullmap[offset];
+            if (get_nullmap()) {
+                null_flag = get_nullmap()[offset];
             }
             return null_flag ? nullptr : values_ + offset;
         }
@@ -412,7 +412,7 @@ private:
                                    OlapColumnDataConvertorBaseUPtr value_convertor)
                 : _key_convertor(std::move(key_convertor)),
                   _value_convertor(std::move(value_convertor)) {
-            _base_row = 0;
+            _base_offset = 0;
             _results.resize(6); // size + offset + k_data + v_data +  k_nullmap + v_nullmap
         }
 
@@ -427,8 +427,8 @@ private:
         OlapColumnDataConvertorBaseUPtr _key_convertor;
         OlapColumnDataConvertorBaseUPtr _value_convertor;
         std::vector<const void*> _results;
-        PaddedPODArray<UInt64> _offsets;
-        UInt64 _base_row;
+        PaddedPODArray<UInt64> _offsets; // map offsets in disk layout
+        UInt64 _base_offset;
     }; //OlapColumnDataConvertorMap
 
 private:

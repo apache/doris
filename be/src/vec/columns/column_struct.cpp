@@ -119,7 +119,8 @@ void ColumnStruct::insert(const Field& x) {
     const auto& tuple = x.get<const Tuple&>();
     const size_t tuple_size = columns.size();
     if (tuple.size() != tuple_size) {
-        LOG(FATAL) << "Cannot insert value of different size into tuple.";
+        LOG(FATAL) << "Cannot insert value of different size into tuple. field tuple size"
+                   << tuple.size() << ", columns size " << tuple_size;
     }
 
     for (size_t i = 0; i < tuple_size; ++i) {
@@ -246,6 +247,21 @@ ColumnPtr ColumnStruct::replicate(const Offsets& offsets) const {
     }
 
     return ColumnStruct::create(new_columns);
+}
+
+void ColumnStruct::replicate(const uint32_t* counts, size_t target_size, IColumn& column,
+                             size_t begin, int count_sz) const {
+    size_t col_size = count_sz < 0 ? size() : count_sz;
+    if (0 == col_size) {
+        return;
+    }
+
+    auto& res = reinterpret_cast<ColumnStruct&>(column);
+    res.columns.resize(columns.size());
+
+    for (size_t i = 0; i != columns.size(); ++i) {
+        columns[i]->replicate(counts, target_size, *res.columns[i], begin, count_sz);
+    }
 }
 
 MutableColumns ColumnStruct::scatter(ColumnIndex num_columns, const Selector& selector) const {

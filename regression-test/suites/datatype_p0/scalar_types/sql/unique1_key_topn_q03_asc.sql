@@ -1,1 +1,1 @@
-SELECT * FROM tbl_scalar_types_unique1 ORDER BY c_datetimev2, c_bigint, c_decimalv3 LIMIT 20;
+SELECT * FROM tbl_scalar_types_unique1 ORDER BY c_datetimev2 ASC, c_bigint ASC, c_decimalv3 ASC LIMIT 20;

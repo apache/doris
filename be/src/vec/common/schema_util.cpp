@@ -79,47 +79,6 @@ Array create_empty_array_field(size_t num_dimensions) {
     return array;
 }
 
-FieldType get_field_type(const IDataType* data_type) {
-    switch (data_type->get_type_id()) {
-    case TypeIndex::UInt8:
-        return FieldType::OLAP_FIELD_TYPE_UNSIGNED_TINYINT;
-    case TypeIndex::UInt16:
-        return FieldType::OLAP_FIELD_TYPE_UNSIGNED_SMALLINT;
-    case TypeIndex::UInt32:
-        return FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT;
-    case TypeIndex::UInt64:
-        return FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT;
-    case TypeIndex::Int8:
-        return FieldType::OLAP_FIELD_TYPE_TINYINT;
-    case TypeIndex::Int16:
-        return FieldType::OLAP_FIELD_TYPE_SMALLINT;
-    case TypeIndex::Int32:
-        return FieldType::OLAP_FIELD_TYPE_INT;
-    case TypeIndex::Int64:
-        return FieldType::OLAP_FIELD_TYPE_BIGINT;
-    case TypeIndex::Float32:
-        return FieldType::OLAP_FIELD_TYPE_FLOAT;
-    case TypeIndex::Float64:
-        return FieldType::OLAP_FIELD_TYPE_DOUBLE;
-    case TypeIndex::Decimal32:
-        return FieldType::OLAP_FIELD_TYPE_DECIMAL;
-    case TypeIndex::Array:
-        return FieldType::OLAP_FIELD_TYPE_ARRAY;
-    case TypeIndex::String:
-        return FieldType::OLAP_FIELD_TYPE_STRING;
-    case TypeIndex::Date:
-        return FieldType::OLAP_FIELD_TYPE_DATE;
-    case TypeIndex::DateTime:
-        return FieldType::OLAP_FIELD_TYPE_DATETIME;
-    case TypeIndex::Tuple:
-        return FieldType::OLAP_FIELD_TYPE_STRUCT;
-    // TODO add more types
-    default:
-        LOG(FATAL) << "unknow type";
-        return FieldType::OLAP_FIELD_TYPE_UNKNOWN;
-    }
-}
-
 bool is_conversion_required_between_integers(const IDataType& lhs, const IDataType& rhs) {
     WhichDataType which_lhs(lhs);
     WhichDataType which_rhs(rhs);
@@ -132,19 +91,22 @@ bool is_conversion_required_between_integers(const IDataType& lhs, const IDataTy
 bool is_conversion_required_between_integers(FieldType lhs, FieldType rhs) {
     // We only support signed integers for semi-structure data at present
     // TODO add unsigned integers
-    if (lhs == OLAP_FIELD_TYPE_BIGINT) {
-        return !(rhs == OLAP_FIELD_TYPE_TINYINT || rhs == OLAP_FIELD_TYPE_SMALLINT ||
-                 rhs == OLAP_FIELD_TYPE_INT || rhs == OLAP_FIELD_TYPE_BIGINT);
+    if (lhs == FieldType::OLAP_FIELD_TYPE_BIGINT) {
+        return !(rhs == FieldType::OLAP_FIELD_TYPE_TINYINT ||
+                 rhs == FieldType::OLAP_FIELD_TYPE_SMALLINT ||
+                 rhs == FieldType::OLAP_FIELD_TYPE_INT || rhs == FieldType::OLAP_FIELD_TYPE_BIGINT);
     }
-    if (lhs == OLAP_FIELD_TYPE_INT) {
-        return !(rhs == OLAP_FIELD_TYPE_TINYINT || rhs == OLAP_FIELD_TYPE_SMALLINT ||
-                 rhs == OLAP_FIELD_TYPE_INT);
+    if (lhs == FieldType::OLAP_FIELD_TYPE_INT) {
+        return !(rhs == FieldType::OLAP_FIELD_TYPE_TINYINT ||
+                 rhs == FieldType::OLAP_FIELD_TYPE_SMALLINT ||
+                 rhs == FieldType::OLAP_FIELD_TYPE_INT);
     }
-    if (lhs == OLAP_FIELD_TYPE_SMALLINT) {
-        return !(rhs == OLAP_FIELD_TYPE_TINYINT || rhs == OLAP_FIELD_TYPE_SMALLINT);
+    if (lhs == FieldType::OLAP_FIELD_TYPE_SMALLINT) {
+        return !(rhs == FieldType::OLAP_FIELD_TYPE_TINYINT ||
+                 rhs == FieldType::OLAP_FIELD_TYPE_SMALLINT);
     }
-    if (lhs == OLAP_FIELD_TYPE_TINYINT) {
-        return !(rhs == OLAP_FIELD_TYPE_TINYINT);
+    if (lhs == FieldType::OLAP_FIELD_TYPE_TINYINT) {
+        return !(rhs == FieldType::OLAP_FIELD_TYPE_TINYINT);
     }
     return true;
 }
@@ -183,7 +145,7 @@ static void get_column_def(const vectorized::DataTypePtr& data_type, const std::
         get_column_def(real_type.get_nested_type(), "", column);
         return;
     }
-    column->columnDesc.__set_columnType(to_thrift(get_primitive_type(data_type->get_type_id())));
+    column->columnDesc.__set_columnType(data_type->get_type_as_tprimitive_type());
     if (data_type->get_type_id() == TypeIndex::Array) {
         TColumnDef child;
         column->columnDesc.__set_children({});

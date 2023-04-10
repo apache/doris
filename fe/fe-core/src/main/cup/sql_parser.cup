@@ -309,6 +309,7 @@ terminal String
     KW_CROSS,
     KW_CUBE,
     KW_CURRENT,
+    KW_CURRENT_CATALOG,
     KW_CURRENT_TIMESTAMP,
     KW_CURRENT_USER,
     KW_DATA,
@@ -1326,7 +1327,7 @@ alter_stmt ::=
     | KW_ALTER KW_TABLE table_name:tbl KW_MODIFY KW_COLUMN ident:columnName
       KW_SET KW_STATS LPAREN key_value_map:map RPAREN opt_partition_names:partitionNames
     {:
-        RESULT = new AlterColumnStatsStmt(tbl, columnName, map, partitionNames);
+        RESULT = new AlterColumnStatsStmt(tbl, columnName, map);
     :}
     | KW_ALTER KW_TABLE table_name:tbl KW_SET LPAREN key_value_map:properties RPAREN
     {:
@@ -6271,6 +6272,8 @@ non_pred_expr ::=
   {: RESULT = new InformationFunction("USER"); :}
   | KW_CURRENT_USER LPAREN RPAREN
   {: RESULT = new InformationFunction("CURRENT_USER"); :}
+  | KW_CURRENT_CATALOG LPAREN RPAREN
+  {: RESULT = new InformationFunction("CURRENT_CATALOG"); :}
   | KW_CONNECTION_ID LPAREN RPAREN
   {: RESULT = new InformationFunction("CONNECTION_ID"); :}
   | KW_PASSWORD LPAREN STRING_LITERAL:text RPAREN
@@ -7057,6 +7060,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_HELP:id
     {: RESULT = id; :}
+    | KW_HOSTNAME:id
+    {: RESULT = id; :}
     | KW_HUB:id
     {: RESULT = id; :}
     | KW_IDENTIFIED:id
@@ -7310,6 +7315,8 @@ keyword ::=
     | KW_IGNORE:id
     {: RESULT = id; :}
     | KW_HISTOGRAM:id
+    {: RESULT = id; :}
+    | KW_CURRENT_CATALOG:id
     {: RESULT = id; :}
     ;
 

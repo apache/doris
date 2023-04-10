@@ -28,7 +28,7 @@ under the License.
 
 <version deprecated="1.2.2">
 
-推荐使用 [JDBC Catalog](../multi-catalog/jdbc.md) 访问 JDBC 外表。
+推荐使用 [JDBC Catalog](../multi-catalog/jdbc.md) 访问 JDBC 外表，1.2.2版本后将不再维护该功能。
 
 </version>
 

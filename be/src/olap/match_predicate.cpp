@@ -47,7 +47,7 @@ Status MatchPredicate::evaluate(const Schema& schema, InvertedIndexIterator* ite
     auto inverted_index_query_type = _to_inverted_index_query_type(_match_type);
 
     if (is_string_type(column_desc->type()) ||
-        (column_desc->type() == OLAP_FIELD_TYPE_ARRAY &&
+        (column_desc->type() == FieldType::OLAP_FIELD_TYPE_ARRAY &&
          is_string_type(column_desc->get_sub_field(0)->type_info()->type()))) {
         StringRef match_value;
         int32_t length = _value.length();
@@ -55,7 +55,7 @@ Status MatchPredicate::evaluate(const Schema& schema, InvertedIndexIterator* ite
         match_value.replace(buffer, length); //is it safe?
         s = iterator->read_from_inverted_index(column_desc->name(), &match_value,
                                                inverted_index_query_type, num_rows, &roaring);
-    } else if (column_desc->type() == OLAP_FIELD_TYPE_ARRAY &&
+    } else if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_ARRAY &&
                is_numeric_type(column_desc->get_sub_field(0)->type_info()->type())) {
         char buf[column_desc->get_sub_field(0)->type_info()->size()];
         column_desc->get_sub_field(0)->from_string(buf, _value);

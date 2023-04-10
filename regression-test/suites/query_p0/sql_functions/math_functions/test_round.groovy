@@ -61,4 +61,45 @@ suite("test_round") {
     qt_nereids_round_bankers_arg1 "SELECT round_bankers(10.12345)"
     qt_nereids_round_bankers_arg2 "SELECT round_bankers(10.12345, 2)"
 
+    def tableName1 = "test_round1"
+    sql """ DROP TABLE IF EXISTS `${tableName1}` """
+    sql """ CREATE TABLE `${tableName1}` (
+          `TENANT_ID` varchar(50) NOT NULL,
+          `PUBONLN_PRC` decimalv3(18, 4) NULL,
+          `PRODENTP_CODE` varchar(50) NULL,
+          `ORD_SUMAMT` decimalv3(18, 4) NULL,
+          `PURC_CNT` decimalv3(12, 2) NULL
+        ) ENGINE=OLAP
+        UNIQUE KEY(`TENANT_ID`)
+        DISTRIBUTED BY HASH(`TENANT_ID`) BUCKETS 16
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2",
+        "enable_unique_key_merge_on_write" = "true",
+        "disable_auto_compaction" = "false"
+        ); """
+
+    def tableName2 = "test_round2"
+    sql """ DROP TABLE IF EXISTS `${tableName2}` """
+    sql """ CREATE TABLE `${tableName2}` (
+          `tenant_id` varchar(50) NOT NULL COMMENT '租户ID',
+          `prodentp_code` varchar(50) NULL COMMENT '生产企业代码',
+          `delv_amt` decimalv3(18, 4) NULL DEFAULT "0" COMMENT '配送金额',
+          `ord_sumamt` decimalv3(18, 4) NULL COMMENT '订单总金额'
+        ) ENGINE=OLAP
+        UNIQUE KEY(`tenant_id`, `prodentp_code`)
+        COMMENT '订单明细配送统计'
+        DISTRIBUTED BY HASH(`prodentp_code`) BUCKETS 16
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2",
+        "enable_unique_key_merge_on_write" = "true",
+        "disable_auto_compaction" = "false"
+        );                """
+
+    sql """ insert into ${tableName1} values ('111', 1.2432, '001', 0.2341, 12.1234123); """
+    sql """ insert into ${tableName2} select  TENANT_ID,PRODENTP_CODE,ROUND((MAX(PURC_CNT)*MAX(PUBONLN_PRC)),2) delv_amt,ROUND(SUM(ORD_SUMAMT),2) from ${tableName1} GROUP BY TENANT_ID,PRODENTP_CODE; """
+    qt_query """ select * from ${tableName2} """
 }

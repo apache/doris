@@ -38,6 +38,18 @@ under the License.
 
 Used to get cluster http, mysql connection information.
 
+## Path parameters
+
+None
+
+## Query parameters
+
+None
+
+## Request body
+
+None
+
 ### Response
 
 ```

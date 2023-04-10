@@ -90,6 +90,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTo;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTz;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CountEqual;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentCatalog;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
@@ -267,11 +268,13 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByChar;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitPart;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sqrt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StAngle;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAngleSphere;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAreaSquareKm;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAreaSquareMeters;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAstext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAswkt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StAzimuth;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StCircle;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDistanceSphere;
@@ -415,6 +418,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ConvertTz.class, "convert_tz"),
             scalar(Cos.class, "cos"),
             scalar(CountEqual.class, "countequal"),
+            scalar(CurrentCatalog.class, "current_catalog"),
             scalar(CurrentDate.class, "curdate", "current_date"),
             scalar(CurrentTime.class, "curtime", "current_time"),
             scalar(CurrentUser.class, "current_user"),
@@ -598,6 +602,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(StContains.class, "st_contains"),
             scalar(StDistanceSphere.class, "st_distance_sphere"),
             scalar(StAngleSphere.class, "st_angle_sphere"),
+            scalar(StAngle.class, "st_angle"),
+            scalar(StAzimuth.class, "st_azimuth"),
             scalar(StAreaSquareMeters.class, "st_area_square_meters"),
             scalar(StAreaSquareKm.class, "st_area_square_km"),
             scalar(StGeometryfromtext.class, "st_geometryfromtext"),

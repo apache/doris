@@ -435,6 +435,7 @@ public class PropertyAnalyzer {
         return bfFpp;
     }
 
+    // analyze the colocation properties of table
     public static String analyzeColocate(Map<String, String> properties) throws AnalysisException {
         String colocateGroup = null;
         if (properties != null && properties.containsKey(PROPERTIES_COLOCATE_WITH)) {

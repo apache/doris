@@ -115,6 +115,21 @@ Status LocalFileSystem::delete_directory_impl(const Path& dir) {
     return Status::OK();
 }
 
+Status LocalFileSystem::delete_directory_or_file(const Path& path) {
+    auto the_path = absolute_path(path);
+    FILESYSTEM_M(delete_directory_or_file_impl(the_path));
+}
+
+Status LocalFileSystem::delete_directory_or_file_impl(const Path& path) {
+    bool is_dir;
+    RETURN_IF_ERROR(is_directory(path, &is_dir));
+    if (is_dir) {
+        return delete_directory_impl(path);
+    } else {
+        return delete_file_impl(path);
+    }
+}
+
 Status LocalFileSystem::batch_delete_impl(const std::vector<Path>& files) {
     for (auto& file : files) {
         RETURN_IF_ERROR(delete_file_impl(file));
@@ -327,24 +342,10 @@ Status LocalFileSystem::get_space_info_impl(const Path& path, size_t* capacity, 
     return Status::OK();
 }
 
-Status LocalFileSystem::resize_file(const Path& file, size_t new_size) {
-    auto path = absolute_path(file);
-    FILESYSTEM_M(resize_file_impl(path, new_size));
-}
-
-Status LocalFileSystem::resize_file_impl(const Path& file, size_t new_size) {
-    std::error_code ec;
-    std::filesystem::resize_file(file, new_size, ec);
-    if (ec) {
-        return Status::IOError("failed to resize file {}: {}", file.native(), errcode_to_str(ec));
-    }
-    return Status::OK();
-}
-
 Status LocalFileSystem::copy_dirs(const Path& src, const Path& dest) {
     auto src_path = absolute_path(src);
     auto dest_path = absolute_path(dest);
-    FILESYSTEM_M(copy_dirs(src_path, dest_path));
+    FILESYSTEM_M(copy_dirs_impl(src_path, dest_path));
 }
 
 Status LocalFileSystem::copy_dirs_impl(const Path& src, const Path& dest) {

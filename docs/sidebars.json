@@ -163,6 +163,7 @@
                     ]
                 },
                 "advanced/pipeline-execution-engine",
+                "advanced/autobucket",
                 "advanced/materialized-view",
                 "advanced/broker",
                 {
@@ -304,7 +305,9 @@
                                 "sql-manual/sql-functions/array-functions/array_compact",
                                 "sql-manual/sql-functions/array-functions/array_concat",
                                 "sql-manual/sql-functions/array-functions/array_zip",
+                                "sql-manual/sql-functions/array-functions/array_shuffle",
                                 "sql-manual/sql-functions/array-functions/array_exists",
+                                "sql-manual/sql-functions/array-functions/array_first_index",
                                 "sql-manual/sql-functions/array-functions/arrays_overlap",
                                 "sql-manual/sql-functions/array-functions/countequal",
                                 "sql-manual/sql-functions/array-functions/element_at"
@@ -388,6 +391,8 @@
                                 "sql-manual/sql-functions/spatial-functions/st_y",
                                 "sql-manual/sql-functions/spatial-functions/st_circle",
                                 "sql-manual/sql-functions/spatial-functions/st_distance_sphere",
+                                "sql-manual/sql-functions/spatial-functions/st_angle",
+                                "sql-manual/sql-functions/spatial-functions/st_azimuth",
                                 "sql-manual/sql-functions/spatial-functions/st_angle_sphere",
                                 "sql-manual/sql-functions/spatial-functions/st_area",
                                 "sql-manual/sql-functions/spatial-functions/st_point",
@@ -680,7 +685,8 @@
                                 "sql-manual/sql-functions/table-functions/explode-numbers",
                                 "sql-manual/sql-functions/table-functions/s3",
                                 "sql-manual/sql-functions/table-functions/hdfs",
-                                "sql-manual/sql-functions/table-functions/iceberg_meta"
+                                "sql-manual/sql-functions/table-functions/iceberg_meta",
+                                "sql-manual/sql-functions/table-functions/backends"
                             ]
                         },
                         {
@@ -1101,7 +1107,6 @@
                     "type": "category",
                     "label": "System Table",
                     "items": [
-                        "admin-manual/system-table/backends",
                         "admin-manual/system-table/rowsets"
                     ]
                 },

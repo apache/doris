@@ -644,8 +644,6 @@ public class Repository implements Writable {
                 info.add(FeConstants.null_string);
                 info.add("ERROR: Failed to get info: " + st.getErrMsg());
             } else {
-                info.add(snapshotName);
-
                 List<String> tmp = Lists.newArrayList();
                 for (RemoteFile file : results) {
                     // __info_2018-04-18-20-11-00.Jdwnd9312sfdn1294343
@@ -657,8 +655,11 @@ public class Repository implements Writable {
                     }
                     tmp.add(disjoinPrefix(PREFIX_JOB_INFO, pureFileName.first));
                 }
-                info.add(Joiner.on("\n").join(tmp));
-                info.add(tmp.isEmpty() ? "ERROR: no snapshot" : "OK");
+                if (!tmp.isEmpty()) {
+                    info.add(snapshotName);
+                    info.add(Joiner.on("\n").join(tmp));
+                    info.add("OK");
+                }
             }
         } else {
             // get specified timestamp

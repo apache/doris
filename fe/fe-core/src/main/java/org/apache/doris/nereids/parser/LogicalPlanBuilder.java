@@ -422,14 +422,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     .add(rightQuery)
                     .build();
 
+            LogicalPlan plan;
             if (ctx.UNION() != null) {
-                return new LogicalUnion(qualifier, newChildren);
+                plan = new LogicalUnion(qualifier, newChildren);
             } else if (ctx.EXCEPT() != null) {
-                return new LogicalExcept(qualifier, newChildren);
+                plan = new LogicalExcept(qualifier, newChildren);
             } else if (ctx.INTERSECT() != null) {
-                return new LogicalIntersect(qualifier, newChildren);
+                plan = new LogicalIntersect(qualifier, newChildren);
+            } else {
+                throw new ParseException("not support", ctx);
             }
-            throw new ParseException("not support", ctx);
+            return plan;
         });
     }
 
@@ -1768,6 +1771,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         if (planTypeContext.PARSED() != null) {
             return ExplainLevel.PARSED_PLAN;
+        }
+        if (planTypeContext.SHAPE() != null) {
+            return ExplainLevel.SHAPE_PLAN;
         }
         return ExplainLevel.ALL_PLAN;
     }

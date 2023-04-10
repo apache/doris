@@ -21,6 +21,7 @@ package org.apache.hadoop.hive.metastore;
 import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.datasource.hive.HiveVersionUtil;
 import org.apache.doris.datasource.hive.HiveVersionUtil.HiveVersion;
+import org.apache.doris.datasource.property.constants.HMSProperties;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
@@ -340,7 +341,7 @@ public class HiveMetaStoreClient implements IMetaStoreClient, AutoCloseable {
       this.conf = new Configuration(conf);
     }
 
-    hiveVersion = HiveVersionUtil.getVersion(conf.get(HMSResource.HIVE_VERSION));
+    hiveVersion = HiveVersionUtil.getVersion(conf.get(HMSProperties.HIVE_VERSION));
 
     version = MetastoreConf.getBoolVar(conf, ConfVars.HIVE_IN_TEST) ? TEST_VERSION : VERSION;
     filterHook = loadFilterHooks();

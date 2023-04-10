@@ -17,7 +17,10 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.SetVar;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
@@ -171,8 +174,6 @@ public class SessionVariable implements Serializable, Writable {
     // If user set a very small value, use this value instead.
     public static final long MIN_INSERT_VISIBLE_TIMEOUT_MS = 1000;
 
-    public static final String ENABLE_VECTORIZED_ENGINE = "enable_vectorized_engine";
-
     public static final String ENABLE_PIPELINE_ENGINE = "enable_pipeline_engine";
     public static final String ENABLE_RPC_OPT_FOR_PIPELINE = "enable_rpc_opt_for_pipeline";
 
@@ -294,6 +295,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String USE_FIX_REPLICA = "use_fix_replica";
 
     public static final String DRY_RUN_QUERY = "dry_run_query";
+
+    // Split size for ExternalFileScanNode. Default value 0 means use the block size of HDFS/S3.
+    public static final String FILE_SPLIT_SIZE = "file_split_size";
 
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
@@ -521,8 +525,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = EXTRACT_WIDE_RANGE_EXPR, needForward = true)
     public boolean extractWideRangeExpr = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_VECTORIZED_ENGINE)
-    public boolean enableVectorizedEngine = true;
 
     @VariableMgr.VarAttr(name = ENABLE_PIPELINE_ENGINE, fuzzy = true)
     public boolean enablePipelineEngine = false;
@@ -571,7 +573,7 @@ public class SessionVariable implements Serializable, Writable {
     private int runtimeFiltersMaxNum = 10;
 
     // Set runtimeFilterType to IN_OR_BLOOM filter
-    @VariableMgr.VarAttr(name = RUNTIME_FILTER_TYPE)
+    @VariableMgr.VarAttr(name = RUNTIME_FILTER_TYPE, fuzzy = true)
     private int runtimeFilterType = 8;
 
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MAX_IN_NUM)
@@ -790,6 +792,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DRY_RUN_QUERY, needForward = true)
     public boolean dryRunQuery = false;
 
+    @VariableMgr.VarAttr(name = FILE_SPLIT_SIZE, needForward = true)
+    public long fileSplitSize = 0;
+
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
     public void initFuzzyModeVariables() {
@@ -809,6 +814,7 @@ public class SessionVariable implements Serializable, Writable {
         } else {
             this.rewriteOrToInPredicateThreshold = 2;
         }
+        this.runtimeFilterType = 1 << randomInt;
         switch (randomInt) {
             case 0:
                 this.externalSortBytesThreshold = 0;
@@ -1330,14 +1336,6 @@ public class SessionVariable implements Serializable, Writable {
         this.runtimeFilterMaxInNum = runtimeFilterMaxInNum;
     }
 
-    public boolean enableVectorizedEngine() {
-        return enableVectorizedEngine;
-    }
-
-    public void setEnableVectorizedEngine(boolean enableVectorizedEngine) {
-        this.enableVectorizedEngine = enableVectorizedEngine;
-    }
-
     public boolean enablePipelineEngine() {
         return enablePipelineEngine;
     }
@@ -1360,6 +1358,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getEnableCboStatistics() {
         return enableCboStatistics;
+    }
+
+    public long getFileSplitSize() {
+        return fileSplitSize;
+    }
+
+    public void setFileSplitSize(long fileSplitSize) {
+        this.fileSplitSize = fileSplitSize;
     }
 
     /**
@@ -1893,5 +1899,23 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setDumpNereidsMemo(boolean dumpNereidsMemo) {
         this.dumpNereidsMemo = dumpNereidsMemo;
+    }
+
+    public void enableFallbackToOriginalPlannerOnce() throws DdlException {
+        if (enableFallbackToOriginalPlanner) {
+            return;
+        }
+        setIsSingleSetVar(true);
+        VariableMgr.setVar(this,
+                new SetVar(SessionVariable.ENABLE_FALLBACK_TO_ORIGINAL_PLANNER, new StringLiteral("true")));
+    }
+
+    public void disableNereidsPlannerOnce() throws DdlException {
+        if (!enableNereidsPlanner) {
+            return;
+        }
+        setIsSingleSetVar(true);
+        VariableMgr.setVar(this,
+                new SetVar(SessionVariable.ENABLE_NEREIDS_PLANNER, new StringLiteral("false")));
     }
 }

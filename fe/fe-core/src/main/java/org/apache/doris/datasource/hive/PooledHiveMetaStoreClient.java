@@ -17,10 +17,10 @@
 
 package org.apache.doris.datasource.hive;
 
-import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.HMSClientException;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
+import org.apache.doris.datasource.property.constants.HMSProperties;
 
 import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
 import com.amazonaws.glue.catalog.metastore.AWSCatalogMetastoreClient;
@@ -178,11 +178,11 @@ public class PooledHiveMetaStoreClient {
         private final IMetaStoreClient client;
 
         private CachedClient(HiveConf hiveConf) throws MetaException {
-            String type = hiveConf.get(HMSResource.HIVE_METASTORE_TYPE);
-            if (HMSResource.DLF_TYPE.equalsIgnoreCase(type)) {
+            String type = hiveConf.get(HMSProperties.HIVE_METASTORE_TYPE);
+            if (HMSProperties.DLF_TYPE.equalsIgnoreCase(type)) {
                 client = RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
                         ProxyMetaStoreClient.class.getName());
-            } else if (HMSResource.GLUE_TYPE.equalsIgnoreCase(type)) {
+            } else if (HMSProperties.GLUE_TYPE.equalsIgnoreCase(type)) {
                 client = RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
                         AWSCatalogMetastoreClient.class.getName());
             } else {

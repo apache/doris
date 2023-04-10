@@ -83,13 +83,20 @@ public class ColumnStatistic {
      */
     public final double selectivity;
 
+    /*
+    originalNdv is the ndv in stats of ScanNode. ndv may be changed after filter or join,
+    but originalNdv is not. It is used to trace the change of a column's ndv through serials
+    of sql operators.
+     */
+    public final double originalNdv;
+
     // For display only.
     public final LiteralExpr minExpr;
     public final LiteralExpr maxExpr;
 
     public final Histogram histogram;
 
-    public ColumnStatistic(double count, double ndv, double avgSizeByte,
+    public ColumnStatistic(double count, double ndv, double originalNdv, double avgSizeByte,
             double numNulls, double dataSize, double minValue, double maxValue,
             double selectivity, LiteralExpr minExpr, LiteralExpr maxExpr, boolean isUnKnown, Histogram histogram) {
         this.count = count;
@@ -104,6 +111,7 @@ public class ColumnStatistic {
         this.maxExpr = maxExpr;
         this.isUnKnown = isUnKnown;
         this.histogram = histogram;
+        this.originalNdv = originalNdv;
     }
 
     // TODO: use thrift
@@ -136,11 +144,16 @@ public class ColumnStatistic {
             }
             String min = resultRow.getColumnValue("min");
             String max = resultRow.getColumnValue("max");
-            columnStatisticBuilder.setMinValue(StatisticsUtil.convertToDouble(col.getType(), min));
-            columnStatisticBuilder.setMaxValue(StatisticsUtil.convertToDouble(col.getType(), max));
-            columnStatisticBuilder.setMaxExpr(StatisticsUtil.readableValue(col.getType(), max));
-            columnStatisticBuilder.setMinExpr(StatisticsUtil.readableValue(col.getType(), min));
+            if (!StatisticsUtil.isNullOrEmpty(min)) {
+                columnStatisticBuilder.setMinValue(StatisticsUtil.convertToDouble(col.getType(), min));
+                columnStatisticBuilder.setMinExpr(StatisticsUtil.readableValue(col.getType(), min));
+            }
+            if (!StatisticsUtil.isNullOrEmpty(max)) {
+                columnStatisticBuilder.setMaxValue(StatisticsUtil.convertToDouble(col.getType(), max));
+                columnStatisticBuilder.setMaxExpr(StatisticsUtil.readableValue(col.getType(), max));
+            }
             columnStatisticBuilder.setSelectivity(1.0);
+            columnStatisticBuilder.setOriginalNdv(ndv);
             Histogram histogram = Env.getCurrentEnv().getStatisticsCache().getHistogram(tblId, idxId, colName);
             columnStatisticBuilder.setHistogram(histogram);
             return columnStatisticBuilder.build();

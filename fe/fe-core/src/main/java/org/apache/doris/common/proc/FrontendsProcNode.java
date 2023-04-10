@@ -50,8 +50,6 @@ public class FrontendsProcNode implements ProcNodeInterface {
             .add("CurrentConnected")
             .build();
 
-    public static final int HOSTNAME_INDEX = 2;
-
     private Env env;
 
     public FrontendsProcNode(Env env) {

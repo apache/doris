@@ -758,7 +758,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
                     for (TFileRangeDesc file : fileRangeDescs) {
                         output.append(prefix).append("    ").append(file.getPath())
                                 .append(" start: ").append(file.getStartOffset())
-                                .append(" length: ").append(file.getFileSize())
+                                .append(" length: ").append(file.getSize())
                                 .append("\n");
                     }
                 } else {
@@ -766,7 +766,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
                         TFileRangeDesc file = fileRangeDescs.get(i);
                         output.append(prefix).append("    ").append(file.getPath())
                                 .append(" start: ").append(file.getStartOffset())
-                                .append(" length: ").append(file.getFileSize())
+                                .append(" length: ").append(file.getSize())
                                 .append("\n");
                     }
                     int other = size - 4;
@@ -774,7 +774,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
                     TFileRangeDesc file = fileRangeDescs.get(size - 1);
                     output.append(prefix).append("    ").append(file.getPath())
                             .append(" start: ").append(file.getStartOffset())
-                            .append(" length: ").append(file.getFileSize())
+                            .append(" length: ").append(file.getSize())
                             .append("\n");
                 }
             }

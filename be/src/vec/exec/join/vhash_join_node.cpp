@@ -100,9 +100,14 @@ struct ProcessHashTableBuild {
         hash_table_ctx.hash_table.reset_resize_timer();
 
         // only not build_unique, we need expanse hash table before insert data
+        // 1. There are fewer duplicate keys, reducing the number of resize hash tables
+        // can improve performance to a certain extent, about 2%-5%
+        // 2. There are many duplicate keys, and the hash table filled bucket is far less than
+        // the hash table build bucket, which may waste a lot of memory.
+        // TODO, use the NDV expansion of the key column in the optimizer statistics
         if (!_join_node->_build_unique) {
-            // _rows contains null row, which will cause hash table resize to be large.
-            RETURN_IF_CATCH_BAD_ALLOC(hash_table_ctx.hash_table.expanse_for_add_elem(_rows));
+            RETURN_IF_CATCH_BAD_ALLOC(hash_table_ctx.hash_table.expanse_for_add_elem(
+                    std::min<int>(_rows, config::hash_table_pre_expanse_max_rows)));
         }
 
         vector<int>& inserted_rows = _join_node->_inserted_rows[&_acquired_block];

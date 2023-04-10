@@ -73,6 +73,8 @@ suite("load") {
             `x_lat` double null,
             `y_lng` double null,
             `y_lat` double null,
+            `z_lng` double null,
+            `z_lat` double null,
             `radius` double null,
             `linestring_wkt` varchar(50) null,
             `polygon_wkt` varchar(50) null
@@ -133,6 +135,8 @@ suite("load") {
             `x_lat` double null,
             `y_lng` double null,
             `y_lat` double null,
+            `z_lng` double null,
+            `z_lat` double null,
             `radius` double null,
             `linestring_wkt` varchar(50) null,
             `polygon_wkt` varchar(50) null
@@ -151,7 +155,7 @@ suite("load") {
             kdcmlv3s1, kdcmlv3s2, kdcmlv3s3, kchrs1, kchrs2, kchrs3, kvchrs1, kvchrs2, kvchrs3, kstr,
             kdt, kdtv2, kdtm, kdtmv2s1, kdtmv2s2, kdtmv2s3, kabool, katint, kasint, kaint,
             kabint, kalint, kafloat, kadbl, kadt, kadtm, kadtv2, kadtmv2, kachr, kavchr, kastr, kadcml,
-            st_point_str, st_point_vc, x_lng, x_lat, y_lng, y_lat, radius, linestring_wkt, polygon_wkt
+            st_point_str, st_point_vc, x_lng, x_lat, y_lng, y_lat, z_lng, z_lat, radius, linestring_wkt, polygon_wkt
             '''
         file "fn_test.dat"
     }

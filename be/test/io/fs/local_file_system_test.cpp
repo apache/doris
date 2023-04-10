@@ -84,13 +84,7 @@ public:
             if (!exists) {
                 continue;
             }
-            bool is_dir = true;
-            RETURN_IF_ERROR(io::global_local_filesystem()->is_directory(p, &is_dir));
-            if (is_dir) {
-                RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(p));
-            } else {
-                RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(p));
-            }
+            RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory_or_file(p));
         }
         return Status::OK();
     }
@@ -306,6 +300,162 @@ TEST_F(LocalFileSystemTest, TestContainPath) {
         EXPECT_TRUE(io::global_local_filesystem()->contain_path(parent, parent));
         EXPECT_TRUE(io::global_local_filesystem()->contain_path(sub, sub));
     }
+}
+
+TEST_F(LocalFileSystemTest, TestRename) {
+    std::string path = "./file_rename/";
+    std::string new_path = "./file_rename2/";
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(path).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(path).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->rename_dir(path, new_path).ok());
+
+    save_string_file("./file_rename2/f1", "just test1");
+    EXPECT_TRUE(
+            io::global_local_filesystem()->rename("./file_rename2/f1", "./file_rename2/f2").ok());
+
+    std::vector<std::string> dirs;
+    std::vector<std::string> files;
+    EXPECT_TRUE(list_dirs_files(new_path, &dirs, &files).ok());
+    EXPECT_EQ(0, dirs.size());
+    EXPECT_EQ(1, files.size());
+    EXPECT_EQ("f2", files[0]);
+
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(path).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(new_path).ok());
+}
+
+TEST_F(LocalFileSystemTest, TestLink) {
+    std::string path = "./file_link/";
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(path).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(path).ok());
+
+    // link file
+    save_string_file("./file_link/f2", "just test2");
+    EXPECT_TRUE(
+            io::global_local_filesystem()->link_file("./file_link/f2", "./file_link/f2-1").ok());
+    std::vector<std::string> dirs;
+    std::vector<std::string> files;
+    EXPECT_TRUE(list_dirs_files("./file_link/", &dirs, &files).ok());
+    EXPECT_EQ(0, dirs.size());
+    EXPECT_EQ(2, files.size());
+
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(path).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory("file_link2").ok());
+}
+
+TEST_F(LocalFileSystemTest, TestMD5) {
+    std::string path = "./file_md5/";
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(path).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(path).ok());
+
+    // link fir
+    save_string_file("./file_md5/f1", "just test1");
+    std::string md5;
+    EXPECT_TRUE(io::global_local_filesystem()->md5sum("./file_md5/f1", &md5).ok());
+    EXPECT_EQ("56947c63232fef1c65e4c3f4d1c69a9c", md5);
+
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(path).ok());
+}
+
+TEST_F(LocalFileSystemTest, TestCopyAndBatchDelete) {
+    std::string path = "./file_copy/";
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(path).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory("./file_copy/1").ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory("./file_copy/2").ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory("./file_copy/3").ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory("./file_copy/4").ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory("./file_copy/5").ok());
+
+    save_string_file("./file_copy/f1", "just test1");
+    save_string_file("./file_copy/f2", "just test2");
+    save_string_file("./file_copy/f3", "just test3");
+    save_string_file("./file_copy/1/f4", "just test3");
+    save_string_file("./file_copy/2/f5", "just test3");
+
+    // copy
+    std::string dest_path = "./file_copy_dest/";
+    EXPECT_TRUE(io::global_local_filesystem()->copy_dirs(path, dest_path).ok());
+
+    std::vector<std::string> dirs;
+    std::vector<std::string> files;
+    EXPECT_TRUE(list_dirs_files("./file_copy_dest", &dirs, &files).ok());
+    EXPECT_EQ(5, dirs.size());
+    EXPECT_EQ(3, files.size());
+
+    dirs.clear();
+    files.clear();
+    EXPECT_TRUE(list_dirs_files("./file_copy_dest/1/", &dirs, &files).ok());
+    EXPECT_EQ(0, dirs.size());
+    EXPECT_EQ(1, files.size());
+
+    dirs.clear();
+    files.clear();
+    EXPECT_TRUE(list_dirs_files("./file_copy_dest/2/", &dirs, &files).ok());
+    EXPECT_EQ(0, dirs.size());
+    EXPECT_EQ(1, files.size());
+
+    // batch delete
+    std::vector<io::Path> delete_files;
+    delete_files.emplace_back("./file_copy/f3");
+    delete_files.emplace_back("./file_copy/1/f4");
+    delete_files.emplace_back("./file_copy/2/f5");
+    EXPECT_TRUE(io::global_local_filesystem()->batch_delete(delete_files).ok());
+
+    dirs.clear();
+    files.clear();
+    EXPECT_TRUE(list_dirs_files("./file_copy/1/", &dirs, &files).ok());
+    EXPECT_EQ(0, dirs.size());
+    EXPECT_EQ(0, files.size());
+
+    dirs.clear();
+    files.clear();
+    EXPECT_TRUE(list_dirs_files("./file_copy/", &dirs, &files).ok());
+    EXPECT_EQ(5, dirs.size());
+    EXPECT_EQ(2, files.size());
+
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(path).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(dest_path).ok());
+}
+
+TEST_F(LocalFileSystemTest, TestIterate) {
+    std::string path = "./file_iterate/";
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(path).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(path).ok());
+
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory("./file_iterate/d1").ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory("./file_iterate/d2").ok());
+    save_string_file("./file_iterate/f1", "just test1");
+    save_string_file("./file_iterate/f2", "just test2");
+    save_string_file("./file_iterate/f3", "just test3");
+    save_string_file("./file_iterate/d1/f4", "just test4");
+    save_string_file("./file_iterate/d2/f5", "just test5");
+
+    int64_t file_count = 0;
+    int64_t dir_count = 0;
+    auto cb = [&](const io::FileInfo& file) -> bool {
+        if (file.is_file) {
+            if (file.file_name != "f1") {
+                file_count++;
+            }
+        } else {
+            dir_count++;
+        }
+        return true;
+    };
+
+    auto cb2 = [&](const io::FileInfo& file) -> bool { return false; };
+
+    EXPECT_TRUE(io::global_local_filesystem()->iterate_directory("./file_iterate/", cb).ok());
+    EXPECT_EQ(2, file_count);
+    EXPECT_EQ(2, dir_count);
+
+    file_count = 0;
+    dir_count = 0;
+    EXPECT_TRUE(io::global_local_filesystem()->iterate_directory("./file_iterate/", cb2).ok());
+    EXPECT_EQ(0, file_count);
+    EXPECT_EQ(0, dir_count);
+
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(path).ok());
 }
 
 TEST_F(LocalFileSystemTest, TestListDirsFiles) {

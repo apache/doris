@@ -120,46 +120,46 @@ bool DeleteHandler::is_condition_value_valid(const TabletColumn& column,
 
     FieldType field_type = column.type();
     switch (field_type) {
-    case OLAP_FIELD_TYPE_TINYINT:
+    case FieldType::OLAP_FIELD_TYPE_TINYINT:
         return valid_signed_number<int8_t>(value_str);
-    case OLAP_FIELD_TYPE_SMALLINT:
+    case FieldType::OLAP_FIELD_TYPE_SMALLINT:
         return valid_signed_number<int16_t>(value_str);
-    case OLAP_FIELD_TYPE_INT:
+    case FieldType::OLAP_FIELD_TYPE_INT:
         return valid_signed_number<int32_t>(value_str);
-    case OLAP_FIELD_TYPE_BIGINT:
+    case FieldType::OLAP_FIELD_TYPE_BIGINT:
         return valid_signed_number<int64_t>(value_str);
-    case OLAP_FIELD_TYPE_LARGEINT:
+    case FieldType::OLAP_FIELD_TYPE_LARGEINT:
         return valid_signed_number<int128_t>(value_str);
-    case OLAP_FIELD_TYPE_UNSIGNED_TINYINT:
+    case FieldType::OLAP_FIELD_TYPE_UNSIGNED_TINYINT:
         return valid_unsigned_number<uint8_t>(value_str);
-    case OLAP_FIELD_TYPE_UNSIGNED_SMALLINT:
+    case FieldType::OLAP_FIELD_TYPE_UNSIGNED_SMALLINT:
         return valid_unsigned_number<uint16_t>(value_str);
-    case OLAP_FIELD_TYPE_UNSIGNED_INT:
+    case FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT:
         return valid_unsigned_number<uint32_t>(value_str);
-    case OLAP_FIELD_TYPE_UNSIGNED_BIGINT:
+    case FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT:
         return valid_unsigned_number<uint64_t>(value_str);
-    case OLAP_FIELD_TYPE_DECIMAL:
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL:
         return valid_decimal(value_str, column.precision(), column.frac());
-    case OLAP_FIELD_TYPE_DECIMAL32:
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL32:
         return valid_decimal(value_str, column.precision(), column.frac());
-    case OLAP_FIELD_TYPE_DECIMAL64:
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL64:
         return valid_decimal(value_str, column.precision(), column.frac());
-    case OLAP_FIELD_TYPE_DECIMAL128I:
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL128I:
         return valid_decimal(value_str, column.precision(), column.frac());
-    case OLAP_FIELD_TYPE_CHAR:
-    case OLAP_FIELD_TYPE_VARCHAR:
+    case FieldType::OLAP_FIELD_TYPE_CHAR:
+    case FieldType::OLAP_FIELD_TYPE_VARCHAR:
         return value_str.size() <= column.length();
-    case OLAP_FIELD_TYPE_STRING:
+    case FieldType::OLAP_FIELD_TYPE_STRING:
         return value_str.size() <= config::string_type_length_soft_limit_bytes;
-    case OLAP_FIELD_TYPE_DATE:
-    case OLAP_FIELD_TYPE_DATETIME:
-    case OLAP_FIELD_TYPE_DATEV2:
-    case OLAP_FIELD_TYPE_DATETIMEV2:
+    case FieldType::OLAP_FIELD_TYPE_DATE:
+    case FieldType::OLAP_FIELD_TYPE_DATETIME:
+    case FieldType::OLAP_FIELD_TYPE_DATEV2:
+    case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
         return valid_datetime(value_str, column.frac());
-    case OLAP_FIELD_TYPE_BOOL:
+    case FieldType::OLAP_FIELD_TYPE_BOOL:
         return valid_bool(value_str);
     default:
-        LOG(WARNING) << "unknown field type. [type=" << field_type << "]";
+        LOG(WARNING) << "unknown field type. [type=" << int(field_type) << "]";
     }
     return false;
 }
@@ -177,7 +177,8 @@ Status DeleteHandler::check_condition_valid(const TabletSchema& schema, const TC
     const TabletColumn& column = schema.column(field_index);
 
     if ((!column.is_key() && schema.keys_type() != KeysType::DUP_KEYS) ||
-        column.type() == OLAP_FIELD_TYPE_DOUBLE || column.type() == OLAP_FIELD_TYPE_FLOAT) {
+        column.type() == FieldType::OLAP_FIELD_TYPE_DOUBLE ||
+        column.type() == FieldType::OLAP_FIELD_TYPE_FLOAT) {
         LOG(WARNING) << "field is not key column, or storage model is not duplicate, or data type "
                         "is float or double.";
         return Status::Error<DELETE_INVALID_CONDITION>();

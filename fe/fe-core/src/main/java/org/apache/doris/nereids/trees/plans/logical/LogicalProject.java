@@ -78,12 +78,7 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
         this(projects, excepts, canEliminate, Optional.empty(), Optional.empty(), child, isDistinct);
     }
 
-    /**
-     * Constructor for LogicalProject.
-     *
-     * @param projects project list
-     */
-    public LogicalProject(List<NamedExpression> projects, List<NamedExpression> excepts, boolean canEliminate,
+    private LogicalProject(List<NamedExpression> projects, List<NamedExpression> excepts, boolean canEliminate,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             CHILD_TYPE child, boolean isDistinct) {
         super(PlanType.LOGICAL_PROJECT, groupExpression, logicalProperties, child);
@@ -160,24 +155,10 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
         return Objects.hash(projects, canEliminate);
     }
 
-    public LogicalProject<Plan> withEliminate(boolean isEliminate) {
-        return new LogicalProject<>(projects, excepts, isEliminate, child(), isDistinct);
-    }
-
-    public LogicalProject<Plan> withProjects(List<NamedExpression> projects) {
-        return new LogicalProject<>(projects, excepts, canEliminate,
-                Optional.empty(), Optional.of(getLogicalProperties()), child(), isDistinct);
-    }
-
     @Override
     public LogicalProject<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new LogicalProject<>(projects, excepts, canEliminate, children.get(0), isDistinct);
-    }
-
-    public LogicalProject<Plan> withProjectsAndChild(List<NamedExpression> projects, Plan child) {
-        return new LogicalProject<>(projects, excepts, canEliminate,
-                Optional.empty(), Optional.empty(), child, isDistinct);
     }
 
     @Override
@@ -190,6 +171,18 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     public LogicalProject<Plan> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new LogicalProject<>(projects, excepts, canEliminate, Optional.empty(), logicalProperties, child(),
                 isDistinct);
+    }
+
+    public LogicalProject<Plan> withEliminate(boolean isEliminate) {
+        return new LogicalProject<>(projects, excepts, isEliminate, child(), isDistinct);
+    }
+
+    public LogicalProject<Plan> withProjects(List<NamedExpression> projects) {
+        return new LogicalProject<>(projects, excepts, canEliminate, child(), isDistinct);
+    }
+
+    public LogicalProject<Plan> withProjectsAndChild(List<NamedExpression> projects, Plan child) {
+        return new LogicalProject<>(projects, excepts, canEliminate, child, isDistinct);
     }
 
     public boolean canEliminate() {

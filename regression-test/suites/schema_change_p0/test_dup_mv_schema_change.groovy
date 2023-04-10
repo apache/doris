@@ -36,7 +36,7 @@ suite ("test_dup_mv_schema_change") {
         def backendId_to_backendHttpPort = [:]
         for (String[] backend in backends) {
             backendId_to_backendIP.put(backend[0], backend[2])
-            backendId_to_backendHttpPort.put(backend[0], backend[5])
+            backendId_to_backendHttpPort.put(backend[0], backend[6])
         }
 
         backend_id = backendId_to_backendIP.keySet()[0]
@@ -244,6 +244,11 @@ suite ("test_dup_mv_schema_change") {
 
 
         qt_sc """  SELECT * FROM ${tableName} WHERE user_id=2 order by min_dwell_time"""
+
+        sql "set enable_nereids_planner=true"
+        sql "set enable_fallback_to_original_planner=false"
+
+        qt_sql """ SELECT user_id from ${tableName} order by user_id; """
 
     } finally {
         //try_sql("DROP TABLE IF EXISTS ${tableName}")

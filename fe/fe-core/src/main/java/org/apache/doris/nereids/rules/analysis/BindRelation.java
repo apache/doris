@@ -27,6 +27,7 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.external.EsExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.catalog.external.JdbcExternalTable;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.CascadesContext;
@@ -150,8 +151,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
         String catalogName = cascadesContext.getConnectContext().getCurrentCatalog().getName();
         // if the relation is view, nameParts.get(0) is dbName.
         String dbName = nameParts.get(0);
-        if (!dbName.equals(connectContext.getDatabase())) {
-            dbName = connectContext.getClusterName() + ":" + dbName;
+        if (!dbName.contains(ClusterNamespace.CLUSTER_DELIMITER)) {
+            dbName = connectContext.getClusterName() + ClusterNamespace.CLUSTER_DELIMITER + dbName;
         }
         String tableName = nameParts.get(1);
         TableIf table = getTable(catalogName, dbName, tableName, connectContext.getEnv());
@@ -165,8 +166,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
         ConnectContext connectContext = cascadesContext.getConnectContext();
         String catalogName = nameParts.get(0);
         String dbName = nameParts.get(1);
-        if (!dbName.equals(connectContext.getDatabase())) {
-            dbName = connectContext.getClusterName() + ":" + dbName;
+        if (!dbName.contains(ClusterNamespace.CLUSTER_DELIMITER)) {
+            dbName = connectContext.getClusterName() + ClusterNamespace.CLUSTER_DELIMITER + dbName;
         }
         String tableName = nameParts.get(2);
         TableIf table = getTable(catalogName, dbName, tableName, connectContext.getEnv());
@@ -201,7 +202,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 scan = scan.withPreAggStatus(PreAggStatus.off(
                         Column.DELETE_SIGN + " is used as conjuncts."));
             }
-            return new LogicalFilter(Sets.newHashSet(conjunct), scan);
+            return new LogicalFilter<>(Sets.newHashSet(conjunct), scan);
         }
         return scan;
     }

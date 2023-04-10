@@ -57,6 +57,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -228,6 +229,10 @@ public class SelectStmt extends QueryStmt {
         }
         if (havingClauseAfterAnaylzed != null) {
             exprs.add(havingClauseAfterAnaylzed);
+        }
+        if (orderByElementsAfterAnalyzed != null) {
+            exprs.addAll(orderByElementsAfterAnalyzed.stream().map(orderByElement -> orderByElement.getExpr())
+                    .collect(Collectors.toList()));
         }
         return exprs;
     }
@@ -706,7 +711,6 @@ public class SelectStmt extends QueryStmt {
         // only vectorized mode and session opt variable enabled
         if (ConnectContext.get() == null
                 || ConnectContext.get().getSessionVariable() == null
-                || !ConnectContext.get().getSessionVariable().enableVectorizedEngine
                 || !ConnectContext.get().getSessionVariable().enableTwoPhaseReadOpt) {
             return false;
         }
@@ -1386,7 +1390,7 @@ public class SelectStmt extends QueryStmt {
                 for (Expr groupExpr : groupingExprs) {
                     //remove groupExpr if it is const, and it is not in select list
                     boolean removeConstGroupingKey = false;
-                    if (groupExpr.isConstant()) {
+                    if (groupExpr.isConstant() && !(groupExpr.contains(e -> e instanceof SlotRef))) {
                         if (theFirstConstantGroupingExpr == null) {
                             theFirstConstantGroupingExpr = groupExpr;
                         }
@@ -2223,13 +2227,7 @@ public class SelectStmt extends QueryStmt {
         // Order By clause
         if (orderByElements != null) {
             strBuilder.append(" ORDER BY ");
-            for (int i = 0; i < orderByElements.size(); ++i) {
-                strBuilder.append(orderByElements.get(i).getExpr().toSql());
-                if (sortInfo != null) {
-                    strBuilder.append((sortInfo.getIsAscOrder().get(i)) ? " ASC" : " DESC");
-                }
-                strBuilder.append((i + 1 != orderByElements.size()) ? ", " : "");
-            }
+            strBuilder.append(StringUtils.join(orderByElements, ", "));
         }
         // Limit clause.
         if (hasLimitClause()) {

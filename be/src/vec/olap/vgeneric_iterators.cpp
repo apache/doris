@@ -201,23 +201,23 @@ public:
                 size_t data_len = 0;
                 const auto* col_schema = _schema.column(j);
                 switch (col_schema->type()) {
-                case OLAP_FIELD_TYPE_SMALLINT:
+                case FieldType::OLAP_FIELD_TYPE_SMALLINT:
                     *(int16_t*)data = _rows_returned + j;
                     data_len = sizeof(int16_t);
                     break;
-                case OLAP_FIELD_TYPE_INT:
+                case FieldType::OLAP_FIELD_TYPE_INT:
                     *(int32_t*)data = _rows_returned + j;
                     data_len = sizeof(int32_t);
                     break;
-                case OLAP_FIELD_TYPE_BIGINT:
+                case FieldType::OLAP_FIELD_TYPE_BIGINT:
                     *(int64_t*)data = _rows_returned + j;
                     data_len = sizeof(int64_t);
                     break;
-                case OLAP_FIELD_TYPE_FLOAT:
+                case FieldType::OLAP_FIELD_TYPE_FLOAT:
                     *(float*)data = _rows_returned + j;
                     data_len = sizeof(float);
                     break;
-                case OLAP_FIELD_TYPE_DOUBLE:
+                case FieldType::OLAP_FIELD_TYPE_DOUBLE:
                     *(double*)data = _rows_returned + j;
                     data_len = sizeof(double);
                     break;

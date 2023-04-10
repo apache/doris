@@ -151,8 +151,8 @@ struct TQueryOptions {
   // if the right table is greater than this value in the hash join,  we will ignore IN filter
   34: optional i32 runtime_filter_max_in_num = 1024;
 
-  // whether enable vectorized engine 
-  41: optional bool enable_vectorized_engine = false
+// whether enable vectorized engine 
+  41: optional bool enable_vectorized_engine = true
 
   // the resource limitation of this query
   42: optional TResourceLimit resource_limit

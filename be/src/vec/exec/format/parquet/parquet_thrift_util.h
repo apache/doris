@@ -35,12 +35,13 @@ namespace doris::vectorized {
 constexpr uint8_t PARQUET_VERSION_NUMBER[4] = {'P', 'A', 'R', '1'};
 constexpr uint32_t PARQUET_FOOTER_SIZE = 8;
 
-static Status parse_thrift_footer(io::FileReaderSPtr file, FileMetaData** file_metadata) {
+static Status parse_thrift_footer(io::FileReaderSPtr file, FileMetaData** file_metadata,
+                                  size_t* meta_size, io::IOContext* io_ctx) {
     uint8_t footer[PARQUET_FOOTER_SIZE];
     int64_t file_size = file->size();
     size_t bytes_read = 0;
     Slice result(footer, PARQUET_FOOTER_SIZE);
-    RETURN_IF_ERROR(file->read_at(file_size - PARQUET_FOOTER_SIZE, result, &bytes_read));
+    RETURN_IF_ERROR(file->read_at(file_size - PARQUET_FOOTER_SIZE, result, &bytes_read, io_ctx));
     DCHECK_EQ(bytes_read, PARQUET_FOOTER_SIZE);
 
     // validate magic
@@ -60,12 +61,13 @@ static Status parse_thrift_footer(io::FileReaderSPtr file, FileMetaData** file_m
     // deserialize footer
     std::unique_ptr<uint8_t[]> meta_buff(new uint8_t[metadata_size]);
     Slice res(meta_buff.get(), metadata_size);
-    RETURN_IF_ERROR(
-            file->read_at(file_size - PARQUET_FOOTER_SIZE - metadata_size, res, &bytes_read));
+    RETURN_IF_ERROR(file->read_at(file_size - PARQUET_FOOTER_SIZE - metadata_size, res, &bytes_read,
+                                  io_ctx));
     DCHECK_EQ(bytes_read, metadata_size);
     RETURN_IF_ERROR(deserialize_thrift_msg(meta_buff.get(), &metadata_size, true, &t_metadata));
     *file_metadata = new FileMetaData(t_metadata);
     RETURN_IF_ERROR((*file_metadata)->init_schema());
+    *meta_size = PARQUET_FOOTER_SIZE + metadata_size;
     return Status::OK();
 }
 } // namespace doris::vectorized

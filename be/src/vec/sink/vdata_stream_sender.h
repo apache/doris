@@ -233,8 +233,7 @@ public:
               _need_close(false),
               _brpc_dest_addr(brpc_dest),
               _is_transfer_chain(is_transfer_chain),
-              _send_query_statistics_with_every_batch(send_query_statistics_with_every_batch),
-              _capacity(std::max(1, buffer_size / std::max(_row_desc.get_row_size(), 1))) {
+              _send_query_statistics_with_every_batch(send_query_statistics_with_every_batch) {
         std::string localhost = BackendOptions::get_localhost();
         _is_local = (_brpc_dest_addr.hostname == localhost) &&
                     (_brpc_dest_addr.port == config::brpc_port);
@@ -292,8 +291,6 @@ public:
         return uid.to_string();
     }
 
-    TUniqueId get_fragment_instance_id() const { return _fragment_instance_id; }
-
     bool is_local() const { return _is_local; }
 
     virtual void ch_roll_pb_block();
@@ -302,7 +299,11 @@ public:
         if (!is_local()) {
             return true;
         }
-        return !_local_recvr || _local_recvr->is_closed() || !_local_recvr->exceeds_limit(0);
+
+        // if local recvr queue mem over the exchange node mem limit, we must ensure each queue
+        // has one block to do merge sort in exchange node to prevent the logic dead lock
+        return !_local_recvr || _local_recvr->is_closed() || !_local_recvr->exceeds_limit(0) ||
+               _local_recvr->sender_queue_empty(_parent->_sender_id);
     }
 
 protected:
@@ -363,7 +364,6 @@ protected:
     bool _send_query_statistics_with_every_batch;
     RuntimeState* _state;
 
-    size_t _capacity;
     bool _is_local;
     std::shared_ptr<VDataStreamRecvr> _local_recvr;
     // serialized blocks for broadcasting; we need two so we can write

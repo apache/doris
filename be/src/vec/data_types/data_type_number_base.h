@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 #include "vec/columns/column_vector.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -39,6 +41,54 @@ public:
 
     const char* get_family_name() const override { return TypeName<T>::get(); }
     TypeIndex get_type_id() const override { return TypeId<T>::value; }
+    PrimitiveType get_type_as_primitive_type() const override {
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Int8>>) {
+            return TYPE_TINYINT;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Int16>>) {
+            return TYPE_SMALLINT;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Int32>>) {
+            return TYPE_INT;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Int64>>) {
+            return TYPE_BIGINT;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Int128>>) {
+            return TYPE_LARGEINT;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Float32>>) {
+            return TYPE_FLOAT;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Float64>>) {
+            return TYPE_DOUBLE;
+        }
+        __builtin_unreachable();
+    }
+    TPrimitiveType::type get_type_as_tprimitive_type() const override {
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Int8>>) {
+            return TPrimitiveType::TINYINT;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Int16>>) {
+            return TPrimitiveType::SMALLINT;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Int32>>) {
+            return TPrimitiveType::INT;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Int64>>) {
+            return TPrimitiveType::BIGINT;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Int128>>) {
+            return TPrimitiveType::LARGEINT;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Float32>>) {
+            return TPrimitiveType::FLOAT;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Float64>>) {
+            return TPrimitiveType::DOUBLE;
+        }
+        __builtin_unreachable();
+    }
     Field get_default() const override;
 
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
@@ -67,6 +117,11 @@ public:
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     std::string to_string(const IColumn& column, size_t row_num) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
+    bool is_null_literal() const override { return _is_null_literal; }
+    void set_null_literal(bool flag) { _is_null_literal = flag; }
+
+private:
+    bool _is_null_literal = false;
 };
 
 } // namespace doris::vectorized

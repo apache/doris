@@ -17,9 +17,9 @@
 
 package org.apache.doris.datasource.iceberg;
 
-import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.credentials.DataLakeAWSCredentialsProvider;
+import org.apache.doris.datasource.property.PropertyConverter;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.s3a.Constants;
@@ -33,6 +33,7 @@ public class IcebergRestExternalCatalog extends IcebergExternalCatalog {
 
     public  IcebergRestExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
         super(catalogId, name);
+        props = PropertyConverter.convertToMetaProperties(props);
         catalogProperty = new CatalogProperty(resource, props);
     }
 
@@ -50,13 +51,13 @@ public class IcebergRestExternalCatalog extends IcebergExternalCatalog {
     }
 
     private Configuration replaceS3Properties(Configuration conf) {
-        Map<String, String> catalogProperties = catalogProperty.getProperties();
+        Map<String, String> catalogProperties = catalogProperty.getHadoopProperties();
         String credentials = catalogProperties
                 .getOrDefault(Constants.AWS_CREDENTIALS_PROVIDER, DataLakeAWSCredentialsProvider.class.getName());
         conf.set(Constants.AWS_CREDENTIALS_PROVIDER, credentials);
-        String usePahStyle = catalogProperties.getOrDefault(S3Resource.USE_PATH_STYLE, "true");
+        String usePahStyle = catalogProperties.getOrDefault(PropertyConverter.USE_PATH_STYLE, "true");
         // Set path style
-        conf.set(S3Resource.USE_PATH_STYLE, usePahStyle);
+        conf.set(PropertyConverter.USE_PATH_STYLE, usePahStyle);
         conf.set(Constants.PATH_STYLE_ACCESS, usePahStyle);
         // Get AWS client retry limit
         conf.set(Constants.RETRY_LIMIT, catalogProperties.getOrDefault(Constants.RETRY_LIMIT, "1"));

@@ -246,10 +246,10 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_join([null, null, 1, 2, '', '', null], '_', 'any')"
     qt_sql "select array_join([''], '_')"
     qt_sql "select array_join(['', ''], '_')"
-    qt_sql "select array_with_constant(3, '_')"
-    qt_sql "select array_with_constant(2, '1')"
-    qt_sql "select array_with_constant(4, 1223)"
-    qt_sql "select array_with_constant(8, null)"
+    qt_sql_array_with_constant1 "select array_with_constant(3, '_'), array_repeat('_', 3)"
+    qt_sql_array_with_constant2 "select array_with_constant(2, '1'), array_repeat('1', 2)"
+    qt_sql_array_with_constant3 "select array_with_constant(4, 1223), array_repeat(1223, 4)"
+    qt_sql_array_with_constant4 "select array_with_constant(8, null), array_repeat(null, 8)"
     // array_compact function
     qt_sql "select array_compact([1, 2, 3, 3, null, null, 4, 4])"
     qt_sql "select array_compact([null, null, null])"
@@ -278,6 +278,13 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_concat(array(cast (12.99 as decimal(10,3)), cast (34.99 as decimal(10,3))), array(cast (999.28 as decimal(10,3)), cast (123.99 as decimal(10,3))))"
     qt_sql "select array_concat(array(cast ('2023-03-05' as datev2), cast ('2023-03-04' as datev2)), array(cast ('2023-02-01' as datev2), cast ('2023-02-05' as datev2)))"
     qt_sql "select array_concat(array(cast ('2023-03-05 12:23:24.999' as datetimev2(3)),cast ('2023-03-05 15:23:23.997' as datetimev2(3))))"
+
+    // array_shuffle
+    qt_select_array_shuffle1 "SELECT array_sum(array_shuffle([1, 2, 3, 3, null, null, 4, 4])), array_shuffle([1, 2, 3, 3, null, null, 4, 4], 0), shuffle([1, 2, 3, 3, null, null, 4, 4], 0)"
+    qt_select_array_shuffle2 "SELECT array_sum(array_shuffle([1.111, 2.222, 3.333])), array_shuffle([1.111, 2.222, 3.333], 0), shuffle([1.111, 2.222, 3.333], 0)"
+    qt_select_array_shuffle3 "SELECT array_size(array_shuffle(['aaa', null, 'bbb', 'fff'])), array_shuffle(['aaa', null, 'bbb', 'fff'], 0), shuffle(['aaa', null, 'bbb', 'fff'], 0)"
+    qt_select_array_shuffle4 """select array_size(array("2020-01-02", "2022-01-03", "2021-01-01", "1996-04-17")), array_shuffle(array("2020-01-02", "2022-01-03", "2021-01-01", "1996-04-17"), 0), shuffle(array("2020-01-02", "2022-01-03", "2021-01-01", "1996-04-17"), 0)"""
+
     // array_zip
     qt_sql "select array_zip(['a', 'b', 'c'], ['d', 'e', 'f'])"
     qt_sql "select array_zip(['a', 'b', 'c'], ['d', 'e', 'f'], ['g', 'h', 'i'])"

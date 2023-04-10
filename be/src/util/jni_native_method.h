@@ -21,8 +21,24 @@
 
 namespace doris {
 
+/**
+ * Java native methods for org.apache.doris.udf.JNINativeMethod.
+ */
 struct JavaNativeMethods {
-    static jlong resizeColumn(JNIEnv* env, jclass clazz, jlong columnAddr, jint length);
+    /**
+     * Resize string column and return the new column address.
+     */
+    static jlong resizeStringColumn(JNIEnv* env, jclass clazz, jlong columnAddr, jint length);
+
+    /**
+     * Allocate memory, which will be tracked by memory tracker.
+     */
+    static jlong memoryMalloc(JNIEnv* env, jclass clazz, jlong bytes);
+
+    /**
+     * Free memory, which will be tracked by memory tracker.
+     */
+    static void memoryFree(JNIEnv* env, jclass clazz, jlong address);
 };
 
 } // namespace doris

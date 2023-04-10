@@ -177,9 +177,8 @@ import java.util.stream.Stream;
  */
 public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, PlanTranslatorContext> {
     private static final Logger LOG = LogManager.getLogger(PhysicalPlanTranslator.class);
+    protected StatsErrorEstimator statsErrorEstimator;
     PlanTranslatorContext context;
-
-    StatsErrorEstimator statsErrorEstimator;
 
     public PhysicalPlanTranslator() {
     }
@@ -544,8 +543,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         context.addScanNode(olapScanNode);
         // translate runtime filter
         context.getRuntimeTranslator().ifPresent(
-                runtimeFilterGenerator -> runtimeFilterGenerator.getTargetOnScanNode(olapScan.getId()).forEach(
-                        expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, olapScanNode, context)
+                runtimeFilterTranslator -> runtimeFilterTranslator.getTargetOnScanNode(olapScan.getId()).forEach(
+                        expr -> runtimeFilterTranslator.translateRuntimeFilterTarget(expr, olapScanNode, context)
                 )
         );
         olapScanNode.finalizeForNereids();

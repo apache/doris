@@ -21,11 +21,11 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Resource.ReferenceType;
-import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
@@ -193,13 +193,13 @@ public class StoragePolicy extends Policy {
             throw new AnalysisException("current storage policy just support resource type S3_COOLDOWN");
         }
         Map<String, String> properties = resource.getCopiedProperties();
-        if (!properties.containsKey(S3Resource.S3_ROOT_PATH)) {
+        if (!properties.containsKey(S3Properties.ROOT_PATH)) {
             throw new AnalysisException(String.format(
-                    "Missing [%s] in '%s' resource", S3Resource.S3_ROOT_PATH, storageResource));
+                    "Missing [%s] in '%s' resource", S3Properties.ROOT_PATH, storageResource));
         }
-        if (!properties.containsKey(S3Resource.S3_BUCKET)) {
+        if (!properties.containsKey(S3Properties.BUCKET)) {
             throw new AnalysisException(String.format(
-                    "Missing [%s] in '%s' resource", S3Resource.S3_BUCKET, storageResource));
+                    "Missing [%s] in '%s' resource", S3Properties.BUCKET, storageResource));
         }
         return resource;
     }

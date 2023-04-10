@@ -100,6 +100,7 @@ public class HiveAnalysisTask extends HMSAnalysisTask {
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(ANALYZE_TABLE_SQL_TEMPLATE);
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+            r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
             this.stmtExecutor = new StmtExecutor(r.connectContext, sql);
             this.stmtExecutor.execute();
         }
@@ -136,6 +137,7 @@ public class HiveAnalysisTask extends HMSAnalysisTask {
         // Update partition level stats for this column.
         for (String partitionSql : partitionAnalysisSQLs) {
             try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+                r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
                 this.stmtExecutor = new StmtExecutor(r.connectContext, partitionSql);
                 this.stmtExecutor.execute();
             }
