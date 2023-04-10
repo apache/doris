@@ -86,6 +86,7 @@ import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TPipelineFragmentParamsList;
 import org.apache.doris.thrift.TPipelineInstanceParams;
+import org.apache.doris.thrift.TPipelineResourceGroup;
 import org.apache.doris.thrift.TPlanFragmentDestination;
 import org.apache.doris.thrift.TPlanFragmentExecParams;
 import org.apache.doris.thrift.TQueryGlobals;
@@ -265,6 +266,8 @@ public class Coordinator {
 
     private StatsErrorEstimator statsErrorEstimator;
 
+    private List<TPipelineResourceGroup> tResourceGroups = Lists.newArrayList();
+
     private static class BackendHash implements Funnel<Backend> {
         @Override
         public void funnel(Backend backend, PrimitiveSink primitiveSink) {
@@ -346,6 +349,7 @@ public class Coordinator {
         nextInstanceId.setHi(queryId.hi);
         nextInstanceId.setLo(queryId.lo + 1);
         this.assignedRuntimeFilters = planner.getRuntimeFilters();
+        this.tResourceGroups = analyzer == null ? null : analyzer.getResourceGroups();
     }
 
     // Used for broker load task/export task/update coordinator
@@ -3147,6 +3151,9 @@ public class Coordinator {
                     params.setFragment(fragment.toThrift());
                     params.setLocalParams(Lists.newArrayList());
                     params.setSharedScanOpt(sharedScanOpt);
+                    if (tResourceGroups != null) {
+                        params.setResourceGroups(tResourceGroups);
+                    }
                     res.put(instanceExecParam.host, params);
                 }
                 TPipelineFragmentParams params = res.get(instanceExecParam.host);

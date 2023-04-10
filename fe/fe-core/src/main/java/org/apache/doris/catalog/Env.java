@@ -211,6 +211,7 @@ import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.resourcegroup.ResourceGroupMgr;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.AnalysisTaskScheduler;
@@ -447,6 +448,8 @@ public class Env {
 
     private AtomicLong stmtIdCounter;
 
+    private ResourceGroupMgr resourceGroupMgr;
+
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
             // get all
@@ -649,6 +652,7 @@ public class Env {
             this.analysisManager = new AnalysisManager();
         }
         this.globalFunctionMgr = new GlobalFunctionMgr();
+        this.resourceGroupMgr = new ResourceGroupMgr();
     }
 
     public static void destroyCheckpoint() {
@@ -714,6 +718,10 @@ public class Env {
 
     public AuditEventProcessor getAuditEventProcessor() {
         return auditEventProcessor;
+    }
+
+    public ResourceGroupMgr getResourceGroupMgr() {
+        return resourceGroupMgr;
     }
 
     // use this to get correct ClusterInfoService instance
@@ -1314,6 +1322,8 @@ public class Env {
                 Config.rpc_port);
         editLog.logMasterInfo(masterInfo);
 
+        this.resourceGroupMgr.init();
+
         // for master, the 'isReady' is set behind.
         // but we are sure that all metadata is replayed if we get here.
         // so no need to check 'isReady' flag in this method
@@ -1880,6 +1890,12 @@ public class Env {
         return checksum;
     }
 
+    public long loadResourceGroups(DataInputStream in, long checksum) throws IOException {
+        resourceGroupMgr = ResourceGroupMgr.read(in);
+        LOG.info("finished replay resource groups from image");
+        return checksum;
+    }
+
     public long loadSmallFiles(DataInputStream in, long checksum) throws IOException {
         smallFileMgr.readFields(in);
         LOG.info("finished replay smallFiles from image");
@@ -2142,6 +2158,11 @@ public class Env {
 
     public long saveResources(CountingDataOutputStream dos, long checksum) throws IOException {
         Env.getCurrentEnv().getResourceMgr().write(dos);
+        return checksum;
+    }
+
+    public long saveResourceGroups(CountingDataOutputStream dos, long checksum) throws IOException {
+        Env.getCurrentEnv().getResourceGroupMgr().write(dos);
         return checksum;
     }
 

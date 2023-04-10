@@ -74,6 +74,7 @@ import org.apache.doris.analysis.ShowProcStmt;
 import org.apache.doris.analysis.ShowProcesslistStmt;
 import org.apache.doris.analysis.ShowQueryProfileStmt;
 import org.apache.doris.analysis.ShowRepositoriesStmt;
+import org.apache.doris.analysis.ShowResourceGroupsStmt;
 import org.apache.doris.analysis.ShowResourcesStmt;
 import org.apache.doris.analysis.ShowRestoreStmt;
 import org.apache.doris.analysis.ShowRolesStmt;
@@ -324,6 +325,8 @@ public class ShowExecutor {
             handleShowBroker();
         } else if (stmt instanceof ShowResourcesStmt) {
             handleShowResources();
+        } else if (stmt instanceof ShowResourceGroupsStmt) {
+            handleShowResourceGroups();
         } else if (stmt instanceof ShowExportStmt) {
             handleShowExport();
         } else if (stmt instanceof ShowBackendsStmt) {
@@ -1794,6 +1797,13 @@ public class ShowExecutor {
 
         // Only success
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
+    private void handleShowResourceGroups() {
+        ShowResourceGroupsStmt showStmt = (ShowResourceGroupsStmt) stmt;
+        List<List<String>> resourceGroupsInfos = Env.getCurrentEnv().getResourceGroupMgr().getResourcesInfo();
+
+        resultSet = new ShowResultSet(showStmt.getMetaData(), resourceGroupsInfos);
     }
 
     private void handleShowExport() throws AnalysisException {

@@ -209,6 +209,12 @@ public class MetaPersistMethod {
                 metaPersistMethod.writeMethod = Env.class.getDeclaredMethod("saveGlobalFunction",
                         CountingDataOutputStream.class, long.class);
                 break;
+            case "resourceGroups":
+                metaPersistMethod.readMethod =
+                        Env.class.getDeclaredMethod("loadResourceGroups", DataInputStream.class, long.class);
+                metaPersistMethod.writeMethod =
+                        Env.class.getDeclaredMethod("saveResourceGroups", CountingDataOutputStream.class, long.class);
+                break;
             default:
                 break;
         }
