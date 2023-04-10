@@ -30,14 +30,16 @@ class S2Cap;
 
 template <typename T>
 class Vector3;
-typedef Vector3<double> Vector3_d;
+
+using Vector3_d = Vector3<double>;
+
 using S2Point = Vector3_d;
 
 namespace doris {
 
 class GeoShape {
 public:
-    virtual ~GeoShape() {}
+    virtual ~GeoShape() = default;
 
     virtual GeoShapeType type() const = 0;
 

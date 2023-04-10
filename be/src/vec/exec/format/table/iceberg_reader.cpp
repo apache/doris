@@ -293,13 +293,7 @@ Status IcebergTableReader::_position_delete(
 
         DeleteFile& delete_file_map = *((DeleteFile*)delete_file_cache);
         auto get_value = [&](const auto& v) {
-            DeleteRows* row_ids;
-            // remove those compatibility codes when we finish upgrade phmap.
-            if constexpr (std::is_same_v<const typename DeleteFile::mapped_type&, decltype(v)>) {
-                row_ids = v.get();
-            } else {
-                row_ids = v.second.get();
-            }
+            DeleteRows* row_ids = v.second.get();
             if (row_ids->size() > 0) {
                 delete_rows_array.emplace_back(row_ids);
                 num_delete_rows += row_ids->size();

@@ -170,12 +170,12 @@ public:
         _index_writer->setUseCompoundFile(false);
         _doc->clear();
 
-        int field_config =
-                lucene::document::Field::STORE_NO | lucene::document::Field::INDEX_NONORMS;
+        int field_config = int(lucene::document::Field::STORE_NO) |
+                           int(lucene::document::Field::INDEX_NONORMS);
         if (_parser_type == InvertedIndexParserType::PARSER_NONE) {
-            field_config |= lucene::document::Field::INDEX_UNTOKENIZED;
+            field_config |= int(lucene::document::Field::INDEX_UNTOKENIZED);
         } else {
-            field_config |= lucene::document::Field::INDEX_TOKENIZED;
+            field_config |= int(lucene::document::Field::INDEX_TOKENIZED);
         }
         _field = _CLNEW lucene::document::Field(_field_name.c_str(), field_config);
         _doc->add(*_field);
