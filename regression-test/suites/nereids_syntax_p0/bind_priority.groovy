@@ -118,4 +118,18 @@ suite("bind_priority") {
         sql "SELECT a,2 as a FROM (SELECT '1' as a) b HAVING a=1"
         exception "Unexpected exception: a is ambiguous: a#0, a#1."
     }
+
+    sql "drop table if exists duplicate_slot";
+    sql "create table if not exists duplicate_slot(id int) distributed by hash(id) properties('replication_num'='1');"
+    sql "insert into duplicate_slot values(1), (1), (2), (2), (3), (3);"
+    test {
+        sql("""
+                select id, id
+                from duplicate_slot
+                group by id
+                order by id"""
+        )
+
+        result([[1, 1], [2, 2], [3, 3]])
+    }
 }
