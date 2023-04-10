@@ -60,7 +60,7 @@ public:
                       bool* flags) const override {
         if (column.has_null()) {
             // copy original flags
-            auto original_flags_buf = std::make_unique<bool>(size);
+            auto original_flags_buf = std::make_unique<bool[]>(size);
             auto original_flags = original_flags_buf.get();
             memcpy(original_flags, flags, size * sizeof(bool));
 
@@ -126,7 +126,7 @@ public:
                           bool* flags) const override {
         if (column.has_null()) {
             // copy original flags
-            auto original_flags_buf = std::make_unique<bool>(size);
+            auto original_flags_buf = std::make_unique<bool[]>(size);
             auto original_flags = original_flags_buf.get();
             memcpy(original_flags, flags, size * sizeof(bool));
 
