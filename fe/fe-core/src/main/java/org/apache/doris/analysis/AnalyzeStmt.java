@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -110,7 +111,9 @@ public class AnalyzeStmt extends DdlStmt {
         DatabaseIf db = catalog.getDbOrAnalysisException(dbName);
         dbId = db.getId();
         table = db.getTableOrAnalysisException(tblName);
-
+        if (table instanceof View) {
+            throw new AnalysisException("Analyze view is not allowed");
+        }
         checkAnalyzePriv(dbName, tblName);
 
         if (columnNames != null && !columnNames.isEmpty()) {
