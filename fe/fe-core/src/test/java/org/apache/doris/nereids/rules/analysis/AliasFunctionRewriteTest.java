@@ -67,7 +67,6 @@ public class AliasFunctionRewriteTest extends TestWithFeService implements MemoP
                 new VarcharLiteral("day")
         );
 
-
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .matches(
