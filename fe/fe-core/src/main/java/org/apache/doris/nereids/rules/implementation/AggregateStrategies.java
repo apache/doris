@@ -318,21 +318,6 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         return false;
     }
 
-    private boolean aggregateOnStatsUnknownColumn(LogicalAggregate<? extends Plan> logicalAgg) {
-        if (logicalAgg.child() instanceof GroupPlan) {
-            Statistics childStats = ((GroupPlan) logicalAgg.child()).getGroup().getStatistics();
-            if (childStats != null) {
-                return logicalAgg.getGroupByExpressions().stream().anyMatch(
-                        expression ->
-                                childStats.isStatsUnknown(expression)
-                );
-            } else {
-                return true;
-            }
-        }
-        return true;
-    }
-
     /**
      * sql: select count(*) from tbl group by id
      *
@@ -362,8 +347,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
     private List<PhysicalHashAggregate<Plan>> onePhaseAggregateWithoutDistinct(
             LogicalAggregate<? extends Plan> logicalAgg, ConnectContext connectContext) {
         if (!logicalAgg.getGroupByExpressions().isEmpty()
-                && !aggregateOnUniqueColumn(logicalAgg)
-                && !aggregateOnStatsUnknownColumn(logicalAgg)) {
+                && !aggregateOnUniqueColumn(logicalAgg)) {
             // twoPhaseAggregate beats onePhaseAggregate
             return null;
         }
@@ -794,7 +778,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
     private List<PhysicalHashAggregate<? extends Plan>> twoPhaseAggregateWithDistinct(
             LogicalAggregate<? extends Plan> logicalAgg, ConnectContext connectContext) {
         if (!logicalAgg.getGroupByExpressions().isEmpty()
-                && !aggregateOnUniqueColumn(logicalAgg) && !aggregateOnStatsUnknownColumn(logicalAgg)) {
+                && !aggregateOnUniqueColumn(logicalAgg)) {
             // threePhaseAggregate beats twoPhaseAggregate
             return null;
         }
