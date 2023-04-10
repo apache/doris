@@ -727,6 +727,7 @@ struct TMetadataTableRequestParams {
   1: optional Types.TMetadataType metadata_type
   2: optional PlanNodes.TIcebergMetadataParams iceberg_metadata_params
   3: optional PlanNodes.TBackendsMetadataParams backends_metadata_params
+//  4: optional PlanNodes.TResourceGroupsMetadataParams resource_groups_metadata_params
 }
 
 struct TFetchSchemaTableDataRequest {
