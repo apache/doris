@@ -208,7 +208,7 @@ Status NewEsScanNode::_init_scanners(std::list<VScanner*>* scanners) {
         Status st = scanner->prepare(_state, _vconjunct_ctx_ptr.get());
         if (!st.ok()) {
             // during prepare, scanner already cloned vexpr_context, should call close to release it.
-            scanner->close();
+            scanner->close(_state);
             return st;
         }
         scanners->push_back(static_cast<VScanner*>(scanner));

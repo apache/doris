@@ -402,7 +402,7 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
                                          _olap_filters, _filter_predicates, _push_down_functions);
             if (!st.ok()) {
                 // during prepare, scanner already cloned vexpr_context, should call close to release it.
-                scanner->close();
+                scanner->close(_state);
                 return st;
             }
             scanners->push_back((VScanner*)scanner);
