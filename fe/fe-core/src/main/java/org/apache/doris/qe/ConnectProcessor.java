@@ -306,6 +306,7 @@ public class ConnectProcessor {
         } else {
             ctx.getAuditEventBuilder().setIsQuery(false);
         }
+        ctx.getAuditEventBuilder().setIsNereids(ctx.getState().isNereids);
 
         ctx.getAuditEventBuilder().setFeIp(FrontendOptions.getLocalHostAddress());
 
