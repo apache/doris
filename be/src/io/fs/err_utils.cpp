@@ -14,29 +14,40 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+#include "io/fs/err_utils.h"
 
-#pragma once
+#include <fmt/format.h>
 
-#include <map>
-#include <memory>
-#include <string>
+#include <sstream>
 
-#include "common/status.h"
 #include "io/fs/hdfs.h"
-#include "io/hdfs_builder.h"
 
 namespace doris {
+namespace io {
 
-class HDFSHandle {
-public:
-    ~HDFSHandle() {}
+std::string errno_to_str() {
+    char buf[1024];
+    return fmt::format("({}), {}", errno, strerror_r(errno, buf, 1024));
+}
 
-    static HDFSHandle& instance();
+std::string errcode_to_str(const std::error_code& ec) {
+    return fmt::format("({}), {}", ec.value(), ec.message());
+}
 
-    hdfsFS create_hdfs_fs(HDFSCommonBuilder& builder);
+std::string hdfs_error() {
+    std::stringstream ss;
+    char buf[1024];
+    ss << "(" << errno << "), " << strerror_r(errno, buf, 1024) << ")";
+#ifdef USE_HADOOP_HDFS
+    char* root_cause = hdfsGetLastExceptionRootCause();
+    if (root_cause != nullptr) {
+        ss << ", reason: " << root_cause;
+    }
+#else
+    ss << ", reason: " << hdfsGetLastError();
+#endif
+    return ss.str();
+}
 
-private:
-    HDFSHandle() {}
-};
-
+} // namespace io
 } // namespace doris

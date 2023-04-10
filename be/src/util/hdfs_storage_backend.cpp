@@ -17,6 +17,7 @@
 
 #include "util/hdfs_storage_backend.h"
 
+#include "io/fs/err_utils.h"
 #include "io/hdfs_file_reader.h"
 #include "io/hdfs_reader_writer.h"
 #include "io/hdfs_writer.h"
@@ -125,7 +126,7 @@ Status HDFSStorageBackend::list(const std::string& remote_path, bool contain_md5
     std::string normal_str = parse_path(remote_path);
     int exists = hdfsExists(_hdfs_fs, normal_str.c_str());
     if (exists != 0) {
-        LOG(INFO) << "path does not exist: " << normal_str << ", err: " << strerror(errno);
+        LOG(INFO) << "path does not exist: " << normal_str << ", err: " << io::hdfs_error();
         return Status::OK();
     }
 
@@ -134,7 +135,7 @@ Status HDFSStorageBackend::list(const std::string& remote_path, bool contain_md5
     if (files_info == nullptr) {
         std::stringstream ss;
         ss << "failed to list files from remote path: " << normal_str
-           << ", err: " << strerror(errno);
+           << ", err: " << io::hdfs_error();
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }

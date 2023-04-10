@@ -14,11 +14,13 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 #include "io/hdfs_file_reader.h"
 
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "io/fs/err_utils.h"
 #include "service/backend_options.h"
 
 namespace doris {
@@ -100,12 +102,12 @@ Status HdfsFileReader::open() {
             if (_hdfs_fs == nullptr) {
                 return Status::InternalError(
                         "open file failed. (BE: {}) namenode:{}, path:{}, err: {}",
-                        BackendOptions::get_localhost(), _namenode, _path, hdfsGetLastError());
+                        BackendOptions::get_localhost(), _namenode, _path, io::hdfs_error());
             }
         } else {
             return Status::InternalError("open file failed. (BE: {}) namenode:{}, path:{}, err: {}",
                                          BackendOptions::get_localhost(), _namenode, _path,
-                                         hdfsGetLastError());
+                                         io::hdfs_error());
         }
     }
     VLOG_NOTICE << "open file, namenode:" << _namenode << ", path:" << _path;
@@ -174,7 +176,7 @@ Status HdfsFileReader::readat(int64_t position, int64_t nbytes, int64_t* bytes_r
         if (loop_read < 0) {
             return Status::InternalError(
                     "Read hdfs file failed. (BE: {}) namenode:{}, path:{}, err: {}",
-                    BackendOptions::get_localhost(), _namenode, _path, hdfsGetLastError());
+                    BackendOptions::get_localhost(), _namenode, _path, io::hdfs_error());
         }
         if (loop_read == 0) {
             break;
@@ -192,7 +194,7 @@ int64_t HdfsFileReader::size() {
             hdfsFileInfo* file_info = hdfsGetPathInfo(_hdfs_fs, _path.c_str());
             if (file_info == nullptr) {
                 return Status::IOError("failed to get path info, path: {}, error: {}", _path,
-                                       hdfsGetLastError());
+                                       io::hdfs_error());
             }
             _file_size = file_info->mSize;
             hdfsFreeFileInfo(file_info, 1);
@@ -205,7 +207,7 @@ Status HdfsFileReader::seek(int64_t position) {
     int res = hdfsSeek(_hdfs_fs, _hdfs_file, position);
     if (res != 0) {
         return Status::InternalError("Seek to offset failed. (BE: {}) offset={}, err: {}",
-                                     BackendOptions::get_localhost(), position, hdfsGetLastError());
+                                     BackendOptions::get_localhost(), position, io::hdfs_error());
     }
     _current_offset = position;
     return Status::OK();
@@ -223,7 +225,7 @@ Status HdfsFsCache::_create_fs(THdfsParams& hdfs_params, hdfsFS* fs) {
     RETURN_IF_ERROR(createHDFSBuilder(hdfs_params, &builder));
     hdfsFS hdfs_fs = hdfsBuilderConnect(builder.get());
     if (hdfs_fs == nullptr) {
-        return Status::InternalError("connect to hdfs failed. error: {}", hdfsGetLastError());
+        return Status::InternalError("connect to hdfs failed. error: {}", io::hdfs_error());
     }
     *fs = hdfs_fs;
     return Status::OK();

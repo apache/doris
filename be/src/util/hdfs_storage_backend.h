@@ -17,8 +17,7 @@
 
 #pragma once
 
-#include <hdfs/hdfs.h>
-
+#include "io/fs/hdfs.h"
 #include "io/hdfs_builder.h"
 #include "util/storage_backend.h"
 

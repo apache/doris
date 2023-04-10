@@ -18,6 +18,7 @@
 #include "io/hdfs_builder.h"
 
 #include <fmt/format.h>
+#include <thrift/protocol/TDebugProtocol.h>
 
 #include <fstream>
 
@@ -26,6 +27,7 @@
 #include "util/string_util.h"
 #include "util/uid_util.h"
 #include "util/url_coding.h"
+
 namespace doris {
 
 Status HDFSCommonBuilder::init_hdfs_builder() {
@@ -36,6 +38,7 @@ Status HDFSCommonBuilder::init_hdfs_builder() {
         return Status::InternalError(
                 "failed to init HDFSCommonBuilder, please check be/conf/hdfs-site.xml and be.out");
     }
+    hdfsBuilderSetForceNewInstance(hdfs_builder);
     return Status::OK();
 }
 
@@ -54,7 +57,10 @@ Status HDFSCommonBuilder::run_kinit() {
     if (!rc) {
         return Status::InternalError("Kinit failed, errMsg: " + msg);
     }
+#ifdef USE_LIBHDFS3
+    hdfsBuilderSetPrincipal(hdfs_builder, hdfs_kerberos_principal.c_str());
     hdfsBuilderSetKerbTicketCachePath(hdfs_builder, ticket_path.c_str());
+#endif
     return Status::OK();
 }
 
@@ -97,7 +103,6 @@ Status createHDFSBuilder(const THdfsParams& hdfsParams, HDFSCommonBuilder* build
     if (hdfsParams.__isset.hdfs_kerberos_principal) {
         builder->need_kinit = true;
         builder->hdfs_kerberos_principal = hdfsParams.hdfs_kerberos_principal;
-        hdfsBuilderSetPrincipal(builder->get(), hdfsParams.hdfs_kerberos_principal.c_str());
     }
     if (hdfsParams.__isset.hdfs_kerberos_keytab) {
         builder->need_kinit = true;

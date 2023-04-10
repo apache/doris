@@ -17,26 +17,15 @@
 
 #pragma once
 
-#include <map>
-#include <memory>
 #include <string>
-
-#include "common/status.h"
-#include "io/fs/hdfs.h"
-#include "io/hdfs_builder.h"
+#include <system_error>
 
 namespace doris {
+namespace io {
 
-class HDFSHandle {
-public:
-    ~HDFSHandle() {}
+std::string errno_to_str();
+std::string errcode_to_str(const std::error_code& ec);
+std::string hdfs_error();
 
-    static HDFSHandle& instance();
-
-    hdfsFS create_hdfs_fs(HDFSCommonBuilder& builder);
-
-private:
-    HDFSHandle() {}
-};
-
+} // namespace io
 } // namespace doris
