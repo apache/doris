@@ -7060,6 +7060,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_HELP:id
     {: RESULT = id; :}
+    | KW_HOSTNAME:id
+    {: RESULT = id; :}
     | KW_HUB:id
     {: RESULT = id; :}
     | KW_IDENTIFIED:id

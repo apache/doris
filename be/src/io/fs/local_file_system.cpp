@@ -116,18 +116,17 @@ Status LocalFileSystem::delete_directory_impl(const Path& dir) {
 }
 
 Status LocalFileSystem::delete_directory_or_file(const Path& path) {
+    auto the_path = absolute_path(path);
+    FILESYSTEM_M(delete_directory_or_file_impl(the_path));
+}
+
+Status LocalFileSystem::delete_directory_or_file_impl(const Path& path) {
     bool is_dir;
-    Status ret = is_directory(path, &is_dir);
-    if (ret.ok()) {
-        Status s;
-        if (is_dir) {
-            s = delete_directory_impl(path);
-        } else {
-            s = delete_file_impl(path);
-        }
-        return s;
+    RETURN_IF_ERROR(is_directory(path, &is_dir));
+    if (is_dir) {
+        return delete_directory_impl(path);
     } else {
-        return ret;
+        return delete_file_impl(path);
     }
 }
 
