@@ -22,7 +22,6 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Multiply;
-import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysSub;
@@ -31,7 +30,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Hour;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DateTimeType;
@@ -172,9 +170,7 @@ public class AliasFunctionRewriteTest extends TestWithFeService implements MemoP
                 .matches(
                         logicalOneRowRelation()
                                 .when(relation -> relation.getProjects().size() == 1)
-                                .when(relation -> relation.getProjects().get(0)
-                                        .anyMatch(expr -> expr instanceof BoundFunction
-                                                && "date_trunc".equals(((BoundFunction) expr).getName())))
+                                .when(relation -> relation.getProjects().get(0).child(0).equals(expected))
                 );
     }
 }
