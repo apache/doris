@@ -27,6 +27,7 @@
 #include <limits>
 #include <vector>
 
+#include "vec/common/string_ref.h"
 #include "vec/common/string_utils/string_utils.h"
 
 #ifdef __SSE2__
@@ -45,7 +46,6 @@ namespace doris {
 // }
 
 /** Variants for searching a substring in a string.
-  * In most cases, performance is less than Volnitsky (see Volnitsky.h).
   */
 
 class StringSearcherBase {
@@ -119,8 +119,36 @@ public:
 
     template <typename CharT>
     // requires (sizeof(CharT) == 1)
-    ALWAYS_INLINE bool compare(const CharT* /*haystack*/, const CharT* /*haystack_end*/,
-                               const CharT* pos) const {
+    const CharT* search(const CharT* haystack, size_t haystack_size) const {
+        // cast to unsigned int8 to be consitent with needle type
+        // ensure unsigned type compare
+        return reinterpret_cast<const CharT*>(
+                _search(reinterpret_cast<const uint8_t*>(haystack), haystack_size));
+    }
+
+    template <typename CharT>
+    // requires (sizeof(CharT) == 1)
+    const CharT* search(const CharT* haystack, const CharT* haystack_end) const {
+        // cast to unsigned int8 to be consitent with needle type
+        // ensure unsigned type compare
+        return reinterpret_cast<const CharT*>(
+                _search(reinterpret_cast<const uint8_t*>(haystack),
+                        reinterpret_cast<const uint8_t*>(haystack_end)));
+    }
+
+    template <typename CharT>
+    // requires (sizeof(CharT) == 1)
+    ALWAYS_INLINE bool compare(const CharT* haystack, const CharT* haystack_end, CharT* pos) const {
+        // cast to unsigned int8 to be consitent with needle type
+        // ensure unsigned type compare
+        return _compare(reinterpret_cast<const uint8_t*>(haystack),
+                        reinterpret_cast<const uint8_t*>(haystack_end),
+                        reinterpret_cast<const uint8_t*>(pos));
+    }
+
+private:
+    ALWAYS_INLINE bool _compare(uint8_t* /*haystack*/, uint8_t* /*haystack_end*/,
+                                uint8_t* pos) const {
 #ifdef __SSE4_1__
         if (needle_end - needle > n && page_safe(pos)) {
             const auto v_haystack = _mm_loadu_si128(reinterpret_cast<const __m128i*>(pos));
@@ -155,9 +183,7 @@ public:
         return false;
     }
 
-    template <typename CharT>
-    // requires (sizeof(CharT) == 1)
-    const CharT* search(const CharT* haystack, const CharT* const haystack_end) const {
+    const uint8_t* _search(const uint8_t* haystack, const uint8_t* haystack_end) const {
         if (needle == needle_end) return haystack;
 
         const auto needle_size = needle_end - needle;
@@ -265,10 +291,8 @@ public:
         return haystack_end;
     }
 
-    template <typename CharT>
-    // requires (sizeof(CharT) == 1)
-    const CharT* search(const CharT* haystack, const size_t haystack_size) const {
-        return search(haystack, haystack + haystack_size);
+    const uint8_t* _search(const uint8_t* haystack, const size_t haystack_size) const {
+        return _search(haystack, haystack + haystack_size);
     }
 };
 
@@ -399,5 +423,70 @@ struct LibCASCIICaseInsensitiveStringSearcher : public StringSearcherBase {
         return search(haystack, haystack + haystack_size);
     }
 };
+
+template <typename StringSearcher>
+class MultiStringSearcherBase {
+private:
+    /// needles
+    const std::vector<StringRef>& needles;
+    /// searchers
+    std::vector<StringSearcher> searchers;
+    /// last index of needles that was not processed
+    size_t last;
+
+public:
+    explicit MultiStringSearcherBase(const std::vector<StringRef>& needles_)
+            : needles {needles_}, last {0} {
+        searchers.reserve(needles.size());
+
+        size_t size = needles.size();
+        for (int i = 0; i < size; ++i) {
+            const char* cur_needle_data = needles[i].data;
+            const size_t cur_needle_size = needles[i].size;
+
+            searchers.emplace_back(cur_needle_data, cur_needle_size);
+        }
+    }
+
+    /**
+     * while (hasMoreToSearch())
+     * {
+     *     search inside the haystack with the known needles
+     * }
+     */
+    bool hasMoreToSearch() {
+        if (last >= needles.size()) {
+            return false;
+        }
+
+        return true;
+    }
+
+    bool searchOne(const uint8_t* haystack, const uint8_t* haystack_end) {
+        const size_t size = needles.size();
+        if (last >= size) {
+            return false;
+        }
+
+        if (searchers[++last].search(haystack, haystack_end) != haystack_end) {
+            return true;
+        }
+        return false;
+    }
+
+    template <typename CountCharsCallback, typename AnsType>
+    void searchOneAll(const uint8_t* haystack, const uint8_t* haystack_end, AnsType* answer,
+                      const CountCharsCallback& count_chars) {
+        const size_t size = needles.size();
+        for (; last < size; ++last) {
+            const uint8_t* ptr = searchers[last].search(haystack, haystack_end);
+            if (ptr != haystack_end) {
+                answer[last] = count_chars(haystack, ptr);
+            }
+        }
+    }
+};
+
+using MultiStringSearcher = MultiStringSearcherBase<ASCIICaseSensitiveStringSearcher>;
 
 } // namespace doris
