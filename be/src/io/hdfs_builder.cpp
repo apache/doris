@@ -26,6 +26,7 @@
 #include "util/string_util.h"
 #include "util/uid_util.h"
 #include "util/url_coding.h"
+#include <thrift/protocol/TDebugProtocol.h>
 
 namespace doris {
 

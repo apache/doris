@@ -97,7 +97,9 @@ PInternalServiceImpl::PInternalServiceImpl(ExecEnv* exec_env)
         : _exec_env(exec_env),
           _tablet_worker_pool(config::number_tablet_writer_threads, 10240, "tablet_writer"),
           _slave_replica_worker_pool(config::number_slave_replica_download_threads, 10240,
-                                     "replica_download") {
+                                     "replica_download"),
+          _heavy_work_pool(192, 10240, "brpc_heavy"),
+          _light_work_pool(2, 10240, "brpc_light") {
     REGISTER_HOOK_METRIC(add_batch_task_queue_size,
                          [this]() { return _tablet_worker_pool.get_queue_size(); });
     CHECK_EQ(0, bthread_key_create(&btls_key, thread_context_deleter));
@@ -203,18 +205,34 @@ void PInternalServiceImpl::exec_plan_fragment_prepare(google::protobuf::RpcContr
                                                       const PExecPlanFragmentRequest* request,
                                                       PExecPlanFragmentResult* response,
                                                       google::protobuf::Closure* done) {
-    exec_plan_fragment(cntl_base, request, response, done);
+    bool ret = _light_work_pool.try_offer([this, cntl_base, request, response, done]() {
+        exec_plan_fragment(cntl_base, request, response, done);
+    });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+    }
 }
 
 void PInternalServiceImpl::exec_plan_fragment_start(google::protobuf::RpcController* controller,
                                                     const PExecPlanFragmentStartRequest* request,
                                                     PExecPlanFragmentResult* result,
                                                     google::protobuf::Closure* done) {
-    auto span = telemetry::start_rpc_server_span("exec_plan_fragment_start", controller);
-    auto scope = OpentelemetryScope {span};
-    brpc::ClosureGuard closure_guard(done);
-    auto st = _exec_env->fragment_mgr()->start_query_execution(request);
-    st.to_protobuf(result->mutable_status());
+    bool ret = _light_work_pool.try_offer([this, controller, request, result, done]() {
+        auto span = telemetry::start_rpc_server_span("exec_plan_fragment_start", controller);
+        auto scope = OpentelemetryScope {span};
+        brpc::ClosureGuard closure_guard(done);
+        auto st = _exec_env->fragment_mgr()->start_query_execution(request);
+        st.to_protobuf(result->mutable_status());
+    });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        result->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        result->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+    }
 }
 
 void PInternalServiceImpl::tablet_writer_add_block(google::protobuf::RpcController* cntl_base,
@@ -415,84 +433,92 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
                                               const PFetchTableSchemaRequest* request,
                                               PFetchTableSchemaResult* result,
                                               google::protobuf::Closure* done) {
-    VLOG_RPC << "fetch table schema";
-    brpc::ClosureGuard closure_guard(done);
-    TFileScanRange file_scan_range;
-    Status st = Status::OK();
-    {
-        const uint8_t* buf = (const uint8_t*)(request->file_scan_range().data());
-        uint32_t len = request->file_scan_range().size();
-        st = deserialize_thrift_msg(buf, &len, false, &file_scan_range);
+    bool ret = _heavy_work_pool.try_offer([request, result, done]() {
+        VLOG_RPC << "fetch table schema";
+        brpc::ClosureGuard closure_guard(done);
+        TFileScanRange file_scan_range;
+        Status st = Status::OK();
+        {
+            const uint8_t* buf = (const uint8_t*)(request->file_scan_range().data());
+            uint32_t len = request->file_scan_range().size();
+            st = deserialize_thrift_msg(buf, &len, false, &file_scan_range);
+            if (!st.ok()) {
+                LOG(WARNING) << "fetch table schema failed, errmsg=" << st;
+                st.to_protobuf(result->mutable_status());
+                return;
+            }
+        }
+        if (file_scan_range.__isset.ranges == false) {
+            st = Status::InternalError("can not get TFileRangeDesc.");
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
+        if (file_scan_range.__isset.params == false) {
+            st = Status::InternalError("can not get TFileScanRangeParams.");
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
+        const TFileRangeDesc& range = file_scan_range.ranges.at(0);
+        const TFileScanRangeParams& params = file_scan_range.params;
+
+        std::unique_ptr<vectorized::GenericReader> reader(nullptr);
+        std::unique_ptr<RuntimeProfile> profile(new RuntimeProfile("FetchTableSchema"));
+        switch (params.format_type) {
+        case TFileFormatType::FORMAT_CSV_PLAIN:
+        case TFileFormatType::FORMAT_CSV_GZ:
+        case TFileFormatType::FORMAT_CSV_BZ2:
+        case TFileFormatType::FORMAT_CSV_LZ4FRAME:
+        case TFileFormatType::FORMAT_CSV_LZOP:
+        case TFileFormatType::FORMAT_CSV_DEFLATE: {
+            // file_slots is no use
+            std::vector<SlotDescriptor*> file_slots;
+            reader.reset(new vectorized::CsvReader(profile.get(), params, range, file_slots));
+            break;
+        }
+        case TFileFormatType::FORMAT_PARQUET: {
+            reader.reset(new vectorized::ParquetReader(params, range));
+            break;
+        }
+        case TFileFormatType::FORMAT_ORC: {
+            std::vector<std::string> column_names;
+            reader.reset(new vectorized::OrcReader(params, range, column_names, ""));
+            break;
+        }
+        case TFileFormatType::FORMAT_JSON: {
+            std::vector<SlotDescriptor*> file_slots;
+            reader.reset(new vectorized::NewJsonReader(profile.get(), params, range, file_slots));
+            break;
+        }
+        default:
+            st = Status::InternalError("Not supported file format in fetch table schema: {}",
+                                       params.format_type);
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
+        std::vector<std::string> col_names;
+        std::vector<TypeDescriptor> col_types;
+        st = reader->get_parsed_schema(&col_names, &col_types);
         if (!st.ok()) {
             LOG(WARNING) << "fetch table schema failed, errmsg=" << st;
             st.to_protobuf(result->mutable_status());
             return;
         }
-    }
-    if (file_scan_range.__isset.ranges == false) {
-        st = Status::InternalError("can not get TFileRangeDesc.");
+        result->set_column_nums(col_names.size());
+        for (size_t idx = 0; idx < col_names.size(); ++idx) {
+            result->add_column_names(col_names[idx]);
+        }
+        for (size_t idx = 0; idx < col_types.size(); ++idx) {
+            PTypeDesc* type_desc = result->add_column_types();
+            col_types[idx].to_protobuf(type_desc);
+        }
         st.to_protobuf(result->mutable_status());
-        return;
+    });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer fetch schema request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        result->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        result->mutable_status()->add_error_msgs("fail to offer fetch request to the work pool");
     }
-    if (file_scan_range.__isset.params == false) {
-        st = Status::InternalError("can not get TFileScanRangeParams.");
-        st.to_protobuf(result->mutable_status());
-        return;
-    }
-    const TFileRangeDesc& range = file_scan_range.ranges.at(0);
-    const TFileScanRangeParams& params = file_scan_range.params;
-
-    std::unique_ptr<vectorized::GenericReader> reader(nullptr);
-    std::unique_ptr<RuntimeProfile> profile(new RuntimeProfile("FetchTableSchema"));
-    switch (params.format_type) {
-    case TFileFormatType::FORMAT_CSV_PLAIN:
-    case TFileFormatType::FORMAT_CSV_GZ:
-    case TFileFormatType::FORMAT_CSV_BZ2:
-    case TFileFormatType::FORMAT_CSV_LZ4FRAME:
-    case TFileFormatType::FORMAT_CSV_LZOP:
-    case TFileFormatType::FORMAT_CSV_DEFLATE: {
-        // file_slots is no use
-        std::vector<SlotDescriptor*> file_slots;
-        reader.reset(new vectorized::CsvReader(profile.get(), params, range, file_slots));
-        break;
-    }
-    case TFileFormatType::FORMAT_PARQUET: {
-        reader.reset(new vectorized::ParquetReader(params, range));
-        break;
-    }
-    case TFileFormatType::FORMAT_ORC: {
-        std::vector<std::string> column_names;
-        reader.reset(new vectorized::OrcReader(params, range, column_names, ""));
-        break;
-    }
-    case TFileFormatType::FORMAT_JSON: {
-        std::vector<SlotDescriptor*> file_slots;
-        reader.reset(new vectorized::NewJsonReader(profile.get(), params, range, file_slots));
-        break;
-    }
-    default:
-        st = Status::InternalError("Not supported file format in fetch table schema: {}",
-                                   params.format_type);
-        st.to_protobuf(result->mutable_status());
-        return;
-    }
-    std::vector<std::string> col_names;
-    std::vector<TypeDescriptor> col_types;
-    st = reader->get_parsed_schema(&col_names, &col_types);
-    if (!st.ok()) {
-        LOG(WARNING) << "fetch table schema failed, errmsg=" << st;
-        st.to_protobuf(result->mutable_status());
-        return;
-    }
-    result->set_column_nums(col_names.size());
-    for (size_t idx = 0; idx < col_names.size(); ++idx) {
-        result->add_column_names(col_names[idx]);
-    }
-    for (size_t idx = 0; idx < col_types.size(); ++idx) {
-        PTypeDesc* type_desc = result->add_column_types();
-        col_types[idx].to_protobuf(type_desc);
-    }
-    st.to_protobuf(result->mutable_status());
 }
 
 void PInternalServiceImpl::get_info(google::protobuf::RpcController* controller,

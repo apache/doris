@@ -18,10 +18,12 @@
 #include "io/hdfs_writer.h"
 
 #include <filesystem>
+#include <bthread/bthread.h>
 
 #include "common/logging.h"
 #include "io/fs/err_utils.h"
 #include "service/backend_options.h"
+#include "util/stack_util.h"
 
 namespace doris {
 
@@ -57,9 +59,10 @@ Status HDFSWriter::open() {
 
     std::filesystem::path hdfs_path(_path);
     std::string hdfs_dir = hdfs_path.parent_path().string();
+    LOG(INFO) << "hdfs write open: " << hdfs_dir << get_stack_trace();
     exists = hdfsExists(_hdfs_fs, hdfs_dir.c_str());
     if (exists != 0) {
-        VLOG_NOTICE << "hdfs dir doesn't exist, create it: " << hdfs_dir;
+        LOG(INFO) << "hdfs dir doesn't exist, create it: " << hdfs_dir << ", path: " << _path << get_stack_trace();
         int ret = hdfsCreateDirectory(_hdfs_fs, hdfs_dir.c_str());
         if (ret != 0) {
             std::stringstream ss;
@@ -136,7 +139,8 @@ Status HDFSWriter::close() {
 
 Status HDFSWriter::_connect() {
     HDFSCommonBuilder builder;
-    RETURN_IF_ERROR(createHDFSBuilder(_properties, &builder));
+    THdfsParams hdfsParams = parse_properties(_properties);
+    RETURN_IF_ERROR(createHDFSBuilder(hdfsParams, &builder));
     _hdfs_fs = hdfsBuilderConnect(builder.get());
     if (_hdfs_fs == nullptr) {
         return Status::InternalError("connect to hdfs failed. namenode address:{}, error {}",

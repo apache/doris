@@ -196,6 +196,8 @@ private:
     ExecEnv* _exec_env;
     PriorityThreadPool _tablet_worker_pool;
     PriorityThreadPool _slave_replica_worker_pool;
+    PriorityThreadPool _heavy_work_pool;
+    PriorityThreadPool _light_work_pool;
 };
 
 } // namespace doris
