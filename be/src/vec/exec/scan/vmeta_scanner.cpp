@@ -244,7 +244,7 @@ Status VMetaScanner::_build_backends_metadata_request(const TMetaScanRange& meta
 }
 
 Status VMetaScanner::_build_resource_groups_metadata_request(const TMetaScanRange& meta_scan_range,
-                                                      TFetchSchemaTableDataRequest* request) {
+                                                             TFetchSchemaTableDataRequest* request) {
     VLOG_CRITICAL << "VMetaScanner::_build_resource_groups_metadata_request";
 
     // create request
