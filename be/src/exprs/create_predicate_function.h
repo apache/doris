@@ -273,16 +273,16 @@ ColumnPredicate* create_column_predicate(uint32_t column_id, const std::shared_p
                                          const TabletColumn* column = nullptr) {
     switch (type) {
 #define M(NAME)                                                                                \
-    case OLAP_FIELD_##NAME: {                                                                  \
+    case FieldType::OLAP_FIELD_##NAME: {                                                       \
         return create_olap_column_predicate<NAME>(column_id, filter, be_exec_version, column); \
     }
         APPLY_FOR_PRIMTYPE(M)
 #undef M
-    case OLAP_FIELD_TYPE_DECIMAL: {
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL: {
         return create_olap_column_predicate<TYPE_DECIMALV2>(column_id, filter, be_exec_version,
                                                             column);
     }
-    case OLAP_FIELD_TYPE_BOOL: {
+    case FieldType::OLAP_FIELD_TYPE_BOOL: {
         return create_olap_column_predicate<TYPE_BOOLEAN>(column_id, filter, be_exec_version,
                                                           column);
     }
