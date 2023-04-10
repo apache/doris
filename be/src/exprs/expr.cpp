@@ -20,6 +20,7 @@
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <sstream>
+#include <stack>
 #include <vector>
 
 #include "common/object_pool.h"
@@ -274,8 +275,7 @@ Status Expr::create_expr_trees(ObjectPool* pool, const std::vector<TExpr>& texpr
 }
 
 Status Expr::create_tree_from_thrift(ObjectPool* pool, const std::vector<TExprNode>& nodes,
-                                     Expr* parent, int* node_idx, Expr** root_expr,
-                                     ExprContext** ctx) {
+                                     int* node_idx, Expr** root_expr, ExprContext** ctx) {
     // propagate error case
     if (*node_idx >= nodes.size()) {
         return Status::InternalError("Failed to reconstruct expression tree from thrift.");

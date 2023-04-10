@@ -20,6 +20,7 @@
 #include <fmt/format.h>
 
 #include <memory>
+#include <stack>
 
 #include "exprs/anyval_util.h"
 #include "gen_cpp/Exprs_types.h"
