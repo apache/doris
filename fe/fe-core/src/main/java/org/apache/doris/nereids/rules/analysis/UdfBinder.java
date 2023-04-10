@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JavaUdf;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import java.util.Arrays;
 import java.util.List;
@@ -111,9 +112,9 @@ public class UdfBinder {
             signature = sigBuilder.args(Arrays.stream(argTypes).map(DataType::fromCatalogType)
                     .toArray(AbstractDataType[]::new));
         }
-        return new JavaUdf(catalogFunction,
+        return TypeCoercionUtils.processBoundFunction(new JavaUdf(catalogFunction,
                 signature,
                 nereidsFunction.getName(),
-                nereidsFunction.children().toArray(new Expression[0]));
+                nereidsFunction.children().toArray(new Expression[0])));
     }
 }
