@@ -52,11 +52,6 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
         return ImmutableList.of(signature);
     }
 
-    @Override
-    public boolean nullable() {
-        return false;
-    }
-
     public org.apache.doris.catalog.AggregateFunction getCatalogFunction() {
         return catalogFunction;
     }

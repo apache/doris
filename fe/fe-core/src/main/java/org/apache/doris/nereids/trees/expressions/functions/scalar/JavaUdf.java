@@ -52,11 +52,6 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
         return ImmutableList.of(signature);
     }
 
-    @Override
-    public boolean nullable() {
-
-    }
-
     public org.apache.doris.catalog.ScalarFunction getCatalogFunction() {
         return catalogFunction;
     }
