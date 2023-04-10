@@ -61,10 +61,10 @@ public class UdfBinder {
         }
         if (catalogFunction instanceof ScalarFunction) {
             return handleJavaUdf(function, ((ScalarFunction) catalogFunction));
+        } else if (catalogFunction instanceof AggregateFunction) {
+            return handleJavaUDAF(function, ((AggregateFunction) catalogFunction));
         } else if (catalogFunction instanceof AliasFunction) {
             return handleAliasFunction(function, ((AliasFunction) catalogFunction), context);
-        } else if (catalogFunction instanceof AggregateFunction) {
-
         }
         throw new AnalysisException(String.format("unsupported alias function type %s for Nereids",
                 catalogFunction.getClass()));
