@@ -39,6 +39,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExprOpcode;
+import shade.doris.hive.org.apache.thrift.TException;
 
 import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
 import com.google.common.base.Strings;
@@ -275,7 +276,7 @@ public class HiveMetaStoreClientHelper {
             client.listPartitionsByExpr(remoteHiveTbl.getDbName(), remoteHiveTbl.getTableName(),
                     SerializationUtilities.serializeExpressionToKryo(hivePartitionPredicate),
                     null, (short) -1, hivePartitions);
-        } catch (shade.doris.hive.org.apache.thrift.TException e) {
+        } catch (TException e) {
             LOG.warn("Hive metastore thrift exception: {}", e.getMessage());
             throw new DdlException("Connect hive metastore failed: " + e.getMessage());
         } finally {
@@ -289,7 +290,7 @@ public class HiveMetaStoreClientHelper {
         Table table;
         try {
             table = client.getTable(hiveTable.getHiveDb(), hiveTable.getHiveTable());
-        } catch (shade.doris.hive.org.apache.thrift.TException e) {
+        } catch (TException e) {
             LOG.warn("Hive metastore thrift exception: {}", e.getMessage());
             throw new DdlException("Connect hive metastore failed. Error: " + e.getMessage());
         }
@@ -312,7 +313,7 @@ public class HiveMetaStoreClientHelper {
         Table table;
         try {
             table = client.getTable(dbName, tableName);
-        } catch (shade.doris.hive.org.apache.thrift.TException e) {
+        } catch (TException e) {
             LOG.warn("Hive metastore thrift exception: {}", e.getMessage());
             throw new DdlException("Connect hive metastore failed. Error: " + e.getMessage());
         } finally {
