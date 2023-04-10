@@ -1785,6 +1785,10 @@ public class Env {
         newChecksum ^= size;
         for (int i = 0; i < size; i++) {
             AlterJobV2 alterJobV2 = AlterJobV2.read(dis);
+            if (alterJobV2.isExpire()) {
+                LOG.info("alter job {} is expired, type: {}, ignore it", alterJobV2.getJobId(), alterJobV2.getType());
+                continue;
+            }
             if (type == JobType.ROLLUP || type == JobType.SCHEMA_CHANGE) {
                 if (type == JobType.ROLLUP) {
                     this.getMaterializedViewHandler().addAlterJobV2(alterJobV2);
