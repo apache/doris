@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import com.google.common.base.Preconditions;
@@ -30,7 +31,7 @@ import java.util.List;
 /**
  * Java UDAF for Nereids
  */
-public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSignature {
+public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSignature, Udf {
     private final String functionName;
     private final FunctionSignature signature;
     private final org.apache.doris.catalog.AggregateFunction catalogFunction;
