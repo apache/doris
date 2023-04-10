@@ -244,6 +244,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("graph", new Integer(SqlParserSymbols.KW_GRAPH));
         keywordMap.put("group", new Integer(SqlParserSymbols.KW_GROUP));
         keywordMap.put("grouping", new Integer(SqlParserSymbols.KW_GROUPING));
+        keywordMap.put("groups", new Integer(SqlParserSymbols.KW_GROUPS));
         keywordMap.put("hash", new Integer(SqlParserSymbols.KW_HASH));
         keywordMap.put("having", new Integer(SqlParserSymbols.KW_HAVING));
         keywordMap.put("hdfs", new Integer(SqlParserSymbols.KW_HDFS));

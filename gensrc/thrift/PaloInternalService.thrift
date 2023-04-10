@@ -576,6 +576,13 @@ struct TPipelineInstanceParams {
   6: optional i32 backend_num
 }
 
+struct TPipelineResourceGroup {
+  1: optional i64 id
+  2: optional string name
+  3: optional map<string, string> properties
+  4: optional i64 version
+}
+
 // ExecPlanFragment
 struct TPipelineFragmentParams {
   1: required PaloInternalServiceVersion protocol_version
@@ -604,6 +611,7 @@ struct TPipelineFragmentParams {
   23: optional Planner.TPlanFragment fragment
   24: list<TPipelineInstanceParams> local_params
   25: optional bool shared_scan_opt = false;
+  26: optional list<TPipelineResourceGroup> resource_groups
 }
 
 struct TPipelineFragmentParamsList {
