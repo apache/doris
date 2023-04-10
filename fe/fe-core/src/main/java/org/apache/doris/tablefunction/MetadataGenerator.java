@@ -33,7 +33,6 @@ import org.apache.doris.thrift.TFetchSchemaTableDataResult;
 import org.apache.doris.thrift.TIcebergMetadataParams;
 import org.apache.doris.thrift.TIcebergQueryType;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
-// import org.apache.doris.thrift.TResourceGroupsMetadataParams;
 import org.apache.doris.thrift.TRow;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
@@ -246,19 +245,6 @@ public class MetadataGenerator {
     }
 
     private static TFetchSchemaTableDataResult resourceGroupsMetadataResult(TMetadataTableRequestParams params) {
-        // if (!params.isSetResourceGroupsMetadataParams()) {
-        //     return errorResult("resource groups metadata param is not set.");
-        // }
-
-        // TResourceGroupsMetadataParams resourceGroupsParam = params.getResourceGroupsMetadataParams();
-        // if (!Strings.isNullOrEmpty(resourceGroupsParam.cluster_name)) {
-        //     final Cluster cluster = Env.getCurrentEnv().getCluster(resourceGroupsParam.cluster_name);
-        //     // root not in any cluster
-        //     if (null == cluster) {
-        //         return errorResult("Cluster is not existed.");
-        //     }
-        // }
-
         List<List<String>> resourceGroupsInfo = Env.getCurrentEnv().getResourceGroupMgr()
                 .getResourcesInfo();
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();

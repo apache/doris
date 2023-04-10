@@ -23,7 +23,6 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.thrift.TMetaScanRange;
 import org.apache.doris.thrift.TMetadataType;
-// import org.apache.doris.thrift.TResourceGroupsMetadataParams;
 
 import com.google.common.collect.Lists;
 
@@ -52,9 +51,6 @@ public class ResourceGroupsTableValuedFunction extends MetadataTableValuedFuncti
     public TMetaScanRange getMetaScanRange() {
         TMetaScanRange metaScanRange = new TMetaScanRange();
         metaScanRange.setMetadataType(TMetadataType.RESOURCE_GROUPS);
-        // TResourceGroupsMetadataParams resourceGroupsMetadataParams = new TResourceGroupsMetadataParams();
-        // resourceGroupsMetadataParams.setClusterName("");
-        // metaScanRange.setResourceGroupsParams(resourceGroupsMetadataParams);
         return metaScanRange;
     }
 

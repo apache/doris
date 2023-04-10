@@ -246,9 +246,7 @@ Status VMetaScanner::_build_backends_metadata_request(const TMetaScanRange& meta
 Status VMetaScanner::_build_resource_groups_metadata_request(const TMetaScanRange& meta_scan_range,
                                                       TFetchSchemaTableDataRequest* request) {
     VLOG_CRITICAL << "VMetaScanner::_build_resource_groups_metadata_request";
-    // if (!meta_scan_range.__isset.resource_groups_params) {
-    //     return Status::InternalError("Can not find TResourceGroupsMetadataParams from meta_scan_range.");
-    // }
+
     // create request
     request->__set_cluster_name("");
     request->__set_schema_table_name(TSchemaTableName::METADATA_TABLE);

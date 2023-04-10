@@ -390,15 +390,10 @@ struct TBackendsMetadataParams {
   1: optional string cluster_name
 }
 
-// struct TResourceGroupsMetadataParams {
-//   1: optional string cluster_name
-// }
-
 struct TMetaScanRange {
   1: optional Types.TMetadataType metadata_type
   2: optional TIcebergMetadataParams iceberg_params
   3: optional TBackendsMetadataParams backends_params
-// 4: optional TResourceGroupsMetadataParams resource_groups_params
 }
 
 // Specification of an individual data range which is held in its entirety
