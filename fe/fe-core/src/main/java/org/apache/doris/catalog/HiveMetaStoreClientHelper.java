@@ -39,7 +39,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExprOpcode;
-import shade.doris.hive.org.apache.thrift.TException;
 
 import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
 import com.google.common.base.Strings;
@@ -72,6 +71,7 @@ import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import shade.doris.hive.org.apache.thrift.TException;
 
 import java.io.IOException;
 import java.text.ParseException;
