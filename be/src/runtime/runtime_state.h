@@ -372,6 +372,8 @@ public:
         return 0;
     }
 
+    void set_be_exec_version(int32_t version) noexcept { _query_options.be_exec_version = version; }
+
 private:
     Status create_error_log_file();
 
