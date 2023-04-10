@@ -1107,9 +1107,10 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
                 Slice dict_data;
                 PageFooterPB dict_footer;
                 _opts.type = INDEX_PAGE;
+                _dict_page_handle = std::make_unique<PageHandle>();
                 RETURN_IF_ERROR(_reader->read_page(_opts, _reader->get_dict_page_pointer(),
-                                                   &_dict_page_handle, &dict_data, &dict_footer,
-                                                   _compress_codec));
+                                                   _dict_page_handle.get(), &dict_data,
+                                                   &dict_footer, _compress_codec));
                 // ignore dict_footer.dict_page_footer().encoding() due to only
                 // PLAIN_ENCODING is supported for dict page right now
                 _dict_decoder = std::make_unique<
@@ -1123,6 +1124,11 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
             }
 
             dict_page_decoder->set_dict_decoder(_dict_decoder.get(), _dict_word_info.get());
+        } else if (_dict_decoder != nullptr) {
+            // The dictionary may be used for first few data pages
+            // but after a certain point, it will no longer be needed.
+            _dict_decoder = nullptr;
+            _dict_page_handle = nullptr;
         }
     }
     return Status::OK();
