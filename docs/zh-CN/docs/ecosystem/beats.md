@@ -62,7 +62,7 @@ go build -o auditbeat auditbeat/auditbeat.go
 go build -o heartbeat heartbeat/heartbeat.go
 ```
 
-你将在各个子目录目录下得到可执行文件
+您将在各个子目录目录下得到可执行文件
 
 ## 使用
 
@@ -70,7 +70,7 @@ go build -o heartbeat heartbeat/heartbeat.go
 
 ### 配置 Beat
 
-Add following configuration to `*beat.yml`
+添加以下配置到 `*beat.yml`
 
 ```yml
 output.doris:
@@ -262,7 +262,7 @@ output.doris:
 
 ### 如何配置批处理提交大小
 
-添加以下内容到你的 `*beat.yml` 文件中
+添加以下内容到您的 `*beat.yml` 文件中
 
 它表示，如果有 10000 个事件可用或最旧的可用事件已在[内存队列](https://www.elastic.co/guide/en/beats/filebeat/7.3/configuring-internal-queue.html#configuration-internal-queue-memory)中等待 5 秒，此示例配置会将事件批量转发给 doris：
 
