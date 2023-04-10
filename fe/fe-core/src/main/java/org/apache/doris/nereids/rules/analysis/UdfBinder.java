@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.analysis.FunctionName;
+import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.AliasFunction;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -31,6 +32,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.agg.JavaUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JavaUdf;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
@@ -61,8 +63,11 @@ public class UdfBinder {
             return handleJavaUdf(function, ((ScalarFunction) catalogFunction));
         } else if (catalogFunction instanceof AliasFunction) {
             return handleAliasFunction(function, ((AliasFunction) catalogFunction), context);
+        } else if (catalogFunction instanceof AggregateFunction) {
+
         }
-        throw new AnalysisException(String.format("unsupported alias function type %s for Nereids", catalogFunction));
+        throw new AnalysisException(String.format("unsupported alias function type %s for Nereids",
+                catalogFunction.getClass()));
     }
 
     private Database getDb(CascadesContext context) {
@@ -115,6 +120,30 @@ public class UdfBinder {
         return TypeCoercionUtils.processBoundFunction(new JavaUdf(catalogFunction,
                 signature,
                 nereidsFunction.getName(),
+                nereidsFunction.children().toArray(new Expression[0])));
+    }
+
+    private Expression handleJavaUDAF(UnboundFunction nereidsFunction, AggregateFunction catalogFunction) {
+        Type retType = catalogFunction.getReturnType();
+        Type[] argTypes = catalogFunction.getArgs();
+        Type varArgTypes = catalogFunction.getVarArgsType();
+        boolean hasVarArgs = catalogFunction.hasVarArgs();
+        FunctionSignature signature;
+        FuncSigBuilder sigBuilder = FunctionSignature
+                .ret(DataType.fromCatalogType(retType));
+        if (hasVarArgs) {
+            List<DataType> dataTypes = Arrays.stream(argTypes).map(DataType::fromCatalogType)
+                    .collect(Collectors.toList());
+            dataTypes.add(DataType.fromCatalogType(varArgTypes));
+            signature = sigBuilder.varArgs(dataTypes.toArray(new AbstractDataType[0]));
+        } else {
+            signature = sigBuilder.args(Arrays.stream(argTypes).map(DataType::fromCatalogType)
+                    .toArray(AbstractDataType[]::new));
+        }
+        return TypeCoercionUtils.processBoundFunction(new JavaUdaf(catalogFunction,
+                signature,
+                nereidsFunction.getName(),
+                false,
                 nereidsFunction.children().toArray(new Expression[0])));
     }
 }
