@@ -17,7 +17,13 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -42,28 +48,41 @@ public class AliasFunctionRewriteTest extends TestWithFeService implements MemoP
     @Test
     public void testSimpleAliasFunction() {
         String sql = "select f1('2023-06-01', 3)";
+        Expression expected = new DateTrunc(
+                new DaysSub(
+                        new StringLiteral("2023-06-01"),
+                        new IntegerLiteral(3)
+                ),
+                new StringLiteral("day")
+        );
+
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .matches(
                         logicalOneRowRelation()
                                 .when(relation -> relation.getProjects().size() == 1)
-                                .when(relation -> relation.getProjects().get(0)
-                                        .anyMatch(expr -> expr instanceof BoundFunction
-                                                && "date_trunc".equals(((BoundFunction) expr).getName())))
+                                .when(relation -> relation.getProjects().get(0).child(0).equals(expected))
                 );
     }
 
     @Test
     public void testNestedWithBuiltinFunction() {
         String sql = "select f1(now(3), 3);";
+        Expression expected = new DateTrunc(
+                new DaysSub(
+                        new Now(
+                                new IntegerLiteral(3)
+                        ),
+                        new IntegerLiteral(3)
+                ),
+                new StringLiteral("day")
+        );
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .matches(
                         logicalOneRowRelation()
                                 .when(relation -> relation.getProjects().size() == 1)
-                                .when(relation -> relation.getProjects().get(0)
-                                        .anyMatch(expr -> expr instanceof BoundFunction
-                                                && "date_trunc".equals(((BoundFunction) expr).getName())))
+                                .when(relation -> relation.getProjects().get(0).child(0).equals(expected))
                 );
     }
 
