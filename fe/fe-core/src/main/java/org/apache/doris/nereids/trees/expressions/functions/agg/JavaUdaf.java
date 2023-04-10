@@ -36,7 +36,7 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
     private final org.apache.doris.catalog.AggregateFunction catalogFunction;
 
     /**
-     * Constructor of UDF
+     * Constructor of UDAF
      */
     public JavaUdaf(org.apache.doris.catalog.AggregateFunction catalogFunction, FunctionSignature signature,
             String functionName, boolean isDistinct, Expression... args) {
