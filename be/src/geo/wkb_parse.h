@@ -15,39 +15,39 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+#include "geo/geo_common.h"
+#include "wkb_parse_ctx.h"
+#include "geo/geo_types.h"
 
-#include <ostream>
-#include <string>
 
 namespace doris {
 
-enum GeoShapeType {
-    GEO_SHAPE_ANY = 0,
-    GEO_SHAPE_POINT = 1,
-    GEO_SHAPE_LINE_STRING = 2,
-    GEO_SHAPE_POLYGON = 3,
-    GEO_SHAPE_MULTI_POINT = 4,
-    GEO_SHAPE_MULTI_LINE_STRING = 5,
-    GEO_SHAPE_MULTI_POLYGON = 6,
-    GEO_SHAPE_CIRCLE = 7,
+class GeoShape;
+
+class WkbParse {
+public:
+
+    static GeoParseStatus parse_wkb(std::istream& is,bool isEwkb, GeoShape** shape);
+
+    static WkbParseContext* read(std::istream& is,WkbParseContext* ctx);
+
+    static GeoShape* readGeometry(WkbParseContext* ctx);
+
+private:
+
+    static GeoPoint* readPoint(WkbParseContext* ctx);
+
+    static GeoLine* readLine(WkbParseContext* ctx);
+
+    static GeoPolygon* readPolygon(WkbParseContext* ctx);
+
+    static GeoCoordinateList readCoordinateList(unsigned size,WkbParseContext* ctx);
+
+    static GeoParseStatus minMemSize(int wkbType, uint64_t size,WkbParseContext* ctx);
+
+    static bool readCoordinate(WkbParseContext* ctx);
+
 };
 
-enum GeoParseStatus {
-    GEO_PARSE_OK = 0,
-    GEO_PARSE_COORD_INVALID = 1,
-    GEO_PARSE_LOOP_NOT_CLOSED = 2,
-    GEO_PARSE_LOOP_LACK_VERTICES = 3,
-    GEO_PARSE_LOOP_INVALID = 4,
-    GEO_PARSE_POLYGON_NOT_HOLE = 5,
-    GEO_PARSE_POLYLINE_LACK_VERTICES = 6,
-    GEO_PARSE_POLYLINE_INVALID = 7,
-    GEO_PARSE_CIRCLE_INVALID = 8,
-    GEO_PARSE_WKT_SYNTAX_ERROR = 9,
-    GEO_PARSE_WKB_SYNTAX_ERROR = 10,
-};
-
-std::string to_string(GeoParseStatus status);
-std::ostream& operator<<(std::ostream& os, GeoParseStatus status);
 
 } // namespace doris

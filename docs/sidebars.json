@@ -400,7 +400,11 @@
                                 "sql-manual/sql-functions/spatial-functions/st_astext",
                                 "sql-manual/sql-functions/spatial-functions/st_contains",
                                 "sql-manual/sql-functions/spatial-functions/st_geometryfromtext",
-                                "sql-manual/sql-functions/spatial-functions/st_linefromtext"
+                                "sql-manual/sql-functions/spatial-functions/st_linefromtext",
+                                "sql-manual/sql-functions/spatial-functions/st_asbinary",
+                                "sql-manual/sql-functions/spatial-functions/st_asewkb",
+                                "sql-manual/sql-functions/spatial-functions/st_geometryfromwkb",
+                                "sql-manual/sql-functions/spatial-functions/st_geometryfromewkb"
                             ]
                         },
                         {

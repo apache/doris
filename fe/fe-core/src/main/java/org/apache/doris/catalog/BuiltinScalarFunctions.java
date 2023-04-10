@@ -272,12 +272,18 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StAngle;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAngleSphere;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAreaSquareKm;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAreaSquareMeters;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StAsBinary;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StAsEWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAstext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAswkt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAzimuth;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StCircle;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDistanceSphere;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomFromEWKB;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomFromWKB;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryFromEWKB;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryFromWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StLinefromtext;
@@ -616,6 +622,12 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(StPolygonfromtext.class, "st_polygonfromtext"),
             scalar(StX.class, "st_x"),
             scalar(StY.class, "st_y"),
+            scalar(StGeometryFromWKB.class, "st_geometryfromwkb"),
+            scalar(StGeometryFromEWKB.class, "st_geometryfromewkb"),
+            scalar(StGeomFromWKB.class, "st_geomfromwkb"),
+            scalar(StGeomFromEWKB.class, "st_geomfromewkb"),
+            scalar(StAsBinary.class, "st_asbinary"),
+            scalar(StAsEWKB.class, "st_asewkb"),
             scalar(StartsWith.class, "starts_with"),
             scalar(StrLeft.class, "strleft"),
             scalar(StrRight.class, "strright"),
