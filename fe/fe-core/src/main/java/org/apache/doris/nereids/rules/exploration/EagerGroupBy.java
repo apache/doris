@@ -54,6 +54,8 @@ import java.util.stream.Collectors;
  * |    *
  * aggregate: SUM(x) as sum1
  * </pre>
+ * After Eager Group By, new plan also can apply `Eager Count`.
+ * It's `Double Eager`.
  */
 public class EagerGroupBy extends OneExplorationRuleFactory {
     public static final EagerGroupBy INSTANCE = new EagerGroupBy();

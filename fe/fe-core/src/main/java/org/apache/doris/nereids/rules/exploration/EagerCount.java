@@ -49,7 +49,7 @@ import java.util.Set;
  * |    *
  * (x)
  * ->
- * aggregate: SUM(x * cnt)
+ * aggregate: SUM(x) * cnt
  * |
  * join
  * |   \
