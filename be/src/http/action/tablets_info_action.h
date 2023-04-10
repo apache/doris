@@ -37,14 +37,5 @@ public:
     void handle(HttpRequest* req) override;
 
     static EasyJson get_tablets_info(std::string tablet_num_to_return);
-
-private:
-    bool on_privilege(const HttpRequest& req, TCheckAuthRequest& auth_request) override {
-        TPrivilegeCtrl priv_ctrl;
-        priv_ctrl.priv_hier = TPrivilegeHier::GLOBAL;
-        auth_request.__set_priv_ctrl(priv_ctrl);
-        auth_request.__set_priv_type(TPrivilegeType::ADMIN);
-        return true;
-    }
 };
 } // namespace doris

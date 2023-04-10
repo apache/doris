@@ -18,6 +18,7 @@
 #pragma once
 
 #include <stdint.h>
+
 #include <string>
 
 #include "http/http_handler_with_auth.h"
@@ -39,15 +40,6 @@ private:
     void reload(const std::string& path, int64_t tablet_id, int32_t schema_hash, HttpRequest* req);
 
     ExecEnv* _exec_env;
-
-    bool on_privilege(const HttpRequest& req, TCheckAuthRequest& auth_request) override {
-        TPrivilegeCtrl priv_ctrl;
-        priv_ctrl.priv_hier = TPrivilegeHier::GLOBAL;
-        auth_request.__set_priv_ctrl(priv_ctrl);
-        auth_request.__set_priv_type(TPrivilegeType::ADMIN);
-        return true;
-    }
-
 }; // end class ReloadTabletAction
 
 } // end namespace doris

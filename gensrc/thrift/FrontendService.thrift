@@ -799,6 +799,7 @@ struct TPrivilegeCtrl {
 }
 
 enum TPrivilegeType {
+  NONE = -1,
   SHOW = 0,
   SHOW_RESOURCES = 1,
   GRANT = 2,

@@ -34,14 +34,6 @@ public:
     void handle(HttpRequest* req) override;
 
 private:
-    bool on_privilege(const HttpRequest& req, TCheckAuthRequest& auth_request) override {
-        TPrivilegeCtrl priv_ctrl;
-        priv_ctrl.priv_hier = TPrivilegeHier::GLOBAL;
-        auth_request.__set_priv_ctrl(priv_ctrl);
-        auth_request.__set_priv_type(TPrivilegeType::ADMIN);
-        return true;
-    }
-
     int64_t do_checksum(int64_t tablet_id, int64_t version, int32_t schema_hash, HttpRequest* req);
 }; // end class ChecksumAction
 

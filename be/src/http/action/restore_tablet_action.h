@@ -64,14 +64,6 @@ private:
     // key: tablet_id + schema_hash
     // value: "" or tablet path in trash
     std::map<std::string, std::string> _tablet_path_map;
-
-    bool on_privilege(const HttpRequest& req, TCheckAuthRequest& auth_request) override {
-        TPrivilegeCtrl priv_ctrl;
-        priv_ctrl.priv_hier = TPrivilegeHier::GLOBAL;
-        auth_request.__set_priv_ctrl(priv_ctrl);
-        auth_request.__set_priv_type(TPrivilegeType::ADMIN);
-        return true;
-    }
 }; // end class RestoreTabletAction
 
 } // end namespace doris

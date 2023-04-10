@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "http_handler_with_auth.h"
+#include <gen_cpp/HeartbeatService_types.h>
 
-#include "gen_cpp/HeartbeatService_types.h"
+#include "http_handler_with_auth.h"
 #include "http/http_channel.h"
 #include "runtime/client_cache.h"
 #include "util/thrift_rpc_helper.h"
@@ -31,6 +31,8 @@ class ThriftRpcHelper;
 
 HttpHandlerWithAuth::HttpHandlerWithAuth(ExecEnv* exec_env) {
     _exec_env = exec_env;
+    _hier = TPrivilegeHier::GLOBAL;
+    _type = TPrivilegeType::NONE;
 }
 
 int HttpHandlerWithAuth::on_header(HttpRequest* req) {

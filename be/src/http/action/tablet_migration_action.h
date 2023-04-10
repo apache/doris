@@ -28,9 +28,9 @@
 #include <utility>
 
 #include "common/status.h"
-#include "gutil/strings/substitute.h"
 #include "gutil/stringprintf.h"
 #include "gutil/strings/numbers.h"
+#include "gutil/strings/substitute.h"
 #include "http/http_handler_with_auth.h"
 #include "olap/data_dir.h"
 #include "olap/tablet.h"
@@ -97,13 +97,5 @@ private:
     std::mutex _migration_status_mutex;
     std::map<MigrationTask, std::string> _migration_tasks;
     std::deque<std::pair<MigrationTask, Status>> _finished_migration_tasks;
-
-    bool on_privilege(const HttpRequest& req, TCheckAuthRequest& auth_request) override {
-        TPrivilegeCtrl priv_ctrl;
-        priv_ctrl.priv_hier = TPrivilegeHier::GLOBAL;
-        auth_request.__set_priv_ctrl(priv_ctrl);
-        auth_request.__set_priv_type(TPrivilegeType::ADMIN);
-        return true;
-    }
 };
 } // namespace doris

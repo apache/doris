@@ -31,11 +31,6 @@ public:
     ~VersionAction() override = default;
 
     void handle(HttpRequest* req) override;
-
-private:
-    bool on_privilege(const HttpRequest& req, TCheckAuthRequest& auth_request) override {
-        return true;
-    }
 };
 
 } // end namespace doris

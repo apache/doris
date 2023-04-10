@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <gen_cpp/FrontendService.h>
+
 #include "http_handler.h"
 #include "runtime/exec_env.h"
 
@@ -26,22 +28,38 @@ class ExecEnv;
 class HttpRequest;
 class RestMonitorIface;
 class TCheckAuthRequest;
+class TPrivilegeCtrl;
+class TPrivilegeHier;
+class TPrivilegeType;
 
 // Handler for on http request with auth
 class HttpHandlerWithAuth : public HttpHandler {
 public:
     HttpHandlerWithAuth(ExecEnv* exec_env);
 
-    virtual ~HttpHandlerWithAuth() {}
+    ~HttpHandlerWithAuth() override = default;
 
     // return 0 if auth pass, otherwise -1.
-    virtual int on_header(HttpRequest* req) override;
+    int on_header(HttpRequest* req) override;
 
     // return true if fill privilege success, otherwise false.
-    virtual bool on_privilege(const HttpRequest& req, TCheckAuthRequest& auth_request) = 0;
+    virtual bool on_privilege(const HttpRequest& req, TCheckAuthRequest& auth_request) {
+        TPrivilegeCtrl priv_ctrl;
+        priv_ctrl.priv_hier = _hier;
+        auth_request.__set_priv_ctrl(priv_ctrl);
+        auth_request.__set_priv_type(_type);
+        return true;
+    }
+
+    void auth(TPrivilegeHier::type hier, TPrivilegeType::type type) {
+        _hier = hier;
+        _type = type;
+    }
 
 private:
     ExecEnv* _exec_env;
+    TPrivilegeHier::type _hier;
+    TPrivilegeType::type _type;
 };
 
 } // namespace doris

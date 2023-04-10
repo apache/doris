@@ -35,10 +35,6 @@ public:
 
 private:
     MetricRegistry* _metric_registry;
-
-    bool on_privilege(const HttpRequest& req, TCheckAuthRequest& auth_request) override {
-        return true;
-    }
 };
 
 } // namespace doris
