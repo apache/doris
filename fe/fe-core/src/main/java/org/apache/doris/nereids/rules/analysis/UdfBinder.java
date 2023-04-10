@@ -35,8 +35,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.JavaUdf;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
-import com.google.common.collect.ImmutableList;
-
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -113,13 +111,9 @@ public class UdfBinder {
             signature = sigBuilder.args(Arrays.stream(argTypes).map(DataType::fromCatalogType)
                     .toArray(AbstractDataType[]::new));
         }
-        return new JavaUdf(catalogFunction.getSymbolName(),
-                catalogFunction.functionName(),
-                ImmutableList.of(catalogFunction.getFunctionName().toString()),
+        return new JavaUdf(catalogFunction,
                 signature,
-                catalogFunction.getLocation(),
-                catalogFunction.getChecksum(),
-                nereidsFunction.children().toArray(new Expression[0])
-        );
+                nereidsFunction.getName(),
+                nereidsFunction.children().toArray(new Expression[0]));
     }
 }

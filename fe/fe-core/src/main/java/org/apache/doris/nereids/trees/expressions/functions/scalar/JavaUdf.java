@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.common.util.URI;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -32,25 +31,19 @@ import java.util.List;
  * Java UDF for Nereids
  */
 public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignature {
-    private final String symbolName;
     private final String functionName;
-    private final List<String> functionNameParts;
     private final FunctionSignature signature;
-    private final URI functionUri;
-    private final String checkSum;
+    private final org.apache.doris.catalog.ScalarFunction catalogFunction;
 
     /**
      * Constructor of UDF
      */
-    public JavaUdf(String symbolName, String functionName, List<String> functionNameParts,
-            FunctionSignature signature, URI functionUri, String checkSum, Expression... args) {
-        super(symbolName, args);
-        this.symbolName = symbolName;
-        this.functionName = functionName;
-        this.functionNameParts = functionNameParts;
+    public JavaUdf(org.apache.doris.catalog.ScalarFunction catalogFunction, FunctionSignature signature,
+            String functionName, Expression... args) {
+        super(functionName, args);
+        this.catalogFunction = catalogFunction;
         this.signature = signature;
-        this.functionUri = functionUri;
-        this.checkSum = checkSum;
+        this.functionName = functionName;
     }
 
     @Override
@@ -63,14 +56,17 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
         return false;
     }
 
+    public org.apache.doris.catalog.ScalarFunction getCatalogFunction() {
+        return catalogFunction;
+    }
+
     /**
      * withChildren.
      */
     @Override
     public JavaUdf withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == this.children.size());
-        return new JavaUdf(symbolName, functionName, functionNameParts, signature,
-                functionUri, checkSum, children.toArray(new Expression[0]));
+        return new JavaUdf(catalogFunction, signature, functionName, children.toArray(new Expression[0]));
     }
 
     @Override
