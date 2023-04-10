@@ -1675,8 +1675,10 @@ public:
                         size_t result, size_t /*input_rows_count*/) override {
         DCHECK_EQ(arguments.size(), 2);
 
-        ColumnPtr src_column =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const auto& [src_column, left_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+        const auto& [right_column, right_const] =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
 
         DataTypePtr src_column_type = block.get_by_position(arguments[0]).type;
         auto dest_column_ptr = ColumnArray::create(make_nullable(src_column_type)->create_column(),
@@ -1693,22 +1695,25 @@ public:
         dest_nested_column = dest_nullable_col->get_nested_column_ptr();
         dest_nested_null_map = &dest_nullable_col->get_null_map_column().get_data();
 
-        ColumnPtr delimiter_column = block.get_by_position(arguments[1]).column;
-        bool is_delimiter_const = is_column_const(*delimiter_column);
-        if (is_delimiter_const) {
-            _execute_constant(*src_column, *delimiter_column, *dest_nested_column, dest_offsets,
-                              dest_nested_null_map);
-        } else {
-            delimiter_column = delimiter_column->convert_to_full_column_if_const();
-            _execute_vector(*src_column, *delimiter_column, *dest_nested_column, dest_offsets,
-                            dest_nested_null_map);
+        if (auto col_left = check_and_get_column<ColumnString>(src_column.get())) {
+            if (auto col_right = check_and_get_column<ColumnString>(right_column.get())) {
+                if (right_const) {
+                    _execute_constant(*col_left, col_right->get_data_at(0), *dest_nested_column,
+                                      dest_offsets, dest_nested_null_map);
+                } else {
+                    _execute_vector(*col_left, *col_right, *dest_nested_column, dest_offsets,
+                                    dest_nested_null_map);
+                }
+
+                block.replace_by_position(result, std::move(dest_column_ptr));
+                return Status::OK();
+            }
         }
-        block.replace_by_position(result, std::move(dest_column_ptr));
-        return Status::OK();
+        return Status::RuntimeError("unimplements function {}", get_name());
     }
 
 private:
-    void _execute_constant(const IColumn& src_column, const IColumn& delimiter_column,
+    void _execute_constant(const ColumnString& src_column_string, const StringRef& delimiter_ref,
                            IColumn& dest_nested_column, ColumnArray::Offsets64& dest_offsets,
                            NullMapType* dest_nested_null_map) {
         ColumnString& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
@@ -1718,16 +1723,12 @@ private:
 
         ColumnArray::Offset64 string_pos = 0;
         ColumnArray::Offset64 dest_pos = 0;
-        const ColumnString* src_column_string = reinterpret_cast<const ColumnString*>(&src_column);
-        ColumnArray::Offset64 src_offsets_size = src_column_string->get_offsets().size();
+        ColumnArray::Offset64 src_offsets_size = src_column_string.get_offsets().size();
 
-        auto delimiter =
-                assert_cast<const ColumnConst&>(delimiter_column).get_field().get<String>();
-        const StringRef delimiter_ref(delimiter);
         StringSearch search(&delimiter_ref);
 
         for (size_t i = 0; i < src_offsets_size; i++) {
-            const StringRef str_ref = src_column_string->get_data_at(i);
+            const StringRef str_ref = src_column_string.get_data_at(i);
 
             if (str_ref.size == 0) {
                 dest_offsets.push_back(dest_pos);
@@ -1778,9 +1779,9 @@ private:
         }
     }
 
-    void _execute_vector(const IColumn& src_column, const IColumn& delimiter_column,
-                         IColumn& dest_nested_column, ColumnArray::Offsets64& dest_offsets,
-                         NullMapType* dest_nested_null_map) {
+    void _execute_vector(const ColumnString& src_column_string,
+                         const ColumnString& delimiter_column, IColumn& dest_nested_column,
+                         ColumnArray::Offsets64& dest_offsets, NullMapType* dest_nested_null_map) {
         ColumnString& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
         ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
         ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
@@ -1788,12 +1789,11 @@ private:
 
         ColumnArray::Offset64 string_pos = 0;
         ColumnArray::Offset64 dest_pos = 0;
-        const ColumnString* src_column_string = reinterpret_cast<const ColumnString*>(&src_column);
-        ColumnArray::Offset64 src_offsets_size = src_column_string->get_offsets().size();
+        ColumnArray::Offset64 src_offsets_size = src_column_string.get_offsets().size();
 
         for (size_t i = 0; i < src_offsets_size; i++) {
             const StringRef delimiter_ref = delimiter_column.get_data_at(i);
-            const StringRef str_ref = src_column_string->get_data_at(i);
+            const StringRef str_ref = src_column_string.get_data_at(i);
 
             if (str_ref.size == 0) {
                 dest_offsets.push_back(dest_pos);
