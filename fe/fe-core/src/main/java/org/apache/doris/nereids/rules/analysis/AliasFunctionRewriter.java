@@ -59,14 +59,14 @@ public class AliasFunctionRewriter extends DefaultExpressionRewriter<CascadesCon
      * TODO: cache the catalog type of alias function object.
      */
 
-    public Expression rewriteFunction(UnboundFunction nereidsFunction, AliasFunction catalogFunction) {
-        Expr originalFunction = aliasFunction.getOriginFunction();
+    public Expression rewriteFunction(UnboundFunction unboundFunction, AliasFunction catalogFunction) {
+        Expr originalFunction = catalogFunction.getOriginFunction();
         if (!(originalFunction instanceof FunctionCallExpr)) {
             throw new AnalysisException(String.format("unsupported type of originalFunction in aliasFunction: %s",
                     originalFunction.getType()));
         }
         Expression nereidsFunction = translateToNereidsFunction(((FunctionCallExpr) originalFunction));
-        return replaceParameter(nereidsFunction, aliasFunction.getParameters(), children);
+        return replaceParameter(nereidsFunction, catalogFunction.getParameters(), unboundFunction.children());
     }
 
     private AliasFunction getAliasFunction(UnboundFunction function, Database database) {
