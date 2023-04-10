@@ -17,13 +17,26 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DateFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Floor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Hour;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -50,11 +63,12 @@ public class AliasFunctionRewriteTest extends TestWithFeService implements MemoP
         String sql = "select f1('2023-06-01', 3)";
         Expression expected = new DateTrunc(
                 new DaysSub(
-                        new StringLiteral("2023-06-01"),
+                        new Cast(new VarcharLiteral("2023-06-01"), DateTimeType.INSTANCE),
                         new IntegerLiteral(3)
                 ),
-                new StringLiteral("day")
+                new VarcharLiteral("day")
         );
+
 
         PlanChecker.from(connectContext)
                 .analyze(sql)
@@ -75,7 +89,7 @@ public class AliasFunctionRewriteTest extends TestWithFeService implements MemoP
                         ),
                         new IntegerLiteral(3)
                 ),
-                new StringLiteral("day")
+                new VarcharLiteral("day")
         );
         PlanChecker.from(connectContext)
                 .analyze(sql)
@@ -89,20 +103,70 @@ public class AliasFunctionRewriteTest extends TestWithFeService implements MemoP
     @Test
     public void testNestedWithAliasFunction() {
         String sql = "select f2(f1(now(3), 2), 3);";
+        Expression f1 = new DateTrunc(
+                new DaysSub(
+                        new Now(new IntegerLiteral(3)),
+                        new IntegerLiteral(2)
+                ),
+                new VarcharLiteral("day")
+        );
+        Expression expected = new DateFormat(
+                new HoursAdd(
+                        new DateTrunc(f1, new VarcharLiteral("day")),
+                        new Cast(new Add(
+                                new Multiply(
+                                        new Floor(new Divide(
+                                                new Cast(new Hour(f1), DoubleType.INSTANCE),
+                                                new Divide(
+                                                        new Cast(new TinyIntLiteral((byte) 24), DoubleType.INSTANCE),
+                                                        new Cast(new TinyIntLiteral((byte) 3), DoubleType.INSTANCE)
+                                                )
+                                        )),
+                                        new Cast(new TinyIntLiteral((byte) 1), DoubleType.INSTANCE)
+                                ),
+                                new Cast(new TinyIntLiteral((byte) 1), DoubleType.INSTANCE)
+                        ), IntegerType.INSTANCE)
+                ),
+                new VarcharLiteral("%Y%m%d:%H")
+        );
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .matches(
                         logicalOneRowRelation()
                                 .when(relation -> relation.getProjects().size() == 1)
-                                .when(relation -> relation.getProjects().get(0)
-                                        .anyMatch(expr -> expr instanceof BoundFunction
-                                                && "date_trunc".equals(((BoundFunction) expr).getName())))
+                                .when(relation -> relation.getProjects().get(0).child(0).equals(expected))
                 );
     }
 
     @Test
     public void testNestedAliasFunctionWithNestedFunction() {
-        String sql = "select f3(3);";
+        String sql = "select f3(4);";
+        Expression f1 = new DateTrunc(
+                new DaysSub(
+                        new Now(new IntegerLiteral(3)),
+                        new IntegerLiteral(2)
+                ),
+                new VarcharLiteral("day")
+        );
+        Expression expected = new DateFormat(
+                new HoursAdd(
+                        new DateTrunc(f1, new VarcharLiteral("day")),
+                        new Cast(new Add(
+                                new Multiply(
+                                        new Floor(new Divide(
+                                                new Cast(new Hour(f1), DoubleType.INSTANCE),
+                                                new Divide(
+                                                        new Cast(new TinyIntLiteral((byte) 24), DoubleType.INSTANCE),
+                                                        new Cast(new TinyIntLiteral((byte) 4), DoubleType.INSTANCE)
+                                                )
+                                        )),
+                                        new Cast(new TinyIntLiteral((byte) 1), DoubleType.INSTANCE)
+                                ),
+                                new Cast(new TinyIntLiteral((byte) 1), DoubleType.INSTANCE)
+                        ), IntegerType.INSTANCE)
+                ),
+                new VarcharLiteral("%Y%m%d:%H")
+        );
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .matches(
