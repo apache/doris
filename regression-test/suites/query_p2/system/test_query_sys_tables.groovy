@@ -87,6 +87,6 @@ suite("test_query_sys_tables_p2", "p2") {
 
     for (int i = 1; i <= 10; i++) {
         def dbName = dbPrefix + i.toString()
-        sql "DROP DATABASE `${dbName}`"
+        sql "DROP DATABASE IF EXISTS `${dbName}` FORCE"
     }
 }
