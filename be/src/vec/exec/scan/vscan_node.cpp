@@ -17,6 +17,8 @@
 
 #include "vec/exec/scan/vscan_node.h"
 
+#include <string>
+
 #include "common/consts.h"
 #include "common/status.h"
 #include "exprs/bloom_filter_func.h"
@@ -408,6 +410,12 @@ Status VScanNode::close(RuntimeState* state) {
 
 void VScanNode::release_resource(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VScanNode::release_resource");
+    if (state->enable_profile() && _num_scanners->value() == 0) {
+        _runtime_profile->set_name(_runtime_profile->name() +
+                                   std::to_string(state->fragment_instance_id().hi) +
+                                   std::to_string(state->fragment_instance_id().lo));
+        _runtime_profile->clear_children();
+    }
     if (_scanner_ctx.get()) {
         if (!state->enable_pipeline_exec() || _should_create_scanner) {
             // stop and wait the scanner scheduler to be done
