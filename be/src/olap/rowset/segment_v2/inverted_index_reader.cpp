@@ -94,7 +94,7 @@ Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cach
             null_bitmap_in = dir->openInput(null_bitmap_file_name.c_str());
             size_t null_bitmap_size = null_bitmap_in->length();
             faststring buf;
-            buf.reserve(null_bitmap_size);
+            buf.resize(null_bitmap_size);
             null_bitmap_in->readBytes(reinterpret_cast<uint8_t*>(buf.data()), null_bitmap_size);
             *null_bitmap = roaring::Roaring::read(reinterpret_cast<char*>(buf.data()), false);
             null_bitmap->runOptimize();
