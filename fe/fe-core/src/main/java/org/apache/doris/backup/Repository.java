@@ -26,6 +26,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.system.Backend;
 
@@ -52,7 +53,6 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.text.SimpleDateFormat;
 import java.util.List;
-import java.util.Map;
 
 /*
  * Repository represents a remote storage for backup to or restore from
@@ -633,31 +633,33 @@ public class Repository implements Writable {
 
     public String getCreateStatement() {
         StringBuilder stmtBuilder = new StringBuilder();
-        stmtBuilder.append("create ");
+        stmtBuilder.append("CREATE ");
         if (this.isReadOnly) {
-            stmtBuilder.append("read only ");
+            stmtBuilder.append("READ ONLY ");
         }
-        stmtBuilder.append("repository ");
+        stmtBuilder.append("REPOSITORY ");
         stmtBuilder.append(this.name);
-        stmtBuilder.append(" with broker ");
-        stmtBuilder.append(this.storage.getName());
-        stmtBuilder.append(" on location \"");
+        stmtBuilder.append(" \nWITH ");
+        StorageBackend.StorageType storageType = this.storage.getStorageType();
+        if (storageType == StorageBackend.StorageType.S3) {
+            stmtBuilder.append(" S3 ");
+        } else if (storageType == StorageBackend.StorageType.HDFS) {
+            stmtBuilder.append(" HDFS ");
+        } else if (storageType == StorageBackend.StorageType.BROKER) {
+            stmtBuilder.append(" BROKER ");
+            stmtBuilder.append(this.storage.getName());
+        } else {
+            // should never reach here
+            throw new UnsupportedOperationException(storageType.toString() + " backend is not implemented");
+        }
+        stmtBuilder.append(" \nON LOCATION \"");
         stmtBuilder.append(this.location);
         stmtBuilder.append("\"");
-        stmtBuilder.append(" properties ");
-        stmtBuilder.append("(");
-        for (Map.Entry<String, String> entry : this.getStorage().getProperties().entrySet()) {
-            stmtBuilder.append("\"");
-            stmtBuilder.append(entry.getKey());
-            stmtBuilder.append("\" = ");
-            stmtBuilder.append("\"");
-            stmtBuilder.append(entry.getValue());
-            stmtBuilder.append("\",");
-        }
-        if (this.getStorage().getProperties().size() > 0) {
-            stmtBuilder.deleteCharAt(stmtBuilder.length() - 1);
-        }
-        stmtBuilder.append(")");
+
+        stmtBuilder.append("\nPROPERTIES\n(");
+        stmtBuilder.append(new PrintableMap<>(this.getStorage().getProperties(), " = ",
+                true, true));
+        stmtBuilder.append("\n)");
         return stmtBuilder.toString();
     }
 
