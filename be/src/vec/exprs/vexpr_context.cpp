@@ -33,11 +33,9 @@ VExprContext::VExprContext(VExpr* expr)
 
 VExprContext::~VExprContext() {
     // Should not use dcheck, should log fatal here, because maybe memory leak online.
-    if (!_prepared || _closed) {
-        LOG(FATAL) << "could not deconstruct vexprcontext normally! _prepared=" << _prepared
-                   << ", _closed=" << _closed << ", _opened=" << _opened << ", _stale=" << _stale
-                   << ",_is_clone=" << _is_clone;
-    }
+    DCHECK(!_prepared || _closed) << "could not deconstruct vexprcontext normally! _prepared="
+                                  << _prepared << ", _closed=" << _closed << ", _opened=" << _opened
+                                  << ", _stale=" << _stale << ",_is_clone=" << _is_clone;
 
     for (int i = 0; i < _fn_contexts.size(); ++i) {
         delete _fn_contexts[i];
