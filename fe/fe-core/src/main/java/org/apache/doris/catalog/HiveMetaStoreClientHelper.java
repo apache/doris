@@ -17,11 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
-import com.google.common.base.Strings;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Queues;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.CastExpr;
@@ -44,6 +39,12 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExprOpcode;
+
+import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
+import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Queues;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.RemoteIterator;
