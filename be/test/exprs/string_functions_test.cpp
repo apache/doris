@@ -140,7 +140,7 @@ TEST_F(StringFunctionsTest, money_format_decimal_v2) {
     StringVal expected = AnyValUtil::from_string(ctx, std::string("3,333,333,333.22"));
     EXPECT_EQ(expected, result);
 
-    DecimalV2Value dv2(std::string("-740740740.71604938271975308642"));
+    DecimalV2Value dv2(std::string("-740740740.716049382719753086"));
     DecimalV2Val value2;
     dv2.to_decimal_val(&value2);
 
