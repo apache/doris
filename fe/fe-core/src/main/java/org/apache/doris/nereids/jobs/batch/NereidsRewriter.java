@@ -26,9 +26,9 @@ import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySe
 import org.apache.doris.nereids.rules.analysis.AvgDistinctToSumDivCount;
 import org.apache.doris.nereids.rules.analysis.CheckAfterRewrite;
 import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProject;
-import org.apache.doris.nereids.rules.expression.rewrite.ExpressionNormalization;
-import org.apache.doris.nereids.rules.expression.rewrite.ExpressionOptimization;
-import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewrite;
+import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
+import org.apache.doris.nereids.rules.expression.ExpressionOptimization;
+import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.mv.SelectMaterializedIndexWithAggregate;
 import org.apache.doris.nereids.rules.mv.SelectMaterializedIndexWithoutAggregate;
 import org.apache.doris.nereids.rules.rewrite.logical.AdjustNullable;
