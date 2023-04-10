@@ -114,12 +114,12 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
             BoundFunction boundFunction = builder.build(functionName, arguments);
             return TypeCoercionUtils.processBoundFunction(boundFunction);
         } catch (AnalysisException e) {
-            AliasFunctionRewriter rewriter = new AliasFunctionRewriter();
-            Expression aliasFunction = rewriter.rewriteFunction(unboundFunction, context);
-            if (aliasFunction == null) {
-                throw new AnalysisException(e.getMessage(), e);
+            UdfBinder udfBinder = new UdfBinder();
+            Expression boundFunction = udfBinder.rewriteFunction(unboundFunction, context);
+            if (boundFunction == null) {
+                throw new AnalysisException(e.getMessage(), e.getCause());
             }
-            return this.bind(aliasFunction, context);
+            return boundFunction;
         }
     }
 
