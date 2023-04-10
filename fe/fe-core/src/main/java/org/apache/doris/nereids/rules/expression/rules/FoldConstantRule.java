@@ -15,20 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.jobs.batch;
+package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
-/** CheckLegalityBeforeTypeCoercion */
-public class CheckLegalityBeforeTypeCoercion extends AbstractExpressionRewriteRule {
-    public static final CheckLegalityBeforeTypeCoercion INSTANCE = new CheckLegalityBeforeTypeCoercion();
+/**
+ * Constant evaluation of an expression.
+ */
+public class FoldConstantRule extends AbstractExpressionRewriteRule {
+
+    public static final FoldConstantRule INSTANCE = new FoldConstantRule();
 
     @Override
-    public Expression visit(Expression expr, ExpressionRewriteContext context) {
-        expr = super.visit(expr, context);
-        expr.checkLegalityBeforeTypeCoercion();
-        return expr;
+    public Expression rewrite(Expression expr, ExpressionRewriteContext ctx) {
+        if (ctx.cascadesContext != null
+                && ctx.cascadesContext.getConnectContext() != null
+                && ctx.cascadesContext.getConnectContext().getSessionVariable().isEnableFoldConstantByBe()) {
+            return new FoldConstantRuleOnBE().rewrite(expr, ctx);
+        }
+        return FoldConstantRuleOnFE.INSTANCE.rewrite(expr, ctx);
     }
 }
+

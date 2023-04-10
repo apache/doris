@@ -15,20 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.jobs.batch;
+package org.apache.doris.nereids.rules.expression;
 
-import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
-import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
-import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.CascadesContext;
 
-/** CheckLegalityBeforeTypeCoercion */
-public class CheckLegalityBeforeTypeCoercion extends AbstractExpressionRewriteRule {
-    public static final CheckLegalityBeforeTypeCoercion INSTANCE = new CheckLegalityBeforeTypeCoercion();
+/**
+ * expression rewrite context.
+ */
+public class ExpressionRewriteContext {
+    public final CascadesContext cascadesContext;
 
-    @Override
-    public Expression visit(Expression expr, ExpressionRewriteContext context) {
-        expr = super.visit(expr, context);
-        expr.checkLegalityBeforeTypeCoercion();
-        return expr;
+    public ExpressionRewriteContext(CascadesContext cascadesContext) {
+        this.cascadesContext = cascadesContext;
     }
 }

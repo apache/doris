@@ -46,7 +46,7 @@ import java.util.Objects;
  */
 public abstract class Literal extends Expression implements LeafExpression, Comparable<Literal> {
 
-    private final DataType dataType;
+    protected final DataType dataType;
 
     /**
      * Constructor for Literal.
