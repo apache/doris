@@ -132,4 +132,27 @@ suite("bind_priority") {
 
         result([[1, 1], [2, 2], [3, 3]])
     }
+
+    test {
+        sql("""
+            with tb1 as
+            (
+              select id
+              from
+              (
+                select 1 id, 'a' name
+                union all
+                select 2 id, 'b' name
+                union all
+                select 3 id, 'c' name
+              ) a
+            ), tb2 as
+            (
+              select * from tb1 
+            )
+            select * from tb2 order by id;
+            """)
+
+        result([[1], [2], [3]])
+    }
 }
