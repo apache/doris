@@ -81,10 +81,12 @@ public class EagerGroupBy extends OneExplorationRuleFactory {
                             sumAggGroupBy.add(slot);
                         }
                     }));
-                    List<NamedExpression> sumAggOutput = new ArrayList<>(sumAggGroupBy);
+                    List<NamedExpression> bottomSums = new ArrayList<>();
                     for (int i = 0; i < sums.size(); i++) {
-                        sumAggOutput.add(new Alias(new Sum(sums.get(i).child()), "sum" + i));
+                        bottomSums.add(new Alias(new Sum(sums.get(i).child()), "sum" + i));
                     }
+                    List<NamedExpression> sumAggOutput = ImmutableList.<NamedExpression>builder()
+                            .addAll(sumAggGroupBy).addAll(bottomSums).build();
                     LogicalAggregate<GroupPlan> sumAgg = new LogicalAggregate<>(
                             ImmutableList.copyOf(sumAggGroupBy), sumAggOutput, join.left());
                     Plan newJoin = join.withChildren(sumAgg, join.right());
@@ -98,13 +100,11 @@ public class EagerGroupBy extends OneExplorationRuleFactory {
                             newOutputExprs.add(ne);
                         }
                     }
-                    for (int i = 0; i < sums.size(); i++) {
-                        Sum sum = sums.get(i);
-                        Alias oldSum = sumOutputExprs.stream()
-                                .filter(alias -> alias.child().equals(sum)).findAny()
-                                .orElseThrow(() -> new RuntimeException("Cannot find output expression for " + sum));
-                        Alias newSum = new Alias(oldSum.getExprId(),
-                                new Sum(sumAggOutput.get(sumAggGroupBy.size() + i).toSlot()), oldSum.getName());
+                    for (int i = 0; i < sumOutputExprs.size(); i++) {
+                        Alias oldSum = sumOutputExprs.get(i);
+                        // sum in bottom Agg
+                        Slot bottomSum = bottomSums.get(i).toSlot();
+                        Alias newSum = new Alias(oldSum.getExprId(), new Sum(bottomSum), oldSum.getName());
                         newOutputExprs.add(newSum);
                     }
                     return agg.withAggOutputChild(newOutputExprs, newJoin);

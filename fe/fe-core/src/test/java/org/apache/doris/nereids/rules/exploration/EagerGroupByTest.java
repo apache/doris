@@ -41,7 +41,7 @@ class EagerGroupByTest implements MemoPatternMatchSupported {
             PlanConstructor.score, ImmutableList.of(""));
 
     @Test
-    void testEagerCount() {
+    void singleSum() {
         LogicalPlan agg = new LogicalPlanBuilder(scan1)
                 .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
                 .aggGroupUsingIndex(ImmutableList.of(0, 4),

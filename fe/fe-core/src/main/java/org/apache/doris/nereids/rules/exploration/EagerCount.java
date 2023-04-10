@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -98,16 +97,11 @@ public class EagerCount extends OneExplorationRuleFactory {
                             newOutputExprs.add(ne);
                         }
                     }
-                    for (AggregateFunction f : agg.getAggregateFunctions()) {
-                        Sum sum = (Sum) f;
-                        Alias oldSum = sumOutputExprs.stream()
-                                .filter(alias -> alias.child().equals(f)).findAny()
-                                .orElseThrow(() -> new RuntimeException("Cannot find output expression for " + f));
-                        Alias newSum = new Alias(oldSum.getExprId(), new Sum(new Multiply(sum.child(), cnt.toSlot())),
-                                oldSum.getName());
-                        newOutputExprs.add(newSum);
+                    for (Alias oldSum : sumOutputExprs) {
+                        Sum oldSumFunc = (Sum) oldSum.child();
+                        newOutputExprs.add(new Alias(oldSum.getExprId(), new Multiply(oldSumFunc, cnt.toSlot()),
+                                oldSum.getName()));
                     }
-
                     return agg.withAggOutputChild(newOutputExprs, newJoin);
                 }).toRule(RuleType.EAGER_COUNT);
     }

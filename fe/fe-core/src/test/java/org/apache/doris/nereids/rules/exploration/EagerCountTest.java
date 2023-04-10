@@ -41,7 +41,7 @@ class EagerCountTest implements MemoPatternMatchSupported {
             PlanConstructor.score, ImmutableList.of(""));
 
     @Test
-    void eagerCount() {
+    void singleSum() {
         LogicalPlan agg = new LogicalPlanBuilder(scan1)
                 .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
                 .aggGroupUsingIndex(ImmutableList.of(0, 4),
@@ -56,7 +56,7 @@ class EagerCountTest implements MemoPatternMatchSupported {
                           logicalAggregate().when(cntAgg -> cntAgg.getOutputExprsSql().equals("sid, count(1) AS `cnt`"))
                         )
                     ).when(newAgg -> newAgg.getGroupByExpressions().equals(((Aggregate) agg).getGroupByExpressions())
-                                        && newAgg.getOutputExprsSql().equals("sum((gender * cnt)) AS `sum`"))
+                                        && newAgg.getOutputExprsSql().equals("(sum(gender) * cnt) AS `sum`"))
                 );
     }
 
@@ -82,7 +82,7 @@ class EagerCountTest implements MemoPatternMatchSupported {
                         )
                     ).when(newAgg ->
                         newAgg.getGroupByExpressions().equals(((Aggregate) agg).getGroupByExpressions())
-                            && newAgg.getOutputExprsSql().equals("sum((gender * cnt)) AS `sum0`, sum((name * cnt)) AS `sum1`, sum((age * cnt)) AS `sum2`"))
+                            && newAgg.getOutputExprsSql().equals("(sum(gender) * cnt) AS `sum0`, (sum(name) * cnt) AS `sum1`, (sum(age) * cnt) AS `sum2`"))
                 );
     }
 }
