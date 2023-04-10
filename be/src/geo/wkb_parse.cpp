@@ -15,28 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <string.h>
 #include "wkb_parse.h"
-#include "sstream"
+
+#include <string.h>
+
 #include "geo_tobinary_type.h"
+#include "sstream"
 
 namespace doris {
 
-GeoParseStatus WkbParse::parse_wkb(std::istream& is,bool isEwkb, GeoShape** shape) {
+GeoParseStatus WkbParse::parse_wkb(std::istream& is, bool isEwkb, GeoShape** shape) {
     WkbParseContext ctx;
 
     ctx.isEwkb = isEwkb;
-    ctx = *(WkbParse::read(is,&ctx));
-    if(ctx.parse_status == GEO_PARSE_OK){
+    ctx = *(WkbParse::read(is, &ctx));
+    if (ctx.parse_status == GEO_PARSE_OK) {
         *shape = ctx.shape;
-    }else {
+    } else {
         ctx.parse_status = GEO_PARSE_WKT_SYNTAX_ERROR;
     }
     return ctx.parse_status;
-
 }
 
-WkbParseContext* WkbParse::read(std::istream& is,WkbParseContext* ctx) {
+WkbParseContext* WkbParse::read(std::istream& is, WkbParseContext* ctx) {
     is.seekg(0, std::ios::end);
     auto size = is.tellg();
     is.seekg(0, std::ios::beg);
@@ -48,8 +49,8 @@ WkbParseContext* WkbParse::read(std::istream& is,WkbParseContext* ctx) {
 
     ctx->shape = readGeometry(ctx);
 
-    if(!ctx->shape){
-       ctx->parse_status = GEO_PARSE_WKB_SYNTAX_ERROR;
+    if (!ctx->shape) {
+        ctx->parse_status = GEO_PARSE_WKB_SYNTAX_ERROR;
     }
     return ctx;
 }
@@ -59,10 +60,9 @@ GeoShape* WkbParse::readGeometry(WkbParseContext* ctx) {
     unsigned char byteOrder = ctx->dis.readByte();
 
     // default is machine endian
-    if(byteOrder == byteOrder::wkbNDR) {
+    if (byteOrder == byteOrder::wkbNDR) {
         ctx->dis.setOrder(ByteOrderValues::ENDIAN_LITTLE);
-    }
-    else if(byteOrder == byteOrder::wkbXDR) {
+    } else if (byteOrder == byteOrder::wkbXDR) {
         ctx->dis.setOrder(ByteOrderValues::ENDIAN_BIG);
     }
 
@@ -72,32 +72,31 @@ GeoShape* WkbParse::readGeometry(WkbParseContext* ctx) {
 
     bool hasSRID = ((typeInt & 0x20000000) != 0);
 
-    if(ctx->isEwkb){
-
-        if(!hasSRID){
+    if (ctx->isEwkb) {
+        if (!hasSRID) {
             return nullptr;
         }
 
         ctx->srid = ctx->dis.readInt(); // read SRID
-        if(ctx->srid != 4326){
+        if (ctx->srid != 4326) {
             return nullptr;
         }
     }
 
-    if(!ctx->isEwkb && hasSRID){
+    if (!ctx->isEwkb && hasSRID) {
         return nullptr;
     }
 
     GeoShape* shape;
 
-    switch(geometryType) {
-    case wkbType::wkbPoint :
+    switch (geometryType) {
+    case wkbType::wkbPoint:
         shape = readPoint(ctx);
-        break ;
-    case wkbType::wkbLine :
+        break;
+    case wkbType::wkbLine:
         shape = readLine(ctx);
         break;
-    case wkbType::wkbPolygon :
+    case wkbType::wkbPolygon:
         shape = readPolygon(ctx);
         break;
     default:
@@ -107,10 +106,10 @@ GeoShape* WkbParse::readGeometry(WkbParseContext* ctx) {
 }
 
 GeoPoint* WkbParse::readPoint(WkbParseContext* ctx) {
-    GeoCoordinateList coords = WkbParse::readCoordinateList(1,ctx);
-     GeoPoint* point = new GeoPoint();
+    GeoCoordinateList coords = WkbParse::readCoordinateList(1, ctx);
+    GeoPoint* point = new GeoPoint();
 
-    if(point->from_coord(coords.list[0])== GEO_PARSE_OK){
+    if (point->from_coord(coords.list[0]) == GEO_PARSE_OK) {
         return point;
     } else {
         return nullptr;
@@ -118,14 +117,13 @@ GeoPoint* WkbParse::readPoint(WkbParseContext* ctx) {
 }
 
 GeoLine* WkbParse::readLine(WkbParseContext* ctx) {
+    uint32_t size = ctx->dis.readUnsigned();
+    minMemSize(wkbLine, size, ctx);
 
-    uint32_t  size = ctx->dis.readUnsigned();
-    minMemSize(wkbLine, size,ctx);
-
-    GeoCoordinateList coords = WkbParse::readCoordinateList(size,ctx);
+    GeoCoordinateList coords = WkbParse::readCoordinateList(size, ctx);
     GeoLine* line = new GeoLine();
 
-    if(line->from_coords(coords)== GEO_PARSE_OK){
+    if (line->from_coords(coords) == GEO_PARSE_OK) {
         return line;
     } else {
         return nullptr;
@@ -133,28 +131,26 @@ GeoLine* WkbParse::readLine(WkbParseContext* ctx) {
 }
 
 GeoPolygon* WkbParse::readPolygon(WkbParseContext* ctx) {
-
-    uint32_t  num_loops = ctx->dis.readUnsigned();
-    minMemSize(wkbPolygon, num_loops,ctx);
+    uint32_t num_loops = ctx->dis.readUnsigned();
+    minMemSize(wkbPolygon, num_loops, ctx);
     GeoCoordinateListList coordss;
     for (int i = 0; i < num_loops; ++i) {
-        uint32_t  size = ctx->dis.readUnsigned();
+        uint32_t size = ctx->dis.readUnsigned();
         GeoCoordinateList* coords = new GeoCoordinateList();
-        *coords = WkbParse::readCoordinateList(size,ctx);
+        *coords = WkbParse::readCoordinateList(size, ctx);
         coordss.add(coords);
     }
 
     GeoPolygon* polygon = new GeoPolygon();
 
-    if(polygon->from_coords(coordss) == GEO_PARSE_OK){
+    if (polygon->from_coords(coordss) == GEO_PARSE_OK) {
         return polygon;
     } else {
         return nullptr;
     }
-
 }
 
-GeoCoordinateList WkbParse::readCoordinateList(unsigned size,WkbParseContext* ctx) {
+GeoCoordinateList WkbParse::readCoordinateList(unsigned size, WkbParseContext* ctx) {
     GeoCoordinateList coords;
     for (uint32_t i = 0; i < size; i++) {
         readCoordinate(ctx);
@@ -168,7 +164,7 @@ GeoCoordinateList WkbParse::readCoordinateList(unsigned size,WkbParseContext* ct
     return coords;
 }
 
-GeoParseStatus WkbParse::minMemSize(int wkbType, uint64_t size,WkbParseContext* ctx) {
+GeoParseStatus WkbParse::minMemSize(int wkbType, uint64_t size, WkbParseContext* ctx) {
     uint64_t minSize;
     constexpr uint64_t minCoordSize = 2 * sizeof(double);
     //constexpr uint64_t minPtSize = (1+4) + minCoordSize;
@@ -177,7 +173,7 @@ GeoParseStatus WkbParse::minMemSize(int wkbType, uint64_t size,WkbParseContext* 
     //constexpr uint64_t minPolySize = (1+4+4); // empty polygon
     //constexpr uint64_t minGeomSize = minLineSize;
 
-    switch(wkbType) {
+    switch (wkbType) {
     case wkbLine:
         minSize = size * minCoordSize;
         break;
@@ -191,12 +187,11 @@ GeoParseStatus WkbParse::minMemSize(int wkbType, uint64_t size,WkbParseContext* 
     return GEO_PARSE_OK;
 }
 bool WkbParse::readCoordinate(WkbParseContext* ctx) {
-
-    for(std::size_t i = 0; i < ctx->inputDimension; ++i) {
+    for (std::size_t i = 0; i < ctx->inputDimension; ++i) {
         ctx->ordValues[i] = ctx->dis.readDouble();
     }
 
     return true;
 }
 
-}
+} // namespace doris

@@ -16,9 +16,8 @@
 // under the License.
 
 #include "geo/geo_common.h"
-#include "wkb_parse_ctx.h"
 #include "geo/geo_types.h"
-
+#include "wkb_parse_ctx.h"
 
 namespace doris {
 
@@ -26,28 +25,24 @@ class GeoShape;
 
 class WkbParse {
 public:
+    static GeoParseStatus parse_wkb(std::istream& is, bool isEwkb, GeoShape** shape);
 
-    static GeoParseStatus parse_wkb(std::istream& is,bool isEwkb, GeoShape** shape);
-
-    static WkbParseContext* read(std::istream& is,WkbParseContext* ctx);
+    static WkbParseContext* read(std::istream& is, WkbParseContext* ctx);
 
     static GeoShape* readGeometry(WkbParseContext* ctx);
 
 private:
-
     static GeoPoint* readPoint(WkbParseContext* ctx);
 
     static GeoLine* readLine(WkbParseContext* ctx);
 
     static GeoPolygon* readPolygon(WkbParseContext* ctx);
 
-    static GeoCoordinateList readCoordinateList(unsigned size,WkbParseContext* ctx);
+    static GeoCoordinateList readCoordinateList(unsigned size, WkbParseContext* ctx);
 
-    static GeoParseStatus minMemSize(int wkbType, uint64_t size,WkbParseContext* ctx);
+    static GeoParseStatus minMemSize(int wkbType, uint64_t size, WkbParseContext* ctx);
 
     static bool readCoordinate(WkbParseContext* ctx);
-
 };
-
 
 } // namespace doris

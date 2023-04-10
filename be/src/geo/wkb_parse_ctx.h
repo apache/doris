@@ -25,7 +25,6 @@ class GeoShape;
 }
 
 struct WkbParseContext {
-
     unsigned int inputDimension = 2;
 
     doris::ByteOrderDataInStream dis;
@@ -39,7 +38,4 @@ struct WkbParseContext {
 
     doris::GeoShape* shape = nullptr;
     doris::GeoParseStatus parse_status = doris::GEO_PARSE_OK;
-
 };
-
-

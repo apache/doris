@@ -22,28 +22,18 @@
 #include "machine.h"
 namespace doris {
 class ByteOrderDataInStream {
-
 public:
-
-    ByteOrderDataInStream()
-            : ByteOrderDataInStream(nullptr, 0) {};
+    ByteOrderDataInStream() : ByteOrderDataInStream(nullptr, 0) {};
 
     ByteOrderDataInStream(const unsigned char* buff, size_t buffsz)
-            : byteOrder(getMachineByteOrder())
-              , buf(buff)
-              , end(buff + buffsz)
-                      {};
+            : byteOrder(getMachineByteOrder()), buf(buff), end(buff + buffsz) {};
 
-    ~ByteOrderDataInStream() {};
+    ~ByteOrderDataInStream() = default;
 
-    void setOrder(int order)
-    {
-        byteOrder = order;
-    };
+    void setOrder(int order) { byteOrder = order; };
 
-    unsigned char readByte()
-    {
-        if(size() < 1) {
+    unsigned char readByte() {
+        if (size() < 1) {
             return GEO_PARSE_WKB_SYNTAX_ERROR;
         }
         auto ret = buf[0];
@@ -51,29 +41,26 @@ public:
         return ret;
     };
 
-    int32_t readInt()
-    {
-        if(size() < 4) {
+    int32_t readInt() {
+        if (size() < 4) {
             return GEO_PARSE_WKB_SYNTAX_ERROR;
         }
-        auto ret =  ByteOrderValues::getInt(buf , byteOrder);
+        auto ret = ByteOrderValues::getInt(buf, byteOrder);
         buf += 4;
         return ret;
     };
 
-    uint32_t readUnsigned()
-    {
-        if(size() < 4) {
+    uint32_t readUnsigned() {
+        if (size() < 4) {
             return GEO_PARSE_WKB_SYNTAX_ERROR;
         }
-        auto ret =  ByteOrderValues::getUnsigned(buf , byteOrder);
+        auto ret = ByteOrderValues::getUnsigned(buf, byteOrder);
         buf += 4;
         return ret;
     };
 
-    int64_t readLong()
-    {
-        if(size() < 8) {
+    int64_t readLong() {
+        if (size() < 8) {
             return GEO_PARSE_WKB_SYNTAX_ERROR;
         }
 
@@ -82,9 +69,8 @@ public:
         return ret;
     };
 
-    double readDouble()
-    {
-        if(size() < 8) {
+    double readDouble() {
+        if (size() < 8) {
             return GEO_PARSE_WKB_SYNTAX_ERROR;
         }
         auto ret = ByteOrderValues::getDouble(buf, byteOrder);
@@ -92,17 +78,12 @@ public:
         return ret;
     };
 
-    size_t size() const
-    {
-        return static_cast<size_t>(end - buf);
-    };
-
+    size_t size() const { return static_cast<size_t>(end - buf); };
 
 private:
     int byteOrder;
     const unsigned char* buf;
     const unsigned char* end;
-
 };
 
 } // namespace doris

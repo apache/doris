@@ -29,7 +29,6 @@ class S2Polygon;
 class S2Cap;
 class S2Loop;
 
-
 template <typename T>
 class Vector3;
 
@@ -52,8 +51,8 @@ public:
     // return nullptr if convert failed, and reason will be set in status
     static GeoShape* from_wkt(const char* data, size_t size, GeoParseStatus* status);
 
-    static GeoShape* from_wkb(const char* data,size_t size,GeoParseStatus* status);
-    static GeoShape* from_ewkb(const char* data,size_t size,GeoParseStatus* status);
+    static GeoShape* from_wkb(const char* data, size_t size, GeoParseStatus* status);
+    static GeoShape* from_ewkb(const char* data, size_t size, GeoParseStatus* status);
 
     void encode_to(std::string* buf);
     bool decode_from(const void* data, size_t size);

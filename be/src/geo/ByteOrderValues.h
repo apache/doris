@@ -29,13 +29,8 @@ namespace doris {
  *
  */
 class ByteOrderValues {
-
 public:
-
-    enum EndianType {
-        ENDIAN_BIG = 0,
-        ENDIAN_LITTLE = 1
-    };
+    enum EndianType { ENDIAN_BIG = 0, ENDIAN_LITTLE = 1 };
 
     static int32_t getInt(const unsigned char* buf, int byteOrder);
     static void putInt(int32_t intValue, unsigned char* buf, int byteOrder);
@@ -48,7 +43,6 @@ public:
 
     static double getDouble(const unsigned char* buf, int byteOrder);
     static void putDouble(double doubleValue, unsigned char* buf, int byteOrder);
-
 };
 
 } // namespace doris

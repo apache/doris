@@ -32,8 +32,8 @@
 #include <type_traits>
 
 #include "geo/geo_tobinary.h"
-#include "geo/wkt_parse.h"
 #include "geo/wkb_parse.h"
+#include "geo/wkt_parse.h"
 
 namespace doris {
 
@@ -191,7 +191,7 @@ GeoShape* GeoShape::from_wkt(const char* data, size_t size, GeoParseStatus* stat
     return shape;
 }
 
-GeoShape* GeoShape::from_wkb(const char* data,size_t size,GeoParseStatus* status) {
+GeoShape* GeoShape::from_wkb(const char* data, size_t size, GeoParseStatus* status) {
     std::stringstream wkb;
 
     for (int i = 0; i < size; ++i) {
@@ -203,7 +203,7 @@ GeoShape* GeoShape::from_wkb(const char* data,size_t size,GeoParseStatus* status
     return shape;
 }
 
-GeoShape* GeoShape::from_ewkb(const char* data,size_t size,GeoParseStatus* status) {
+GeoShape* GeoShape::from_ewkb(const char* data, size_t size, GeoParseStatus* status) {
     std::stringstream ewkb;
 
     for (int i = 0; i < size; ++i) {
@@ -256,7 +256,7 @@ GeoParseStatus GeoPoint::from_coord(const GeoCoordinate& coord) {
 }
 
 GeoCoordinateList GeoPoint::to_coords() const {
-    GeoCoordinate coord ;
+    GeoCoordinate coord;
     coord.x = GeoPoint::x();
     coord.y = GeoPoint::y();
     GeoCoordinateList coords;
@@ -275,17 +275,17 @@ GeoCoordinateList GeoLine::to_coords() const {
     return coords;
 }
 
-GeoCoordinateListList* GeoPolygon::to_coords() const{
+GeoCoordinateListList* GeoPolygon::to_coords() const {
     GeoCoordinateListList* coordss = new GeoCoordinateListList();
     for (int i = 0; i < GeoPolygon::numLoops(); ++i) {
-        GeoCoordinateList* coords =  new GeoCoordinateList();
-        S2Loop* loop =  GeoPolygon::getLoop(i);
+        GeoCoordinateList* coords = new GeoCoordinateList();
+        S2Loop* loop = GeoPolygon::getLoop(i);
         for (int j = 0; j < loop->num_vertices(); ++j) {
             GeoCoordinate coord;
             coord.x = S2LatLng(loop->vertex(j)).lng().degrees();
             coord.y = S2LatLng(loop->vertex(j)).lat().degrees();
             coords->add(coord);
-            if(j == loop->num_vertices()-1){
+            if (j == loop->num_vertices() - 1) {
                 coord.x = S2LatLng(loop->vertex(0)).lng().degrees();
                 coord.y = S2LatLng(loop->vertex(0)).lat().degrees();
                 coords->add(coord);
@@ -589,7 +589,7 @@ bool GeoShape::ComputeArea(GeoShape* rhs, double* area, std::string square_unit)
 
 std::string GeoShape::as_binary(GeoShape* rhs) {
     std::string res;
-    if(toBinary::geo_tobinary(rhs, false, &res)){
+    if (toBinary::geo_tobinary(rhs, false, &res)) {
         return res;
     }
     return res;
@@ -597,7 +597,7 @@ std::string GeoShape::as_binary(GeoShape* rhs) {
 
 std::string GeoShape::as_ewkb(doris::GeoShape* rhs) {
     std::string res;
-    if(toBinary::geo_tobinary(rhs, true, &res)){
+    if (toBinary::geo_tobinary(rhs, true, &res)) {
         return res;
     }
     return res;

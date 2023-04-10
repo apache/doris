@@ -20,10 +20,8 @@ namespace doris {
  * Check endianness of current machine.
  * @return 0 for big_endian | xdr; 1 == little_endian | ndr
  */
-inline int
-getMachineByteOrder()
-{
+inline int getMachineByteOrder() {
     static int endian_check = 1; // don't modify !!
     return *((char*)&endian_check);
 }
-}
+} // namespace doris

@@ -19,10 +19,7 @@
 
 namespace doris {
 
-enum byteOrder {
-    wkbXDR = 0,
-    wkbNDR = 1
-};
+enum byteOrder { wkbXDR = 0, wkbNDR = 1 };
 
 enum wkbType {
     wkbPoint = 1,
@@ -47,5 +44,4 @@ struct ToBinaryContext {
     unsigned char buf[8];
 
     std::ostream* outStream;
-
 };

@@ -595,8 +595,8 @@ struct StGeoFromWkb {
         std::string buf;
         for (int row = 0; row < size; ++row) {
             auto value = geo->get_data_at(row);
-            std::unique_ptr<GeoShape> shape(GeoShape::from_wkb(value.data,value.size,&status));
-            if (shape == nullptr || status != GEO_PARSE_OK ) {
+            std::unique_ptr<GeoShape> shape(GeoShape::from_wkb(value.data, value.size, &status));
+            if (shape == nullptr || status != GEO_PARSE_OK) {
                 res->insert_data(nullptr, 0);
                 continue;
             }
@@ -645,8 +645,8 @@ struct StGeoFromEwkb {
         std::string buf;
         for (int row = 0; row < size; ++row) {
             auto value = geo->get_data_at(row);
-            std::unique_ptr<GeoShape> shape(GeoShape::from_ewkb(value.data,value.size,&status));
-            if (shape == nullptr || status != GEO_PARSE_OK ) {
+            std::unique_ptr<GeoShape> shape(GeoShape::from_ewkb(value.data, value.size, &status));
+            if (shape == nullptr || status != GEO_PARSE_OK) {
                 res->insert_data(nullptr, 0);
                 continue;
             }
@@ -671,7 +671,8 @@ struct StAsBinary {
     static constexpr auto NEED_CONTEXT = true;
     static constexpr auto NAME = "st_asbinary";
     static const size_t NUM_ARGS = 1;
-    static Status execute(FunctionContext* context,Block& block, const ColumnNumbers& arguments, size_t result) {
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          size_t result) {
         DCHECK_EQ(arguments.size(), 1);
         auto return_type = block.get_data_type(result);
         MutableColumnPtr res = return_type->create_column();
@@ -714,7 +715,8 @@ struct StAsEwkb {
     static constexpr auto NEED_CONTEXT = true;
     static constexpr auto NAME = "st_asewkb";
     static const size_t NUM_ARGS = 1;
-    static Status execute(FunctionContext* context,Block& block, const ColumnNumbers& arguments, size_t result) {
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          size_t result) {
         DCHECK_EQ(arguments.size(), 1);
         auto return_type = block.get_data_type(result);
         MutableColumnPtr res = return_type->create_column();

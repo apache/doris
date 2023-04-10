@@ -24,12 +24,12 @@
 
 namespace doris {
 
-bool toBinary::geo_tobinary(GeoShape* shape,bool isEwkb,std::string* result) {
+bool toBinary::geo_tobinary(GeoShape* shape, bool isEwkb, std::string* result) {
     ToBinaryContext ctx;
     std::stringstream result_stream;
     ctx.outStream = &result_stream;
     ctx.isEwkb = isEwkb;
-    if (toBinary::write(shape,&ctx)){
+    if (toBinary::write(shape, &ctx)) {
         *result = result_stream.str();
         return true;
     }
@@ -37,39 +37,37 @@ bool toBinary::geo_tobinary(GeoShape* shape,bool isEwkb,std::string* result) {
 }
 
 bool toBinary::write(GeoShape* shape, ToBinaryContext* ctx) {
-
     switch (shape->type()) {
     case GEO_SHAPE_POINT: {
-        return writeGeoPoint((GeoPoint*)(shape),ctx);
+        return writeGeoPoint((GeoPoint*)(shape), ctx);
     }
     case GEO_SHAPE_LINE_STRING: {
-        return writeGeoLine((GeoLine*)(shape),ctx);
+        return writeGeoLine((GeoLine*)(shape), ctx);
     }
     case GEO_SHAPE_POLYGON: {
-        return writeGeoPolygon((GeoPolygon*)(shape),ctx);
+        return writeGeoPolygon((GeoPolygon*)(shape), ctx);
     }
     default:
         return false;
     }
-
 }
 
-bool toBinary::writeGeoPoint(GeoPoint* point,ToBinaryContext* ctx) {
+bool toBinary::writeGeoPoint(GeoPoint* point, ToBinaryContext* ctx) {
     writeByteOrder(ctx);
-    writeGeometryType(wkbType::wkbPoint,ctx);
-    if(ctx->isEwkb){
+    writeGeometryType(wkbType::wkbPoint, ctx);
+    if (ctx->isEwkb) {
         writeSRID(ctx);
     }
     GeoCoordinateList p = point->to_coords();
 
-    writeCoordinateList(p, false,ctx);
+    writeCoordinateList(p, false, ctx);
     return true;
 }
 
-bool toBinary::writeGeoLine(GeoLine* line,ToBinaryContext* ctx) {
+bool toBinary::writeGeoLine(GeoLine* line, ToBinaryContext* ctx) {
     writeByteOrder(ctx);
-    writeGeometryType(wkbType::wkbLine,ctx);
-    if(ctx->isEwkb){
+    writeGeometryType(wkbType::wkbLine, ctx);
+    if (ctx->isEwkb) {
         writeSRID(ctx);
     }
     GeoCoordinateList p = line->to_coords();
@@ -80,11 +78,11 @@ bool toBinary::writeGeoLine(GeoLine* line,ToBinaryContext* ctx) {
 
 bool toBinary::writeGeoPolygon(doris::GeoPolygon* polygon, ToBinaryContext* ctx) {
     writeByteOrder(ctx);
-    writeGeometryType(wkbType::wkbPolygon,ctx);
-    if(ctx->isEwkb){
+    writeGeometryType(wkbType::wkbPolygon, ctx);
+    if (ctx->isEwkb) {
         writeSRID(ctx);
     }
-    writeInt(polygon->numLoops(),ctx);
+    writeInt(polygon->numLoops(), ctx);
     GeoCoordinateListList* coordss = polygon->to_coords();
 
     for (int i = 0; i < coordss->list.size(); ++i) {
@@ -93,54 +91,51 @@ bool toBinary::writeGeoPolygon(doris::GeoPolygon* polygon, ToBinaryContext* ctx)
     return true;
 }
 
-
 void toBinary::writeByteOrder(ToBinaryContext* ctx) {
     ctx->byteOrder = getMachineByteOrder();
-    if(ctx->byteOrder == 1 ) {
+    if (ctx->byteOrder == 1) {
         ctx->buf[0] = byteOrder::wkbNDR;
-    }
-    else {
+    } else {
         ctx->buf[0] = byteOrder::wkbXDR;
     }
 
     ctx->outStream->write(reinterpret_cast<char*>(ctx->buf), 1);
 }
 
-void toBinary::writeGeometryType(int typeId,ToBinaryContext* ctx)
-{
-    if(ctx->isEwkb) {
+void toBinary::writeGeometryType(int typeId, ToBinaryContext* ctx) {
+    if (ctx->isEwkb) {
         typeId |= 0x20000000;
     }
-    writeInt(typeId,ctx);
+    writeInt(typeId, ctx);
 }
 
-void toBinary::writeInt(int val,ToBinaryContext* ctx) {
+void toBinary::writeInt(int val, ToBinaryContext* ctx) {
     ByteOrderValues::putInt(val, ctx->buf, ctx->byteOrder);
     ctx->outStream->write(reinterpret_cast<char*>(ctx->buf), 4);
 }
 
 void toBinary::writeSRID(ToBinaryContext* ctx) {
-    writeInt(SRID,ctx);
+    writeInt(SRID, ctx);
 }
 
-void toBinary::writeCoordinateList(const GeoCoordinateList& coords, bool sized, ToBinaryContext* ctx) {
+void toBinary::writeCoordinateList(const GeoCoordinateList& coords, bool sized,
+                                   ToBinaryContext* ctx) {
     std::size_t size = coords.list.size();
 
-    if(sized) {
-        writeInt(static_cast<int>(size),ctx);
+    if (sized) {
+        writeInt(static_cast<int>(size), ctx);
     }
-    for(std::size_t i = 0; i < size; i++) {
+    for (std::size_t i = 0; i < size; i++) {
         GeoCoordinate coord = coords.list[i];
-        writeCoordinate(coord,ctx);
+        writeCoordinate(coord, ctx);
     }
 }
 
-void toBinary::writeCoordinate(GeoCoordinate& coords,ToBinaryContext* ctx) {
+void toBinary::writeCoordinate(GeoCoordinate& coords, ToBinaryContext* ctx) {
     ByteOrderValues::putDouble(coords.x, ctx->buf, ctx->byteOrder);
     ctx->outStream->write(reinterpret_cast<char*>(ctx->buf), 8);
     ByteOrderValues::putDouble(coords.y, ctx->buf, ctx->byteOrder);
     ctx->outStream->write(reinterpret_cast<char*>(ctx->buf), 8);
 }
 
-
-}// namespace doris
+} // namespace doris
