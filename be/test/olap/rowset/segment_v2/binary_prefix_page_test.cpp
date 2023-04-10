@@ -75,7 +75,7 @@ public:
 
         //check values
         vectorized::Arena pool;
-        auto type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
+        auto type_info = get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_VARCHAR);
         size_t size = slices.size();
         std::unique_ptr<ColumnVectorBatch> cvb;
         ColumnVectorBatch::create(size, false, type_info, nullptr, &cvb);
@@ -96,7 +96,7 @@ public:
         while (true) {
             //check values
             vectorized::Arena pool;
-            auto type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
+            auto type_info = get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_VARCHAR);
             std::unique_ptr<ColumnVectorBatch> cvb;
             size_t size = 6;
             ColumnVectorBatch::create(size, false, type_info, nullptr, &cvb);
@@ -186,7 +186,7 @@ public:
         EXPECT_TRUE(ret.ok());
         // because every slice is unique
         EXPECT_EQ(slices.size(), page_decoder->count());
-        auto type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
+        auto type_info = get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_VARCHAR);
         size_t size = slices.size();
 
         {

@@ -34,12 +34,13 @@ BinaryDictPageBuilder::BinaryDictPageBuilder(const PageBuilderOptions& options)
           _encoding_type(DICT_ENCODING) {
     // initially use DICT_ENCODING
     // TODO: the data page builder type can be created by Factory according to user config
-    _data_page_builder.reset(new BitshufflePageBuilder<OLAP_FIELD_TYPE_INT>(options));
+    _data_page_builder.reset(new BitshufflePageBuilder<FieldType::OLAP_FIELD_TYPE_INT>(options));
     PageBuilderOptions dict_builder_options;
     dict_builder_options.data_page_size =
             std::min(_options.data_page_size, _options.dict_page_size);
     dict_builder_options.is_dict_page = true;
-    _dict_builder.reset(new BinaryPlainPageBuilder<OLAP_FIELD_TYPE_VARCHAR>(dict_builder_options));
+    _dict_builder.reset(
+            new BinaryPlainPageBuilder<FieldType::OLAP_FIELD_TYPE_VARCHAR>(dict_builder_options));
     reset();
 }
 
@@ -60,8 +61,8 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
         const Slice* src = reinterpret_cast<const Slice*>(vals);
         size_t num_added = 0;
         uint32_t value_code = -1;
-        auto* actual_builder =
-                down_cast<BitshufflePageBuilder<OLAP_FIELD_TYPE_INT>*>(_data_page_builder.get());
+        auto* actual_builder = down_cast<BitshufflePageBuilder<FieldType::OLAP_FIELD_TYPE_INT>*>(
+                _data_page_builder.get());
 
         if (_data_page_builder->count() == 0) {
             _first_value.assign_copy(reinterpret_cast<const uint8_t*>(src->get_data()),
@@ -139,7 +140,8 @@ void BinaryDictPageBuilder::reset() {
     _buffer.resize(BINARY_DICT_PAGE_HEADER_SIZE);
 
     if (_encoding_type == DICT_ENCODING && _dict_builder->is_page_full()) {
-        _data_page_builder.reset(new BinaryPlainPageBuilder<OLAP_FIELD_TYPE_VARCHAR>(_options));
+        _data_page_builder.reset(
+                new BinaryPlainPageBuilder<FieldType::OLAP_FIELD_TYPE_VARCHAR>(_options));
         _encoding_type = PLAIN_ENCODING;
     } else {
         _data_page_builder->reset();
@@ -203,10 +205,12 @@ Status BinaryDictPageDecoder::init() {
     _data.remove_prefix(BINARY_DICT_PAGE_HEADER_SIZE);
     if (_encoding_type == DICT_ENCODING) {
         _data_page_decoder.reset(
-                _bit_shuffle_ptr = new BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>(_data, _options));
+                _bit_shuffle_ptr =
+                        new BitShufflePageDecoder<FieldType::OLAP_FIELD_TYPE_INT>(_data, _options));
     } else if (_encoding_type == PLAIN_ENCODING) {
         DCHECK_EQ(_encoding_type, PLAIN_ENCODING);
-        _data_page_decoder.reset(new BinaryPlainPageDecoder<OLAP_FIELD_TYPE_INT>(_data, _options));
+        _data_page_decoder.reset(
+                new BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_INT>(_data, _options));
     } else {
         LOG(WARNING) << "invalid encoding type:" << _encoding_type;
         return Status::Corruption("invalid encoding type:{}", _encoding_type);
@@ -228,7 +232,7 @@ bool BinaryDictPageDecoder::is_dict_encoding() const {
 }
 
 void BinaryDictPageDecoder::set_dict_decoder(PageDecoder* dict_decoder, StringRef* dict_word_info) {
-    _dict_decoder = (BinaryPlainPageDecoder<OLAP_FIELD_TYPE_VARCHAR>*)dict_decoder;
+    _dict_decoder = (BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>*)dict_decoder;
     _dict_word_info = dict_word_info;
 };
 

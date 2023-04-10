@@ -75,9 +75,10 @@ void tear_down() {
 
 Schema create_schema() {
     std::vector<TabletColumn> col_schemas;
-    col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_SMALLINT, true);
-    col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_INT, true);
-    col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_SUM, OLAP_FIELD_TYPE_BIGINT, true);
+    col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, FieldType::OLAP_FIELD_TYPE_SMALLINT,
+                             true);
+    col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, FieldType::OLAP_FIELD_TYPE_INT, true);
+    col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_SUM, FieldType::OLAP_FIELD_TYPE_BIGINT, true);
     Schema schema(col_schemas, 2);
     return schema;
 }

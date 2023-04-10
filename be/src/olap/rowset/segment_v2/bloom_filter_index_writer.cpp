@@ -125,7 +125,7 @@ public:
         meta->set_algorithm(BLOCK_BLOOM_FILTER);
 
         // write bloom filters
-        const auto* bf_type_info = get_scalar_type_info<OLAP_FIELD_TYPE_VARCHAR>();
+        const auto* bf_type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_VARCHAR>();
         IndexedColumnWriterOptions options;
         options.write_ordinal_index = true;
         options.write_value_index = false;
@@ -147,13 +147,14 @@ public:
     }
 
 private:
-    // supported slice types are: OLAP_FIELD_TYPE_CHAR|OLAP_FIELD_TYPE_VARCHAR
+    // supported slice types are: FieldType::OLAP_FIELD_TYPE_CHAR|FieldType::OLAP_FIELD_TYPE_VARCHAR
     static constexpr bool _is_slice_type() {
-        return field_type == OLAP_FIELD_TYPE_VARCHAR || field_type == OLAP_FIELD_TYPE_CHAR ||
-               field_type == OLAP_FIELD_TYPE_STRING;
+        return field_type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
+               field_type == FieldType::OLAP_FIELD_TYPE_CHAR ||
+               field_type == FieldType::OLAP_FIELD_TYPE_STRING;
     }
 
-    static constexpr bool _is_int128() { return field_type == OLAP_FIELD_TYPE_LARGEINT; }
+    static constexpr bool _is_int128() { return field_type == FieldType::OLAP_FIELD_TYPE_LARGEINT; }
 
 private:
     BloomFilterOptions _bf_options;
@@ -204,7 +205,7 @@ Status NGramBloomFilterIndexWriterImpl::finish(io::FileWriter* file_writer,
     meta->set_algorithm(NGRAM_BLOOM_FILTER);
 
     // write bloom filters
-    const TypeInfo* bf_typeinfo = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
+    const TypeInfo* bf_typeinfo = get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_VARCHAR);
     IndexedColumnWriterOptions options;
     options.write_ordinal_index = true;
     options.write_value_index = false;
@@ -235,25 +236,26 @@ Status BloomFilterIndexWriter::create(const BloomFilterOptions& bf_options,
     case TYPE:                                                                   \
         res->reset(new BloomFilterIndexWriterImpl<TYPE>(bf_options, type_info)); \
         break;
-        M(OLAP_FIELD_TYPE_SMALLINT)
-        M(OLAP_FIELD_TYPE_INT)
-        M(OLAP_FIELD_TYPE_UNSIGNED_INT)
-        M(OLAP_FIELD_TYPE_BIGINT)
-        M(OLAP_FIELD_TYPE_LARGEINT)
-        M(OLAP_FIELD_TYPE_CHAR)
-        M(OLAP_FIELD_TYPE_VARCHAR)
-        M(OLAP_FIELD_TYPE_STRING)
-        M(OLAP_FIELD_TYPE_DATE)
-        M(OLAP_FIELD_TYPE_DATETIME)
-        M(OLAP_FIELD_TYPE_DECIMAL)
-        M(OLAP_FIELD_TYPE_DATEV2)
-        M(OLAP_FIELD_TYPE_DATETIMEV2)
-        M(OLAP_FIELD_TYPE_DECIMAL32)
-        M(OLAP_FIELD_TYPE_DECIMAL64)
-        M(OLAP_FIELD_TYPE_DECIMAL128I)
+        M(FieldType::OLAP_FIELD_TYPE_SMALLINT)
+        M(FieldType::OLAP_FIELD_TYPE_INT)
+        M(FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT)
+        M(FieldType::OLAP_FIELD_TYPE_BIGINT)
+        M(FieldType::OLAP_FIELD_TYPE_LARGEINT)
+        M(FieldType::OLAP_FIELD_TYPE_CHAR)
+        M(FieldType::OLAP_FIELD_TYPE_VARCHAR)
+        M(FieldType::OLAP_FIELD_TYPE_STRING)
+        M(FieldType::OLAP_FIELD_TYPE_DATE)
+        M(FieldType::OLAP_FIELD_TYPE_DATETIME)
+        M(FieldType::OLAP_FIELD_TYPE_DECIMAL)
+        M(FieldType::OLAP_FIELD_TYPE_DATEV2)
+        M(FieldType::OLAP_FIELD_TYPE_DATETIMEV2)
+        M(FieldType::OLAP_FIELD_TYPE_DECIMAL32)
+        M(FieldType::OLAP_FIELD_TYPE_DECIMAL64)
+        M(FieldType::OLAP_FIELD_TYPE_DECIMAL128I)
 #undef M
     default:
-        return Status::NotSupported("unsupported type for bitmap index: {}", std::to_string(type));
+        return Status::NotSupported("unsupported type for bitmap index: {}",
+                                    std::to_string(int(type)));
     }
     return Status::OK();
 }
@@ -264,14 +266,14 @@ Status NGramBloomFilterIndexWriterImpl::create(const BloomFilterOptions& bf_opti
                                                std::unique_ptr<BloomFilterIndexWriter>* res) {
     FieldType type = typeinfo->type();
     switch (type) {
-    case OLAP_FIELD_TYPE_CHAR:
-    case OLAP_FIELD_TYPE_VARCHAR:
-    case OLAP_FIELD_TYPE_STRING:
+    case FieldType::OLAP_FIELD_TYPE_CHAR:
+    case FieldType::OLAP_FIELD_TYPE_VARCHAR:
+    case FieldType::OLAP_FIELD_TYPE_STRING:
         res->reset(new NGramBloomFilterIndexWriterImpl(bf_options, gram_size, gram_bf_size));
         break;
     default:
         return Status::NotSupported("unsupported type for ngram bloom filter index:{}",
-                                    std::to_string(type));
+                                    std::to_string(int(type)));
     }
     return Status::OK();
 }

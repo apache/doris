@@ -143,7 +143,7 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
                 create_olap_column_data_convertor(value_column));
     }
     default: {
-        DCHECK(false) << "Invalid type in RowBlockV2:" << column.type();
+        DCHECK(false) << "Invalid type in olap data convertor:" << int(column.type());
         return nullptr;
     }
     }
