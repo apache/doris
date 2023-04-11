@@ -158,8 +158,6 @@ public:
                 "Not Implemented evaluate with inverted index, please check the predicate");
     }
 
-    virtual bool support_short_circuit_evaluate() const { return true; }
-
     // evaluate predicate on IColumn
     // a short circuit eval way
     virtual uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel,

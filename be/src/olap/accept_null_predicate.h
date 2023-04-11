@@ -50,12 +50,41 @@ public:
         return _nested->evaluate(schema, iterator, num_rows, bitmap);
     }
 
-    bool support_short_circuit_evaluate() const override { return false; }
-
     uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel,
                       uint16_t size) const override {
-        LOG(FATAL) << "evaluate without flags not supported";
-        // return _nested->evaluate(column, sel, size);
+        // call nested predicate evaluate
+        uint16_t new_size = _nested->evaluate(column, sel, size);
+
+        LOG(INFO) << "topn debug size=" << size << " new_size=" << new_size;
+
+        // process NULL values
+        if (column.has_null() && new_size < size) {
+            // use a sorted set to sotre selected row idxs
+            std::set<uint16_t> selected_rows;
+            for (uint16_t i = 0; i < size; ++i) {
+                uint16_t row_idx = sel[i];
+                if (column.is_null_at(row_idx)) {
+                    // add row_idx to selected for NULL value
+                    selected_rows.emplace(row_idx);
+                }
+            }
+
+            if (!selected_rows.empty()) {
+                // add rows selected by _nested->evaluate
+                for (uint16_t i = 0; i < new_size; ++i) {
+                    uint16_t row_idx = sel[i];
+                    selected_rows.emplace(row_idx);
+                }
+
+                // recaculate new_size and sel array
+                new_size = 0;
+                for (uint16_t row_idx : selected_rows) {
+                    sel[new_size++] = row_idx;
+                }
+            }
+        }
+
+        return new_size;
     }
 
     void evaluate_and(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,

@@ -1195,7 +1195,7 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
             if (_can_evaluated_by_vectorized(predicate)) {
                 vec_pred_col_id_set.insert(predicate->column_id());
                 _pre_eval_block_predicate.push_back(predicate);
-            } else if (predicate->support_short_circuit_evaluate()) {
+            } else {
                 short_cir_pred_col_id_set.insert(cid);
                 _short_cir_eval_predicate.push_back(predicate);
             }
