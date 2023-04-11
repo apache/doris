@@ -954,6 +954,21 @@ public class ExecutableFunctions {
     }
 
     /**
+     * datetime arithmetic function date-trunc
+     */
+    @ExecFunction(name = "date_trunc", argTypes = {"DATETIME", "VARCHAR"}, returnType = "DATETIME")
+    public static DateTimeLiteral dateTrunc(DateTimeLiteral date, VarcharLiteral trunc) {
+        return new DateTimeLiteral();
+    }
+
+    @ExecFunction(name = "date_trunc", argTypes = {"DATETIMEV2", "VARCHAR"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal dateTrunc(DateTimeV2Literal date, VarcharLiteral trunc) {
+        return new DateTimeV2Literal();
+    }
+
+    private Date
+
+    /**
      * other scalar function
      */
     @ExecFunction(name = "abs", argTypes = {"TINYINT"}, returnType = "TINYINT")
