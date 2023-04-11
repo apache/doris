@@ -108,6 +108,10 @@ public class Frontend implements Writable {
         return isAlive;
     }
 
+    public void setIsAlive(boolean isAlive) {
+        this.isAlive = isAlive;
+    }
+
     public int getEditLogPort() {
         return this.editLogPort;
     }

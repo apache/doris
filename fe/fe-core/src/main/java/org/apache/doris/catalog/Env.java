@@ -966,6 +966,9 @@ public class Env {
                 }
                 Frontend self = new Frontend(role, nodeName, selfNode.getIp(), hostName,
                         selfNode.getPort());
+                // Set self alive to true, the BDBEnvironment.getReplicationGroupAdmin() will rely on this to get
+                // helper node, before the heartbeat thread is started.
+                self.setIsAlive(true);
                 // We don't need to check if frontends already contains self.
                 // frontends must be empty cause no image is loaded and no journal is replayed yet.
                 // And this frontend will be persisted later after opening bdbje environment.
