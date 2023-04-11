@@ -81,6 +81,7 @@ visible_functions = [
 
     # struct functions
     [['struct'], 'STRUCT<TYPES>', ['TYPES'], 'ALWAYS_NOT_NULLABLE', ['TYPES...']],
+    [['named_struct'], 'ANY_TYPE', ['TYPES'], 'ALWAYS_NOT_NULLABLE', ['TYPES...']],
 
     # array functions
     [['array'], 'ARRAY', ['BOOLEAN', '...'], 'ALWAYS_NOT_NULLABLE'],
