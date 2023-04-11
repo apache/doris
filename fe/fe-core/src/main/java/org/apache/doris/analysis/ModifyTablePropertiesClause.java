@@ -113,6 +113,8 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             setStoragePolicy(storagePolicy);
         } else if (properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE)) {
             throw new AnalysisException("Can not change UNIQUE KEY to Merge-On-Write mode");
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE)) {
+            // do nothing, will be alter in SchemaChangeHandler.updateTableProperties
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }

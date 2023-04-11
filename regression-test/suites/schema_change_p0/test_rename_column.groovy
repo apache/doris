@@ -40,7 +40,7 @@ suite ("test_rename_column") {
             `max_dwell_time` INT DEFAULT "0" COMMENT "用户最大停留时间",
             `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
         UNIQUE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-        PROPERTIES ( "replication_num" = "1" , "light_schema_change" = "true")
+        PROPERTIES ( "replication_num" = "1" , "light_schema_change" = "false")
         """
     qt_desc """ desc ${tableName} """
 
@@ -53,6 +53,9 @@ suite ("test_rename_column") {
                 (2, '2017-10-01', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2020-01-02', 1, 31, 21)
         """
     sql """ sync """
+
+    // alter and test light schema change
+    sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
 
     qt_select """ SELECT * FROM ${tableName} order by user_id ASC, last_visit_date """
 

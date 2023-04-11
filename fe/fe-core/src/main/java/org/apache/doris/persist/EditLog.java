@@ -765,6 +765,7 @@ public class EditLog {
                 }
                 case OperationType.OP_DYNAMIC_PARTITION:
                 case OperationType.OP_MODIFY_IN_MEMORY:
+                case OperationType.OP_ALTER_LIGHT_SCHEMA_CHANGE:
                 case OperationType.OP_MODIFY_REPLICATION_NUM: {
                     ModifyTablePropertyOperationLog log = (ModifyTablePropertyOperationLog) journal.getData();
                     env.replayModifyTableProperty(opCode, log);
@@ -1604,6 +1605,10 @@ public class EditLog {
 
     public void logModifyInMemory(ModifyTablePropertyOperationLog info) {
         logEdit(OperationType.OP_MODIFY_IN_MEMORY, info);
+    }
+
+    public void logAlterLightSchemaChange(ModifyTablePropertyOperationLog info) {
+        logEdit(OperationType.OP_ALTER_LIGHT_SCHEMA_CHANGE, info);
     }
 
     public void logReplaceTempPartition(ReplacePartitionOperationLog info) {

@@ -352,4 +352,16 @@ public class BackendServiceProxy {
             throw new RpcException(address.hostname, e.getMessage());
         }
     }
+
+    public Future<InternalService.PFetchColIdsResponse> getColumnIdsByTabletIds(TNetworkAddress address,
+            InternalService.PFetchColIdsRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.getColIdsByTabletIds(request);
+        } catch (Throwable e) {
+            LOG.warn("failed to fetch column id from address={}:{}", address.getHostname(), address.getPort());
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
 }
