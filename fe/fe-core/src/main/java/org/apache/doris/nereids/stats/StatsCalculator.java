@@ -438,6 +438,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 columnStatisticMap.put(slotReference, cache);
                 continue;
             }
+            rowCount = Math.max(rowCount, cache.count);
             Histogram histogram = Env.getCurrentEnv().getStatisticsCache().getHistogram(table.getId(), colName);
             if (histogram != null) {
                 ColumnStatisticBuilder columnStatisticBuilder =
