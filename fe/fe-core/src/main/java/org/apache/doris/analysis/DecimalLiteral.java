@@ -251,6 +251,9 @@ public class DecimalLiteral extends LiteralExpr {
                 throw new AnalysisException(String.format("Decimal literal %s is invalid! Required precision = %d,"
                         + "scale = %d", value, type.getPrecision(), ((ScalarType) type).getScalarScale()));
             }
+        } else if (value.precision() > ScalarType.MAX_DECIMALV2_PRECISION) {
+            throw new AnalysisException(String.format("Decimal literal %s is invalid! Required precision = %d,"
+                    + "scale = %d", value, type.getPrecision(), ((ScalarType) type).getScalarScale()));
         }
     }
 

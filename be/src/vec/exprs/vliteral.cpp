@@ -143,8 +143,11 @@ void VLiteral::init(const TExprNode& node) {
         case TYPE_DECIMALV2: {
             DCHECK_EQ(node.node_type, TExprNodeType::DECIMAL_LITERAL);
             DCHECK(node.__isset.decimal_literal);
-            DecimalV2Value value(node.decimal_literal.value);
-            field = DecimalField<Decimal128>(value.value(), value.scale());
+            DecimalV2Value value;
+            if (value.parse_from_str(node.decimal_literal.value.c_str(),
+                                     node.decimal_literal.value.size())) {
+                field = DecimalField<Decimal128>(value.value(), value.scale());
+            }
             break;
         }
         case TYPE_DECIMAL32: {
@@ -195,7 +198,7 @@ void VLiteral::init(const TExprNode& node) {
         }
         }
     }
-    _column_ptr = _data_type->create_column_const(1, field);
+        _column_ptr = _data_type->create_column_const(1, field);
 }
 
 Status VLiteral::execute(VExprContext* context, vectorized::Block* block, int* result_column_id) {
