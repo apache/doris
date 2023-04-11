@@ -1728,9 +1728,6 @@ public class Config extends ConfigBase {
     public static boolean enable_quantile_state_type = true;
 
     @ConfField
-    public static boolean enable_vectorized_load = true;
-
-    @ConfField
     public static boolean enable_pipeline_load = false;
 
     @ConfField
@@ -1796,12 +1793,6 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static long remote_fragment_exec_timeout_ms = 5000; // 5 sec
-
-    /**
-     * Temp config, should be removed when new file scan node is ready.
-     */
-    @ConfField(mutable = true)
-    public static boolean enable_new_load_scan_node = true;
 
     /**
      * Max data version of backends serialize block.

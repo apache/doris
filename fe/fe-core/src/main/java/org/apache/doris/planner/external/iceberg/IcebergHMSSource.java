@@ -26,7 +26,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.planner.ColumnRange;
-import org.apache.doris.planner.external.ExternalFileScanNode;
+import org.apache.doris.planner.external.FileQueryScanNode;
 import org.apache.doris.planner.external.HiveScanProvider;
 import org.apache.doris.thrift.TFileAttributes;
 
@@ -64,7 +64,7 @@ public class IcebergHMSSource implements IcebergSource {
     }
 
     @Override
-    public ExternalFileScanNode.ParamCreateContext createContext() throws UserException {
+    public FileQueryScanNode.ParamCreateContext createContext() throws UserException {
         return hiveScanProvider.createContext(null);
     }
 
