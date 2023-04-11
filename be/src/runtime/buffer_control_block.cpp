@@ -127,9 +127,8 @@ Status BufferControlBlock::add_batch(std::unique_ptr<TFetchDataResult>& result) 
             std::vector<std::string>& result_rows = result->result_batch.rows;
             auto back_size = back_rows.size();
             back_rows.resize(back_size + num_rows);
-            for (int i = 0; i < num_rows; ++i) {
-                back_rows[back_size + i].assign(result_rows[i].c_str(), result_rows[i].length());
-            }
+            back_rows.insert(back_rows.end(), std::make_move_iterator(result_rows.begin()),
+                             std::make_move_iterator(result_rows.end()));
         } else {
             _batch_queue.push_back(std::move(result));
         }
