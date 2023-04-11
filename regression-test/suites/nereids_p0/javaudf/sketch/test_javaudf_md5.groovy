@@ -21,10 +21,10 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Paths
 
-suite("test_javaudf_md5") {
+suite("nereids_test_javaudf_md5") {
     def tableName = "test_javaudf_md5"
     File path = new File("${context.file.parent}")
-    def jarPath = """${path.getParent()}/jars/java-udf-case-jar-with-dependencies.jar"""
+    def jarPath = """${path.getParent()}/../../../java-udf-src/target/java-udf-case-jar-with-dependencies.jar"""
 
     log.info("Jar path: ${jarPath}".toString())
     try {

@@ -21,13 +21,13 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Paths
 
-suite("test_javaudf_convertfromcamelcase") {
+suite("nereids_test_javaudf_convertfromcamelcase") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
 
     def tableName = "test_javaudf_convertfromcamelcase"
     File path = new File("${context.file.parent}")
-    def jarPath = """${path.getParent()}/jars/java-udf-case-jar-with-dependencies.jar"""
+    def jarPath = """${path.getParent()}/../../../java-udf-src/target/java-udf-case-jar-with-dependencies.jar"""
 
     log.info("Jar path: ${jarPath}".toString())
     try {

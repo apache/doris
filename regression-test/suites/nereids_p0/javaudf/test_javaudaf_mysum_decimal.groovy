@@ -21,12 +21,13 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Paths
 
-suite("test_javaudaf_mysum_decimal") {
+suite("nereids_test_javaudaf_mysum_decimal") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
 
     def tableName = "test_javaudaf_mysum_decimal"
-    def jarPath = """${context.file.parent}/jars/java-udf-case-jar-with-dependencies.jar"""
+    File path = new File("${context.file.parent}")
+    def jarPath = "${path.getParent()}/../../java-udf-src/target/java-udf-case-jar-with-dependencies.jar"
 
     log.info("Jar path: ${jarPath}".toString())
     try {
@@ -48,8 +49,8 @@ suite("test_javaudaf_mysum_decimal") {
             """
         qt_select_default """ SELECT * FROM ${tableName} t ORDER BY user_id; """
 
-        File path = new File(jarPath)
-        if (!path.exists()) {
+        File path1 = new File(jarPath)
+        if (!path1.exists()) {
             throw new IllegalStateException("""${jarPath} doesn't exist! """)
         }
 
