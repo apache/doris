@@ -24,9 +24,11 @@ specific language governing permissions and limitations
 under the License.
 -->
 
+<version since="dev">
 # SSL密钥证书配置
+</version>
 
-Doris FE HTTP 接口开启 SSL 功能需要配置密钥证书，步骤如下：
+Doris FE 接口开启 SSL 功能需要配置密钥证书，步骤如下：
 
 1.购买或生成自签名 SSL 证书，生产环境建议使用 CA 颁发的证书
 
