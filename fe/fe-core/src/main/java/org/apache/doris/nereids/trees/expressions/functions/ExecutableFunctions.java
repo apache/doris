@@ -873,12 +873,12 @@ public class ExecutableFunctions {
      * datetime arithmetic function date
      */
     @ExecFunction(name = "date", argTypes = {"DATETIME"}, returnType = "DATE")
-    public static DateLiteral secondsSub(DateTimeLiteral dateTime) throws AnalysisException {
+    public static DateLiteral date(DateTimeLiteral dateTime) throws AnalysisException {
         return new DateLiteral(dateTime.getYear(), dateTime.getMonth(), dateTime.getDay());
     }
 
     @ExecFunction(name = "date", argTypes = {"DATETIMEV2"}, returnType = "DATE")
-    public static DateTimeV2Literal secondsSub(DateTimeV2Literal dateTime) throws AnalysisException {
+    public static DateLiteral date(DateTimeV2Literal dateTime) throws AnalysisException {
         return new DateLiteral(dateTime.getYear(), dateTime.getMonth(), dateTime.getDay());
     }
 
