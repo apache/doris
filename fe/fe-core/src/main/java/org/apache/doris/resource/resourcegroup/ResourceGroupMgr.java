@@ -114,7 +114,7 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
             }
             Map<String, String> properties = Maps.newHashMap();
             properties.put(ResourceGroup.CPU_SHARE, "10");
-            defaultResourceGroup = ResourceGroup.createResourceGroup(DEFAULT_GROUP_NAME, properties);
+            defaultResourceGroup = ResourceGroup.create(DEFAULT_GROUP_NAME, properties);
             nameToResourceGroup.put(DEFAULT_GROUP_NAME, defaultResourceGroup);
             idToResourceGroup.put(defaultResourceGroup.getId(), defaultResourceGroup);
             Env.getCurrentEnv().getEditLog().logCreateResourceGroup(defaultResourceGroup);
@@ -127,8 +127,11 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
     }
 
     public void createResourceGroup(CreateResourceGroupStmt stmt) throws DdlException {
-        ResourceGroup resourceGroup = ResourceGroup.createResourceGroup(stmt.getResourceGroupName(),
-                stmt.getProperties());
+        if (!Config.enable_resource_group) {
+            throw new DdlException("Please add `enable_resource_group=true` in fe.conf to enable resource group.");
+        }
+
+        ResourceGroup resourceGroup = ResourceGroup.create(stmt.getResourceGroupName(), stmt.getProperties());
         String resourceGroupNameName = resourceGroup.getName();
         writeLock();
         try {
@@ -158,6 +161,30 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
 
     public List<List<String>> getResourcesInfo() {
         return procNode.fetchResult().getRows();
+    }
+
+    // for ut
+    public Map<String, ResourceGroup> getNameToResourceGroup() {
+        Map<String, ResourceGroup> results = Maps.newHashMap();
+        readLock();
+        try {
+            this.nameToResourceGroup.forEach((key, value) -> results.put(key, value.clone()));
+        } finally {
+            readUnlock();
+        }
+        return results;
+    }
+
+    // for ut
+    public Map<Long, ResourceGroup> getIdToResourceGroup() {
+        Map<Long, ResourceGroup> results = Maps.newHashMap();
+        readLock();
+        try {
+            this.idToResourceGroup.forEach((key, value) -> results.put(key, value.clone()));
+        } finally {
+            readUnlock();
+        }
+        return results;
     }
 
     @Override
