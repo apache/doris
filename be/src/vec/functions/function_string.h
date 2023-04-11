@@ -1569,17 +1569,17 @@ public:
                     }
                 }
             } else {
-                // If delimiter is a string, use memmem to split
+                StringRef delimiter_ref(delimiter);
+                StringSearch search(&delimiter_ref);
                 for (size_t i = 0; i < input_rows_count; ++i) {
                     auto str = str_col->get_data_at(i);
                     int32_t offset = -delimiter_size;
                     int32_t num = 0;
                     while (num < part_number) {
                         size_t n = str.size - offset - delimiter_size;
-                        char* pos = reinterpret_cast<char*>(
-                                memmem(str.data + offset + delimiter_size, n, delimiter.c_str(),
-                                       delimiter_size));
-                        if (pos != nullptr) {
+                        // search first match delimter_ref index from src string among str_offset to end
+                        const char* pos = search.search(str.data + offset + delimiter_size, n);
+                        if (pos < str.data + str.size) {
                             offset = pos - str.data;
                             num++;
                         } else {
@@ -1675,10 +1675,10 @@ public:
                         size_t result, size_t /*input_rows_count*/) override {
         DCHECK_EQ(arguments.size(), 2);
 
-        ColumnPtr src_column =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        ColumnPtr delimiter_column =
-                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        const auto& [src_column, left_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+        const auto& [right_column, right_const] =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
 
         DataTypePtr src_column_type = block.get_by_position(arguments[0]).type;
         auto dest_column_ptr = ColumnArray::create(make_nullable(src_column_type)->create_column(),
@@ -1695,16 +1695,27 @@ public:
         dest_nested_column = dest_nullable_col->get_nested_column_ptr();
         dest_nested_null_map = &dest_nullable_col->get_null_map_column().get_data();
 
-        _execute(*src_column, *delimiter_column, *dest_nested_column, dest_offsets,
-                 dest_nested_null_map);
-        block.replace_by_position(result, std::move(dest_column_ptr));
-        return Status::OK();
+        if (auto col_left = check_and_get_column<ColumnString>(src_column.get())) {
+            if (auto col_right = check_and_get_column<ColumnString>(right_column.get())) {
+                if (right_const) {
+                    _execute_constant(*col_left, col_right->get_data_at(0), *dest_nested_column,
+                                      dest_offsets, dest_nested_null_map);
+                } else {
+                    _execute_vector(*col_left, *col_right, *dest_nested_column, dest_offsets,
+                                    dest_nested_null_map);
+                }
+
+                block.replace_by_position(result, std::move(dest_column_ptr));
+                return Status::OK();
+            }
+        }
+        return Status::RuntimeError("unimplements function {}", get_name());
     }
 
 private:
-    void _execute(const IColumn& src_column, const IColumn& delimiter_column,
-                  IColumn& dest_nested_column, ColumnArray::Offsets64& dest_offsets,
-                  NullMapType* dest_nested_null_map) {
+    void _execute_constant(const ColumnString& src_column_string, const StringRef& delimiter_ref,
+                           IColumn& dest_nested_column, ColumnArray::Offsets64& dest_offsets,
+                           NullMapType* dest_nested_null_map) {
         ColumnString& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
         ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
         ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
@@ -1712,12 +1723,77 @@ private:
 
         ColumnArray::Offset64 string_pos = 0;
         ColumnArray::Offset64 dest_pos = 0;
-        const ColumnString* src_column_string = reinterpret_cast<const ColumnString*>(&src_column);
-        ColumnArray::Offset64 src_offsets_size = src_column_string->get_offsets().size();
+        ColumnArray::Offset64 src_offsets_size = src_column_string.get_offsets().size();
+
+        StringSearch search(&delimiter_ref);
+
+        for (size_t i = 0; i < src_offsets_size; i++) {
+            const StringRef str_ref = src_column_string.get_data_at(i);
+
+            if (str_ref.size == 0) {
+                dest_offsets.push_back(dest_pos);
+                continue;
+            }
+            if (delimiter_ref.size == 0) {
+                for (size_t str_pos = 0; str_pos < str_ref.size;) {
+                    const size_t str_offset = str_pos;
+                    const size_t old_size = column_string_chars.size();
+                    str_pos++;
+                    const size_t new_size = old_size + 1;
+                    column_string_chars.resize(new_size);
+                    memcpy(column_string_chars.data() + old_size, str_ref.data + str_offset, 1);
+                    (*dest_nested_null_map).push_back(false);
+                    string_pos++;
+                    dest_pos++;
+                    column_string_offsets.push_back(string_pos);
+                }
+            } else {
+                for (size_t str_pos = 0; str_pos <= str_ref.size;) {
+                    const size_t str_offset = str_pos;
+                    const size_t old_size = column_string_chars.size();
+                    // search first match delimter_ref index from src string among str_offset to end
+                    const char* result_start =
+                            search.search(str_ref.data + str_offset, str_ref.size - str_offset);
+                    // compute split part size
+                    const size_t split_part_size = result_start - str_ref.data - str_offset;
+                    // save dist string split part
+                    if (split_part_size > 0) {
+                        const size_t new_size = old_size + split_part_size;
+                        column_string_chars.resize(new_size);
+                        memcpy_small_allow_read_write_overflow15(
+                                column_string_chars.data() + old_size, str_ref.data + str_offset,
+                                split_part_size);
+                        // add dist string offset
+                        string_pos += split_part_size;
+                    }
+                    column_string_offsets.push_back(string_pos);
+                    // not null
+                    (*dest_nested_null_map).push_back(false);
+                    // array offset + 1
+                    dest_pos++;
+                    // add src string str_pos to next search start
+                    str_pos += split_part_size + delimiter_ref.size;
+                }
+            }
+            dest_offsets.push_back(dest_pos);
+        }
+    }
+
+    void _execute_vector(const ColumnString& src_column_string,
+                         const ColumnString& delimiter_column, IColumn& dest_nested_column,
+                         ColumnArray::Offsets64& dest_offsets, NullMapType* dest_nested_null_map) {
+        ColumnString& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
+        ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
+        ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
+        column_string_chars.reserve(0);
+
+        ColumnArray::Offset64 string_pos = 0;
+        ColumnArray::Offset64 dest_pos = 0;
+        ColumnArray::Offset64 src_offsets_size = src_column_string.get_offsets().size();
 
         for (size_t i = 0; i < src_offsets_size; i++) {
             const StringRef delimiter_ref = delimiter_column.get_data_at(i);
-            const StringRef str_ref = src_column_string->get_data_at(i);
+            const StringRef str_ref = src_column_string.get_data_at(i);
 
             if (str_ref.size == 0) {
                 dest_offsets.push_back(dest_pos);
@@ -1745,8 +1821,9 @@ private:
                     const size_t new_size = old_size + split_part_size;
                     column_string_chars.resize(new_size);
                     if (split_part_size > 0) {
-                        memcpy(column_string_chars.data() + old_size, str_ref.data + str_offset,
-                               split_part_size);
+                        memcpy_small_allow_read_write_overflow15(
+                                column_string_chars.data() + old_size, str_ref.data + str_offset,
+                                split_part_size);
                     }
                     (*dest_nested_null_map).push_back(false);
                     string_pos += split_part_size;
@@ -1758,12 +1835,12 @@ private:
         }
     }
 
-    //TODO: need to be rewrited in a more efficient way. compare BMH/KMP/...
     size_t split_str(size_t& pos, const StringRef str_ref, StringRef delimiter_ref) {
         size_t old_size = pos;
         size_t str_size = str_ref.size;
         while (pos < str_size &&
-               memcmp(str_ref.data + pos, delimiter_ref.data, delimiter_ref.size)) {
+               memcmp_small_allow_overflow15(str_ref.data + pos, delimiter_ref.data,
+                                             delimiter_ref.size)) {
             pos++;
         }
         return pos - old_size;
