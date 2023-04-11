@@ -9,6 +9,42 @@
 7	tengxun	qie	addr gg	lj	\N
 8	tengxun2	qie	\N	lj	800
 
+-- !select_is_null_1 --
+1	\N	addr qie3	yy	lj	100
+2	\N	hehe	\N	lala	200
+
+-- !select_is_null_2 --
+3	beijing	addr xuanwu	wugui	\N	300
+4	beijing	addr fengtai	fengtai1	fengtai2	\N
+5	beijing	addr chaoyang	wangjing	donghuqu	500
+6	shanghai	hehe	\N	haha	\N
+7	tengxun	qie	addr gg	lj	\N
+8	tengxun2	qie	\N	lj	800
+
+-- !select_is_null_3 --
+
+-- !select_is_null_4 --
+1	\N	addr qie3	yy	lj	100
+2	\N	hehe	\N	lala	200
+3	beijing	addr xuanwu	wugui	\N	300
+4	beijing	addr fengtai	fengtai1	fengtai2	\N
+5	beijing	addr chaoyang	wangjing	donghuqu	500
+6	shanghai	hehe	\N	haha	\N
+7	tengxun	qie	addr gg	lj	\N
+8	tengxun2	qie	\N	lj	800
+
+-- !select_is_null_5 --
+4	beijing	addr fengtai	fengtai1	fengtai2	\N
+6	shanghai	hehe	\N	haha	\N
+7	tengxun	qie	addr gg	lj	\N
+
+-- !select_is_null_6 --
+1	\N	addr qie3	yy	lj	100
+2	\N	hehe	\N	lala	200
+3	beijing	addr xuanwu	wugui	\N	300
+5	beijing	addr chaoyang	wangjing	donghuqu	500
+8	tengxun2	qie	\N	lj	800
+
 -- !select_compare_11 --
 6	shanghai	hehe	\N	haha	\N
 

@@ -57,6 +57,14 @@ suite("test_inverted_index_null") {
     // select all data
     qt_select_0 "SELECT * FROM ${table1} ORDER BY id"
 
+    // test IS NULL , IS NOT NULL
+    qt_select_is_null_1 "SELECT * FROM ${table1} WHERE city IS NULL ORDER BY id"
+    qt_select_is_null_2 "SELECT * FROM ${table1} WHERE city IS NOT NULL ORDER BY id"
+    qt_select_is_null_3 "SELECT * FROM ${table1} WHERE addr IS NULL ORDER BY id"
+    qt_select_is_null_4 "SELECT * FROM ${table1} WHERE addr IS NOT NULL ORDER BY id"
+    qt_select_is_null_5 "SELECT * FROM ${table1} WHERE n IS NULL ORDER BY id"
+    qt_select_is_null_6 "SELECT * FROM ${table1} WHERE n IS NOT NULL ORDER BY id"
+
     // test compare predicate
     qt_select_compare_11 "SELECT * FROM ${table1} WHERE city  = 'shanghai' ORDER BY id"
     qt_select_compare_12 "SELECT * FROM ${table1} WHERE city != 'shanghai' ORDER BY id"
