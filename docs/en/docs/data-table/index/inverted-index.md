@@ -1,6 +1,6 @@
 ---
 {
-    "title": "inverted index",
+    "title": "[Experimental] Inverted index",
     "language": "en"
 }
 ---

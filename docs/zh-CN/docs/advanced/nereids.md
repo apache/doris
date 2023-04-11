@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Nereids —— 全新优化器",
+    "title": "[Experimental] Nereids —— 全新优化器",
     "language": "zh-CN"
 }
 ---

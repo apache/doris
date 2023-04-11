@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Nereids - The Brand New Planner",
+    "title": "[Experimental] Nereids - The Brand New Planner",
     "language": "en"
 }
 ---
