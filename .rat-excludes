@@ -12,6 +12,7 @@ LICENSE
 NOTICE
 gutil/*
 glibc-compatibility/*
+apache-orc/*
 manifest
 patches/*
 data/*

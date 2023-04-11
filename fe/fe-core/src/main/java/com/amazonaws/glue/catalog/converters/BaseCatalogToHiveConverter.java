@@ -64,7 +64,7 @@ import org.apache.hadoop.hive.metastore.api.StringColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.api.TableMeta;
 import org.apache.log4j.Logger;
-import org.apache.thrift.TException;
+import shade.doris.hive.org.apache.thrift.TException;
 
 import java.util.ArrayList;
 import java.util.Date;

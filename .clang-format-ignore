@@ -1,5 +1,6 @@
 # Please add code that you don’t want to be formatted by clang here
 
+be/src/apache-orc/*
 be/src/gutil/*
 be/src/glibc-compatibility/*
 be/src/util/sse2neo.h

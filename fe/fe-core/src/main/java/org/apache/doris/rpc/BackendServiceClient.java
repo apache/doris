@@ -65,19 +65,19 @@ public class BackendServiceClient {
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentAsync(
             InternalService.PExecPlanFragmentRequest request) {
         return stub.withDeadlineAfter(execPlanTimeout, TimeUnit.MILLISECONDS)
-            .execPlanFragment(request);
+                .execPlanFragment(request);
     }
 
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentPrepareAsync(
             InternalService.PExecPlanFragmentRequest request) {
         return stub.withDeadlineAfter(execPlanTimeout, TimeUnit.MILLISECONDS)
-            .execPlanFragmentPrepare(request);
+                .execPlanFragmentPrepare(request);
     }
 
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentStartAsync(
             InternalService.PExecPlanFragmentStartRequest request) {
         return stub.withDeadlineAfter(execPlanTimeout, TimeUnit.MILLISECONDS)
-            .execPlanFragmentStart(request);
+                .execPlanFragmentStart(request);
     }
 
     public Future<InternalService.PCancelPlanFragmentResult> cancelPlanFragmentAsync(
@@ -90,7 +90,7 @@ public class BackendServiceClient {
     }
 
     public Future<InternalService.PTabletKeyLookupResponse> fetchTabletDataAsync(
-                InternalService.PTabletKeyLookupRequest request) {
+            InternalService.PTabletKeyLookupRequest request) {
         return stub.tabletFetchData(request);
     }
 
@@ -99,7 +99,7 @@ public class BackendServiceClient {
     }
 
     public Future<InternalService.PFetchTableSchemaResult> fetchTableStructureAsync(
-                                InternalService.PFetchTableSchemaRequest request) {
+            InternalService.PFetchTableSchemaRequest request) {
         return stub.fetchTableSchema(request);
     }
 
@@ -133,6 +133,11 @@ public class BackendServiceClient {
 
     public Future<InternalService.PConstantExprResult> foldConstantExpr(InternalService.PConstantExprRequest request) {
         return stub.foldConstantExpr(request);
+    }
+
+    public Future<InternalService.PFetchColIdsResponse> getColIdsByTabletIds(
+            InternalService.PFetchColIdsRequest request) {
+        return stub.getColumnIdsByTabletIds(request);
     }
 
     public void shutdown() {

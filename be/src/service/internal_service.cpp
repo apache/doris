@@ -18,8 +18,14 @@
 #include "service/internal_service.h"
 
 #include <butil/iobuf.h>
+#include <gen_cpp/Status_types.h>
+#include <stdint.h>
 
+#include <algorithm>
+#include <set>
+#include <sstream>
 #include <string>
+#include <vector>
 
 #include "common/config.h"
 #include "common/consts.h"
@@ -33,6 +39,7 @@
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "olap/tablet_schema.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/exec_env.h"
 #include "runtime/fold_constant_executor.h"
@@ -554,6 +561,72 @@ void PInternalServiceImpl::tablet_fetch_data(google::protobuf::RpcController* co
         response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
         response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
     }
+}
+
+void PInternalServiceImpl::get_column_ids_by_tablet_ids(google::protobuf::RpcController* controller,
+                                                        const PFetchColIdsRequest* request,
+                                                        PFetchColIdsResponse* response,
+                                                        google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
+        _get_column_ids_by_tablet_ids(controller, request, response, done);
+    });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+    }
+}
+
+void PInternalServiceImpl::_get_column_ids_by_tablet_ids(
+        google::protobuf::RpcController* controller, const PFetchColIdsRequest* request,
+        PFetchColIdsResponse* response, google::protobuf::Closure* done) {
+    brpc::ClosureGuard guard(done);
+    [[maybe_unused]] brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
+    TabletManager* tablet_mgr = StorageEngine::instance()->tablet_manager();
+    const auto& params = request->params();
+    for (const auto& param : params) {
+        int64_t index_id = param.indexid();
+        auto tablet_ids = param.tablet_ids();
+        std::set<std::vector<int32_t>> filter_set;
+        for (const int64_t tablet_id : tablet_ids) {
+            TabletSharedPtr tablet = tablet_mgr->get_tablet(tablet_id);
+            if (tablet == nullptr) {
+                std::stringstream ss;
+                ss << "cannot get tablet by id:" << tablet_id;
+                LOG(WARNING) << ss.str();
+                response->mutable_status()->set_status_code(TStatusCode::ILLEGAL_STATE);
+                response->mutable_status()->add_error_msgs(ss.str());
+                return;
+            }
+            // check schema consistency, column ids should be the same
+            const auto& columns = tablet->tablet_schema()->columns();
+            std::vector<int32_t> column_ids(columns.size());
+            std::transform(columns.begin(), columns.end(), column_ids.begin(),
+                           [](const TabletColumn& c) { return c.unique_id(); });
+            filter_set.insert(column_ids);
+        }
+        if (filter_set.size() > 1) {
+            // consistecy check failed
+            std::stringstream ss;
+            ss << "consistency check failed: index{" << index_id << "}"
+               << "got inconsistent shema";
+            LOG(WARNING) << ss.str();
+            response->mutable_status()->set_status_code(TStatusCode::ILLEGAL_STATE);
+            response->mutable_status()->add_error_msgs(ss.str());
+            return;
+        }
+        // consistency check passed, use the first tablet to be the representative
+        TabletSharedPtr tablet = tablet_mgr->get_tablet(tablet_ids[0]);
+        const auto& columns = tablet->tablet_schema()->columns();
+        auto entry = response->add_entries();
+        entry->set_index_id(index_id);
+        auto col_name_to_id = entry->mutable_col_name_to_id();
+        for (const auto& column : columns) {
+            (*col_name_to_id)[column.name()] = column.unique_id();
+        }
+    }
+    response->mutable_status()->set_status_code(TStatusCode::OK);
 }
 
 void PInternalServiceImpl::get_info(google::protobuf::RpcController* controller,
