@@ -789,6 +789,12 @@ visible_functions = [
     [['array_range'], 'ARRAY_INT', ['INT', 'INT'], 'ALWAYS_NULLABLE'],
     [['array_range'], 'ARRAY_INT', ['INT', 'INT', 'INT'], 'ALWAYS_NULLABLE'],
     
+    [['array_count'], 'BIGINT', ['ARRAY_TINYINT'], 'ALWAYS_NULLABLE'],
+    [['array_count'], 'BIGINT', ['ARRAY_SMALLINT'], 'ALWAYS_NULLABLE'],
+    [['array_count'], 'BIGINT', ['ARRAY_INT'], 'ALWAYS_NULLABLE'],
+    [['array_count'], 'BIGINT', ['ARRAY_BIGINT'], 'ALWAYS_NULLABLE'],
+    [['array_count'], 'BIGINT', ['ARRAY_LARGEINT'], 'ALWAYS_NULLABLE'],
+    
     [['array_zip'], 'ARRAY', ['ARRAY', '...'], ''],
 
 
