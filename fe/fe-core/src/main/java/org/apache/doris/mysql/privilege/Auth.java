@@ -455,6 +455,8 @@ public class Auth implements Writable {
             if (role != null) {
                 userRoleManager.addUserRole(userIdent, roleName);
             }
+            // other user properties
+            propertyMgr.addUserResource(userIdent.getQualifiedUser());
 
             // 5. update password policy
             passwdPolicyManager.updatePolicy(userIdent, password, passwordOptions);

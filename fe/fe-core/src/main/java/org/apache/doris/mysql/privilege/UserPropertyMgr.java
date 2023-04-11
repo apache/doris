@@ -54,6 +54,17 @@ public class UserPropertyMgr implements Writable {
     public UserPropertyMgr() {
     }
 
+    public void addUserResource(String qualifiedUser) {
+        UserProperty property = propertyMap.get(qualifiedUser);
+        if (property != null) {
+            return;
+        }
+
+        property = new UserProperty(qualifiedUser);
+        propertyMap.put(qualifiedUser, property);
+        resourceVersion.incrementAndGet();
+    }
+
     public void dropUser(UserIdentity userIdent) {
         if (propertyMap.remove(userIdent.getQualifiedUser()) != null) {
             LOG.info("drop user {} from user property manager", userIdent.getQualifiedUser());
@@ -112,10 +123,6 @@ public class UserPropertyMgr implements Writable {
             return UserProperty.INVALID_RESOURCE_TAGS;
         }
         return existProperty.getCopiedResourceTags();
-    }
-
-    public int getPropertyMapSize() {
-        return propertyMap.size();
     }
 
     public Pair<String, DppConfig> getLoadClusterInfo(String qualifiedUser, String cluster) throws DdlException {
