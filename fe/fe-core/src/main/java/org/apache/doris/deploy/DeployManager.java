@@ -364,8 +364,13 @@ public class DeployManager extends MasterDaemon {
             isRunning = false;
             return;
         }
-        processPolling();
-        isRunning = false;
+
+        try {
+            processPolling();
+        } catch (Exception e) {
+            LOG.warn("failed to process polling", e);
+            isRunning = false;
+        }
     }
 
     private void processPolling() {
