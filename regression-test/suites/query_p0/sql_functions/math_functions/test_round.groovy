@@ -18,7 +18,6 @@
 suite("test_round") {
     // vectorized
     sql """ set enable_vectorized_engine = true """
-
     qt_select "SELECT round(10.12345)"
     qt_select "SELECT round(10.12345, 2)"
 
