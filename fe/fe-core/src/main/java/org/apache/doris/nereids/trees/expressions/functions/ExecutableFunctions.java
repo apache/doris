@@ -955,6 +955,39 @@ public class ExecutableFunctions {
     }
 
     /**
+     * datetime arithmetic function day-of-week
+     */
+    @ExecFunction(name = "dayofweek", argTypes = {"DATE"}, returnType = "INT")
+    public static IntegerLiteral firstDayOfWeek(DateLiteral date) {
+        return new IntegerLiteral(distanceToFirstDayOfWeek(date.getYear(), date.getMonth(), date.getDay()));
+    }
+
+    @ExecFunction(name = "dayofweek", argTypes = {"DATETIME"}, returnType = "INT")
+    public static IntegerLiteral firstDayOfWeek(DateTimeLiteral date) {
+        return new IntegerLiteral(distanceToFirstDayOfWeek(date.getYear(), date.getMonth(), date.getDay()));
+    }
+
+    @ExecFunction(name = "dayofweek", argTypes = {"DATEV2"}, returnType = "INT")
+    public static IntegerLiteral firstDayOfWeek(DateV2Literal date) {
+        return new IntegerLiteral(distanceToFirstDayOfWeek(date.getYear(), date.getMonth(), date.getDay()));
+    }
+
+    @ExecFunction(name = "dayofweek", argTypes = {"DATETIMEV2"}, returnType = "INT")
+    public static IntegerLiteral firstDayOfWeek(DateTimeV2Literal date) {
+        return new IntegerLiteral(distanceToFirstDayOfWeek(date.getYear(), date.getMonth(), date.getDay()));
+    }
+
+    private static int distanceToFirstDayOfWeek(long year, long month, long day) {
+        return LocalDate.of((int) year, (int) month, (int) day).getDayOfWeek().getValue() - 1;
+    }
+
+    private static long[] firstDayOfWeek(long year, long month, long day) {
+        int distance = distanceToFirstDayOfWeek(year, month, day);
+        DateLiteral temp = new DateLiteral(year, month, day).plusDays(-distance);
+        return new long[] {temp.getYear(), temp.getMonth(), temp.getDay()};
+    }
+
+    /**
      * datetime arithmetic function date-trunc
      */
     @ExecFunction(name = "date_trunc", argTypes = {"DATETIME", "VARCHAR"}, returnType = "DATETIME")
@@ -982,11 +1015,10 @@ public class ExecutableFunctions {
                 day = 1;
                 break;
             case "week": // CHECKSTYLE IGNORE THIS LINE
-                int distance = LocalDate.of((int) year, (int) month, (int) day).getDayOfWeek().getValue() - 1;
-                DateLiteral temp = new DateLiteral(year, month, day).plusDays(-distance);
-                year = temp.getYear();
-                month = temp.getMonth();
-                day = temp.getDay();
+                long[] ymd = firstDayOfWeek(year, month, day);
+                year = ymd[0];
+                month = ymd[1];
+                day = ymd[2];
             default: // CHECKSTYLE IGNORE THIS LINE
                 break;
         }
