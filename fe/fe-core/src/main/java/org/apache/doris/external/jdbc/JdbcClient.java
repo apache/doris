@@ -98,8 +98,10 @@ public class JdbcClient {
             dataSource.setUsername(jdbcUser);
             dataSource.setPassword(password);
             dataSource.setMinIdle(1);
-            dataSource.setInitialSize(2);
-            dataSource.setMaxActive(5);
+            dataSource.setInitialSize(1);
+            dataSource.setMaxActive(10);
+            dataSource.setTimeBetweenEvictionRunsMillis(600000);
+            dataSource.setMinEvictableIdleTimeMillis(300000);
             // set connection timeout to 5s.
             // The default is 30s, which is too long.
             // Because when querying information_schema db, BE will call thrift rpc(default timeout is 30s)
