@@ -23,6 +23,7 @@ import (
     "context"
     "encoding/base64"
     "encoding/json"
+    "flag"
     "fmt"
     "io/ioutil"
     "net/http"
@@ -40,12 +41,19 @@ import (
     "github.com/elastic/beats/v7/libbeat/outputs/outest"
 )
 
+var fenodes = flag.String("fenodes", "http://localhost:8030", "fe node address")
+var user = flag.String("user", "root", "doris user")
+var password = flag.String("password", "", "doris password")
+var database = flag.String("database", "test", "doris database")
+
 func TestDorisPublish(t *testing.T) {
     dorisConfig := map[string]interface{}{
-        "fenodes":  [...]string{"http://localhost:8030"},
-        "user":     "root",
-        "password": "",
+        "fenodes":  strings.Split(*fenodes, ","),
+        "user":     *user,
+        "password": *password,
+        "database": *database,
     }
+    fmt.Println(dorisConfig)
     testDorisPublishMessage(t, dorisConfig)
 }
 
@@ -78,10 +86,9 @@ func testDorisPublishMessage(t *testing.T, cfg map[string]interface{}) {
         {
             "test csv events",
             map[string]interface{}{
-                "database":            "test",
                 "table":               "test_beats_csv",
                 "codec_format_string": "%{[message]},%{[@timestamp]},%{[@metadata.type]}",
-                "header": map[string]interface{}{
+                "headers": map[string]interface{}{
                     "column_separator": ",",
                 },
             },
@@ -117,10 +124,9 @@ func testDorisPublishMessage(t *testing.T, cfg map[string]interface{}) {
         {
             "test json events",
             map[string]interface{}{
-                "database":            "test",
                 "table":               "test_beats_json",
                 "codec_format_string": "%{[message]}",
-                "header": map[string]interface{}{
+                "headers": map[string]interface{}{
                     "format":            "json",
                     "read_json_by_line": true,
                 },
@@ -157,10 +163,9 @@ func testDorisPublishMessage(t *testing.T, cfg map[string]interface{}) {
         {
             "test codec events",
             map[string]interface{}{
-                "database":            "test",
                 "table":               "test_beats_codec",
-                "codec_format_string": "{\"id\": %{[fields.id]}, \"name\": \"%{[fields.name]}\", \"timestamp\": %{[@timestamp]}, \"type\": \"%{[@metadata.type]}\"}",
-                "header": map[string]interface{}{
+                "codec_format_string": "{\"id\": %{[fields.id]}, \"name\": \"%{[fields.name]}\", \"timestamp\": \"%{[@timestamp]}\", \"type\": \"%{[@metadata.type]}\"}",
+                "headers": map[string]interface{}{
                     "format":            "json",
                     "read_json_by_line": true,
                 },
@@ -234,37 +239,32 @@ func testDorisPublishMessage(t *testing.T, cfg map[string]interface{}) {
 }
 
 type httpResponse struct {
-    data httpResponseData `json:"data"`
-}
-
-type httpResponseData struct {
-    size   int64 `json:"size"`
-    status int32 `json:"status"`
+    data map[string]int64 `json:"data"`
 }
 
 func testReadFromDoris(t *testing.T, config *common.Config) int64 {
-    fenodes, err := config.String("fenodes", 0)
-    if err != nil {
-        t.Fatal(err)
+    fenode, feErr := config.String("fenodes", 0)
+    if feErr != nil {
+        t.Fatal(feErr)
     }
-    user, err := config.String("user", -1)
-    if err != nil {
-        t.Fatal(err)
+    user, userErr := config.String("user", -1)
+    if userErr != nil {
+        t.Fatal(userErr)
     }
-    password, err := config.String("password", -1)
-    if err != nil {
-        t.Fatal(err)
+    password, pwErr := config.String("password", -1)
+    if pwErr != nil {
+        t.Fatal(pwErr)
     }
-    database, err := config.String("database", -1)
-    if err != nil {
-        t.Fatal(err)
+    database, dbErr := config.String("database", -1)
+    if dbErr != nil {
+        t.Fatal(dbErr)
     }
-    table, err := config.String("table", -1)
-    if err != nil {
-        t.Fatal(err)
+    table, tableErr := config.String("table", -1)
+    if tableErr != nil {
+        t.Fatal(tableErr)
     }
 
-    getTableCountURL := fmt.Sprintf("%s/api/%s/%s/_count", fenodes, database, table)
+    getTableCountURL := fmt.Sprintf("%s/api/rowcount?db=%s&table=%s", fenode, database, table)
     request, requestErr := http.NewRequest(http.MethodGet, getTableCountURL, strings.NewReader(""))
     request.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(user+":"+password)))
     if requestErr != nil {
@@ -272,17 +272,17 @@ func testReadFromDoris(t *testing.T, config *common.Config) int64 {
     }
     resp, responseErr := http.DefaultClient.Do(request)
     if responseErr != nil || resp.StatusCode >= 300 || resp.StatusCode < 200 {
-        t.Fatal(err)
+        t.Fatal(responseErr)
     }
 
     defer resp.Body.Close()
-    body, err := ioutil.ReadAll(resp.Body)
-    if err != nil {
-        t.Fatal(err)
+    body, readErr := ioutil.ReadAll(resp.Body)
+    if readErr != nil {
+        t.Fatal(readErr)
     }
     var response httpResponse
-    if err := json.Unmarshal(body, &response); err != nil {
-        t.Fatal(err)
+    if jsonErr := json.Unmarshal(body, &response); jsonErr != nil {
+        t.Fatal(jsonErr)
     }
-    return response.data.size
+    return response.data[table]
 }
