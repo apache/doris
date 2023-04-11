@@ -178,7 +178,7 @@ Doris支持基于SSL的加密连接，当前支持TLS1.2，TLS1.3协议，可以
 
 4.`mysql --ssl-mode=VERIFY_CA --ssl-ca=ca.pem -uroot -P9030 -h127.0.0.1`，强制使用SSL加密连接，并且通过指定CA证书验证服务端身份是否有效。
 
-5.`mysql --ssl-mode=VERIFY_CA --ssl-ca=ca.pem --ssl-cert client-cert.pem --ssl-key client-key.pem -uroot -P9030 -h127.0.0.1`，强制使用SSL加密连接，双向验证。
+5.`mysql --ssl-mode=VERIFY_CA --ssl-ca=ca.pem --ssl-cert=client-cert.pem --ssl-key=client-key.pem -uroot -P9030 -h127.0.0.1`，强制使用SSL加密连接，双向验证。
 
 
 >注意：

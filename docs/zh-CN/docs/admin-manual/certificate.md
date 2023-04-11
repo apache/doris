@@ -29,7 +29,7 @@ under the License.
 Doris开启SSL功能需要配置CA密钥证书和Server端密钥证书，如需开启双向认证，还需生成Client端密钥证书：
 * 默认的CA密钥证书文件位于`Doris/fe/mysql_ssl_default_certificate/ca_certificate.p12`，默认密码为`doris`，您可以通过修改FE配置文件`conf/fe.conf`，添加`mysql_ssl_default_ca_certificate = /path/to/your/certificate`修改CA密钥证书文件，同时也可以通过`mysql_ssl_default_ca_certificate_password = your_password`添加对应您自定义密钥证书文件的密码。
 * 默认的Server端密钥证书文件位于`Doris/fe/mysql_ssl_default_certificate/server_certificate.p12`，默认密码为`doris`，您可以通过修改FE配置文件`conf/fe.conf`，添加`mysql_ssl_default_server_certificate = /path/to/your/certificate`修改Server端密钥证书文件，同时也可以通过`mysql_ssl_default_server_certificate_password = your_password`添加对应您自定义密钥证书文件的密码。
-* 默认生成了一份Client端的密钥证书，分别存放在`Doris/fe/mysql_ssl_default_certificate/client-key.pem`和`Doris/fe/mysql_ssl_default_certificate/client-cert.pem`。
+* 默认生成了一份Client端的密钥证书，分别存放在`Doris/fe/mysql_ssl_default_certificate/client-key.pem`和`Doris/fe/mysql_ssl_default_certificate/client_certificate/`。
 
 ## 自定义密钥证书文件
 
