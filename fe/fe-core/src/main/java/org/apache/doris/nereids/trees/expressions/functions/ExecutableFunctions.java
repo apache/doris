@@ -40,6 +40,7 @@ import org.apache.doris.nereids.util.DateUtils;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.time.LocalDate;
 import java.util.Calendar;
 import java.util.Random;
 import java.util.UUID;
@@ -958,15 +959,64 @@ public class ExecutableFunctions {
      */
     @ExecFunction(name = "date_trunc", argTypes = {"DATETIME", "VARCHAR"}, returnType = "DATETIME")
     public static DateTimeLiteral dateTrunc(DateTimeLiteral date, VarcharLiteral trunc) {
-        return new DateTimeLiteral();
+        long[] timeTags = dateTruncHelper(date.getYear(), date.getMonth(), date.getDay(),
+                date.getHour(), date.getMinute(), date.getSecond(), trunc.getValue());
+        return new DateTimeLiteral(timeTags[0], timeTags[1], timeTags[2], timeTags[3], timeTags[4], timeTags[5]);
     }
 
     @ExecFunction(name = "date_trunc", argTypes = {"DATETIMEV2", "VARCHAR"}, returnType = "DATETIMEV2")
     public static DateTimeV2Literal dateTrunc(DateTimeV2Literal date, VarcharLiteral trunc) {
-        return new DateTimeV2Literal();
+        long[] timeTags = dateTruncHelper(date.getYear(), date.getMonth(), date.getDay(),
+                date.getHour(), date.getMinute(), date.getSecond(), trunc.getValue());
+        return new DateTimeV2Literal(timeTags[0], timeTags[1], timeTags[2], timeTags[3], timeTags[4], timeTags[5], 0);
     }
 
-    private Date
+    private static long[] dateTruncHelper(long year, long month, long day, long hour, long minute, long second,
+            String trunc) {
+        switch (trunc.toLowerCase()) {
+            case "year":
+                month = 0;
+            case "quarter": // CHECKSTYLE IGNORE THIS LINE
+                month = ((month - 1) / 4) * 4 + 1;
+            case "month": // CHECKSTYLE IGNORE THIS LINE
+                day = 1;
+                break;
+            case "week": // CHECKSTYLE IGNORE THIS LINE
+                int distance = LocalDate.of((int) year, (int) month, (int) day).getDayOfWeek().getValue() - 1;
+                DateLiteral temp = new DateLiteral(year, month, day).plusDays(-distance);
+                year = temp.getYear();
+                month = temp.getMonth();
+                day = temp.getDay();
+            default: // CHECKSTYLE IGNORE THIS LINE
+                break;
+        }
+        switch (trunc.toLowerCase()) {
+            default: // CHECKSTYLE IGNORE THIS LINE
+            case "day": // CHECKSTYLE IGNORE THIS LINE
+                hour = 0;
+            case "hour": // CHECKSTYLE IGNORE THIS LINE
+                minute = 0;
+            case "minute": // CHECKSTYLE IGNORE THIS LINE
+                second = 0;
+        }
+        return new long[] {year, month, day, hour, minute, second};
+    }
+
+    /**
+     * datetime arithmetic function date-v2
+     */
+    @ExecFunction(name = "date", argTypes = {"DATETIMEV2"}, returnType = "DATEV2")
+    public static DateV2Literal dateV2(DateTimeV2Literal dateTime) throws AnalysisException {
+        return new DateV2Literal(dateTime.getYear(), dateTime.getMonth(), dateTime.getDay());
+    }
+
+    /**
+     * datetime arithmetic function year-ceil
+     */
+    @ExecFunction(name = "date", argTypes = {"DATETIME"}, returnType = "DATETIME")
+    public static DateTimeLiteral yearCeil(DateTimeLiteral dateTime) throws AnalysisException {
+        return null;
+    }
 
     /**
      * other scalar function
