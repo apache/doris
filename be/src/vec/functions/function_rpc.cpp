@@ -522,30 +522,10 @@ void RPCFnImpl::_convert_block_to_proto(Block& block, const ColumnNumbers& argum
 
 void RPCFnImpl::_convert_to_block(Block& block, const PValues& result, size_t pos) {
     auto data_type = block.get_data_type(pos);
-    if (data_type->is_nullable()) {
-        auto null_type = std::reinterpret_pointer_cast<const DataTypeNullable>(data_type);
-        auto data_col = null_type->get_nested_type()->create_column();
-        _convert_to_column<true>(data_col, result);
-        auto null_col = ColumnUInt8::create(data_col->size(), 0);
-        auto& null_map_data = null_col->get_data();
-        null_col->reserve(data_col->size());
-        null_col->resize(data_col->size());
-        if (result.has_null()) {
-            for (int i = 0; i < data_col->size(); ++i) {
-                null_map_data[i] = result.null_map(i);
-            }
-        } else {
-            for (int i = 0; i < data_col->size(); ++i) {
-                null_map_data[i] = false;
-            }
-        }
-        block.replace_by_position(pos,
-                                  ColumnNullable::create(std::move(data_col), std::move(null_col)));
-    } else {
-        auto column = data_type->create_column();
-        _convert_to_column<false>(column, result);
-        block.replace_by_position(pos, std::move(column));
-    }
+    auto col = data_type->create_column();
+    auto serde = data_type->get_serde();
+    serde->read_column_from_pb(*col, result);
+    block.replace_by_position(pos, std::move(col));
 }
 
 FunctionRPC::FunctionRPC(const TFunction& fn, const DataTypes& argument_types,
