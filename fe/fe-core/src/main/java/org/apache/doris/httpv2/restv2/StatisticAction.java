@@ -52,7 +52,7 @@ public class StatisticAction extends RestBaseController {
 
         try {
             if (!Env.getCurrentEnv().isMaster()) {
-                return redirectToMaster(request, response);
+                return redirectToMasterOrException(request, response);
             }
         } catch (Exception e) {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());

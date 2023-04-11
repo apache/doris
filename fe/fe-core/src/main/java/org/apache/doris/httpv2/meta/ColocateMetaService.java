@@ -86,7 +86,7 @@ public class ColocateMetaService extends RestBaseController {
     public Object executeWithoutPassword(HttpServletRequest request, HttpServletResponse response)
             throws Exception {
         executeCheckPassword(request, response);
-        RedirectView redirectView = redirectToMaster(request, response);
+        RedirectView redirectView = redirectToMasterOrException(request, response);
         if (redirectView != null) {
             return redirectView;
         }

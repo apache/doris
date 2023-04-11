@@ -144,7 +144,7 @@ public class NodeAction extends RestBaseController {
             throws Exception {
         try {
             if (!Env.getCurrentEnv().isMaster()) {
-                return redirectToMaster(request, response);
+                return redirectToMasterOrException(request, response);
             }
 
             ProcResult procResult = ProcService.getInstance().open(procPath).fetchResult();
@@ -597,7 +597,7 @@ public class NodeAction extends RestBaseController {
             @RequestBody BackendReqInfo reqInfo) {
         try {
             if (!Env.getCurrentEnv().isMaster()) {
-                return redirectToMaster(request, response);
+                return redirectToMasterOrException(request, response);
             }
 
             List<String> hostPorts = reqInfo.getHostPorts();
@@ -641,7 +641,7 @@ public class NodeAction extends RestBaseController {
             @PathVariable String action, @RequestBody FrontendReqInfo reqInfo) {
         try {
             if (!Env.getCurrentEnv().isMaster()) {
-                return redirectToMaster(request, response);
+                return redirectToMasterOrException(request, response);
             }
 
             String role = reqInfo.getRole();

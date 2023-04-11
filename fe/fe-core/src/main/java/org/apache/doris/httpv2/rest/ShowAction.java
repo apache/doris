@@ -116,7 +116,7 @@ public class ShowAction extends RestBaseController {
         // forward to master if necessary
         if (!Env.getCurrentEnv().isMaster() && isForward) {
             try {
-                RedirectView redirectView = redirectToMaster(request, response);
+                RedirectView redirectView = redirectToMasterOrException(request, response);
                 Preconditions.checkNotNull(redirectView);
                 return redirectView;
             } catch (Exception e) {
