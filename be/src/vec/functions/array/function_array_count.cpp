@@ -78,7 +78,7 @@ public:
         } else {
             nested_column = array_column->get_data_ptr();
         }
-        
+
         // execute
         ColumnPtr return_column = nullptr;
         if (check_column<ColumnUInt8>(*nested_column)) {
