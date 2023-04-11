@@ -62,7 +62,7 @@ public class UdfBinder {
         if (catalogFunction instanceof ScalarFunction) {
             return handleJavaUdf(function, ((ScalarFunction) catalogFunction));
         } else if (catalogFunction instanceof AggregateFunction) {
-            return handleJavaUDAF(function, ((AggregateFunction) catalogFunction));
+            return handleJavaUdaf(function, ((AggregateFunction) catalogFunction));
         } else if (catalogFunction instanceof AliasFunction) {
             return handleAliasFunction(function, ((AliasFunction) catalogFunction), context);
         }
@@ -107,7 +107,7 @@ public class UdfBinder {
                 nereidsFunction.children().toArray(new Expression[0])));
     }
 
-    private Expression handleJavaUDAF(UnboundFunction nereidsFunction, AggregateFunction catalogFunction) {
+    private Expression handleJavaUdaf(UnboundFunction nereidsFunction, AggregateFunction catalogFunction) {
         return TypeCoercionUtils.processBoundFunction(new JavaUdaf(catalogFunction,
                 getFunctionSignature(catalogFunction),
                 nereidsFunction.getName(),
