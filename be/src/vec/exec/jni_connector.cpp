@@ -354,10 +354,11 @@ Status JniConnector::generate_meta_info(Block* block, std::unique_ptr<long[]>& m
         }
 
         switch (logical_type) {
-#define DISPATCH(NUMERIC_TYPE, CPP_NUMERIC_TYPE) \
-    case NUMERIC_TYPE:                           \
-        meta_data.emplace_back(_get_numeric_data_address<CPP_NUMERIC_TYPE>(data_column));
-            break;
+#define DISPATCH(NUMERIC_TYPE, CPP_NUMERIC_TYPE)                                          \
+    case NUMERIC_TYPE: {                                                                  \
+        meta_data.emplace_back(_get_numeric_data_address<CPP_NUMERIC_TYPE>(data_column)); \
+        break;                                                                            \
+    }
             FOR_LOGICAL_NUMERIC_TYPES(DISPATCH)
 #undef DISPATCH
         case TypeIndex::Decimal128:
