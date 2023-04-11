@@ -182,6 +182,7 @@ under the License.
                             <overWriteReleases>false</overWriteReleases>
                             <overWriteSnapshots>false</overWriteSnapshots>
                             <overWriteIfNewer>true</overWriteIfNewer>
+                            <includeScope>runtime</includeScope>
                             <skip>${skip.plugin}</skip>
                         </configuration>
                     </execution>
