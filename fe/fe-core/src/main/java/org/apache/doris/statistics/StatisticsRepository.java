@@ -83,6 +83,13 @@ public class StatisticsRepository {
     private static final String DROP_TABLE_HISTOGRAM_TEMPLATE = "DELETE FROM " + FeConstants.INTERNAL_DB_NAME
             + "." + StatisticConstants.HISTOGRAM_TBL_NAME + " WHERE ${condition}";
 
+    private static final String FETCH_RECENT_STATS_UPDATED_COL =
+            "SELECT * FROM "
+                    + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.STATISTIC_TBL_NAME
+                    + " WHERE part_id is NULL "
+                    + " ORDER BY update_time DESC LIMIT "
+                    + StatisticConstants.STATISTICS_RECORDS_CACHE_SIZE;
+
     public static ColumnStatistic queryColumnStatisticsByName(long tableId, String colName) {
         ResultRow resultRow = queryColumnStatisticById(tableId, colName);
         if (resultRow == null) {
@@ -103,8 +110,8 @@ public class StatisticsRepository {
             partitionIds.add(partition.getId());
         }
         return queryPartitionStatistics(dbObjects.table.getId(),
-                    colName, partitionIds).stream().map(ColumnStatistic::fromResultRow).collect(
-                    Collectors.toList());
+                colName, partitionIds).stream().map(ColumnStatistic::fromResultRow).collect(
+                Collectors.toList());
     }
 
     public static ResultRow queryColumnStatisticById(long tblId, String colName) {
@@ -259,16 +266,8 @@ public class StatisticsRepository {
         params.put("max", max == null ? "NULL" : max);
         params.put("dataSize", String.valueOf(columnStatistic.dataSize));
         StatisticsUtil.execUpdate(INSERT_INTO_COLUMN_STATISTICS, params);
-
-        Histogram histogram = Env.getCurrentEnv().getStatisticsCache()
-                .getHistogram(objects.table.getId(), -1, colName);
-
-        ColumnLevelStatisticCache statistic = new ColumnLevelStatisticCache();
-        statistic.setHistogram(histogram);
-        statistic.setColumnStatistic(builder.build());
-
         Env.getCurrentEnv().getStatisticsCache()
-                .updateCache(objects.table.getId(), -1, colName, statistic);
+                .updateColStatsCache(objects.table.getId(), -1, colName, builder.build());
     }
 
     public static void dropTableStatistics(DropTableStatsStmt dropTableStatsStmt) {
@@ -278,5 +277,9 @@ public class StatisticsRepository {
         Set<Long> partIds = dropTableStatsStmt.getPartitionIds();
         dropHistogram(dbId, tbIds, cols, partIds);
         dropStatistics(dbId, tbIds, cols, partIds);
+    }
+
+    public static List<ResultRow> fetchRecentStatsUpdatedCol() {
+        return StatisticsUtil.execStatisticQuery(FETCH_RECENT_STATS_UPDATED_COL);
     }
 }
