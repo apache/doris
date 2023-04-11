@@ -22,6 +22,9 @@ import java.nio.file.Files
 import java.nio.file.Paths
 
 suite("nereids_test_javaudf_md5") {
+    sql 'set enable_nereids_planner=true'
+    sql 'set enable_fallback_to_original_planner=false'
+
     def tableName = "test_javaudf_md5"
     File path = new File("${context.file.parent}")
     def jarPath = """${path.getParent()}/../../../java-udf-src/target/java-udf-case-jar-with-dependencies.jar"""
