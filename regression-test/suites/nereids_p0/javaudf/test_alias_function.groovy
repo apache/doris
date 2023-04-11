@@ -20,6 +20,10 @@ suite("nereids_alias_function") {
     sql 'set enable_fallback_to_original_planner=false'
     sql 'use test_query_db'
 
+    sql 'drop function if exists f1(datetimev2(3), int)'
+    sql 'drop function if exists f2(datetimev2(3), int)'
+    sql 'drop function if exists f3(int)'
+
     sql '''
     create alias function f1(datetimev2(3), int) with parameter (datetime1, int1) as
         date_trunc(days_sub(datetime1, int1), 'day')
@@ -36,8 +40,8 @@ suite("nereids_alias_function") {
     '''
 
     test {
-        sql 'select f1(\'2023-06-01\', 3)'
-        result([['2023-05-30 00:00:00']])
+        sql 'select cast(f1(\'2023-06-01\', 3) as string);'
+        result([['2023-05-29 00:00:00']])
     }
     test {
         sql 'select f2(f1(\'2023-05-20\', 2), 3)'
@@ -48,7 +52,7 @@ suite("nereids_alias_function") {
         result([['20230518:01']])
     }
     test {
-        sql 'select f1(\'2023-06-01\', k1) from test order by k1'
+        sql 'select cast(f1(\'2023-06-01\', k1) as string) from test order by k1'
         result([
                 ['2023-05-31 00:00:00'],
                 ['2023-05-30 00:00:00'],
