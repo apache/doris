@@ -973,6 +973,7 @@ public class Env {
                 // frontends must be empty cause no image is loaded and no journal is replayed yet.
                 // And this frontend will be persisted later after opening bdbje environment.
                 frontends.put(nodeName, self);
+                LOG.info("add self frontend: {}", self);
             } else {
                 clusterId = storage.getClusterID();
                 if (storage.getToken() == null) {
@@ -1175,7 +1176,7 @@ public class Env {
         String hostName = Strings.nullToEmpty(FrontendOptions.getHostName());
         selfNode = new HostInfo(FrontendOptions.getLocalHostAddress(), hostName,
                 Config.edit_log_port);
-        LOG.debug("get self node: {}", selfNode);
+        LOG.info("get self node: {}", selfNode);
     }
 
     private void getHelperNodes(String[] args) throws Exception {

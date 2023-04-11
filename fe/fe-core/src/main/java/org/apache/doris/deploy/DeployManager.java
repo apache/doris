@@ -355,7 +355,7 @@ public class DeployManager extends MasterDaemon {
         }
 
         if (isRunning) {
-            LOG.warn("Last task not finished,ignore current task.");
+            LOG.warn("Last task not finished, ignore current task.");
             return;
         }
         isRunning = true;

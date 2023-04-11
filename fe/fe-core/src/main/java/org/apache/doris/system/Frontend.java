@@ -194,6 +194,7 @@ public class Frontend implements Writable {
         sb.append("name: ").append(nodeName).append(", role: ").append(role.name());
         sb.append(", hostname: ").append(hostName);
         sb.append(", ").append(ip).append(":").append(editLogPort);
+        sb.append(", is alive: ").append(isAlive);
         return sb.toString();
     }
 

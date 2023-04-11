@@ -201,6 +201,9 @@ public class BDBEnvironment {
     }
 
     public ReplicationGroupAdmin getReplicationGroupAdmin() {
+        for (Frontend fe : Env.getCurrentEnv().getFrontends(null)) {
+            LOG.info("debug fe: {}", fe);
+        }
         Set<InetSocketAddress> addresses = Env.getCurrentEnv()
                 .getFrontends(FrontendNodeType.FOLLOWER)
                 .stream()
