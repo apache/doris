@@ -165,7 +165,7 @@ GeoCoordinateList WkbParse::readCoordinateList(unsigned size, WkbParseContext* c
 }
 
 GeoParseStatus WkbParse::minMemSize(int wkbType, uint64_t size, WkbParseContext* ctx) {
-    uint64_t minSize;
+    uint64_t minSize = 0;
     constexpr uint64_t minCoordSize = 2 * sizeof(double);
     //constexpr uint64_t minPtSize = (1+4) + minCoordSize;
     //constexpr uint64_t minLineSize = (1+4+4); // empty line
