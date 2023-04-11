@@ -247,6 +247,11 @@ if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/libbacktrace.a" ]]; then
     fi
 fi
 
+if [[ ! -f "${DORIS_HOME}/be/src/apache-orc/README.md " ]]; then
+    echo "apache-orc not exists, need to update submodules ..."
+    git submodule update --init --recursive
+fi
+
 if [[ "${CLEAN}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 && "${BUILD_SPARK_DPP}" -eq 0 ]]; then
     clean_gensrc
     clean_be
