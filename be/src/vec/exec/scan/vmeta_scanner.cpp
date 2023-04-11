@@ -243,8 +243,8 @@ Status VMetaScanner::_build_backends_metadata_request(const TMetaScanRange& meta
     return Status::OK();
 }
 
-Status VMetaScanner::_build_resource_groups_metadata_request(const TMetaScanRange& meta_scan_range,
-                                                             TFetchSchemaTableDataRequest* request) {
+Status VMetaScanner::_build_resource_groups_metadata_request(
+        const TMetaScanRange& meta_scan_range, TFetchSchemaTableDataRequest* request) {
     VLOG_CRITICAL << "VMetaScanner::_build_resource_groups_metadata_request";
 
     // create request
@@ -254,7 +254,6 @@ Status VMetaScanner::_build_resource_groups_metadata_request(const TMetaScanRang
     // create TMetadataTableRequestParams
     TMetadataTableRequestParams metadata_table_params;
     metadata_table_params.__set_metadata_type(TMetadataType::RESOURCE_GROUPS);
-    // metadata_table_params.__set_resource_groups_metadata_params(meta_scan_range.resource_groups_params);
 
     request->__set_metada_table_params(metadata_table_params);
     return Status::OK();
