@@ -48,7 +48,7 @@ SHOW CREATE REPOSITORY for repository_name;
 1. 展示指定仓库的创建语句
 
    ```sql
-   SHOW CREATE REPOSITORY for test_repo
+   SHOW CREATE REPOSITORY for test_repository
    ```
 
 ### Keywords
