@@ -69,14 +69,14 @@ public class MysqlSslContext {
             KeyStore ks = KeyStore.getInstance("PKCS12");
             KeyStore ts = KeyStore.getInstance("PKCS12");
 
-            char[] caPassword = caCertificatePassword.toCharArray();
             char[] serverPassword = serverCertificatePassword.toCharArray();
+            char[] caPassword = caCertificatePassword.toCharArray();
 
-            ks.load(Files.newInputStream(Paths.get(keyStoreFile)), caPassword);
-            ts.load(Files.newInputStream(Paths.get(trustStoreFile)), serverPassword);
+            ks.load(Files.newInputStream(Paths.get(keyStoreFile)), serverPassword);
+            ts.load(Files.newInputStream(Paths.get(trustStoreFile)), caPassword);
 
             KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
-            kmf.init(ks, caPassword);
+            kmf.init(ks, serverPassword);
 
             TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
             tmf.init(ts);
