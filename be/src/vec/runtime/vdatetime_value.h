@@ -1122,7 +1122,7 @@ public:
     static constexpr int MAX_DATE_PARTS = 7;
     static constexpr uint32_t MAX_TIME_PART_VALUE[3] = {23, 59, 59};
 
-    void format_datetime(uint32_t* date_val) const;
+    void format_datetime(uint32_t* date_v, bool* carry_bits) const;
 
 private:
     static uint8_t calc_week(const uint32_t& day_nr, const uint16_t& year, const uint8_t& month,
