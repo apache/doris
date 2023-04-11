@@ -1232,7 +1232,12 @@ public class FunctionSet<T> {
         List<Function> normalFunctions = Lists.newArrayList();
         List<Function> templateFunctions = Lists.newArrayList();
         List<Function> variadicTemplateFunctions = Lists.newArrayList();
+        List<Function> inferenceFunctions = Lists.newArrayList();
         for (Function fn : fns) {
+            if (fn.isInferenceFunction()) {
+                inferenceFunctions.add(fn);
+                continue;
+            }
             if (fn.hasTemplateArg()) {
                 if (!fn.hasVariadicTemplateArg()) {
                     templateFunctions.add(fn);
@@ -1274,8 +1279,25 @@ public class FunctionSet<T> {
             }
         }
 
-        // try variadic template function
-        return getFunction(desc, mode, specializedVariadicTemplateFunctions);
+        // try variadic template function third
+        fn = getFunction(desc, mode, specializedVariadicTemplateFunctions);
+        if (fn != null) {
+            return fn;
+        }
+
+        List<Function> inferredFunctions = Lists.newArrayList();
+        for (Function f : inferenceFunctions) {
+            if (f.hasTemplateArg()) {
+                f = specializeTemplateFunction(f, desc, f.hasVariadicTemplateArg());
+            }
+            f = resolveInferenceFunction(f, desc);
+            if (f != null) {
+                inferredFunctions.add(f);
+            }
+        }
+
+        // try inference function at last
+        return getFunction(desc, mode, inferredFunctions);
     }
 
     private Function getFunction(Function desc, Function.CompareMode mode, List<Function> fns) {
@@ -1382,6 +1404,17 @@ public class FunctionSet<T> {
             }
             return null;
         }
+    }
+
+    public Function resolveInferenceFunction(Function inferenceFunction, Function requestFunction) {
+        Type[] args = requestFunction.getArgs();
+        Type newRetType = FunctionTypeDeducers.deduce(inferenceFunction.functionName(), args);
+        if (newRetType != null && inferenceFunction instanceof ScalarFunction) {
+            ScalarFunction f = (ScalarFunction) inferenceFunction;
+            return new ScalarFunction(f.getFunctionName(), Lists.newArrayList(f.getArgs()), newRetType, f.hasVarArgs(),
+                    f.getSymbolName(), f.getBinaryType(), f.isUserVisible(), f.isVectorized(), f.getNullableMode());
+        }
+        return null;
     }
 
     /**
