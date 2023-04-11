@@ -958,22 +958,22 @@ public class ExecutableFunctions {
      * datetime arithmetic function day-of-week
      */
     @ExecFunction(name = "dayofweek", argTypes = {"DATE"}, returnType = "INT")
-    public static IntegerLiteral firstDayOfWeek(DateLiteral date) {
+    public static IntegerLiteral dayOfWeek(DateLiteral date) {
         return new IntegerLiteral(distanceToFirstDayOfWeek(date.getYear(), date.getMonth(), date.getDay()));
     }
 
     @ExecFunction(name = "dayofweek", argTypes = {"DATETIME"}, returnType = "INT")
-    public static IntegerLiteral firstDayOfWeek(DateTimeLiteral date) {
+    public static IntegerLiteral dayOfWeek(DateTimeLiteral date) {
         return new IntegerLiteral(distanceToFirstDayOfWeek(date.getYear(), date.getMonth(), date.getDay()));
     }
 
     @ExecFunction(name = "dayofweek", argTypes = {"DATEV2"}, returnType = "INT")
-    public static IntegerLiteral firstDayOfWeek(DateV2Literal date) {
+    public static IntegerLiteral dayOfWeek(DateV2Literal date) {
         return new IntegerLiteral(distanceToFirstDayOfWeek(date.getYear(), date.getMonth(), date.getDay()));
     }
 
     @ExecFunction(name = "dayofweek", argTypes = {"DATETIMEV2"}, returnType = "INT")
-    public static IntegerLiteral firstDayOfWeek(DateTimeV2Literal date) {
+    public static IntegerLiteral dayOfWeek(DateTimeV2Literal date) {
         return new IntegerLiteral(distanceToFirstDayOfWeek(date.getYear(), date.getMonth(), date.getDay()));
     }
 
@@ -1014,7 +1014,7 @@ public class ExecutableFunctions {
             case "month": // CHECKSTYLE IGNORE THIS LINE
                 day = 1;
                 break;
-            case "week": // CHECKSTYLE IGNORE THIS LINE
+            case "week":
                 long[] ymd = firstDayOfWeek(year, month, day);
                 year = ymd[0];
                 month = ymd[1];
