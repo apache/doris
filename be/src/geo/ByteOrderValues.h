@@ -15,9 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-using int64_t = long long;
-using int32_t = int;
-using uint32_t = unsigned int;
+#include <ctime>
+using int64_t = __int64_t;
+using int32_t = __int32_t;
+using uint32_t = __uint32_t;
 
 namespace doris {
 
