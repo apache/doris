@@ -19,13 +19,6 @@
 // https://github.com/apache/kudu/blob/master/src/kudu/util/block_bloom_filter.cc
 // and modified by Doris
 
-#ifdef __aarch64__
-#include <sse2neon.h>
-#else
-#include <emmintrin.h>
-#include <mm_malloc.h>
-#endif
-
 #include <butil/iobuf.h>
 
 #include <algorithm>
@@ -36,6 +29,7 @@
 #include <string>
 
 #include "exprs/block_bloom_filter.hpp"
+#include "util/sse_util.hpp"
 
 namespace doris {
 
