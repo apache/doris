@@ -94,6 +94,7 @@ public class ColumnStatistic {
     public final LiteralExpr minExpr;
     public final LiteralExpr maxExpr;
 
+    // assign value when do stats estimation.
     public final Histogram histogram;
 
     public ColumnStatistic(double count, double ndv, double originalNdv, double avgSizeByte,
@@ -154,7 +155,8 @@ public class ColumnStatistic {
             }
             columnStatisticBuilder.setSelectivity(1.0);
             columnStatisticBuilder.setOriginalNdv(ndv);
-            Histogram histogram = Env.getCurrentEnv().getStatisticsCache().getHistogram(tblId, idxId, colName);
+            Histogram histogram = Env.getCurrentEnv().getStatisticsCache().getHistogram(tblId, idxId, colName)
+                    .orElse(null);
             columnStatisticBuilder.setHistogram(histogram);
             return columnStatisticBuilder.build();
         } catch (Exception e) {

@@ -124,7 +124,7 @@ public class MVAnalysisTask extends BaseAnalysisTask {
             params.put("type", column.getType().toString());
             StatisticsUtil.execUpdate(ANALYZE_MV_COL, params);
             Env.getCurrentEnv().getStatisticsCache()
-                    .refreshSync(meta.getIndexId(), meta.getIndexId(), column.getName());
+                    .refreshColStatsSync(meta.getIndexId(), meta.getIndexId(), column.getName());
         }
     }
 

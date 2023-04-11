@@ -20,6 +20,7 @@ package org.apache.doris.statistics;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.StmtExecutor;
@@ -29,10 +30,18 @@ import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashSet;
+import java.util.Set;
+
 public abstract class BaseAnalysisTask {
 
     public static final Logger LOG = LogManager.getLogger(BaseAnalysisTask.class);
 
+    /**
+     * Stats stored in the column_statistics table basically has two types, `part_id` is null which means it is
+     * aggregate from partition level stats, `part_id` is not null which means it is partition level stats.
+     * For latter, it's id field contains part id, for previous doesn't.
+     */
     protected static final String INSERT_PART_STATISTICS = "INSERT INTO "
             + "${internalDB}.${columnStatTbl}"
             + " SELECT "
@@ -93,6 +102,8 @@ public abstract class BaseAnalysisTask {
 
     protected AnalysisState analysisState;
 
+    protected Set<PrimitiveType> unsupportedType = new HashSet<>();
+
     @VisibleForTesting
     public BaseAnalysisTask() {
 
@@ -104,7 +115,17 @@ public abstract class BaseAnalysisTask {
         init(info);
     }
 
+    protected void initUnsupportedType() {
+        unsupportedType.add(PrimitiveType.HLL);
+        unsupportedType.add(PrimitiveType.BITMAP);
+        unsupportedType.add(PrimitiveType.ARRAY);
+        unsupportedType.add(PrimitiveType.MAP);
+        unsupportedType.add(PrimitiveType.JSONB);
+        unsupportedType.add(PrimitiveType.STRUCT);
+    }
+
     private void init(AnalysisTaskInfo info) {
+        initUnsupportedType();
         catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(info.catalogName);
         if (catalog == null) {
             Env.getCurrentEnv().getAnalysisManager().updateTaskStatus(info, AnalysisState.FAILED,
@@ -127,9 +148,11 @@ public abstract class BaseAnalysisTask {
                 || info.analysisType.equals(AnalysisType.HISTOGRAM))) {
             col = tbl.getColumn(info.colName);
             if (col == null) {
-                Env.getCurrentEnv().getAnalysisManager().updateTaskStatus(
-                        info, AnalysisState.FAILED, String.format("Column with name %s not exists", info.tblName),
-                        System.currentTimeMillis());
+                throw new RuntimeException(String.format("Column with name %s not exists", info.tblName));
+            }
+            if (isUnsupportedType(col.getType().getPrimitiveType())) {
+                throw new RuntimeException(String.format("Column with type %s is not supported",
+                        col.getType().toString()));
             }
         }
 
@@ -163,6 +186,10 @@ public abstract class BaseAnalysisTask {
             return "SUM(LENGTH(`${colName}`))";
         }
         return "COUNT(1) * " + column.getType().getSlotSize();
+    }
+
+    private boolean isUnsupportedType(PrimitiveType type) {
+        return unsupportedType.contains(type);
     }
 
 }

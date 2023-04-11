@@ -1345,6 +1345,9 @@ public class Env {
         LOG.info(msg);
         // for master, there are some new thread pools need to register metric
         ThreadPoolManager.registerAllThreadPoolMetric();
+        if (analysisManager != null) {
+            analysisManager.getStatisticsCache().preHeat();
+        }
     }
 
     /*
