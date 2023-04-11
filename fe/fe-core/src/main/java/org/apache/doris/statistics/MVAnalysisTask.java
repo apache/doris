@@ -62,8 +62,8 @@ public class MVAnalysisTask extends BaseAnalysisTask {
 
     private OlapTable olapTable;
 
-    public MVAnalysisTask(AnalysisTaskScheduler analysisTaskScheduler, AnalysisTaskInfo info) {
-        super(analysisTaskScheduler, info);
+    public MVAnalysisTask(AnalysisTaskInfo info) {
+        super(info);
         init();
     }
 

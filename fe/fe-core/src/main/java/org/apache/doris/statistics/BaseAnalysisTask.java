@@ -86,8 +86,6 @@ public abstract class BaseAnalysisTask {
             + "     ${internalDB}.${columnStatTbl}.part_id IS NOT NULL"
             + "     ) t1, \n";
 
-    protected AnalysisTaskScheduler analysisTaskScheduler;
-
     protected AnalysisTaskInfo info;
 
     protected CatalogIf catalog;
@@ -109,8 +107,7 @@ public abstract class BaseAnalysisTask {
 
     }
 
-    public BaseAnalysisTask(AnalysisTaskScheduler analysisTaskScheduler, AnalysisTaskInfo info) {
-        this.analysisTaskScheduler = analysisTaskScheduler;
+    public BaseAnalysisTask(AnalysisTaskInfo info) {
         this.info = info;
         init(info);
     }

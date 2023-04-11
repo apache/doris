@@ -73,6 +73,8 @@ public class AnalyzeStmt extends DdlStmt {
     public boolean isIncrement;
 
     private final TableName tableName;
+
+    private final boolean sync;
     private final PartitionNames partitionNames;
     private final List<String> columnNames;
     private final Map<String, String> properties;
@@ -82,6 +84,7 @@ public class AnalyzeStmt extends DdlStmt {
     private TableIf table;
 
     public AnalyzeStmt(TableName tableName,
+                       boolean sync,
                        List<String> columnNames,
                        PartitionNames partitionNames,
                        Map<String, String> properties,
@@ -89,6 +92,7 @@ public class AnalyzeStmt extends DdlStmt {
                        Boolean isHistogram,
                        Boolean isIncrement) {
         this.tableName = tableName;
+        this.sync = sync;
         this.columnNames = columnNames;
         this.partitionNames = partitionNames;
         this.properties = properties;
@@ -274,5 +278,9 @@ public class AnalyzeStmt extends DdlStmt {
         }
 
         return sb.toString();
+    }
+
+    public boolean isSync() {
+        return sync;
     }
 }
