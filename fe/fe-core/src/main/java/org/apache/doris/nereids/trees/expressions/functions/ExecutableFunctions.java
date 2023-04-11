@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.util.DateUtils;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -916,13 +917,41 @@ public class ExecutableFunctions {
 
     private static int dateDiff(long year1, long month1, long day1, long year2, long month2, long day2) {
         Calendar calendar = Calendar.getInstance();
-        calendar.set(year1, month1, day1);
+        calendar.set(((int) year1), ((int) month1), ((int) day1));
         long time1 = calendar.getTimeInMillis();
-        calendar.set(year2, month2, day2);
+        calendar.set(((int) year2), ((int) month2), ((int) day2));
         long time2 = calendar.getTimeInMillis();
-        return (time1 - time2) / (1000 * 3600 * 24);
+        return ((int) ((time1 - time2) / (1000 * 3600 * 24)));
     }
 
+    /**
+     * datetime arithmetic function date-format
+     */
+    @ExecFunction(name = "date_format", argTypes = {"DATE", "VARCHAR"}, returnType = "VARCHAR")
+    public static VarcharLiteral dateFormat(DateLiteral date, VarcharLiteral format) {
+        return new VarcharLiteral(DateUtils.formatBuilder(format.getValue()).toFormatter().format(
+                java.time.LocalDate.of(((int) date.getYear()), ((int) date.getMonth()), ((int) date.getDay()))));
+    }
+
+    @ExecFunction(name = "date_format", argTypes = {"DATETIME", "VARCHAR"}, returnType = "VARCHAR")
+    public static VarcharLiteral dateFormat(DateTimeLiteral date, VarcharLiteral format) {
+        return new VarcharLiteral(DateUtils.formatBuilder(format.getValue()).toFormatter().format(
+                java.time.LocalDateTime.of(((int) date.getYear()), ((int) date.getMonth()), ((int) date.getDay()),
+                        ((int) date.getHour()), ((int) date.getMinute()), ((int) date.getSecond()))));
+    }
+
+    @ExecFunction(name = "date_format", argTypes = {"DATEV2", "VARCHAR"}, returnType = "VARCHAR")
+    public static VarcharLiteral dateFormat(DateV2Literal date, VarcharLiteral format) {
+        return new VarcharLiteral(DateUtils.formatBuilder(format.getValue()).toFormatter().format(
+                java.time.LocalDate.of(((int) date.getYear()), ((int) date.getMonth()), ((int) date.getDay()))));
+    }
+
+    @ExecFunction(name = "date_format", argTypes = {"DATETIMEV2", "VARCHAR"}, returnType = "VARCHAR")
+    public static VarcharLiteral dateFormat(DateTimeV2Literal date, VarcharLiteral format) {
+        return new VarcharLiteral(DateUtils.formatBuilder(format.getValue()).toFormatter().format(
+                java.time.LocalDateTime.of(((int) date.getYear()), ((int) date.getMonth()), ((int) date.getDay()),
+                        ((int) date.getHour()), ((int) date.getMinute()), ((int) date.getSecond()))));
+    }
 
     /**
      * other scalar function
