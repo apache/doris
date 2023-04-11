@@ -170,6 +170,7 @@ Status BaseScanner::init_expr_ctxes() {
     return Status::OK();
 }
 
+// need exception safety
 Status BaseScanner::_filter_src_block() {
     auto origin_column_num = _src_block.columns();
     // filter block
@@ -324,6 +325,7 @@ Status BaseScanner::_init_src_block() {
     return Status::OK();
 }
 
+// need exception safety
 Status BaseScanner::_fill_dest_block(vectorized::Block* dest_block, bool* eof) {
     *eof = _scanner_eof;
     _fill_columns_from_path();

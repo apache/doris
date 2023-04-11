@@ -38,6 +38,7 @@ public:
         _reset();
     }
 
+    // need exception safety
     void filter_block(IColumn::Filter& filter) {
         Block::filter_block_internal(&block, filter, block.columns());
         _reset();

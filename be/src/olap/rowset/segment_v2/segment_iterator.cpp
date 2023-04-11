@@ -1602,13 +1602,8 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
 }
 
 Status SegmentIterator::next_batch(vectorized::Block* block) {
-    Status st;
-    try {
-        st = _next_batch_internal(block);
-    } catch (const doris::Exception& e) {
-        st = Status::Error(e.code(), e.to_string());
-    }
-    return st;
+    RETURN_IF_CATCH_EXCEPTION({ return _next_batch_internal(block); });
+    return Status::OK();
 }
 
 Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
@@ -1883,7 +1878,8 @@ Status SegmentIterator::_execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
         }
 
         selected_size = _evaluate_common_expr_filter(sel_rowid_idx, selected_size, filter);
-        vectorized::Block::filter_block_internal(block, _columns_to_filter, filter);
+        RETURN_IF_CATCH_EXCEPTION(
+                vectorized::Block::filter_block_internal(block, _columns_to_filter, filter));
     } else if (auto* const_column =
                        vectorized::check_and_get_column<vectorized::ColumnConst>(*filter_column)) {
         bool ret = const_column->get_bool(0);
@@ -1899,7 +1895,8 @@ Status SegmentIterator::_execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
                         *filter_column)
                         .get_data();
         selected_size = _evaluate_common_expr_filter(sel_rowid_idx, selected_size, filter);
-        vectorized::Block::filter_block_internal(block, _columns_to_filter, filter);
+        RETURN_IF_CATCH_EXCEPTION(
+                vectorized::Block::filter_block_internal(block, _columns_to_filter, filter));
     }
     return Status::OK();
 }

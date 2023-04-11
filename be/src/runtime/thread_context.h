@@ -123,7 +123,7 @@ public:
 };
 
 inline thread_local ThreadContextPtr thread_context_ptr;
-inline thread_local bool enable_thread_catch_bad_alloc = false;
+inline thread_local int enable_thread_catch_bad_alloc = 0;
 
 // To avoid performance problems caused by frequently calling `bthread_getspecific` to obtain bthread TLS
 // in tcmalloc hook, cache the key and value of bthread TLS in pthread TLS.
@@ -312,33 +312,22 @@ private:
     tracker->transfer_to(                               \
             size, doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker_raw())
 
-// Consider catching other memory errors, such as memset failure, etc.
-#define RETURN_IF_CATCH_BAD_ALLOC(stmt)                                                            \
-    do {                                                                                           \
-        doris::thread_context()->thread_mem_tracker_mgr->clear_exceed_mem_limit_msg();             \
-        if (doris::enable_thread_catch_bad_alloc) {                                                \
-            try {                                                                                  \
-                { stmt; }                                                                          \
-            } catch (std::bad_alloc const& e) {                                                    \
-                doris::thread_context()->thread_mem_tracker()->print_log_usage(                    \
-                        doris::thread_context()->thread_mem_tracker_mgr->exceed_mem_limit_msg());  \
-                return Status::MemoryLimitExceeded(fmt::format(                                    \
-                        "PreCatch {}, {}", e.what(),                                               \
-                        doris::thread_context()->thread_mem_tracker_mgr->exceed_mem_limit_msg())); \
-            }                                                                                      \
-        } else {                                                                                   \
-            try {                                                                                  \
-                doris::enable_thread_catch_bad_alloc = true;                                       \
-                Defer defer {[&]() { doris::enable_thread_catch_bad_alloc = false; }};             \
-                { stmt; }                                                                          \
-            } catch (std::bad_alloc const& e) {                                                    \
-                doris::thread_context()->thread_mem_tracker()->print_log_usage(                    \
-                        doris::thread_context()->thread_mem_tracker_mgr->exceed_mem_limit_msg());  \
-                return Status::MemoryLimitExceeded(fmt::format(                                    \
-                        "PreCatch {}, {}", e.what(),                                               \
-                        doris::thread_context()->thread_mem_tracker_mgr->exceed_mem_limit_msg())); \
-            }                                                                                      \
-        }                                                                                          \
+#define RETURN_IF_CATCH_EXCEPTION(stmt)                                                        \
+    do {                                                                                       \
+        try {                                                                                  \
+            doris::thread_context()->thread_mem_tracker_mgr->clear_exceed_mem_limit_msg();     \
+            enable_thread_catch_bad_alloc++;                                                   \
+            { stmt; }                                                                          \
+            enable_thread_catch_bad_alloc--;                                                   \
+        } catch (std::bad_alloc const& e) {                                                    \
+            doris::thread_context()->thread_mem_tracker()->print_log_usage(                    \
+                    doris::thread_context()->thread_mem_tracker_mgr->exceed_mem_limit_msg());  \
+            return Status::MemoryLimitExceeded(fmt::format(                                    \
+                    "PreCatch {}, {}", e.what(),                                               \
+                    doris::thread_context()->thread_mem_tracker_mgr->exceed_mem_limit_msg())); \
+        } catch (const doris::Exception& e) {                                                  \
+            return Status::Error(e.code(), e.to_string());                                     \
+        }                                                                                      \
     } while (0)
 
 // Mem Hook to consume thread mem tracker
@@ -388,6 +377,6 @@ private:
 #define CONSUME_MEM_TRACKER(size) (void)0
 #define TRY_CONSUME_MEM_TRACKER(size, fail_ret) (void)0
 #define RELEASE_MEM_TRACKER(size) (void)0
-#define RETURN_IF_CATCH_BAD_ALLOC(stmt) (stmt)
+#define RETURN_IF_CATCH_EXCEPTION(stmt) (stmt)
 #endif
 } // namespace doris

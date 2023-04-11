@@ -74,7 +74,8 @@ public:
         }
         auto clone = value->clone_empty();
         clone->reserve(input_rows_count);
-        value->replicate(array_sizes.data(), offset, *clone->assume_mutable().get());
+        RETURN_IF_CATCH_EXCEPTION(
+                value->replicate(array_sizes.data(), offset, *clone->assume_mutable().get()));
         if (!clone->is_nullable()) {
             clone = ColumnNullable::create(std::move(clone), ColumnUInt8::create(clone->size(), 0));
         }

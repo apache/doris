@@ -158,9 +158,7 @@ void filter_arrays_impl_generic(const PaddedPODArray<T>& src_elems,
                                 PaddedPODArray<OT>* res_offsets, const IColumn::Filter& filt,
                                 ssize_t result_size_hint) {
     const size_t size = src_offsets.size();
-    if (size != filt.size()) {
-        LOG(FATAL) << "Size of filter doesn't match size of column.";
-    }
+    column_match_filter_size(size, filt.size());
 
     constexpr int ASSUME_STRING_LENGTH = 5;
     ResultOffsetsBuilder result_offsets_builder(res_offsets);
@@ -238,9 +236,7 @@ size_t filter_arrays_impl_generic_without_reserving(PaddedPODArray<T>& elems,
                                                     PaddedPODArray<OT>& offsets,
                                                     const IColumn::Filter& filter) {
     const size_t size = offsets.size();
-    if (offsets.size() != filter.size()) {
-        LOG(FATAL) << "Size of filter doesn't match size of column.";
-    }
+    column_match_filter_size(size, filter.size());
 
     /// If no need to filter the `offsets`, here do not reset the end ptr of `offsets`
     if constexpr (!std::is_same_v<ResultOffsetsBuilder, NoResultOffsetsBuilder<OT>>) {

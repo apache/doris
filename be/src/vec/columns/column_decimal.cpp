@@ -276,9 +276,7 @@ void ColumnDecimal<T>::insert_range_from(const IColumn& src, size_t start, size_
 template <typename T>
 ColumnPtr ColumnDecimal<T>::filter(const IColumn::Filter& filt, ssize_t result_size_hint) const {
     size_t size = data.size();
-    if (size != filt.size()) {
-        LOG(FATAL) << "Size of filter doesn't match size of column.";
-    }
+    column_match_filter_size(size, filt.size());
 
     auto res = this->create(0, scale);
     Container& res_data = res->get_data();
@@ -327,9 +325,7 @@ ColumnPtr ColumnDecimal<T>::filter(const IColumn::Filter& filt, ssize_t result_s
 template <typename T>
 size_t ColumnDecimal<T>::filter(const IColumn::Filter& filter) {
     size_t size = data.size();
-    if (size != filter.size()) {
-        LOG(FATAL) << "Size of filter doesn't match size of column.";
-    }
+    column_match_filter_size(size, filter.size());
 
     const UInt8* filter_pos = filter.data();
     const UInt8* filter_end = filter_pos + size;
@@ -382,9 +378,7 @@ size_t ColumnDecimal<T>::filter(const IColumn::Filter& filter) {
 template <typename T>
 ColumnPtr ColumnDecimal<T>::replicate(const IColumn::Offsets& offsets) const {
     size_t size = data.size();
-    if (size != offsets.size()) {
-        LOG(FATAL) << "Size of offsets doesn't match size of column.";
-    }
+    column_match_offsets_size(size, offsets.size());
 
     auto res = this->create(0, scale);
     if (0 == size) return res;

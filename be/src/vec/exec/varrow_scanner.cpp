@@ -251,7 +251,7 @@ Status VArrowScanner::get_next(vectorized::Block* block, bool* eof) {
     RETURN_IF_ERROR(_cast_src_block(&_src_block));
 
     // materialize, src block => dest columns
-    return _fill_dest_block(block, eof);
+    RETURN_IF_CATCH_EXCEPTION({ return _fill_dest_block(block, eof); });
 }
 
 // arrow type ==arrow_column_to_doris_column==> primitive type(PT0) ==cast_src_block==>
