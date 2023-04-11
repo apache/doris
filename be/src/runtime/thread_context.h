@@ -316,9 +316,9 @@ private:
     do {                                                                                       \
         try {                                                                                  \
             doris::thread_context()->thread_mem_tracker_mgr->clear_exceed_mem_limit_msg();     \
-            enable_thread_catch_bad_alloc++;                                                   \
+            doris::enable_thread_catch_bad_alloc++;                                            \
+            Defer defer {[&]() { doris::enable_thread_catch_bad_alloc--; }};                   \
             { stmt; }                                                                          \
-            enable_thread_catch_bad_alloc--;                                                   \
         } catch (std::bad_alloc const& e) {                                                    \
             doris::thread_context()->thread_mem_tracker()->print_log_usage(                    \
                     doris::thread_context()->thread_mem_tracker_mgr->exceed_mem_limit_msg());  \
