@@ -113,7 +113,7 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
         } catch (AnalysisException e) {
             UdfBinder udfBinder = new UdfBinder();
             Expression boundFunction = udfBinder.rewriteFunction(unboundFunction, context);
-            if (true || boundFunction == null) {
+            if (boundFunction == null) {
                 throw new AnalysisException(e.getMessage(), e.getCause());
             }
             return boundFunction;
