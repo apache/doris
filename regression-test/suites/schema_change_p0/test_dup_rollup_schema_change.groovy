@@ -80,8 +80,11 @@ suite ("test_dup_rollup_schema_change") {
                     `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
                 DUPLICATE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
                 BUCKETS 1
-                PROPERTIES ( "replication_num" = "1", "light_schema_change" = "true" );
+                PROPERTIES ( "replication_num" = "1", "light_schema_change" = "false" );
             """
+
+        // alter and test light schema change
+        sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
 
         //add rollup
         def rollupName = "rollup_cost"
