@@ -31,6 +31,8 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rules.FunctionBinder;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.JavaUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JavaUdf;
@@ -50,8 +52,8 @@ public class UdfBinder {
     /**
      * rewrite catalog-style function to nereids-style bound function.
      */
-    public Expression rewriteFunction(UnboundFunction function, CascadesContext context) {
-        Database db = getDb(context);
+    public Expression rewriteFunction(UnboundFunction function, ExpressionRewriteContext context) {
+        Database db = getDb(context.cascadesContext);
         if (db == null) {
             return null;
         }
@@ -91,13 +93,13 @@ public class UdfBinder {
     }
 
     private Expression handleAliasFunction(UnboundFunction nereidsFunction, AliasFunction catalogFunction,
-            CascadesContext context) {
+            ExpressionRewriteContext context) {
         AliasFunctionRewriter rewriter = new AliasFunctionRewriter();
         Expression aliasFunction = rewriter.rewriteFunction(nereidsFunction, catalogFunction);
         if (aliasFunction == null) {
             return null;
         }
-        return FunctionBinder.INSTANCE.bind(aliasFunction, context);
+        return FunctionBinder.INSTANCE.rewrite(aliasFunction, context);
     }
 
     private Expression handleJavaUdf(UnboundFunction nereidsFunction, ScalarFunction catalogFunction) {
