@@ -29,8 +29,10 @@
 
 namespace doris {
 
+#define FIXED_CONTAINER_MAX_SIZE 8
+
 /**
- * Fix Container can use simd to improve performance. 1 <= N <= 8 can be improved performance by test.
+ * Fix Container can use simd to improve performance. 1 <= N <= 8 can be improved performance by test. FIXED_CONTAINER_MAX_SIZE = 8.
  * @tparam T Element Type
  * @tparam N Fixed Number
  */
@@ -42,7 +44,7 @@ public:
 
     class Iterator;
 
-    FixedContainer() : _size(0) { static_assert(N >= 1 && N <= 8); }
+    FixedContainer() : _size(0) { static_assert(N >= 1 && N <= FIXED_CONTAINER_MAX_SIZE); }
 
     ~FixedContainer() = default;
 
@@ -90,7 +92,7 @@ public:
                    (uint8_t)(value == _data[4]) | (uint8_t)(value == _data[5]) |
                    (uint8_t)(value == _data[6]);
         }
-        if constexpr (N == 8) {
+        if constexpr (N == FIXED_CONTAINER_MAX_SIZE) {
             return (uint8_t)(value == _data[0]) | (uint8_t)(value == _data[1]) |
                    (uint8_t)(value == _data[2]) | (uint8_t)(value == _data[3]) |
                    (uint8_t)(value == _data[4]) | (uint8_t)(value == _data[5]) |
