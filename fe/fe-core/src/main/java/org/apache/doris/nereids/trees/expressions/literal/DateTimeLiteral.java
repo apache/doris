@@ -43,7 +43,7 @@ import java.util.Objects;
 /**
  * date time literal.
  */
-public class DateTimeLiteral extends DateLiteral {
+public class DateTimeLiteral extends DateLiteral  {
 
     protected static DateTimeFormatter DATE_TIME_FORMATTER = null;
     protected static DateTimeFormatter DATE_TIME_FORMATTER_TO_HOUR = null;
@@ -330,5 +330,15 @@ public class DateTimeLiteral extends DateLiteral {
         }
         DateTimeLiteral other = (DateTimeLiteral) o;
         return Objects.equals(getValue(), other.getValue());
+    }
+
+    public LocalDateTime toJavaDateType() {
+        return LocalDateTime.of(((int) getYear()), ((int) getMonth()), ((int) getDay()),
+                ((int) getHour()), ((int) getMinute()), ((int) getSecond()));
+    }
+
+    public static DateTimeLiteral fromJavaDateType(LocalDateTime dateTime) {
+        return new DateTimeLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(),
+                dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond());
     }
 }

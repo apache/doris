@@ -63,4 +63,8 @@ public class DateV2Literal extends DateLiteral {
         LocalDateTime dateTime = DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusYears(years);
         return new DateV2Literal(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
     }
+
+    public static DateV2Literal fromJavaDateType(LocalDateTime dateTime) {
+        return new DateV2Literal(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
+    }
 }

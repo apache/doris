@@ -40,6 +40,7 @@ import org.apache.doris.nereids.util.DateUtils;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Calendar;
@@ -77,6 +78,8 @@ import java.util.UUID;
 public class ExecutableFunctions {
     public static final ExecutableFunctions INSTANCE = new ExecutableFunctions();
     private static final Random RANDOM = new Random();
+    private static final DateTimeLiteral START_ORIGINAL_DAY = new DateTimeLiteral(1970, 1, 1, 0, 0, 0);
+    private static final DateTimeLiteral START_ORIGINAL_WEEK = new DateTimeLiteral(1970, 1, 4, 0, 0, 0);
 
     /**
      * Executable arithmetic functions add
@@ -1071,11 +1074,28 @@ public class ExecutableFunctions {
     /**
      * datetime arithmetic function date-ceil and date-floor series helper function
      */
-    private long[] getDateFloor(String unit, long[] dateTags, int period, long[] originTags) {
-        LocalDateTime time1 = LocalDateTime.of(((int) dateTags[0]), ((int) dateTags[1]), ((int) dateTags[2]),
-                ((int) dateTags[3]), ((int) dateTags[4]), ((int) dateTags[5]));
-        LocalDateTime time2 = LocalDateTime.of(((int) originTags[0]), ((int) originTags[1]), ((int) originTags[2]),
-                ((int) originTags[3]), ((int) originTags[4]), ((int) originTags[5]));
+    private LocalDateTime getDateFloor(String unit, LocalDateTime date, int period, LocalDateTime origin) {
+        // Algorithm:
+        // Firstly, get the unit distance of the two date.
+        // Secondly, if the origin date is bigger than the date, subtract it to a date before the date by unit.
+        // Thirdly, re-calculate the distance of the two date.
+        // Fourthly, get the ceil and floor date of the date by unit and select the corresponding date as the answer.
+
+        // handle origin > date
+        if (origin.compareTo(date) > 0) {
+            Duration duration = Duration.between(date, origin);
+            long hour = Math.abs(duration.toHours());
+            long ceil = ((hour - 1) / period + 1) * period;
+            origin = origin.minusHours(ceil);
+        }
+
+        // get distance
+        Duration duration = Duration.between(origin, date);
+        long hour = Math.abs(duration.toHours());
+        long floor = hour / period * period;
+        LocalDateTime floorDate = origin.plusHours(floor);
+
+        return floorDate;
     }
 
     /**
@@ -1083,8 +1103,7 @@ public class ExecutableFunctions {
      */
     @ExecFunction(name = "year_ceil", argTypes = {"DATETIME"}, returnType = "DATETIME")
     public static DateTimeLiteral yearCeil(DateTimeLiteral date) {
-        DateTimeLiteral temp = new DateTimeLiteral(date.getYear() + 1, 1, 1, 0, 0,0);
-        return new DateTimeLiteral(date.getYear() + 1, 1, 1, 0, 0, 0);
+
     }
 
     @ExecFunction(name = "year_ceil", argTypes = {"DATETIMEV2"}, returnType = "DATETIMEV2")

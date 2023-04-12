@@ -117,4 +117,9 @@ public class DateTimeV2Literal extends DateTimeLiteral {
         return new DateTimeV2Literal(this.getDataType(), d.getYear(), d.getMonthValue(), d.getDayOfMonth(),
                 d.getHour(), d.getMinute(), d.getSecond(), d.getNano() / 1000L);
     }
+
+    public static DateTimeV2Literal fromJavaDateType(LocalDateTime dateTime) {
+        return new DateTimeV2Literal(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(),
+                dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(), 0);
+    }
 }
