@@ -52,37 +52,45 @@ public:
 
     uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel,
                       uint16_t size) const override {
-        // call nested predicate evaluate
-        uint16_t new_size = _nested->evaluate(column, sel, size);
-
-        // process NULL values
-        if (column.has_null() && new_size < size) {
-            // use a sorted set to sotre selected row idxs
-            std::set<uint16_t> selected_rows;
+        if (column.has_null()) {
+            // create selected_flags
+            uint16_t max_idx = *std::max_element(sel, sel + size);
+            auto selected_flags_ptr = std::make_unique<bool[]>(max_idx + 1);
+            auto selected_flags = selected_flags_ptr.get();
+            // init to 0 / false
+            memset(selected_flags, 0, (max_idx + 1) * sizeof(bool));
             for (uint16_t i = 0; i < size; ++i) {
                 uint16_t row_idx = sel[i];
                 if (column.is_null_at(row_idx)) {
-                    // add row_idx to selected for NULL value
-                    selected_rows.emplace(row_idx);
+                    // set selected flag true for NULL value
+                    selected_flags[row_idx] = true;
                 }
             }
 
-            if (!selected_rows.empty()) {
+            // call nested predicate evaluate
+            uint16_t new_size = _nested->evaluate(column, sel, size);
+
+            // process NULL values
+            if (new_size < size) {
                 // add rows selected by _nested->evaluate
                 for (uint16_t i = 0; i < new_size; ++i) {
                     uint16_t row_idx = sel[i];
-                    selected_rows.emplace(row_idx);
+                    selected_flags[row_idx] = true;
                 }
 
                 // recaculate new_size and sel array
                 new_size = 0;
-                for (uint16_t row_idx : selected_rows) {
-                    sel[new_size++] = row_idx;
+                for (uint16_t row_idx = 0; row_idx < max_idx + 1; ++row_idx) {
+                    if (selected_flags[row_idx]) {
+                        sel[new_size++] = row_idx;
+                    }
                 }
             }
-        }
 
-        return new_size;
+            return new_size;
+        } else {
+            return _nested->evaluate(column, sel, size);
+        }
     }
 
     void evaluate_and(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
