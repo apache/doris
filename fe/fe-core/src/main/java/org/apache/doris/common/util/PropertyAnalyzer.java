@@ -435,6 +435,7 @@ public class PropertyAnalyzer {
         return bfFpp;
     }
 
+    // analyze the colocation properties of table
     public static String analyzeColocate(Map<String, String> properties) throws AnalysisException {
         String colocateGroup = null;
         if (properties != null && properties.containsKey(PROPERTIES_COLOCATE_WITH)) {
@@ -817,7 +818,7 @@ public class PropertyAnalyzer {
         // validate access controller properties
         // eg:
         // (
-        // "access_controller.class" = "org.apache.doris.mysql.privilege.RangerAccessControllerFactory",
+        // "access_controller.class" = "org.apache.doris.mysql.privilege.RangerHiveAccessControllerFactory",
         // "access_controller.properties.prop1" = "xxx",
         // "access_controller.properties.prop2" = "yyy",
         // )

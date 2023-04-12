@@ -1341,8 +1341,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TFetchSchemaTableDataResult fetchSchemaTableData(TFetchSchemaTableDataRequest request) throws TException {
         switch (request.getSchemaTableName()) {
-            case BACKENDS:
-                return MetadataGenerator.getBackendsSchemaTable(request);
             case METADATA_TABLE:
                 return MetadataGenerator.getMetadataTable(request);
             default:
@@ -1503,10 +1501,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
         } else if (privHier == TPrivilegeHier.COLUMNS) {
             String fullDbName = ClusterNamespace.getFullName(cluster, privCtrl.getDb());
-            if (!accessManager.checkColumnsPriv(currentUser.get(0), fullDbName, privCtrl.getTbl(), privCtrl.getCols(),
-                    predicate)) {
+
+            try {
+                accessManager.checkColumnsPriv(currentUser.get(0), fullDbName, privCtrl.getTbl(), privCtrl.getCols(),
+                        predicate);
+            } catch (UserException e) {
                 status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
-                status.addToErrorMsgs("Columns permissions error");
+                status.addToErrorMsgs("Columns permissions error:" + e.getMessage());
             }
         } else if (privHier == TPrivilegeHier.RESOURSE) {
             if (!accessManager.checkResourcePriv(currentUser.get(0), privCtrl.getRes(), predicate)) {

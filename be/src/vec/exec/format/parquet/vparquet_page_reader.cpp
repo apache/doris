@@ -26,8 +26,9 @@ namespace doris::vectorized {
 
 static constexpr size_t INIT_PAGE_HEADER_SIZE = 128;
 
-PageReader::PageReader(io::BufferedStreamReader* reader, uint64_t offset, uint64_t length)
-        : _reader(reader), _start_offset(offset), _end_offset(offset + length) {}
+PageReader::PageReader(io::BufferedStreamReader* reader, io::IOContext* io_ctx, uint64_t offset,
+                       uint64_t length)
+        : _reader(reader), _io_ctx(io_ctx), _start_offset(offset), _end_offset(offset + length) {}
 
 Status PageReader::next_page_header() {
     if (UNLIKELY(_offset < _start_offset || _offset >= _end_offset)) {
@@ -47,7 +48,7 @@ Status PageReader::next_page_header() {
     uint32_t real_header_size = 0;
     while (true) {
         header_size = std::min(header_size, max_size);
-        RETURN_IF_ERROR(_reader->read_bytes(&page_header_buf, _offset, header_size));
+        RETURN_IF_ERROR(_reader->read_bytes(&page_header_buf, _offset, header_size, _io_ctx));
         real_header_size = header_size;
         SCOPED_RAW_TIMER(&_statistics.decode_header_time);
         auto st =
@@ -87,7 +88,7 @@ Status PageReader::get_page_data(Slice& slice) {
     } else {
         slice.size = _cur_page_header.compressed_page_size;
     }
-    RETURN_IF_ERROR(_reader->read_bytes(slice, _offset));
+    RETURN_IF_ERROR(_reader->read_bytes(slice, _offset, _io_ctx));
     _offset += slice.size;
     _state = INITIALIZED;
     return Status::OK();

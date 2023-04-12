@@ -71,13 +71,13 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
                                     acProjects.add(slot);
                                 }
                             });
-                    LogicalJoin newBottomSemi = (LogicalJoin) topSemi.withChildren(a, c);
+                    LogicalJoin newBottomSemi = topSemi.withChildrenNoContext(a, c);
                     newBottomSemi.getJoinReorderContext().copyFrom(bottomSemi.getJoinReorderContext());
                     newBottomSemi.getJoinReorderContext().setHasCommute(false);
                     newBottomSemi.getJoinReorderContext().setHasLAsscom(false);
 
                     LogicalProject acProject = new LogicalProject<>(Lists.newArrayList(acProjects), newBottomSemi);
-                    LogicalJoin newTopSemi = (LogicalJoin) bottomSemi.withChildren(acProject, b);
+                    LogicalJoin newTopSemi = bottomSemi.withChildrenNoContext(acProject, b);
                     newTopSemi.getJoinReorderContext().copyFrom(topSemi.getJoinReorderContext());
                     newTopSemi.getJoinReorderContext().setHasLAsscom(true);
                     return JoinReorderUtils.projectOrSelf(new ArrayList<>(topSemi.getOutput()), newTopSemi);

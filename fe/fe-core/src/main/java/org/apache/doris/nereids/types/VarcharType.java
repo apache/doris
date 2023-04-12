@@ -49,7 +49,9 @@ public class VarcharType extends CharacterType {
 
     @Override
     public Type toCatalogDataType() {
-        return ScalarType.createVarcharType(len);
+        ScalarType catalogDataType = ScalarType.createVarcharType(len);
+        catalogDataType.setByteSize(len);
+        return catalogDataType;
     }
 
     @Override

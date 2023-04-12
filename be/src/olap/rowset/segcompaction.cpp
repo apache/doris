@@ -27,7 +27,6 @@
 #include "beta_rowset_writer.h"
 #include "common/config.h"
 #include "common/logging.h"
-#include "env/env.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/file_writer.h"
 #include "olap/memtable.h"

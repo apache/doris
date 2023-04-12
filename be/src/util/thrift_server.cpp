@@ -151,6 +151,8 @@ void ThriftServer::ThriftServerEventProcessor::supervise() {
                    << ") exited due to TException: " << e.what();
     }
 
+    LOG(INFO) << "ThriftServer " << _thrift_server->_name << " exited";
+
     {
         // _signal_lock ensures mutual exclusion of access to _thrift_server
         std::lock_guard<std::mutex> lock(_signal_lock);
@@ -364,7 +366,6 @@ void ThriftServer::stop() {
 
 void ThriftServer::join() {
     DCHECK(_server_thread != nullptr);
-    DCHECK(_started);
     _server_thread->join();
 }
 

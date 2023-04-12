@@ -36,8 +36,7 @@ namespace vectorized {
 class TableFunction;
 class TableFunctionFactory {
 public:
-    TableFunctionFactory() {}
-    ~TableFunctionFactory() {}
+    TableFunctionFactory() = delete;
     static Status get_fn(const std::string& fn_name_raw, ObjectPool* pool, TableFunction** fn);
 
     const static std::unordered_map<std::string, std::function<TableFunction*()>> _function_map;

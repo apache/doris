@@ -52,7 +52,22 @@ public:
         return _bloom_filter->find(data);
     }
 
+    // This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
+    template <typename T>
+    bool test_new_hash(T data) const {
+        if constexpr (std::is_same_v<T, Slice>) {
+            return _bloom_filter->find_crc32_hash(data);
+        } else {
+            return _bloom_filter->find(data);
+        }
+    }
+
     void add_bytes(const char* data, size_t len) { _bloom_filter->insert(Slice(data, len)); }
+
+    // This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
+    void add_bytes_new_hash(const char* data, size_t len) {
+        _bloom_filter->insert_crc32_hash(Slice(data, len));
+    }
 
     // test_element/find_element only used on vectorized engine
     template <typename T>
@@ -173,7 +188,13 @@ public:
 
     virtual void insert(const void* data) = 0;
 
+    // This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
+    virtual void insert_crc32_hash(const void* data) = 0;
+
     virtual bool find(const void* data) const = 0;
+
+    // This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
+    virtual bool find_crc32_hash(const void* data) const = 0;
 
     virtual bool find_olap_engine(const void* data) const = 0;
 
@@ -184,7 +205,8 @@ public:
     virtual void insert_fixed_len(const char* data) = 0;
 
     virtual uint16_t find_fixed_len_olap_engine(const char* data, const uint8* nullmap,
-                                                uint16_t* offsets, int number) = 0;
+                                                uint16_t* offsets, int number,
+                                                bool is_parse_column) = 0;
 
     virtual void find_fixed_len(const char* data, const uint8* nullmap, int number,
                                 uint8* results) = 0;
@@ -213,17 +235,49 @@ struct CommonFindOp {
     }
 
     uint16_t find_batch_olap_engine(const BloomFilterAdaptor& bloom_filter, const char* data,
-                                    const uint8* nullmap, uint16_t* offsets, int number) const {
+                                    const uint8* nullmap, uint16_t* offsets, int number,
+                                    const bool is_parse_column) const {
         uint16_t new_size = 0;
-        for (int i = 0; i < number; i++) {
-            uint16_t idx = offsets[i];
-            if (nullmap != nullptr && nullmap[idx]) {
-                continue;
+        if (is_parse_column) {
+            if (nullmap == nullptr) {
+                for (int i = 0; i < number; i++) {
+                    uint16_t idx = offsets[i];
+                    if (!bloom_filter.test_element(*((T*)data + idx))) {
+                        continue;
+                    }
+                    offsets[new_size++] = idx;
+                }
+            } else {
+                for (int i = 0; i < number; i++) {
+                    uint16_t idx = offsets[i];
+                    if (nullmap[idx]) {
+                        continue;
+                    }
+                    if (!bloom_filter.test_element(*((T*)data + idx))) {
+                        continue;
+                    }
+                    offsets[new_size++] = idx;
+                }
             }
-            if (!bloom_filter.test_element(*((T*)data + idx))) {
-                continue;
+        } else {
+            if (nullmap == nullptr) {
+                for (int i = 0; i < number; i++) {
+                    if (!bloom_filter.test_element(*((T*)data + i))) {
+                        continue;
+                    }
+                    offsets[new_size++] = i;
+                }
+            } else {
+                for (int i = 0; i < number; i++) {
+                    if (nullmap[i]) {
+                        continue;
+                    }
+                    if (!bloom_filter.test_element(*((T*)data + i))) {
+                        continue;
+                    }
+                    offsets[new_size++] = i;
+                }
             }
-            offsets[new_size++] = idx;
         }
         return new_size;
     }
@@ -267,7 +321,8 @@ struct StringFindOp {
     }
 
     uint16_t find_batch_olap_engine(const BloomFilterAdaptor& bloom_filter, const char* data,
-                                    const uint8* nullmap, uint16_t* offsets, int number) const {
+                                    const uint8* nullmap, uint16_t* offsets, int number,
+                                    const bool is_parse_column) const {
         LOG(FATAL) << "StringFindOp does not support find_batch_olap_engine";
         return 0;
     }
@@ -283,6 +338,15 @@ struct StringFindOp {
             bloom_filter.add_bytes(value->data, value->size);
         }
     }
+
+    // This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
+    void insert_crc32_hash(BloomFilterAdaptor& bloom_filter, const void* data) const {
+        const auto* value = reinterpret_cast<const StringRef*>(data);
+        if (value) {
+            bloom_filter.add_bytes_new_hash(value->data, value->size);
+        }
+    }
+
     bool find(const BloomFilterAdaptor& bloom_filter, const void* data) const {
         const auto* value = reinterpret_cast<const StringRef*>(data);
         if (value == nullptr) {
@@ -290,6 +354,16 @@ struct StringFindOp {
         }
         return bloom_filter.test(Slice(value->data, value->size));
     }
+
+    //This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
+    bool find_crc32_hash(const BloomFilterAdaptor& bloom_filter, const void* data) const {
+        const auto* value = reinterpret_cast<const StringRef*>(data);
+        if (value == nullptr) {
+            return false;
+        }
+        return bloom_filter.test_new_hash(Slice(value->data, value->size));
+    }
+
     bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const {
         return StringFindOp::find(bloom_filter, data);
     }
@@ -330,6 +404,11 @@ struct DateFindOp : public CommonFindOp<vectorized::VecDateTimeValue> {
 
         vectorized::VecDateTimeValue date_value;
         date_value.from_olap_date(value);
+        // So confusing here. For join node with condition (a.date_col = b.date_col), the actual
+        // expression is CAST(a.date_col AS DATETIME) = CAST(b.date_col AS DATETIME). So we build
+        // this bloom filter by CAST(a.date_col AS DATETIME) and also need to probe this bloom
+        // filter by a datetime value.
+        date_value.set_type(TimeType::TIME_DATETIME);
 
         return bloom_filter.test(Slice((char*)&date_value, sizeof(vectorized::VecDateTimeValue)));
     }
@@ -398,6 +477,14 @@ public:
         dummy.insert(*_bloom_filter, data);
     }
 
+    // This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
+    void insert_crc32_hash(const void* data) override {
+        if constexpr (std::is_same_v<typename BloomFilterTypeTraits<type>::FindOp, StringFindOp>) {
+            DCHECK(_bloom_filter != nullptr);
+            dummy.insert_crc32_hash(*_bloom_filter, data);
+        }
+    }
+
     void insert_fixed_len(const char* data, const int* offsets, int number) override {
         DCHECK(_bloom_filter != nullptr);
         dummy.insert_batch(*_bloom_filter, data, offsets, number);
@@ -409,8 +496,9 @@ public:
     }
 
     uint16_t find_fixed_len_olap_engine(const char* data, const uint8* nullmap, uint16_t* offsets,
-                                        int number) override {
-        return dummy.find_batch_olap_engine(*_bloom_filter, data, nullmap, offsets, number);
+                                        int number, const bool is_parse_column) override {
+        return dummy.find_batch_olap_engine(*_bloom_filter, data, nullmap, offsets, number,
+                                            is_parse_column);
     }
 
     void find_fixed_len(const char* data, const uint8* nullmap, int number,
@@ -421,6 +509,15 @@ public:
     bool find(const void* data) const override {
         DCHECK(_bloom_filter != nullptr);
         return dummy.find(*_bloom_filter, data);
+    }
+
+    // This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
+    bool find_crc32_hash(const void* data) const override {
+        if constexpr (std::is_same_v<typename BloomFilterTypeTraits<type>::FindOp, StringFindOp>) {
+            DCHECK(_bloom_filter != nullptr);
+            return dummy.find_crc32_hash(*_bloom_filter, data);
+        }
+        return false;
     }
 
     bool find_olap_engine(const void* data) const override {

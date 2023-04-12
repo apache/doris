@@ -56,7 +56,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
      * <p>
      * An example is tpch q15.
      */
-    static final double HEAVY_OPERATOR_PUNISH_FACTOR = 6.0;
+    static final double HEAVY_OPERATOR_PUNISH_FACTOR = 0.0;
 
     public static Cost addChildCost(Plan plan, Cost planCost, Cost childCost, int index) {
         Preconditions.checkArgument(childCost instanceof CostV1 && planCost instanceof CostV1);

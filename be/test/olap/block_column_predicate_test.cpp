@@ -24,7 +24,6 @@
 #include "olap/comparison_predicate.h"
 #include "olap/field.h"
 #include "olap/wrapper_field.h"
-#include "runtime/mem_pool.h"
 #include "vec/columns/predicate_column.h"
 #include "vec/common/string_ref.h"
 
@@ -32,7 +31,7 @@ namespace doris {
 
 class BlockColumnPredicateTest : public testing::Test {
 public:
-    BlockColumnPredicateTest() { _mem_pool.reset(new MemPool()); }
+    BlockColumnPredicateTest() = default;
 
     ~BlockColumnPredicateTest() = default;
 
@@ -54,8 +53,6 @@ public:
         column->set_is_bf_column(false);
         tablet_schema->init_from_pb(tablet_schema_pb);
     }
-
-    std::unique_ptr<MemPool> _mem_pool;
 };
 
 TEST_F(BlockColumnPredicateTest, SINGLE_COLUMN_VEC) {

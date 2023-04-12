@@ -20,6 +20,8 @@ package org.apache.doris.load.loadv2;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
+import org.apache.commons.collections.MapUtils;
+import org.apache.commons.lang.StringUtils;
 import org.apache.hadoop.yarn.api.records.FinalApplicationStatus;
 import org.apache.hadoop.yarn.api.records.YarnApplicationState;
 import org.apache.logging.log4j.LogManager;
@@ -32,14 +34,15 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class SparkLauncherMonitor {
     private static final Logger LOG = LogManager.getLogger(SparkLauncherMonitor.class);
 
-    public static LogMonitor createLogMonitor(SparkLoadAppHandle handle) {
-        return new LogMonitor(handle);
+    public static LogMonitor createLogMonitor(SparkLoadAppHandle handle, Map<String, String> resourceSparkConfig) {
+        return new LogMonitor(handle, resourceSparkConfig);
     }
 
     private static SparkLoadAppHandle.State fromYarnState(YarnApplicationState yarnState) {
@@ -80,16 +83,27 @@ public class SparkLauncherMonitor {
 
         // 5min
         private static final long DEFAULT_SUBMIT_TIMEOUT_MS = 300000L;
+        private static final String SUBMIT_TIMEOUT_KEY = "spark.submit.timeout";
 
-        public LogMonitor(SparkLoadAppHandle handle) {
+        public LogMonitor(SparkLoadAppHandle handle, Map<String, String> resourceSparkConfig) {
             this.handle = handle;
             this.process = handle.getProcess();
             this.isStop = false;
-            setSubmitTimeoutMs(DEFAULT_SUBMIT_TIMEOUT_MS);
+
+            if (MapUtils.isNotEmpty(resourceSparkConfig)
+                    && StringUtils.isNotEmpty(resourceSparkConfig.get(SUBMIT_TIMEOUT_KEY))) {
+                setSubmitTimeoutMs(Long.parseLong(resourceSparkConfig.get(SUBMIT_TIMEOUT_KEY)));
+            } else {
+                setSubmitTimeoutMs(DEFAULT_SUBMIT_TIMEOUT_MS);
+            }
         }
 
         public void setSubmitTimeoutMs(long submitTimeoutMs) {
             this.submitTimeoutMs = submitTimeoutMs;
+        }
+
+        public long getSubmitTimeoutMs() {
+            return submitTimeoutMs;
         }
 
         public void setRedirectLogPath(String redirectLogPath) throws IOException {

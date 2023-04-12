@@ -43,6 +43,10 @@ public:
     DataTypeMap(const DataTypePtr& key_type_, const DataTypePtr& value_type_);
 
     TypeIndex get_type_id() const override { return TypeIndex::Map; }
+    PrimitiveType get_type_as_primitive_type() const override { return TYPE_MAP; }
+    TPrimitiveType::type get_type_as_tprimitive_type() const override {
+        return TPrimitiveType::MAP;
+    }
     std::string do_get_name() const override {
         return "Map(" + key_type->get_name() + ", " + value_type->get_name() + ")";
     }
@@ -50,7 +54,7 @@ public:
 
     bool can_be_inside_nullable() const override { return true; }
     MutableColumnPtr create_column() const override;
-    Field get_default() const override { return Map(); };
+    Field get_default() const override;
     bool equals(const IDataType& rhs) const override;
     bool get_is_parametric() const override { return true; }
     bool have_subtypes() const override { return true; }

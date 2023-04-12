@@ -1,0 +1,38 @@
+{
+  "test_complex_type": {
+    "mappings": {
+      "complex_type": {
+        "dynamic": "true",
+        "properties": {
+          "account": {
+            "properties": {
+              "test1": {
+                "type": "double"
+              },
+              "test2": {
+                "type": "double"
+              },
+              "test3": {
+                "type": "double"
+              },
+              "test4": {
+                "type": "double"
+              }
+            }
+          },
+          "mobile": {
+            "type": "nested",
+            "properties": {
+              "first": {
+                "type": "text"
+              },
+              "last": {
+                "type": "keyword"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

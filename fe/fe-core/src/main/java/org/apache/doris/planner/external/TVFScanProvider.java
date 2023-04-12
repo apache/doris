@@ -27,7 +27,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.BrokerFileGroup;
-import org.apache.doris.planner.external.ExternalFileScanNode.ParamCreateContext;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileFormatType;
@@ -86,8 +85,8 @@ public class TVFScanProvider extends QueryScanProvider {
     }
 
     @Override
-    public ParamCreateContext createContext(Analyzer analyzer) throws UserException {
-        ParamCreateContext context = new ParamCreateContext();
+    public FileScanNode.ParamCreateContext createContext(Analyzer analyzer) throws UserException {
+        FileScanNode.ParamCreateContext context = new FileScanNode.ParamCreateContext();
         context.params = new TFileScanRangeParams();
         context.destTupleDescriptor = desc;
         context.params.setDestTupleId(desc.getId().asInt());

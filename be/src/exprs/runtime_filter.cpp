@@ -334,7 +334,8 @@ public:
               _fragment_instance_id(params->fragment_instance_id),
               _filter_id(params->filter_id),
               _use_batch(IRuntimeFilter::enable_use_batch(_state->be_exec_version(),
-                                                          _column_return_type)) {}
+                                                          _column_return_type)),
+              _use_new_hash(_state->be_exec_version() >= 2) {}
     // for a 'tmp' runtime predicate wrapper
     // only could called assign method or as a param for merge
     RuntimePredicateWrapper(RuntimeState* state, ObjectPool* pool, PrimitiveType column_type,
@@ -347,7 +348,8 @@ public:
               _fragment_instance_id(fragment_instance_id),
               _filter_id(filter_id),
               _use_batch(IRuntimeFilter::enable_use_batch(_state->be_exec_version(),
-                                                          _column_return_type)) {}
+                                                          _column_return_type)),
+              _use_new_hash(_state->be_exec_version() >= 2) {}
     // init runtime filter wrapper
     // alloc memory to init runtime filter function
     Status init(const RuntimeFilterParams* params) {
@@ -433,7 +435,11 @@ public:
         }
         case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
             if (_is_bloomfilter) {
-                _context.bloom_filter_func->insert(data);
+                if (_use_new_hash) {
+                    _context.bloom_filter_func->insert_crc32_hash(data);
+                } else {
+                    _context.bloom_filter_func->insert(data);
+                }
             } else {
                 _context.hybrid_set->insert(data);
             }
@@ -1011,6 +1017,10 @@ private:
 
     // When _column_return_type is invalid, _use_batch will be always false.
     bool _use_batch;
+
+    // When _use_new_hash is set to true, use the new hash method.
+    // This is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
+    const bool _use_new_hash;
 };
 
 Status IRuntimeFilter::create(RuntimeState* state, ObjectPool* pool, const TRuntimeFilterDesc* desc,

@@ -85,6 +85,8 @@ inline const char* get_state_name(PipelineTaskState idx) {
     __builtin_unreachable();
 }
 
+class TaskQueue;
+
 // The class do the pipeline task. Minest schdule union by task scheduler
 class PipelineTask {
 public:
@@ -124,9 +126,6 @@ public:
     void pop_out_runnable_queue() { _wait_worker_watcher.stop(); }
     void start_schedule_watcher() { _wait_schedule_watcher.start(); }
     void stop_schedule_watcher() { _wait_schedule_watcher.stop(); }
-
-    int pipeline_id() const { return _pipeline->_pipeline_id; }
-
     PipelineTaskState get_state() { return _cur_state; }
     void set_state(PipelineTaskState state);
 
@@ -171,18 +170,20 @@ public:
 
     bool has_dependency();
 
-    uint32_t index() const { return _index; }
-
     OperatorPtr get_root() { return _root; }
 
     std::string debug_string() const;
 
     uint32_t total_schedule_time() const { return _schedule_time; }
 
+    taskgroup::TaskGroup* get_task_group() const;
+
+    void set_task_queue(TaskQueue* task_queue);
+
     static constexpr auto THREAD_TIME_SLICE = 100'000'000L;
 
 private:
-    Status open();
+    Status _open();
     void _init_profile();
 
     uint32_t _index;
@@ -203,6 +204,7 @@ private:
     SourceState _data_state;
     std::unique_ptr<doris::vectorized::Block> _block;
     PipelineFragmentContext* _fragment_context;
+    TaskQueue* _task_queue = nullptr;
 
     RuntimeProfile* _parent_profile;
     std::unique_ptr<RuntimeProfile> _task_profile;

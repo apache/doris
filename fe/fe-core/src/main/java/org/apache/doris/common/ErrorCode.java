@@ -23,6 +23,7 @@ import java.util.MissingFormatArgumentException;
 public enum ErrorCode {
     // Try our best to compatible with MySQL's
     ERR_HASHCHK(1000, new byte[]{'H', 'Y', '0', '0', '0'}, "hashchk"),
+    ERR_CANT_CREATE_TABLE(1005, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't create table '%s' (errno: %d - %s)"),
     ERR_DB_CREATE_EXISTS(1007, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't create database '%s'; database exists"),
     ERR_DB_DROP_EXISTS(1008, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't drop database '%s'; database doesn't exist"),
     ERR_DBACCESS_DENIED_ERROR(1044, new byte[]{'4', '2', '0', '0', '0'}, "Access denied for user '%s' to "

@@ -80,7 +80,8 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
                     continue;
                 }
                 params.put("partId", String.valueOf(tbl.getPartition(partName).getId()));
-                params.put("partName", String.valueOf(partName));
+                // Avoid error when get the default partition
+                params.put("partName", "`" + partName + "`");
                 StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
                 partitionAnalysisSQLs.add(stringSubstitutor.replace(ANALYZE_PARTITION_SQL_TEMPLATE));
             }
@@ -93,7 +94,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(ANALYZE_COLUMN_SQL_TEMPLATE);
         execSQL(sql);
-        Env.getCurrentEnv().getStatisticsCache().refreshSync(tbl.getId(), -1, col.getName());
+        Env.getCurrentEnv().getStatisticsCache().refreshColStatsSync(tbl.getId(), -1, col.getName());
     }
 
     @VisibleForTesting
@@ -106,6 +107,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     @VisibleForTesting
     public void execSQL(String sql) throws Exception {
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+            r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
             this.stmtExecutor = new StmtExecutor(r.connectContext, sql);
             this.stmtExecutor.execute();
         }

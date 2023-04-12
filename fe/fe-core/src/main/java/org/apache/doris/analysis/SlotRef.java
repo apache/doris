@@ -384,6 +384,11 @@ public class SlotRef extends Expr {
     }
 
     @Override
+    public boolean hasAggregateSlot() {
+        return desc.getColumn().isAggregated();
+    }
+
+    @Override
     public boolean isRelativedByTupleIds(List<TupleId> tids) {
         return isBoundByTupleIds(tids);
     }

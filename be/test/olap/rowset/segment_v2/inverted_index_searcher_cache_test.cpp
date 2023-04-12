@@ -19,7 +19,6 @@
 
 #include "io/fs/local_file_system.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
-#include "util/file_utils.h"
 #include "util/time.h"
 
 namespace doris {
@@ -36,15 +35,10 @@ public:
     const std::string kTestDir = "./ut_dir/invertedInvertedIndexSearcherCache::instance()_test";
 
     void SetUp() override {
-        if (FileUtils::check_exist(kTestDir)) {
-            EXPECT_TRUE(FileUtils::remove_all(kTestDir).ok());
-        }
-        EXPECT_TRUE(FileUtils::create_dir(kTestDir).ok());
+        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(kTestDir).ok());
     }
     void TearDown() override {
-        if (FileUtils::check_exist(kTestDir)) {
-            EXPECT_TRUE(FileUtils::remove_all(kTestDir).ok());
-        }
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
     }
 };
 

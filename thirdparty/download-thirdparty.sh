@@ -390,21 +390,6 @@ fi
 cd -
 echo "Finished patching ${AWS_SDK_SOURCE}"
 
-cd "${TP_SOURCE_DIR}/${BRPC_SOURCE}"
-if [[ ! -f "${PATCHED_MARK}" ]]; then
-    # Currently, there are two types of patches for BRPC in Doris:
-    # 1. brpc-fix-*.patch - These patches are not included in upstream but they can fix some bugs in some specific
-    #    scenarios.
-    # 2. brpc-{VERSION}-*.patch - These patches are included in upstream but they are not in current VERISON. We
-    #    backport some bug fixes to the current VERSION.
-    for file in "${TP_PATCH_DIR}"/brpc-*.patch; do
-        patch -p1 <"${file}"
-    done
-    touch "${PATCHED_MARK}"
-fi
-cd -
-echo "Finished patching ${BRPC_SOURCE}"
-
 # patch jemalloc, change simdjson::dom::element_type::BOOL to BOOLEAN to avoid conflict with odbc macro BOOL
 if [[ "${SIMDJSON_SOURCE}" = "simdjson-3.0.1" ]]; then
     cd "${TP_SOURCE_DIR}/${SIMDJSON_SOURCE}"

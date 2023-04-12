@@ -18,10 +18,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.backup.HdfsStorage;
-import org.apache.doris.backup.S3Storage;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -33,6 +31,8 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TParquetCompressionType;
@@ -62,7 +62,7 @@ public class OutFileClause {
     private static final Logger LOG = LogManager.getLogger(OutFileClause.class);
 
     public static final List<String> RESULT_COL_NAMES = Lists.newArrayList();
-    public static final List<PrimitiveType> RESULT_COL_TYPES = Lists.newArrayList();
+    public static final List<Type> RESULT_COL_TYPES = Lists.newArrayList();
     public static final Map<String, TParquetRepetitionType> PARQUET_REPETITION_TYPE_MAP = Maps.newHashMap();
     public static final Map<String, TParquetDataType> PARQUET_DATA_TYPE_MAP = Maps.newHashMap();
     public static final Map<String, TParquetCompressionType> PARQUET_COMPRESSION_TYPE_MAP = Maps.newHashMap();
@@ -75,10 +75,10 @@ public class OutFileClause {
         RESULT_COL_NAMES.add("FileSize");
         RESULT_COL_NAMES.add("URL");
 
-        RESULT_COL_TYPES.add(PrimitiveType.INT);
-        RESULT_COL_TYPES.add(PrimitiveType.BIGINT);
-        RESULT_COL_TYPES.add(PrimitiveType.BIGINT);
-        RESULT_COL_TYPES.add(PrimitiveType.VARCHAR);
+        RESULT_COL_TYPES.add(ScalarType.createType(PrimitiveType.INT));
+        RESULT_COL_TYPES.add(ScalarType.createType(PrimitiveType.BIGINT));
+        RESULT_COL_TYPES.add(ScalarType.createType(PrimitiveType.BIGINT));
+        RESULT_COL_TYPES.add(ScalarType.createType(PrimitiveType.VARCHAR));
 
         PARQUET_REPETITION_TYPE_MAP.put("required", TParquetRepetitionType.REQUIRED);
         PARQUET_REPETITION_TYPE_MAP.put("repeated", TParquetRepetitionType.REPEATED);
@@ -633,7 +633,8 @@ public class OutFileClause {
             if (entry.getKey().startsWith(BROKER_PROP_PREFIX) && !entry.getKey().equals(PROP_BROKER_NAME)) {
                 brokerProps.put(entry.getKey().substring(BROKER_PROP_PREFIX.length()), entry.getValue());
                 processedPropKeys.add(entry.getKey());
-            } else if (entry.getKey().toUpperCase().startsWith(S3Resource.S3_PROPERTIES_PREFIX)) {
+            } else if (entry.getKey().toLowerCase().startsWith(S3Properties.S3_PREFIX)
+                    || entry.getKey().toUpperCase().startsWith(S3Properties.Env.PROPERTIES_PREFIX)) {
                 brokerProps.put(entry.getKey(), entry.getValue());
                 processedPropKeys.add(entry.getKey());
             } else if (entry.getKey().contains(HdfsResource.HADOOP_FS_NAME)
@@ -648,11 +649,11 @@ public class OutFileClause {
             }
         }
         if (storageType == StorageBackend.StorageType.S3) {
-            if (properties.containsKey(S3Resource.USE_PATH_STYLE)) {
-                brokerProps.put(S3Resource.USE_PATH_STYLE, properties.get(S3Resource.USE_PATH_STYLE));
-                processedPropKeys.add(S3Resource.USE_PATH_STYLE);
+            if (properties.containsKey(PropertyConverter.USE_PATH_STYLE)) {
+                brokerProps.put(PropertyConverter.USE_PATH_STYLE, properties.get(PropertyConverter.USE_PATH_STYLE));
+                processedPropKeys.add(PropertyConverter.USE_PATH_STYLE);
             }
-            S3Storage.checkS3(brokerProps);
+            S3Properties.requiredS3Properties(brokerProps);
         } else if (storageType == StorageBackend.StorageType.HDFS) {
             if (!brokerProps.containsKey(HdfsResource.HADOOP_FS_NAME)) {
                 brokerProps.put(HdfsResource.HADOOP_FS_NAME, HdfsStorage.getFsName(filePath));

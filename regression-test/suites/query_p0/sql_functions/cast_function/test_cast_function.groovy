@@ -23,21 +23,42 @@ suite("test_cast_function") {
     qt_sql """ select cast (NULL AS CHAR(1)); """
     qt_sql """ select cast ('20190101' AS CHAR(2)); """
 
-    test {
-        sql """
-        select
-            ref_0.`k0` as c1
-        from
-            `test_query_db`.`baseall` as ref_0
-        where
-            cast(
-                case
-                    when BITMAP_EMPTY() is NULL then null
-                    else null
-                end as bitmap
-            ) is NULL
-        """
-        exception "Conversion from UInt8 to BitMap is not supported"
-    }
+    def tableName = "test_cast_function_nullable"
+    sql "DROP TABLE IF EXISTS ${tableName}"
+    sql """
+        CREATE TABLE IF NOT EXISTS `${tableName}` (
+        `uid` int(11) NULL COMMENT "",
+        `datetimev2` datetimev2(3) NULL COMMENT "",
+        `datetimev2_str` varchar(30) NULL COMMENT "",
+        `datev2_val` datev2 NULL COMMENT "",
+        `datev2_str` varchar(30) NULL COMMENT "",
+        `date_val` date NULL COMMENT "",
+        `date_str` varchar(30) NULL COMMENT "",
+        `decimalv2_val` decimal(9,3) NULL COMMENT "",
+        `decimalv2_str` varchar(30) NULL COMMENT "",
+        `decimalv3_val` decimalv3(12,5) NULL COMMENT "",
+        `decimalv3_str` varchar(30) NULL COMMENT ""
+        ) ENGINE=OLAP
+    DUPLICATE KEY(`uid`)
+    COMMENT "OLAP"
+    DISTRIBUTED BY HASH(`uid`) BUCKETS 1
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1",
+    "in_memory" = "false",
+    "storage_format" = "V2"
+    )
+    """
+
+    sql """INSERT INTO ${tableName} values
+    (0,"2022-12-01 22:23:24.123",'2022-12-01 22:23:24.123','2022-12-01','2022-12-01','2022-12-01','2022-12-01','78.12345678','78.12345678','78.12345678','78.12345678'),
+    (1,"2022-12-01 22:23:24.123456789",'2022-12-01 22:23:24.123456789','2022-12-01','2022-12-01','2022-12-01','2022-12-01','78.12345678','78.12345678','78.12345678','78.12345678'),
+    (2,"2022-12-01 22:23:24.12341234",'2022-12-01 22:23:24.12341234','2022-12-01','2022-12-01','2022-12-01','2022-12-01','78.12341234','78.12341234','78.12341234','78.12341234')
+    """
+
+    qt_select1 "select * from ${tableName} order by uid"
+    // test cast date,datetimev2,decimalv2,decimalv3 to string
+    qt_select2 "select uid, datetimev2, cast(datetimev2 as string), datev2_val, cast(datev2_val as string), date_val, cast(date_val as string), decimalv2_val, cast(decimalv2_val as string),  decimalv3_val, cast(decimalv3_val as string) from ${tableName}  order by uid"
+    // test cast from string to date,datetimev2,decimalv2,decimalv3
+    qt_select3 "select uid, datetimev2_str, cast(datetimev2_str as datetimev2(5)), datev2_str, cast(datev2_str as datev2), date_str, cast(date_str as date), decimalv2_str, cast(decimalv2_str as decimal(9,5)),  decimalv3_str, cast(decimalv3_str as decimalv3(12,6)) from ${tableName}  order by uid"
 }
 

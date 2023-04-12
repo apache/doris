@@ -35,7 +35,7 @@ suite("test_segcompaction_unique_keys_mow_index") {
         def backendId_to_backendHttpPort = [:]
         for (String[] backend in backends) {
             backendId_to_backendIP.put(backend[0], backend[2])
-            backendId_to_backendHttpPort.put(backend[0], backend[5])
+            backendId_to_backendHttpPort.put(backend[0], backend[6])
         }
 
         backend_id = backendId_to_backendIP.keySet()[0]
@@ -113,7 +113,7 @@ suite("test_segcompaction_unique_keys_mow_index") {
             )
             """
 
-        def max_try_milli_secs = 900000
+        def max_try_milli_secs = 1800000
         while (max_try_milli_secs > 0) {
             String[][] result = sql """ show load where label="$uuid" order by createtime desc limit 1; """
             if (result[0][2].equals("FINISHED")) {

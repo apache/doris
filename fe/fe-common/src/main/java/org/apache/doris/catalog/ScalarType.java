@@ -525,14 +525,14 @@ public class ScalarType extends Type {
             return "CHAR(" + len + ")";
         } else  if (type == PrimitiveType.DECIMALV2) {
             if (isWildcardDecimal()) {
-                return "DECIMAL(*,*)";
+                return "DECIMAL(*, *)";
             }
-            return "DECIMAL(" + precision + "," + scale + ")";
+            return "DECIMAL(" + precision + ", " + scale + ")";
         } else  if (type.isDecimalV3Type()) {
             if (isWildcardDecimal()) {
-                return "DECIMALV3(*,*)";
+                return "DECIMALV3(*, *)";
             }
-            return "DECIMALV3(" + precision + "," + scale + ")";
+            return "DECIMALV3(" + precision + ", " + scale + ")";
         } else  if (type == PrimitiveType.DATETIMEV2) {
             return "DATETIMEV2(" + scale + ")";
         } else  if (type == PrimitiveType.TIMEV2) {

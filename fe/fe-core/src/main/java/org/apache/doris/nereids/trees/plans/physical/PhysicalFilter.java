@@ -123,4 +123,13 @@ public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
         return new PhysicalFilter<>(conjuncts, groupExpression, getLogicalProperties(), physicalProperties,
                 statistics, child());
     }
+
+    @Override
+    public String shapeInfo() {
+        StringBuilder builder = new StringBuilder();
+        builder.append("filter(");
+        conjuncts.forEach(conjunct -> builder.append(conjunct.shapeInfo()));
+        builder.append(")");
+        return builder.toString();
+    }
 }

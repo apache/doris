@@ -215,6 +215,7 @@ public:
 
     /// Appends range of elements from other column with the same type.
     /// Could be used to concatenate columns.
+    /// TODO: we need `insert_range_from_const` for every column type.
     virtual void insert_range_from(const IColumn& src, size_t start, size_t length) = 0;
 
     /// Appends one element from other column with the same type multiple times.

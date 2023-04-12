@@ -66,6 +66,8 @@ public class FunctionSet<T> {
     // Including now(), curdate(), etc..
     private ImmutableSet<String> nondeterministicFunctions;
 
+    private boolean inited = false;
+
     public FunctionSet() {
         functions = Maps.newHashMap();
         vectorizedFunctions = Maps.newHashMap();
@@ -90,6 +92,8 @@ public class FunctionSet<T> {
 
         // init table function
         initTableFunction();
+
+        inited = true;
     }
 
     public void buildNullResultWithOneNullParamFunction(Set<String> funcNames) {
@@ -1227,9 +1231,19 @@ public class FunctionSet<T> {
 
         List<Function> normalFunctions = Lists.newArrayList();
         List<Function> templateFunctions = Lists.newArrayList();
+        List<Function> variadicTemplateFunctions = Lists.newArrayList();
+        List<Function> inferenceFunctions = Lists.newArrayList();
         for (Function fn : fns) {
+            if (fn.isInferenceFunction()) {
+                inferenceFunctions.add(fn);
+                continue;
+            }
             if (fn.hasTemplateArg()) {
-                templateFunctions.add(fn);
+                if (!fn.hasVariadicTemplateArg()) {
+                    templateFunctions.add(fn);
+                } else {
+                    variadicTemplateFunctions.add(fn);
+                }
             } else {
                 normalFunctions.add(fn);
             }
@@ -1244,12 +1258,46 @@ public class FunctionSet<T> {
         // then specialize template functions and try them
         List<Function> specializedTemplateFunctions = Lists.newArrayList();
         for (Function f : templateFunctions) {
-            f = FunctionSet.specializeTemplateFunction(f, desc);
+            f = specializeTemplateFunction(f, desc, false);
             if (f != null) {
                 specializedTemplateFunctions.add(f);
             }
         }
-        return getFunction(desc, mode, specializedTemplateFunctions);
+
+        // try template function second
+        fn = getFunction(desc, mode, specializedTemplateFunctions);
+        if (fn != null) {
+            return fn;
+        }
+
+        // then specialize variadic template function and try them
+        List<Function> specializedVariadicTemplateFunctions = Lists.newArrayList();
+        for (Function f : variadicTemplateFunctions) {
+            f = specializeTemplateFunction(f, desc, true);
+            if (f != null) {
+                specializedVariadicTemplateFunctions.add(f);
+            }
+        }
+
+        // try variadic template function third
+        fn = getFunction(desc, mode, specializedVariadicTemplateFunctions);
+        if (fn != null) {
+            return fn;
+        }
+
+        List<Function> inferredFunctions = Lists.newArrayList();
+        for (Function f : inferenceFunctions) {
+            if (f.hasTemplateArg()) {
+                f = specializeTemplateFunction(f, desc, f.hasVariadicTemplateArg());
+            }
+            f = resolveInferenceFunction(f, desc);
+            if (f != null) {
+                inferredFunctions.add(f);
+            }
+        }
+
+        // try inference function at last
+        return getFunction(desc, mode, inferredFunctions);
     }
 
     private Function getFunction(Function desc, Function.CompareMode mode, List<Function> fns) {
@@ -1292,21 +1340,46 @@ public class FunctionSet<T> {
         return null;
     }
 
-    public static Function specializeTemplateFunction(Function templateFunction, Function requestFunction) {
+    public Function specializeTemplateFunction(Function templateFunction, Function requestFunction, boolean isVariadic) {
         try {
             boolean hasTemplateType = false;
             LOG.debug("templateFunction signature: " + templateFunction.signatureString()
                         + "  return: " + templateFunction.getReturnType());
             LOG.debug("requestFunction signature: " + requestFunction.signatureString()
                         + "  return: " + requestFunction.getReturnType());
+            List<Type> newArgTypes = Lists.newArrayList();
+            List<Type> newRetType = Lists.newArrayList();
+            if (isVariadic) {
+                Map<String, Integer> expandSizeMap = Maps.newHashMap();
+                templateFunction.collectTemplateExpandSize(requestFunction.getArgs(), expandSizeMap);
+                // expand the variadic template in arg types
+                for (Type argType : templateFunction.getArgs()) {
+                    if (argType.needExpandTemplateType()) {
+                        newArgTypes.addAll(argType.expandVariadicTemplateType(expandSizeMap));
+                    } else {
+                        newArgTypes.add(argType);
+                    }
+                }
+
+                // expand the variadic template in ret type
+                if (templateFunction.getReturnType().needExpandTemplateType()) {
+                    newRetType.addAll(templateFunction.getReturnType().expandVariadicTemplateType(expandSizeMap));
+                    Preconditions.checkState(newRetType.size() == 1);
+                } else {
+                    newRetType.add(templateFunction.getReturnType());
+                }
+            } else {
+                newArgTypes.addAll(Lists.newArrayList(templateFunction.getArgs()));
+                newRetType.add(templateFunction.getReturnType());
+            }
             Function specializedFunction = templateFunction;
             if (templateFunction instanceof ScalarFunction) {
                 ScalarFunction f = (ScalarFunction) templateFunction;
-                specializedFunction = new ScalarFunction(f.getFunctionName(), Lists.newArrayList(f.getArgs()),
-                                            f.getReturnType(), f.hasVarArgs(), f.getSymbolName(), f.getBinaryType(),
-                                            f.isUserVisible(), f.isVectorized(), f.getNullableMode());
+                specializedFunction = new ScalarFunction(f.getFunctionName(), newArgTypes, newRetType.get(0), f.hasVarArgs(),
+                        f.getSymbolName(), f.getBinaryType(), f.isUserVisible(), f.isVectorized(), f.getNullableMode());
             } else {
-                // TODO(xk)
+                throw new TypeException(templateFunction
+                                + " is not support for template since it's not a ScalarFunction");
             }
             Type[] args = specializedFunction.getArgs();
             Map<String, Type> specializedTypeMap = Maps.newHashMap();
@@ -1326,9 +1399,22 @@ public class FunctionSet<T> {
                         + "  return: " + specializedFunction.getReturnType());
             return hasTemplateType ? specializedFunction : templateFunction;
         } catch (TypeException e) {
-            LOG.warn("specializeTemplateFunction exception", e);
+            if (inited) {
+                LOG.warn("specializeTemplateFunction exception", e);
+            }
             return null;
         }
+    }
+
+    public Function resolveInferenceFunction(Function inferenceFunction, Function requestFunction) {
+        Type[] args = requestFunction.getArgs();
+        Type newRetType = FunctionTypeDeducers.deduce(inferenceFunction.functionName(), args);
+        if (newRetType != null && inferenceFunction instanceof ScalarFunction) {
+            ScalarFunction f = (ScalarFunction) inferenceFunction;
+            return new ScalarFunction(f.getFunctionName(), Lists.newArrayList(f.getArgs()), newRetType, f.hasVarArgs(),
+                    f.getSymbolName(), f.getBinaryType(), f.isUserVisible(), f.isVectorized(), f.getNullableMode());
+        }
+        return null;
     }
 
     /**
@@ -1510,6 +1596,27 @@ public class FunctionSet<T> {
                 null, null,
                 prefix + "17count_star_removeEPN9doris_udf15FunctionContextEPNS1_9BigIntValE",
                 null, false, true, true, true));
+
+        // count(array/map/struct)
+        for (Type complexType : Lists.newArrayList(Type.ARRAY, Type.MAP, Type.GENERIC_STRUCT)) {
+            addBuiltin(AggregateFunction.createBuiltin(FunctionSet.COUNT,
+                    Lists.newArrayList(complexType), Type.BIGINT, Type.BIGINT,
+                    prefix + "18init_zero_not_nullIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextEPT_",
+                    prefix + "12count_updateEPN9doris_udf15FunctionContextERKNS1_6AnyValEPNS1_9BigIntValE",
+                    prefix + "11count_mergeEPN9doris_udf15FunctionContextERKNS1_9BigIntValEPS4_",
+                    null, null,
+                    prefix + "12count_removeEPN9doris_udf15FunctionContextERKNS1_6AnyValEPNS1_9BigIntValE",
+                    null, false, true, true, true));
+
+            addBuiltin(AggregateFunction.createBuiltin(FunctionSet.COUNT,
+                    Lists.newArrayList(complexType), Type.BIGINT, Type.BIGINT,
+                    prefix + "18init_zero_not_nullIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextEPT_",
+                    prefix + "12count_updateEPN9doris_udf15FunctionContextERKNS1_6AnyValEPNS1_9BigIntValE",
+                    prefix + "11count_mergeEPN9doris_udf15FunctionContextERKNS1_9BigIntValEPS4_",
+                    null, null,
+                    prefix + "12count_removeEPN9doris_udf15FunctionContextERKNS1_6AnyValEPNS1_9BigIntValE",
+                    null, false, true, true, true));
+        }
 
         // windowFunnel
         addBuiltin(AggregateFunction.createBuiltin(FunctionSet.WINDOW_FUNNEL,

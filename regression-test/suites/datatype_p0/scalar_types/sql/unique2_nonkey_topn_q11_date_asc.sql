@@ -1,1 +1,1 @@
-SELECT * FROM tbl_scalar_types_unique2 ORDER BY c_date, c_bigint LIMIT 20;
+SELECT * FROM tbl_scalar_types_unique2 ORDER BY c_date ASC, c_bigint ASC LIMIT 20;

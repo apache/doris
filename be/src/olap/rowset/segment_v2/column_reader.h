@@ -39,7 +39,6 @@
 #include "olap/rowset/segment_v2/row_ranges.h"            // for RowRanges
 #include "olap/rowset/segment_v2/zone_map_index.h"
 #include "olap/tablet_schema.h"
-#include "util/file_cache.h"
 #include "util/once.h"
 #include "vec/columns/column_array.h" // ColumnArray
 

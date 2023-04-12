@@ -159,6 +159,11 @@ public:
                            PTabletKeyLookupResponse* response,
                            google::protobuf::Closure* done) override;
 
+    void get_column_ids_by_tablet_ids(google::protobuf::RpcController* controller,
+                                      const PFetchColIdsRequest* request,
+                                      PFetchColIdsResponse* response,
+                                      google::protobuf::Closure* done) override;
+
 private:
     Status _exec_plan_fragment(const std::string& s_request, PFragmentRequestVersion version,
                                bool compact);
@@ -187,6 +192,11 @@ private:
                                      int64_t txn_id, int64_t tablet_id, int64_t node_id,
                                      bool is_succeed);
     Status _multi_get(const PMultiGetRequest* request, PMultiGetResponse* response);
+
+    void _get_column_ids_by_tablet_ids(google::protobuf::RpcController* controller,
+                                       const PFetchColIdsRequest* request,
+                                       PFetchColIdsResponse* response,
+                                       google::protobuf::Closure* done);
 
 private:
     ExecEnv* _exec_env;

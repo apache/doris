@@ -78,6 +78,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
     public static final String ACCESS_CONTROLLER_CLASS_PROP = "access_controller.class";
     public static final String ACCESS_CONTROLLER_PROPERTY_PREFIX_PROP = "access_controller.properties.";
+    public static final String METADATA_REFRESH_INTERVAL_SEC = "metadata_refresh_interval_sec";
     public static final String CATALOG_TYPE_PROP = "type";
 
     private static final String YES = "yes";
@@ -367,7 +368,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                         row.add(String.valueOf(catalog.getId()));
                         row.add(name);
                         row.add(catalog.getType());
-                        if (name.equals(currentCtlg)) {
+                        if (currentCtlg != null && name.equals(currentCtlg)) {
                             row.add(YES);
                         } else {
                             row.add("");
@@ -394,6 +395,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                     rows.add(Arrays.asList("resource", catalog.getResource()));
                 }
                 for (Map.Entry<String, String> elem : catalog.getProperties().entrySet()) {
+                    if (PrintableMap.HIDDEN_KEY.contains(elem.getKey())) {
+                        continue;
+                    }
                     if (PrintableMap.SENSITIVE_KEY.contains(elem.getKey())) {
                         rows.add(Arrays.asList(elem.getKey(), PrintableMap.PASSWORD_MASK));
                     } else {
@@ -421,7 +425,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                     .append("`");
             if (catalog.getProperties().size() > 0) {
                 sb.append(" PROPERTIES (\n");
-                sb.append(new PrintableMap<>(catalog.getProperties(), "=", true, true, true));
+                sb.append(new PrintableMap<>(catalog.getProperties(), "=", true, true, true, true));
                 sb.append("\n);");
             }
 
@@ -464,6 +468,14 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             CatalogIf catalog = CatalogFactory.constructorFromLog(log);
             if (!isReplay && catalog instanceof ExternalCatalog) {
                 ((ExternalCatalog) catalog).checkProperties();
+            }
+            Map<String, String> props = log.getProps();
+            if (props.containsKey(METADATA_REFRESH_INTERVAL_SEC)) {
+                // need refresh
+                long catalogId = log.getCatalogId();
+                Integer metadataRefreshIntervalSec = Integer.valueOf(props.get(METADATA_REFRESH_INTERVAL_SEC));
+                Integer[] sec = {metadataRefreshIntervalSec, metadataRefreshIntervalSec};
+                Env.getCurrentEnv().getRefreshManager().addToRefreshMap(catalogId, sec);
             }
             addCatalog(catalog);
             return catalog;
@@ -951,6 +963,17 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                         log.getPartitionNames());
     }
 
+    public void registerCatalogRefreshListener(Env env) {
+        for (CatalogIf catalog : idToCatalog.values()) {
+            Map<String, String> properties = catalog.getProperties();
+            if (properties.containsKey(METADATA_REFRESH_INTERVAL_SEC)) {
+                Integer metadataRefreshIntervalSec = Integer.valueOf(properties.get(METADATA_REFRESH_INTERVAL_SEC));
+                Integer[] sec = {metadataRefreshIntervalSec, metadataRefreshIntervalSec};
+                env.getRefreshManager().addToRefreshMap(catalog.getId(), sec);
+            }
+        }
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this);
@@ -961,6 +984,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     public void gsonPostProcess() throws IOException {
         for (CatalogIf catalog : idToCatalog.values()) {
             nameToCatalog.put(catalog.getName(), catalog);
+            // ATTN: can not call catalog.getProperties() here, because ResourceMgr is not replayed yet.
         }
         internalCatalog = (InternalCatalog) idToCatalog.get(InternalCatalog.INTERNAL_CATALOG_ID);
     }

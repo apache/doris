@@ -17,6 +17,8 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.nereids.types.DataType;
+
 import java.util.Objects;
 
 public class StatisticRange {
@@ -34,10 +36,13 @@ public class StatisticRange {
 
     private final double distinctValues;
 
-    public StatisticRange(double low, double high, double distinctValues) {
+    private final DataType dataType;
+
+    public StatisticRange(double low, double high, double distinctValues, DataType dataType) {
         this.low = low;
         this.high = high;
         this.distinctValues = distinctValues;
+        this.dataType = dataType;
     }
 
     public double overlapPercentWith(StatisticRange other) {
@@ -50,7 +55,7 @@ public class StatisticRange {
             return 1.0;
         }
 
-        double lengthOfIntersect = Math.min(this.high, other.high) - Math.max(this.low, other.low);
+        double lengthOfIntersect = dataType.rangeLength(Math.min(this.high, other.high), Math.max(this.low, other.low));
         if (Double.isInfinite(lengthOfIntersect)) {
             if (Double.isFinite(this.distinctValues) && Double.isFinite(other.distinctValues)) {
                 return Math.min(other.distinctValues / this.distinctValues, 1);
@@ -73,8 +78,8 @@ public class StatisticRange {
         return INFINITE_TO_FINITE_RANGE_INTERSECT_OVERLAP_HEURISTIC_FACTOR;
     }
 
-    public static StatisticRange empty() {
-        return new StatisticRange(Double.NaN, Double.NaN, 0);
+    public static StatisticRange empty(DataType dataType) {
+        return new StatisticRange(Double.NaN, Double.NaN, 0, dataType);
     }
 
     public boolean isEmpty() {
@@ -85,8 +90,8 @@ public class StatisticRange {
         return Double.isInfinite(low) && Double.isInfinite(high);
     }
 
-    public static StatisticRange from(ColumnStatistic column) {
-        return new StatisticRange(column.minValue, column.maxValue, column.ndv);
+    public static StatisticRange from(ColumnStatistic column, DataType dataType) {
+        return new StatisticRange(column.minValue, column.maxValue, column.ndv, dataType);
     }
 
     public double getLow() {
@@ -98,16 +103,28 @@ public class StatisticRange {
     }
 
     public double length() {
-        return this.high - this.low;
+        return dataType.rangeLength(this.high, this.low);
     }
 
     public StatisticRange intersect(StatisticRange other) {
         double newLow = Math.max(low, other.low);
         double newHigh = Math.min(high, other.high);
         if (newLow <= newHigh) {
-            return new StatisticRange(newLow, newHigh, overlappingDistinctValues(other));
+            return new StatisticRange(newLow, newHigh, overlappingDistinctValues(other), dataType);
         }
-        return empty();
+        return empty(dataType);
+    }
+
+    public StatisticRange cover(StatisticRange other) {
+        double newLow = Math.max(low, other.low);
+        double newHigh = Math.min(high, other.high);
+        if (newLow <= newHigh) {
+            double overlapPercentOfLeft = overlapPercentWith(other);
+            double overlapDistinctValuesLeft = overlapPercentOfLeft * distinctValues;
+            double coveredDistinctValues = minExcludeNaN(distinctValues, overlapDistinctValuesLeft);
+            return new StatisticRange(newLow, newHigh, coveredDistinctValues, dataType);
+        }
+        return empty(dataType);
     }
 
     public StatisticRange union(StatisticRange other) {
@@ -118,7 +135,7 @@ public class StatisticRange {
         double maxOverlapNDV = Math.max(overlapNDVThis, overlapNDVOther);
         double newNDV = maxOverlapNDV + ((1 - overlapPercentThis) * distinctValues)
                 + ((1 - overlapPercentOther) * other.distinctValues);
-        return new StatisticRange(Math.min(low, other.low), Math.max(high, other.high), newNDV);
+        return new StatisticRange(Math.min(low, other.low), Math.max(high, other.high), newNDV, dataType);
     }
 
     private double overlappingDistinctValues(StatisticRange other) {
@@ -156,7 +173,7 @@ public class StatisticRange {
         return distinctValues;
     }
 
-    public static StatisticRange fromColumnStatistics(ColumnStatistic columnStatistic) {
-        return new StatisticRange(columnStatistic.minValue, columnStatistic.maxValue, columnStatistic.ndv);
+    public static StatisticRange fromColumnStatistics(ColumnStatistic columnStatistic, DataType dataType) {
+        return new StatisticRange(columnStatistic.minValue, columnStatistic.maxValue, columnStatistic.ndv, dataType);
     }
 }

@@ -335,6 +335,9 @@ Block* process_table_function(TableFunction* fn, Block* input_block,
 
     // prepare output column
     vectorized::MutableColumnPtr column = descs[0].data_type->create_column();
+    if (column->is_nullable()) {
+        fn->set_nullable();
+    }
 
     // process table function for all rows
     for (size_t row = 0; row < input_block->rows(); ++row) {
@@ -348,25 +351,10 @@ Block* process_table_function(TableFunction* fn, Block* input_block,
             continue;
         }
 
-        bool tmp_eos = false;
         do {
-            void* cell = nullptr;
-            int64_t cell_len = 0;
-            if (fn->get_value(&cell) != Status::OK() ||
-                fn->get_value_length(&cell_len) != Status::OK()) {
-                LOG(WARNING) << "TableFunction get_value or get_value_length failed";
-                return nullptr;
-            }
-
-            // copy data from input block
-            if (cell == nullptr) {
-                column->insert_default();
-            } else {
-                column->insert_data(reinterpret_cast<char*>(cell), cell_len);
-            }
-
-            fn->forward(&tmp_eos);
-        } while (!tmp_eos);
+            fn->get_value(column);
+            fn->forward();
+        } while (!fn->eos());
     }
 
     std::unique_ptr<Block> output_block(new Block());

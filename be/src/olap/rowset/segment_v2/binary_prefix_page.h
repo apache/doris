@@ -28,7 +28,6 @@
 #include "olap/rowset/segment_v2/options.h"
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
-#include "runtime/mem_pool.h"
 #include "util/coding.h"
 #include "util/faststring.h"
 #include "util/slice.h"

@@ -17,9 +17,9 @@
 
 #include <gtest/gtest.h>
 
+#include "io/fs/local_file_system.h"
 #include "runtime/block_spill_manager.h"
 #include "runtime/runtime_state.h"
-#include "util/file_utils.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
@@ -55,8 +55,7 @@ public:
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         test_data_dir = std::string(buffer) + "/" + TMP_DATA_DIR;
         std::cout << "test data dir: " << test_data_dir << "\n";
-        FileUtils::remove_all(test_data_dir);
-        FileUtils::create_dir(test_data_dir);
+        io::global_local_filesystem()->delete_and_create_directory(test_data_dir);
 
         std::vector<StorePath> paths;
         paths.emplace_back(test_data_dir, -1);
@@ -64,7 +63,9 @@ public:
         block_spill_manager->init();
     }
 
-    static void TearDownTestSuite() { FileUtils::remove_all(test_data_dir); }
+    static void TearDownTestSuite() {
+        io::global_local_filesystem()->delete_directory(test_data_dir);
+    }
 
 protected:
     void SetUp() {

@@ -35,9 +35,9 @@ Usage: $0 <options>
      -c mysql           start MySQL
      -c mysql,hive      start MySQL and Hive
      --stop             stop the specified components
-  
+
   All valid components:
-    mysql,pg,oracle,sqlserver,es,hive,iceberg
+    mysql,pg,oracle,sqlserver,clickhouse,es,hive,iceberg
   "
     exit 1
 }
@@ -60,7 +60,7 @@ STOP=0
 
 if [[ "$#" == 1 ]]; then
     # default
-    COMPONENTS="mysql,pg,oracle,sqlserver,hive,iceberg"
+    COMPONENTS="mysql,pg,oracle,sqlserver,clickhouse,hive,iceberg"
 else
     while true; do
         case "$1" in
@@ -92,7 +92,7 @@ else
     done
     if [[ "${COMPONENTS}"x == ""x ]]; then
         if [[ "${STOP}" -eq 1 ]]; then
-            COMPONENTS="mysql,pg,oracle,sqlserver,hive,iceberg"
+            COMPONENTS="mysql,pg,oracle,sqlserver,clickhouse,hive,iceberg"
         fi
     fi
 fi
@@ -126,6 +126,7 @@ RUN_MYSQL=0
 RUN_PG=0
 RUN_ORACLE=0
 RUN_SQLSERVER=0
+RUN_CLICKHOUSE=0
 RUN_HIVE=0
 RUN_ES=0
 RUN_ICEBERG=0
@@ -138,6 +139,8 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_ORACLE=1
     elif [[ "${element}"x == "sqlserver"x ]]; then
         RUN_SQLSERVER=1
+    elif [[ "${element}"x == "clickhouse"x ]]; then
+        RUN_CLICKHOUSE=1
     elif [[ "${element}"x == "es"x ]]; then
         RUN_ES=1
     elif [[ "${element}"x == "hive"x ]]; then
@@ -216,17 +219,33 @@ if [[ "${RUN_SQLSERVER}" -eq 1 ]]; then
     fi
 fi
 
+if [[ "${RUN_CLICKHOUSE}" -eq 1 ]]; then
+    # clickhouse
+    cp "${ROOT}"/docker-compose/clickhouse/clickhouse.yaml.tpl "${ROOT}"/docker-compose/clickhouse/clickhouse.yaml
+    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/clickhouse/clickhouse.yaml
+    sudo docker compose -f "${ROOT}"/docker-compose/clickhouse/clickhouse.yaml --env-file "${ROOT}"/docker-compose/clickhouse/clickhouse.env down
+    if [[ "${STOP}" -ne 1 ]]; then
+        sudo mkdir -p "${ROOT}"/docker-compose/clickhouse/data/
+        sudo rm "${ROOT}"/docker-compose/clickhouse/data/* -rf
+        sudo docker compose -f "${ROOT}"/docker-compose/clickhouse/clickhouse.yaml --env-file "${ROOT}"/docker-compose/clickhouse/clickhouse.env up -d
+    fi
+fi
+
 if [[ "${RUN_HIVE}" -eq 1 ]]; then
     # hive
     # before start it, you need to download parquet file package, see "README" in "docker-compose/hive/scripts/"
+    cp "${ROOT}"/docker-compose/hive/gen_env.sh.tpl "${ROOT}"/docker-compose/hive/gen_env.sh
+    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hive/gen_env.sh
     cp "${ROOT}"/docker-compose/hive/hive-2x.yaml.tpl "${ROOT}"/docker-compose/hive/hive-2x.yaml
     cp "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl.tpl "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hive/hive-2x.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl
-    sudo "${ROOT}"/docker-compose/hive/gen_env.sh
-    sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env down
+    sudo bash "${ROOT}"/docker-compose/hive/gen_env.sh
+    sudo docker-compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env down
+    sudo sed -i '/${CONTAINER_UID}namenode/d' /etc/hosts
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env up -d
+        sudo docker-compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env up --build --remove-orphans -d
+        sudo echo "127.0.0.1 ${CONTAINER_UID}namenode" >> /etc/hosts
     fi
 fi
 

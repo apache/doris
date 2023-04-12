@@ -73,6 +73,13 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
                                                  column.getDefaultValue() == null
                                                          ? FeConstants.null_string : column.getDefaultValue(),
                                                  extraStr);
+
+            if (column.getOriginType().isDateV2()) {
+                rowList.set(1, "DATE");
+            }
+            if (column.getOriginType().isDatetimeV2()) {
+                rowList.set(1, "DATETIME");
+            }
             result.addRow(rowList);
         }
         return result;

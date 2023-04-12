@@ -32,6 +32,10 @@ public:
     DataTypeObject(const String& schema_format_, bool is_nullable_);
     const char* get_family_name() const override { return "Variant"; }
     TypeIndex get_type_id() const override { return TypeIndex::VARIANT; }
+    PrimitiveType get_type_as_primitive_type() const override { return TYPE_VARIANT; }
+    TPrimitiveType::type get_type_as_tprimitive_type() const override {
+        return TPrimitiveType::VARIANT;
+    }
     MutableColumnPtr create_column() const override { return ColumnObject::create(is_nullable); }
     bool is_object() const override { return true; }
     bool equals(const IDataType& rhs) const override;

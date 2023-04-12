@@ -559,7 +559,7 @@ build_zlib() {
     check_if_source_exist "${ZLIB_SOURCE}"
     cd "${TP_SOURCE_DIR}/${ZLIB_SOURCE}"
 
-    CFLAGS="-fPIC" \
+    CFLAGS="-O3 -fPIC" \
         CPPFLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
         ./configure --prefix="${TP_INSTALL_DIR}" --static
@@ -683,8 +683,9 @@ build_hyperscan() {
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-        -DBOOST_ROOT="${BOOST_SOURCE}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DBUILD_EXAMPLES=OFF ..
+    CXXFLAGS="-D_HAS_AUTO_PTR_ETC=0" \
+        "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        -DBOOST_ROOT="${TP_INSTALL_DIR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DBUILD_EXAMPLES=OFF ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}" install
     strip_lib libhs.a
 }
@@ -703,7 +704,9 @@ build_boost() {
     CXXFLAGS="${cxxflags}" \
         ./bootstrap.sh --prefix="${TP_INSTALL_DIR}" --with-toolset="${boost_toolset}"
     # -q: Fail at first error
-    ./b2 -q link=static runtime-link=static -j "${PARALLEL}" --without-mpi --without-graph --without-graph_parallel --without-python cxxflags="-std=c++11 -g -I${TP_INCLUDE_DIR} -L${TP_LIB_DIR}" install
+    ./b2 -q link=static runtime-link=static -j "${PARALLEL}" \
+        --without-mpi --without-graph --without-graph_parallel --without-python \
+        cxxflags="-std=c++17 -g -I${TP_INCLUDE_DIR} -L${TP_LIB_DIR}" install
 }
 
 # mysql
@@ -876,13 +879,7 @@ build_libunixodbc() {
 
     cd "${TP_SOURCE_DIR}/${ODBC_SOURCE}"
 
-    if [[ "${KERNEL}" != 'Darwin' ]]; then
-        cflags="-I${TP_INCLUDE_DIR} -Wno-int-conversion"
-    else
-        cflags="-I${TP_INCLUDE_DIR} -Wno-int-conversion -Wno-implicit-function-declaration"
-    fi
-
-    CFLAGS="${cflags}" \
+    CFLAGS="-I${TP_INCLUDE_DIR} -Wno-int-conversion -Wno-implicit-function-declaration" \
         LDFLAGS="-L${TP_LIB_DIR}" \
         ./configure --prefix="${TP_INSTALL_DIR}" --with-included-ltdl --enable-static=yes --enable-shared=no
 
@@ -1340,14 +1337,8 @@ build_gsasl() {
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
-    if [[ "${KERNEL}" != 'Darwin' ]]; then
-        cflags=''
-    else
-        cflags='-Wno-implicit-function-declaration'
-    fi
-
     KRB5_CONFIG="${TP_INSTALL_DIR}/bin/krb5-config" \
-        CFLAGS="${cflags} -I${TP_INCLUDE_DIR}" \
+        CFLAGS="-I${TP_INCLUDE_DIR} -Wno-implicit-function-declaration" \
         ../configure --prefix="${TP_INSTALL_DIR}" --with-gssapi-impl=mit --enable-shared=no --with-pic --with-libidn-prefix="${TP_INSTALL_DIR}"
 
     make -j "${PARALLEL}"

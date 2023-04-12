@@ -145,6 +145,11 @@ Status DataTypeDateTimeV2::from_string(ReadBuffer& rb, IColumn* column) const {
     return Status::OK();
 }
 
+void DataTypeDateTimeV2::to_pb_column_meta(PColumnMeta* col_meta) const {
+    IDataType::to_pb_column_meta(col_meta);
+    col_meta->mutable_decimal_param()->set_scale(_scale);
+}
+
 MutableColumnPtr DataTypeDateTimeV2::create_column() const {
     return DataTypeNumberBase<UInt64>::create_column();
 }

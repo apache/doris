@@ -62,7 +62,7 @@ under the License.
     用户可以通过 [SWITCH](../../sql-manual/sql-reference/Utility-Statements/SWITCH.md) 命令切换 Catalog。如：
     
     ```
-    SWiTCH internal;
+    SWITCH internal;
     SWITCH hive_catalog;
     ```
     
@@ -333,7 +333,7 @@ Doris 的权限管理功能提供了对 Catalog 层级的扩展，具体可参�
 > 
 > 如果绕过HMS直接操作文件系统的话，HMS不会生成对应事件，doris因此也无法感知
 
-该特性被在 fe.conf 中有如下参数：
+该特性在 fe.conf 中有如下参数：
 
 1. `enable_hms_events_incremental_sync`: 是否开启元数据自动增量同步功能,默认关闭。
 2. `hms_events_polling_interval_ms`: 读取 event 的间隔时间，默认值为 10000，单位：毫秒。

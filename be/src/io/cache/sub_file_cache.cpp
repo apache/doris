@@ -30,7 +30,6 @@
 #include "io/fs/local_file_system.h"
 #include "olap/iterators.h"
 #include "util/async_io.h"
-#include "util/file_utils.h"
 #include "util/string_util.h"
 
 namespace doris {
@@ -52,7 +51,7 @@ SubFileCache::~SubFileCache() {}
 Status SubFileCache::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                   const IOContext* io_ctx) {
     RETURN_IF_ERROR(_init());
-    if (io_ctx->reader_type != READER_QUERY) {
+    if (io_ctx != nullptr && io_ctx->reader_type != READER_QUERY) {
         return _remote_file_reader->read_at(offset, result, bytes_read, io_ctx);
     }
     std::vector<size_t> need_cache_offsets;
@@ -305,7 +304,7 @@ Status SubFileCache::_init() {
         auto str_vec = split(file.native(), "_");
         size_t offset = std::strtoul(str_vec[str_vec.size() - 1].c_str(), nullptr, 10);
 
-        size_t file_size = 0;
+        int64_t file_size = -1;
         auto path = _cache_dir / file;
         RETURN_IF_ERROR(io::global_local_filesystem()->file_size(path, &file_size));
         if (expect_file_size_map.find(offset) == expect_file_size_map.end() ||

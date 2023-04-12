@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.nereids.stats.ExpressionEstimation;
 import org.apache.doris.nereids.stats.StatsMathUtil;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
@@ -117,12 +118,11 @@ public class Statistics {
      */
     public void fix(double newRowCount, double originRowCount) {
         double sel = newRowCount / originRowCount;
-
         for (Entry<Expression, ColumnStatistic> entry : expressionToColumnStats.entrySet()) {
             ColumnStatistic columnStatistic = entry.getValue();
             ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(columnStatistic);
             columnStatisticBuilder.setNdv(computeNdv(columnStatistic.ndv, newRowCount, originRowCount));
-            columnStatisticBuilder.setNumNulls(Math.min(columnStatistic.numNulls * sel, rowCount));
+            columnStatisticBuilder.setNumNulls(Math.min(columnStatistic.numNulls * sel, newRowCount));
             columnStatisticBuilder.setCount(newRowCount);
             expressionToColumnStats.put(entry.getKey(), columnStatisticBuilder.build());
         }
@@ -185,4 +185,21 @@ public class Statistics {
         }
         return zero;
     }
+
+    public boolean almostUniqueExpression(Expression expr) {
+        ExpressionEstimation estimator = new ExpressionEstimation();
+        double ndvErrorThreshold = 0.9;
+        ColumnStatistic colStats = expr.accept(estimator, this);
+        if (colStats.ndv > colStats.count * ndvErrorThreshold) {
+            return true;
+        }
+        return false;
+    }
+
+    public boolean isStatsUnknown(Expression expr) {
+        ExpressionEstimation estimator = new ExpressionEstimation();
+        ColumnStatistic colStats = expr.accept(estimator, this);
+        return colStats.isUnKnown;
+    }
+
 }

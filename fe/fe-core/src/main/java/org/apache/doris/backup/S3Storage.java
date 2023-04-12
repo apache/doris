@@ -18,9 +18,11 @@
 package org.apache.doris.backup;
 
 import org.apache.doris.analysis.StorageBackend;
-import org.apache.doris.catalog.S3Resource;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
+import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.property.constants.S3Properties;
 
 import org.apache.commons.collections.map.CaseInsensitiveMap;
 import org.apache.commons.lang3.StringUtils;
@@ -95,6 +97,16 @@ public class S3Storage extends BlobStorage {
     public void setProperties(Map<String, String> properties) {
         super.setProperties(properties);
         caseInsensitiveProperties.putAll(properties);
+        if (!caseInsensitiveProperties.containsKey(S3Properties.ENDPOINT)) {
+            // try to get new properties from old version
+            // compatible with old version
+            S3Properties.convertToStdProperties(caseInsensitiveProperties);
+        }
+        try {
+            S3Properties.requiredS3Properties(caseInsensitiveProperties);
+        } catch (DdlException e) {
+            throw new IllegalArgumentException(e);
+        }
         // Virtual hosted-style is recommended in the s3 protocol.
         // The path-style has been abandoned, but for some unexplainable reasons,
         // the s3 client will determine whether the endpiont starts with `s3`
@@ -113,29 +125,21 @@ public class S3Storage extends BlobStorage {
         // That is, for S3 endpoint, ignore the `use_path_style` property, and the s3 client will automatically use
         // virtual hosted-sytle.
         // And for other endpoint, if `use_path_style` is true, use path style. Otherwise, use virtual hosted-sytle.
-        if (!caseInsensitiveProperties.get(S3Resource.S3_ENDPOINT).toLowerCase().startsWith("s3")) {
-            forceHostedStyle = !caseInsensitiveProperties.getOrDefault(S3Resource.USE_PATH_STYLE, "false")
+        if (!caseInsensitiveProperties.get(S3Properties.ENDPOINT).toLowerCase().startsWith("s3")) {
+            forceHostedStyle = !caseInsensitiveProperties.getOrDefault(PropertyConverter.USE_PATH_STYLE, "false")
                     .equalsIgnoreCase("true");
         } else {
             forceHostedStyle = false;
         }
     }
 
-    public static void checkS3(Map<String, String> properties) throws UserException {
-        for (String field : S3Resource.REQUIRED_FIELDS) {
-            if (!properties.containsKey(field)) {
-                throw new UserException(field + " not found.");
-            }
-        }
-    }
-
     @Override
     public FileSystem getFileSystem(String remotePath) throws UserException {
         if (dfsFileSystem == null) {
-            checkS3(caseInsensitiveProperties);
+            S3Properties.requiredS3Properties(caseInsensitiveProperties);
             Configuration conf = new Configuration();
             System.setProperty("com.amazonaws.services.s3.enableV4", "true");
-            S3Resource.getS3HadoopProperties(caseInsensitiveProperties).forEach(conf::set);
+            PropertyConverter.convertToHadoopFSProperties(caseInsensitiveProperties).forEach(conf::set);
             try {
                 dfsFileSystem = FileSystem.get(new URI(remotePath), conf);
             } catch (Exception e) {
@@ -147,19 +151,19 @@ public class S3Storage extends BlobStorage {
 
     private S3Client getClient(String bucket) throws UserException {
         if (client == null) {
-            checkS3(caseInsensitiveProperties);
-            URI tmpEndpoint = URI.create(caseInsensitiveProperties.get(S3Resource.S3_ENDPOINT));
+            S3Properties.requiredS3Properties(caseInsensitiveProperties);
+            URI tmpEndpoint = URI.create(caseInsensitiveProperties.get(S3Properties.ENDPOINT));
             StaticCredentialsProvider scp;
-            if (!caseInsensitiveProperties.containsKey(S3Resource.S3_TOKEN)) {
+            if (!caseInsensitiveProperties.containsKey(S3Properties.SESSION_TOKEN)) {
                 AwsBasicCredentials awsBasic = AwsBasicCredentials.create(
-                        caseInsensitiveProperties.get(S3Resource.S3_ACCESS_KEY),
-                        caseInsensitiveProperties.get(S3Resource.S3_SECRET_KEY));
+                        caseInsensitiveProperties.get(S3Properties.ACCESS_KEY),
+                        caseInsensitiveProperties.get(S3Properties.SECRET_KEY));
                 scp = StaticCredentialsProvider.create(awsBasic);
             } else {
                 AwsSessionCredentials awsSession = AwsSessionCredentials.create(
-                        caseInsensitiveProperties.get(S3Resource.S3_ACCESS_KEY),
-                        caseInsensitiveProperties.get(S3Resource.S3_SECRET_KEY),
-                        caseInsensitiveProperties.get(S3Resource.S3_TOKEN));
+                        caseInsensitiveProperties.get(S3Properties.ACCESS_KEY),
+                        caseInsensitiveProperties.get(S3Properties.SECRET_KEY),
+                        caseInsensitiveProperties.get(S3Properties.SESSION_TOKEN));
                 scp = StaticCredentialsProvider.create(awsSession);
             }
             EqualJitterBackoffStrategy backoffStrategy = EqualJitterBackoffStrategy
@@ -185,7 +189,7 @@ public class S3Storage extends BlobStorage {
             client = S3Client.builder()
                     .endpointOverride(endpoint)
                     .credentialsProvider(scp)
-                    .region(Region.of(caseInsensitiveProperties.get(S3Resource.S3_REGION)))
+                    .region(Region.of(caseInsensitiveProperties.get(S3Properties.REGION)))
                     .overrideConfiguration(clientConf)
                     // disable chunkedEncoding because of bos not supported
                     // use virtual hosted-style access

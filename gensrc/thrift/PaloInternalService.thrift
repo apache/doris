@@ -151,9 +151,6 @@ struct TQueryOptions {
   // if the right table is greater than this value in the hash join,  we will ignore IN filter
   34: optional i32 runtime_filter_max_in_num = 1024;
 
-  // whether enable vectorized engine 
-  41: optional bool enable_vectorized_engine = false
-
   // the resource limitation of this query
   42: optional TResourceLimit resource_limit
 
@@ -577,6 +574,13 @@ struct TPipelineInstanceParams {
   6: optional i32 backend_num
 }
 
+struct TPipelineResourceGroup {
+  1: optional i64 id
+  2: optional string name
+  3: optional map<string, string> properties
+  4: optional i64 version
+}
+
 // ExecPlanFragment
 struct TPipelineFragmentParams {
   1: required PaloInternalServiceVersion protocol_version
@@ -606,6 +610,7 @@ struct TPipelineFragmentParams {
   23: optional Planner.TPlanFragment fragment
   24: list<TPipelineInstanceParams> local_params
   25: optional bool shared_scan_opt = false;
+  26: optional list<TPipelineResourceGroup> resource_groups
 }
 
 struct TPipelineFragmentParamsList {

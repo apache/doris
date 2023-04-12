@@ -141,7 +141,11 @@ public class Column implements Writable, GsonPostProcessable {
     }
 
     public Column(String name, PrimitiveType dataType, boolean isAllowNull) {
-        this(name, ScalarType.createType(dataType), false, null, isAllowNull, null, "");
+        this(name, ScalarType.createType(dataType), isAllowNull);
+    }
+
+    public Column(String name, Type type, boolean isAllowNull) {
+        this(name, type, false, null, isAllowNull, null, "");
     }
 
     public Column(String name, Type type) {
@@ -209,6 +213,8 @@ public class Column implements Writable, GsonPostProcessable {
         this.visible = column.visible;
         this.children = column.getChildren();
         this.uniqueId = column.getUniqueId();
+        this.defineExpr = column.getDefineExpr();
+        this.defineName = column.getDefineName();
     }
 
     public void createChildrenColumn(Type type, Column column) {
@@ -629,14 +635,30 @@ public class Column implements Writable, GsonPostProcessable {
     }
 
     public String toSql() {
-        return toSql(false);
+        return toSql(false, false);
     }
 
     public String toSql(boolean isUniqueTable) {
+        return toSql(isUniqueTable, false);
+    }
+
+    public String toSql(boolean isUniqueTable, boolean isCompatible) {
         StringBuilder sb = new StringBuilder();
         sb.append("`").append(name).append("` ");
         String typeStr = type.toSql();
-        sb.append(typeStr);
+
+        // show change datetimeV2/dateV2 to datetime/date
+        if (isCompatible) {
+            if (type.isDatetimeV2()) {
+                sb.append("datetime");
+            } else if (type.isDateV2()) {
+                sb.append("date");
+            } else {
+                sb.append(typeStr);
+            }
+        } else {
+            sb.append(typeStr);
+        }
         if (aggregationType != null && aggregationType != AggregateType.NONE && !isUniqueTable
                 && !isAggregationTypeImplicit) {
             sb.append(" ").append(aggregationType.name());

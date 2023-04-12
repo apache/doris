@@ -42,7 +42,7 @@ Truncates datetime in the specified time unit.
 
 datetime is a legal date expression.
 
-unit is the time unit you want to truncate. The optional values are as follows: [`second`,`minute`,`hour`,`day`,`month`,`quarter`,`year`]。
+unit is the time unit you want to truncate. The optional values are as follows: [`second`,`minute`,`hour`,`day`,`week`,`month`,`quarter`,`year`]。
 If unit does not meet the above optional values, the result will return NULL.
 ### example
 
@@ -76,11 +76,11 @@ mysql> select date_trunc('2010-12-02 19:28:30', 'day');
 +-------------------------------------------------+
 
 mysql> select date_trunc('2010-12-02 19:28:30', 'week');
-+-------------------------------------------------+
-| date_trunc('2010-12-02 19:28:30', 'week')       |
-+-------------------------------------------------+
-| 2010-11-28 00:00:00                             |
-+-------------------------------------------------+
++-------------------------------------------+
+| date_trunc('2010-12-02 19:28:30', 'week') |
++-------------------------------------------+
+| 2010-11-29 00:00:00                       |
++-------------------------------------------+
 
 mysql> select date_trunc('2010-12-02 19:28:30', 'month');
 +-------------------------------------------------+

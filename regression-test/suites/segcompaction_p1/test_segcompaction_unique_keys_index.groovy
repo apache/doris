@@ -35,7 +35,7 @@ suite("test_segcompaction_unique_keys_index") {
         def backendId_to_backendHttpPort = [:]
         for (String[] backend in backends) {
             backendId_to_backendIP.put(backend[0], backend[2])
-            backendId_to_backendHttpPort.put(backend[0], backend[5])
+            backendId_to_backendHttpPort.put(backend[0], backend[6])
         }
 
         backend_id = backendId_to_backendIP.keySet()[0]

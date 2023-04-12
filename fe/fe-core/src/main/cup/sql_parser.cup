@@ -309,6 +309,7 @@ terminal String
     KW_CROSS,
     KW_CUBE,
     KW_CURRENT,
+    KW_CURRENT_CATALOG,
     KW_CURRENT_TIMESTAMP,
     KW_CURRENT_USER,
     KW_DATA,
@@ -385,6 +386,7 @@ terminal String
     KW_GRAPH,
     KW_GROUP,
     KW_GROUPING,
+    KW_GROUPS,
     KW_HASH,
     KW_HAVING,
     KW_HDFS,
@@ -398,6 +400,7 @@ terminal String
     KW_IF,
     KW_IMMEDIATE,
     KW_IN,
+    KW_INCREMENTAL,
     KW_INDEX,
     KW_INDEXES,
     KW_INFILE,
@@ -643,7 +646,7 @@ terminal String COMMENTED_PLAN_HINTS;
 nonterminal List<StatementBase> stmts;
 nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     create_routine_load_stmt, pause_routine_load_stmt, resume_routine_load_stmt, stop_routine_load_stmt,
-    show_routine_load_stmt, show_routine_load_task_stmt, show_create_routine_load_stmt, show_create_load_stmt,
+    show_routine_load_stmt, show_routine_load_task_stmt, show_create_routine_load_stmt, show_create_load_stmt, show_create_reporitory_stmt,
     describe_stmt, alter_stmt,
     use_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
     link_stmt, migrate_stmt, switch_stmt, enter_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
@@ -1106,6 +1109,8 @@ stmt ::=
     {: RESULT = stmt; :}
     | show_create_load_stmt : stmt
     {: RESULT = stmt; :}
+    | show_create_reporitory_stmt : stmt
+    {: RESULT = stmt; :}
     | cancel_stmt : stmt
     {: RESULT = stmt; :}
     | delete_stmt : stmt
@@ -1325,7 +1330,7 @@ alter_stmt ::=
     | KW_ALTER KW_TABLE table_name:tbl KW_MODIFY KW_COLUMN ident:columnName
       KW_SET KW_STATS LPAREN key_value_map:map RPAREN opt_partition_names:partitionNames
     {:
-        RESULT = new AlterColumnStatsStmt(tbl, columnName, map, partitionNames);
+        RESULT = new AlterColumnStatsStmt(tbl, columnName, map);
     :}
     | KW_ALTER KW_TABLE table_name:tbl KW_SET LPAREN key_value_map:properties RPAREN
     {:
@@ -1939,10 +1944,20 @@ create_stmt ::=
     {:
         RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new CreateIndexClause(tableName, new IndexDef(indexName, ifNotExists, cols, indexType, properties, comment), false)));
     :}
-    /* resource */
-    | KW_CREATE opt_external:isExternal KW_RESOURCE opt_if_not_exists:ifNotExists ident_or_text:resourceName opt_properties:properties
+    /* external resource */
+    | KW_CREATE KW_EXTERNAL KW_RESOURCE opt_if_not_exists:ifNotExists ident_or_text:resourceName opt_properties:properties
     {:
-        RESULT = new CreateResourceStmt(isExternal, ifNotExists, resourceName, properties);
+        RESULT = new CreateResourceStmt(true, ifNotExists, resourceName, properties);
+    :}
+    /* resource */
+    | KW_CREATE KW_RESOURCE opt_if_not_exists:ifNotExists ident_or_text:resourceName opt_properties:properties
+    {:
+        RESULT = new CreateResourceStmt(false, ifNotExists, resourceName, properties);
+    :}
+    /* resource group*/
+    | KW_CREATE KW_RESOURCE KW_GROUP opt_if_not_exists:ifNotExists ident_or_text:resourceGroupName opt_properties:properties
+    {:
+        RESULT = new CreateResourceGroupStmt(ifNotExists, resourceGroupName, properties);
     :}
     /* encryptkey */
     | KW_CREATE KW_ENCRYPTKEY opt_if_not_exists:ifNotExists encryptkey_name:keyName KW_AS STRING_LITERAL:keyString
@@ -2785,23 +2800,39 @@ show_create_load_stmt ::=
     :}
     ;
 
+show_create_reporitory_stmt ::=
+    KW_SHOW KW_CREATE KW_REPOSITORY KW_FOR ident:repoName
+    {:
+        RESULT = new ShowCreateRepositoryStmt(repoName);
+    :}
+    ;
+
 // analyze statment
 analyze_stmt ::=
     KW_ANALYZE KW_TABLE table_name:tbl opt_col_list:cols opt_partition_names:partitionNames opt_properties:properties
     {:
         boolean is_whole_tbl = (cols == null);
         boolean is_histogram = false;
-        RESULT = new AnalyzeStmt(tbl, cols, partitionNames, properties, is_whole_tbl, is_histogram);
+        boolean is_increment = false;
+        RESULT = new AnalyzeStmt(tbl, cols, partitionNames, properties, is_whole_tbl, is_histogram, is_increment);
+    :}
+    | KW_ANALYZE KW_INCREMENTAL KW_TABLE table_name:tbl opt_col_list:cols opt_partition_names:partitionNames opt_properties:properties
+    {:
+        boolean is_whole_tbl = (cols == null);
+        boolean is_histogram = false;
+        boolean is_increment = true;
+        RESULT = new AnalyzeStmt(tbl, cols, partitionNames, properties, is_whole_tbl, is_histogram, is_increment);
     :}
     | KW_ANALYZE KW_TABLE table_name:tbl KW_UPDATE KW_HISTOGRAM KW_ON ident_list:cols opt_partition_names:partitionNames opt_properties:properties
     {:
-        boolean is_whole_tbl = (cols == null);
+        boolean is_whole_tbl = false;
         boolean is_histogram = true;
-        RESULT = new AnalyzeStmt(tbl, cols, partitionNames, properties, is_whole_tbl, is_histogram);
+        boolean is_increment = false;
+        RESULT = new AnalyzeStmt(tbl, cols, partitionNames, properties, is_whole_tbl, is_histogram, is_increment);
     :}
     | KW_ANALYZE KW_TABLE table_name:tbl KW_UPDATE KW_HISTOGRAM
     {:
-        RESULT = new AnalyzeStmt(tbl, null, null, new HashMap<>(), true, true);
+        RESULT = new AnalyzeStmt(tbl, null, null, new HashMap<>(), true, true, false);
     :}
     ;
 
@@ -2980,9 +3011,9 @@ drop_stmt ::=
         RESULT = new DropPolicyStmt(PolicyTypeEnum.STORAGE, ifExists, policyName, null, null);
     :}
     /* statistics */
-    | KW_DROP KW_STATS opt_table_name:tbl opt_partition_names:partitionNames
+    | KW_DROP KW_STATS opt_table_name:tbl opt_col_list:cols opt_partition_names:partitionNames
     {:
-        RESULT = new DropTableStatsStmt(tbl, partitionNames);
+        RESULT = new DropTableStatsStmt(tbl, partitionNames, cols);
     :}
     ;
 
@@ -3841,6 +3872,10 @@ show_param ::=
     | KW_RESOURCES opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
     {:
         RESULT = new ShowResourcesStmt(parser.where, orderByClause, limitClause);
+    :}
+    | KW_RESOURCE KW_GROUPS
+    {:
+        RESULT = new ShowResourceGroupsStmt();
     :}
     | KW_BACKENDS
     {:
@@ -6261,6 +6296,8 @@ non_pred_expr ::=
   {: RESULT = new InformationFunction("USER"); :}
   | KW_CURRENT_USER LPAREN RPAREN
   {: RESULT = new InformationFunction("CURRENT_USER"); :}
+  | KW_CURRENT_CATALOG LPAREN RPAREN
+  {: RESULT = new InformationFunction("CURRENT_CATALOG"); :}
   | KW_CONNECTION_ID LPAREN RPAREN
   {: RESULT = new InformationFunction("CONNECTION_ID"); :}
   | KW_PASSWORD LPAREN STRING_LITERAL:text RPAREN
@@ -7047,6 +7084,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_HELP:id
     {: RESULT = id; :}
+    | KW_HOSTNAME:id
+    {: RESULT = id; :}
     | KW_HUB:id
     {: RESULT = id; :}
     | KW_IDENTIFIED:id
@@ -7271,6 +7310,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_GROUPING:id
     {: RESULT = id; :}
+    | KW_GROUPS:id
+    {: RESULT = id; :}
     | KW_DYNAMIC:id
     {: RESULT = id; :}
     | time_unit:id
@@ -7300,6 +7341,8 @@ keyword ::=
     | KW_IGNORE:id
     {: RESULT = id; :}
     | KW_HISTOGRAM:id
+    {: RESULT = id; :}
+    | KW_CURRENT_CATALOG:id
     {: RESULT = id; :}
     ;
 

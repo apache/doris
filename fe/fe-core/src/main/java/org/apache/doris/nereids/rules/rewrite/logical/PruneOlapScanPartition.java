@@ -21,7 +21,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.expression.rewrite.rules.PartitionPruner;
+import org.apache.doris.nereids.rules.expression.rules.PartitionPruner;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;

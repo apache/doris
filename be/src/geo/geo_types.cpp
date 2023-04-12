@@ -148,37 +148,6 @@ static GeoParseStatus to_s2polyline(const GeoCoordinateList& coords,
     return GEO_PARSE_OK;
 }
 
-// remove those compatibility codes when we finish upgrade s2geo.
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-#elif defined(__GNUC__) || defined(__GNUG__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-#endif
-template <typename T, bool (T::*)(const T*) const = &T::Contains>
-constexpr bool is_pointer_argument() {
-    return true;
-}
-
-constexpr bool is_pointer_argument(...) {
-    return false;
-}
-
-template <typename T>
-bool adapt_contains(const T* lhs, const T* rhs) {
-    if constexpr (is_pointer_argument<T>()) {
-        return lhs->Contains(rhs);
-    } else {
-        return lhs->Contains(*rhs);
-    }
-}
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#elif defined(__GNUC__) || defined(__GNUG__)
-#pragma GCC diagnostic pop
-#endif
-
 static GeoParseStatus to_s2polygon(const GeoCoordinateListList& coords_list,
                                    std::unique_ptr<S2Polygon>* polygon) {
     std::vector<std::unique_ptr<S2Loop>> loops(coords_list.list.size());
@@ -187,7 +156,7 @@ static GeoParseStatus to_s2polygon(const GeoCoordinateListList& coords_list,
         if (res != GEO_PARSE_OK) {
             return res;
         }
-        if (i != 0 && !adapt_contains(loops[0].get(), loops[i].get())) {
+        if (i != 0 && !(loops[0]->Contains(*loops[i]))) {
             return GEO_PARSE_POLYGON_NOT_HOLE;
         }
     }
@@ -302,11 +271,12 @@ bool GeoPoint::ComputeDistance(double x_lng, double x_lat, double y_lng, double 
     if (!y.is_valid()) {
         return false;
     }
-    *distance = S2Earth::ToMeters(x.GetDistance(y));
+    *distance = S2Earth::GetDistanceMeters(x, y);
     return true;
 }
 
-bool GeoPoint::ComputeAngle(double x_lng, double x_lat, double y_lng, double y_lat, double* angle) {
+bool GeoPoint::ComputeAngleSphere(double x_lng, double x_lat, double y_lng, double y_lat,
+                                  double* angle) {
     S2LatLng x = S2LatLng::FromDegrees(x_lat, x_lng);
     if (!x.is_valid()) {
         return false;
@@ -317,6 +287,44 @@ bool GeoPoint::ComputeAngle(double x_lng, double x_lat, double y_lng, double y_l
     }
     *angle = (x.GetDistance(y)).degrees();
     return true;
+}
+
+bool GeoPoint::ComputeAngle(GeoPoint* point1, GeoPoint* point2, GeoPoint* point3, double* angle) {
+    S2LatLng latLng1 = S2LatLng::FromDegrees(point1->x(), point1->y());
+    S2LatLng latLng2 = S2LatLng::FromDegrees(point2->x(), point2->y());
+    S2LatLng latLng3 = S2LatLng::FromDegrees(point3->x(), point3->y());
+
+    //If points 2 and 3 are the same or points 2 and 1 are the same, returns NULL.
+    if (latLng2.operator==(latLng1) || latLng2.operator==(latLng3)) {
+        return false;
+    }
+    double x = 0;
+    double y = 0;
+    //If points 2 and 3 are exactly antipodal or points 2 and 1 are exactly antipodal, returns NULL.
+    if (GeoPoint::ComputeAngleSphere(point1->x(), point1->y(), point2->x(), point2->y(), &x) &&
+        GeoPoint::ComputeAngleSphere(point3->x(), point3->y(), point2->x(), point2->y(), &y)) {
+        if (x == 180 || y == 180) {
+            return false;
+        }
+    } else {
+        return false;
+    }
+    //Computes the initial bearing (radians) from latLng2 to latLng3
+    double a = S2Earth::GetInitialBearing(latLng2, latLng3).radians();
+    //Computes the initial bearing (radians) from latLng2 to latLng1
+    double b = S2Earth::GetInitialBearing(latLng2, latLng1).radians();
+    //range [0, 2pi)
+    if (b - a < 0) {
+        *angle = b - a + 2 * M_PI;
+    } else {
+        *angle = b - a;
+    }
+    return true;
+}
+bool GeoPoint::ComputeAzimuth(GeoPoint* p1, GeoPoint* p2, double* angle) {
+    GeoPoint north;
+    north.from_coord(0, 90);
+    return GeoPoint::ComputeAngle(&north, p1, p2, angle);
 }
 
 GeoParseStatus GeoLine::from_coords(const GeoCoordinateList& list) {
@@ -400,11 +408,15 @@ bool GeoPolygon::contains(const GeoShape* rhs) const {
     }
     case GEO_SHAPE_POLYGON: {
         const GeoPolygon* other = (const GeoPolygon*)rhs;
-        return adapt_contains(_polygon.get(), other->polygon());
+        return _polygon->Contains(*other->polygon());
     }
     default:
         return false;
     }
+}
+
+std::double_t GeoPolygon::getArea() const {
+    return _polygon->GetArea();
 }
 
 GeoParseStatus GeoCircle::init(double lng, double lat, double radius_meter) {
@@ -450,6 +462,46 @@ std::string GeoCircle::as_wkt() const {
     print_s2point(ss, _cap->center());
     ss << "), " << S2Earth::ToMeters(_cap->radius()) << ")";
     return ss.str();
+}
+
+double GeoCircle::getArea() const {
+    return _cap->GetArea();
+}
+
+bool GeoShape::ComputeArea(GeoShape* rhs, double* area, std::string square_unit) {
+    double steradians;
+    switch (rhs->type()) {
+    case GEO_SHAPE_CIRCLE: {
+        const GeoCircle* circle = (const GeoCircle*)rhs;
+        steradians = circle->getArea();
+        break;
+    }
+    case GEO_SHAPE_POLYGON: {
+        const GeoPolygon* polygon = (const GeoPolygon*)rhs;
+        steradians = polygon->getArea();
+        break;
+    }
+    case GEO_SHAPE_POINT: {
+        *area = 0;
+        return true;
+    }
+    case GEO_SHAPE_LINE_STRING: {
+        *area = 0;
+        return true;
+    }
+    default:
+        return false;
+    }
+
+    if (square_unit.compare("square_meters") == 0) {
+        *area = S2Earth::SteradiansToSquareMeters(steradians);
+        return true;
+    } else if (square_unit.compare("square_km") == 0) {
+        *area = S2Earth::SteradiansToSquareKm(steradians);
+        return true;
+    } else {
+        return false;
+    }
 }
 
 } // namespace doris

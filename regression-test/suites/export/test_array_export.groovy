@@ -70,7 +70,7 @@ suite("test_array_export", "export") {
               `k8` ARRAY<DATETIME> NOT NULL COMMENT "",
               `k9` ARRAY<FLOAT> NOT NULL COMMENT "",
               `k10` ARRAY<DOUBLE> NOT NULL COMMENT "",
-              `k11` ARRAY<DECIMAL(27, 9)> NULL COMMENT ""
+              `k11` ARRAY<DECIMALV3(27, 9)> NULL COMMENT ""
             ) ENGINE=OLAP
             DUPLICATE KEY(`k1`)
             DISTRIBUTED BY HASH(`k1`) BUCKETS 1

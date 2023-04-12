@@ -459,7 +459,7 @@ struct Dispatcher {
             const auto* const decimal_col = check_and_get_column<ColumnDecimal<T>>(col_general);
             const auto& vec_src = decimal_col->get_data();
 
-            auto col_res = ColumnDecimal<T>::create(vec_src.size(), decimal_col->get_scale());
+            auto col_res = ColumnDecimal<T>::create(vec_src.size(), scale_arg);
             auto& vec_res = col_res->get_data();
 
             if (!vec_res.empty()) {
@@ -503,12 +503,9 @@ public:
     static Status get_scale_arg(const ColumnWithTypeAndName& arguments, Int16* scale) {
         const IColumn& scale_column = *arguments.column;
 
-        Int32 scale64 = static_cast<const ColumnInt32*>(
-                                &(is_column_const(scale_column)
-                                          ? static_cast<const ColumnConst*>(&scale_column)
-                                                    ->get_data_column()
-                                          : scale_column))
-                                ->get_element(0);
+        Int32 scale64 = static_cast<const ColumnInt32&>(
+                                static_cast<const ColumnConst*>(&scale_column)->get_data_column())
+                                .get_element(0);
 
         if (scale64 > std::numeric_limits<Int16>::max() ||
             scale64 < std::numeric_limits<Int16>::min()) {

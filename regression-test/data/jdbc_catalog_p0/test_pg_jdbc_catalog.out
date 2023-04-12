@@ -2152,6 +2152,9 @@ doris3	20
 -- !specified_database --
 doris_test
 
+-- !specified_database --
+doris_test
+
 -- !test_old --
 123	abc
 123	abc

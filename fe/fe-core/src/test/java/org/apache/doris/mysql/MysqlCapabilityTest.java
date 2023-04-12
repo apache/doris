@@ -43,7 +43,7 @@ public class MysqlCapabilityTest {
     @Test
     public void testDefaultFlags() {
         MysqlCapability capability = MysqlCapability.DEFAULT_CAPABILITY;
-        Assert.assertEquals("CLIENT_CONNECT_WITH_DB | CLIENT_LOCAL_FILES | CLIENT_PROTOCOL_41"
+        Assert.assertEquals("CLIENT_LONG_FLAG | CLIENT_CONNECT_WITH_DB | CLIENT_LOCAL_FILES | CLIENT_PROTOCOL_41"
                 + " | CLIENT_SECURE_CONNECTION | CLIENT_PLUGIN_AUTH",
                 capability.toString());
         Assert.assertTrue(capability.supportClientLocalFile());

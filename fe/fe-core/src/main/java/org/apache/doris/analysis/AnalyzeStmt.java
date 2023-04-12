@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -69,6 +70,7 @@ public class AnalyzeStmt extends DdlStmt {
 
     public boolean isWholeTbl;
     public boolean isHistogram;
+    public boolean isIncrement;
 
     private final TableName tableName;
     private final PartitionNames partitionNames;
@@ -84,13 +86,15 @@ public class AnalyzeStmt extends DdlStmt {
                        PartitionNames partitionNames,
                        Map<String, String> properties,
                        Boolean isWholeTbl,
-                       Boolean isHistogram) {
+                       Boolean isHistogram,
+                       Boolean isIncrement) {
         this.tableName = tableName;
         this.columnNames = columnNames;
         this.partitionNames = partitionNames;
         this.properties = properties;
         this.isWholeTbl = isWholeTbl;
         this.isHistogram = isHistogram;
+        this.isIncrement = isIncrement;
     }
 
     @Override
@@ -107,7 +111,9 @@ public class AnalyzeStmt extends DdlStmt {
         DatabaseIf db = catalog.getDbOrAnalysisException(dbName);
         dbId = db.getId();
         table = db.getTableOrAnalysisException(tblName);
-
+        if (table instanceof View) {
+            throw new AnalysisException("Analyze view is not allowed");
+        }
         checkAnalyzePriv(dbName, tblName);
 
         if (columnNames != null && !columnNames.isEmpty()) {
@@ -231,6 +237,11 @@ public class AnalyzeStmt extends DdlStmt {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("ANALYZE");
+
+        if (isIncrement) {
+            sb.append(" ");
+            sb.append("INCREMENTAL");
+        }
 
         if (tableName != null) {
             sb.append(" ");

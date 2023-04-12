@@ -23,11 +23,10 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "env/env.h"
 #include "gutil/strings/split.h"
 #include "http/http_client.h"
+#include "io/fs/local_file_system.h"
 #include "util/dynamic_util.h"
-#include "util/file_utils.h"
 #include "util/jni-util.h"
 #include "util/md5.h"
 #include "util/spinlock.h"
@@ -165,23 +164,24 @@ Status UserFunctionCache::_load_entry_from_lib(const std::string& dir, const std
 
 Status UserFunctionCache::_load_cached_lib() {
     // create library directory if not exist
-    RETURN_IF_ERROR(FileUtils::create_dir(_lib_dir));
+    RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(_lib_dir));
 
     for (int i = 0; i < kLibShardNum; ++i) {
         std::string sub_dir = _lib_dir + "/" + std::to_string(i);
-        RETURN_IF_ERROR(FileUtils::create_dir(sub_dir));
+        RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(sub_dir));
 
-        auto scan_cb = [this, &sub_dir](const char* file) {
-            if (is_dot_or_dotdot(file)) {
+        auto scan_cb = [this, &sub_dir](const io::FileInfo& file) {
+            if (!file.is_file) {
                 return true;
             }
-            auto st = _load_entry_from_lib(sub_dir, file);
+            auto st = _load_entry_from_lib(sub_dir, file.file_name);
             if (!st.ok()) {
-                LOG(WARNING) << "load a library failed, dir=" << sub_dir << ", file=" << file;
+                LOG(WARNING) << "load a library failed, dir=" << sub_dir
+                             << ", file=" << file.file_name;
             }
             return true;
         };
-        RETURN_IF_ERROR(Env::Default()->iterate_dir(sub_dir, scan_cb));
+        RETURN_IF_ERROR(io::global_local_filesystem()->iterate_directory(sub_dir, scan_cb));
     }
     return Status::OK();
 }

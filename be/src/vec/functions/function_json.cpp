@@ -20,6 +20,7 @@
 #include <rapidjson/writer.h>
 
 #include <boost/token_functions.hpp>
+#include <string_view>
 #include <vector>
 
 #include "exprs/json_functions.h"
@@ -30,6 +31,7 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/string_ref.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/function_string.h"
@@ -200,6 +202,10 @@ rapidjson::Value* get_json_object(std::string_view json_string, std::string_view
 #endif
     std::vector<std::string> paths(tok.begin(), tok.end());
     get_parsed_paths(paths, &tmp_parsed_paths);
+    if (tmp_parsed_paths.empty()) {
+        return document;
+    }
+
     parsed_paths = &tmp_parsed_paths;
 
     if (!(*parsed_paths)[0].is_valid) {
@@ -230,6 +236,21 @@ struct GetJsonNumberType {
     using ReturnType = typename NumberType::ReturnType;
     using ColumnType = typename NumberType::ColumnType;
     using Container = typename ColumnType::Container;
+
+    static void get_json_impl(rapidjson::Value*& root, const std::string_view& json_string,
+                              const std::string_view& path_string, rapidjson::Document& document,
+                              typename NumberType::T& res, UInt8& null_map) {
+        if constexpr (std::is_same_v<double, typename NumberType::T>) {
+            root = get_json_object<JSON_FUN_DOUBLE>(json_string, path_string, &document);
+            handle_result<double>(root, res, null_map);
+        } else if constexpr (std::is_same_v<int32_t, typename NumberType::T>) {
+            root = get_json_object<JSON_FUN_DOUBLE>(json_string, path_string, &document);
+            handle_result<int32_t>(root, res, null_map);
+        } else if constexpr (std::is_same_v<int64_t, typename NumberType::T>) {
+            root = get_json_object<JSON_FUN_DOUBLE>(json_string, path_string, &document);
+            handle_result<int64_t>(root, res, null_map);
+        }
+    }
     static void vector_vector(FunctionContext* context, const ColumnString::Chars& ldata,
                               const ColumnString::Offsets& loffsets,
                               const ColumnString::Chars& rdata,
@@ -240,10 +261,8 @@ struct GetJsonNumberType {
         for (size_t i = 0; i < size; ++i) {
             const char* l_raw_str = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
             int l_str_size = loffsets[i] - loffsets[i - 1];
-
             const char* r_raw_str = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
             int r_str_size = roffsets[i] - roffsets[i - 1];
-
             if (null_map[i]) {
                 res[i] = 0;
                 continue;
@@ -251,20 +270,52 @@ struct GetJsonNumberType {
 
             std::string_view json_string(l_raw_str, l_str_size);
             std::string_view path_string(r_raw_str, r_str_size);
+            rapidjson::Document document;
+            rapidjson::Value* root = nullptr;
+
+            get_json_impl(root, json_string, path_string, document, res[i], null_map[i]);
+        }
+    }
+    static void vector_scalar(FunctionContext* context, const ColumnString::Chars& ldata,
+                              const ColumnString::Offsets& loffsets, const StringRef& rdata,
+                              Container& res, NullMap& null_map) {
+        size_t size = loffsets.size();
+        res.resize(size);
+        std::string_view path_string(rdata.data, rdata.size);
+        for (size_t i = 0; i < size; ++i) {
+            const char* l_raw_str = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
+            int l_str_size = loffsets[i] - loffsets[i - 1];
+            if (null_map[i]) {
+                res[i] = 0;
+                continue;
+            }
+            std::string_view json_string(l_raw_str, l_str_size);
 
             rapidjson::Document document;
             rapidjson::Value* root = nullptr;
 
-            if constexpr (std::is_same_v<double, typename NumberType::T>) {
-                root = get_json_object<JSON_FUN_DOUBLE>(json_string, path_string, &document);
-                handle_result<double>(root, res[i], null_map[i]);
-            } else if constexpr (std::is_same_v<int32_t, typename NumberType::T>) {
-                root = get_json_object<JSON_FUN_DOUBLE>(json_string, path_string, &document);
-                handle_result<int32_t>(root, res[i], null_map[i]);
-            } else if constexpr (std::is_same_v<int64_t, typename NumberType::T>) {
-                root = get_json_object<JSON_FUN_DOUBLE>(json_string, path_string, &document);
-                handle_result<int64_t>(root, res[i], null_map[i]);
+            get_json_impl(root, json_string, path_string, document, res[i], null_map[i]);
+        }
+    }
+    static void scalar_vector(FunctionContext* context, const StringRef& ldata,
+                              const ColumnString::Chars& rdata,
+                              const ColumnString::Offsets& roffsets, Container& res,
+                              NullMap& null_map) {
+        size_t size = roffsets.size();
+        res.resize(size);
+        std::string_view json_string(ldata.data, ldata.size);
+        for (size_t i = 0; i < size; ++i) {
+            const char* r_raw_str = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
+            int r_str_size = roffsets[i] - roffsets[i - 1];
+            if (null_map[i]) {
+                res[i] = 0;
+                continue;
             }
+            std::string_view path_string(r_raw_str, r_str_size);
+            rapidjson::Document document;
+            rapidjson::Value* root = nullptr;
+
+            get_json_impl(root, json_string, path_string, document, res[i], null_map[i]);
         }
     }
 
@@ -353,41 +404,87 @@ struct GetJsonString {
         res_offsets.resize(input_rows_count);
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            int l_size = loffsets[i] - loffsets[i - 1];
-            const auto l_raw = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
-
-            int r_size = roffsets[i] - roffsets[i - 1];
-            const auto r_raw = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
-
             if (null_map[i]) {
                 StringOP::push_null_string(i, res_data, res_offsets, null_map);
                 continue;
             }
+            int l_size = loffsets[i] - loffsets[i - 1];
+            const auto l_raw = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
+            int r_size = roffsets[i] - roffsets[i - 1];
+            const auto r_raw = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
 
             std::string_view json_string(l_raw, l_size);
             std::string_view path_string(r_raw, r_size);
 
-            rapidjson::Document document;
-            rapidjson::Value* root = nullptr;
+            execute_impl(json_string, path_string, res_data, res_offsets, null_map, i);
+        }
+    }
+    static void vector_scalar(FunctionContext* context, const Chars& ldata, const Offsets& loffsets,
+                              const StringRef& rdata, Chars& res_data, Offsets& res_offsets,
+                              NullMap& null_map) {
+        size_t input_rows_count = loffsets.size();
+        res_offsets.resize(input_rows_count);
 
-            root = get_json_object<JSON_FUN_STRING>(json_string, path_string, &document);
-            const int max_string_len = 65535;
-
-            if (root == nullptr || root->IsNull()) {
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if (null_map[i]) {
                 StringOP::push_null_string(i, res_data, res_offsets, null_map);
-            } else if (root->IsString()) {
-                const auto ptr = root->GetString();
-                size_t len = strnlen(ptr, max_string_len);
-                StringOP::push_value_string(std::string_view(ptr, len), i, res_data, res_offsets);
-            } else {
-                rapidjson::StringBuffer buf;
-                rapidjson::Writer<rapidjson::StringBuffer> writer(buf);
-                root->Accept(writer);
-
-                const auto ptr = buf.GetString();
-                size_t len = strnlen(ptr, max_string_len);
-                StringOP::push_value_string(std::string_view(ptr, len), i, res_data, res_offsets);
+                continue;
             }
+            int l_size = loffsets[i] - loffsets[i - 1];
+            const auto l_raw = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
+
+            std::string_view json_string(l_raw, l_size);
+            std::string_view path_string(rdata.data, rdata.size);
+
+            execute_impl(json_string, path_string, res_data, res_offsets, null_map, i);
+        }
+    }
+    static void scalar_vector(FunctionContext* context, const StringRef& ldata, const Chars& rdata,
+                              const Offsets& roffsets, Chars& res_data, Offsets& res_offsets,
+                              NullMap& null_map) {
+        size_t input_rows_count = roffsets.size();
+        res_offsets.resize(input_rows_count);
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if (null_map[i]) {
+                StringOP::push_null_string(i, res_data, res_offsets, null_map);
+                continue;
+            }
+            int r_size = roffsets[i] - roffsets[i - 1];
+            const auto r_raw = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
+
+            std::string_view json_string(ldata.data, ldata.size);
+            std::string_view path_string(r_raw, r_size);
+
+            execute_impl(json_string, path_string, res_data, res_offsets, null_map, i);
+        }
+    }
+
+    static void execute_impl(const std::string_view& json_string,
+                             const std::string_view& path_string, Chars& res_data,
+                             Offsets& res_offsets, NullMap& null_map, size_t index_now) {
+        rapidjson::Document document;
+        rapidjson::Value* root = nullptr;
+
+        root = get_json_object<JSON_FUN_STRING>(json_string, path_string, &document);
+        const int max_string_len = 65535;
+
+        if (root == nullptr || root->IsNull()) {
+            StringOP::push_null_string(index_now, res_data, res_offsets, null_map);
+        } else if (root->IsString()) {
+            const auto ptr = root->GetString();
+            size_t len = strnlen(ptr, max_string_len);
+            StringOP::push_value_string(std::string_view(ptr, len), index_now, res_data,
+                                        res_offsets);
+        } else {
+            rapidjson::StringBuffer buf;
+            rapidjson::Writer<rapidjson::StringBuffer> writer(buf);
+            root->Accept(writer);
+
+            const auto ptr = buf.GetString();
+            size_t len = strnlen(ptr, max_string_len);
+            StringOP::push_value_string(std::string_view(ptr, len), index_now, res_data,
+                                        res_offsets);
         }
     }
 };
@@ -648,6 +745,57 @@ struct FunctionJsonQuoteImpl {
     }
 };
 
+struct FunctionJsonExtractImpl {
+    static constexpr auto name = "json_extract";
+
+    static rapidjson::Value parse_json(const ColumnString* json_col, const ColumnString* path_col,
+                                       rapidjson::Document::AllocatorType& allocator,
+                                       const int row) {
+        rapidjson::Value value;
+        rapidjson::Document document;
+
+        const auto obj = json_col->get_data_at(row);
+        std::string_view json_string(obj.data, obj.size);
+        const auto path = path_col->get_data_at(row);
+        std::string_view path_string(path.data, path.size);
+
+        auto root = get_json_object<JSON_FUN_STRING>(json_string, path_string, &document);
+        if (root != nullptr) {
+            value.CopyFrom(*root, allocator);
+        }
+        return value;
+    }
+
+    static void execute(const std::vector<const ColumnString*>& data_columns,
+                        ColumnString& result_column, size_t input_rows_count) {
+        rapidjson::Document document;
+        rapidjson::Document::AllocatorType& allocator = document.GetAllocator();
+        rapidjson::StringBuffer buf;
+        rapidjson::Writer<rapidjson::StringBuffer> writer(buf);
+
+        const auto json_col = data_columns[0];
+        for (size_t row = 0; row < input_rows_count; row++) {
+            rapidjson::Value value;
+            if (data_columns.size() == 2) {
+                value = parse_json(json_col, data_columns[1], allocator, row);
+            } else {
+                value.SetArray();
+                value.Reserve(data_columns.size() - 1, allocator);
+                for (size_t col = 1; col < data_columns.size(); ++col) {
+                    value.PushBack(parse_json(json_col, data_columns[col], allocator, row),
+                                   allocator);
+                }
+            }
+
+            // write value as string
+            buf.Clear();
+            writer.Reset(buf);
+            value.Accept(writer);
+            result_column.insert_data(buf.GetString(), buf.GetSize());
+        }
+    }
+};
+
 template <typename Impl>
 class FunctionJson : public IFunction {
 public:
@@ -763,6 +911,7 @@ void register_function_json(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionJsonAlwaysNotNullable<FunctionJsonArrayImpl>>();
     factory.register_function<FunctionJsonAlwaysNotNullable<FunctionJsonObjectImpl>>();
     factory.register_function<FunctionJson<FunctionJsonQuoteImpl>>();
+    factory.register_function<FunctionJson<FunctionJsonExtractImpl>>();
 
     factory.register_function<FunctionJsonValid>();
 }

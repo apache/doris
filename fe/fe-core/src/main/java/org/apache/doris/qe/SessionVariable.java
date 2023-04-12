@@ -17,7 +17,10 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.SetVar;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
@@ -159,6 +162,8 @@ public class SessionVariable implements Serializable, Writable {
     // turn off all automatic join reorder algorithms
     public static final String DISABLE_JOIN_REORDER = "disable_join_reorder";
 
+    public static final String ENABLE_BUSHY_TREE = "enable_bushy_tree";
+
     public static final String ENABLE_INFER_PREDICATE = "enable_infer_predicate";
 
     public static final long DEFAULT_INSERT_VISIBLE_TIMEOUT_MS = 10_000;
@@ -167,8 +172,6 @@ public class SessionVariable implements Serializable, Writable {
 
     // If user set a very small value, use this value instead.
     public static final long MIN_INSERT_VISIBLE_TIMEOUT_MS = 1000;
-
-    public static final String ENABLE_VECTORIZED_ENGINE = "enable_vectorized_engine";
 
     public static final String ENABLE_PIPELINE_ENGINE = "enable_pipeline_engine";
     public static final String ENABLE_RPC_OPT_FOR_PIPELINE = "enable_rpc_opt_for_pipeline";
@@ -202,8 +205,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String DISABLE_NEREIDS_RULES = "disable_nereids_rules";
     public static final String ENABLE_NEW_COST_MODEL = "enable_new_cost_model";
     public static final String ENABLE_FALLBACK_TO_ORIGINAL_PLANNER = "enable_fallback_to_original_planner";
-
-    public static final String ENABLE_NEREIDS_RUNTIME_FILTER = "enable_nereids_runtime_filter";
 
     public static final String BROADCAST_RIGHT_TABLE_SCALE_FACTOR = "broadcast_right_table_scale_factor";
     public static final String BROADCAST_ROW_COUNT_LIMIT = "broadcast_row_count_limit";
@@ -292,6 +293,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DRY_RUN_QUERY = "dry_run_query";
 
+    // Split size for ExternalFileScanNode. Default value 0 means use the block size of HDFS/S3.
+    public static final String FILE_SPLIT_SIZE = "file_split_size";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -337,7 +341,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PROFILE, needForward = true)
     public boolean enableProfile = false;
 
-    // using hashset intead of group by + count can improve performance
+    // using hashset instead of group by + count can improve performance
     //        but may cause rpc failed when cluster has less BE
     // Whether this switch is turned on depends on the BE number
     @VariableMgr.VarAttr(name = ENABLE_SINGLE_DISTINCT_COLUMN_OPT)
@@ -515,8 +519,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = EXTRACT_WIDE_RANGE_EXPR, needForward = true)
     public boolean extractWideRangeExpr = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_VECTORIZED_ENGINE)
-    public boolean enableVectorizedEngine = true;
 
     @VariableMgr.VarAttr(name = ENABLE_PIPELINE_ENGINE, fuzzy = true)
     public boolean enablePipelineEngine = false;
@@ -565,7 +567,7 @@ public class SessionVariable implements Serializable, Writable {
     private int runtimeFiltersMaxNum = 10;
 
     // Set runtimeFilterType to IN_OR_BLOOM filter
-    @VariableMgr.VarAttr(name = RUNTIME_FILTER_TYPE)
+    @VariableMgr.VarAttr(name = RUNTIME_FILTER_TYPE, fuzzy = true)
     private int runtimeFilterType = 8;
 
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MAX_IN_NUM)
@@ -573,6 +575,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = DISABLE_JOIN_REORDER)
     private boolean disableJoinReorder = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_BUSHY_TREE, needForward = true)
+    private boolean enableBushyTree = false;
 
     @VariableMgr.VarAttr(name = ENABLE_INFER_PREDICATE)
     private boolean enableInferPredicate = true;
@@ -582,7 +587,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = BLOCK_ENCRYPTION_MODE)
     private String blockEncryptionMode = "";
-
 
     @VariableMgr.VarAttr(name = ENABLE_PROJECTION)
     private boolean enableProjection = true;
@@ -607,14 +611,14 @@ public class SessionVariable implements Serializable, Writable {
      * the new optimizer is fully developed. I hope that day
      * would be coming soon.
      */
-    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_PLANNER)
+    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_PLANNER, needForward = true)
     private boolean enableNereidsPlanner = false;
 
-    @VariableMgr.VarAttr(name = DISABLE_NEREIDS_RULES)
+    @VariableMgr.VarAttr(name = DISABLE_NEREIDS_RULES, needForward = true)
     private String disableNereidsRules = "";
 
-    @VariableMgr.VarAttr(name = ENABLE_NEW_COST_MODEL)
-    private boolean enableNewCostModel = true;
+    @VariableMgr.VarAttr(name = ENABLE_NEW_COST_MODEL, needForward = true)
+    private boolean enableNewCostModel = false;
 
     @VariableMgr.VarAttr(name = NEREIDS_STAR_SCHEMA_SUPPORT)
     private boolean nereidsStarSchemaSupport = true;
@@ -622,24 +626,22 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = REWRITE_OR_TO_IN_PREDICATE_THRESHOLD, fuzzy = true)
     private int rewriteOrToInPredicateThreshold = 2;
 
-    @VariableMgr.VarAttr(name = NEREIDS_CBO_PENALTY_FACTOR)
+    @VariableMgr.VarAttr(name = NEREIDS_CBO_PENALTY_FACTOR, needForward = true)
     private double nereidsCboPenaltyFactor = 0.7;
+
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_TRACE)
     private boolean enableNereidsTrace = false;
-
-    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_RUNTIME_FILTER)
-    private boolean enableNereidsRuntimeFilter = true;
 
     @VariableMgr.VarAttr(name = BROADCAST_RIGHT_TABLE_SCALE_FACTOR)
     private double broadcastRightTableScaleFactor = 10.0;
 
-    @VariableMgr.VarAttr(name = BROADCAST_ROW_COUNT_LIMIT)
+    @VariableMgr.VarAttr(name = BROADCAST_ROW_COUNT_LIMIT, needForward = true)
     private double broadcastRowCountLimit = 15000000;
 
-    @VariableMgr.VarAttr(name = BROADCAST_HASHTABLE_MEM_LIMIT_PERCENTAGE)
+    @VariableMgr.VarAttr(name = BROADCAST_HASHTABLE_MEM_LIMIT_PERCENTAGE, needForward = true)
     private double broadcastHashtableMemLimitPercentage = 0.2;
 
-    @VariableMgr.VarAttr(name = ENABLE_RUNTIME_FILTER_PRUNE)
+    @VariableMgr.VarAttr(name = ENABLE_RUNTIME_FILTER_PRUNE, needForward = true)
     public boolean enableRuntimeFilterPrune = false;
 
     /**
@@ -689,7 +691,7 @@ public class SessionVariable implements Serializable, Writable {
     // This variable is used to avoid FE fallback to the original parser. When we execute SQL in regression tests
     // for nereids, fallback will cause the Doris return the correct result although the syntax is unsupported
     // in nereids for some mistaken modification. You should set it on the
-    @VariableMgr.VarAttr(name = ENABLE_FALLBACK_TO_ORIGINAL_PLANNER)
+    @VariableMgr.VarAttr(name = ENABLE_FALLBACK_TO_ORIGINAL_PLANNER, needForward = true)
     public boolean enableFallbackToOriginalPlanner = true;
 
     @VariableMgr.VarAttr(name = ENABLE_NEW_SHUFFLE_HASH_METHOD)
@@ -763,7 +765,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DROP_TABLE_IF_CTAS_FAILED, needForward = true)
     public boolean dropTableIfCtasFailed = true;
 
-    @VariableMgr.VarAttr(name = MAX_TABLE_COUNT_USE_CASCADES_JOIN_REORDER)
+    @VariableMgr.VarAttr(name = MAX_TABLE_COUNT_USE_CASCADES_JOIN_REORDER, needForward = true)
     public int maxTableCountUseCascadesJoinReorder = 10;
 
     // If this is true, the result of `show roles` will return all user default role
@@ -780,6 +782,9 @@ public class SessionVariable implements Serializable, Writable {
     // If set to true, all query will be executed without returning result
     @VariableMgr.VarAttr(name = DRY_RUN_QUERY, needForward = true)
     public boolean dryRunQuery = false;
+
+    @VariableMgr.VarAttr(name = FILE_SPLIT_SIZE, needForward = true)
+    public long fileSplitSize = 0;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -800,6 +805,7 @@ public class SessionVariable implements Serializable, Writable {
         } else {
             this.rewriteOrToInPredicateThreshold = 2;
         }
+        this.runtimeFilterType = 1 << randomInt;
         switch (randomInt) {
             case 0:
                 this.externalSortBytesThreshold = 0;
@@ -1313,14 +1319,6 @@ public class SessionVariable implements Serializable, Writable {
         this.runtimeFilterMaxInNum = runtimeFilterMaxInNum;
     }
 
-    public boolean enableVectorizedEngine() {
-        return enableVectorizedEngine;
-    }
-
-    public void setEnableVectorizedEngine(boolean enableVectorizedEngine) {
-        this.enableVectorizedEngine = enableVectorizedEngine;
-    }
-
     public boolean enablePipelineEngine() {
         return enablePipelineEngine;
     }
@@ -1343,6 +1341,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getEnableCboStatistics() {
         return enableCboStatistics;
+    }
+
+    public long getFileSplitSize() {
+        return fileSplitSize;
+    }
+
+    public void setFileSplitSize(long fileSplitSize) {
+        this.fileSplitSize = fileSplitSize;
     }
 
     /**
@@ -1413,6 +1419,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isDisableJoinReorder() {
         return disableJoinReorder;
+    }
+
+    public boolean isEnableBushyTree() {
+        return enableBushyTree;
+    }
+
+    public void setEnableBushyTree(boolean enableBushyTree) {
+        this.enableBushyTree = enableBushyTree;
     }
 
     public boolean isReturnObjectDataAsBinary() {
@@ -1498,10 +1512,6 @@ public class SessionVariable implements Serializable, Writable {
         this.disableNereidsRules = disableNereidsRules;
     }
 
-    public boolean isNereidsStarSchemaSupport() {
-        return isEnableNereidsPlanner() && nereidsStarSchemaSupport;
-    }
-
     public double getNereidsCboPenaltyFactor() {
         return nereidsCboPenaltyFactor;
     }
@@ -1512,14 +1522,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableNereidsTrace() {
         return isEnableNereidsPlanner() && enableNereidsTrace;
-    }
-
-    public boolean isEnableNereidsRuntimeFilter() {
-        return enableNereidsRuntimeFilter;
-    }
-
-    public void setEnableNereidsRuntimeFilter(boolean enableNereidsRuntimeFilter) {
-        this.enableNereidsRuntimeFilter = enableNereidsRuntimeFilter;
     }
 
     public boolean isEnableSingleReplicaInsert() {
@@ -1837,6 +1839,7 @@ public class SessionVariable implements Serializable, Writable {
         TQueryOptions queryOptions = new TQueryOptions();
         queryOptions.setMemLimit(maxExecMemByte);
         queryOptions.setQueryTimeout(queryTimeoutS);
+        queryOptions.setInsertTimeout(insertTimeoutS);
         return queryOptions;
     }
 
@@ -1871,5 +1874,23 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setDumpNereidsMemo(boolean dumpNereidsMemo) {
         this.dumpNereidsMemo = dumpNereidsMemo;
+    }
+
+    public void enableFallbackToOriginalPlannerOnce() throws DdlException {
+        if (enableFallbackToOriginalPlanner) {
+            return;
+        }
+        setIsSingleSetVar(true);
+        VariableMgr.setVar(this,
+                new SetVar(SessionVariable.ENABLE_FALLBACK_TO_ORIGINAL_PLANNER, new StringLiteral("true")));
+    }
+
+    public void disableNereidsPlannerOnce() throws DdlException {
+        if (!enableNereidsPlanner) {
+            return;
+        }
+        setIsSingleSetVar(true);
+        VariableMgr.setVar(this,
+                new SetVar(SessionVariable.ENABLE_NEREIDS_PLANNER, new StringLiteral("false")));
     }
 }

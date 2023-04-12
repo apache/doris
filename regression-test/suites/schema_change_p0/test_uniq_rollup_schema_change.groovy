@@ -36,7 +36,7 @@ suite ("test_uniq_rollup_schema_change") {
         def backendId_to_backendHttpPort = [:]
         for (String[] backend in backends) {
             backendId_to_backendIP.put(backend[0], backend[2])
-            backendId_to_backendHttpPort.put(backend[0], backend[5])
+            backendId_to_backendHttpPort.put(backend[0], backend[6])
         }
 
         backend_id = backendId_to_backendIP.keySet()[0]
@@ -80,8 +80,19 @@ suite ("test_uniq_rollup_schema_change") {
                 `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
             UNIQUE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
             BUCKETS 1
-            PROPERTIES ( "replication_num" = "1", "light_schema_change" = "true" );
+            PROPERTIES ( "replication_num" = "1", "light_schema_change" = "false" );
         """
+
+    sql """ INSERT INTO ${tableName} VALUES
+             (1, '2017-10-01', 'Beijing', 10, 1, '2020-01-01', '2020-01-01', '2020-01-01', 1, 30, 20)
+        """
+
+    sql """ INSERT INTO ${tableName} VALUES
+             (1, '2017-10-01', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2020-01-02', 1, 31, 19)
+        """
+
+    // alter and test light schema change
+    sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
 
     //add rollup
     def rollupName = "rollup_cost"
@@ -99,14 +110,6 @@ suite ("test_uniq_rollup_schema_change") {
             }
         }
     }
-
-    sql """ INSERT INTO ${tableName} VALUES
-             (1, '2017-10-01', 'Beijing', 10, 1, '2020-01-01', '2020-01-01', '2020-01-01', 1, 30, 20)
-        """
-
-    sql """ INSERT INTO ${tableName} VALUES
-             (1, '2017-10-01', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2020-01-02', 1, 31, 19)
-        """
 
     sql """ INSERT INTO ${tableName} VALUES
              (2, '2017-10-01', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2020-01-02', 1, 31, 21)

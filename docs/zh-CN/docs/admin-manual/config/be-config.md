@@ -123,6 +123,12 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 * 描述：BE 上的 brpc 的端口，用于 BE 之间通讯
 * 默认值：8060
 
+#### `enable_https`
+
+* 类型：bool
+* 描述：是否支持https. 如果是，需要在be.conf中配置`ssl_certificate_path`和`ssl_private_key_path`
+* 默认值：false
+
 #### `single_replica_load_brpc_port`
 
 * 类型: int32
@@ -783,13 +789,6 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * 默认值： 100
 * 可动态修改：是
 
-#### `enable_stream_load_profile_log`
-
-* 类型：bool
-* 描述：是否将 stream load profile 打印到日志。
-* 默认值： false
-* 可动态修改：是
-
 ### 线程
 
 #### `delete_worker_count`
@@ -1214,7 +1213,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 #### `tablet_map_shard_size`
 
 * 描述：tablet_map_lock 分片大小，值为 2^n, n=0,1,2,3,4 ，这是为了更好地管理tablet
-* 默认值：1
+* 默认值：4
 
 #### `tablet_meta_checkpoint_min_interval_secs`
 

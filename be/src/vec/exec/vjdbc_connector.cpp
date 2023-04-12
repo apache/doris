@@ -44,11 +44,7 @@ const char* JDBC_EXECUTOR_WRITE_SIGNATURE = "(Ljava/lang/String;)I";
 const char* JDBC_EXECUTOR_HAS_NEXT_SIGNATURE = "()Z";
 const char* JDBC_EXECUTOR_GET_BLOCK_SIGNATURE = "(I)Ljava/util/List;";
 const char* JDBC_EXECUTOR_GET_TYPES_SIGNATURE = "()Ljava/util/List;";
-const char* JDBC_EXECUTOR_GET_ARR_LIST_SIGNATURE = "(Ljava/lang/Object;)Ljava/util/List;";
-const char* JDBC_EXECUTOR_GET_ARR_TYPE_SIGNATURE = "()I";
 const char* JDBC_EXECUTOR_CLOSE_SIGNATURE = "()V";
-const char* JDBC_EXECUTOR_CONVERT_DATE_SIGNATURE = "(Ljava/lang/Object;Z)J";
-const char* JDBC_EXECUTOR_CONVERT_DATETIME_SIGNATURE = "(Ljava/lang/Object;Z)J";
 const char* JDBC_EXECUTOR_TRANSACTION_SIGNATURE = "()V";
 const char* JDBC_EXECUTOR_COPY_BATCH_SIGNATURE = "(Ljava/lang/Object;ZIJJ)V";
 
@@ -81,13 +77,6 @@ Status JdbcConnector::close() {
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     env->DeleteGlobalRef(_executor_clazz);
     DELETE_BASIC_JAVA_CLAZZ_REF(object)
-    DELETE_BASIC_JAVA_CLAZZ_REF(uint8_t)
-    DELETE_BASIC_JAVA_CLAZZ_REF(int8_t)
-    DELETE_BASIC_JAVA_CLAZZ_REF(int16_t)
-    DELETE_BASIC_JAVA_CLAZZ_REF(int32_t)
-    DELETE_BASIC_JAVA_CLAZZ_REF(int64_t)
-    DELETE_BASIC_JAVA_CLAZZ_REF(float)
-    DELETE_BASIC_JAVA_CLAZZ_REF(double)
     DELETE_BASIC_JAVA_CLAZZ_REF(string)
     DELETE_BASIC_JAVA_CLAZZ_REF(list)
 #undef DELETE_BASIC_JAVA_CLAZZ_REF
@@ -109,13 +98,6 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
 
     GET_BASIC_JAVA_CLAZZ("java/util/List", list)
     GET_BASIC_JAVA_CLAZZ("java/lang/Object", object)
-    GET_BASIC_JAVA_CLAZZ("java/lang/Boolean", uint8_t)
-    GET_BASIC_JAVA_CLAZZ("java/lang/Byte", int8_t)
-    GET_BASIC_JAVA_CLAZZ("java/lang/Short", int16_t)
-    GET_BASIC_JAVA_CLAZZ("java/lang/Integer", int32_t)
-    GET_BASIC_JAVA_CLAZZ("java/lang/Long", int64_t)
-    GET_BASIC_JAVA_CLAZZ("java/lang/Float", float)
-    GET_BASIC_JAVA_CLAZZ("java/lang/Float", double)
     GET_BASIC_JAVA_CLAZZ("java/lang/String", string)
 
 #undef GET_BASIC_JAVA_CLAZZ
@@ -261,7 +243,9 @@ Status JdbcConnector::_check_type(SlotDescriptor* slot_desc, const std::string& 
     case TYPE_SMALLINT:
     case TYPE_INT: {
         if (type_str != "java.lang.Short" && type_str != "java.lang.Integer" &&
-            type_str != "java.math.BigDecimal" && type_str != "java.lang.Byte") {
+            type_str != "java.math.BigDecimal" && type_str != "java.lang.Byte" &&
+            type_str != "com.clickhouse.data.value.UnsignedByte" &&
+            type_str != "com.clickhouse.data.value.UnsignedShort") {
             return Status::InternalError(error_msg);
         }
         break;
@@ -269,7 +253,9 @@ Status JdbcConnector::_check_type(SlotDescriptor* slot_desc, const std::string& 
     case TYPE_BIGINT:
     case TYPE_LARGEINT: {
         if (type_str != "java.lang.Long" && type_str != "java.math.BigDecimal" &&
-            type_str != "java.math.BigInteger") {
+            type_str != "java.math.BigInteger" &&
+            type_str != "com.clickhouse.data.value.UnsignedInteger" &&
+            type_str != "com.clickhouse.data.value.UnsignedLong") {
             return Status::InternalError(error_msg);
         }
         break;
@@ -322,20 +308,15 @@ Status JdbcConnector::_check_type(SlotDescriptor* slot_desc, const std::string& 
             return Status::InternalError("Now doris not support nested array type in array {}.",
                                          slot_desc->type().debug_string());
         }
-        // when type is array, except pd database, others use string cast array
-        if (_conn_param.table_type != TOdbcTableType::POSTGRESQL) {
-            _need_cast_array_type = true;
-            _map_column_idx_to_cast_idx[column_index] = _input_array_string_types.size();
-            if (slot_desc->is_nullable()) {
-                _input_array_string_types.push_back(
-                        make_nullable(std::make_shared<DataTypeString>()));
-            } else {
-                _input_array_string_types.push_back(std::make_shared<DataTypeString>());
-            }
-            str_array_cols.push_back(
-                    _input_array_string_types[_map_column_idx_to_cast_idx[column_index]]
-                            ->create_column());
+        _map_column_idx_to_cast_idx[column_index] = _input_array_string_types.size();
+        if (slot_desc->is_nullable()) {
+            _input_array_string_types.push_back(make_nullable(std::make_shared<DataTypeString>()));
+        } else {
+            _input_array_string_types.push_back(std::make_shared<DataTypeString>());
         }
+        str_array_cols.push_back(
+                _input_array_string_types[_map_column_idx_to_cast_idx[column_index]]
+                        ->create_column());
         break;
     }
     default: {
@@ -381,7 +362,7 @@ Status JdbcConnector::get_next(bool* eos, std::vector<MutableColumnPtr>& columns
                 env, column_data, slot_desc, columns[column_index].get(), num_rows, column_index));
         env->DeleteLocalRef(column_data);
         //here need to cast string to array type
-        if (_need_cast_array_type && slot_desc->type().is_array_type()) {
+        if (slot_desc->type().is_array_type()) {
             _cast_string_to_array(slot_desc, block, column_index, num_rows);
         }
         materialized_column_index++;
@@ -543,17 +524,24 @@ Status JdbcConnector::_convert_batch_result_set(JNIEnv* env, jobject jcolumn_dat
                 column_is_nullable, num_rows, address[0], address[1], slot_desc->type().scale);
         break;
     }
-    //todo: now array type maybe should same as before, not need to change deal with batch
-    //if need copy by batch, should use string cast to array on all database
     case TYPE_ARRAY: {
-        const std::string& column_name = slot_desc->col_name();
-        for (int row = 0; row < num_rows; ++row) {
-            jobject cur_data = env->CallNonvirtualObjectMethod(
-                    _executor_obj, _executor_clazz, _executor_convert_array_id, jcolumn_data, row);
-            RETURN_IF_ERROR(_convert_column_data(env, cur_data, slot_desc, column_ptr, column_index,
-                                                 column_name));
-            env->DeleteLocalRef(cur_data);
+        str_array_cols[_map_column_idx_to_cast_idx[column_index]]->resize(num_rows);
+        if (column_is_nullable) {
+            auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
+                    str_array_cols[_map_column_idx_to_cast_idx[column_index]].get());
+            auto& null_map = nullable_column->get_null_map_data();
+            memset(null_map.data(), 0, num_rows);
+            address[0] = reinterpret_cast<int64_t>(null_map.data());
+            col_ptr = &nullable_column->get_nested_column();
+        } else {
+            col_ptr = str_array_cols[_map_column_idx_to_cast_idx[column_index]].get();
         }
+        auto column_string = reinterpret_cast<vectorized::ColumnString*>(col_ptr);
+        address[1] = reinterpret_cast<int64_t>(column_string->get_offsets().data());
+        auto chars_addres = reinterpret_cast<int64_t>(&column_string->get_chars());
+        env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_get_array_result,
+                                      jcolumn_data, column_is_nullable, num_rows, address[0],
+                                      address[1], chars_addres);
         break;
     }
     default: {
@@ -607,6 +595,8 @@ Status JdbcConnector::_register_func_id(JNIEnv* env) {
                                 JDBC_EXECUTOR_COPY_BATCH_SIGNATURE, _executor_get_double_result));
     RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchStringResult",
                                 "(Ljava/lang/Object;ZIJJJ)V", _executor_get_string_result));
+    RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchArrayResult",
+                                "(Ljava/lang/Object;ZIJJJ)V", _executor_get_array_result));
     RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchCharResult",
                                 "(Ljava/lang/Object;ZIJJJZ)V", _executor_get_char_result));
 
@@ -632,17 +622,8 @@ Status JdbcConnector::_register_func_id(JNIEnv* env) {
 
     RETURN_IF_ERROR(register_id(_executor_clazz, "getBlock", JDBC_EXECUTOR_GET_BLOCK_SIGNATURE,
                                 _executor_get_blocks_id));
-    RETURN_IF_ERROR(register_id(_executor_clazz, "convertDateToLong",
-                                JDBC_EXECUTOR_CONVERT_DATE_SIGNATURE, _executor_convert_date_id));
-    RETURN_IF_ERROR(register_id(_executor_clazz, "convertDateTimeToLong",
-                                JDBC_EXECUTOR_CONVERT_DATETIME_SIGNATURE,
-                                _executor_convert_datetime_id));
-    RETURN_IF_ERROR(register_id(_executor_clazz, "convertArrayToObject",
-                                "(Ljava/lang/Object;I)Ljava/lang/Object;",
-                                _executor_convert_array_id));
     RETURN_IF_ERROR(register_id(_executor_list_clazz, "get", "(I)Ljava/lang/Object;",
                                 _executor_get_list_id));
-    RETURN_IF_ERROR(register_id(_executor_list_clazz, "size", "()I", _executor_get_list_size_id));
     RETURN_IF_ERROR(register_id(_executor_string_clazz, "getBytes", "(Ljava/lang/String;)[B",
                                 _get_bytes_id));
     RETURN_IF_ERROR(
@@ -656,219 +637,20 @@ Status JdbcConnector::_register_func_id(JNIEnv* env) {
                                 JDBC_EXECUTOR_TRANSACTION_SIGNATURE, _executor_abort_trans_id));
     RETURN_IF_ERROR(register_id(_executor_clazz, "getResultColumnTypeNames",
                                 JDBC_EXECUTOR_GET_TYPES_SIGNATURE, _executor_get_types_id));
-    RETURN_IF_ERROR(register_id(_executor_clazz, "getArrayColumnData",
-                                JDBC_EXECUTOR_GET_ARR_LIST_SIGNATURE, _executor_get_arr_list_id));
-    RETURN_IF_ERROR(register_id(_executor_clazz, "getBaseTypeInt",
-                                JDBC_EXECUTOR_GET_ARR_TYPE_SIGNATURE, _executor_get_arr_type_id));
-
-    return Status::OK();
-}
-
-Status JdbcConnector::_convert_column_data(JNIEnv* env, jobject jobj,
-                                           const SlotDescriptor* slot_desc,
-                                           vectorized::IColumn* column_ptr, int column_index,
-                                           std::string_view column_name) {
-    vectorized::IColumn* col_ptr = column_ptr;
-    if (true == slot_desc->is_nullable()) {
-        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(column_ptr);
-        if (jobj == nullptr) {
-            //nullable column of null map have memset 0 before
-            nullable_column->get_nested_column_ptr()->insert_default();
-            if (_need_cast_array_type && slot_desc->type().type == TYPE_ARRAY) {
-                reinterpret_cast<vectorized::ColumnNullable*>(
-                        str_array_cols[_map_column_idx_to_cast_idx[column_index]].get())
-                        ->insert_data(nullptr, 0);
-            }
-            return Status::OK();
-        } else {
-            col_ptr = &nullable_column->get_nested_column();
-        }
-    }
-    RETURN_IF_ERROR(
-            _insert_column_data(env, jobj, slot_desc->type(), col_ptr, column_index, column_name));
-    return Status::OK();
-}
-
-Status JdbcConnector::_insert_column_data(JNIEnv* env, jobject jobj, const TypeDescriptor& type,
-                                          vectorized::IColumn* col_ptr, int column_index,
-                                          std::string_view column_name) {
-    switch (type.type) {
-#define M(TYPE, CPP_TYPE, COLUMN_TYPE)                              \
-    case TYPE: {                                                    \
-        CPP_TYPE num = _jobject_to_##CPP_TYPE(env, jobj);           \
-        reinterpret_cast<COLUMN_TYPE*>(col_ptr)->insert_value(num); \
-        break;                                                      \
-    }
-        M(TYPE_BOOLEAN, uint8_t, vectorized::ColumnVector<vectorized::UInt8>)
-        M(TYPE_TINYINT, int8_t, vectorized::ColumnVector<vectorized::Int8>)
-        M(TYPE_SMALLINT, int16_t, vectorized::ColumnVector<vectorized::Int16>)
-        M(TYPE_INT, int32_t, vectorized::ColumnVector<vectorized::Int32>)
-        M(TYPE_BIGINT, int64_t, vectorized::ColumnVector<vectorized::Int64>)
-        M(TYPE_FLOAT, float, vectorized::ColumnVector<vectorized::Float32>)
-        M(TYPE_DOUBLE, double, vectorized::ColumnVector<vectorized::Float64>)
-#undef M
-    case TYPE_CHAR: {
-        std::string data = _jobject_to_string(env, jobj);
-        // Now have test pg and oracle with char(100), if data='abc'
-        // but read string data length is 100, so need trim extra spaces
-        if ((_conn_param.table_type == TOdbcTableType::POSTGRESQL) ||
-            (_conn_param.table_type == TOdbcTableType::ORACLE)) {
-            data = data.erase(data.find_last_not_of(' ') + 1);
-        }
-        reinterpret_cast<vectorized::ColumnString*>(col_ptr)->insert_data(data.c_str(),
-                                                                          data.length());
-        break;
-    }
-    case TYPE_STRING:
-    case TYPE_VARCHAR: {
-        std::string data = _jobject_to_string(env, jobj);
-        reinterpret_cast<vectorized::ColumnString*>(col_ptr)->insert_data(data.c_str(),
-                                                                          data.length());
-        break;
-    }
-    case TYPE_DATE: {
-        int64_t num = _jobject_to_date(env, jobj, false);
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_value(num);
-        break;
-    }
-    case TYPE_DATEV2: {
-        int64_t num = _jobject_to_date(env, jobj, true);
-        uint32_t num2 = static_cast<uint32_t>(num);
-        reinterpret_cast<vectorized::ColumnVector<vectorized::UInt32>*>(col_ptr)->insert_value(
-                num2);
-        break;
-    }
-    case TYPE_DATETIME: {
-        int64_t num = _jobject_to_datetime(env, jobj, false);
-        RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_value(num);
-        break;
-    }
-    case TYPE_DATETIMEV2: {
-        int64_t num = _jobject_to_datetime(env, jobj, true);
-        RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
-        uint64_t num2 = static_cast<uint64_t>(num);
-        reinterpret_cast<vectorized::ColumnVector<vectorized::UInt64>*>(col_ptr)->insert_value(
-                num2);
-        break;
-    }
-    case TYPE_LARGEINT: {
-        StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
-        std::string data = _jobject_to_string(env, jobj);
-        __int128 num =
-                StringParser::string_to_int<__int128>(data.data(), data.size(), &parse_result);
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Int128>*>(col_ptr)->insert_value(num);
-        break;
-    }
-    case TYPE_DECIMALV2: {
-        std::string data = _jobject_to_string(env, jobj);
-        DecimalV2Value decimal_slot;
-        decimal_slot.parse_from_str(data.c_str(), data.length());
-        reinterpret_cast<vectorized::ColumnDecimal128*>(col_ptr)->insert_data(
-                const_cast<const char*>(reinterpret_cast<char*>(&decimal_slot)), 0);
-        break;
-    }
-    case TYPE_DECIMAL32: {
-        std::string data = _jobject_to_string(env, jobj);
-        StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-        const Int32 decimal_slot = StringParser::string_to_decimal<Int32>(
-                data.c_str(), data.length(), type.precision, type.scale, &result);
-        reinterpret_cast<vectorized::ColumnDecimal32*>(col_ptr)->insert_data(
-                reinterpret_cast<const char*>(&decimal_slot), 0);
-        break;
-    }
-    case TYPE_DECIMAL64: {
-        std::string data = _jobject_to_string(env, jobj);
-        StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-        const Int64 decimal_slot = StringParser::string_to_decimal<Int64>(
-                data.c_str(), data.length(), type.precision, type.scale, &result);
-        reinterpret_cast<vectorized::ColumnDecimal64*>(col_ptr)->insert_data(
-                reinterpret_cast<const char*>(&decimal_slot), 0);
-        break;
-    }
-    case TYPE_DECIMAL128I: {
-        std::string data = _jobject_to_string(env, jobj);
-        StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-        const Int128 decimal_slot = StringParser::string_to_decimal<Int128>(
-                data.c_str(), data.length(), type.precision, type.scale, &result);
-        reinterpret_cast<vectorized::ColumnDecimal128I*>(col_ptr)->insert_data(
-                reinterpret_cast<const char*>(&decimal_slot), 0);
-        break;
-    }
-    case TYPE_ARRAY: {
-        if (_need_cast_array_type) {
-            // read array data is a big string: [1,2,3], need cast it by self
-            std::string data = _jobject_to_string(env, jobj);
-            str_array_cols[_map_column_idx_to_cast_idx[column_index]]->insert_data(data.c_str(),
-                                                                                   data.length());
-        } else {
-            //POSTGRESQL read array is object[], so could get data by index
-            jobject arr_lists = env->CallNonvirtualObjectMethod(_executor_obj, _executor_clazz,
-                                                                _executor_get_arr_list_id, jobj);
-            jint arr_type = env->CallNonvirtualIntMethod(_executor_obj, _executor_clazz,
-                                                         _executor_get_arr_type_id);
-            //here type check is maybe no needed，more checks affect performance
-            if (_arr_jdbc_map[arr_type] != type.children[0].type) {
-                const std::string& error_msg = fmt::format(
-                        "Fail to convert jdbc value to array type of {} on column: {}, could check "
-                        "this column type between external table and doris table. {}.{} ",
-                        type.children[0].debug_string(), column_name, _arr_jdbc_map[arr_type],
-                        arr_type);
-                return Status::InternalError(std::string(error_msg));
-            }
-            jint num_rows = env->CallIntMethod(arr_lists, _executor_get_list_size_id);
-            RETURN_IF_ERROR(_insert_arr_column_data(env, arr_lists, type.children[0], num_rows,
-                                                    col_ptr, column_index, column_name));
-            env->DeleteLocalRef(arr_lists);
-        }
-        break;
-    }
-    default: {
-        const std::string& error_msg = fmt::format(
-                "Fail to convert jdbc value to {} on column: {}, could check this column type "
-                "between external table and doris table.",
-                type.debug_string(), column_name);
-        return Status::InternalError(std::string(error_msg));
-    }
-    }
-    return Status::OK();
-}
-
-Status JdbcConnector::_insert_arr_column_data(JNIEnv* env, jobject arr_lists,
-                                              const TypeDescriptor& type, int nums,
-                                              vectorized::IColumn* arr_column_ptr, int column_index,
-                                              std::string_view column_name) {
-    auto& arr_nested = reinterpret_cast<vectorized::ColumnArray*>(arr_column_ptr)->get_data();
-    vectorized::IColumn* col_ptr =
-            reinterpret_cast<vectorized::ColumnNullable&>(arr_nested).get_nested_column_ptr();
-    auto& nullmap_data =
-            reinterpret_cast<vectorized::ColumnNullable&>(arr_nested).get_null_map_data();
-    for (int i = 0; i < nums; ++i) {
-        jobject cur_data = env->CallObjectMethod(arr_lists, _executor_get_list_id, i);
-        if (cur_data == nullptr) {
-            arr_nested.insert_default();
-            continue;
-        } else {
-            nullmap_data.push_back(0);
-        }
-        RETURN_IF_ERROR(
-                _insert_column_data(env, cur_data, type, col_ptr, column_index, column_name));
-        env->DeleteLocalRef(cur_data);
-    }
-    auto old_size =
-            reinterpret_cast<vectorized::ColumnArray*>(arr_column_ptr)->get_offsets().back();
-    reinterpret_cast<vectorized::ColumnArray*>(arr_column_ptr)
-            ->get_offsets()
-            .push_back(nums + old_size);
     return Status::OK();
 }
 
 Status JdbcConnector::_cast_string_to_array(const SlotDescriptor* slot_desc, Block* block,
                                             int column_index, int rows) {
     DataTypePtr _target_data_type = slot_desc->get_data_type_ptr();
-    std::string _target_data_type_name = DataTypeFactory::instance().get(_target_data_type);
-    DataTypePtr _cast_param_data_type = std::make_shared<DataTypeString>();
-    ColumnPtr _cast_param = _cast_param_data_type->create_column_const(1, _target_data_type_name);
+    std::string _target_data_type_name = _target_data_type->get_name();
+    DataTypePtr _cast_param_data_type = std::make_shared<DataTypeInt16>();
+    ColumnPtr _cast_param = _cast_param_data_type->create_column_const(
+            1, static_cast<int16_t>(_target_data_type->is_nullable()
+                                            ? ((DataTypeNullable*)(_target_data_type.get()))
+                                                      ->get_nested_type()
+                                                      ->get_type_id()
+                                            : _target_data_type->get_type_id()));
 
     ColumnsWithTypeAndName argument_template;
     argument_template.reserve(2);
@@ -924,16 +706,6 @@ std::string JdbcConnector::_jobject_to_string(JNIEnv* env, jobject jobj) {
     return str;
 }
 
-int64_t JdbcConnector::_jobject_to_date(JNIEnv* env, jobject jobj, bool is_date_v2) {
-    return env->CallNonvirtualLongMethod(_executor_obj, _executor_clazz, _executor_convert_date_id,
-                                         jobj, is_date_v2);
-}
-
-int64_t JdbcConnector::_jobject_to_datetime(JNIEnv* env, jobject jobj, bool is_datetime_v2) {
-    return env->CallNonvirtualLongMethod(_executor_obj, _executor_clazz,
-                                         _executor_convert_datetime_id, jobj, is_datetime_v2);
-}
-
 Status JdbcConnector::begin_trans() {
     if (!_is_open) {
         return Status::InternalError("Begin transaction before open.");
@@ -967,21 +739,6 @@ Status JdbcConnector::finish_trans() {
     _is_in_transaction = false;
     return Status::OK();
 }
-
-#define FUNC_IMPL_TO_CONVERT_DATA(cpp_return_type, java_type, sig, java_return_type)          \
-    cpp_return_type JdbcConnector::_jobject_to_##cpp_return_type(JNIEnv* env, jobject jobj) { \
-        jmethodID method_id_##cpp_return_type = env->GetMethodID(                             \
-                _executor_##cpp_return_type##_clazz, #java_type "Value", "()" #sig);          \
-        return env->Call##java_return_type##Method(jobj, method_id_##cpp_return_type);        \
-    }
-
-FUNC_IMPL_TO_CONVERT_DATA(uint8_t, boolean, Z, Boolean)
-FUNC_IMPL_TO_CONVERT_DATA(int8_t, byte, B, Byte)
-FUNC_IMPL_TO_CONVERT_DATA(int16_t, short, S, Short)
-FUNC_IMPL_TO_CONVERT_DATA(int32_t, int, I, Int)
-FUNC_IMPL_TO_CONVERT_DATA(int64_t, long, J, Long)
-FUNC_IMPL_TO_CONVERT_DATA(float, float, F, Float)
-FUNC_IMPL_TO_CONVERT_DATA(double, double, D, Double)
 
 } // namespace vectorized
 } // namespace doris

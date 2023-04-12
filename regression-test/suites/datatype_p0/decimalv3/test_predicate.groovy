@@ -39,9 +39,9 @@ suite("test_predicate") {
             (1.2,1.2,1.3),
             (1.5,1.2,1.3)
     """
-    qt_select1 "SELECT CAST((CASE WHEN (TRUE IS NOT NULL) THEN '1.2' ELSE '1.2' END) AS FLOAT) = CAST(1.2 AS decimal(2,1))"
+    qt_select1 "SELECT /*+ SET_VAR(enable_fold_constant_by_be = false) */ CAST((CASE WHEN (TRUE IS NOT NULL) THEN '1.2' ELSE '1.2' END) AS FLOAT) = CAST(1.2 AS decimal(2,1))"
 
-    qt_select2 "SELECT 1 FROM ${table1} WHERE CAST((CASE WHEN (TRUE IS NOT NULL) THEN '1.2' ELSE '1.2' END) AS FLOAT) = CAST(1.2 AS decimal(2,1));"
+    qt_select2 "SELECT /*+ SET_VAR(enable_fold_constant_by_be = false) */ 1 FROM ${table1} WHERE CAST((CASE WHEN (TRUE IS NOT NULL) THEN '1.2' ELSE '1.2' END) AS FLOAT) = CAST(1.2 AS decimal(2,1));"
     qt_select3 "SELECT * FROM ${table1} WHERE k1 != 1.1 ORDER BY k1"
     sql "drop table if exists ${table1}"
 }
