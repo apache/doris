@@ -198,14 +198,14 @@ public class StatisticsRepository {
         predicate.append(partPredicate);
     }
 
-    public static void createAnalysisTask(AnalysisTaskInfo analysisTaskInfo) throws Exception {
+    public static void persistAnalysisTask(AnalysisTaskInfo analysisTaskInfo) throws Exception {
         Map<String, String> params = new HashMap<>();
         params.put("jobId", String.valueOf(analysisTaskInfo.jobId));
         params.put("taskId", String.valueOf(analysisTaskInfo.taskId));
         params.put("catalogName", analysisTaskInfo.catalogName);
         params.put("dbName", analysisTaskInfo.dbName);
         params.put("tblName", analysisTaskInfo.tblName);
-        params.put("colName", analysisTaskInfo.colName);
+        params.put("colName", analysisTaskInfo.colName == null ? "" : analysisTaskInfo.colName);
         params.put("indexId", analysisTaskInfo.indexId == null ? "-1" : String.valueOf(analysisTaskInfo.indexId));
         params.put("jobType", analysisTaskInfo.jobType.toString());
         params.put("analysisType", analysisTaskInfo.analysisMethod.toString());
