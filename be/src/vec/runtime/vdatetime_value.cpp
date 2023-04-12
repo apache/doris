@@ -1800,7 +1800,7 @@ void DateV2Value<T>::format_datetime(uint32_t* date_val, bool* carry_bits) const
     DCHECK(date_val[6] < 1000000L);
     // hour, minute, second
     for (size_t i = 5; i > 2; i--) {
-        if (date_val[i] == MAX_TIME_PART_VALUE[i - 3] + 1 && carry_bits[i+1]) {
+        if (date_val[i] == MAX_TIME_PART_VALUE[i - 3] + 1 && carry_bits[i + 1]) {
             date_val[i] = 0;
             date_val[i - 1] += 1;
             carry_bits[i] = true;
