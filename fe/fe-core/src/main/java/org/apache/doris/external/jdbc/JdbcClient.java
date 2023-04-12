@@ -99,7 +99,7 @@ public class JdbcClient {
             dataSource.setPassword(password);
             dataSource.setMinIdle(1);
             dataSource.setInitialSize(1);
-            dataSource.setMaxActive(10);
+            dataSource.setMaxActive(100);
             dataSource.setTimeBetweenEvictionRunsMillis(600000);
             dataSource.setMinEvictableIdleTimeMillis(300000);
             // set connection timeout to 5s.

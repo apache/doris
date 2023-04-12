@@ -230,14 +230,15 @@ public class JdbcExecutor {
                 ds.setPassword(jdbcPassword);
                 ds.setMinIdle(1);
                 ds.setInitialSize(1);
-                ds.setMaxActive(10);
+                ds.setMaxActive(100);
                 ds.setMaxWait(5000);
                 ds.setTimeBetweenEvictionRunsMillis(600000);
                 ds.setMinEvictableIdleTimeMillis(300000);
                 druidDataSource = ds;
-                // here is a cache of datasource, which using the string(jdbcUrl + jdbcUser + jdbcPassword) as key.
-                // and the datasource init = 1, min = 1, max = 10, if one of connection idle time greater than 10 minutes.
-                // the connection will be retrieved.
+                // here is a cache of datasource, which using the string(jdbcUrl + jdbcUser +
+                // jdbcPassword) as key.
+                // and the datasource init = 1, min = 1, max = 100, if one of connection idle
+                // time greater than 10 minutes. then connection will be retrieved.
                 JdbcDataSource.getDataSource().putSource(jdbcUrl + jdbcUser + jdbcPassword, ds);
             }
             conn = druidDataSource.getConnection();
