@@ -1657,7 +1657,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_117) {
             comment = Text.readString(in);
         } else {
-            comment = null;
+            comment = "";
         }
     }
 

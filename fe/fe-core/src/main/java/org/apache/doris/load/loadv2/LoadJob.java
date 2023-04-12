@@ -1118,6 +1118,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
                 userInfo.setIsAnalyzed();
             }
             comment = Text.readString(in);
+        } else {
+            comment = "";
         }
     }
 
