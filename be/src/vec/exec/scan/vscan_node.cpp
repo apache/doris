@@ -411,10 +411,14 @@ Status VScanNode::close(RuntimeState* state) {
 void VScanNode::release_resource(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VScanNode::release_resource");
     if (state->enable_profile() && _num_scanners->value() == 0) {
-        _runtime_profile->set_name(_runtime_profile->name() +
-                                   std::to_string(state->fragment_instance_id().hi) +
-                                   std::to_string(state->fragment_instance_id().lo));
+        //during pipeline mode, olap scan node maybe not new scanner object, so those info are all empty
         _runtime_profile->clear_children();
+        _runtime_profile->remove_counter("RowsRead");
+        _runtime_profile->remove_counter("MaxScannerThreadNum");
+        _runtime_profile->remove_counter("TotalReadThroughput");
+        _runtime_profile->remove_counter("ScannerWorkerWaitTime");
+        _runtime_profile->remove_counter("PreAllocFreeBlocksNum");
+        _runtime_profile->remove_counter("PeakMemoryUsage");
     }
     if (_scanner_ctx.get()) {
         if (!state->enable_pipeline_exec() || _should_create_scanner) {
