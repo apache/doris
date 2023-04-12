@@ -14,8 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 #pragma once
+
 #include <queue>
+#include <shared_mutex>
 
 #include "olap/olap_define.h"
 
@@ -30,6 +33,9 @@ class QueryFragmentsCtx;
 namespace taskgroup {
 
 class TaskGroup;
+struct TaskGroupInfo;
+
+const static std::string CPU_SHARE = "cpu_share";
 
 class TaskGroupEntity {
 public:
@@ -60,23 +66,40 @@ using TGEntityPtr = TaskGroupEntity*;
 
 class TaskGroup {
 public:
-    TaskGroup(uint64_t id, std::string name, uint64_t cpu_share);
+    TaskGroup(uint64_t id, std::string name, uint64_t cpu_share, int64_t version);
 
     TaskGroupEntity* task_entity() { return &_task_entity; }
 
-    uint64_t share() const { return _share; }
+    uint64_t cpu_share() const {
+        std::shared_lock<std::shared_mutex> rl {mutex};
+        return _cpu_share;
+    }
+
     uint64_t id() const { return _id; }
 
     std::string debug_string() const;
 
+    bool check_version(int64_t version) const;
+
+    void check_and_update(const TaskGroupInfo& tg_info);
+
 private:
-    uint64_t _id;
+    mutable std::shared_mutex mutex; // lock _name, _cpu_share, _version
+    const uint64_t _id;
     std::string _name;
-    uint64_t _share;
+    uint64_t _cpu_share;
     TaskGroupEntity _task_entity;
+    int64_t _version;
 };
 
 using TaskGroupPtr = std::shared_ptr<TaskGroup>;
+
+struct TaskGroupInfo {
+    uint64_t _id;
+    std::string _name;
+    uint64_t _cpu_share;
+    int64_t _version;
+};
 
 } // namespace taskgroup
 } // namespace doris

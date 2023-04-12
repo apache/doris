@@ -32,7 +32,7 @@ pipeline::PipelineTask* TaskGroupEntity::take() {
 }
 
 void TaskGroupEntity::incr_runtime_ns(uint64_t runtime_ns) {
-    auto v_time = runtime_ns / _tg->share();
+    auto v_time = runtime_ns / _tg->cpu_share();
     _vruntime_ns += v_time;
 }
 
@@ -46,7 +46,7 @@ void TaskGroupEntity::push_back(pipeline::PipelineTask* task) {
 }
 
 uint64_t TaskGroupEntity::cpu_share() const {
-    return _tg->share();
+    return _tg->cpu_share();
 }
 
 std::string TaskGroupEntity::debug_string() const {
@@ -54,11 +54,31 @@ std::string TaskGroupEntity::debug_string() const {
                        cpu_share(), _queue.size(), _vruntime_ns);
 }
 
-TaskGroup::TaskGroup(uint64_t id, std::string name, uint64_t share)
-        : _id(id), _name(name), _share(share), _task_entity(this) {}
+TaskGroup::TaskGroup(uint64_t id, std::string name, uint64_t cpu_share, int64_t version)
+        : _id(id), _name(name), _cpu_share(cpu_share), _task_entity(this), _version(version) {}
 
 std::string TaskGroup::debug_string() const {
-    return fmt::format("TG[id = {}, name = {}, share = {}", _id, _name, share());
+    std::shared_lock<std::shared_mutex> rl {mutex};
+    return fmt::format("TG[id = {}, name = {}, cpu_share = {}, version = {}]", _id, _name,
+                       cpu_share(), _version);
+}
+
+bool TaskGroup::check_version(int64_t version) const {
+    std::shared_lock<std::shared_mutex> rl {mutex};
+    return version > _version;
+}
+
+void TaskGroup::check_and_update(const TaskGroupInfo& tg_info) {
+    if (tg_info._id != _id) {
+        return;
+    }
+
+    std::lock_guard<std::shared_mutex> wl {mutex};
+    if (tg_info._version > _version) {
+        _name = tg_info._name;
+        _cpu_share = tg_info._cpu_share;
+        _version = tg_info._version;
+    }
 }
 
 } // namespace taskgroup
