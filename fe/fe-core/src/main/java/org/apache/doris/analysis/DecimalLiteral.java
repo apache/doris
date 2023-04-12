@@ -247,11 +247,11 @@ public class DecimalLiteral extends LiteralExpr {
     @Override
     public void checkValueValid() throws AnalysisException {
         if (type.isDecimalV3()) {
-            if (value.precision() > type.getPrecision()) {
+            if (value.precision() - value.scale() > type.getPrecision() - ((ScalarType) type).getScalarScale()) {
                 throw new AnalysisException(String.format("Decimal literal %s is invalid! Required precision = %d,"
                         + "scale = %d", value, type.getPrecision(), ((ScalarType) type).getScalarScale()));
             }
-        } else if (value.precision() > ScalarType.MAX_DECIMALV2_PRECISION) {
+        } else if (value.precision() - value.scale() > type.getPrecision() - ((ScalarType) type).getScalarScale()) {
             throw new AnalysisException(String.format("Decimal literal %s is invalid! Required precision = %d,"
                     + "scale = %d", value, type.getPrecision(), ((ScalarType) type).getScalarScale()));
         }
