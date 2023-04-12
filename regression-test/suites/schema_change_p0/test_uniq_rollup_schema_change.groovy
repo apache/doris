@@ -107,7 +107,7 @@ suite ("test_uniq_rollup_schema_change") {
 
     //add rollup
     def rollupName = "rollup_cost"
-    sql "ALTER TABLE ${tableName} ADD ROLLUP ${rollupName}(`user_id`,`date`,`sex`, `age`,`cost`);"
+    sql "ALTER TABLE ${tableName} ADD ROLLUP ${rollupName}(`user_id`,`date`,`city`,`sex`, `age`,`cost`);"
     waitForMVJob(tableName, 3000)
 
     sql """ INSERT INTO ${tableName} VALUES
@@ -116,10 +116,6 @@ suite ("test_uniq_rollup_schema_change") {
 
         // alter and test light schema change
     sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
-
-    def rollupName2 = "rollup_city"
-    sql "ALTER TABLET ${tableName} ADD ROLLUP ${rollupName2}(`user_id`,`city`);"
-    waitForMVJob(tableName, 3000)
 
     sql """ INSERT INTO ${tableName} VALUES
              (2, '2017-10-01', 'Beijing', 10, 1, '2020-01-03', '2020-01-03', '2020-01-03', 1, 32, 20)
