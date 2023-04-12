@@ -26,8 +26,8 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
 
     protected HMSExternalTable table;
 
-    public HMSAnalysisTask(AnalysisTaskScheduler analysisTaskScheduler, AnalysisTaskInfo info) {
-        super(analysisTaskScheduler, info);
+    public HMSAnalysisTask(AnalysisTaskInfo info) {
+        super(info);
         table = (HMSExternalTable) tbl;
     }
 

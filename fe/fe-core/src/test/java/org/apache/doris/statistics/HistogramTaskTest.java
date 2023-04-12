@@ -107,7 +107,7 @@ public class HistogramTaskTest extends TestWithFeService {
                 .setAnalysisType(AnalysisType.HISTOGRAM)
                  .setPartitionNames(Sets.newHashSet("t"))
                 .build();
-        HistogramTask task = new HistogramTask(analysisTaskScheduler, analysisTaskInfo);
+        HistogramTask task = new HistogramTask(analysisTaskInfo);
 
         new MockUp<AnalysisTaskScheduler>() {
             @Mock

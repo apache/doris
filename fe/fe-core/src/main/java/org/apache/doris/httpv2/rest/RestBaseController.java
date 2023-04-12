@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.httpv2.controller.BaseController;
+import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
@@ -108,12 +109,24 @@ public class RestBaseController extends BaseController {
         return redirectView;
     }
 
-    public RedirectView redirectToMaster(HttpServletRequest request, HttpServletResponse response) {
+    public RedirectView redirectToMasterOrException(HttpServletRequest request, HttpServletResponse response)
+                    throws Exception {
         Env env = Env.getCurrentEnv();
         if (env.isMaster()) {
             return null;
         }
+        if (!env.isReady()) {
+            throw new Exception("Node catalog is not ready, please wait for a while.");
+        }
         return redirectTo(request, new TNetworkAddress(env.getMasterIp(), env.getMasterHttpPort()));
+    }
+
+    public Object redirectToMaster(HttpServletRequest request, HttpServletResponse response) {
+        try {
+            return redirectToMasterOrException(request, response);
+        } catch (Exception e) {
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+        }
     }
 
     public void getFile(HttpServletRequest request, HttpServletResponse response, Object obj, String fileName)

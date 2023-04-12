@@ -404,6 +404,8 @@ public:
     bool use_default_implementation_for_nulls() const override { return true; }
     bool use_default_implementation_for_constants() const override { return false; }
     bool use_default_implementation_for_low_cardinality_columns() const override { return true; }
+
+    /// all constancy check should use this function to do automatically
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {}; }
     bool can_be_executed_on_low_cardinality_dictionary() const override {
         return is_deterministic_in_scope_of_query();
