@@ -52,6 +52,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.LocalDate;
@@ -68,7 +69,8 @@ public class JdbcExecutor {
     private static final Logger LOG = Logger.getLogger(JdbcExecutor.class);
     private static final TBinaryProtocol.Factory PROTOCOL_FACTORY = new TBinaryProtocol.Factory();
     private Connection conn = null;
-    private PreparedStatement stmt = null;
+    private PreparedStatement preparedStatement = null;
+    private Statement stmt = null;
     private ResultSet resultSet = null;
     private ResultSetMetaData resultSetMetaData = null;
     private List<String> resultColumnTypeNames = null;
@@ -181,10 +183,10 @@ public class JdbcExecutor {
             for (int j = 0; j < data.getColumns().length; ++j) {
                 insertColumn(i, j, data.getColumns()[j]);
             }
-            stmt.addBatch();
+            preparedStatement.addBatch();
         }
-        stmt.executeBatch();
-        stmt.clearBatch();
+        preparedStatement.executeBatch();
+        preparedStatement.clearBatch();
         return data.getNumRows();
     }
 
@@ -197,39 +199,39 @@ public class JdbcExecutor {
         }
         switch (dorisType) {
             case BOOLEAN:
-                stmt.setBoolean(parameterIndex, column.getBoolean(rowIdx));
+                preparedStatement.setBoolean(parameterIndex, column.getBoolean(rowIdx));
                 break;
             case TINYINT:
             case SMALLINT:
             case INT:
-                stmt.setInt(parameterIndex, column.getInt(rowIdx));
+                preparedStatement.setInt(parameterIndex, column.getInt(rowIdx));
                 break;
             case BIGINT:
-                stmt.setBigDecimal(parameterIndex, new BigDecimal(column.getLong(rowIdx)));
+                preparedStatement.setLong(parameterIndex, column.getLong(rowIdx));
                 break;
             case FLOAT:
-                stmt.setFloat(parameterIndex, column.getFloat(rowIdx));
+                preparedStatement.setFloat(parameterIndex, column.getFloat(rowIdx));
                 break;
             case DOUBLE:
-                stmt.setDouble(parameterIndex, column.getDouble(rowIdx));
+                preparedStatement.setDouble(parameterIndex, column.getDouble(rowIdx));
                 break;
             case DECIMALV2:
             case DECIMAL32:
             case DECIMAL64:
             case DECIMAL128:
-                stmt.setBigDecimal(parameterIndex, column.getDecimal(rowIdx));
+                preparedStatement.setBigDecimal(parameterIndex, column.getDecimal(rowIdx));
                 break;
             case DATEV2:
-                stmt.setDate(parameterIndex, Date.valueOf(column.getDate(rowIdx)));
+                preparedStatement.setDate(parameterIndex, Date.valueOf(column.getDate(rowIdx)));
                 break;
             case DATETIMEV2:
-                stmt.setTimestamp(parameterIndex, Timestamp.valueOf(column.getDateTime(rowIdx)));
+                preparedStatement.setTimestamp(parameterIndex, Timestamp.valueOf(column.getDateTime(rowIdx)));
                 break;
             case CHAR:
             case VARCHAR:
             case STRING:
             case BINARY:
-                stmt.setString(parameterIndex, column.getStringWithOffset(rowIdx));
+                preparedStatement.setString(parameterIndex, column.getStringWithOffset(rowIdx));
                 break;
             default:
                 throw new RuntimeException("Unknown type value: " + dorisType);
@@ -239,43 +241,43 @@ public class JdbcExecutor {
     private void insertNullColumn(int parameterIndex, ColumnType.Type dorisType) throws SQLException {
         switch (dorisType) {
             case BOOLEAN:
-                stmt.setNull(parameterIndex, Types.BOOLEAN);
+                preparedStatement.setNull(parameterIndex, Types.BOOLEAN);
                 break;
             case TINYINT:
-                stmt.setNull(parameterIndex, Types.TINYINT);
+                preparedStatement.setNull(parameterIndex, Types.TINYINT);
                 break;
             case SMALLINT:
-                stmt.setNull(parameterIndex, Types.SMALLINT);
+                preparedStatement.setNull(parameterIndex, Types.SMALLINT);
                 break;
             case INT:
-                stmt.setNull(parameterIndex, Types.INTEGER);
+                preparedStatement.setNull(parameterIndex, Types.INTEGER);
                 break;
             case BIGINT:
-                stmt.setNull(parameterIndex, Types.BIGINT);
+                preparedStatement.setNull(parameterIndex, Types.BIGINT);
                 break;
             case FLOAT:
-                stmt.setNull(parameterIndex, Types.FLOAT);
+                preparedStatement.setNull(parameterIndex, Types.FLOAT);
                 break;
             case DOUBLE:
-                stmt.setNull(parameterIndex, Types.DOUBLE);
+                preparedStatement.setNull(parameterIndex, Types.DOUBLE);
                 break;
             case DECIMALV2:
             case DECIMAL32:
             case DECIMAL64:
             case DECIMAL128:
-                stmt.setNull(parameterIndex, Types.DECIMAL);
+                preparedStatement.setNull(parameterIndex, Types.DECIMAL);
                 break;
             case DATEV2:
-                stmt.setNull(parameterIndex, Types.DATE);
+                preparedStatement.setNull(parameterIndex, Types.DATE);
                 break;
             case DATETIMEV2:
-                stmt.setNull(parameterIndex, Types.TIMESTAMP);
+                preparedStatement.setNull(parameterIndex, Types.TIMESTAMP);
                 break;
             case CHAR:
             case VARCHAR:
             case STRING:
             case BINARY:
-                stmt.setNull(parameterIndex, Types.VARCHAR);
+                preparedStatement.setNull(parameterIndex, Types.VARCHAR);
                 break;
             default:
                 throw new RuntimeException("Unknown type value: " + dorisType);
@@ -424,9 +426,12 @@ public class JdbcExecutor {
                     }
                     batchSizeNum = batchSize;
                 } else {
-                    LOG.info("insert sql = " + sql);
-                    stmt = conn.prepareStatement(sql);
-                    // stmt = conn.createStatement();
+                    if (tableType == TOdbcTableType.ORACLE) {
+                        LOG.info("insert sql: " + sql);
+                        preparedStatement = conn.prepareStatement(sql);
+                    } else {
+                        stmt = conn.createStatement();
+                    }
                 }
             }
         } catch (MalformedURLException e) {
