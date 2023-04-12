@@ -1127,6 +1127,64 @@ public class ExecutableFunctions {
     }
 
     /**
+     * datetime arithmetic function month-ceil
+     */
+    @ExecFunction(name = "month_ceil", argTypes = {"DATETIME"}, returnType = "DATETIME")
+    public static DateTimeLiteral monthCeil(DateTimeLiteral date) {
+        return new DateTimeLiteral(date.getYear() + 1, 1, 1, 0, 0, 0);
+    }
+
+    @ExecFunction(name = "month_ceil", argTypes = {"DATETIMEV2"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal monthCeil(DateTimeV2Literal date) {
+        return new DateTimeV2Literal(date.getYear() + 1, 1, 1, 0, 0, 0, 0);
+    }
+
+    @ExecFunction(name = "month_ceil", argTypes = {"DATEV2"}, returnType = "DATEV2")
+    public static DateV2Literal monthCeil(DateV2Literal date) {
+        return new DateV2Literal(date.getYear() + 1, 1, 1);
+    }
+
+    @ExecFunction(name = "month_ceil", argTypes = {"DATETIME", "DATETIME"}, returnType = "DATETIME")
+    public static DateTimeLiteral monthCeil(DateTimeLiteral date, DateTimeLiteral origin) {
+        DateTimeLiteral temp = new DateTimeLiteral(date.getYear(), origin.getMonth(), origin.getDay(),
+                origin.getHour(), origin.getMinute(), origin.getSecond());
+        return date.compareTo(temp) < 0 ? temp : date;
+    }
+
+    @ExecFunction(name = "month_ceil", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
+    public static DateTimeLiteral monthCeil(DateTimeLiteral date, IntegerLiteral period) {
+        long unit = period.getValue();
+        DateTimeLiteral temp = new DateTimeLiteral((date.getYear() / unit + 1) * unit, 0, 0, 0, 0, 0);
+        return date.compareTo(temp) < 0 ? temp : date;
+    }
+
+    @ExecFunction(name = "month_ceil", argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal monthCeil(DateTimeV2Literal date, DateTimeV2Literal origin) {
+        DateTimeV2Literal temp = new DateTimeV2Literal(date.getYear(), origin.getMonth(), origin.getDay(),
+                origin.getHour(), origin.getMinute(), origin.getSecond(), 0);
+        return date.compareTo(temp) < 0 ? temp : date;
+    }
+
+    @ExecFunction(name = "month_ceil", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal monthCeil(DateTimeV2Literal date, IntegerLiteral period) {
+        long unit = period.getValue();
+        DateTimeV2Literal temp = new DateTimeV2Literal((date.getYear() / unit + 1) * unit, 0, 0, 0, 0, 0, 0);
+        return date.compareTo(temp) < 0 ? temp : date;
+    }
+
+    @ExecFunction(name = "month_ceil", argTypes = {"DATEV2", "DATEV2"}, returnType = "DATEV2")
+    public static DateV2Literal monthCeil(DateV2Literal date, DateV2Literal origin) {
+        DateV2Literal temp = new DateV2Literal(date.getYear(), origin.getMonth(), origin.getDay());
+        return date.compareTo(temp) < 0 ? temp : date;
+    }
+
+    @ExecFunction(name = "month_ceil", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
+    public static DateV2Literal monthCeil(DateV2Literal date, IntegerLiteral period) {
+        long unit = period.getValue();
+        DateV2Literal temp = new DateV2Literal((date.getYear() / unit + 1) * unit, 0, 0);
+        return date.compareTo(temp) < 0 ? temp : date;
+    }
+    /**
      * other scalar function
      */
     @ExecFunction(name = "abs", argTypes = {"TINYINT"}, returnType = "TINYINT")
