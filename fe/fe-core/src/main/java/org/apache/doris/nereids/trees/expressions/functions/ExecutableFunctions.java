@@ -41,6 +41,7 @@ import org.apache.doris.nereids.util.DateUtils;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Calendar;
 import java.util.Random;
 import java.util.UUID;
@@ -1068,10 +1069,21 @@ public class ExecutableFunctions {
     }
 
     /**
+     * datetime arithmetic function date-ceil and date-floor series helper function
+     */
+    private long[] getDateFloor(String unit, long[] dateTags, int period, long[] originTags) {
+        LocalDateTime time1 = LocalDateTime.of(((int) dateTags[0]), ((int) dateTags[1]), ((int) dateTags[2]),
+                ((int) dateTags[3]), ((int) dateTags[4]), ((int) dateTags[5]));
+        LocalDateTime time2 = LocalDateTime.of(((int) originTags[0]), ((int) originTags[1]), ((int) originTags[2]),
+                ((int) originTags[3]), ((int) originTags[4]), ((int) originTags[5]));
+    }
+
+    /**
      * datetime arithmetic function year-ceil
      */
     @ExecFunction(name = "year_ceil", argTypes = {"DATETIME"}, returnType = "DATETIME")
     public static DateTimeLiteral yearCeil(DateTimeLiteral date) {
+        DateTimeLiteral temp = new DateTimeLiteral(date.getYear() + 1, 1, 1, 0, 0,0);
         return new DateTimeLiteral(date.getYear() + 1, 1, 1, 0, 0, 0);
     }
 
