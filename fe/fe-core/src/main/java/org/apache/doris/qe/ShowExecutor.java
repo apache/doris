@@ -1005,8 +1005,6 @@ public class ShowExecutor {
                         ? new ShowResultSet(showStmt.getMetaData(), rows)
                         : new ShowResultSet(ShowCreateTableStmt.getMaterializedViewMetaData(), rows);
             }
-        } catch (MetaNotFoundException e) {
-            throw new AnalysisException(e.getMessage());
         } finally {
             table.readUnlock();
         }

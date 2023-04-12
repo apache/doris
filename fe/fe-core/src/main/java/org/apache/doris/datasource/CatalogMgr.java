@@ -591,6 +591,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (table == null) {
             throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
         }
+        if (table instanceof ExternalTable) {
+            ((ExternalTable) table).unsetObjectCreated();
+        }
         Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(catalog.getId(), dbName, tableName);
         ExternalObjectLog log = new ExternalObjectLog();
         log.setCatalogId(catalog.getId());
@@ -615,6 +618,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             LOG.warn("No table found with id:[{}], it may have been dropped.", log.getTableId());
             return;
         }
+        table.unsetObjectCreated();
         Env.getCurrentEnv().getExtMetaCacheMgr()
                 .invalidateTableCache(catalog.getId(), db.getFullName(), table.getName());
     }
