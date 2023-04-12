@@ -535,9 +535,17 @@ Status Expr::prepare(const std::vector<ExprContext*>& ctxs, RuntimeState* state,
 
 Status Expr::prepare(RuntimeState* state, const RowDescriptor& row_desc, ExprContext* context) {
     DCHECK(_type.type != INVALID_TYPE);
+    ++context->_depth_num;
+    if (context->_depth_num > config::max_depth_of_expr_tree) {
+        return Status::InternalError(
+                fmt::format("The depth of the expression tree is too big, make it less than {}",
+                            config::max_depth_of_expr_tree));
+    }
     for (int i = 0; i < _children.size(); ++i) {
         RETURN_IF_ERROR(_children[i]->prepare(state, row_desc, context));
     }
+
+    --context->_depth_num;
     return Status::OK();
 }
 
