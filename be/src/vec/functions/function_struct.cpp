@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <algorithm>
-
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
@@ -64,8 +62,11 @@ public:
                                         block.get_by_position(result).type->get_name());
         }
         ColumnNumbers args_num;
-        std::copy_if(arguments.begin(), arguments.end(), std::back_inserter(args_num),
-                     Impl::types_index);
+        for (size_t i = 0; i < arguments.size(); i++) {
+            if (Impl::pred(i)) {
+                args_num.push_back(arguments[i]);
+            }
+        }
         size_t num_element = args_num.size();
         if (num_element != struct_column->tuple_size()) {
             return Status::RuntimeError(
@@ -96,7 +97,7 @@ public:
 // struct(value1, value2, value3) -> {value1, value2, value3}
 struct StructImpl {
     static constexpr auto name = "struct";
-    static constexpr auto types_index = [](size_t i) { return true; };
+    static constexpr auto pred = [](size_t i) { return true; };
 
     static void check_number_of_arguments(size_t number_of_arguments) {}
 
@@ -108,7 +109,7 @@ struct StructImpl {
 // named_struct(name1, value1, name2, value2) -> {name1:value1, name2:value2}
 struct NamedStructImpl {
     static constexpr auto name = "named_struct";
-    static constexpr auto types_index = [](size_t i) { return (i & 1) == 0; };
+    static constexpr auto pred = [](size_t i) { return (i & 1) == 1; };
 
     static void check_number_of_arguments(size_t number_of_arguments) {
         DCHECK(number_of_arguments % 2 == 0)
