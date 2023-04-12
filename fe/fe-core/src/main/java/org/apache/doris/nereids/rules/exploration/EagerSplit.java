@@ -64,7 +64,7 @@ public class EagerSplit extends OneExplorationRuleFactory {
 
     @Override
     public Rule build() {
-        return logicalAggregate(logicalJoin())
+        return logicalAggregate(innerLogicalJoin())
                 .when(agg -> agg.getAggregateFunctions().stream()
                         .allMatch(f -> f instanceof Sum && ((Sum) f).child() instanceof SlotReference))
                 .then(agg -> {

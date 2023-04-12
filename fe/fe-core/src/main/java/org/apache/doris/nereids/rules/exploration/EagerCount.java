@@ -62,7 +62,7 @@ public class EagerCount extends OneExplorationRuleFactory {
 
     @Override
     public Rule build() {
-        return logicalAggregate(logicalJoin())
+        return logicalAggregate(innerLogicalJoin())
                 .when(agg -> agg.child().getOtherJoinConjuncts().size() == 0)
                 .when(agg -> agg.getGroupByExpressions().stream().allMatch(e -> e instanceof Slot))
                 .when(agg -> agg.getAggregateFunctions().stream()
