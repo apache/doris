@@ -17,7 +17,7 @@
  * under the License.
  */
 
-suite("q21") {
+suite("q22") {
     String db = context.config.getDbNameByFile(new File(context.file.parent))
     sql "use ${db}"
     sql 'set enable_nereids_planner=true'

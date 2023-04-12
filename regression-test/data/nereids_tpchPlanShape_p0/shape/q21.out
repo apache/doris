@@ -9,14 +9,14 @@ PhysicalTopN
 ------------hashJoin[RIGHT_SEMI_JOIN](l2.l_orderkey = l1.l_orderkey)( not (l_suppkey = l_suppkey))
 --------------PhysicalProject
 ----------------PhysicalOlapScan[lineitem]
---------------hashJoin[RIGHT_ANTI_JOIN](l3.l_orderkey = l1.l_orderkey)( not (l_suppkey = l_suppkey))
+--------------hashJoin[INNER_JOIN](orders.o_orderkey = l1.l_orderkey)
 ----------------PhysicalProject
-------------------filter((l3.l_receiptdate > l3.l_commitdate))
---------------------PhysicalOlapScan[lineitem]
-----------------hashJoin[INNER_JOIN](orders.o_orderkey = l1.l_orderkey)
+------------------filter((orders.o_orderstatus = 'F'))
+--------------------PhysicalOlapScan[orders]
+----------------hashJoin[RIGHT_ANTI_JOIN](l3.l_orderkey = l1.l_orderkey)( not (l_suppkey = l_suppkey))
 ------------------PhysicalProject
---------------------filter((orders.o_orderstatus = 'F'))
-----------------------PhysicalOlapScan[orders]
+--------------------filter((l3.l_receiptdate > l3.l_commitdate))
+----------------------PhysicalOlapScan[lineitem]
 ------------------hashJoin[INNER_JOIN](supplier.s_suppkey = l1.l_suppkey)
 --------------------PhysicalProject
 ----------------------filter((l1.l_receiptdate > l1.l_commitdate))
