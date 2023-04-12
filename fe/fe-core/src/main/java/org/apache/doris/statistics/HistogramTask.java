@@ -59,8 +59,8 @@ public class HistogramTask extends BaseAnalysisTask {
         super();
     }
 
-    public HistogramTask(AnalysisTaskScheduler analysisTaskScheduler, AnalysisTaskInfo info) {
-        super(analysisTaskScheduler, info);
+    public HistogramTask(AnalysisTaskInfo info) {
+        super(info);
     }
 
     @Override

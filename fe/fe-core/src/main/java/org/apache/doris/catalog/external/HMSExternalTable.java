@@ -24,7 +24,6 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
 import org.apache.doris.statistics.AnalysisTaskInfo;
-import org.apache.doris.statistics.AnalysisTaskScheduler;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.HiveAnalysisTask;
 import org.apache.doris.statistics.IcebergAnalysisTask;
@@ -252,13 +251,13 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     @Override
-    public BaseAnalysisTask createAnalysisTask(AnalysisTaskScheduler scheduler, AnalysisTaskInfo info) {
+    public BaseAnalysisTask createAnalysisTask(AnalysisTaskInfo info) {
         makeSureInitialized();
         switch (dlaType) {
             case HIVE:
-                return new HiveAnalysisTask(scheduler, info);
+                return new HiveAnalysisTask(info);
             case ICEBERG:
-                return new IcebergAnalysisTask(scheduler, info);
+                return new IcebergAnalysisTask(info);
             default:
                 throw new IllegalArgumentException("Analysis job for dlaType " + dlaType + " not supported.");
         }
