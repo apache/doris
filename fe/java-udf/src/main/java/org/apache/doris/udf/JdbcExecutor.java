@@ -18,6 +18,7 @@
 package org.apache.doris.udf;
 
 import org.apache.doris.jni.vec.ColumnType;
+import org.apache.doris.jni.vec.VectorColumn;
 import org.apache.doris.jni.vec.VectorTable;
 import org.apache.doris.thrift.TJdbcExecutorCtorParams;
 import org.apache.doris.thrift.TJdbcOperation;
@@ -51,7 +52,8 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
-import java.sql.Statement;
+import java.sql.Timestamp;
+import java.sql.Types;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -66,7 +68,7 @@ public class JdbcExecutor {
     private static final Logger LOG = Logger.getLogger(JdbcExecutor.class);
     private static final TBinaryProtocol.Factory PROTOCOL_FACTORY = new TBinaryProtocol.Factory();
     private Connection conn = null;
-    private Statement stmt = null;
+    private PreparedStatement stmt = null;
     private ResultSet resultSet = null;
     private ResultSetMetaData resultSetMetaData = null;
     private List<String> resultColumnTypeNames = null;
@@ -154,12 +156,11 @@ public class JdbcExecutor {
         }
     }
 
-    public int write(Map<String, String> params) {
+    public int write(Map<String, String> params) throws UdfRuntimeException {
         String[] requiredFields = params.get("required_fields").split(",");
         String[] types = params.get("columns_types").split("#");
         long metaAddress = Long.parseLong(params.get("meta_address"));
         // Get sql string from configuration map
-        // String sql = params.get("write_sql");
         ColumnType[] columnTypes = new ColumnType[types.length];
         for (int i = 0; i < types.length; i++) {
             columnTypes[i] = ColumnType.parseType(requiredFields[i], types[i]);
@@ -167,7 +168,118 @@ public class JdbcExecutor {
         VectorTable batchTable = new VectorTable(columnTypes, requiredFields, metaAddress);
         // todo: insert the batch table by PreparedStatement
         // Can't release or close batchTable, it's released by c++
+        try {
+            insert(batchTable);
+        } catch (SQLException e) {
+            throw new UdfRuntimeException("JDBC executor sql has error: ", e);
+        }
         return batchTable.getNumRows();
+    }
+
+    private int insert(VectorTable data) throws SQLException {
+        for (int i = 0; i < data.getNumRows(); ++i) {
+            for (int j = 0; j < data.getColumns().length; ++j) {
+                insertColumn(i, j, data.getColumns()[j]);
+            }
+            stmt.addBatch();
+        }
+        stmt.executeBatch();
+        stmt.clearBatch();
+        return data.getNumRows();
+    }
+
+    private void insertColumn(int rowIdx, int colIdx, VectorColumn column) throws SQLException {
+        int parameterIndex = colIdx + 1;
+        ColumnType.Type dorisType = column.getColumnTyp();
+        if (column.isNullAt(rowIdx)) {
+            insertNullColumn(parameterIndex, dorisType);
+            return;
+        }
+        switch (dorisType) {
+            case BOOLEAN:
+                stmt.setBoolean(parameterIndex, column.getBoolean(rowIdx));
+                break;
+            case TINYINT:
+            case SMALLINT:
+            case INT:
+                stmt.setInt(parameterIndex, column.getInt(rowIdx));
+                break;
+            case BIGINT:
+                stmt.setBigDecimal(parameterIndex, new BigDecimal(column.getLong(rowIdx)));
+                break;
+            case FLOAT:
+                stmt.setFloat(parameterIndex, column.getFloat(rowIdx));
+                break;
+            case DOUBLE:
+                stmt.setDouble(parameterIndex, column.getDouble(rowIdx));
+                break;
+            case DECIMALV2:
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMAL128:
+                stmt.setBigDecimal(parameterIndex, column.getDecimal(rowIdx));
+                break;
+            case DATEV2:
+                stmt.setDate(parameterIndex, Date.valueOf(column.getDate(rowIdx)));
+                break;
+            case DATETIMEV2:
+                stmt.setTimestamp(parameterIndex, Timestamp.valueOf(column.getDateTime(rowIdx)));
+                break;
+            case CHAR:
+            case VARCHAR:
+            case STRING:
+            case BINARY:
+                stmt.setString(parameterIndex, column.getStringWithOffset(rowIdx));
+                break;
+            default:
+                throw new RuntimeException("Unknown type value: " + dorisType);
+        }
+    }
+
+    private void insertNullColumn(int parameterIndex, ColumnType.Type dorisType) throws SQLException {
+        switch (dorisType) {
+            case BOOLEAN:
+                stmt.setNull(parameterIndex, Types.BOOLEAN);
+                break;
+            case TINYINT:
+                stmt.setNull(parameterIndex, Types.TINYINT);
+                break;
+            case SMALLINT:
+                stmt.setNull(parameterIndex, Types.SMALLINT);
+                break;
+            case INT:
+                stmt.setNull(parameterIndex, Types.INTEGER);
+                break;
+            case BIGINT:
+                stmt.setNull(parameterIndex, Types.BIGINT);
+                break;
+            case FLOAT:
+                stmt.setNull(parameterIndex, Types.FLOAT);
+                break;
+            case DOUBLE:
+                stmt.setNull(parameterIndex, Types.DOUBLE);
+                break;
+            case DECIMALV2:
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMAL128:
+                stmt.setNull(parameterIndex, Types.DECIMAL);
+                break;
+            case DATEV2:
+                stmt.setNull(parameterIndex, Types.DATE);
+                break;
+            case DATETIMEV2:
+                stmt.setNull(parameterIndex, Types.TIMESTAMP);
+                break;
+            case CHAR:
+            case VARCHAR:
+            case STRING:
+            case BINARY:
+                stmt.setNull(parameterIndex, Types.VARCHAR);
+                break;
+            default:
+                throw new RuntimeException("Unknown type value: " + dorisType);
+        }
     }
 
     public List<String> getResultColumnTypeNames() {
@@ -312,7 +424,9 @@ public class JdbcExecutor {
                     }
                     batchSizeNum = batchSize;
                 } else {
-                    stmt = conn.createStatement();
+                    LOG.info("insert sql = " + sql);
+                    stmt = conn.prepareStatement(sql);
+                    // stmt = conn.createStatement();
                 }
             }
         } catch (MalformedURLException e) {
