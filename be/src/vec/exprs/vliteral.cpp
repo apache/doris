@@ -145,7 +145,7 @@ void VLiteral::init(const TExprNode& node) {
             DCHECK(node.__isset.decimal_literal);
             DecimalV2Value value;
             if (value.parse_from_str(node.decimal_literal.value.c_str(),
-                                     node.decimal_literal.value.size())) {
+                                     node.decimal_literal.value.size()) == E_DEC_OK) {
                 field = DecimalField<Decimal128>(value.value(), value.scale());
             }
             break;
