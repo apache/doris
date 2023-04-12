@@ -62,6 +62,8 @@ CREATE TABLE IF NOT EXISTS `hive_table`(
 ```sql
 --clone doris code
 git clone https://github.com/apache/doris.git
+cd doris
+git submodule update --init --recursive
 --install thrift
 --Enter the fe directory
 cd fe
