@@ -1054,6 +1054,7 @@
                 "admin-manual/tracing",
                 "admin-manual/optimization",
                 "admin-manual/certificate",
+                "admin-manual/fe-certificate",
                 {
                     "type": "category",
                     "label": "Maintenance and Monitor",
