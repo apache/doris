@@ -335,7 +335,7 @@ uint128 CityHash128(const char* s, size_t len) {
     if (len >= 16) {
         return CityHash128WithSeed(s + 16, len - 16, uint128(Fetch64(s) ^ k3, Fetch64(s + 8)));
     } else if (len >= 8) {
-        return CityHash128WithSeed(NULL, 0,
+        return CityHash128WithSeed(nullptr, 0,
                                    uint128(Fetch64(s) ^ (len * k0), Fetch64(s + len - 8) ^ k1));
     } else {
         return CityHash128WithSeed(s, len, uint128(k0, k1));
