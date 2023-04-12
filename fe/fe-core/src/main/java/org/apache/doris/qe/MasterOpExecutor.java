@@ -18,8 +18,12 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.RedirectStatus;
+import org.apache.doris.analysis.SetStmt;
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.ClientPool;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.telemetry.Telemetry;
+import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
@@ -45,6 +49,7 @@ public class MasterOpExecutor {
     private static final float RPC_TIMEOUT_COEFFICIENT = 1.2f;
 
     private final OriginStatement originStmt;
+    private StatementBase parsedStmt;
     private final ConnectContext ctx;
     private TMasterOpResult result;
 
@@ -55,7 +60,13 @@ public class MasterOpExecutor {
     private boolean shouldNotRetry;
 
     public MasterOpExecutor(OriginStatement originStmt, ConnectContext ctx, RedirectStatus status, boolean isQuery) {
+        this(null, originStmt, ctx, status, isQuery);
+    }
+
+    public MasterOpExecutor(StatementBase parsedStmt, OriginStatement originStmt, ConnectContext ctx,
+            RedirectStatus status, boolean isQuery) {
         this.originStmt = originStmt;
+        this.parsedStmt = parsedStmt;
         this.ctx = ctx;
         if (status.isNeedToWaitJournalSync()) {
             this.waitTimeoutMs = (int) (ctx.getExecTimeout() * 1000 * RPC_TIMEOUT_COEFFICIENT);
@@ -81,6 +92,11 @@ public class MasterOpExecutor {
         }
         LOG.info("forwarding to master get result max journal id: {}", result.maxJournalId);
         ctx.getEnv().getJournalObservable().waitOn(result.maxJournalId, waitTimeoutMs);
+
+        if (MysqlStateType.valueOf(result.getStatus()) == MysqlStateType.OK
+                || MysqlStateType.valueOf(result.getStatus()) == MysqlStateType.EOF) {
+            afterForwardExecute();
+        }
     }
 
     // Send request to Master
@@ -159,6 +175,24 @@ public class MasterOpExecutor {
                 ClientPool.frontendPool.returnObject(thriftAddress, client);
             } else {
                 ClientPool.frontendPool.invalidateObject(thriftAddress, client);
+            }
+        }
+    }
+
+    // The SetStmt needs to be executed in follower again
+    // for the current session after master success
+    private void afterForwardExecute() throws DdlException {
+        if (parsedStmt != null) {
+            if (parsedStmt instanceof SetStmt) {
+                SetExecutor executor = new SetExecutor(ctx, (SetStmt) parsedStmt);
+                try {
+                    executor.setSessionVars();
+                } catch (DdlException e) {
+                    LOG.warn("setstmt execute after forward failed", e);
+                    result = null;
+                    throw new DdlException("Global level variables are set successfully, "
+                            + "but session level variables are set failed with error: " + e.getMessage());
+                }
             }
         }
     }

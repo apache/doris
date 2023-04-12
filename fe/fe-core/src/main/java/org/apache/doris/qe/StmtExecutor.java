@@ -780,7 +780,7 @@ public class StmtExecutor implements ProfileWriter {
     }
 
     private void forwardToMaster() throws Exception {
-        masterOpExecutor = new MasterOpExecutor(originStmt, context, redirectStatus, isQuery());
+        masterOpExecutor = new MasterOpExecutor(parsedStmt, originStmt, context, redirectStatus, isQuery());
         LOG.debug("need to transfer to Master. stmt: {}", context.getStmtId());
         masterOpExecutor.execute();
     }
