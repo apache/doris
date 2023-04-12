@@ -719,7 +719,8 @@ Status JdbcConnector::exec_stmt_write(
 
     // prepare table meta information
     std::unique_ptr<long[]> meta_data;
-    long meta_address = JniConnector::generate_meta_info(block, meta_data);
+    RETURN_IF_ERROR(JniConnector::generate_meta_info(block, meta_data));
+    long meta_address = (long) meta_data.get();
 
     // prepare constructor parameters
     std::map<String, String> write_params = {{"meta_address", std::to_string(meta_address)},
