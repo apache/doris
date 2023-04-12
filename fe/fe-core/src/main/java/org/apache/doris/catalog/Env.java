@@ -216,6 +216,7 @@ import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.AnalysisTaskScheduler;
 import org.apache.doris.statistics.StatisticsCache;
+import org.apache.doris.statistics.StatisticsCleaner;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.FQDNManager;
 import org.apache.doris.system.Frontend;
@@ -450,6 +451,8 @@ public class Env {
 
     private ResourceGroupMgr resourceGroupMgr;
 
+    private StatisticsCleaner statisticsCleaner;
+
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
             // get all
@@ -650,6 +653,7 @@ public class Env {
         this.fqdnManager = new FQDNManager(systemInfo);
         if (!isCheckpointCatalog) {
             this.analysisManager = new AnalysisManager();
+            this.statisticsCleaner = new StatisticsCleaner();
         }
         this.globalFunctionMgr = new GlobalFunctionMgr();
         this.resourceGroupMgr = new ResourceGroupMgr();
@@ -873,6 +877,9 @@ public class Env {
         if (!Config.edit_log_type.equalsIgnoreCase("bdb")) {
             // If not using bdb, we need to notify the FE type transfer manually.
             notifyNewFETypeTransfer(FrontendNodeType.MASTER);
+        }
+        if (statisticsCleaner != null) {
+            statisticsCleaner.start();
         }
     }
 
@@ -5361,5 +5368,9 @@ public class Env {
 
     public GlobalFunctionMgr getGlobalFunctionMgr() {
         return globalFunctionMgr;
+    }
+
+    public StatisticsCleaner getStatisticsCleaner() {
+        return statisticsCleaner;
     }
 }

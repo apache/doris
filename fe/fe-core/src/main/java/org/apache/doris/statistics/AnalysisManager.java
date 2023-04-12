@@ -18,6 +18,7 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.AnalyzeStmt;
+import org.apache.doris.analysis.DropStatsStmt;
 import org.apache.doris.analysis.ShowAnalyzeStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Env;
@@ -268,6 +269,14 @@ public class AnalysisManager {
         if (!colNames.isEmpty()) {
             throw new RuntimeException("Failed to analyze following columns: " + String.join(",", colNames));
         }
+    }
+
+    public void dropStats(DropStatsStmt dropStatsStmt) {
+        if (dropStatsStmt.dropExpired) {
+            Env.getCurrentEnv().getStatisticsCleaner().clear();
+            return;
+        }
+        StatisticsRepository.dropTableStatistics(dropStatsStmt);
     }
 
 }

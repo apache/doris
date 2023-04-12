@@ -19,17 +19,19 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.system.SystemInfoService;
 
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.text.StringSubstitutor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -39,8 +41,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.StringJoiner;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 /**
  * Maintenance the internal statistics table.
@@ -61,6 +63,8 @@ public class StatisticsCleaner extends MasterDaemon {
     /* Internal tbl only */
     private Map<Long, Table> idToTbl;
 
+    private Map<Long, MaterializedIndexMeta> idToMVIdx;
+
     public StatisticsCleaner() {
         super("Statistics Table Cleaner",
                 TimeUnit.HOURS.toMillis(StatisticConstants.STATISTIC_CLEAN_INTERVAL_IN_HOURS));
@@ -71,6 +75,10 @@ public class StatisticsCleaner extends MasterDaemon {
         if (!Env.getCurrentEnv().isMaster()) {
             return;
         }
+        clear();
+    }
+
+    public synchronized void clear() {
         if (!init()) {
             return;
         }
@@ -82,6 +90,7 @@ public class StatisticsCleaner extends MasterDaemon {
         ExpiredStats expiredStats = null;
         do {
             expiredStats = findExpiredStats(statsTbl);
+            deleteExpiredStats(expiredStats);
         } while (!expiredStats.isEmpty());
     }
 
@@ -90,21 +99,22 @@ public class StatisticsCleaner extends MasterDaemon {
             colStatsTbl =
                     (OlapTable) StatisticsUtil
                             .findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
-                                    FeConstants.INTERNAL_DB_NAME,
+                                    SystemInfoService.DEFAULT_CLUSTER + ":" + FeConstants.INTERNAL_DB_NAME,
                                     StatisticConstants.STATISTIC_TBL_NAME);
             histStatsTbl =
                     (OlapTable) StatisticsUtil
                             .findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
-                                    FeConstants.INTERNAL_DB_NAME,
+                                    SystemInfoService.DEFAULT_CLUSTER + ":" + FeConstants.INTERNAL_DB_NAME,
                                     StatisticConstants.HISTOGRAM_TBL_NAME);
         } catch (Throwable t) {
-            LOG.warn("Failed to init stats cleaner", e);
+            LOG.warn("Failed to init stats cleaner", t);
             return false;
         }
 
         idToCatalog = Env.getCurrentEnv().getCatalogMgr().getIdToCatalog();
         idToDb = Env.getCurrentEnv().getInternalCatalog().getIdToDb();
         idToTbl = constructTblMap();
+        idToMVIdx = constructIdxMap();
         return true;
     }
 
@@ -116,31 +126,49 @@ public class StatisticsCleaner extends MasterDaemon {
         return idToTbl;
     }
 
-    private void deleteExpired(String colName, List<String> constants) {
-        // TODO: must promise count of children of predicate is less than the FE limits.
-
-        StringJoiner predicateBuilder = new StringJoiner(",", "(", ")");
-        constants.forEach(predicateBuilder::add);
-        Map<String, String> map = new HashMap<String, String>() {
-            {
-                put("colName", colName);
-                put("predicate", predicateBuilder.toString());
+    private Map<Long, MaterializedIndexMeta> constructIdxMap() {
+        Map<Long, MaterializedIndexMeta> idToMVIdx = new HashMap<>();
+        for (Table t : idToTbl.values()) {
+            if (t instanceof OlapTable) {
+                OlapTable olapTable = (OlapTable) t;
+                olapTable.getCopyOfIndexIdToMeta()
+                        .entrySet()
+                        .stream()
+                        .filter(idx -> idx.getValue().getDefineStmt() != null)
+                        .forEach(e -> idToMVIdx.put(e.getKey(), e.getValue()));
             }
-        };
-        StringSubstitutor stringSubstitutor = new StringSubstitutor(map);
-        try {
-            StatisticsUtil.execUpdate(stringSubstitutor.replace(deleteTemplate));
-        } catch (Exception e) {
-            LOG.warn("Remove expired statistics failed", e);
         }
+        return idToMVIdx;
     }
 
-    private void doDelete(List<Pair<String/*col name*/, List<String>/*constants*/>> conds) {
+    private void deleteExpiredStats(ExpiredStats expiredStats) {
+        doDelete("catalog_id", expiredStats.expiredCatalog.stream()
+                .map(String::valueOf).collect(Collectors.toList()));
+        doDelete("db_id", expiredStats.expiredDatabase.stream()
+                .map(String::valueOf).collect(Collectors.toList()));
+        doDelete("tbl_id", expiredStats.expiredTable.stream()
+                .map(String::valueOf).collect(Collectors.toList()));
+        doDelete("idx_id", expiredStats.expiredIdxId.stream()
+                .map(String::valueOf).collect(Collectors.toList()));
+        doDelete("id", expiredStats.ids.stream()
+                .map(String::valueOf).collect(Collectors.toList()));
+    }
+
+    private void doDelete(String/*col name*/ colName, List<String> pred) {
         String deleteTemplate = "DELETE FROM " + FeConstants.INTERNAL_DB_NAME
-                + "." + StatisticConstants.STATISTIC_TBL_NAME + "WHERE ";
-        String inPredicateTemplate = " ${colName} IN ${predicate}";
-        for (Pair<String/*col name*/, List<String>/*constants*/> p : conds) {
-            String.join("," )
+                + "." + StatisticConstants.STATISTIC_TBL_NAME + " WHERE ${left} IN (${right})";
+        if (CollectionUtils.isEmpty(pred)) {
+            return;
+        }
+        String right = pred.stream().map(s -> "'" + s + "'").collect(Collectors.joining(","));
+        Map<String, String> params = new HashMap<>();
+        params.put("left", colName);
+        params.put("right", right);
+        String sql = new StringSubstitutor(params).replace(deleteTemplate);
+        try {
+            StatisticsUtil.execUpdate(sql);
+        } catch (Exception e) {
+            LOG.warn("Failed to delete expired stats!", e);
         }
     }
 
@@ -154,34 +182,49 @@ public class StatisticsCleaner extends MasterDaemon {
             pos += StatisticConstants.FETCH_LIMIT;
             for (ResultRow r : rows) {
                 try {
+                    String id = r.getColumnValue("id");
                     long catalogId = Long.parseLong(r.getColumnValue("catalog_id"));
                     if (!idToCatalog.containsKey(catalogId)) {
                         expiredStats.expiredCatalog.add(catalogId);
+                        continue;
                     }
                     long dbId = Long.parseLong(r.getColumnValue("db_id"));
                     if (!idToDb.containsKey(dbId)) {
                         expiredStats.expiredDatabase.add(dbId);
+                        continue;
                     }
                     long tblId = Long.parseLong(r.getColumnValue("tbl_id"));
                     if (!idToTbl.containsKey(tblId)) {
-                        expiredStats.expiredDatabase.add(tblId);
+                        expiredStats.expiredTable.add(tblId);
                         continue;
                     }
+
+                    long idxId = Long.parseLong(r.getColumnValue("idx_id"));
+                    if (idxId != -1 && !idToMVIdx.containsKey(idxId)) {
+                        expiredStats.expiredIdxId.add(idxId);
+                        continue;
+                    }
+
                     Table t = idToTbl.get(tblId);
                     String colId = r.getColumnValue("col_id");
                     if (t.getColumn(colId) == null) {
-                        expiredStats.expiredCol.add(Pair.of(tblId, colId));
+                        expiredStats.ids.add(id);
+                        continue;
                     }
                     if (!(t instanceof OlapTable)) {
                         continue;
                     }
                     OlapTable olapTable = (OlapTable) t;
-                    long partId = Long.parseLong(r.getColumnValue("part_id"));
+                    String partIdStr = r.getColumnValue("part_id");
+                    if (partIdStr == null) {
+                        continue;
+                    }
+                    long partId = Long.parseLong(partIdStr);
                     if (!olapTable.getPartitionIds().contains(partId)) {
-                        expiredStats.expiredParts.add(partId);
+                        expiredStats.ids.add(id);
                     }
                 } catch (Exception e) {
-                    // TODO
+                    LOG.warn("Error occurred when retrieving expired stats", e);
                 }
             }
         }
@@ -192,28 +235,25 @@ public class StatisticsCleaner extends MasterDaemon {
         Set<Long> expiredCatalog = new HashSet<>();
         Set<Long> expiredDatabase = new HashSet<>();
         Set<Long> expiredTable = new HashSet<>();
-        Set<Long> expiredIdx = new HashSet<>();
 
-        Set<Pair<Long, String>> expiredCol = new HashSet<>();
+        Set<Long> expiredIdxId = new HashSet<>();
 
-        Set<Long> expiredParts = new HashSet<>();
+        Set<String> ids = new HashSet<>();
 
         public boolean isFull() {
             return expiredCatalog.size() >= Config.expr_children_limit
                     || expiredDatabase.size() >= Config.expr_children_limit
                     || expiredTable.size() >= Config.expr_children_limit
-                    || expiredIdx.size() >= Config.expr_children_limit
-                    || expiredCol.size() >= Config.expr_children_limit
-                    || expiredParts.size() >= Config.expr_children_limit;
+                    || expiredIdxId.size() >= Config.expr_children_limit
+                    || ids.size() >= Config.expr_children_limit;
         }
 
         public boolean isEmpty() {
             return expiredCatalog.isEmpty()
                     && expiredDatabase.isEmpty()
                     && expiredTable.isEmpty()
-                    && expiredIdx.isEmpty()
-                    && expiredCol.size() < Config.expr_children_limit / 10
-                    && expiredParts.size() < Config.expr_children_limit / 10;
+                    && expiredIdxId.isEmpty()
+                    && ids.size() < Config.expr_children_limit / 100;
         }
     }
 

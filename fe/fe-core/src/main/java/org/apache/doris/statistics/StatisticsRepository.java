@@ -18,7 +18,7 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.AlterColumnStatsStmt;
-import org.apache.doris.analysis.DropTableStatsStmt;
+import org.apache.doris.analysis.DropStatsStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -91,7 +91,7 @@ public class StatisticsRepository {
                     + StatisticConstants.STATISTICS_RECORDS_CACHE_SIZE;
 
     private static final String FETCH_STATS_FULL_NAME =
-            "SELECT catalog_id, db_id, tbl_id, idx_id, col_id, part_id FROM "
+            "SELECT id, catalog_id, db_id, tbl_id, idx_id, col_id, part_id FROM "
                     + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.STATISTIC_TBL_NAME
                     + " ORDER BY update_time "
                     + "LIMIT ${limit} OFFSET ${offset}";
@@ -278,7 +278,7 @@ public class StatisticsRepository {
                 .updateColStatsCache(objects.table.getId(), -1, colName, builder.build());
     }
 
-    public static void dropTableStatistics(DropTableStatsStmt dropTableStatsStmt) {
+    public static void dropTableStatistics(DropStatsStmt dropTableStatsStmt) {
         Long dbId = dropTableStatsStmt.getDbId();
         Set<Long> tbIds = dropTableStatsStmt.getTbIds();
         Set<String> cols = dropTableStatsStmt.getColumnNames();

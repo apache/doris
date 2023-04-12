@@ -576,6 +576,10 @@ public class OlapTable extends Table {
         return indexIdToMeta;
     }
 
+    public Map<Long, MaterializedIndexMeta> getCopyOfIndexIdToMeta() {
+        return new HashMap<>(indexIdToMeta);
+    }
+
     public Map<Long, MaterializedIndexMeta> getCopiedIndexIdToMeta() {
         return new HashMap<>(indexIdToMeta);
     }
