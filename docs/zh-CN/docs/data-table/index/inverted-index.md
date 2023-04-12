@@ -1,6 +1,6 @@
 ---
 {
-    "title": "[Experimental] 倒排索引",
+    "title": "倒排索引",
     "language": "zh-CN"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 倒排索引
+# [Experimental] 倒排索引
 
 <version since="2.0.0">
  

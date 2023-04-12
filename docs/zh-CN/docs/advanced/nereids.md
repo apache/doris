@@ -1,6 +1,6 @@
 ---
 {
-    "title": "[Experimental] Nereids —— 全新优化器",
+    "title": "Nereids —— 全新优化器",
     "language": "zh-CN"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 新优化器
+# [Experimental] 新优化器
 
 <version since="dev">
 

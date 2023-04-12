@@ -1,6 +1,6 @@
 ---
 {
-    "title": "[Experimental]  NGram BloomFilter Index",
+    "title": "NGram BloomFilter Index",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# NGram BloomFilter Index
+# [Experimental] NGram BloomFilter Index
 
 <version since="2.0.0">
 </version>
