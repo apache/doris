@@ -47,6 +47,31 @@ import java.util.UUID;
 
 /**
  * functions that can be executed in FE.
+ * current we support: (IF YOU ADD A NEW FUNCTION, PLEASE ADD IT HERE)
+ * add
+ * subtract
+ * multiply
+ * divide
+ * date_add
+ * date_sub
+ * years_add
+ * months_add
+ * days_add
+ * hours_add
+ * minutes_add
+ * seconds_add
+ * years_sub
+ * months_sub
+ * days_sub
+ * hours_sub
+ * minutes_sub
+ * seconds_sub
+ * date
+ * datediff
+ * date_format
+ * date_trunc
+ * dateofweek
+ * datev2
  */
 public class ExecutableFunctions {
     public static final ExecutableFunctions INSTANCE = new ExecutableFunctions();
@@ -1037,17 +1062,71 @@ public class ExecutableFunctions {
     /**
      * datetime arithmetic function date-v2
      */
-    @ExecFunction(name = "date", argTypes = {"DATETIMEV2"}, returnType = "DATEV2")
-    public static DateV2Literal dateV2(DateTimeV2Literal dateTime) throws AnalysisException {
+    @ExecFunction(name = "datev2", argTypes = {"DATETIMEV2"}, returnType = "DATEV2")
+    public static DateV2Literal dateV2(DateTimeV2Literal dateTime) {
         return new DateV2Literal(dateTime.getYear(), dateTime.getMonth(), dateTime.getDay());
     }
 
     /**
      * datetime arithmetic function year-ceil
      */
-    @ExecFunction(name = "date", argTypes = {"DATETIME"}, returnType = "DATETIME")
-    public static DateTimeLiteral yearCeil(DateTimeLiteral dateTime) throws AnalysisException {
-        return null;
+    @ExecFunction(name = "year_ceil", argTypes = {"DATETIME"}, returnType = "DATETIME")
+    public static DateTimeLiteral yearCeil(DateTimeLiteral date) {
+        return new DateTimeLiteral(date.getYear() + 1, 1, 1, 0, 0, 0);
+    }
+
+    @ExecFunction(name = "year_ceil", argTypes = {"DATETIMEV2"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal yearCeil(DateTimeV2Literal date) {
+        return new DateTimeV2Literal(date.getYear() + 1, 1, 1, 0, 0, 0, 0);
+    }
+
+    @ExecFunction(name = "year_ceil", argTypes = {"DATEV2"}, returnType = "DATEV2")
+    public static DateV2Literal yearCeil(DateV2Literal date) {
+        return new DateV2Literal(date.getYear() + 1, 1, 1);
+    }
+
+    /**
+     * add origin argument.
+     */
+    @ExecFunction(name = "year_ceil", argTypes = {"DATETIME", "DATETIME"}, returnType = "DATETIME")
+    public static DateTimeLiteral yearCeil(DateTimeLiteral date, DateTimeLiteral origin) {
+        DateTimeLiteral temp = new DateTimeLiteral(date.getYear(), origin.getMonth(), origin.getDay(),
+                origin.getHour(), origin.getMinute(), origin.getSecond());
+        return date.compareTo(temp) < 0 ? temp : date;
+    }
+
+    @ExecFunction(name = "year_ceil", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
+    public static DateTimeLiteral yearCeil(DateTimeLiteral date, IntegerLiteral period) {
+        long unit = period.getValue();
+        DateTimeLiteral temp = new DateTimeLiteral((date.getYear() / unit + 1) * unit, 0, 0, 0, 0, 0);
+        return date.compareTo(temp) < 0 ? temp : date;
+    }
+
+    @ExecFunction(name = "year_ceil", argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal yearCeil(DateTimeV2Literal date, DateTimeV2Literal origin) {
+        DateTimeV2Literal temp = new DateTimeLiteral(date.getYear(), origin.getMonth(), origin.getDay(),
+                origin.getHour(), origin.getMinute(), origin.getSecond(), 0);
+        return date.compareTo(temp) < 0 ? temp : date;
+    }
+
+    @ExecFunction(name = "year_ceil", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal yearCeil(DateTimeV2Literal date, IntegerLiteral period) {
+        long unit = period.getValue();
+        DateTimeV2Literal temp = new DateTimeV2Literal((date.getYear() / unit + 1) * unit, 0, 0, 0, 0, 0, 0);
+        return date.compareTo(temp) < 0 ? temp : date;
+    }
+
+    @ExecFunction(name = "year_ceil", argTypes = {"DATEV2", "DATEV2"}, returnType = "DATEV2")
+    public static DateV2Literal yearCeil(DateV2Literal date, DateV2Literal origin) {
+        DateV2Literal temp = new DateV2Literal(date.getYear(), origin.getMonth(), origin.getDay());
+        return date.compareTo(temp) < 0 ? temp : date;
+    }
+
+    @ExecFunction(name = "year_ceil", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
+    public static DateV2Literal yearCeil(DateV2Literal date, IntegerLiteral period) {
+        long unit = period.getValue();
+        DateV2Literal temp = new DateV2Literal((date.getYear() / unit + 1) * unit, 0, 0);
+        return date.compareTo(temp) < 0 ? temp : date;
     }
 
     /**
