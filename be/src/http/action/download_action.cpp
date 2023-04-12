@@ -53,16 +53,19 @@ DownloadAction::DownloadAction(ExecEnv* exec_env, const std::vector<std::string>
         _allow_paths.emplace_back(std::move(p));
     }
     if (num_workers > 0) {
+        // for single-replica-load
         ThreadPoolBuilder("DownloadThreadPool")
                 .set_min_threads(num_workers)
                 .set_max_threads(num_workers)
                 .build(&_download_workers);
         _is_async = true;
+    } else {
+        _is_async = false;
     }
 }
 
 DownloadAction::DownloadAction(ExecEnv* exec_env, const std::string& error_log_root_dir)
-        : _exec_env(exec_env), _download_type(ERROR_LOG) {
+        : _exec_env(exec_env), _download_type(ERROR_LOG), _is_async(false) {
     io::global_local_filesystem()->canonicalize(error_log_root_dir, &_error_log_root_dir);
 }
 
