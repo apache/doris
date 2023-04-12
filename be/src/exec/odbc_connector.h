@@ -72,6 +72,12 @@ public:
     Status exec_write_sql(const std::u16string& insert_stmt,
                           const fmt::memory_buffer& insert_stmt_buffer) override;
 
+    Status exec_stmt_write(
+            vectorized::Block* block,
+            const std::vector<vectorized::VExprContext*>& output_vexpr_ctxs) override {
+        return Status::OK();
+    }
+
     // use in ODBC transaction
     Status begin_trans() override; // should be call after connect and before query or init_to_write
     Status abort_trans() override; // should be call after transaction abort

@@ -55,6 +55,7 @@ Status VJdbcTableSink::init(const TDataSink& t_sink) {
     _jdbc_param.driver_checksum = t_jdbc_sink.jdbc_table.jdbc_driver_checksum;
     _jdbc_param.resource_name = t_jdbc_sink.jdbc_table.jdbc_resource_name;
     _jdbc_param.table_type = t_jdbc_sink.table_type;
+    _jdbc_param.query_string = "INSERT INTO TKHQKH_SELECTDB VALUES(?, ?, ?, ?, ?, ?)";
     _table_name = t_jdbc_sink.jdbc_table.jdbc_table_name;
     _use_transaction = t_jdbc_sink.use_transaction;
 

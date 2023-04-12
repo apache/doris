@@ -148,7 +148,12 @@ Status TableConnector::append(const std::string& table_name, vectorized::Block* 
         insert_stmt = utf8_to_u16string(_insert_stmt_buffer.data(),
                                         _insert_stmt_buffer.data() + _insert_stmt_buffer.size());
     }
-    RETURN_IF_ERROR(exec_write_sql(insert_stmt, _insert_stmt_buffer));
+
+    if (table_type == TOdbcTableType::ORACLE) {
+        RETURN_IF_ERROR(exec_stmt_write(block, output_vexpr_ctxs));
+    } else {
+        RETURN_IF_ERROR(exec_write_sql(insert_stmt, _insert_stmt_buffer));
+    }
     COUNTER_UPDATE(_sent_rows_counter, *num_rows_sent);
     return Status::OK();
 }
