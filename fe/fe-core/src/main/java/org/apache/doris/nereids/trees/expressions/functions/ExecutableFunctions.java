@@ -1085,9 +1085,6 @@ public class ExecutableFunctions {
         return new DateV2Literal(date.getYear() + 1, 1, 1);
     }
 
-    /**
-     * add origin argument.
-     */
     @ExecFunction(name = "year_ceil", argTypes = {"DATETIME", "DATETIME"}, returnType = "DATETIME")
     public static DateTimeLiteral yearCeil(DateTimeLiteral date, DateTimeLiteral origin) {
         DateTimeLiteral temp = new DateTimeLiteral(date.getYear(), origin.getMonth(), origin.getDay(),
@@ -1104,7 +1101,7 @@ public class ExecutableFunctions {
 
     @ExecFunction(name = "year_ceil", argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "DATETIMEV2")
     public static DateTimeV2Literal yearCeil(DateTimeV2Literal date, DateTimeV2Literal origin) {
-        DateTimeV2Literal temp = new DateTimeLiteral(date.getYear(), origin.getMonth(), origin.getDay(),
+        DateTimeV2Literal temp = new DateTimeV2Literal(date.getYear(), origin.getMonth(), origin.getDay(),
                 origin.getHour(), origin.getMinute(), origin.getSecond(), 0);
         return date.compareTo(temp) < 0 ? temp : date;
     }
