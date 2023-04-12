@@ -1946,7 +1946,7 @@ public class Env {
      * Load mtmv jobManager.
      **/
     public long loadMTMVJobManager(DataInputStream in, long checksum) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_119) {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_120) {
             this.mtmvJobManager = MTMVJobManager.read(in, checksum);
             LOG.info("finished replay mtmv job and tasks from image");
         }
