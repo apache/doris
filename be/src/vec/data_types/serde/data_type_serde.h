@@ -36,15 +36,19 @@ namespace vectorized {
 // the developer does not know how many datatypes has to deal.
 
 class DataTypeSerDe {
-
 public:
     DataTypeSerDe() = default;
     virtual ~DataTypeSerDe() = default;
 
     // Protobuf serializer and deserializer
-    virtual Status write_column_to_pb(const IColumn& column, PValues& result, int start, int end) const;
+    virtual Status write_column_to_pb(const IColumn& column, PValues& result, int start,
+                                      int end) const {
+        LOG(FATAL) << "Not support write << " << column.get_name() << "column to pb ";
+    }
 
-    virtual Status read_column_from_pb(IColumn& column, const PValues& arg) const;
+    virtual Status read_column_from_pb(IColumn& column, const PValues& arg) const {
+        LOG(FATAL) << "Not support read from pb to " << column.get_name();
+    }
 
     // MySQL serializer and deserializer
 
@@ -60,6 +64,7 @@ public:
 };
 
 using DataTypeSerDeSPtr = std::shared_ptr<DataTypeSerDe>;
+using DataTypeSerDeSPtrs = std::vector<DataTypeSerDeSPtr>;
 
 } // namespace vectorized
 } // namespace doris

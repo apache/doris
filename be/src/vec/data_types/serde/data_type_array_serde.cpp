@@ -15,18 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-
 #include "data_type_array_serde.h"
+
 #include "vec/columns/column_array.cpp"
 namespace doris {
 
-namespace vectorized {
-
-Status DataTypeArraySerDe::write_column_to_pb(const IColumn& column, PValues& result, int start, int end) const {
-    LOG(FATAL) << "Not support write array column to pb ";
-}
-Status DataTypeArraySerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
-    LOG(FATAL) << "Not support write pb to array column";
-}
-}
-}
+namespace vectorized {}
+} // namespace doris

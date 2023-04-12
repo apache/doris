@@ -18,14 +18,5 @@
 #include "data_type_object_serde.h"
 namespace doris {
 
-namespace vectorized {
-
-Status DataTypeObjectSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start, int end) const {
-    LOG(FATAL) << "Not support write object column to pb ";
-}
-Status DataTypeObjectSerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
-    LOG(FATAL) << "Not support write pb to array column ";
-}
-
-}
-}
+namespace vectorized {}
+} // namespace doris

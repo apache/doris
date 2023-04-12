@@ -16,18 +16,20 @@
 // under the License.
 
 #include "data_type_serde.h"
+#include "vec/columns/column_vector.h"
+
 namespace doris {
 
 namespace vectorized {
 
-/**
- *  DataTypeNumber derived class: DataTypDate
- */
 template <typename T>
 class DataTypeNumberSerDe : public DataTypeSerDe {
+    static_assert(IsNumber<T>);
+
 public:
-    Status write_column_to_pb(const IColumn& column, PValues& result, int start, int end) const;
-    Status read_column_from_pb(IColumn& column, const PValues& arg) const;
+    Status write_column_to_pb(const IColumn& column, PValues& result, int start,
+                              int end) const override;
+    Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
 };
-}
-}
+} // namespace vectorized
+} // namespace doris

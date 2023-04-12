@@ -24,11 +24,12 @@ class DataTypeNullableSerDe : public DataTypeSerDe {
 public:
     DataTypeNullableSerDe(const DataTypeSerDeSPtr& _nested_serde) : nested_serde(_nested_serde) {}
 
-    Status write_column_to_pb(const IColumn& column, PValues& result, int start, int end) const;
-    Status read_column_from_pb(IColumn& column, const PValues& arg) const;
+    Status write_column_to_pb(const IColumn& column, PValues& result, int start,
+                              int end) const override;
+    Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
+
 private:
     DataTypeSerDeSPtr nested_serde;
 };
-}
-}
-
+} // namespace vectorized
+} // namespace doris

@@ -24,8 +24,6 @@ class DataTypeObjectSerDe : public DataTypeSerDe {
 public:
     Status write_column_to_pb(const IColumn& column, PValues& result, int start, int end) const;
     Status read_column_from_pb(IColumn& column, const PValues& arg) const;
-
 };
-}
-}
-
+} // namespace vectorized
+} // namespace doris

@@ -16,30 +16,33 @@
 // under the License.
 
 #include "data_type_nullable_serde.h"
+
 #include "vec/columns/column_nullable.h"
 
 namespace doris {
 
 namespace vectorized {
 
-// show consider data type has_null ?
-Status DataTypeNullableSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start, int end) const {
+Status DataTypeNullableSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
+                                                 int end) const {
+    int row_count = end - start;
     auto& nullable_col = assert_cast<const ColumnNullable&>(column);
-
-    auto data_col = nullable_col.get_nested_column_ptr();
     auto& null_col = nullable_col.get_null_map_column();
-
-
-
+    if (nullable_col.has_null(row_count)) {
+        auto* null_map = result.mutable_null_map();
+        null_map->Reserve(row_count);
+        const auto* col = check_and_get_column<ColumnUInt8>(null_col);
+        auto& data = col->get_data();
+        null_map->Add(data.begin() + start, data.begin() + end);
+    }
+    return nested_serde->write_column_to_pb(nullable_col.get_nested_column(), result, start, end);
 }
+
 // read from PValues to column
 Status DataTypeNullableSerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
     auto& col = reinterpret_cast<ColumnNullable&>(column);
-    // null map ser
-    // nested data ser
     auto& null_map_data = col.get_null_map_data();
     auto& nested = col.get_nested_column();
-    nested_serde->read_column_from_pb(nested, arg);
     null_map_data.reserve(nested.size());
     if (arg.has_null()) {
         for (int i = 0; i < nested.size(); ++i) {
@@ -50,7 +53,7 @@ Status DataTypeNullableSerDe::read_column_from_pb(IColumn& column, const PValues
             null_map_data[i] = false;
         }
     }
+    return nested_serde->read_column_from_pb(nested, arg);
 }
-}
-}
-
+} // namespace vectorized
+} // namespace doris

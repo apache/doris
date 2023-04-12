@@ -18,13 +18,5 @@
 
 namespace doris {
 
-namespace vectorized {
-
-Status DataTypeFixLengthObjectSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start, int end) const {
-    LOG(FATAL) << "Not support write FixLengthObject column to pb ";
-}
-Status DataTypeFixLengthObjectSerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
-    LOG(FATAL) << "Not support write pb to FixLengthObject column";
-}
-}
-}
+namespace vectorized {}
+} // namespace doris

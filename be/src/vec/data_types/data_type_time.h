@@ -52,6 +52,9 @@ public:
         using PromotedType = DataTypeNumber<NearestFieldType<Float64>>;
         return std::make_shared<PromotedType>();
     }
+    DataTypeSerDeSPtr get_serde() const override {
+        return std::make_shared<DataTypeNumberSerDe<Float64>>();
+    };
 };
 
 } // namespace doris::vectorized

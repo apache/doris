@@ -18,13 +18,5 @@
 #include "data_type_map_serde.h"
 
 namespace doris {
-namespace vectorized {
-Status DataTypeMapSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start, int end) const {
-    LOG(FATAL) << "Not support write map column to pb ";
-}
-
-Status DataTypeMapSerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
-    LOG(FATAL) << "Not support read pb to map column";
-}
-}
-}
+namespace vectorized {}
+} // namespace doris

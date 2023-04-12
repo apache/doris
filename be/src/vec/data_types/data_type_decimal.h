@@ -30,6 +30,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number.h"
+#include "serde/data_type_decimal_serde.h"
 
 namespace doris::vectorized {
 
@@ -198,6 +199,9 @@ public:
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
+    DataTypeSerDeSPtr get_serde() const override {
+        return std::make_shared<DataTypeDecimalSerDe<T>>();
+    };
 
     /// Decimal specific
 

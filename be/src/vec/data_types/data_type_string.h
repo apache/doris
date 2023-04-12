@@ -22,6 +22,7 @@
 
 #include <ostream>
 
+#include "serde/data_type_string_serde.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
@@ -65,6 +66,9 @@ public:
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
+    DataTypeSerDeSPtr get_serde() const override {
+        return std::make_shared<DataTypeStringSerDe>();
+    };
 };
 
 } // namespace doris::vectorized

@@ -16,14 +16,14 @@
 // under the License.
 
 #include "data_type_string_serde.h"
+
 #include "vec/columns/column_string.h"
 
-namespace doris{
-namespace vectorized{
+namespace doris {
+namespace vectorized {
 
-Status DataTypeStringSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start, int end) const {
-    PGenericType* ptype = result.mutable_type();
-    ptype->set_id(PGenericType::STRING);
+Status DataTypeStringSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
+                                               int end) const {
     result.mutable_bytes_value()->Reserve(end - start);
     for (size_t row_num = start; row_num < end; ++row_num) {
         StringRef data = column.get_data_at(row_num);
@@ -39,5 +39,5 @@ Status DataTypeStringSerDe::read_column_from_pb(IColumn& column, const PValues& 
     }
     return Status::OK();
 }
-}
-}
+} // namespace vectorized
+} // namespace doris

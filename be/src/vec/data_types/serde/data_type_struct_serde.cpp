@@ -18,13 +18,5 @@
 #include "data_type_struct_serde.h"
 namespace doris {
 
-namespace vectorized {
-
-Status DataTypeStructSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start, int end) const {
-    LOG(FATAL) << "Not support write struct column to pb ";
-}
-Status DataTypeStructSerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
-    LOG(FATAL) << "Not support read pb to strut column";
-}
-}
-}
+namespace vectorized {}
+} // namespace doris

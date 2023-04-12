@@ -20,9 +20,9 @@ namespace doris {
 
 namespace vectorized {
 
-Status DataTypeQuantileStateSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start, int end) const {
-    PGenericType* ptype = result.mutable_type();
-    ptype->set_id(PGenericType::QUANTILE_STATE);
+template <typename T>
+Status DataTypeQuantileStateSerDe<T>::write_column_to_pb(const IColumn& column, PValues& result,
+                                                         int start, int end) const {
     result.mutable_bytes_value()->Reserve(end - start);
     for (size_t row_num = start; row_num < end; ++row_num) {
         StringRef data = column.get_data_at(row_num);
@@ -30,7 +30,10 @@ Status DataTypeQuantileStateSerDe::write_column_to_pb(const IColumn& column, PVa
     }
     return Status::OK();
 }
-Status DataTypeQuantileStateSerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
+
+template <typename T>
+Status DataTypeQuantileStateSerDe<T>::read_column_from_pb(IColumn& column,
+                                                          const PValues& arg) const {
     column.reserve(arg.bytes_value_size());
     for (int i = 0; i < arg.bytes_value_size(); ++i) {
         column.insert_data(arg.bytes_value(i).c_str(), arg.bytes_value(i).size());
@@ -38,5 +41,5 @@ Status DataTypeQuantileStateSerDe::read_column_from_pb(IColumn& column, const PV
     return Status::OK();
 }
 
-}
-}
+} // namespace vectorized
+} // namespace doris

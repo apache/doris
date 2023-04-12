@@ -68,6 +68,9 @@ public:
 
     bool have_subtypes() const override { return false; }
     bool cannot_be_stored_in_tables() const override { return true; }
+    DataTypeSerDeSPtr get_serde() const override {
+        LOG(FATAL) << get_name() << " not support serde";
+    };
 };
 
 } // namespace doris::vectorized

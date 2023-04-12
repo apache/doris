@@ -22,10 +22,15 @@ namespace vectorized {
 
 class DataTypeMapSerDe : public DataTypeSerDe {
 public:
+    DataTypeMapSerDe(const DataTypeSerDeSPtr& _key_serde, const DataTypeSerDeSPtr& _value_serde)
+            : key_serde(_key_serde), value_serde(_value_serde) {}
+
     Status write_column_to_pb(const IColumn& column, PValues& result, int start, int end) const;
     Status read_column_from_pb(IColumn& column, const PValues& arg) const;
 
+private:
+    DataTypeSerDeSPtr key_serde;
+    DataTypeSerDeSPtr value_serde;
 };
-}
-}
-
+} // namespace vectorized
+} // namespace doris

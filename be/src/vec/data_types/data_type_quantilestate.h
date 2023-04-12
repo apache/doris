@@ -16,11 +16,13 @@
 // under the License.
 
 #pragma once
+#include "serde/data_type_fixedlengthobject_serde.h"
 #include "util/quantile_state.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+
 namespace doris::vectorized {
 template <typename T>
 class DataTypeQuantileState : public IDataType {
@@ -82,6 +84,9 @@ public:
     static void serialize_as_stream(const QuantileState<T>& value, BufferWritable& buf);
 
     static void deserialize_as_stream(QuantileState<T>& value, BufferReadable& buf);
+    DataTypeSerDeSPtr get_serde() const override {
+        return std::make_shared<DataTypeQuantileState<T>>();
+    };
 };
 using DataTypeQuantileStateDouble = DataTypeQuantileState<double>;
 
