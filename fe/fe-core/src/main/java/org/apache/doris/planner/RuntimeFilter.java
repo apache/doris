@@ -134,8 +134,8 @@ public final class RuntimeFilter {
     }
 
     private RuntimeFilter(RuntimeFilterId filterId, PlanNode filterSrcNode, Expr srcExpr, int exprOrder,
-                          Expr origTargetExpr, Map<TupleId, List<SlotId>> targetSlots,
-                          TRuntimeFilterType type, RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits) {
+            Expr origTargetExpr, Map<TupleId, List<SlotId>> targetSlots, TRuntimeFilterType type,
+            RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits, long buildSizeNdv) {
         this.id = filterId;
         this.builderNode = filterSrcNode;
         this.srcExpr = srcExpr;
@@ -143,6 +143,7 @@ public final class RuntimeFilter {
         this.origTargetExpr = origTargetExpr;
         this.targetSlotsByTid = targetSlots;
         this.runtimeFilterType = type;
+        this.ndvEstimate = buildSizeNdv;
         computeNdvEstimate();
         calculateFilterSize(filterSizeLimits);
     }
@@ -150,8 +151,9 @@ public final class RuntimeFilter {
     // only for nereids planner
     public static RuntimeFilter fromNereidsRuntimeFilter(RuntimeFilterId id, JoinNodeBase node, Expr srcExpr,
             int exprOrder, Expr origTargetExpr, Map<TupleId, List<SlotId>> targetSlots,
-            TRuntimeFilterType type, RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits) {
-        return new RuntimeFilter(id, node, srcExpr, exprOrder, origTargetExpr, targetSlots, type, filterSizeLimits);
+            TRuntimeFilterType type, RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits, long buildSizeNdv) {
+        return new RuntimeFilter(id, node, srcExpr, exprOrder, origTargetExpr,
+                targetSlots, type, filterSizeLimits, buildSizeNdv);
     }
 
     @Override
@@ -306,7 +308,7 @@ public final class RuntimeFilter {
         }
 
         return new RuntimeFilter(idGen.getNextId(), filterSrcNode, srcExpr, exprOrder,
-                targetExpr, targetSlots, type, filterSizeLimits);
+                targetExpr, targetSlots, type, filterSizeLimits, -1L);
     }
 
     public static RuntimeFilter create(IdGenerator<RuntimeFilterId> idGen, Analyzer analyzer, Expr joinPredicate,
@@ -343,7 +345,7 @@ public final class RuntimeFilter {
 
             RuntimeFilter runtimeFilter =
                     new RuntimeFilter(idGen.getNextId(), filterSrcNode, srcExpr, exprOrder, targetExpr, targetSlots,
-                            type, filterSizeLimits);
+                            type, filterSizeLimits, -1L);
             runtimeFilter.setBitmapFilterNotIn(((BitmapFilterPredicate) joinPredicate).isNotIn());
             return runtimeFilter;
         }
@@ -515,7 +517,9 @@ public final class RuntimeFilter {
     }
 
     public void computeNdvEstimate() {
-        ndvEstimate = builderNode.getChild(1).getCardinality();
+        if (ndvEstimate < 0) {
+            ndvEstimate = builderNode.getChild(1).getCardinalityAfterFilter();
+        }
     }
 
     public void extractTargetsPosition() {
