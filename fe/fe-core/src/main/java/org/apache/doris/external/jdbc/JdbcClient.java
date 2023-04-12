@@ -711,7 +711,10 @@ public class JdbcClient {
     }
 
     public Type sqlserverTypeToDoris(JdbcFieldSchema fieldSchema) {
-        String sqlserverType = fieldSchema.getDataTypeName();
+        String originSqlserverType = fieldSchema.getDataTypeName();
+        // For sqlserver IDENTITY type, such as 'INT IDENTITY'
+        // originSqlserverType is "int identity", so we only get "int".
+        String sqlserverType = originSqlserverType.split(" ")[0];
         switch (sqlserverType) {
             case "bit":
                 return Type.BOOLEAN;
