@@ -59,8 +59,7 @@ Status AggFnEvaluator::create(ObjectPool* pool, const TExpr& desc, AggFnEvaluato
         ++node_idx;
         VExpr* expr = nullptr;
         VExprContext* ctx = nullptr;
-        RETURN_IF_ERROR(
-                VExpr::create_tree_from_thrift(pool, desc.nodes, NULL, &node_idx, &expr, &ctx));
+        RETURN_IF_ERROR(VExpr::create_tree_from_thrift(pool, desc.nodes, &node_idx, &expr, &ctx));
         agg_fn_evaluator->_input_exprs_ctxs.push_back(ctx);
     }
     return Status::OK();
