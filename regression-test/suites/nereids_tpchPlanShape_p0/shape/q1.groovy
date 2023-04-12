@@ -18,8 +18,7 @@
  */
 
 suite("q1") {
-    //String db = context.config.getDbNameByFile(new File(context.file.parent))
-    String db = "tpch"
+    String db = context.config.getDbNameByFile(new File(context.file.parent))
     sql "use ${db}"
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
