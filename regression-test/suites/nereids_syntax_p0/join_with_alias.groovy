@@ -49,6 +49,10 @@ suite("join_with_alias") {
             select a1, a2 from ( select a as a1, a as a2 from table_A_alias join table_B_alias on a = b ) t;
         """
 
+    qt_sql2"""
+            select table_B_alias.b from table_B_alias where table_B_alias.b in ( select a from table_A_alias );
+        """
+
     sql """ drop table if exists table_A_alias;"""
 
     sql """ drop table if exists table_B_alias;"""
