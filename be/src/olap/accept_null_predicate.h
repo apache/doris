@@ -55,8 +55,6 @@ public:
         // call nested predicate evaluate
         uint16_t new_size = _nested->evaluate(column, sel, size);
 
-        LOG(INFO) << "topn debug size=" << size << " new_size=" << new_size;
-
         // process NULL values
         if (column.has_null() && new_size < size) {
             // use a sorted set to sotre selected row idxs
