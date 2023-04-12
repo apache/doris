@@ -31,7 +31,7 @@ under the License.
 `VARCHAR trim(VARCHAR str)`
 
 
-Remove the space that appears continuously from the starring and ending of the parameter str
+When the 'rhs' parameter is not present, remove the continuous spaces that appear from the starting and ending of the 'str' parameter. Otherwise, remove 'rhs'.
 
 ### example
 
@@ -41,6 +41,13 @@ mysql> SELECT trim('   ab d   ') str;
 | str  |
 +------+
 | ab d |
++------+
+
+mysql> SELECT trim('ababccaab','ab') str;
++------+
+| str  |
++------+
+| cca  |
 +------+
 ```
 ### keywords
