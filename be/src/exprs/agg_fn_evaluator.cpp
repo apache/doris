@@ -83,8 +83,7 @@ Status AggFnEvaluator::create(ObjectPool* pool, const TExpr& desc, bool is_analy
         ++node_idx;
         Expr* expr = nullptr;
         ExprContext* ctx = nullptr;
-        RETURN_IF_ERROR(
-                Expr::create_tree_from_thrift(pool, desc.nodes, nullptr, &node_idx, &expr, &ctx));
+        RETURN_IF_ERROR(Expr::create_tree_from_thrift(pool, desc.nodes, &node_idx, &expr, &ctx));
         (*result)->_input_exprs_ctxs.push_back(ctx);
     }
     return Status::OK();
