@@ -48,7 +48,7 @@ public class AnalysisTaskScheduler {
         try {
             TableIf table = StatisticsUtil.findTable(analysisTaskInfo.catalogName,
                     analysisTaskInfo.dbName, analysisTaskInfo.tblName);
-            BaseAnalysisTask analysisTask = table.createAnalysisTask(this, analysisTaskInfo);
+            BaseAnalysisTask analysisTask = table.createAnalysisTask(analysisTaskInfo);
             switch (analysisTaskInfo.jobType) {
                 case MANUAL:
                     addToManualJobQueue(analysisTask);
