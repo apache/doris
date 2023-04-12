@@ -90,6 +90,12 @@ public class StatisticsRepository {
                     + " ORDER BY update_time DESC LIMIT "
                     + StatisticConstants.STATISTICS_RECORDS_CACHE_SIZE;
 
+    private static final String FETCH_STATS_FULL_NAME =
+            "SELECT catalog_id, db_id, tbl_id, idx_id, col_id, part_id FROM "
+                    + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.STATISTIC_TBL_NAME
+                    + " ORDER BY update_time "
+                    + "LIMIT ${limit} OFFSET ${offset}";
+
     public static ColumnStatistic queryColumnStatisticsByName(long tableId, String colName) {
         ResultRow resultRow = queryColumnStatisticById(tableId, colName);
         if (resultRow == null) {
@@ -283,5 +289,12 @@ public class StatisticsRepository {
 
     public static List<ResultRow> fetchRecentStatsUpdatedCol() {
         return StatisticsUtil.execStatisticQuery(FETCH_RECENT_STATS_UPDATED_COL);
+    }
+
+    public static List<ResultRow> fetchStatsFullName(long limit, long offset) {
+        Map<String, String> params = new HashMap<>();
+        params.put("limit", String.valueOf(limit));
+        params.put("offset", String.valueOf(offset));
+        return StatisticsUtil.execStatisticQuery(new StringSubstitutor(params).replace(FETCH_STATS_FULL_NAME));
     }
 }

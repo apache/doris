@@ -3517,4 +3517,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         LOG.info("finished replay databases from image");
         return newChecksum;
     }
+
+    public ConcurrentHashMap<Long, Database> getIdToDb() {
+        return new ConcurrentHashMap<>(idToDb);
+    }
 }
