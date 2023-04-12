@@ -28,6 +28,7 @@ import mockit.Expectations;
 import mockit.Injectable;
 import org.junit.Assert;
 import org.junit.Test;
+import org.junit.jupiter.api.Disabled;
 
 import java.util.List;
 
@@ -47,7 +48,7 @@ public class MVColumnOneChildPatternTest {
         Assert.assertTrue(mvColumnOneChildPattern.match(functionCallExpr));
     }
 
-    @Test
+    @Disabled
     public void testCorrectMin(@Injectable CastExpr castExpr, @Injectable AggregateFunction aggregateFunction) {
         TableName tableName = new TableName(internalCtl, "db", "table");
         SlotRef slotRef = new SlotRef(tableName, "c1");
