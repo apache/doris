@@ -302,7 +302,6 @@ void ScannerContext::push_back_scanner_and_reschedule(VScanner* scanner) {
         std::unique_lock l(_scanners_lock);
         _scanners.push_front(scanner);
     }
-
     std::lock_guard l(_transfer_lock);
     if (has_enough_space_in_blocks_queue()) {
         _num_scheduling_ctx++;
