@@ -157,7 +157,7 @@ CREATE CATALOG doris_catalog PROPERTIES (
 
 目前Jdbc Catalog连接一个Doris数据库只支持用5.x版本的jdbc jar包。如果使用8.x jdbc jar包，可能会出现列类型无法匹配问题。
 
-7. SAP_HANA
+7. SAP HANA
 
 <version since="1.2.3"></version>
 
@@ -172,11 +172,34 @@ CREATE CATALOG hana_catalog PROPERTIES (
 )
 ```
 
-| Doris    | SAP_HANA |
+| Doris    | SAP HANA |
 |----------|----------|
 | Catalog  | Database | 
 | Database | Schema   |
 | Table    | Table    |
+
+8. Trino
+
+<version since="dev"></version>
+
+```sql
+CREATE CATALOG trino_catalog PROPERTIES (
+    "type"="jdbc",
+    "user"="hadoop",
+    "password"="",
+    "jdbc_url" = "jdbc:trino://localhost:9000/hive",
+    "driver_url" = "trino-jdbc-389.jar",
+    "driver_class" = "io.trino.jdbc.TrinoDriver"
+);
+```
+
+映射 Trino 时，Doris 的 Database 对应于 Trino 中指定 Catalog（如示例中 `jdbc_url` 参数中的 "hive"）下的一个 Schema。而 Doris 的 Database 下的 Table 则对应于 Trino 中 Schema 下的 Tables。即映射关系如下：
+
+| Doris    | Trino   |
+|----------|---------|
+| Catalog  | Catalog | 
+| Database | Schema  |
+| Table    | Table   |
 
 ### 参数说明
 
@@ -329,24 +352,24 @@ set enable_odbc_transcation = true;
 
 ### Clickhouse
 
-| ClickHouse Type                                         | Doris Type               | Comment                                           |
-|---------------------------------------------------------|--------------------------|---------------------------------------------------|
-| Bool                                                    | BOOLEAN                  |                                                   |
-| String                                                  | STRING                   |                                                   |
-| Date/Date32                                             | DATEV2                   | Jdbc Catlog连接Doris时默认使用DATEV2类型                   |
-| DateTime/DateTime64                                     | DATETIMEV2               | Jdbc Catlog连接Doris时默认使用DATETIMEV2类型               |
-| Float32                                                 | FLOAT                    |                                                   |
-| Float64                                                 | DOUBLE                   |                                                   |
-| Int8                                                    | TINYINT                  |                                                   |
-| Int16/UInt8                                             | SMALLINT                 | Doris没有UNSIGNED数据类型，所以扩大一个数量级                     |
-| Int32/UInt16                                            | INT                      | Doris没有UNSIGNED数据类型，所以扩大一个数量级                     |
-| Int64/Uint32                                            | BIGINT                   | Doris没有UNSIGNED数据类型，所以扩大一个数量级                     |
-| Int128/UInt64                                           | LARGEINT                 | Doris没有UNSIGNED数据类型，所以扩大一个数量级                     |
-| Int256/UInt128/UInt256                                  | STRING                   | Doris没有这个数量级的数据类型，采用STRING处理                      |
-| DECIMAL                                                 | DECIMAL/DECIMALV3/STRING | 将根据Doris DECIMAL字段的（precision, scale）和`enable_decimal_conversion`开关选择用何种类型|
-| Enum/IPv4/IPv6/UUID                                     | STRING                   | 在显示上IPv4,IPv6会额外在数据最前面显示一个`/`,需要自己用`split_part`函数处理 |
-| <version since="dev" type="inline"> Array(T) </version> | ARRAY\<T\>               | Array内部类型适配逻辑参考上述类型，不支持嵌套类型        |
-| Other                                                   | UNSUPPORTED              |                                                   |
+| ClickHouse Type                                      | Doris Type               | Comment                                                                    |
+|------------------------------------------------------|--------------------------|----------------------------------------------------------------------------|
+| Bool                                                 | BOOLEAN                  |                                                                            |
+| String                                               | STRING                   |                                                                            |
+| Date/Date32                                          | DATEV2                   | Jdbc Catlog连接ClickHouse时默认使用DATEV2类型                                       |
+| DateTime/DateTime64                                  | DATETIMEV2               | Jdbc Catlog连接ClickHouse时默认使用DATETIMEV2类型                                        |
+| Float32                                              | FLOAT                    |                                                                            |
+| Float64                                              | DOUBLE                   |                                                                            |
+| Int8                                                 | TINYINT                  |                                                                            |
+| Int16/UInt8                                          | SMALLINT                 | Doris没有UNSIGNED数据类型，所以扩大一个数量级                                              |
+| Int32/UInt16                                         | INT                      | Doris没有UNSIGNED数据类型，所以扩大一个数量级                                              |
+| Int64/Uint32                                         | BIGINT                   | Doris没有UNSIGNED数据类型，所以扩大一个数量级                                              |
+| Int128/UInt64                                        | LARGEINT                 | Doris没有UNSIGNED数据类型，所以扩大一个数量级                                              |
+| Int256/UInt128/UInt256                               | STRING                   | Doris没有这个数量级的数据类型，采用STRING处理                                               |
+| DECIMAL                                              | DECIMAL/DECIMALV3/STRING | 将根据Doris DECIMAL字段的（precision, scale）和`enable_decimal_conversion`开关选择用何种类型 |
+| Enum/IPv4/IPv6/UUID                                  | STRING                   | 在显示上IPv4,IPv6会额外在数据最前面显示一个`/`,需要自己用`split_part`函数处理                        |
+| <version since="dev" type="inline"> Array </version> | ARRAY                    | Array内部类型适配逻辑参考上述类型，不支持嵌套类型                                                |
+| Other                                                | UNSUPPORTED              |                                                                            |
 
 ### Doris
 
@@ -373,27 +396,49 @@ set enable_odbc_transcation = true;
 
 ### SAP HANA
 
-| SAP_HANA     | Doris                    | Comment                                                                               |
-|--------------|--------------------------|---------------------------------------------------------------------------------------|
-| BOOLEAN      | BOOLEAN                  |                                                                                       |
-| TINYINT      | TINYINT                  |                                                                                       |
-| SMALLINT     | SMALLINT                 |                                                                                       |
-| INTERGER     | INT                      |                                                                                       |
-| BIGINT       | BIGINT                   |                                                                                       |
-| SMALLDECIMAL | DECIMALV3                |                                                                                       |
-| DECIMAL      | DECIMAL/DECIMALV3/STRING | 将根据Doris DECIMAL字段的（precision, scale）和`enable_decimal_conversion`开关选择用何种类型 |
-| REAL         | FLOAT                    |                                                                                       |
-| DOUBLE       | DOUBLE                   |                                                                                       |
-| DATE         | DATEV2                   | Jdbc Catlog连接Doris时默认使用DATEV2类型                                                  |
-| TIME         | TEXT                     |                                                                                       |
-| TIMESTAMP    | DATETIMEV2               | Jdbc Catlog连接Doris时默认使用DATETIMEV2类型                                              |
-| SECONDDATE   | DATETIMEV2               | Jdbc Catlog连接Doris时默认使用DATETIMEV2类型                                              |
-| VARCHAR      | TEXT                     |                                                                                       |
-| NVARCHAR     | TEXT                     |                                                                                       |
-| ALPHANUM     | TEXT                     |                                                                                       |
-| SHORTTEXT    | TEXT                     |                                                                                       |
-| CHAR         | CHAR                     |                                                                                       |
-| NCHAR        | CHAR                     |                                                                                       |
+| SAP HANA Type  | Doris Type               | Comment                                                                               |
+|----------------|--------------------------|---------------------------------------------------------------------------------------|
+| BOOLEAN        | BOOLEAN                  |                                                                                       |
+| TINYINT        | TINYINT                  |                                                                                       |
+| SMALLINT       | SMALLINT                 |                                                                                       |
+| INTERGER       | INT                      |                                                                                       |
+| BIGINT         | BIGINT                   |                                                                                       |
+| SMALLDECIMAL   | DECIMALV3                |                                                                                       |
+| DECIMAL        | DECIMAL/DECIMALV3/STRING | 将根据Doris DECIMAL字段的（precision, scale）和`enable_decimal_conversion`开关选择用何种类型 |
+| REAL           | FLOAT                    |                                                                                       |
+| DOUBLE         | DOUBLE                   |                                                                                       |
+| DATE           | DATEV2                   | Jdbc Catlog连接HANA时默认使用DATEV2类型                                                  |
+| TIME           | TEXT                     |                                                                                       |
+| TIMESTAMP      | DATETIMEV2               | Jdbc Catlog连接HANA时默认使用DATETIMEV2类型                                              |
+| SECONDDATE     | DATETIMEV2               | Jdbc Catlog连接HANA时默认使用DATETIMEV2类型                                              |
+| VARCHAR        | TEXT                     |                                                                                       |
+| NVARCHAR       | TEXT                     |                                                                                       |
+| ALPHANUM       | TEXT                     |                                                                                       |
+| SHORTTEXT      | TEXT                     |                                                                                       |
+| CHAR           | CHAR                     |                                                                                       |
+| NCHAR          | CHAR                     |                                                                                       |
+
+### Trino
+
+| Trino Type                                           | Doris Type               | Comment                                                                   |
+|------------------------------------------------------|--------------------------|---------------------------------------------------------------------------|
+| boolean                                              | BOOLEAN                  |                                                                           |
+| tinyint                                              | TINYINT                  |                                                                           |
+| smallint                                             | SMALLINT                 |                                                                           |
+| integer                                              | INT                      |                                                                           |
+| bigint                                               | BIGINT                   |                                                                           |
+| decimal                                              | DECIMAL/DECIMALV3/STRING | 将根据Doris DECIMAL字段的（precision, scale）和`enable_decimal_conversion`开关选择用何种类型|
+| real                                                 | FLOAT                    |                                                                           |
+| double                                               | DOUBLE                   |                                                                           |
+| date                                                 | DATE/DATEV2              | Jdbc Catlog连接Trino时默认使用DATEV2类型                                      |
+| timestamp                                            | DATETIME/DATETIMEV2      | Jdbc Catlog连接Trino时默认使用DATETIMEV2类型                                  |
+| varchar                                              | TEXT                     |                                                                           |
+| char                                                 | CHAR                     |                                                                           |
+| <version since="dev" type="inline"> array </version> | ARRAY                    | Array内部类型适配逻辑参考上述类型，不支持嵌套类型                                  |
+| others                                               | UNSUPPORTED              |                                                                           |
+
+**Note:**
+目前仅针对Trino连接的Hive做了测试，其他的Trino连接的数据源暂时未测试。
 
 ## 常见问题
 

@@ -199,6 +199,9 @@ public class JdbcClient {
                 case JdbcResource.SAP_HANA:
                     rs = stmt.executeQuery("SELECT SCHEMA_NAME FROM SYS.SCHEMAS WHERE HAS_PRIVILEGES = 'TRUE'");
                     break;
+                case JdbcResource.TRINO:
+                    rs = stmt.executeQuery("SHOW SCHEMAS");
+                    break;
                 default:
                     throw new JdbcClientException("Not supported jdbc type");
             }
@@ -235,6 +238,7 @@ public class JdbcClient {
                 case JdbcResource.ORACLE:
                 case JdbcResource.SQLSERVER:
                 case JdbcResource.SAP_HANA:
+                case JdbcResource.TRINO:
                     databaseNames.add(conn.getSchema());
                     break;
                 default:
@@ -267,6 +271,7 @@ public class JdbcClient {
                 case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
                 case JdbcResource.SAP_HANA:
+                case JdbcResource.TRINO:
                     rs = databaseMetaData.getTables(null, dbName, null, types);
                     break;
                 default:
@@ -303,6 +308,7 @@ public class JdbcClient {
                 case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
                 case JdbcResource.SAP_HANA:
+                case JdbcResource.TRINO:
                     rs = databaseMetaData.getTables(null, dbName, null, types);
                     break;
                 default:
@@ -374,6 +380,7 @@ public class JdbcClient {
                 case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
                 case JdbcResource.SAP_HANA:
+                case JdbcResource.TRINO:
                     rs = databaseMetaData.getColumns(null, dbName, tableName, null);
                     break;
                 default:
@@ -421,6 +428,8 @@ public class JdbcClient {
                 return sqlserverTypeToDoris(fieldSchema);
             case JdbcResource.SAP_HANA:
                 return saphanaTypeToDoris(fieldSchema);
+            case JdbcResource.TRINO:
+                return trinoTypeToDoris(fieldSchema);
             default:
                 throw new JdbcClientException("Unknown database type");
         }
@@ -811,6 +820,51 @@ public class JdbcClient {
                 return Type.UNSUPPORTED;
         }
     }
+
+    public Type trinoTypeToDoris(JdbcFieldSchema fieldSchema) {
+        String trinoType = fieldSchema.getDataTypeName();
+        if (trinoType.startsWith("decimal")) {
+            String[] split = trinoType.split("\\(");
+            String[] precisionAndScale = split[1].split(",");
+            int precision = Integer.parseInt(precisionAndScale[0]);
+            int scale = Integer.parseInt(precisionAndScale[1].substring(0, precisionAndScale[1].length() - 1));
+            return createDecimalOrStringType(precision, scale);
+        } else if (trinoType.startsWith("char")) {
+            ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
+            charType.setLength(fieldSchema.columnSize);
+            return charType;
+        } else if (trinoType.startsWith("timestamp")) {
+            return ScalarType.createDatetimeV2Type(6);
+        } else if (trinoType.startsWith("array")) {
+            String trinoArrType = trinoType.substring(6, trinoType.length() - 1);
+            fieldSchema.setDataTypeName(trinoArrType);
+            Type type = trinoTypeToDoris(fieldSchema);
+            return ArrayType.create(type, true);
+        }
+        switch (trinoType) {
+            case "integer":
+                return Type.INT;
+            case "bigint":
+                return Type.BIGINT;
+            case "smallint":
+                return Type.SMALLINT;
+            case "tinyint":
+                return Type.TINYINT;
+            case "double":
+                return Type.DOUBLE;
+            case "real":
+                return Type.FLOAT;
+            case "boolean":
+                return Type.BOOLEAN;
+            case "varchar":
+                return ScalarType.createStringType();
+            case "date":
+                return ScalarType.createDateV2Type();
+            default:
+                return Type.UNSUPPORTED;
+        }
+    }
+
 
     private Type createDecimalOrStringType(int precision, int scale) {
         if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {
