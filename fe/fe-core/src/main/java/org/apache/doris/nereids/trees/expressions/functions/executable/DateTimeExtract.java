@@ -23,6 +23,13 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+
+import net.sf.cglib.core.Local;
+
+import java.time.LocalDateTime;
+import java.time.temporal.WeekFields;
 
 /**
  * executable function:
@@ -83,18 +90,181 @@ public class DateTimeExtract {
         return new IntegerLiteral(((int) date.getYear()));
     }
 
-    @ExecFunction(name = "quarter", argTypes = {"DATETIME"}, returnType = "INT")
+    @ExecFunction(name = "month", argTypes = {"DATETIME"}, returnType = "INT")
     public static IntegerLiteral month(DateTimeLiteral date) {
         return new IntegerLiteral(((int) date.getYear()));
     }
 
-    @ExecFunction(name = "quarter", argTypes = {"DATEV2"}, returnType = "INT")
+    @ExecFunction(name = "month", argTypes = {"DATEV2"}, returnType = "INT")
     public static IntegerLiteral month(DateV2Literal date) {
         return new IntegerLiteral(((int) date.getYear()));
     }
 
-    @ExecFunction(name = "quarter", argTypes = {"DATETIMEV2"}, returnType = "INT")
+    @ExecFunction(name = "month", argTypes = {"DATETIMEV2"}, returnType = "INT")
     public static IntegerLiteral month(DateTimeV2Literal date) {
         return new IntegerLiteral(((int) date.getYear()));
+    }
+
+    /**
+     * Executable datetime extract day
+     */
+    @ExecFunction(name = "day", argTypes = {"DATE"}, returnType = "INT")
+    public static IntegerLiteral day(DateLiteral date) {
+        return new IntegerLiteral(((int) date.getYear()));
+    }
+
+    @ExecFunction(name = "day", argTypes = {"DATETIME"}, returnType = "INT")
+    public static IntegerLiteral day(DateTimeLiteral date) {
+        return new IntegerLiteral(((int) date.getYear()));
+    }
+
+    @ExecFunction(name = "day", argTypes = {"DATEV2"}, returnType = "INT")
+    public static IntegerLiteral day(DateV2Literal date) {
+        return new IntegerLiteral(((int) date.getYear()));
+    }
+
+    @ExecFunction(name = "day", argTypes = {"DATETIMEV2"}, returnType = "INT")
+    public static IntegerLiteral day(DateTimeV2Literal date) {
+        return new IntegerLiteral(((int) date.getYear()));
+    }
+
+    /**
+     * Executable datetime extract dayofyear
+     */
+    @ExecFunction(name = "dayofyear", argTypes = {"DATE"}, returnType = "INT")
+    public static IntegerLiteral dayOfYear(DateLiteral date) {
+        return new IntegerLiteral(date.toJavaDateType().getDayOfYear());
+    }
+
+    @ExecFunction(name = "dayofyear", argTypes = {"DATETIME"}, returnType = "INT")
+    public static IntegerLiteral dayOfYear(DateTimeLiteral date) {
+        return new IntegerLiteral(date.toJavaDateType().getDayOfYear());
+    }
+
+    @ExecFunction(name = "dayofyear", argTypes = {"DATEV2"}, returnType = "INT")
+    public static IntegerLiteral dayOfYear(DateV2Literal date) {
+        return new IntegerLiteral(date.toJavaDateType().getDayOfYear());
+    }
+
+    @ExecFunction(name = "dayofyear", argTypes = {"DATETIMEV2"}, returnType = "INT")
+    public static IntegerLiteral dayOfYear(DateTimeV2Literal date) {
+        return new IntegerLiteral(date.toJavaDateType().getDayOfYear());
+    }
+
+    /**
+     * Executable datetime extract dayofmonth
+     */
+    @ExecFunction(name = "dayofmonth", argTypes = {"DATE"}, returnType = "INT")
+    public static IntegerLiteral dayOfMonth(DateLiteral date) {
+        return new IntegerLiteral(date.toJavaDateType().getDayOfMonth());
+    }
+
+    @ExecFunction(name = "dayofmonth", argTypes = {"DATETIME"}, returnType = "INT")
+    public static IntegerLiteral dayOfMonth(DateTimeLiteral date) {
+        return new IntegerLiteral(date.toJavaDateType().getDayOfMonth());
+    }
+
+    @ExecFunction(name = "dayofmonth", argTypes = {"DATEV2"}, returnType = "INT")
+    public static IntegerLiteral dayOfMonth(DateV2Literal date) {
+        return new IntegerLiteral(date.toJavaDateType().getDayOfMonth());
+    }
+
+    @ExecFunction(name = "dayofmonth", argTypes = {"DATETIMEV2"}, returnType = "INT")
+    public static IntegerLiteral dayOfMonth(DateTimeV2Literal date) {
+        return new IntegerLiteral(date.toJavaDateType().getDayOfMonth());
+    }
+
+    /**
+     * Executable datetime extract dayofweek
+     */
+    @ExecFunction(name = "dayofweek", argTypes = {"DATE"}, returnType = "INT")
+    public static IntegerLiteral dayOfWeek(DateLiteral date) {
+        return new IntegerLiteral(date.toJavaDateType().getDayOfWeek().getValue() % 7 + 1);
+    }
+
+    @ExecFunction(name = "dayofweek", argTypes = {"DATETIME"}, returnType = "INT")
+    public static IntegerLiteral dayOfWeek(DateTimeLiteral date) {
+        return new IntegerLiteral(date.toJavaDateType().getDayOfWeek().getValue() % 7 + 1);
+    }
+
+    @ExecFunction(name = "dayofweek", argTypes = {"DATEV2"}, returnType = "INT")
+    public static IntegerLiteral dayOfWeek(DateV2Literal date) {
+        return new IntegerLiteral(date.toJavaDateType().getDayOfWeek().getValue() % 7 + 1);
+    }
+
+    @ExecFunction(name = "dayofweek", argTypes = {"DATETIMEV2"}, returnType = "INT")
+    public static IntegerLiteral dayOfWeek(DateTimeV2Literal date) {
+        return new IntegerLiteral(date.toJavaDateType().getDayOfWeek().getValue() % 7 + 1);
+    }
+
+    /**
+     * Executable datetime extract week
+     */
+    @ExecFunction(name = "week", argTypes = {"DATE"}, returnType = "INT")
+    public static IntegerLiteral week(DateLiteral date) {
+        return weekOfYear(date.toJavaDateType(), 0);
+    }
+
+    @ExecFunction(name = "week", argTypes = {"DATE", "INT"}, returnType = "INT")
+    public static IntegerLiteral week(DateLiteral date, IntegerLiteral mode) {
+        return weekOfYear(date.toJavaDateType(), mode.getValue());
+    }
+
+    @ExecFunction(name = "week", argTypes = {"DATETIME"}, returnType = "INT")
+    public static IntegerLiteral week(DateTimeLiteral date) {
+        return weekOfYear(date.toJavaDateType(), 0);
+    }
+
+    @ExecFunction(name = "week", argTypes = {"DATETIME", "INT"}, returnType = "INT")
+    public static IntegerLiteral week(DateTimeLiteral date, IntegerLiteral mode) {
+        return weekOfYear(date.toJavaDateType(), mode.getValue());
+    }
+
+    @ExecFunction(name = "week", argTypes = {"DATEV2"}, returnType = "INT")
+    public static IntegerLiteral week(DateV2Literal date) {
+        return weekOfYear(date.toJavaDateType(), 0);
+    }
+
+    @ExecFunction(name = "week", argTypes = {"DATEV2", "INT"}, returnType = "INT")
+    public static IntegerLiteral week(DateV2Literal date, IntegerLiteral mode) {
+        return weekOfYear(date.toJavaDateType(), mode.getValue());
+    }
+
+    @ExecFunction(name = "week", argTypes = {"DATETIMEV2"}, returnType = "INT")
+    public static IntegerLiteral week(DateTimeV2Literal date) {
+        return weekOfYear(date.toJavaDateType(), 0);
+    }
+
+    @ExecFunction(name = "week", argTypes = {"DATETIMEV2", "INT"}, returnType = "INT")
+    public static IntegerLiteral week(DateTimeV2Literal date, IntegerLiteral mode) {
+        return weekOfYear(date.toJavaDateType(), mode.getValue());
+    }
+
+    private static IntegerLiteral weekOfYear(LocalDateTime date, int mode) {
+        if (mode < 0 || mode > 7) {
+            return null;
+        }
+        WeekFields fields;
+        switch (mode) {
+            case 0:
+                fields = WeekFields.of()
+                break;
+            case 1:
+                break;
+            case 2:
+                break;
+            case 3:
+                break;
+            case 4:
+                break;
+            case 5:
+                break;
+            case 6:
+                break;
+            case 7:
+                break;
+            default:
+                break;
+        }
     }
 }
