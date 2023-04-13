@@ -262,6 +262,7 @@ public class JdbcClient {
         String[] types = {"TABLE", "VIEW"};
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
+            String catalogName = conn.getCatalog();
             switch (dbType) {
                 case JdbcResource.MYSQL:
                     rs = databaseMetaData.getTables(dbName, null, null, types);
@@ -271,8 +272,10 @@ public class JdbcClient {
                 case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
                 case JdbcResource.SAP_HANA:
-                case JdbcResource.TRINO:
                     rs = databaseMetaData.getTables(null, dbName, null, types);
+                    break;
+                case JdbcResource.TRINO:
+                    rs = databaseMetaData.getTables(catalogName, dbName, null, types);
                     break;
                 default:
                     throw new JdbcClientException("Unknown database type");
