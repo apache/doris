@@ -28,6 +28,9 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+
 public class ExecutableFunctionsTest {
     private static final DateLiteral[] dateLiterals = new DateLiteral[] {
             new DateLiteral(1999, 5, 15),
@@ -67,26 +70,52 @@ public class ExecutableFunctionsTest {
             new VarcharLiteral("second")
     };
 
-    @Test
-    public void testGetDateFloor() {
-        Object[][] answers = new Object[][] {
-        };
+    private void testDateLiteralGroup(Object[] dateLikeLiteral, Class<? extends DateLiteral> dateType,
+            String funcName, Object[][] answers) throws Exception {
         int answerIdx = 0;
         for (IntegerLiteral literal : integerLiterals) {
-            for (int i = 0; i < dateTimeLiterals.length; ++i) {
-                for (int j = 0; j < dateTimeLiterals.length; ++j) {
-                    if (j != k) {
-                        Assertions.assertEquals(ExecutableFunctions.yearCeil(dateTimeLiterals[i]),
-                                answers[answerIdx][0]);
-                        Assertions.assertEquals(ExecutableFunctions.yearCeil(dateTimeLiterals[i], literal),
-                                answers[answerIdx][1]);
-                        Assertions.assertEquals(ExecutableFunctions.yearCeil(dateTimeLiterals[i], dateTimeLiterals[j]),
-                                answers[answerIdx][2]);
-                        Assertions.assertEquals(ExecutableFunctions.yearCeil(dateTimeLiterals[i], literal, dateTimeLiterals[j]),
-                                answers[answerIdx][2]);
+            for (int i = 0; i < dateLikeLiteral.length; ++i) {
+                for (int j = 0; j < dateLikeLiteral.length; ++j) {
+                    if (i != j) {
+                        Object o1 = dateLikeLiteral[i];
+                        Object o2 = dateLikeLiteral[j];
+                        Class<ExecutableFunctions> cls = ExecutableFunctions.class;
+                        Assertions.assertEquals(cls.getMethod(funcName, o1.getClass())
+                                .invoke(null, o1), answers[answerIdx][0]);
+                        Assertions.assertEquals(cls.getMethod(funcName, o1.getClass(), literal.getClass())
+                                .invoke(null, o1, literal), answers[answerIdx][1]);
+                        Assertions.assertEquals(cls.getMethod(funcName, o1.getClass(), o2.getClass())
+                                .invoke(null, o1, o2), answers[answerIdx][2]);
+                        Assertions.assertEquals(cls.getMethod(funcName, o1.getClass(), literal.getClass(), o2.getClass())
+                                .invoke(null, o1, literal, o2), answers[answerIdx][3]);
+                        answerIdx++;
                     }
                 }
             }
         }
+    }
+
+    private void testDateGroupFunction(Object[] dateLikeLiteral, Class<? extends DateLiteral> dateType,
+            Object[][][] answers) throws Exception {
+        int answerIdx = 0;
+        testDateLiteralGroup(dateLikeLiteral, dateType, "year_ceil", answers[answerIdx++]);
+        testDateLiteralGroup(dateLikeLiteral, dateType, "month_ceil", answers[answerIdx++]);
+        testDateLiteralGroup(dateLikeLiteral, dateType, "day_ceil", answers[answerIdx++]);
+        testDateLiteralGroup(dateLikeLiteral, dateType, "hour_ceil", answers[answerIdx++]);
+        testDateLiteralGroup(dateLikeLiteral, dateType, "minute_ceil", answers[answerIdx++]);
+        testDateLiteralGroup(dateLikeLiteral, dateType, "second_ceil", answers[answerIdx++]);
+        testDateLiteralGroup(dateLikeLiteral, dateType, "year_floor", answers[answerIdx++]);
+        testDateLiteralGroup(dateLikeLiteral, dateType, "month_floor", answers[answerIdx++]);
+        testDateLiteralGroup(dateLikeLiteral, dateType, "day_floor", answers[answerIdx++]);
+        testDateLiteralGroup(dateLikeLiteral, dateType, "hour_floor", answers[answerIdx++]);
+        testDateLiteralGroup(dateLikeLiteral, dateType, "minute_floor", answers[answerIdx++]);
+        testDateLiteralGroup(dateLikeLiteral, dateType, "second_floor", answers[answerIdx]);
+    }
+
+    @Test
+    public void testDateCeilAndFloor() throws Exception {
+        testDateGroupFunction(dateTimeLiterals, DateTimeLiteral.class, null);
+        testDateGroupFunction(dateV2Literals, DateV2Literal.class, null);
+        testDateGroupFunction(dateTimeV2Literals, DateTimeV2Literal.class, null);
     }
 }
