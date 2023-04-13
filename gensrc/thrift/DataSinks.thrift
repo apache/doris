@@ -162,7 +162,10 @@ struct TMultiCastDataStreamSink {
 
 struct TResultSink {
     1: optional TResultSinkType type;
-    2: optional TResultFileSinkOptions file_options // deprecated
+    2: optional TResultFileSinkOptions file_options; // deprecated
+    3: optional bool use_two_phase_fetch;
+    // Nodes in this cluster, used for second phase fetch
+    4: optional Descriptors.TPaloNodesInfo nodes_info;
 }
 
 struct TResultFileSink {

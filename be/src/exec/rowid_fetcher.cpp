@@ -52,6 +52,7 @@
 namespace doris {
 
 Status RowIDFetcher::init(DorisNodesInfo* nodes_info) {
+    CHECK(!nodes_info->nodes_info().empty());
     for (auto [node_id, node_info] : nodes_info->nodes_info()) {
         auto client = ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
                 node_info.host, node_info.brpc_port);
@@ -147,6 +148,7 @@ Status RowIDFetcher::fetch(const vectorized::ColumnPtr& row_ids,
         auto location = reinterpret_cast<const GlobalRowLoacation*>(row_ids->get_data_at(x).data);
         res_block->add_row(&tmp, row_order[format_rowid(*location)]);
     }
+    LOG(INFO) << "dump block " << res_block->dump_data();
     return Status::OK();
 }
 

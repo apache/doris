@@ -25,6 +25,8 @@
 
 #include "common/config.h"
 #include "common/object_pool.h"
+#include "common/consts.h"
+#include "exec/rowid_fetcher.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/exec_env.h"
 #include "runtime/result_buffer_mgr.h"
@@ -32,6 +34,7 @@
 #include "util/runtime_profile.h"
 #include "util/telemetry/telemetry.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/sink/vmysql_result_writer.h"
 #include "vec/sink/vresult_writer.h"
 
@@ -51,7 +54,10 @@ VResultSink::VResultSink(const RowDescriptor& row_desc, const std::vector<TExpr>
     } else {
         _sink_type = sink.type;
     }
-
+    if (sink.__isset.nodes_info) {
+        _nodes_info.setNodes(sink.nodes_info);
+    }
+    _use_two_phase_read = sink.__isset.use_two_phase_fetch && sink.use_two_phase_fetch;
     _name = "ResultSink";
 }
 
@@ -61,6 +67,12 @@ Status VResultSink::prepare_exprs(RuntimeState* state) {
     // From the thrift expressions create the real exprs.
     RETURN_IF_ERROR(
             VExpr::create_expr_trees(state->obj_pool(), _t_output_expr, &_output_vexpr_ctxs));
+    if (_use_two_phase_read) {
+        for (VExprContext* expr_ctx : _output_vexpr_ctxs) {
+            // Must materialize if it a slot, or the slot column id will be -1
+            expr_ctx->set_force_materialize_slot();
+        }
+    }
     // Prepare the exprs to run.
     RETURN_IF_ERROR(VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
     return Status::OK();
@@ -100,8 +112,26 @@ Status VResultSink::open(RuntimeState* state) {
     return VExpr::open(_output_vexpr_ctxs, state);
 }
 
+Status VResultSink::second_phase_fetch_data(RuntimeState* state, Block* final_block) {
+    auto row_id_col = final_block->get_by_position(final_block->columns() - 1);
+    auto tuple_desc = _row_desc.tuple_descriptors()[0];
+    RowIDFetcher id_fetcher(tuple_desc, state);
+    RETURN_IF_ERROR(id_fetcher.init(&_nodes_info));
+    MutableBlock materialized_block(_row_desc.tuple_descriptors(), final_block->rows());
+    // fetch will sort block by sequence of ROWID_COL
+    RETURN_IF_ERROR(id_fetcher.fetch(row_id_col.column, &materialized_block));
+    // Notice swap may change the structure of final_block
+    final_block->swap(materialized_block.to_block());
+    return Status::OK();
+}
+
 Status VResultSink::send(RuntimeState* state, Block* block, bool eos) {
     INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VResultSink::send");
+    // The memory consumption in the process of sending the results is not check query memory limit.
+    // Avoid the query being cancelled when the memory limit is reached after the query result comes out.
+    if (_use_two_phase_read && block->rows() > 0) {
+        second_phase_fetch_data(state, block);
+    }
     return _writer->append_block(*block);
 }
 

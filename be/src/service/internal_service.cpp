@@ -101,6 +101,10 @@
 #include "util/time.h"
 #include "util/uid_util.h"
 #include "vec/columns/column.h"
+<<<<<<< HEAD
+=======
+#include "vec/columns/column_string.h"
+>>>>>>> 86f5cd1532 ([WIP](row store) two phase opt read row store)
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
@@ -109,6 +113,7 @@
 #include "vec/exec/format/json/new_json_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
+#include "vec/jsonb/serialize.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 
 namespace google {
@@ -1417,12 +1422,13 @@ void PInternalServiceImpl::response_slave_tablet_pull_rowset(
 static Status read_by_rowids(
         std::pair<size_t, size_t> row_range_idx, const TupleDescriptor& desc,
         const google::protobuf::RepeatedPtrField<PMultiGetRequest_RowId>& rowids,
-        vectorized::Block* sub_block) {
+        vectorized::Block* sub_block, vectorized::MutableColumnPtr& row_id_col) {
+    OlapReaderStatistics stats;
     //read from row_range.first to row_range.second
     for (size_t i = row_range_idx.first; i < row_range_idx.second; ++i) {
         MonotonicStopWatch watch;
         watch.start();
-        auto row_id = rowids[i];
+        const auto& row_id = rowids[i];
         TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
                 row_id.tablet_id(), true /*include deleted*/);
         RowsetId rowset_id;
@@ -1452,6 +1458,20 @@ static Status read_by_rowids(
             continue;
         }
         segment_v2::SegmentSharedPtr segment = *it;
+        Defer _defer([&]() {
+            LOG_EVERY_N(INFO, 100)
+                    << "multiget_data single_row, cost(us):" << watch.elapsed_time() / 1000;
+            GlobalRowLoacation row_location(row_id.tablet_id(), rowset->rowset_id(),
+                                            row_id.segment_id(), row_id.ordinal_id());
+            row_id_col->insert_data(reinterpret_cast<const char*>(&row_location),
+                                    sizeof(GlobalRowLoacation));
+        });
+        if (tablet->tablet_schema()->store_row_column()) {
+            // faster path to utilize row store
+            RowLocation loc(rowset_id, segment->id(), row_id.ordinal_id());
+            RETURN_IF_ERROR(tablet->lookup_row_data({}, loc, rowset, &desc, stats, sub_block));
+            continue;
+        }
         for (int x = 0; x < desc.slots().size() - 1; ++x) {
             int index = tablet_schema->field_index(desc.slots()[x]->col_unique_id());
             segment_v2::ColumnIterator* column_iterator = nullptr;
@@ -1475,12 +1495,6 @@ static Status read_by_rowids(
                     static_cast<segment_v2::rowid_t>(row_id.ordinal_id())};
             RETURN_IF_ERROR(column_iterator->read_by_rowids(rowids.data(), 1, column));
         }
-        LOG_EVERY_N(INFO, 100) << "multiget_data single_row, cost(us):"
-                               << watch.elapsed_time() / 1000;
-        GlobalRowLoacation row_location(row_id.tablet_id(), rowset->rowset_id(),
-                                        row_id.segment_id(), row_id.ordinal_id());
-        sub_block->get_columns().back()->assume_mutable()->insert_data(
-                reinterpret_cast<const char*>(&row_location), sizeof(GlobalRowLoacation));
     }
     return Status::OK();
 }
@@ -1496,8 +1510,10 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest* request,
     }
     assert(desc.slots().back()->col_name() == BeConsts::ROWID_COL);
     vectorized::Block block(desc.slots(), request->rowids().size());
-    RETURN_IF_ERROR(
-            read_by_rowids(std::pair {0, request->rowids_size()}, desc, request->rowids(), &block));
+    vectorized::MutableColumnPtr row_id_col = vectorized::ColumnString::create();
+    RETURN_IF_ERROR(read_by_rowids(std::pair {0, request->rowids_size()}, desc, request->rowids(),
+                                   &block, row_id_col));
+    block.replace_by_position(block.columns() - 1, row_id_col->get_ptr());
     std::vector<size_t> char_type_idx;
     for (size_t i = 0; i < desc.slots().size(); i++) {
         auto column_desc = desc.slots()[i];

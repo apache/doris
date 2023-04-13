@@ -17,10 +17,15 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TNodeInfo;
+import org.apache.doris.thrift.TPaloNodesInfo;
 import org.apache.doris.thrift.TResultSink;
 
 /**
@@ -30,6 +35,7 @@ import org.apache.doris.thrift.TResultSink;
  */
 public class ResultSink extends DataSink {
     private final PlanNodeId exchNodeId;
+    private boolean useTwoPhaseFetch = false;
 
     public ResultSink(PlanNodeId exchNodeId) {
         this.exchNodeId = exchNodeId;
@@ -46,11 +52,19 @@ public class ResultSink extends DataSink {
         return strBuilder.toString();
     }
 
+    public void setUseTwoPhaseReadOpt(boolean use) {
+        useTwoPhaseFetch = use;
+    }
+
     @Override
     protected TDataSink toThrift() {
         TDataSink result = new TDataSink(TDataSinkType.RESULT_SINK);
         TResultSink tResultSink = new TResultSink();
+        tResultSink.setUseTwoPhaseFetch(useTwoPhaseFetch);
         result.setResultSink(tResultSink);
+        if (useTwoPhaseFetch) {
+            tResultSink.setNodesInfo(createNodesInfo());
+        }
         return result;
     }
 
@@ -62,5 +76,19 @@ public class ResultSink extends DataSink {
     @Override
     public DataPartition getOutputPartition() {
         return null;
+    }
+
+    /**
+    * Set the parameters used to fetch data by rowid column
+    * after init().
+    */
+    private TPaloNodesInfo createNodesInfo() {
+        TPaloNodesInfo nodesInfo = new TPaloNodesInfo();
+        SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
+        for (Long id : systemInfoService.getBackendIds(true /*need alive*/)) {
+            Backend backend = systemInfoService.getBackend(id);
+            nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getIp(), backend.getBrpcPort()));
+        }
+        return nodesInfo;
     }
 }
