@@ -1,7 +1,7 @@
 ---
 {
     "title": "array_last",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -13,7 +13,9 @@ regarding copyright ownership.  The ASF licenses this file
 to you under the Apache License, Version 2.0 (the
 "License"); you may not use this file except in compliance
 with the License.  You may obtain a copy of the License at
+
   http://www.apache.org/licenses/LICENSE-2.0
+
 Unless required by applicable law or agreed to in writing,
 software distributed under the License is distributed on an
 "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -31,7 +33,7 @@ array_last
 </version>
 
 ### description
-返回数组中的最后一个func(arr1[i])值不为0的元素。当数组中所有元素进行func(arr1[i])都为0时，结果返回`NULL`值。
+Returns the last element in the array for which func(arr1[i]) returns something other than 0.
 
 #### Syntax
 
@@ -39,11 +41,11 @@ array_last
 T array_last(lambda, ARRAY<T>)
 ```
 
-使用一个lambda表达式和一个ARRAY作为输入参数，lambda表达式为布尔型，用于对ARRAY中的每个元素进行判断返回值。
+Use a lambda bool expression and an array as the input parameters, the lambda expression is used to evaluate the internal data of other input ARRAY parameters.
 
 ### notice
 
-`仅支持向量化引擎中使用`
+`Only supported in vectorized engine`
 
 ### example
 
