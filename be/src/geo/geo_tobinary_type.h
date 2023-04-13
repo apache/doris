@@ -14,40 +14,34 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-
 #pragma once
-
-#include <ostream>
-#include <string>
+#include <memory>
 
 namespace doris {
 
-enum GeoShapeType {
-    GEO_SHAPE_ANY = 0,
-    GEO_SHAPE_POINT = 1,
-    GEO_SHAPE_LINE_STRING = 2,
-    GEO_SHAPE_POLYGON = 3,
-    GEO_SHAPE_MULTI_POINT = 4,
-    GEO_SHAPE_MULTI_LINE_STRING = 5,
-    GEO_SHAPE_MULTI_POLYGON = 6,
-    GEO_SHAPE_CIRCLE = 7,
+enum byteOrder { wkbXDR = 0, wkbNDR = 1 };
+
+enum wkbType {
+    wkbPoint = 1,
+    wkbLine = 2,
+    wkbPolygon = 3,
+    wkbMultiPoint = 4,
+    wkbMultiLineString = 5,
+    wkbMultiPolygon = 6,
+    wkbGeometryCollection = 7
 };
 
-enum GeoParseStatus {
-    GEO_PARSE_OK = 0,
-    GEO_PARSE_COORD_INVALID = 1,
-    GEO_PARSE_LOOP_NOT_CLOSED = 2,
-    GEO_PARSE_LOOP_LACK_VERTICES = 3,
-    GEO_PARSE_LOOP_INVALID = 4,
-    GEO_PARSE_POLYGON_NOT_HOLE = 5,
-    GEO_PARSE_POLYLINE_LACK_VERTICES = 6,
-    GEO_PARSE_POLYLINE_INVALID = 7,
-    GEO_PARSE_CIRCLE_INVALID = 8,
-    GEO_PARSE_WKT_SYNTAX_ERROR = 9,
-    GEO_PARSE_WKB_SYNTAX_ERROR = 10,
-};
-
-std::string to_string(GeoParseStatus status);
-std::ostream& operator<<(std::ostream& os, GeoParseStatus status);
+const int SRID = 4326;
 
 } // namespace doris
+
+struct ToBinaryContext {
+    // WKBConstants::wkbwkbXDR | WKBConstants::wkbNDR
+    int byteOrder;
+    //Ewkb format：true ｜ false
+    bool isEwkb;
+
+    unsigned char buf[8];
+
+    std::ostream* outStream;
+};
