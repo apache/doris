@@ -27,16 +27,9 @@
 #include <limits>
 #include <vector>
 
+#include "util/sse_util.hpp"
 #include "vec/common/string_ref.h"
 #include "vec/common/string_utils/string_utils.h"
-
-#ifdef __SSE2__
-#include <emmintrin.h>
-#endif
-
-#ifdef __SSE4_1__
-#include <smmintrin.h>
-#endif
 
 namespace doris {
 
@@ -51,7 +44,7 @@ namespace doris {
 class StringSearcherBase {
 public:
     bool force_fallback = false;
-#ifdef __SSE2__
+#if defined(__SSE2__) || defined(__aarch64__)
 protected:
     static constexpr auto n = sizeof(__m128i);
     const int page_size = sysconf(_SC_PAGESIZE); //::getPageSize();
@@ -76,7 +69,7 @@ private:
     /// first character in `needle`
     uint8_t first {};
 
-#ifdef __SSE4_1__
+#if defined(__SSE4_1__) || defined(__aarch64__)
     uint8_t second {};
     /// vector filled `first` or `second` for determining leftmost position of the first and second symbols
     __m128i first_pattern;
@@ -96,7 +89,7 @@ public:
 
         first = *needle;
 
-#ifdef __SSE4_1__
+#if defined(__SSE4_1__) || defined(__aarch64__)
         first_pattern = _mm_set1_epi8(first);
         if (needle + 1 < needle_end) {
             second = *(needle + 1);
@@ -149,7 +142,7 @@ public:
 private:
     ALWAYS_INLINE bool _compare(uint8_t* /*haystack*/, uint8_t* /*haystack_end*/,
                                 uint8_t* pos) const {
-#ifdef __SSE4_1__
+#if defined(__SSE4_1__) || defined(__aarch64__)
         if (needle_end - needle > n && page_safe(pos)) {
             const auto v_haystack = _mm_loadu_si128(reinterpret_cast<const __m128i*>(pos));
             const auto v_against_cache = _mm_cmpeq_epi8(v_haystack, cache);
@@ -187,7 +180,7 @@ private:
         if (needle == needle_end) return haystack;
 
         const auto needle_size = needle_end - needle;
-#ifdef __SSE4_1__
+#if defined(__SSE4_1__) || defined(__aarch64__)
         /// Here is the quick path when needle_size is 1.
         if (needle_size == 1) {
             while (haystack < haystack_end) {
@@ -221,7 +214,7 @@ private:
 #endif
 
         while (haystack < haystack_end && haystack_end - haystack >= needle_size) {
-#ifdef __SSE4_1__
+#if defined(__SSE4_1__) || defined(__aarch64__)
             if ((haystack + 1 + n) <= haystack_end && page_safe(haystack)) {
                 /// find first and second characters
                 const auto v_haystack_block_first =

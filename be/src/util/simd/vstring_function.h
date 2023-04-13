@@ -23,11 +23,8 @@
 #include <cstddef>
 #include <cstdint>
 
-#ifdef __aarch64__
-#include <sse2neon.h>
-#endif
-
 #include "util/simd/lower_upper_impl.h"
+#include "util/sse_util.hpp"
 #include "vec/common/string_ref.h"
 
 namespace doris {

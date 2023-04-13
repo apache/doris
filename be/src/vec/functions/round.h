@@ -22,8 +22,8 @@
 
 #include "vec/columns/column_const.h"
 #include "vec/columns/columns_number.h"
-#ifdef __SSE4_1__
-#include <smmintrin.h>
+#if defined(__SSE4_1__) || defined(__aarch64__)
+#include "util/sse_util.hpp"
 #else
 #include <fenv.h>
 #endif
@@ -42,7 +42,7 @@ enum class ScaleMode {
 };
 
 enum class RoundingMode {
-#ifdef __SSE4_1__
+#if defined(__SSE4_1__) || defined(__aarch64__)
     Round = _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC,
     Floor = _MM_FROUND_TO_NEG_INF | _MM_FROUND_NO_EXC,
     Ceil = _MM_FROUND_TO_POS_INF | _MM_FROUND_NO_EXC,
@@ -176,7 +176,7 @@ public:
     }
 };
 
-#ifdef __SSE4_1__
+#if defined(__SSE4_1__) || defined(__aarch64__)
 
 template <typename T>
 class BaseFloatRoundingComputation;
@@ -542,7 +542,7 @@ public:
             return false;
         };
 
-#if !defined(__SSE4_1__)
+#if !defined(__SSE4_1__) && !defined(__aarch64__)
         /// In case of "nearbyint" function is used, we should ensure the expected rounding mode for the Banker's rounding.
         /// Actually it is by default. But we will set it just in case.
 
