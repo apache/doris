@@ -1467,7 +1467,7 @@ static Status read_by_rowids(
                                     sizeof(GlobalRowLoacation));
         });
         if (tablet->tablet_schema()->store_row_column()) {
-            // faster path to utilize row store
+            // Faster path to utilize row store
             RowLocation loc(rowset_id, segment->id(), row_id.ordinal_id());
             RETURN_IF_ERROR(tablet->lookup_row_data({}, loc, rowset, &desc, stats, sub_block));
             continue;

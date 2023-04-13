@@ -774,7 +774,7 @@ public class SelectStmt extends QueryStmt {
         } else {
             // case2: optimize scan utilize row store column, query like select * from tbl where xxx [limit xxx]
             // TODO: check colum count
-            return olapTable.storeRowColumn();
+            return olapTable.storeRowColumn() && !fromInsert;
         }
         // return false;
     }
