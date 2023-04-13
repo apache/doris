@@ -46,7 +46,6 @@ CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader
         : _remote_file_reader(std::move(remote_file_reader)) {
     _cache_key = IFileCache::hash(cache_path);
     _cache = FileCacheFactory::instance().get_by_path(_cache_key);
-    _disposable_cache = FileCacheFactory::instance().get_disposable_cache(_cache_key);
 }
 
 CachedRemoteFileReader::~CachedRemoteFileReader() {
@@ -87,24 +86,11 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         *bytes_read = 0;
         return Status::OK();
     }
-    CloudFileCachePtr cache = io_ctx->use_disposable_cache ? _disposable_cache : _cache;
-    // cache == nullptr since use_disposable_cache = true and don't set  disposable cache in conf
-    if (cache == nullptr) {
-        return _remote_file_reader->read_at(offset, result, bytes_read, io_ctx);
-    }
     ReadStatistics stats;
-    // if state == nullptr, the method is called for read footer
-    // if state->read_segment_index, read all the end of file
-    size_t align_left = offset, align_size = size() - offset;
-    if (!io_ctx->read_segment_index) {
-        auto pair = _align_size(offset, bytes_req);
-        align_left = pair.first;
-        align_size = pair.second;
-    }
-    bool is_persistent = io_ctx->is_persistent;
-    TUniqueId query_id = io_ctx->query_id ? *(io_ctx->query_id) : TUniqueId();
+    auto [align_left, align_size] = _align_size(offset, bytes_req);
+    CacheContext cache_context(io_ctx);
     FileBlocksHolder holder =
-            cache->get_or_set(_cache_key, align_left, align_size, is_persistent, query_id);
+            _cache->get_or_set(_cache_key, align_left, align_size, cache_context);
     std::vector<FileBlockSPtr> empty_segments;
     for (auto& segment : holder.file_segments) {
         switch (segment->state()) {

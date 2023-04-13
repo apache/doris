@@ -898,9 +898,8 @@ CONF_Bool(enable_index_apply_preds_except_leafnode_of_andnode, "true");
 
 // block file cache
 CONF_Bool(enable_file_cache, "false");
-// format: [{"path":"/path/to/file_cache","normal":21474836480,"persistent":10737418240,"query_limit":10737418240}]
+// format: [{"path":"/mnt/disk3/selectdb_cloud/file_cache","total_size":21474836480,"query_limit":10737418240}]
 CONF_String(file_cache_path, "");
-CONF_String(disposable_file_cache_path, "");
 CONF_Int64(file_cache_max_file_segment_size, "4194304"); // 4MB
 CONF_Validator(file_cache_max_file_segment_size,
                [](const int64_t config) -> bool { return config >= 4096; }); // 4KB
