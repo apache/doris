@@ -510,7 +510,7 @@ void RPCFnImpl::_convert_block_to_proto(Block& block, const ColumnNumbers& argum
         arg->set_has_null(column.column->has_null(row_count));
         auto col = column.column->convert_to_full_column_if_const();
         auto type = arg->mutable_type();
-        type->set_id(column.type->get_pdata_type(column.type.get()));
+        type->set_id(IDataType::get_pdata_type(column.type.get()));
         column.type->get_serde()->write_column_to_pb(*col, *arg, 0, row_count);
     }
 }

@@ -20,11 +20,15 @@ namespace doris {
 
 namespace vectorized {
 
-class DataTypeFixdLengthObjectSerDe : public DataTypeSerDe {
+class DataTypeFixedLengthObjectSerDe : public DataTypeSerDe {
 public:
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
-                              int end) const override;
-    Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
+                              int end) const override {
+        LOG(FATAL) << "Not support write FixedLengthObject column to pb";
+    }
+    Status read_column_from_pb(IColumn& column, const PValues& arg) const override {
+        LOG(FATAL) << "Not support read from pb to FixedLengthObject";
+    };
 };
 } // namespace vectorized
 } // namespace doris

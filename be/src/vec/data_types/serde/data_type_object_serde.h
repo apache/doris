@@ -22,8 +22,13 @@ namespace vectorized {
 
 class DataTypeObjectSerDe : public DataTypeSerDe {
 public:
-    Status write_column_to_pb(const IColumn& column, PValues& result, int start, int end) const;
-    Status read_column_from_pb(IColumn& column, const PValues& arg) const;
+    Status write_column_to_pb(const IColumn& column, PValues& result, int start,
+                              int end) const override {
+        LOG(FATAL) << "Not support write object column to pb";
+    }
+    Status read_column_from_pb(IColumn& column, const PValues& arg) const override {
+        LOG(FATAL) << "Not support read from pb to object";
+    }
 };
 } // namespace vectorized
 } // namespace doris

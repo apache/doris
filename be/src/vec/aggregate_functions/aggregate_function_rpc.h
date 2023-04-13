@@ -153,7 +153,7 @@ public:
             PValues* arg = request.add_args();
             auto ptype = arg->mutable_type();
             auto data_type = argument_types[i];
-            ptype->set_id(data_type->get_pdata_type(data_type.get()));
+            ptype->set_id(IDataType::get_pdata_type(data_type.get()));
             if (auto st = data_type->get_serde()->write_column_to_pb(*columns[i], *arg, start, end);
                 st != Status::OK()) {
                 return st;

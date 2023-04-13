@@ -63,7 +63,7 @@ public:
     bool is_categorial() const override { return is_value_represented_by_integer(); }
     bool can_be_inside_low_cardinality() const override { return false; }
     DataTypeSerDeSPtr get_serde() const override {
-        return std::make_shared<DataTypeFixdLengthObjectSerDe>();
+        return std::make_shared<DataTypeFixedLengthObjectSerDe>();
     };
 };
 

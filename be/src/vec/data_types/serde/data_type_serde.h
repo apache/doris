@@ -37,18 +37,14 @@ namespace vectorized {
 
 class DataTypeSerDe {
 public:
-    DataTypeSerDe() = default;
-    virtual ~DataTypeSerDe() = default;
+    DataTypeSerDe();
+    virtual ~DataTypeSerDe();
 
     // Protobuf serializer and deserializer
     virtual Status write_column_to_pb(const IColumn& column, PValues& result, int start,
-                                      int end) const {
-        LOG(FATAL) << "Not support write << " << column.get_name() << "column to pb ";
-    }
+                                      int end) const = 0;
 
-    virtual Status read_column_from_pb(IColumn& column, const PValues& arg) const {
-        LOG(FATAL) << "Not support read from pb to " << column.get_name();
-    }
+    virtual Status read_column_from_pb(IColumn& column, const PValues& arg) const = 0;
 
     // MySQL serializer and deserializer
 

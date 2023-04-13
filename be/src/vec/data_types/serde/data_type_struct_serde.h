@@ -25,8 +25,13 @@ public:
     DataTypeStructSerDe(const DataTypeSerDeSPtrs& _elemSerDeSPtrs)
             : elemSerDeSPtrs(_elemSerDeSPtrs) {}
 
-    Status write_column_to_pb(const IColumn& column, PValues& result, int start, int end) const;
-    Status read_column_from_pb(IColumn& column, const PValues& arg) const;
+    Status write_column_to_pb(const IColumn& column, PValues& result, int start,
+                              int end) const override {
+        LOG(FATAL) << "Not support write struct column to pb";
+    }
+    Status read_column_from_pb(IColumn& column, const PValues& arg) const override {
+        LOG(FATAL) << "Not support read from pb to strut";
+    }
 
 private:
     DataTypeSerDeSPtrs elemSerDeSPtrs;

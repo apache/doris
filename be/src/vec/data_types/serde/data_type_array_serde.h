@@ -24,8 +24,13 @@ class DataTypeArraySerDe : public DataTypeSerDe {
 public:
     DataTypeArraySerDe(const DataTypeSerDeSPtr& _nested_serde) : nested_serde(_nested_serde) {}
 
-    Status write_column_to_pb(const IColumn& column, PValues& result, int start, int end) const;
-    Status read_column_from_pb(IColumn& column, const PValues& arg) const;
+    Status write_column_to_pb(const IColumn& column, PValues& result, int start,
+                              int end) const override {
+        LOG(FATAL) << "Not support write array column to pb";
+    }
+    Status read_column_from_pb(IColumn& column, const PValues& arg) const override {
+        LOG(FATAL) << "Not support read from pb to array";
+    }
 
 private:
     DataTypeSerDeSPtr nested_serde;

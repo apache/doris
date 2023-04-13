@@ -18,7 +18,5 @@
 #include "data_type_quantilestate_serde.h"
 namespace doris {
 
-namespace vectorized {
-
-} // namespace vectorized
+namespace vectorized {} // namespace vectorized
 } // namespace doris

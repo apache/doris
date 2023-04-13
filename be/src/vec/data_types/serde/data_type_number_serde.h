@@ -27,7 +27,7 @@ class DataTypeNumberSerDe : public DataTypeSerDe {
     static_assert(IsNumber<T>);
 
 public:
-    using ColumnType = ColumnVector<T>; 
+    using ColumnType = ColumnVector<T>;
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override;
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override;

@@ -24,13 +24,13 @@
 
 #include "common/config.h"
 #include "runtime/define_primitive_type.h"
+#include "serde/data_type_decimal_serde.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/common/arithmetic_overflow.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number.h"
-#include "serde/data_type_decimal_serde.h"
 
 namespace doris::vectorized {
 

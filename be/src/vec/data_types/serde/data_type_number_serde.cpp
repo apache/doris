@@ -18,6 +18,5 @@
 #include "data_type_number_serde.h"
 
 namespace doris {
-namespace vectorized {
-} // namespace vectorized
+namespace vectorized {} // namespace vectorized
 } // namespace doris

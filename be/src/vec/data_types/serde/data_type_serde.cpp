@@ -15,3 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 #include "data_type_serde.h"
+
+namespace doris {
+namespace vectorized {
+DataTypeSerDe::DataTypeSerDe() {}
+DataTypeSerDe::~DataTypeSerDe() {}
+} // namespace vectorized
+} // namespace doris
