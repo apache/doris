@@ -250,6 +250,7 @@ fi
 if [[ ! -f "${DORIS_HOME}/be/src/apache-orc/README.md " ]]; then
     echo "apache-orc not exists, need to update submodules ..."
     set +e
+    cd "${DORIS_HOME}"
     git submodule update --init --recursive
     exit_code=$?
     set -e
