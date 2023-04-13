@@ -77,7 +77,6 @@ public class ExportMgr extends MasterDaemon {
     public ExportMgr() {
         int poolSize = Config.export_running_job_num_limit == 0 ? 5 : Config.export_running_job_num_limit;
         exportingExecutor = new MasterTaskExecutor("export-exporting-job", poolSize, true);
-        exportingExecutor.start();
     }
 
     public void readLock() {
@@ -94,6 +93,12 @@ public class ExportMgr extends MasterDaemon {
 
     private void writeUnlock() {
         lock.writeLock().unlock();
+    }
+
+    @Override
+    public synchronized void start() {
+        super.start();
+        exportingExecutor.start();
     }
 
     @Override

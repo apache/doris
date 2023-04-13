@@ -78,7 +78,7 @@ public class ExportStmt extends StatementBase {
 
     private String format;
 
-    private String lable;
+    private String label;
 
     private String maxFileSize;
     private SessionVariable sessionVariables;
@@ -142,7 +142,7 @@ public class ExportStmt extends StatementBase {
     }
 
     public String getLabel() {
-        return lable;
+        return label;
     }
 
     public SessionVariable getSessionVariables() {
@@ -350,7 +350,7 @@ public class ExportStmt extends StatementBase {
             String label = "export_" + UUID.randomUUID();
             properties.put(LABEL, label);
         }
-        lable = properties.get(LABEL);
+        label = properties.get(LABEL);
     }
 
     @Override

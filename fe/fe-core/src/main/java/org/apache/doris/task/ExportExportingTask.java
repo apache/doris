@@ -215,12 +215,12 @@ public class ExportExportingTask extends MasterTask {
             return;
         }
 
-        // make snapshots
-        Status snapshotStatus = makeSnapshots();
-        if (!snapshotStatus.ok()) {
-            job.cancel(ExportFailMsg.CancelType.RUN_FAIL, snapshotStatus.getErrorMsg());
-            return;
-        }
+        // TODO(ftw): when we implement exporting tablet one by one, we should makeSnapshots here
+        // Status snapshotStatus = makeSnapshots();
+        // if (!snapshotStatus.ok()) {
+        //     job.cancel(ExportFailMsg.CancelType.RUN_FAIL, snapshotStatus.getErrorMsg());
+        //     return;
+        // }
 
         if (job.updateState(ExportJob.JobState.EXPORTING)) {
             LOG.info("Exchange pending status to exporting status success. job: {}", job);
