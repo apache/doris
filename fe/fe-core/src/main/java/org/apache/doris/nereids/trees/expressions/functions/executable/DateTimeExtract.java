@@ -247,13 +247,13 @@ public class DateTimeExtract {
         } else if (mode == 1) {
             fields = WeekFields.of(DayOfWeek.MONDAY, 4);
         } else if (mode == 2) {
-            fields = WeekFields.of(DayOfWeek.SUNDAY, 0);
+            fields = WeekFields.of(DayOfWeek.SUNDAY, 7);
         } else if (mode == 3) {
             fields = WeekFields.of(DayOfWeek.MONDAY, 4);
         } else if (mode == 4) {
             fields = WeekFields.of(DayOfWeek.SUNDAY, 4);
         } else if (mode == 5) {
-            fields = WeekFields.of(DayOfWeek.MONDAY, 0);
+            fields = WeekFields.of(DayOfWeek.MONDAY, 7);
         } else if (mode == 6) {
             fields = WeekFields.of(DayOfWeek.SUNDAY, 4);
         } else {
