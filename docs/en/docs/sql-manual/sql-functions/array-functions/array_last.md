@@ -68,4 +68,4 @@ mysql> select array_last(x->x>4, [1,2,3,0]) ;
 
 ### keywords
 
-ARRAY, ARRAY_LAST
+ARRAY, LAST, ARRAY_LAST
