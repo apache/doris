@@ -48,47 +48,7 @@ public class DateFunction {
         return new DateLiteral(dateTime.getYear(), dateTime.getMonth(), dateTime.getDay());
     }
 
-    /**
-     * datetime arithmetic function datediff
-     */
-    @ExecFunction(name = "datediff", argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "INT")
-    public static IntegerLiteral dateDiff(DateTimeV2Literal date1, DateTimeV2Literal date2) {
-        return new IntegerLiteral(dateDiff(date1.getYear(), date1.getMonth(), date1.getDay(),
-                date2.getYear(), date2.getMonth(), date2.getDay()));
-    }
 
-    @ExecFunction(name = "datediff", argTypes = {"DATEV2", "DATEV2"}, returnType = "INT")
-    public static IntegerLiteral dateDiff(DateV2Literal date1, DateV2Literal date2) {
-        return new IntegerLiteral(dateDiff(date1.getYear(), date1.getMonth(), date1.getDay(),
-                date2.getYear(), date2.getMonth(), date2.getDay()));
-    }
-
-    @ExecFunction(name = "datediff", argTypes = {"DATETIMEV2", "DATEV2"}, returnType = "INT")
-    public static IntegerLiteral dateDiff(DateTimeV2Literal date1, DateV2Literal date2) {
-        return new IntegerLiteral(dateDiff(date1.getYear(), date1.getMonth(), date1.getDay(),
-                date2.getYear(), date2.getMonth(), date2.getDay()));
-    }
-
-    @ExecFunction(name = "datediff", argTypes = {"DATEV2", "DATETIMEV2"}, returnType = "INT")
-    public static IntegerLiteral dateDiff(DateV2Literal date1, DateTimeV2Literal date2) {
-        return new IntegerLiteral(dateDiff(date1.getYear(), date1.getMonth(), date1.getDay(),
-                date2.getYear(), date2.getMonth(), date2.getDay()));
-    }
-
-    @ExecFunction(name = "datediff", argTypes = {"DATETIME", "DATETIME"}, returnType = "INT")
-    public static IntegerLiteral dateDiff(DateTimeLiteral date1, DateTimeLiteral date2) {
-        return new IntegerLiteral(dateDiff(date1.getYear(), date1.getMonth(), date1.getDay(),
-                date2.getYear(), date2.getMonth(), date2.getDay()));
-    }
-
-    private static int dateDiff(long year1, long month1, long day1, long year2, long month2, long day2) {
-        Calendar calendar = Calendar.getInstance();
-        calendar.set(((int) year1), ((int) month1), ((int) day1));
-        long time1 = calendar.getTimeInMillis();
-        calendar.set(((int) year2), ((int) month2), ((int) day2));
-        long time2 = calendar.getTimeInMillis();
-        return ((int) ((time1 - time2) / (1000 * 3600 * 24)));
-    }
 
     /**
      * datetime arithmetic function date-format

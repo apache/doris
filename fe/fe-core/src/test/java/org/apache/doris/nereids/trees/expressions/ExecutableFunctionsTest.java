@@ -28,9 +28,6 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
-
 public class ExecutableFunctionsTest {
     private static final DateLiteral[] dateLiterals = new DateLiteral[] {
             new DateLiteral(1999, 5, 15),

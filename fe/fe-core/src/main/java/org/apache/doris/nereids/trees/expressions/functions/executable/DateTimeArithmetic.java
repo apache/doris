@@ -25,9 +25,12 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 
+import java.time.LocalDateTime;
+import java.util.Calendar;
+
 /**
  * executable function:
- * date_add/sub, years/months/days/hours/minutes/seconds_add/sub
+ * date_add/sub, years/months/days/hours/minutes/seconds_add/sub, datediff
  */
 public class DateTimeArithmetic {
     /**
@@ -290,5 +293,42 @@ public class DateTimeArithmetic {
     @ExecFunction(name = "seconds_sub", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
     public static DateTimeV2Literal secondsSub(DateTimeV2Literal date, IntegerLiteral second) throws AnalysisException {
         return secondsAdd(date, new IntegerLiteral(-second.getValue()));
+    }
+
+    /**
+     * datetime arithmetic function datediff
+     */
+    @ExecFunction(name = "datediff", argTypes = {"DATETIME", "DATETIME"}, returnType = "INT")
+    public static IntegerLiteral dateDiff(DateTimeLiteral date1, DateTimeLiteral date2) {
+        return new IntegerLiteral(dateDiff(date1.toJavaDateType(), date2.toJavaDateType()));
+    }
+
+    @ExecFunction(name = "datediff", argTypes = {"DATEV2", "DATEV2"}, returnType = "INT")
+    public static IntegerLiteral dateDiff(DateV2Literal date1, DateV2Literal date2) {
+        return new IntegerLiteral(dateDiff(date1.toJavaDateType(), date2.toJavaDateType()));
+    }
+
+    @ExecFunction(name = "datediff", argTypes = {"DATEV2", "DATETIMEV2"}, returnType = "INT")
+    public static IntegerLiteral dateDiff(DateV2Literal date1, DateTimeV2Literal date2) {
+        return new IntegerLiteral(dateDiff(date1.toJavaDateType(), date2.toJavaDateType()));
+    }
+
+    @ExecFunction(name = "datediff", argTypes = {"DATETIMEV2", "DATEV2"}, returnType = "INT")
+    public static IntegerLiteral dateDiff(DateTimeV2Literal date1, DateV2Literal date2) {
+        return new IntegerLiteral(dateDiff(date1.toJavaDateType(), date2.toJavaDateType()));
+    }
+
+    @ExecFunction(name = "datediff", argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "INT")
+    public static IntegerLiteral dateDiff(DateTimeV2Literal date1, DateTimeV2Literal date2) {
+        return new IntegerLiteral(dateDiff(date1.toJavaDateType(), date2.toJavaDateType()));
+    }
+
+    private static int dateDiff(LocalDateTime date1, LocalDateTime date2) {
+        Calendar calendar = Calendar.getInstance();
+        calendar.set(date1.getYear(), date1.getMonthValue(), date1.getDayOfMonth());
+        long time1 = calendar.getTimeInMillis();
+        calendar.set(date2.getYear(), date2.getMonthValue(), date2.getDayOfMonth());
+        long time2 = calendar.getTimeInMillis();
+        return ((int) ((time1 - time2) / (1000 * 3600 * 24)));
     }
 }
