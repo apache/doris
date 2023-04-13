@@ -103,6 +103,7 @@ private:
 };
 
 DataTypePtr make_nullable(const DataTypePtr& type);
+DataTypes make_nullable(const DataTypes& types);
 DataTypePtr remove_nullable(const DataTypePtr& type);
 DataTypes remove_nullable(const DataTypes& types);
 bool have_nullable(const DataTypes& types);
