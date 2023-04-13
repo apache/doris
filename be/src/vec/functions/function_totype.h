@@ -202,6 +202,13 @@ public:
     using ColVecLeft = ColumnString;
     using ColVecRight = ColumnString;
 
+    static constexpr auto is_support_scalar_vector =
+            Impl<LeftDataType, RightDataType>::is_support_scalar_vector;
+    static constexpr auto is_support_vector_scalar =
+            Impl<LeftDataType, RightDataType>::is_support_vector_scalar;
+    static constexpr auto is_support_vector_vector =
+            Impl<LeftDataType, RightDataType>::is_support_vector_vector;
+
     static constexpr auto name = Name::name;
     static FunctionPtr create() { return std::make_shared<FunctionBinaryToType>(); }
     String get_name() const override { return name; }
@@ -232,8 +239,8 @@ private:
                       nullptr>
     Status execute_inner_impl(const ColumnWithTypeAndName& left, const ColumnWithTypeAndName& right,
                               Block& block, const ColumnNumbers& arguments, size_t result) {
-        auto lcol = left.column->convert_to_full_column_if_const();
-        auto rcol = right.column->convert_to_full_column_if_const();
+        const auto& [lcol, left_const] = unpack_if_const(left.column);
+        const auto& [rcol, right_const] = unpack_if_const(right.column);
 
         using ResultType = typename ResultDataType::FieldType;
         using ColVecResult = ColumnVector<ResultType>;
@@ -244,9 +251,40 @@ private:
 
         if (auto col_left = check_and_get_column<ColVecLeft>(lcol.get())) {
             if (auto col_right = check_and_get_column<ColVecRight>(rcol.get())) {
-                Impl<LeftDataType, RightDataType>::vector_vector(
-                        col_left->get_chars(), col_left->get_offsets(), col_right->get_chars(),
-                        col_right->get_offsets(), vec_res);
+                bool is_process = false;
+                if constexpr (is_support_scalar_vector) {
+                    if (left_const) {
+                        Impl<LeftDataType, RightDataType>::scalar_vector(
+                                col_left->get_data_at(0), col_right->get_chars(),
+                                col_right->get_offsets(), vec_res);
+                        is_process = true;
+                    }
+                }
+                if constexpr (is_support_vector_scalar) {
+                    if (!is_process && right_const) {
+                        Impl<LeftDataType, RightDataType>::vector_scalar(
+                                col_left->get_chars(), col_left->get_offsets(),
+                                col_right->get_data_at(0), vec_res);
+                        is_process = true;
+                    }
+                }
+                if constexpr (is_support_vector_vector) {
+                    if (!is_process) {
+                        auto col_left_ptr = col_left->convert_to_full_column_if_const();
+                        col_left = check_and_get_column<ColVecLeft>(col_left_ptr.get());
+
+                        auto col_right_ptr = col_right->convert_to_full_column_if_const();
+                        col_right = check_and_get_column<ColVecLeft>(col_right_ptr.get());
+
+                        Impl<LeftDataType, RightDataType>::vector_vector(
+                                col_left->get_chars(), col_left->get_offsets(),
+                                col_right->get_chars(), col_right->get_offsets(), vec_res);
+                        is_process = true;
+                    }
+                }
+                if (!is_process) {
+                    return Status::RuntimeError("unimplements function {}", get_name());
+                }
                 block.replace_by_position(result, std::move(col_res));
                 return Status::OK();
             }
@@ -259,16 +297,49 @@ private:
                       nullptr>
     Status execute_inner_impl(const ColumnWithTypeAndName& left, const ColumnWithTypeAndName& right,
                               Block& block, const ColumnNumbers& arguments, size_t result) {
-        auto lcol = left.column->convert_to_full_column_if_const();
-        auto rcol = right.column->convert_to_full_column_if_const();
+        const auto& [lcol, left_const] = unpack_if_const(left.column);
+        const auto& [rcol, right_const] = unpack_if_const(right.column);
 
         using ColVecResult = ColumnString;
         typename ColVecResult::MutablePtr col_res = ColVecResult::create();
         if (auto col_left = check_and_get_column<ColVecLeft>(lcol.get())) {
             if (auto col_right = check_and_get_column<ColVecRight>(rcol.get())) {
-                Impl<LeftDataType, RightDataType>::vector_vector(
-                        col_left->get_chars(), col_left->get_offsets(), col_right->get_chars(),
-                        col_right->get_offsets(), col_res->get_chars(), col_res->get_offsets());
+                bool is_process = false;
+                if constexpr (is_support_scalar_vector) {
+                    if (left_const) {
+                        Impl<LeftDataType, RightDataType>::scalar_vector(
+                                col_left->get_data_at(0), col_right->get_chars(),
+                                col_right->get_offsets(), col_res->get_chars(),
+                                col_res->get_offsets());
+                        is_process = true;
+                    }
+                }
+                if constexpr (is_support_vector_scalar) {
+                    if (!is_process && right_const) {
+                        Impl<LeftDataType, RightDataType>::vector_vector(
+                                col_left->get_chars(), col_left->get_offsets(),
+                                col_right->get_data_at(0), col_res->get_chars(),
+                                col_res->get_offsets());
+                        is_process = true;
+                    }
+                }
+                if constexpr (is_support_vector_vector) {
+                    if (!is_process) {
+                        auto col_left_ptr = col_left->convert_to_full_column_if_const();
+                        col_left = check_and_get_column<ColVecLeft>(col_left_ptr.get());
+
+                        auto col_right_ptr = col_right->convert_to_full_column_if_const();
+                        col_right = check_and_get_column<ColVecLeft>(col_right_ptr.get());
+                        Impl<LeftDataType, RightDataType>::vector_vector(
+                                col_left->get_chars(), col_left->get_offsets(),
+                                col_right->get_chars(), col_right->get_offsets(),
+                                col_res->get_chars(), col_res->get_offsets());
+                        is_process = true;
+                    }
+                }
+                if (!is_process) {
+                    return Status::RuntimeError("unimplements function {}", get_name());
+                }
                 block.replace_by_position(result, std::move(col_res));
                 return Status::OK();
             }

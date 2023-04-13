@@ -172,45 +172,129 @@ struct NameInstr {
     static constexpr auto name = "instr";
 };
 
+// LeftDataType and RightDataType are DataTypeString
+template <typename LeftDataType, typename RightDataType>
+struct StringInStrImpl {
+    using ResultDataType = DataTypeInt32;
+    using ResultPaddedPODArray = PaddedPODArray<Int32>;
+
+    static constexpr auto is_support_scalar_vector = false;
+
+    static constexpr auto is_support_vector_scalar = true;
+
+    static constexpr auto is_support_vector_vector = true;
+
+    static Status vector_scalar(const ColumnString::Chars& ldata,
+                                const ColumnString::Offsets& loffsets, const StringRef& rdata,
+                                ResultPaddedPODArray& res) {
+        StringRef substr_sv(rdata.data, rdata.size);
+        StringSearch search(&substr_sv);
+
+        auto size = loffsets.size();
+        res.resize(size);
+        for (int i = 0; i < size; ++i) {
+            const char* l_raw_str = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
+            int l_str_size = loffsets[i] - loffsets[i - 1];
+
+            StringRef lstr_ref(l_raw_str, l_str_size);
+
+            // Hive returns positions starting from 1.
+            int loc = search.search(&lstr_ref);
+            if (loc > 0) {
+                loc = get_char_len(lstr_ref, loc);
+            }
+            res[i] = loc + 1;
+        }
+
+        return Status::OK();
+    }
+
+    static Status vector_vector(const ColumnString::Chars& ldata,
+                                const ColumnString::Offsets& loffsets,
+                                const ColumnString::Chars& rdata,
+                                const ColumnString::Offsets& roffsets, ResultPaddedPODArray& res) {
+        DCHECK_EQ(loffsets.size(), roffsets.size());
+
+        auto size = loffsets.size();
+        res.resize(size);
+        for (int i = 0; i < size; ++i) {
+            const char* l_raw_str = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
+            int l_str_size = loffsets[i] - loffsets[i - 1];
+            StringRef lstr_ref(l_raw_str, l_str_size);
+
+            const char* r_raw_str = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
+            int r_str_size = roffsets[i] - roffsets[i - 1];
+            StringRef rstr_ref(r_raw_str, r_str_size);
+
+            // Hive returns positions starting from 1.
+            int loc = search_str(0, lstr_ref, rstr_ref);
+            if (loc > 0) {
+                loc = get_char_len(lstr_ref, loc);
+            }
+            res[i] = loc + 1;
+        }
+
+        return Status::OK();
+    }
+
+    static size_t search_str(size_t pos, const StringRef& lstr_ref, StringRef& rstr_ref) {
+        size_t str_size = lstr_ref.size;
+        while (pos < str_size &&
+               memcmp_small_allow_overflow15(lstr_ref.data + pos, rstr_ref.data, rstr_ref.size)) {
+            pos++;
+        }
+
+        if (pos == str_size) {
+            return -1;
+        }
+        return pos;
+    }
+};
+
 // the same impl as instr
 struct NameLocate {
     static constexpr auto name = "locate";
 };
 
-struct InStrOP {
+// LeftDataType and RightDataType are DataTypeString
+template <typename LeftDataType, typename RightDataType>
+struct StringLocateImpl {
     using ResultDataType = DataTypeInt32;
     using ResultPaddedPODArray = PaddedPODArray<Int32>;
-    static void execute(const std::string_view& strl, const std::string_view& strr, int32_t& res) {
-        if (strr.length() == 0) {
-            res = 1;
-            return;
-        }
 
-        StringRef str_sv(strl.data(), strl.length());
-        StringRef substr_sv(strr.data(), strr.length());
-        StringSearch search(&substr_sv);
-        // Hive returns positions starting from 1.
-        int loc = search.search(&str_sv);
-        if (loc > 0) {
-            loc = get_char_len(str_sv, loc);
-        }
+    static constexpr auto is_support_scalar_vector = false;
 
-        res = loc + 1;
+    static constexpr auto is_support_vector_scalar = true;
+
+    static constexpr auto is_support_vector_vector = true;
+
+    static Status vector_scalar(const ColumnString::Chars& ldata,
+                                const ColumnString::Offsets& loffsets, const StringRef& rdata,
+                                ResultPaddedPODArray& res) {
+        return StringInStrImpl<LeftDataType, RightDataType>::vector_scalar(ldata, loffsets, rdata,
+                                                                           res);
     }
-};
-struct LocateOP {
-    using ResultDataType = DataTypeInt32;
-    using ResultPaddedPODArray = PaddedPODArray<Int32>;
-    static void execute(const std::string_view& strl, const std::string_view& strr, int32_t& res) {
-        InStrOP::execute(strr, strl, res);
+
+    static Status vector_vector(const ColumnString::Chars& ldata,
+                                const ColumnString::Offsets& loffsets,
+                                const ColumnString::Chars& rdata,
+                                const ColumnString::Offsets& roffsets, ResultPaddedPODArray& res) {
+        return StringInStrImpl<LeftDataType, RightDataType>::vector_vector(ldata, loffsets, rdata,
+                                                                           roffsets, res);
     }
 };
 
 // LeftDataType and RightDataType are DataTypeString
 template <typename LeftDataType, typename RightDataType, typename OP>
-struct StringFunctionImpl {
+struct StringBinaryFunctionImpl {
     using ResultDataType = typename OP::ResultDataType;
     using ResultPaddedPODArray = typename OP::ResultPaddedPODArray;
+
+    static constexpr auto is_support_scalar_vector = false;
+
+    static constexpr auto is_support_vector_scalar = false;
+
+    static constexpr auto is_support_vector_vector = true;
 
     static Status vector_vector(const ColumnString::Chars& ldata,
                                 const ColumnString::Offsets& loffsets,
@@ -595,19 +679,13 @@ struct StringRPad {
 };
 
 template <typename LeftDataType, typename RightDataType>
-using StringStartsWithImpl = StringFunctionImpl<LeftDataType, RightDataType, StartsWithOp>;
+using StringStartsWithImpl = StringBinaryFunctionImpl<LeftDataType, RightDataType, StartsWithOp>;
 
 template <typename LeftDataType, typename RightDataType>
-using StringEndsWithImpl = StringFunctionImpl<LeftDataType, RightDataType, EndsWithOp>;
+using StringEndsWithImpl = StringBinaryFunctionImpl<LeftDataType, RightDataType, EndsWithOp>;
 
 template <typename LeftDataType, typename RightDataType>
-using StringInstrImpl = StringFunctionImpl<LeftDataType, RightDataType, InStrOP>;
-
-template <typename LeftDataType, typename RightDataType>
-using StringLocateImpl = StringFunctionImpl<LeftDataType, RightDataType, LocateOP>;
-
-template <typename LeftDataType, typename RightDataType>
-using StringFindInSetImpl = StringFunctionImpl<LeftDataType, RightDataType, FindInSetOp>;
+using StringFindInSetImpl = StringBinaryFunctionImpl<LeftDataType, RightDataType, FindInSetOp>;
 
 // ready for regist function
 using FunctionStringASCII = FunctionUnaryToType<StringASCII, NameStringASCII>;
@@ -619,7 +697,7 @@ using FunctionStringStartsWith =
 using FunctionStringEndsWith =
         FunctionBinaryToType<DataTypeString, DataTypeString, StringEndsWithImpl, NameEndsWith>;
 using FunctionStringInstr =
-        FunctionBinaryToType<DataTypeString, DataTypeString, StringInstrImpl, NameInstr>;
+        FunctionBinaryToType<DataTypeString, DataTypeString, StringInStrImpl, NameInstr>;
 using FunctionStringLocate =
         FunctionBinaryToType<DataTypeString, DataTypeString, StringLocateImpl, NameLocate>;
 using FunctionStringFindInSet =
