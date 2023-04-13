@@ -24,7 +24,6 @@
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_number_base.h"
 #include "vec/data_types/data_type_time_v2.h"
-#include "serde/data_type_number_serde.h"
 
 class DateLUTImpl;
 
@@ -76,10 +75,6 @@ public:
     static void cast_to_date_time(Int64& x);
 
     MutableColumnPtr create_column() const override;
-
-    DataTypeSerDeSPtr get_serde() const override {
-        return std::make_shared<DataTypeNumberSerDe<Int64>>();
-    };
 };
 
 template <typename DataType>

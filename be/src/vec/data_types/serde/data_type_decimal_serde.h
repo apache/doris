@@ -16,15 +16,49 @@
 // under the License.
 
 #include "data_type_serde.h"
+#include "vec/columns/column_decimal.h"
+
 namespace doris {
 
 namespace vectorized {
 
 template <typename T>
 class DataTypeDecimalSerDe : public DataTypeSerDe {
+    static_assert(IsDecimalNumber<T>);
+
 public:
     Status write_column_to_pb(const IColumn& column, PValues& result, int start, int end) const;
     Status read_column_from_pb(IColumn& column, const PValues& arg) const;
 };
+
+template <typename T>
+Status DataTypeDecimalSerDe<T>::write_column_to_pb(const IColumn& column, PValues& result,
+                                                   int start, int end) const {
+    int row_count = end - start;
+    const auto* col = check_and_get_column<ColumnDecimal<T>>(column);
+    if constexpr (std::is_same_v<T, Decimal<Int128>>) {
+        result.mutable_bytes_value()->Reserve(row_count);
+        for (size_t row_num = start; row_num < end; ++row_num) {
+            StringRef single_data = col->get_data_at(row_num);
+            result.add_bytes_value(single_data.data, single_data.size);
+        }
+        return Status::OK();
+    }
+    return Status::NotSupported("unknown ColumnType for writing to pb");
+}
+
+template <typename T>
+Status DataTypeDecimalSerDe<T>::read_column_from_pb(IColumn& column, const PValues& arg) const {
+    if constexpr (std::is_same_v<T, Decimal<Int128>>) {
+        column.resize(arg.bytes_value_size());
+        auto& data = reinterpret_cast<ColumnDecimal<T>&>(column).get_data();
+        for (int i = 0; i < arg.bytes_value_size(); ++i) {
+            data[i] = *(int128_t*)(arg.bytes_value(i).c_str());
+        }
+        return Status::OK();
+    }
+
+    return Status::NotSupported("unknown ColumnType for reading from pb");
+}
 } // namespace vectorized
 } // namespace doris

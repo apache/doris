@@ -16,7 +16,8 @@
 // under the License.
 
 #pragma once
-#include "serde/data_type_fixedlengthobject_serde.h"
+
+#include "serde/data_type_quantilestate_serde.h"
 #include "util/quantile_state.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
@@ -85,7 +86,7 @@ public:
 
     static void deserialize_as_stream(QuantileState<T>& value, BufferReadable& buf);
     DataTypeSerDeSPtr get_serde() const override {
-        return std::make_shared<DataTypeQuantileState<T>>();
+        return std::make_shared<DataTypeQuantileStateSerDe<T>>();
     };
 };
 using DataTypeQuantileStateDouble = DataTypeQuantileState<double>;

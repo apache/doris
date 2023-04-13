@@ -35,6 +35,7 @@ RPCFnImpl::RPCFnImpl(const TFunction& fn) : _fn(fn) {
                              _fn.scalar_fn.symbol);
 }
 
+// (Todo.Amory) need to delete here
 void RPCFnImpl::convert_nullable_col_to_pvalue(const ColumnPtr& column,
                                                const DataTypePtr& data_type,
                                                const ColumnUInt8& null_col, PValues* arg, int start,
@@ -51,7 +52,7 @@ void RPCFnImpl::convert_nullable_col_to_pvalue(const ColumnPtr& column,
         RPCFnImpl::convert_col_to_pvalue<false>(column, data_type, arg, start, end);
     }
 }
-
+// (Todo.Amory) need to delete here
 template <bool nullable>
 void RPCFnImpl::convert_col_to_pvalue(const ColumnPtr& column, const DataTypePtr& data_type,
                                       PValues* arg, int start, int end) {
@@ -316,6 +317,7 @@ void RPCFnImpl::convert_col_to_pvalue(const ColumnPtr& column, const DataTypePtr
     }
 }
 
+// (Todo.Amory) need to delete here
 template <bool nullable>
 void RPCFnImpl::_convert_to_column(MutableColumnPtr& column, const PValues& result) {
     switch (result.type().id()) {

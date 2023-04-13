@@ -20,26 +20,5 @@ namespace doris {
 
 namespace vectorized {
 
-template <typename T>
-Status DataTypeQuantileStateSerDe<T>::write_column_to_pb(const IColumn& column, PValues& result,
-                                                         int start, int end) const {
-    result.mutable_bytes_value()->Reserve(end - start);
-    for (size_t row_num = start; row_num < end; ++row_num) {
-        StringRef data = column.get_data_at(row_num);
-        result.add_bytes_value(data.to_string());
-    }
-    return Status::OK();
-}
-
-template <typename T>
-Status DataTypeQuantileStateSerDe<T>::read_column_from_pb(IColumn& column,
-                                                          const PValues& arg) const {
-    column.reserve(arg.bytes_value_size());
-    for (int i = 0; i < arg.bytes_value_size(); ++i) {
-        column.insert_data(arg.bytes_value(i).c_str(), arg.bytes_value(i).size());
-    }
-    return Status::OK();
-}
-
 } // namespace vectorized
 } // namespace doris

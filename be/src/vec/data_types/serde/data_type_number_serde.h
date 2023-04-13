@@ -27,9 +27,109 @@ class DataTypeNumberSerDe : public DataTypeSerDe {
     static_assert(IsNumber<T>);
 
 public:
+    using ColumnType = ColumnVector<T>; 
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override;
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
 };
+
+template <typename T>
+Status DataTypeNumberSerDe<T>::read_column_from_pb(IColumn& column, const PValues& arg) const {
+    if constexpr (std::is_same_v<T, UInt8> || std::is_same_v<T, UInt16> ||
+                  std::is_same_v<T, UInt32>) {
+        column.resize(arg.uint32_value_size());
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        for (int i = 0; i < arg.uint32_value_size(); ++i) {
+            data[i] = arg.uint32_value(i);
+        }
+    } else if constexpr (std::is_same_v<T, Int8> || std::is_same_v<T, Int16> ||
+                         std::is_same_v<T, Int32>) {
+        column.resize(arg.int32_value_size());
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        for (int i = 0; i < arg.int32_value_size(); ++i) {
+            data[i] = arg.int32_value(i);
+        }
+    } else if constexpr (std::is_same_v<T, UInt64>) {
+        column.resize(arg.uint64_value_size());
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        for (int i = 0; i < arg.uint64_value_size(); ++i) {
+            data[i] = arg.uint64_value(i);
+        }
+    } else if constexpr (std::is_same_v<T, Int64>) {
+        column.resize(arg.int64_value_size());
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        for (int i = 0; i < arg.int64_value_size(); ++i) {
+            data[i] = arg.int64_value(i);
+        }
+    } else if constexpr (std::is_same_v<T, float>) {
+        column.resize(arg.float_value_size());
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        for (int i = 0; i < arg.float_value_size(); ++i) {
+            data[i] = arg.float_value(i);
+        }
+    } else if constexpr (std::is_same_v<T, double>) {
+        column.resize(arg.double_value_size());
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        for (int i = 0; i < arg.float_value_size(); ++i) {
+            data[i] = arg.double_value(i);
+        }
+    } else if constexpr (std::is_same_v<T, Int128>) {
+        column.resize(arg.bytes_value_size());
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        for (int i = 0; i < arg.bytes_value_size(); ++i) {
+            data[i] = *(int128_t*)(arg.bytes_value(i).c_str());
+        }
+    } else {
+        return Status::NotSupported("unknown ColumnType for reading from pb");
+    }
+    return Status::OK();
+}
+
+template <typename T>
+Status DataTypeNumberSerDe<T>::write_column_to_pb(const IColumn& column, PValues& result, int start,
+                                                  int end) const {
+    int row_count = end - start;
+    const auto* col = check_and_get_column<ColumnVector<T>>(column);
+    if constexpr (std::is_same_v<T, Int128>) {
+        result.mutable_bytes_value()->Reserve(row_count);
+        for (size_t row_num = start; row_num < end; ++row_num) {
+            StringRef single_data = col->get_data_at(row_num);
+            result.add_bytes_value(single_data.data, single_data.size);
+        }
+        return Status::OK();
+    }
+    auto& data = col->get_data();
+    if constexpr (std::is_same_v<T, UInt8> || std::is_same_v<T, UInt16> ||
+                  std::is_same_v<T, UInt32>) {
+        auto* values = result.mutable_uint32_value();
+        values->Reserve(row_count);
+        values->Add(data.begin() + start, data.begin() + end);
+    } else if constexpr (std::is_same_v<T, Int8> || std::is_same_v<T, Int16> ||
+                         std::is_same_v<T, Int32>) {
+        auto* values = result.mutable_int32_value();
+        values->Reserve(row_count);
+        values->Add(data.begin() + start, data.begin() + end);
+    } else if constexpr (std::is_same_v<T, UInt64>) {
+        auto* values = result.mutable_uint64_value();
+        values->Reserve(row_count);
+        values->Add(data.begin() + start, data.begin() + end);
+    } else if constexpr (std::is_same_v<T, Int64>) {
+        auto* values = result.mutable_int64_value();
+        values->Reserve(row_count);
+        values->Add(data.begin() + start, data.begin() + end);
+    } else if constexpr (std::is_same_v<T, float>) {
+        auto* values = result.mutable_float_value();
+        values->Reserve(row_count);
+        values->Add(data.begin() + start, data.begin() + end);
+    } else if constexpr (std::is_same_v<T, double>) {
+        auto* values = result.mutable_double_value();
+        values->Reserve(row_count);
+        values->Add(data.begin() + start, data.begin() + end);
+    } else {
+        return Status::NotSupported("unknown ColumnType for writing to pb");
+    }
+    return Status::OK();
+}
+
 } // namespace vectorized
 } // namespace doris
