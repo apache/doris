@@ -28,7 +28,6 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.util.DateUtils;
 
 import java.time.LocalDate;
-import java.util.Calendar;
 
 /**
  * executable functions:
