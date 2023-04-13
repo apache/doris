@@ -125,7 +125,7 @@ public class FunctionCallExpr extends Expr {
                 }
                 int scaleArg = (int) (((IntLiteral) children.get(1)).getValue());
                 return ScalarType.createDecimalV3Type(children.get(0).getType().getPrecision(),
-                        Math.max(scaleArg, 0));
+                        Math.min(Math.max(scaleArg, 0), ((ScalarType) children.get(0).getType()).decimalScale()));
             } else {
                 return returnType;
             }
@@ -1448,6 +1448,21 @@ public class FunctionCallExpr extends Expr {
             fn.getReturnType().getPrimitiveType().setTimeType();
         }
 
+        if (fnName.getFunction().equalsIgnoreCase("named_struct")) {
+            if ((children.size() & 1) == 1) {
+                throw new AnalysisException("named_struct can't be odd parameters, need even parameters: "
+                        + this.toSql());
+            }
+            for (int i = 0; i < children.size(); i++) {
+                if ((i & 1) == 0) {
+                    if (!(getChild(i) instanceof StringLiteral)) {
+                        throw new AnalysisException(
+                                "named_struct only allows constant string parameter in odd position: " + this.toSql());
+                    }
+                }
+            }
+        }
+
         if (isAggregateFunction()) {
             final String functionName = fnName.getFunction();
             // subexprs must not contain aggregates
@@ -1620,6 +1635,15 @@ public class FunctionCallExpr extends Expr {
                             .getType()).getItemType().isDatetimeV2())) {
                 this.type = children.get(1).getType();
             }
+        } else if (fnName.getFunction().equalsIgnoreCase("named_struct")) {
+            List<String> fieldNames = Lists.newArrayList();
+            for (int i = 0; i < children.size(); i++) {
+                if ((i & 1) == 0) {
+                    StringLiteral nameLiteral = (StringLiteral) children.get(i);
+                    fieldNames.add(nameLiteral.getStringValue());
+                }
+            }
+            this.type = ((StructType) type).replaceFieldsWithNames(fieldNames);
         } else if (fnName.getFunction().equalsIgnoreCase("array_distinct") || fnName.getFunction()
                 .equalsIgnoreCase("array_remove") || fnName.getFunction().equalsIgnoreCase("array_sort")
                 || fnName.getFunction().equalsIgnoreCase("array_reverse_sort")

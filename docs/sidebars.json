@@ -227,6 +227,7 @@
                 "ecosystem/spark-doris-connector",
                 "ecosystem/flink-doris-connector",
                 "ecosystem/datax",
+                "ecosystem/seatunnel",
                 "ecosystem/kyuubi",
                 "ecosystem/mysql-to-doris",
                 "ecosystem/logstash",
@@ -234,14 +235,6 @@
                 "ecosystem/audit-plugin",
                 "ecosystem/cloudcanal",
                 "ecosystem/hive-bitmap-udf",
-                {
-                    "type": "category",
-                    "label": "SeaTunnel",
-                    "items": [
-                        "ecosystem/seatunnel/flink-sink",
-                        "ecosystem/seatunnel/spark-sink"
-                    ]
-                },
                 {
                     "type": "category",
                     "label": "UDF",
@@ -1054,6 +1047,7 @@
                 "admin-manual/tracing",
                 "admin-manual/optimization",
                 "admin-manual/certificate",
+                "admin-manual/fe-certificate",
                 {
                     "type": "category",
                     "label": "Maintenance and Monitor",

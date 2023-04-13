@@ -27,8 +27,8 @@ DataTypeMap::DataTypeMap(const DataTypePtr& key_type_, const DataTypePtr& value_
 }
 
 Field DataTypeMap::get_default() const {
-    Map m(2);
-    Array key(1), val(1);
+    Map m;
+    Array key, val;
     key.push_back(key_type->get_default());
     val.push_back(value_type->get_default());
     m.push_back(key);

@@ -61,11 +61,6 @@ struct NumComparisonImpl {
     /// If you don't specify NO_INLINE, the compiler will inline this function, but we don't need this as this function contains tight loop inside.
     static void NO_INLINE vector_vector(const PaddedPODArray<A>& a, const PaddedPODArray<B>& b,
                                         PaddedPODArray<UInt8>& c) {
-        /** GCC 4.8.2 vectorized a loop only if it is written in this form.
-          * In this case, if you loop through the array index (the code will look simpler),
-          *  the loop will not be vectorized.
-          */
-
         size_t size = a.size();
         const A* a_pos = a.data();
         const B* b_pos = b.data();
@@ -104,17 +99,17 @@ struct NumComparisonImpl {
 /// Generic version, implemented for columns of same type.
 template <typename Op>
 struct GenericComparisonImpl {
-    static void NO_INLINE vector_vector(const IColumn& a, const IColumn& b,
-                                        PaddedPODArray<UInt8>& c) {
-        for (size_t i = 0, size = a.size(); i < size; ++i)
+    static void vector_vector(const IColumn& a, const IColumn& b, PaddedPODArray<UInt8>& c) {
+        for (size_t i = 0, size = a.size(); i < size; ++i) {
             c[i] = Op::apply(a.compare_at(i, i, b, 1), 0);
+        }
     }
 
-    static void NO_INLINE vector_constant(const IColumn& a, const IColumn& b,
-                                          PaddedPODArray<UInt8>& c) {
-        auto b_materialized = b.clone_resized(1)->convert_to_full_column_if_const();
-        for (size_t i = 0, size = a.size(); i < size; ++i)
-            c[i] = Op::apply(a.compare_at(i, 0, *b_materialized, 1), 0);
+    static void vector_constant(const IColumn& a, const IColumn& b, PaddedPODArray<UInt8>& c) {
+        const auto& col_right = assert_cast<const ColumnConst&>(b).get_data_column();
+        for (size_t i = 0, size = a.size(); i < size; ++i) {
+            c[i] = Op::apply(a.compare_at(i, 0, col_right, 1), 0);
+        }
     }
 
     static void constant_vector(const IColumn& a, const IColumn& b, PaddedPODArray<UInt8>& c) {
@@ -540,7 +535,7 @@ public:
         if (left_type->equals(*right_type) && !left_type->is_nullable() &&
             col_left_untyped == col_right_untyped) {
             /// Always true: =, <=, >=
-            // TODO: Return const column in the future
+            // TODO: Return const column in the future. But seems so far to do. We need a unified approach for passing const column.
             if constexpr (std::is_same_v<Op<int, int>, EqualsOp<int, int>> ||
                           std::is_same_v<Op<int, int>, LessOrEqualsOp<int, int>> ||
                           std::is_same_v<Op<int, int>, GreaterOrEqualsOp<int, int>>) {

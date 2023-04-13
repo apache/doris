@@ -39,10 +39,12 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.text.StringSubstitutor;
-import org.apache.log4j.LogManager;
-import org.apache.log4j.Logger;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -156,6 +158,10 @@ public class AnalysisManager {
                 olapTable.readUnlock();
             }
         }
+        if (analyzeStmt.isSync()) {
+            syncExecute(analysisTaskInfos.values());
+            return;
+        }
         analysisJobIdToTaskMap.put(jobId, analysisTaskInfos);
         analysisTaskInfos.values().forEach(taskScheduler::schedule);
     }
@@ -208,6 +214,24 @@ public class AnalysisManager {
         }
 
         return results;
+    }
+
+    private void syncExecute(Collection<AnalysisTaskInfo> taskInfos) {
+        List<String> colNames = new ArrayList<>();
+        for (AnalysisTaskInfo info : taskInfos) {
+            try {
+                TableIf table = StatisticsUtil.findTable(info.catalogName,
+                        info.dbName, info.tblName);
+                BaseAnalysisTask analysisTask = table.createAnalysisTask(info);
+                analysisTask.execute();
+            } catch (Throwable t) {
+                colNames.add(info.colName);
+                LOG.info("Failed to analyze, info: {}", info);
+            }
+        }
+        if (!colNames.isEmpty()) {
+            throw new RuntimeException("Failed to analyze following columns: " + String.join(",", colNames));
+        }
     }
 
 }

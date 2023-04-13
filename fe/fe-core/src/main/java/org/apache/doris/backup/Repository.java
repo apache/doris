@@ -26,6 +26,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.system.Backend;
 
@@ -628,6 +629,38 @@ public class Repository implements Writable {
         }
 
         return snapshotInfos;
+    }
+
+    public String getCreateStatement() {
+        StringBuilder stmtBuilder = new StringBuilder();
+        stmtBuilder.append("CREATE ");
+        if (this.isReadOnly) {
+            stmtBuilder.append("READ ONLY ");
+        }
+        stmtBuilder.append("REPOSITORY ");
+        stmtBuilder.append(this.name);
+        stmtBuilder.append(" \nWITH ");
+        StorageBackend.StorageType storageType = this.storage.getStorageType();
+        if (storageType == StorageBackend.StorageType.S3) {
+            stmtBuilder.append(" S3 ");
+        } else if (storageType == StorageBackend.StorageType.HDFS) {
+            stmtBuilder.append(" HDFS ");
+        } else if (storageType == StorageBackend.StorageType.BROKER) {
+            stmtBuilder.append(" BROKER ");
+            stmtBuilder.append(this.storage.getName());
+        } else {
+            // should never reach here
+            throw new UnsupportedOperationException(storageType.toString() + " backend is not implemented");
+        }
+        stmtBuilder.append(" \nON LOCATION \"");
+        stmtBuilder.append(this.location);
+        stmtBuilder.append("\"");
+
+        stmtBuilder.append("\nPROPERTIES\n(");
+        stmtBuilder.append(new PrintableMap<>(this.getStorage().getProperties(), " = ",
+                true, true));
+        stmtBuilder.append("\n)");
+        return stmtBuilder.toString();
     }
 
     private List<String> getSnapshotInfo(String snapshotName, String timestamp) {

@@ -69,6 +69,7 @@ std::string DataTypeStruct::do_get_name() const {
         if (i != 0) {
             s << ", ";
         }
+        s << names[i] << ":";
         s << elems[i]->get_name();
     }
     s << ")";

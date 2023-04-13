@@ -25,7 +25,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.mysql.privilege.UserResource;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SessionVariable;
@@ -115,13 +114,6 @@ public class SetVar {
         }
 
         result = (LiteralExpr) literalExpr;
-
-        // Need to check if group is valid
-        if (variable.equalsIgnoreCase(SessionVariable.RESOURCE_VARIABLE)) {
-            if (result != null && !UserResource.isValidGroup(result.getStringValue())) {
-                throw new AnalysisException("Invalid resource group, now we support {low, normal, high}.");
-            }
-        }
 
         if (variable.equalsIgnoreCase(GlobalVariable.DEFAULT_ROWSET_TYPE)) {
             if (result != null && !HeartbeatFlags.isValidRowsetType(result.getStringValue())) {

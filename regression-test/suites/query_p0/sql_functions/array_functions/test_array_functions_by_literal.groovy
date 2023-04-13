@@ -250,6 +250,8 @@ suite("test_array_functions_by_literal") {
     qt_sql_array_with_constant2 "select array_with_constant(2, '1'), array_repeat('1', 2)"
     qt_sql_array_with_constant3 "select array_with_constant(4, 1223), array_repeat(1223, 4)"
     qt_sql_array_with_constant4 "select array_with_constant(8, null), array_repeat(null, 8)"
+    qt_sql_array_with_constant5 "select array_with_constant(null, 'abc'), array_repeat('abc', null)"
+    qt_sql_array_with_constant6 "select array_with_constant(null, null), array_repeat(null, null)"
     // array_compact function
     qt_sql "select array_compact([1, 2, 3, 3, null, null, 4, 4])"
     qt_sql "select array_compact([null, null, null])"

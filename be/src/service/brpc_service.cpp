@@ -50,6 +50,12 @@ Status BRpcService::start(int port, int num_threads) {
         options.num_threads = num_threads;
     }
 
+    if (config::enable_https) {
+        auto sslOptions = options.mutable_ssl_options();
+        sslOptions->default_cert.certificate = config::ssl_certificate_path;
+        sslOptions->default_cert.private_key = config::ssl_private_key_path;
+    }
+
     butil::EndPoint point;
     if (butil::str2endpoint(BackendOptions::get_service_bind_address(), port, &point) < 0) {
         return Status::InternalError("convert address failed, host={}, port={}", "[::0]", port);

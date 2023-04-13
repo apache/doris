@@ -113,6 +113,7 @@ import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
+import org.apache.doris.resource.resourcegroup.ResourceGroup;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -624,6 +625,7 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_DYNAMIC_PARTITION:
             case OperationType.OP_MODIFY_IN_MEMORY:
+            case OperationType.OP_ALTER_LIGHT_SCHEMA_CHANGE:
             case OperationType.OP_MODIFY_REPLICATION_NUM: {
                 data = ModifyTablePropertyOperationLog.read(in);
                 isRead = true;
@@ -798,6 +800,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_ALTER_USER: {
                 data = AlterUserOperationLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_CREATE_RESOURCE_GROUP: {
+                data = ResourceGroup.read(in);
                 isRead = true;
                 break;
             }

@@ -195,7 +195,7 @@ public class Alter {
         boolean needProcessOutsideTableLock = false;
         if (currentAlterOps.checkTableStoragePolicy(alterClauses)) {
             String tableStoragePolicy = olapTable.getStoragePolicy();
-            if (!tableStoragePolicy.equals("")) {
+            if (!tableStoragePolicy.isEmpty()) {
                 for (Partition partition : olapTable.getAllPartitions()) {
                     for (Tablet tablet : partition.getBaseIndex().getTablets()) {
                         for (Replica replica : tablet.getReplicas()) {

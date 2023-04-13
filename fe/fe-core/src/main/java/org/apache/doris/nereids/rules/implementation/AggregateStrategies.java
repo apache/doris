@@ -29,9 +29,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.RequireProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
-import org.apache.doris.nereids.rules.expression.rewrite.rules.FoldConstantRuleOnFE;
-import org.apache.doris.nereids.rules.expression.rewrite.rules.TypeCoercion;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.rules.rewrite.logical.NormalizeAggregate;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -63,7 +61,9 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate.PushDownAggOp;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -303,6 +303,20 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         }
     }
 
+    private boolean aggregateOnUniqueColumn(
+            LogicalAggregate<? extends Plan> logicalAgg) {
+        if (logicalAgg.child() instanceof GroupPlan) {
+            Statistics childStats = ((GroupPlan) logicalAgg.child()).getGroup().getStatistics();
+            if (childStats != null) {
+                return logicalAgg.getGroupByExpressions().stream().anyMatch(
+                        expression ->
+                            childStats.almostUniqueExpression(expression)
+                );
+            }
+        }
+        return false;
+    }
+
     /**
      * sql: select count(*) from tbl group by id
      *
@@ -331,6 +345,11 @@ public class AggregateStrategies implements ImplementationRuleFactory {
      */
     private List<PhysicalHashAggregate<Plan>> onePhaseAggregateWithoutDistinct(
             LogicalAggregate<? extends Plan> logicalAgg, ConnectContext connectContext) {
+        if (!logicalAgg.getGroupByExpressions().isEmpty()
+                && !aggregateOnUniqueColumn(logicalAgg)) {
+            // twoPhaseAggregate beats onePhaseAggregate
+            return null;
+        }
         RequireProperties requireGather = RequireProperties.of(PhysicalProperties.GATHER);
         AggregateParam inputToResultParam = AggregateParam.localResult();
         List<NamedExpression> newOutput = ExpressionUtils.rewriteDownShortCircuit(
@@ -757,6 +776,11 @@ public class AggregateStrategies implements ImplementationRuleFactory {
      */
     private List<PhysicalHashAggregate<? extends Plan>> twoPhaseAggregateWithDistinct(
             LogicalAggregate<? extends Plan> logicalAgg, ConnectContext connectContext) {
+        if (!logicalAgg.getGroupByExpressions().isEmpty()
+                && !aggregateOnUniqueColumn(logicalAgg)) {
+            // threePhaseAggregate beats twoPhaseAggregate
+            return null;
+        }
         Set<AggregateFunction> aggregateFunctions = logicalAgg.getAggregateFunctions();
 
         Set<Expression> distinctArguments = aggregateFunctions.stream()
@@ -1229,8 +1253,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
 
     // don't invoke the ExpressionNormalization, because the expression maybe simplified and get rid of some slots
     private If assignNullType(If ifExpr, CascadesContext cascadesContext) {
-        ExpressionRewriteContext context = new ExpressionRewriteContext(cascadesContext);
-        If ifWithCoercion = (If) TypeCoercion.INSTANCE.rewrite(ifExpr, context);
+        If ifWithCoercion = (If) TypeCoercionUtils.processBoundFunction(ifExpr);
         Expression trueValue = ifWithCoercion.getArgument(1);
         if (trueValue instanceof Cast && trueValue.child(0) instanceof NullLiteral) {
             List<Expression> newArgs = Lists.newArrayList(ifWithCoercion.getArguments());

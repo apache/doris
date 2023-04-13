@@ -28,7 +28,7 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.planner.ColumnRange;
-import org.apache.doris.planner.external.ExternalFileScanNode;
+import org.apache.doris.planner.external.FileQueryScanNode;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileScanSlotInfo;
@@ -81,8 +81,8 @@ public class IcebergApiSource implements IcebergSource {
     }
 
     @Override
-    public ExternalFileScanNode.ParamCreateContext createContext() throws UserException {
-        ExternalFileScanNode.ParamCreateContext context = new ExternalFileScanNode.ParamCreateContext();
+    public FileQueryScanNode.ParamCreateContext createContext() throws UserException {
+        FileQueryScanNode.ParamCreateContext context = new FileQueryScanNode.ParamCreateContext();
         context.params = new TFileScanRangeParams();
         context.destTupleDescriptor = desc;
         context.params.setDestTupleId(desc.getId().asInt());

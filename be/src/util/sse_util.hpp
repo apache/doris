@@ -20,8 +20,12 @@
 
 #pragma once
 
-#include <nmmintrin.h>
-#include <smmintrin.h>
+#if defined(__aarch64__)
+#include <sse2neon.h>
+#elif defined(__x86_64__)
+#include <immintrin.h>
+#include <mm_malloc.h>
+#endif
 
 namespace doris {
 

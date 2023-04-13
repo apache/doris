@@ -17,15 +17,12 @@
 
 #pragma once
 
-#ifdef __SSE2__
-#include <emmintrin.h>
-#elif __aarch64__
-#include <sse2neon.h>
-#endif
 #include <stdint.h>
 
 #include <iostream>
 #include <string>
+
+#include "util/sse_util.hpp"
 
 // the code refer: https://clickhouse.tech/codebrowser/html_report//ClickHouse/src/Functions/LowerUpperImpl.h.html
 // Doris only handle one character at a time, this function use SIMD to more characters at a time

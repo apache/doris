@@ -30,7 +30,6 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.planner.ColumnRange;
-import org.apache.doris.planner.external.ExternalFileScanNode.ParamCreateContext;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileScanRangeParams;
@@ -153,8 +152,8 @@ public class HiveScanProvider extends HMSTableScanProvider {
     }
 
     @Override
-    public ParamCreateContext createContext(Analyzer analyzer) throws UserException {
-        ParamCreateContext context = new ParamCreateContext();
+    public FileScanNode.ParamCreateContext createContext(Analyzer analyzer) throws UserException {
+        FileScanNode.ParamCreateContext context = new FileScanNode.ParamCreateContext();
         context.params = new TFileScanRangeParams();
         context.destTupleDescriptor = desc;
         context.params.setDestTupleId(desc.getId().asInt());

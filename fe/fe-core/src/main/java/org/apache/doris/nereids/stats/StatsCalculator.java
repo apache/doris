@@ -90,9 +90,9 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.statistics.ColumnLevelStatisticCache;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
+import org.apache.doris.statistics.Histogram;
 import org.apache.doris.statistics.StatisticRange;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsBuilder;
@@ -177,7 +177,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     @Override
     public Statistics visitLogicalOlapScan(LogicalOlapScan olapScan, Void context) {
-        olapScan.getExpressions();
         return computeScan(olapScan);
     }
 
@@ -431,17 +430,23 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         for (SlotReference slotReference : slotSet) {
             String colName = slotReference.getName();
             if (colName == null) {
-                throw new RuntimeException(String.format("Column %s not found", colName));
+                throw new RuntimeException(String.format("Invalid slot: %s", slotReference.getExprId()));
             }
-            ColumnLevelStatisticCache cache =
-                    Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(table.getId(), -1, colName);
-            if (cache == null || cache.columnStatistic == null) {
-                columnStatisticMap.put(slotReference, ColumnStatistic.UNKNOWN);
+            ColumnStatistic cache =
+                    Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(table.getId(), colName);
+            if (cache == ColumnStatistic.UNKNOWN) {
+                columnStatisticMap.put(slotReference, cache);
                 continue;
             }
-            ColumnStatisticBuilder columnStatisticBuilder =
-                    new ColumnStatisticBuilder(cache.columnStatistic).setHistogram(cache.getHistogram());
-            columnStatisticMap.put(slotReference, columnStatisticBuilder.build());
+            rowCount = Math.max(rowCount, cache.count);
+            Histogram histogram = Env.getCurrentEnv().getStatisticsCache().getHistogram(table.getId(), colName);
+            if (histogram != null) {
+                ColumnStatisticBuilder columnStatisticBuilder =
+                        new ColumnStatisticBuilder(cache).setHistogram(histogram);
+                columnStatisticMap.put(slotReference, columnStatisticBuilder.build());
+                cache = columnStatisticBuilder.build();
+            }
+            columnStatisticMap.put(slotReference, cache);
         }
         return new Statistics(rowCount, columnStatisticMap);
     }

@@ -20,26 +20,17 @@
 
 #pragma once
 
-#include <functional>
-
-#include "common/compiler_util.h"
-
-// For cross compiling with clang, we need to be able to generate an IR file with
-// no sse instructions.  Attempting to load a precompiled IR file that contains
-// unsupported instructions causes llvm to fail.  We need to use #defines to control
-// the code that is built and the runtime checks to control what code is run.
-#ifdef __SSE4_2__
-#include <nmmintrin.h>
-#elif __aarch64__
-#include <sse2neon.h>
-#endif
 #include <xxh3.h>
 #include <zlib.h>
 
+#include <functional>
+
+#include "common/compiler_util.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/define_primitive_type.h"
 #include "util/cpu_info.h"
 #include "util/murmur_hash3.h"
+#include "util/sse_util.hpp"
 
 namespace doris {
 

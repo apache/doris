@@ -73,6 +73,15 @@ mysql> select array_with_constant(3, null), array_repeat(null, 3);
 | [NULL, NULL, NULL]           |  [NULL, NULL, NULL]   |
 +------------------------------+-----------------------+
 1 row in set (0.01 sec)
+
+mysql> select array_with_constant(null, 3), array_repeat(3, null);
++------------------------------+-----------------------+
+| array_with_constant(NULL, 3) | array_repeat(3, NULL) |
++------------------------------+-----------------------+
+| []                           | []                    |
++------------------------------+-----------------------+
+1 row in set (0.01 sec)
+
 ```
 
 ### keywords
