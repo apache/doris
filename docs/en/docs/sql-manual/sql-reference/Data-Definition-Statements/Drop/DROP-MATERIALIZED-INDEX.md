@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DROP-MATERIALIZED-VIEW",
+    "title": "DROP-MATERIALIZED-INDEX",
     "language": "en"
 }
 ---
@@ -24,31 +24,31 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## DROP-MATERIALIZED-VIEW
+## DROP-MATERIALIZED-INDEX
 
 ### Name
 
-DROP MATERIALIZED VIEW
+DROP materialized index
 
 ### Description
 
-This statement is used to drop a materialized view. Synchronous syntax
+This statement is used to drop a materialized index. Synchronous syntax
 
 grammar:
 
 ```sql
-DROP MATERIALIZED VIEW [IF EXISTS] mv_name ON table_name;
+DROP materialized index [IF EXISTS] mv_name ON table_name;
 ````
 
 
 1. IF EXISTS:
-        Do not throw an error if the materialized view does not exist. If this keyword is not declared, an error will be reported if the materialized view does not exist.
+        Do not throw an error if the materialized index does not exist. If this keyword is not declared, an error will be reported if the materialized index does not exist.
 
 2. mv_name:
-        The name of the materialized view to delete. Required.
+        The name of the materialized index to delete. Required.
 
 3. table_name:
-        The name of the table to which the materialized view to be deleted belongs. Required.
+        The name of the table to which the materialized index to be deleted belongs. Required.
 
 ### Example
 
@@ -72,13 +72,13 @@ mysql> desc all_type_table all;
 +----------------+-------+----------+------+------ -+---------+-------+
 ````
 
-1. Drop the materialized view named k1_sumk2 of the table all_type_table
+1. Drop the materialized index named k1_sumk2 of the table all_type_table
 
    ```sql
-   drop materialized view k1_sumk2 on all_type_table;
+   drop materialized index k1_sumk2 on all_type_table;
    ````
 
-   The table structure after the materialized view is deleted
+   The table structure after the materialized index is deleted
 
    ````text
    +----------------+-------+----------+------+------ -+---------+-------+
@@ -94,19 +94,19 @@ mysql> desc all_type_table all;
    +----------------+-------+----------+------+------ -+---------+-------+
    ````
 
-2. Drop a non-existent materialized view in the table all_type_table
+2. Drop a non-existent materialized index in the table all_type_table
 
    ```sql
-   drop materialized view k1_k2 on all_type_table;
-   ERROR 1064 (HY000): errCode = 2, detailMessage = Materialized view [k1_k2] does not exist in table [all_type_table]
+   drop materialized index k1_k2 on all_type_table;
+   ERROR 1064 (HY000): errCode = 2, detailMessage = materialized index [k1_k2] does not exist in table [all_type_table]
    ````
 
    The delete request reports an error directly
 
-3. Delete the materialized view k1_k2 in the table all_type_table, if it does not exist, no error will be reported.
+3. Delete the materialized index k1_k2 in the table all_type_table, if it does not exist, no error will be reported.
 
    ```sql
-   drop materialized view if exists k1_k2 on all_type_table;
+   drop materialized index if exists k1_k2 on all_type_table;
    Query OK, 0 rows affected (0.00 sec)
    ````
 

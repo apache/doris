@@ -39,7 +39,7 @@ suite ("testAggQueryOnAggMV2") {
     }
     qt_select_emps_mv "select deptno, sum(salary) from emps group by deptno order by deptno;"
 
-    createMV("create materialized view emps_mv as select deptno, sum(salary) from emps group by deptno ;")
+    createMV("create materialized index emps_mv as select deptno, sum(salary) from emps group by deptno ;")
 
  
 

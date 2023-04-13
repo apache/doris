@@ -850,8 +850,6 @@ Status ArrayFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size
     return Status::OK();
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
 FileColumnIterator::FileColumnIterator(ColumnReader* reader) : _reader(reader) {}
 
 Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {

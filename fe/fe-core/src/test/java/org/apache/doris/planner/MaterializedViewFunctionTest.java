@@ -93,7 +93,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testProjectionMV1() throws Exception {
-        String createMVSql = "create materialized view " + EMPS_MV_NAME + " as select deptno, empid from "
+        String createMVSql = "create materialized index " + EMPS_MV_NAME + " as select deptno, empid from "
                 + EMPS_TABLE_NAME + " order by deptno;";
         String query = "select empid, deptno from " + EMPS_TABLE_NAME + ";";
         dorisAssert.withMaterializedView(createMVSql);
@@ -102,7 +102,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testProjectionMV2() throws Exception {
-        String createMVSql = "create materialized view " + EMPS_MV_NAME + " as select deptno, empid from "
+        String createMVSql = "create materialized index " + EMPS_MV_NAME + " as select deptno, empid from "
                 + EMPS_TABLE_NAME + " order by deptno;";
         String query1 = "select empid + 1 from " + EMPS_TABLE_NAME + " where deptno = 10;";
         dorisAssert.withMaterializedView(createMVSql);
@@ -114,7 +114,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testProjectionMV3() throws Exception {
-        String createMVSql = "create materialized view " + EMPS_MV_NAME + " as select deptno, empid, name from "
+        String createMVSql = "create materialized index " + EMPS_MV_NAME + " as select deptno, empid, name from "
                 + EMPS_TABLE_NAME + " order by deptno;";
         String query1 = "select empid +1, name from " + EMPS_TABLE_NAME + " where deptno = 10;";
         dorisAssert.withMaterializedView(createMVSql);
@@ -125,7 +125,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testProjectionMV4() throws Exception {
-        String createMVSql = "create materialized view " + EMPS_MV_NAME + " as select name, deptno, salary from "
+        String createMVSql = "create materialized index " + EMPS_MV_NAME + " as select name, deptno, salary from "
                 + EMPS_TABLE_NAME + ";";
         String query1 = "select name from " + EMPS_TABLE_NAME + " where deptno > 30 and salary > 3000;";
         dorisAssert.withMaterializedView(createMVSql);
@@ -136,7 +136,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testUnionQueryOnProjectionMV() throws Exception {
-        String createMVSql = "create materialized view " + EMPS_MV_NAME + " as select deptno, empid from "
+        String createMVSql = "create materialized index " + EMPS_MV_NAME + " as select deptno, empid from "
                 + EMPS_TABLE_NAME + " order by deptno;";
         String union = "select empid from " + EMPS_TABLE_NAME + " where deptno > 300" + " union all select empid from"
                 + " " + EMPS_TABLE_NAME + " where deptno < 200";
@@ -145,7 +145,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testAggQueryOnAggMV1() throws Exception {
-        String createMVSql = "create materialized view " + EMPS_MV_NAME + " as select deptno, sum(salary), "
+        String createMVSql = "create materialized index " + EMPS_MV_NAME + " as select deptno, sum(salary), "
                 + "max(commission) from " + EMPS_TABLE_NAME + " group by deptno;";
         String query = "select sum(salary), deptno from " + EMPS_TABLE_NAME + " group by deptno;";
         dorisAssert.withMaterializedView(createMVSql).query(query).explainContains(QUERY_USE_EMPS_MV);
@@ -154,7 +154,7 @@ public class MaterializedViewFunctionTest {
     @Test
     public void testAggQueryOnAggMV2() throws Exception {
         String agg = "select deptno, sum(salary) from " + EMPS_TABLE_NAME + " group by deptno";
-        String createMVSql = "create materialized view " + EMPS_MV_NAME + " as " + agg + ";";
+        String createMVSql = "create materialized index " + EMPS_MV_NAME + " as " + agg + ";";
         String query = "select * from (select deptno, sum(salary) as sum_salary from " + EMPS_TABLE_NAME + " group "
                 + "by" + " deptno) a where (sum_salary * 2) > 3;";
         dorisAssert.withMaterializedView(createMVSql).query(query).explainContains(QUERY_USE_EMPS_MV);
@@ -162,12 +162,12 @@ public class MaterializedViewFunctionTest {
 
     /*
     TODO
-    The deduplicate materialized view is not yet supported
+    The deduplicate materialized index is not yet supported
     @Test
     public void testAggQueryOnDeduplicatedMV() throws Exception {
         String deduplicateSQL = "select deptno, empid, name, salary, commission from " + EMPS_TABLE_NAME + " group "
                 + "by" + " deptno, empid, name, salary, commission";
-        String createMVSql = "create materialized view " + EMPS_MV_NAME + " as " + deduplicateSQL + ";";
+        String createMVSql = "create materialized index " + EMPS_MV_NAME + " as " + deduplicateSQL + ";";
         String query1 = "select deptno, sum(salary) from (" + deduplicateSQL + ") A group by deptno;";
         dorisAssert.withMaterializedView(createMVSql);
         dorisAssert.query(query1).explainContains(QUERY_USE_EMPS_MV);
@@ -178,7 +178,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testAggQueryOnAggMV3() throws Exception {
-        String createMVSql = "create materialized view " + EMPS_MV_NAME + " as select deptno, commission, sum(salary)"
+        String createMVSql = "create materialized index " + EMPS_MV_NAME + " as select deptno, commission, sum(salary)"
                 + " from " + EMPS_TABLE_NAME + " group by deptno, commission;";
         String query = "select commission, sum(salary) from " + EMPS_TABLE_NAME + " where commission * (deptno + "
                 + "commission) = 100 group by commission;";
@@ -192,7 +192,7 @@ public class MaterializedViewFunctionTest {
      */
     @Test
     public void testAggQueryOnAggMV4() throws Exception {
-        String createMVSql = "create materialized view " + EMPS_MV_NAME + " as select deptno, commission, sum(salary)"
+        String createMVSql = "create materialized index " + EMPS_MV_NAME + " as select deptno, commission, sum(salary)"
                 + " from " + EMPS_TABLE_NAME + " group by deptno, commission;";
         String query = "select deptno, sum(salary) from " + EMPS_TABLE_NAME + " where salary>1000 group by deptno;";
         dorisAssert.withMaterializedView(createMVSql);
@@ -204,7 +204,7 @@ public class MaterializedViewFunctionTest {
      */
     @Test
     public void testAggQuqeryOnAggMV5() throws Exception {
-        String createMVSql = "create materialized view " + EMPS_MV_NAME + " as select deptno, commission, sum(salary)"
+        String createMVSql = "create materialized index " + EMPS_MV_NAME + " as select deptno, commission, sum(salary)"
                 + " from " + EMPS_TABLE_NAME + " group by deptno, commission;";
         String query = "select * from (select deptno, sum(salary) as sum_salary from " + EMPS_TABLE_NAME
                 + " group by deptno) a where sum_salary>10;";
@@ -219,7 +219,7 @@ public class MaterializedViewFunctionTest {
      */
     @Test
     public void testAggQuqeryOnAggMV6() throws Exception {
-        String createMVSql = "create materialized view " + EMPS_MV_NAME + " as select deptno, commission, sum(salary)"
+        String createMVSql = "create materialized index " + EMPS_MV_NAME + " as select deptno, commission, sum(salary)"
                 + " from " + EMPS_TABLE_NAME + " group by deptno, commission;";
         String query = "select * from (select deptno, sum(salary) as sum_salary from " + EMPS_TABLE_NAME
                 + " where deptno>=20 group by deptno) a where sum_salary>10;";
@@ -229,11 +229,11 @@ public class MaterializedViewFunctionTest {
 
     /**
      * Aggregation query with groupSets at coarser level of aggregation than
-     * aggregation materialized view.
+     * aggregation materialized index.
      */
     @Test
     public void testGroupingSetQueryOnAggMV() throws Exception {
-        String createMVSql = "create materialized view " + EMPS_MV_NAME + " as select empid, deptno, sum(salary) "
+        String createMVSql = "create materialized index " + EMPS_MV_NAME + " as select empid, deptno, sum(salary) "
                 + "from " + EMPS_TABLE_NAME + " group by empid, deptno;";
         String query = "select sum(salary), empid, deptno from " + EMPS_TABLE_NAME + " group by rollup(empid,deptno);";
         dorisAssert.withMaterializedView(createMVSql);
@@ -241,11 +241,11 @@ public class MaterializedViewFunctionTest {
     }
 
     /**
-     * Aggregation query at coarser level of aggregation than aggregation materialized view.
+     * Aggregation query at coarser level of aggregation than aggregation materialized index.
      */
     @Test
     public void testAggQuqeryOnAggMV7() throws Exception {
-        String createMVSql = "create materialized view " + EMPS_MV_NAME + " as select deptno, commission, sum(salary) "
+        String createMVSql = "create materialized index " + EMPS_MV_NAME + " as select deptno, commission, sum(salary) "
                 + "from " + EMPS_TABLE_NAME + " " + "group by deptno, commission;";
         String query = "select deptno, sum(salary) from " + EMPS_TABLE_NAME + " where deptno>=20 group by deptno;";
         dorisAssert.withMaterializedView(createMVSql);
@@ -254,7 +254,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testAggQueryOnAggMV8() throws Exception {
-        String createMVSql = "create materialized view " + EMPS_MV_NAME + " as select deptno, sum(salary) "
+        String createMVSql = "create materialized index " + EMPS_MV_NAME + " as select deptno, sum(salary) "
                 + "from " + EMPS_TABLE_NAME + " group by deptno;";
         String query = "select deptno, sum(salary) + 1 from " + EMPS_TABLE_NAME + " group by deptno;";
         dorisAssert.withMaterializedView(createMVSql);
@@ -266,7 +266,7 @@ public class MaterializedViewFunctionTest {
      */
     @Test
     public void testAggQueryOnAggMV9() throws Exception {
-        String createMVSql = "create materialized view " + EMPS_MV_NAME + " as select deptno, commission, sum(salary) "
+        String createMVSql = "create materialized index " + EMPS_MV_NAME + " as select deptno, commission, sum(salary) "
                 + "from " + EMPS_TABLE_NAME + " group by deptno, commission;";
         String query = "select deptno, commission, sum(salary) + 1 from " + EMPS_TABLE_NAME
                 + " group by cube(deptno,commission);";
@@ -279,7 +279,7 @@ public class MaterializedViewFunctionTest {
      */
     @Test
     public void testAggQueryOnAggMV10() throws Exception {
-        String createMVSql = "create materialized view " + EMPS_MV_NAME + " as select deptno, commission, sum(salary) "
+        String createMVSql = "create materialized index " + EMPS_MV_NAME + " as select deptno, commission, sum(salary) "
                 + "from " + EMPS_TABLE_NAME + " group by deptno, commission;";
         String query = "select deptno, commission, sum(salary) + 1 from " + EMPS_TABLE_NAME
                 + " group by rollup (deptno, commission);";
@@ -297,7 +297,7 @@ public class MaterializedViewFunctionTest {
      */
     @Test
     public void testAggQueryOnAggMV11() throws Exception {
-        String createMVSql = "create materialized view " + EMPS_MV_NAME + " as select deptno, count(salary) "
+        String createMVSql = "create materialized index " + EMPS_MV_NAME + " as select deptno, count(salary) "
                 + "from " + EMPS_TABLE_NAME + " group by deptno;";
         String query = "select deptno, count(salary) + count(1) from " + EMPS_TABLE_NAME
                 + " group by deptno;";
@@ -310,7 +310,7 @@ public class MaterializedViewFunctionTest {
      */
     @Test
     public void testAggQueryWithSetOperandOnAggMV() throws Exception {
-        String createMVSql = "create materialized view " + EMPS_MV_NAME + " as select deptno, count(salary) "
+        String createMVSql = "create materialized index " + EMPS_MV_NAME + " as select deptno, count(salary) "
                 + "from " + EMPS_TABLE_NAME + " group by deptno;";
         String query = "select deptno, count(salary) + count(1) from " + EMPS_TABLE_NAME
                 + " group by deptno union "
@@ -322,9 +322,9 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testJoinOnLeftProjectToJoin() throws Exception {
-        String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME
+        String createEmpsMVsql = "create materialized index " + EMPS_MV_NAME
                 + " as select deptno, sum(salary), sum(commission) from " + EMPS_TABLE_NAME + " group by deptno;";
-        String createDeptsMVSQL = "create materialized view " + DEPTS_MV_NAME + " as select deptno, max(cost) from "
+        String createDeptsMVSQL = "create materialized index " + DEPTS_MV_NAME + " as select deptno, max(cost) from "
                 + DEPTS_TABLE_NAME + " group by deptno;";
         String query = "select * from (select deptno , sum(salary) from " + EMPS_TABLE_NAME + " group by deptno) A "
                 + "join (select deptno, max(cost) from " + DEPTS_TABLE_NAME + " group by deptno ) B on A.deptno = B"
@@ -335,9 +335,9 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testJoinOnRightProjectToJoin() throws Exception {
-        String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select deptno, sum(salary), sum"
+        String createEmpsMVsql = "create materialized index " + EMPS_MV_NAME + " as select deptno, sum(salary), sum"
                 + "(commission) from " + EMPS_TABLE_NAME + " group by deptno;";
-        String createDeptsMVSQL = "create materialized view " + DEPTS_MV_NAME + " as select deptno, max(cost) from "
+        String createDeptsMVSQL = "create materialized index " + DEPTS_MV_NAME + " as select deptno, max(cost) from "
                 + DEPTS_TABLE_NAME + " group by deptno;";
         String query = "select * from (select deptno , sum(salary), sum(commission) from " + EMPS_TABLE_NAME
                 + " group by deptno) A join (select deptno from " + DEPTS_TABLE_NAME + " group by deptno ) B on A"
@@ -348,9 +348,9 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testJoinOnProjectsToJoin() throws Exception {
-        String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select deptno, sum(salary), sum"
+        String createEmpsMVsql = "create materialized index " + EMPS_MV_NAME + " as select deptno, sum(salary), sum"
                 + "(commission) from " + EMPS_TABLE_NAME + " group by deptno;";
-        String createDeptsMVSQL = "create materialized view " + DEPTS_MV_NAME + " as select deptno, max(cost) from "
+        String createDeptsMVSQL = "create materialized index " + DEPTS_MV_NAME + " as select deptno, max(cost) from "
                 + DEPTS_TABLE_NAME + " group by deptno;";
         String query = "select * from (select deptno , sum(salary) from " + EMPS_TABLE_NAME + " group by deptno) A "
                 + "join (select deptno from " + DEPTS_TABLE_NAME + " group by deptno ) B on A.deptno = B.deptno;";
@@ -360,9 +360,9 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testJoinOnCalcToJoin0() throws Exception {
-        String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select empid, deptno from "
+        String createEmpsMVsql = "create materialized index " + EMPS_MV_NAME + " as select empid, deptno from "
                 + EMPS_TABLE_NAME + ";";
-        String createDeptsMVSQL = "create materialized view " + DEPTS_MV_NAME + " as select deptno from "
+        String createDeptsMVSQL = "create materialized index " + DEPTS_MV_NAME + " as select deptno from "
                 + DEPTS_TABLE_NAME + ";";
         String query = "select * from (select empid, deptno from " + EMPS_TABLE_NAME + " where deptno > 10 ) A "
                 + "join (select deptno from " + DEPTS_TABLE_NAME + " ) B on A.deptno = B.deptno;";
@@ -372,9 +372,9 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testJoinOnCalcToJoin1() throws Exception {
-        String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select empid, deptno from "
+        String createEmpsMVsql = "create materialized index " + EMPS_MV_NAME + " as select empid, deptno from "
                 + EMPS_TABLE_NAME + ";";
-        String createDeptsMVSQL = "create materialized view " + DEPTS_MV_NAME + " as select deptno from "
+        String createDeptsMVSQL = "create materialized index " + DEPTS_MV_NAME + " as select deptno from "
                 + DEPTS_TABLE_NAME + ";";
         String query = "select * from (select empid, deptno from " + EMPS_TABLE_NAME + " ) A join (select "
                 + "deptno from " + DEPTS_TABLE_NAME + " where deptno > 10 ) B on A.deptno = B.deptno;";
@@ -384,9 +384,9 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testJoinOnCalcToJoin2() throws Exception {
-        String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select empid, deptno from "
+        String createEmpsMVsql = "create materialized index " + EMPS_MV_NAME + " as select empid, deptno from "
                 + EMPS_TABLE_NAME + ";";
-        String createDeptsMVSQL = "create materialized view " + DEPTS_MV_NAME + " as select deptno from "
+        String createDeptsMVSQL = "create materialized index " + DEPTS_MV_NAME + " as select deptno from "
                 + DEPTS_TABLE_NAME + ";";
         String query = "select * from (select empid, deptno from " + EMPS_TABLE_NAME + " where empid >10 ) A "
                 + "join (select deptno from " + DEPTS_TABLE_NAME + " where deptno > 10 ) B on A.deptno = B.deptno;";
@@ -396,9 +396,9 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testJoinOnCalcToJoin3() throws Exception {
-        String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select empid, deptno from "
+        String createEmpsMVsql = "create materialized index " + EMPS_MV_NAME + " as select empid, deptno from "
                 + EMPS_TABLE_NAME + ";";
-        String createDeptsMVSQL = "create materialized view " + DEPTS_MV_NAME + " as select deptno from "
+        String createDeptsMVSQL = "create materialized index " + DEPTS_MV_NAME + " as select deptno from "
                 + DEPTS_TABLE_NAME + ";";
         String query = "select * from (select empid, deptno + 1 deptno from " + EMPS_TABLE_NAME + " where empid >10 )"
                 + " A join (select deptno from " + DEPTS_TABLE_NAME
@@ -409,9 +409,9 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testJoinOnCalcToJoin4() throws Exception {
-        String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select empid, deptno from "
+        String createEmpsMVsql = "create materialized index " + EMPS_MV_NAME + " as select empid, deptno from "
                 + EMPS_TABLE_NAME + ";";
-        String createDeptsMVSQL = "create materialized view " + DEPTS_MV_NAME + " as select deptno from "
+        String createDeptsMVSQL = "create materialized index " + DEPTS_MV_NAME + " as select deptno from "
                 + DEPTS_TABLE_NAME + ";";
         String query = "select * from (select empid, deptno + 1 deptno from " + EMPS_TABLE_NAME
                 + " where empid is not null ) A full join (select deptno from " + DEPTS_TABLE_NAME
@@ -422,7 +422,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testOrderByQueryOnProjectView() throws Exception {
-        String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select deptno, empid from "
+        String createEmpsMVsql = "create materialized index " + EMPS_MV_NAME + " as select deptno, empid from "
                 + EMPS_TABLE_NAME + ";";
         String query = "select empid from " + EMPS_TABLE_NAME + " order by deptno";
         dorisAssert.withMaterializedView(createEmpsMVsql).query(query).explainContains(QUERY_USE_EMPS_MV);
@@ -430,7 +430,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testOrderByQueryOnOrderByView() throws Exception {
-        String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select deptno, empid from "
+        String createEmpsMVsql = "create materialized index " + EMPS_MV_NAME + " as select deptno, empid from "
                 + EMPS_TABLE_NAME + " order by deptno;";
         String query = "select empid from " + EMPS_TABLE_NAME + " order by deptno";
         dorisAssert.withMaterializedView(createEmpsMVsql).query(query).explainContains(QUERY_USE_EMPS_MV);
@@ -438,7 +438,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testQueryOnStar() throws Exception {
-        String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select time_col, deptno,"
+        String createEmpsMVsql = "create materialized index " + EMPS_MV_NAME + " as select time_col, deptno,"
                 + "empid, name, salary, commission from " + EMPS_TABLE_NAME + " order by time_col, deptno, empid;";
         String query = "select * from " + EMPS_TABLE_NAME + " where deptno = 1";
         dorisAssert.withMaterializedView(createEmpsMVsql).query(query).explainContains(QUERY_USE_EMPS_MV);
@@ -446,7 +446,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testAggregateMVAggregateFuncs1() throws Exception {
-        String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select empid, deptno, sum(salary) "
+        String createEmpsMVsql = "create materialized index " + EMPS_MV_NAME + " as select empid, deptno, sum(salary) "
                 + "from " + EMPS_TABLE_NAME + " group by empid, deptno;";
         String query = "select deptno from " + EMPS_TABLE_NAME + " group by deptno";
         dorisAssert.withMaterializedView(createEmpsMVsql).query(query).explainContains(QUERY_USE_EMPS_MV);
@@ -454,7 +454,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testAggregateMVAggregateFuncs2() throws Exception {
-        String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select empid, deptno, sum(salary) "
+        String createEmpsMVsql = "create materialized index " + EMPS_MV_NAME + " as select empid, deptno, sum(salary) "
                 + "from " + EMPS_TABLE_NAME + " group by empid, deptno;";
         String query = "select deptno, sum(salary) from " + EMPS_TABLE_NAME + " group by deptno";
         dorisAssert.withMaterializedView(createEmpsMVsql).query(query).explainContains(QUERY_USE_EMPS_MV);
@@ -462,7 +462,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testAggregateMVAggregateFuncs3() throws Exception {
-        String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select empid, deptno, sum(salary) "
+        String createEmpsMVsql = "create materialized index " + EMPS_MV_NAME + " as select empid, deptno, sum(salary) "
                 + "from " + EMPS_TABLE_NAME + " group by empid, deptno;";
         String query = "select deptno, empid, sum(salary) from " + EMPS_TABLE_NAME + " group by deptno, empid";
         dorisAssert.withMaterializedView(createEmpsMVsql).query(query).explainContains(QUERY_USE_EMPS_MV);
@@ -470,7 +470,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testAggregateMVAggregateFuncs4() throws Exception {
-        String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select empid, deptno, sum(salary) "
+        String createEmpsMVsql = "create materialized index " + EMPS_MV_NAME + " as select empid, deptno, sum(salary) "
                 + "from " + EMPS_TABLE_NAME + " group by empid, deptno;";
         String query = "select deptno, sum(salary) from " + EMPS_TABLE_NAME + " where deptno > 10 group by deptno";
         dorisAssert.withMaterializedView(createEmpsMVsql).query(query).explainContains(QUERY_USE_EMPS_MV);
@@ -478,7 +478,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testAggregateMVAggregateFuncs5() throws Exception {
-        String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select deptno, empid, sum(salary) "
+        String createEmpsMVsql = "create materialized index " + EMPS_MV_NAME + " as select deptno, empid, sum(salary) "
                 + "from " + EMPS_TABLE_NAME + " group by empid, deptno;";
         String query = "select deptno, sum(salary) + 1 from " + EMPS_TABLE_NAME + " where deptno > 10 group by deptno";
         dorisAssert.withMaterializedView(createEmpsMVsql).query(query).explainContains(QUERY_USE_EMPS_MV);
@@ -486,7 +486,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testAggregateMVCalcGroupByQuery1() throws Exception {
-        String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select deptno, empid, sum(salary) "
+        String createEmpsMVsql = "create materialized index " + EMPS_MV_NAME + " as select deptno, empid, sum(salary) "
                 + "from " + EMPS_TABLE_NAME + " group by empid, deptno;";
         String query = "select deptno+1, sum(salary) + 1 from " + EMPS_TABLE_NAME + " where deptno > 10 "
                 + "group by deptno+1;";
@@ -495,7 +495,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testAggregateMVCalcGroupByQuery2() throws Exception {
-        String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select deptno, empid, sum(salary) "
+        String createEmpsMVsql = "create materialized index " + EMPS_MV_NAME + " as select deptno, empid, sum(salary) "
                 + "from " + EMPS_TABLE_NAME + " group by empid, deptno;";
         String query = "select deptno * empid, sum(salary) + 1 from " + EMPS_TABLE_NAME + " where deptno > 10 "
                 + "group by deptno * empid;";
@@ -504,7 +504,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testAggregateMVCalcGroupByQuery3() throws Exception {
-        String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select deptno, empid, sum(salary) "
+        String createEmpsMVsql = "create materialized index " + EMPS_MV_NAME + " as select deptno, empid, sum(salary) "
                 + "from " + EMPS_TABLE_NAME + " group by empid, deptno;";
         String query = "select empid, deptno * empid, sum(salary) + 1 from " + EMPS_TABLE_NAME + " where deptno > 10 "
                 + "group by empid, deptno * empid;";
@@ -513,7 +513,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testAggregateMVCalcAggFunctionQuery() throws Exception {
-        String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select deptno, empid, sum(salary) "
+        String createEmpsMVsql = "create materialized index " + EMPS_MV_NAME + " as select deptno, empid, sum(salary) "
                 + "from " + EMPS_TABLE_NAME + " group by empid, deptno;";
         String query = "select deptno, sum(salary + 1) from " + EMPS_TABLE_NAME + " where deptno > 10 "
                 + "group by deptno;";
@@ -522,7 +522,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testSubQuery() throws Exception {
-        String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select deptno, empid "
+        String createEmpsMVsql = "create materialized index " + EMPS_MV_NAME + " as select deptno, empid "
                 + "from " + EMPS_TABLE_NAME + ";";
         String query = "select empid, deptno, salary from " + EMPS_TABLE_NAME + " e1 where empid = (select max(empid)"
                 + " from " + EMPS_TABLE_NAME + " where deptno = e1.deptno);";
@@ -532,7 +532,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testDistinctQuery() throws Exception {
-        String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select deptno, sum(salary) "
+        String createEmpsMVsql = "create materialized index " + EMPS_MV_NAME + " as select deptno, sum(salary) "
                 + "from " + EMPS_TABLE_NAME + " group by deptno;";
         String query1 = "select distinct deptno from " + EMPS_TABLE_NAME + ";";
         dorisAssert.withMaterializedView(createEmpsMVsql);
@@ -543,7 +543,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testSingleMVMultiUsage() throws Exception {
-        String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select deptno, empid, salary "
+        String createEmpsMVsql = "create materialized index " + EMPS_MV_NAME + " as select deptno, empid, salary "
                 + "from " + EMPS_TABLE_NAME + " order by deptno;";
         String query = "select * from (select deptno, empid from " + EMPS_TABLE_NAME + " where deptno>100) A join "
                 + "(select deptno, empid from " + EMPS_TABLE_NAME + " where deptno >200) B using (deptno);";
@@ -552,9 +552,9 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testMultiMVMultiUsage() throws Exception {
-        String createEmpsMVSql01 = "create materialized view emp_mv_01 as select deptno, empid, salary "
+        String createEmpsMVSql01 = "create materialized index emp_mv_01 as select deptno, empid, salary "
                 + "from " + EMPS_TABLE_NAME + " order by deptno;";
-        String createEmpsMVSql02 = "create materialized view emp_mv_02 as select deptno, sum(salary) "
+        String createEmpsMVSql02 = "create materialized index emp_mv_02 as select deptno, sum(salary) "
                 + "from " + EMPS_TABLE_NAME + " group by deptno;";
         String query = "select * from (select deptno, empid from " + EMPS_TABLE_NAME + " where deptno>100) A join "
                 + "(select deptno, sum(salary) from " + EMPS_TABLE_NAME + " where deptno >200 group by deptno) B "
@@ -565,7 +565,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testMVOnJoinQuery() throws Exception {
-        String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select salary, empid, deptno from "
+        String createEmpsMVsql = "create materialized index " + EMPS_MV_NAME + " as select salary, empid, deptno from "
                 + EMPS_TABLE_NAME + " order by salary;";
         String query = "select empid, salary from " + EMPS_TABLE_NAME + " join " + DEPTS_TABLE_NAME
                 + " using (deptno) where salary > 300;";
@@ -576,7 +576,7 @@ public class MaterializedViewFunctionTest {
     // TODO: should be support
     @Test
     public void testAggregateMVOnCountDistinctQuery1() throws Exception {
-        String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select empid, deptno, sum(salary) "
+        String createEmpsMVsql = "create materialized index " + EMPS_MV_NAME + " as select empid, deptno, sum(salary) "
                 + "from " + EMPS_TABLE_NAME + " group by empid, deptno;";
         String query = "select deptno, count(distinct empid) from " + EMPS_TABLE_NAME + " group by deptno;";
         dorisAssert.withMaterializedView(createEmpsMVsql).query(query).explainContains(QUERY_USE_EMPS_MV);
@@ -584,7 +584,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testQueryAfterTrimingOfUnusedFields() throws Exception {
-        String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select empid, deptno from "
+        String createEmpsMVsql = "create materialized index " + EMPS_MV_NAME + " as select empid, deptno from "
                 + EMPS_TABLE_NAME + " order by empid, deptno;";
         String query = "select empid, deptno from (select empid, deptno, salary from " + EMPS_TABLE_NAME + ") A;";
         dorisAssert.withMaterializedView(createEmpsMVsql).query(query).explainContains(QUERY_USE_EMPS_MV);
@@ -592,7 +592,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testUnionAll() throws Exception {
-        String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select empid, deptno from "
+        String createEmpsMVsql = "create materialized index " + EMPS_MV_NAME + " as select empid, deptno from "
                 + EMPS_TABLE_NAME + " order by empid, deptno;";
         String query = "select empid, deptno from " + EMPS_TABLE_NAME + " where empid >1 union all select empid,"
                 + " deptno from " + EMPS_TABLE_NAME + " where empid <0;";
@@ -601,7 +601,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testUnionDistinct() throws Exception {
-        String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select empid, deptno from "
+        String createEmpsMVsql = "create materialized index " + EMPS_MV_NAME + " as select empid, deptno from "
                 + EMPS_TABLE_NAME + " order by empid, deptno;";
         String query = "select empid, deptno from " + EMPS_TABLE_NAME + " where empid >1 union select empid,"
                 + " deptno from " + EMPS_TABLE_NAME + " where empid <0;";
@@ -626,7 +626,7 @@ public class MaterializedViewFunctionTest {
                 + "DUPLICATE KEY( k1 ,  k2 ) DISTRIBUTED BY HASH( k1 ,  k2 ) BUCKETS 3 "
                 + "PROPERTIES ('replication_num' = '1'); ";
         dorisAssert.withTable(duplicateTable);
-        String createK1K2MV = "create materialized view k1_k2 as select k1,k2 from " + TEST_TABLE_NAME + " group by "
+        String createK1K2MV = "create materialized index k1_k2 as select k1,k2 from " + TEST_TABLE_NAME + " group by "
                 + "k1,k2;";
         String query = "select k1 from " + TEST_TABLE_NAME + " group by k1 having max(v1) > 10;";
         dorisAssert.withMaterializedView(createK1K2MV).query(query).explainWithout("k1_k2");
@@ -640,7 +640,7 @@ public class MaterializedViewFunctionTest {
                 + "DUPLICATE KEY( k1 ,  k2 ) DISTRIBUTED BY HASH( k1 ,  k2 ) BUCKETS 3 "
                 + "PROPERTIES ('replication_num' = '1'); ";
         dorisAssert.withTable(duplicateTable);
-        String createK1K2MV = "create materialized view k1_k2 as select k1,k2 from " + TEST_TABLE_NAME + " group by "
+        String createK1K2MV = "create materialized index k1_k2 as select k1,k2 from " + TEST_TABLE_NAME + " group by "
                 + "k1,k2;";
         String query = "select k1 from " + TEST_TABLE_NAME + " group by k1 order by max(v1);";
         dorisAssert.withMaterializedView(createK1K2MV).query(query).explainWithout("k1_k2");
@@ -654,7 +654,7 @@ public class MaterializedViewFunctionTest {
                 + "DUPLICATE KEY( k1 ,  k2 ) DISTRIBUTED BY HASH( k1 ,  k2 ) BUCKETS 3 "
                 + "PROPERTIES ('replication_num' = '1'); ";
         dorisAssert.withTable(duplicateTable);
-        String createK1K2MV = "create materialized view k1_k2 as select k1,k2 from " + TEST_TABLE_NAME + " group by "
+        String createK1K2MV = "create materialized index k1_k2 as select k1,k2 from " + TEST_TABLE_NAME + " group by "
                 + "k1,k2;";
         String query = "select k1 , sum(k2) over (partition by v1 ) from " + TEST_TABLE_NAME + ";";
         dorisAssert.withMaterializedView(createK1K2MV).query(query).explainWithout("k1_k2");
@@ -666,7 +666,7 @@ public class MaterializedViewFunctionTest {
         String uniqueTable = "CREATE TABLE " + TEST_TABLE_NAME + " (k1 int, k2 int, v1 int) UNIQUE KEY (k1, k2) "
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 3 PROPERTIES ('replication_num' = '1');";
         dorisAssert.withTable(uniqueTable);
-        String createK1K2MV = "create materialized view only_k1 as select k2, k1 from " + TEST_TABLE_NAME + " group by "
+        String createK1K2MV = "create materialized index only_k1 as select k2, k1 from " + TEST_TABLE_NAME + " group by "
                 + "k2, k1;";
         String query = "select * from " + TEST_TABLE_NAME + ";";
         dorisAssert.withMaterializedView(createK1K2MV).query(query).explainContains(TEST_TABLE_NAME);
@@ -675,7 +675,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testBitmapUnionInQuery() throws Exception {
-        String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME
+        String createUserTagMVSql = "create materialized index " + USER_TAG_MV_NAME
                 + " as select user_id, bitmap_union(to_bitmap(tag_id)) from "
                 + USER_TAG_TABLE_NAME + " group by user_id;";
         dorisAssert.withMaterializedView(createUserTagMVSql);
@@ -686,7 +686,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testBitmapUnionInSubquery() throws Exception {
-        String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
+        String createUserTagMVSql = "create materialized index " + USER_TAG_MV_NAME + " as select user_id, "
                 + "bitmap_union(to_bitmap(tag_id)) from " + USER_TAG_TABLE_NAME + " group by user_id;";
         dorisAssert.withMaterializedView(createUserTagMVSql);
         String query = "select user_id from " + USER_TAG_TABLE_NAME + " where user_id in (select user_id from "
@@ -696,10 +696,10 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testIncorrectMVRewriteInQuery() throws Exception {
-        String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
+        String createUserTagMVSql = "create materialized index " + USER_TAG_MV_NAME + " as select user_id, "
                 + "bitmap_union(to_bitmap(tag_id)) from " + USER_TAG_TABLE_NAME + " group by user_id;";
         dorisAssert.withMaterializedView(createUserTagMVSql);
-        String createEmpMVSql = "create materialized view " + EMPS_MV_NAME + " as select name, deptno from "
+        String createEmpMVSql = "create materialized index " + EMPS_MV_NAME + " as select name, deptno from "
                 + EMPS_TABLE_NAME + ";";
         dorisAssert.withMaterializedView(createEmpMVSql);
         String query = "select user_name, bitmap_union_count(to_bitmap(tag_id)) a from " + USER_TAG_TABLE_NAME + ", "
@@ -711,7 +711,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testIncorrectMVRewriteInSubquery() throws Exception {
-        String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
+        String createUserTagMVSql = "create materialized index " + USER_TAG_MV_NAME + " as select user_id, "
                 + "bitmap_union(to_bitmap(tag_id)) from " + USER_TAG_TABLE_NAME + " group by user_id;";
         dorisAssert.withMaterializedView(createUserTagMVSql);
         String query = "select user_id, bitmap_union(to_bitmap(tag_id)) from " + USER_TAG_TABLE_NAME + " where "
@@ -722,7 +722,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testTwoTupleInQuery() throws Exception {
-        String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
+        String createUserTagMVSql = "create materialized index " + USER_TAG_MV_NAME + " as select user_id, "
                 + "bitmap_union(to_bitmap(tag_id)) from " + USER_TAG_TABLE_NAME + " group by user_id;";
         dorisAssert.withMaterializedView(createUserTagMVSql);
         String query = "select * from (select user_id, bitmap_union_count(to_bitmap(tag_id)) x from "
@@ -753,7 +753,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testCountDistinctToBitmap() throws Exception {
-        String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
+        String createUserTagMVSql = "create materialized index " + USER_TAG_MV_NAME + " as select user_id, "
                 + "bitmap_union(to_bitmap(tag_id)) from " + USER_TAG_TABLE_NAME + " group by user_id;";
         dorisAssert.withMaterializedView(createUserTagMVSql);
         String query = "select count(distinct tag_id) from " + USER_TAG_TABLE_NAME + ";";
@@ -762,7 +762,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testIncorrectRewriteCountDistinct() throws Exception {
-        String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
+        String createUserTagMVSql = "create materialized index " + USER_TAG_MV_NAME + " as select user_id, "
                 + "bitmap_union(to_bitmap(tag_id)) from " + USER_TAG_TABLE_NAME + " group by user_id;";
         dorisAssert.withMaterializedView(createUserTagMVSql);
         String query = "select user_name, count(distinct tag_id) from " + USER_TAG_TABLE_NAME + " group by user_name;";
@@ -771,7 +771,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testNDVToHll() throws Exception {
-        String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
+        String createUserTagMVSql = "create materialized index " + USER_TAG_MV_NAME + " as select user_id, "
                 + "`" + FunctionSet.HLL_UNION + "`(" + FunctionSet.HLL_HASH + "(tag_id)) from " + USER_TAG_TABLE_NAME + " group by user_id;";
         dorisAssert.withMaterializedView(createUserTagMVSql);
         String query = "select ndv(tag_id) from " + USER_TAG_TABLE_NAME + ";";
@@ -780,7 +780,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testApproxCountDistinctToHll() throws Exception {
-        String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
+        String createUserTagMVSql = "create materialized index " + USER_TAG_MV_NAME + " as select user_id, "
                 + "`" + FunctionSet.HLL_UNION + "`(" + FunctionSet.HLL_HASH + "(tag_id)) from " + USER_TAG_TABLE_NAME + " group by user_id;";
         dorisAssert.withMaterializedView(createUserTagMVSql);
         String query = "select approx_count_distinct(tag_id) from " + USER_TAG_TABLE_NAME + ";";
@@ -789,7 +789,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testHLLUnionFamilyRewrite() throws Exception {
-        String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
+        String createUserTagMVSql = "create materialized index " + USER_TAG_MV_NAME + " as select user_id, "
                 + "`" + FunctionSet.HLL_UNION + "`(" + FunctionSet.HLL_HASH + "(tag_id)) from " + USER_TAG_TABLE_NAME + " group by user_id;";
         dorisAssert.withMaterializedView(createUserTagMVSql);
         String query = "select `" + FunctionSet.HLL_UNION + "`(" + FunctionSet.HLL_HASH + "(tag_id)) from " + USER_TAG_TABLE_NAME + ";";
@@ -805,7 +805,7 @@ public class MaterializedViewFunctionTest {
      */
     @Test
     public void testAggInHaving() throws Exception {
-        String createMVSql = "create materialized view " + EMPS_MV_NAME + " as select empid, deptno from "
+        String createMVSql = "create materialized index " + EMPS_MV_NAME + " as select empid, deptno from "
                 + EMPS_TABLE_NAME + " group by empid, deptno;";
         dorisAssert.withMaterializedView(createMVSql);
         String query = "select empid from " + EMPS_TABLE_NAME + " group by empid having max(salary) > 1;";
@@ -814,7 +814,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testCountFieldInQuery() throws Exception {
-        String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
+        String createUserTagMVSql = "create materialized index " + USER_TAG_MV_NAME + " as select user_id, "
                 + "count(tag_id) from " + USER_TAG_TABLE_NAME + " group by user_id;";
         dorisAssert.withMaterializedView(createUserTagMVSql);
         String query = "select count(tag_id) from " + USER_TAG_TABLE_NAME + ";";
@@ -825,7 +825,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testInvalidColumnInCreateMVStmt() throws Exception {
-        String createMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select invalid_column, user_id from "
+        String createMVSql = "create materialized index " + USER_TAG_MV_NAME + " as select invalid_column, user_id from "
                 + USER_TAG_TABLE_NAME + ";";
         try {
             dorisAssert.withMaterializedView(createMVSql);
@@ -844,7 +844,7 @@ public class MaterializedViewFunctionTest {
                 + "(partition p1 values less than MAXVALUE) "
                 + "distributed by hash(empid) buckets 3 properties('replication_num' = '1');";
         dorisAssert.withTable(createTableSQL);
-        String createMVSql = "create materialized view mv as select empid, " + FunctionSet.BITMAP_UNION
+        String createMVSql = "create materialized index mv as select empid, " + FunctionSet.BITMAP_UNION
                 + "(salary) from agg_table "
                 + "group by empid;";
         dorisAssert.withMaterializedView(createMVSql);
@@ -855,7 +855,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testSelectMVWithTableAlias() throws Exception {
-        String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
+        String createUserTagMVSql = "create materialized index " + USER_TAG_MV_NAME + " as select user_id, "
                 + "count(tag_id) from " + USER_TAG_TABLE_NAME + " group by user_id;";
         dorisAssert.withMaterializedView(createUserTagMVSql);
         String query = "select count(tag_id) from " + USER_TAG_TABLE_NAME + " t ;";

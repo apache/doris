@@ -39,7 +39,7 @@ suite ("test_rollup_agg_fail") {
         """
     //add rollup (failed)
     test {
-        sql "create materialized view mv1 as select user_id, date, city, age, sex, sum(cost) from ${tableName} group by user_id, date, city, age, sex;"
+        sql "create materialized index mv1 as select user_id, date, city, age, sex, sum(cost) from ${tableName} group by user_id, date, city, age, sex;"
         exception "errCode = 2"
     }
     //add rollup (failed)

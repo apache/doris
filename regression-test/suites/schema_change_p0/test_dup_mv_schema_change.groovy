@@ -24,7 +24,7 @@ suite ("test_dup_mv_schema_change") {
          return jobStateResult[0][9]
     }
     def getMVJobState = { tbName ->
-         def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tbName}' ORDER BY CreateTime DESC LIMIT 1 """
+         def jobStateResult = sql """  SHOW ALTER TABLE materialized index WHERE TableName='${tbName}' ORDER BY CreateTime DESC LIMIT 1 """
          return jobStateResult[0][8]
     }
     def waitForJob =  (tbName, timeout) -> {
@@ -105,17 +105,17 @@ suite ("test_dup_mv_schema_change") {
                 (1, '2017-10-01', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2020-01-02', 1, 31, 19)
             """
 
-        //add materialized view
+        //add materialized index
         def mvName = "mv1"
-        sql "create materialized view ${mvName} as select date, user_id, city, age from ${tableName};"
+        sql "create materialized index ${mvName} as select date, user_id, city, age from ${tableName};"
         waitForJob(tableName, 3000)
 
         // alter and test light schema change
         sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
 
-        //add materialized view
+        //add materialized index
         def mvName2 = "mv2"
-        sql "create materialized view ${mvName2} as select date, user_id, city, age, cost from ${tableName};"
+        sql "create materialized index ${mvName2} as select date, user_id, city, age, cost from ${tableName};"
         waitForJob(tableName, 3000)
 
         sql """ INSERT INTO ${tableName} VALUES

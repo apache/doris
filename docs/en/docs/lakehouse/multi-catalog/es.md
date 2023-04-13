@@ -307,7 +307,7 @@ A temporary solution is to implement a "Trust All" method in FE/BE. In the futur
 
 ### Query Usage
 
-You can use the ES external tables in Doris the same way as using Doris internal tables, except that the Doris data models (Rollup, Pre-Aggregation, and Materialized Views) are unavailable.
+You can use the ES external tables in Doris the same way as using Doris internal tables, except that the Doris data models (Rollup, Pre-Aggregation, and Materialized Indexs) are unavailable.
 
 #### Basic Query
 

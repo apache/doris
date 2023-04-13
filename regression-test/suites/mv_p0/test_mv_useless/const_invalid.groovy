@@ -31,16 +31,16 @@ suite ("const_invalid") {
         """
 
     test {
-        sql "create materialized view const_1 as select k1,curdate() from d_table;"
+        sql "create materialized index const_1 as select k1,curdate() from d_table;"
         exception "errCode = 2,"
     }
 
     test {
-        sql "create materialized view const_2 as select k1,curdate()+k1 from d_table;"
+        sql "create materialized index const_2 as select k1,curdate()+k1 from d_table;"
         exception "errCode = 2,"
     }
     test {
-        sql "create materialized view const_3 as select k1,abs(1+1) from d_table;"
+        sql "create materialized index const_3 as select k1,abs(1+1) from d_table;"
         exception "errCode = 2,"
     }
 }

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "CREATE-MATERIALIZED-VIEW",
+    "title": "CREATE-MATERIALIZED-INDEX",
     "language": "zh-CN"
 }
 ---
@@ -24,30 +24,30 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## CREATE-MATERIALIZED-VIEW
+## CREATE-MATERIALIZED-INDEX
 
 ### Name
 
-CREATE MATERIALIZED VIEW
+CREATE MATERIALIZED INDEX
 
 ### Description
 
-该语句用于创建物化视图。
+该语句用于创建物化索引。
 
-该操作为异步操作，提交成功后，需通过 [SHOW ALTER TABLE MATERIALIZED VIEW](../../Show-Statements/SHOW-ALTER-TABLE-MATERIALIZED-VIEW.md) 查看作业进度。在显示 FINISHED 后既可通过 `desc [table_name] all` 命令来查看物化视图的 schema 了。
+该操作为异步操作，提交成功后，需通过 [SHOW ALTER TABLE materialized index](../../Show-Statements/SHOW-ALTER-TABLE-MATERIALIZED-INDEX.md) 查看作业进度。在显示 FINISHED 后既可通过 `desc [table_name] all` 命令来查看物化索引的 schema 了。
 
 语法：
 
 ```sql
-CREATE MATERIALIZED VIEW [MV name] as [query]
+CREATE materialized index [MV name] as [query]
 [PROPERTIES ("key" = "value")]
 ```
 
 说明：
 
-- `MV name`：物化视图的名称，必填项。相同表的物化视图名称不可重复。
+- `MV name`：物化索引的名称，必填项。相同表的物化索引名称不可重复。
 
-- `query`：用于构建物化视图的查询语句，查询语句的结果既物化视图的数据。目前支持的 query 格式为:
+- `query`：用于构建物化索引的查询语句，查询语句的结果既物化索引的数据。目前支持的 query 格式为:
 
   ```sql
   SELECT select_expr[, select_expr ...]
@@ -58,20 +58,20 @@ CREATE MATERIALIZED VIEW [MV name] as [query]
 
   语法和查询语句语法一致。
 
-  - `select_expr`：物化视图的 schema 中所有的列。  
+  - `select_expr`：物化索引的 schema 中所有的列。  
     - 至少包含一个单列。 
-  - `base view name`：物化视图的原始表名，必填项。  
+  - `base view name`：物化索引的原始表名，必填项。  
     - 必须是单表，且非子查询
-  - `group by`：物化视图的分组列，选填项。 
+  - `group by`：物化索引的分组列，选填项。 
     - 不填则数据不进行分组。
-  - `order by`：物化视图的排序列，选填项。  
+  - `order by`：物化索引的排序列，选填项。  
     - 排序列的声明顺序必须和 select_expr 中列声明顺序一致。  
-    - 如果不声明 order by，则根据规则自动补充排序列。 如果物化视图是聚合类型，则所有的分组列自动补充为排序列。 如果物化视图是非聚合类型，则前 36 个字节自动补充为排序列。
+    - 如果不声明 order by，则根据规则自动补充排序列。 如果物化索引是聚合类型，则所有的分组列自动补充为排序列。 如果物化索引是非聚合类型，则前 36 个字节自动补充为排序列。
     - 如果自动补充的排序个数小于3个，则前三个作为排序列。 如果 query 中包含分组列的话，则排序列必须和分组列一致。
 
 - properties
 
-  声明物化视图的一些配置，选填项。
+  声明物化索引的一些配置，选填项。
 
   ```text
   PROPERTIES ("key" = "value", "key" = "value" ...)
@@ -81,7 +81,7 @@ CREATE MATERIALIZED VIEW [MV name] as [query]
 
   ```text
    short_key: 排序列的个数。
-   timeout: 物化视图构建的超时时间。
+   timeout: 物化索引构建的超时时间。
   ```
 
 ### Example
@@ -110,16 +110,16 @@ duplicate key (k1,k2,k3,k4)
 distributed BY hash(k4) buckets 3
 properties("replication_num" = "1");
 ```
-注意：如果物化视图包含了base表的分区列和分桶列,那么这些列必须作为物化视图中的key列
+注意：如果物化索引包含了base表的分区列和分桶列,那么这些列必须作为物化索引中的key列
 
-1. 创建一个仅包含原始表 （k1, k2）列的物化视图
+1. 创建一个仅包含原始表 （k1, k2）列的物化索引
 
    ```sql
-   create materialized view k1_k2 as
+   create materialized index k1_k2 as
    select k1, k2 from duplicate_table;
    ```
 
-   物化视图的 schema 如下图，物化视图仅包含两列 k1, k2 且不带任何聚合
+   物化索引的 schema 如下图，物化索引仅包含两列 k1, k2 且不带任何聚合
 
    ```text
    +-----------------+-------+--------+------+------+---------+-------+
@@ -130,14 +130,14 @@ properties("replication_num" = "1");
    +-----------------+-------+--------+------+------+---------+-------+
    ```
 
-2. 创建一个以 k2 为排序列的物化视图
+2. 创建一个以 k2 为排序列的物化索引
 
    ```sql
-   create materialized view k2_order as
+   create materialized index k2_order as
    select k2, k1 from duplicate_table order by k2;
    ```
 
-   物化视图的 schema 如下图，物化视图仅包含两列 k2, k1，其中 k2 列为排序列，不带任何聚合。
+   物化索引的 schema 如下图，物化索引仅包含两列 k2, k1，其中 k2 列为排序列，不带任何聚合。
 
    ```text
    +-----------------+-------+--------+------+-------+---------+-------+
@@ -148,16 +148,16 @@ properties("replication_num" = "1");
    +-----------------+-------+--------+------+-------+---------+-------+
    ```
 
-3. 创建一个以 k1, k2 分组，k3 列为 SUM 聚合的物化视图
+3. 创建一个以 k1, k2 分组，k3 列为 SUM 聚合的物化索引
 
    ```sql
-   create materialized view k1_k2_sumk3 as
+   create materialized index k1_k2_sumk3 as
    select k1, k2, sum(k3) from duplicate_table group by k1, k2;
    ```
 
-   物化视图的 schema 如下图，物化视图包含两列 k1, k2，sum(k3) 其中 k1, k2 为分组列，sum(k3) 为根据 k1, k2 分组后的 k3 列的求和值。
+   物化索引的 schema 如下图，物化索引包含两列 k1, k2，sum(k3) 其中 k1, k2 为分组列，sum(k3) 为根据 k1, k2 分组后的 k3 列的求和值。
 
-   由于物化视图没有声明排序列，且物化视图带聚合数据，系统默认补充分组列 k1, k2 为排序列。
+   由于物化索引没有声明排序列，且物化索引带聚合数据，系统默认补充分组列 k1, k2 为排序列。
 
    ```text
    +-----------------+-------+--------+------+-------+---------+-------+
@@ -169,14 +169,14 @@ properties("replication_num" = "1");
    +-----------------+-------+--------+------+-------+---------+-------+
    ```
 
-4. 创建一个去除重复行的物化视图
+4. 创建一个去除重复行的物化索引
 
    ```sql
-   create materialized view deduplicate as
+   create materialized index deduplicate as
    select k1, k2, k3, k4 from duplicate_table group by k1, k2, k3, k4;
    ```
 
-   物化视图 schema 如下图，物化视图包含 k1, k2, k3, k4列，且不存在重复行。
+   物化索引 schema 如下图，物化索引包含 k1, k2, k3, k4列，且不存在重复行。
 
    ```text
    +-----------------+-------+--------+------+-------+---------+-------+
@@ -189,7 +189,7 @@ properties("replication_num" = "1");
    +-----------------+-------+--------+------+-------+---------+-------+
    ```
 
-5. 创建一个不声明排序列的非聚合型物化视图
+5. 创建一个不声明排序列的非聚合型物化索引
 
    all_type_table 的 schema 如下
 
@@ -207,14 +207,14 @@ properties("replication_num" = "1");
    +-------+--------------+------+-------+---------+-------+
    ```
 
-   物化视图包含 k3, k4, k5, k6, k7 列，且不声明排序列，则创建语句如下：
+   物化索引包含 k3, k4, k5, k6, k7 列，且不声明排序列，则创建语句如下：
 
    ```sql
-   create materialized view mv_1 as
+   create materialized index mv_1 as
    select k3, k4, k5, k6, k7 from all_type_table;
    ```
 
-   系统默认补充的排序列为 k3, k4, k5 三列。这三列类型的字节数之和为 4(INT) + 8(BIGINT) + 16(DECIMAL) = 28 < 36。所以补充的是这三列作为排序列。 物化视图的 schema 如下，可以看到其中 k3, k4, k5 列的 key 字段为 true，也就是排序列。k6, k7 列的 key 字段为 false，也就是非排序列。
+   系统默认补充的排序列为 k3, k4, k5 三列。这三列类型的字节数之和为 4(INT) + 8(BIGINT) + 16(DECIMAL) = 28 < 36。所以补充的是这三列作为排序列。 物化索引的 schema 如下，可以看到其中 k3, k4, k5 列的 key 字段为 true，也就是排序列。k6, k7 列的 key 字段为 false，也就是非排序列。
 
    ```sql
    +----------------+-------+--------------+------+-------+---------+-------+
@@ -231,6 +231,4 @@ properties("replication_num" = "1");
 ### Keywords
 
     CREATE, MATERIALIZED, VIEW
-
-### Best Practice
 

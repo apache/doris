@@ -1,6 +1,6 @@
 ---
 {
-    "title": "SHOW ALTER TABLE MATERIALIZED VIEW",
+    "title": "SHOW ALTER TABLE materialized index",
     "language": "en"
 }
 ---
@@ -24,20 +24,20 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## SHOW ALTER TABLE MATERIALIZED VIEW
+## SHOW ALTER TABLE MATERIALIZED INDEX
 
 ### Name
 
-SHOW ALTER TABLE MATERIALIZED VIEW
+SHOW ALTER TABLE MATERIALIZED INDEX
 
 ### Description
 
-This command is used to view the execution of the Create Materialized View job submitted through the [CREATE-MATERIALIZED-VIEW](../../sql-reference/Data-Definition-Statements/Create/CREATE-MATERIALIZED-VIEW.md) statement.
+This command is used to index the execution of the Create materialized index job submitted through the [CREATE-MATERIALIZED-INDEX](../../sql-reference/Data-Definition-Statements/Create/CREATE-MATERIALIZED-INDEX.md) statement.
 
 > This statement is equivalent to `SHOW ALTER TABLE ROLLUP`;
 
 ```sql
-SHOW ALTER TABLE MATERIALIZED VIEW
+SHOW ALTER TABLE materialized index
 [FROM database]
 [WHERE]
 [ORDER BY]
@@ -55,7 +55,7 @@ SHOW ALTER TABLE MATERIALIZED VIEW
 Return result description:
 
 ```sql
-mysql> show alter table materialized view\G
+mysql> show alter table materialized index\G
 **************************** 1. row ******************** ******
           JobId: 11001
       TableName: tbl1
@@ -78,9 +78,9 @@ RollupIndexName: r1
 
 - `CreateTime/FinishTime`: Job creation time and end time.
 
-- `BaseIndexName/RollupIndexName`: Base table name and materialized view name.
+- `BaseIndexName/RollupIndexName`: Base table name and materialized index name.
 
-- `RollupId`: The unique ID of the materialized view.
+- `RollupId`: The unique ID of the materialized index.
 
 - `TransactionId`: See the description of the State field.
 
@@ -90,7 +90,7 @@ RollupIndexName: r1
 
     - WAITING_TXN:
 
-      Before officially starting to generate materialized view data, it will wait for the current running import transaction on this table to complete. And the `TransactionId` field is the current waiting transaction ID. When all previous imports for this ID are complete, the job will actually start.
+      Before officially starting to generate materialized index data, it will wait for the current running import transaction on this table to complete. And the `TransactionId` field is the current waiting transaction ID. When all previous imports for this ID are complete, the job will actually start.
 
     - RUNNING: The job is running.
 
@@ -100,16 +100,16 @@ RollupIndexName: r1
 
 - `Msg`: error message
 
-- `Progress`: job progress. The progress here means `completed tablets/total tablets`. Materialized views are created at tablet granularity.
+- `Progress`: job progress. The progress here means `completed tablets/total tablets`. materialized indexs are created at tablet granularity.
 
 - `Timeout`: Job timeout, in seconds.
 
 ### Example
 
-1. View the materialized view jobs under the database example_db
+1. View the materialized index jobs under the database example_db
 
    ```sql
-   SHOW ALTER TABLE MATERIALIZED VIEW FROM example_db;
+   SHOW ALTER TABLE materialized index FROM example_db;
    ````
 
 ### Keywords

@@ -117,7 +117,7 @@ CREATE DATABASE example_db;
 >    CREATE FILE
 >    CREATE FUNCTION
 >    CREATE INDEX
->    CREATE MATERIALIZED VIEW
+>    CREATE MATERIALIZED INDEX
 >    CREATE REPOSITORY
 >    CREATE RESOURCE
 >    CREATE ROLE
@@ -578,13 +578,13 @@ Rollup 建立之后，查询不需要指定 Rollup 进行查询。还是指定�
 
 更多帮助，可以参阅 `HELP ALTER TABLE`。
 
-## 物化视图
+## 物化索引
 
-物化视图是一种以空间换时间的数据分析加速技术。Doris 支持在基础表之上建立物化视图。比如可以在明细数据模型的表上建立基于部分列的聚合视图，这样可以同时满足对明细数据和聚合数据的快速查询。
+物化索引是一种以空间换时间的数据分析加速技术。Doris 支持在基础表之上建立物化索引。比如可以在明细数据模型的表上建立基于部分列的聚合视图，这样可以同时满足对明细数据和聚合数据的快速查询。
 
-同时，Doris 能够自动保证物化视图和基础表的数据一致性，并且在查询时自动匹配合适的物化视图，极大降低用户的数据维护成本，为用户提供一个一致且透明的查询加速体验。
+同时，Doris 能够自动保证物化索引和基础表的数据一致性，并且在查询时自动匹配合适的物化索引，极大降低用户的数据维护成本，为用户提供一个一致且透明的查询加速体验。
 
-关于物化视图的具体介绍，可参阅 [物化视图](../advanced/materialized-view.md)
+关于物化索引的具体介绍，可参阅 [物化索引](../advanced/materialized-index.md)
 
 ## 数据表的查询
 

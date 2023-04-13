@@ -259,7 +259,7 @@ distribution_desc
 
 * `rollup_list`
 
-    Multiple materialized views (ROLLUP) can be created at the same time as the table is built.
+    Multiple materialized indexs (ROLLUP) can be created at the same time as the table is built.
 
     `ROLLUP (rollup_definition[, rollup_definition, ...])`
 
@@ -552,7 +552,7 @@ distribution_desc
     );
     ```
 
-9. Create a table with a materialized view (ROLLUP).
+9. Create a table with a materialized index (ROLLUP).
 
     ```sql
     CREATE TABLE example_db.rolup_index_table
@@ -696,15 +696,15 @@ Therefore, it is recommended to confirm the usage method to build the table reas
 
 The dynamic partition function is mainly used to help users automatically manage partitions. By setting certain rules, the Doris system regularly adds new partitions or deletes historical partitions. Please refer to [Dynamic Partition](../../../../advanced/partition/dynamic-partition.md) document for more help.
 
-#### Materialized View
+#### materialized index
 
-Users can create multiple materialized views (ROLLUP) while building a table. Materialized views can also be added after the table is built. It is convenient for users to create all materialized views at one time by writing in the table creation statement.
+Users can create multiple materialized indexs (ROLLUP) while building a table. materialized indexs can also be added after the table is built. It is convenient for users to create all materialized indexs at one time by writing in the table creation statement.
 
-If the materialized view is created when the table is created, all subsequent data import operations will synchronize the data of the materialized view to be generated. The number of materialized views may affect the efficiency of data import.
+If the materialized index is created when the table is created, all subsequent data import operations will synchronize the data of the materialized index to be generated. The number of materialized indexs may affect the efficiency of data import.
 
-If you add a materialized view in the subsequent use process, if there is data in the table, the creation time of the materialized view depends on the current amount of data.
+If you add a materialized index in the subsequent use process, if there is data in the table, the creation time of the materialized index depends on the current amount of data.
 
-For the introduction of materialized views, please refer to the document [materialized views](../../../../advanced/materialized-view.md).
+For the introduction of materialized indexs, please refer to the document [materialized indexs](../../../../advanced/materialized-index.md).
 
 #### Index
 

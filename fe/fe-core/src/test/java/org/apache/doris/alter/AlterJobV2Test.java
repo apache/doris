@@ -184,7 +184,7 @@ public class AlterJobV2Test {
                 + "VALUES IN (\"shenzhen\")\n"
                 + ") DISTRIBUTED BY HASH(date) BUCKETS 1 PROPERTIES(\"replication_num\" = \"1\");");
 
-        createMaterializedView("create materialized view list_view as\n"
+        createMaterializedView("create materialized index list_view as\n"
                 + "select city,\n"
                 + "user_id,\n"
                 + "date,\n"

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DROP-MATERIALIZED-VIEW",
+    "title": "DROP-POLICY",
     "language": "en"
 }
 ---
@@ -70,6 +70,3 @@ DROP STORAGE POLICY policy_name1
 ### Keywords
 
     DROP, POLICY
-
-### Best Practice
-

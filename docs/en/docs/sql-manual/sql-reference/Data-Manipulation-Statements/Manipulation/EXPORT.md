@@ -233,6 +233,6 @@ PROPERTIES (
   - Exporting a large amount of data at one time is not recommended. The maximum recommended export data volume for an Export job is several tens of GB. An overly large export results in more junk files and higher retry costs. If the amount of table data is too large, it is recommended to export by partition.
   - If the Export job fails, the `__doris_export_tmp_xxx` temporary directory generated in the remote storage and the generated files will not be deleted, and the user needs to delete it manually.
   - If the Export job runs successfully, the `__doris_export_tmp_xxx` directory generated in the remote storage may be preserved or cleared according to the file system semantics of the remote storage. For example, in S3 object storage, after the last file in a directory is removed by the rename operation, the directory will also be deleted. If the directory is not cleared, the user can clear it manually.
-  - The Export job only exports the data of the Base table, not the data of the materialized view.
+  - The Export job only exports the data of the Base table, not the data of the materialized index.
   - The export job scans data and occupies IO resources, which may affect the query latency of the system.
   - The maximum number of export jobs running simultaneously in a cluster is 5. Only jobs submitted after that will be queued.

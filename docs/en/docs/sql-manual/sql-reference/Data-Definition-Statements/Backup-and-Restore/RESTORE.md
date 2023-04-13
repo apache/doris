@@ -115,7 +115,7 @@ RESTORE
 
 1. There can only be one ongoing recovery operation under the same database.
 
-2. The table backed up in the warehouse can be restored and replaced with the existing table of the same name in the database, but the table structure of the two tables must be completely consistent. The table structure includes: table name, columns, partitions, materialized views, and so on.
+2. The table backed up in the warehouse can be restored and replaced with the existing table of the same name in the database, but the table structure of the two tables must be completely consistent. The table structure includes: table name, columns, partitions, materialized indexs, and so on.
 
 3. When specifying a partial partition of the recovery table, the system will check whether the partition range can match.
 

@@ -36,7 +36,7 @@ suite ("k1ap2spa") {
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,-3,null,'c';"
 
-    createMV("create materialized view k1ap2spa as select abs(k1)+1,sum(abs(k2+1)) from d_table group by abs(k1)+1;")
+    createMV("create materialized index k1ap2spa as select abs(k1)+1,sum(abs(k2+1)) from d_table group by abs(k1)+1;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
 

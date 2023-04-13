@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Materialized view",
+    "title": "Materialized index",
     "language": "en"
 }
 ---
@@ -24,12 +24,12 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Materialized view
-A materialized view is a data set that is pre-calculated (according to a defined SELECT statement) and stored in a special table in Doris.
+# Materialized index
+A materialized index is a data set that is pre-calculated (according to a defined SELECT statement) and stored in a special table in Doris.
 
-The emergence of materialized views is mainly to satisfy users. It can analyze any dimension of the original detailed data, but also can quickly analyze and query fixed dimensions.
+The emergence of materialized indexs is mainly to satisfy users. It can analyze any dimension of the original detailed data, but also can quickly analyze and query fixed dimensions.
 
-## When to use materialized view
+## When to use materialized index
 
 + Analyze requirements to cover both detailed data query and fixed-dimensional query.
 + The query only involves a small part of the columns or rows in the table.
@@ -39,76 +39,76 @@ The emergence of materialized views is mainly to satisfy users. It can analyze a
 ## Advantage
 
 + For those queries that frequently use the same sub-query results repeatedly, the performance is greatly improved
-+ Doris automatically maintains the data of the materialized view, whether it is a new import or delete operation, it can ensure the data consistency of the base table and the materialized view table. No need for any additional labor maintenance costs.
-+ When querying, it will automatically match the optimal materialized view and read data directly from the materialized view.
++ Doris automatically maintains the data of the materialized index, whether it is a new import or delete operation, it can ensure the data consistency of the base table and the materialized index. No need for any additional labor maintenance costs.
++ When querying, it will automatically match the optimal materialized index and read data directly from the materialized index.
 
-*Automatic maintenance of materialized view data will cause some maintenance overhead, which will be explained in the limitations of materialized views later.*
+*Automatic maintenance of materialized index data will cause some maintenance overhead, which will be explained in the limitations of materialized indexs later.*
 
-## Materialized View VS Rollup
+## Materialized Index VS Rollup
 
-Before the materialized view function, users generally used the Rollup function to improve query efficiency through pre-aggregation. However, Rollup has certain limitations. It cannot do pre-aggregation based on the detailed model.
+Before the materialized index function, users generally used the Rollup function to improve query efficiency through pre-aggregation. However, Rollup has certain limitations. It cannot do pre-aggregation based on the detailed model.
 
-Materialized views cover the functions of Rollup while also supporting richer aggregate functions. So the materialized view is actually a superset of Rollup.
+Materialized indexs cover the functions of Rollup while also supporting richer aggregate functions. So the materialized index is actually a superset of Rollup.
 
-In other words, the functions previously supported by the `ALTER TABLE ADD ROLLUP` syntax can now be implemented by `CREATE MATERIALIZED VIEW`.
+In other words, the functions previously supported by the `ALTER TABLE ADD ROLLUP` syntax can now be implemented by `CREATE MATERIALIZED INDEX`.
 
-## Use materialized views
+## Use materialized indexs
 
-The Doris system provides a complete set of DDL syntax for materialized views, including creating, viewing, and deleting. The syntax of DDL is consistent with PostgreSQL and Oracle.
+The Doris system provides a complete set of DDL syntax for materialized indexs, including creating, viewing, and deleting. The syntax of DDL is consistent with PostgreSQL and Oracle.
 
-### Create a materialized view
+### Create a materialized index
 
-Here you must first decide what kind of materialized view to create based on the characteristics of your query statement. This is not to say that your materialized view definition is exactly the same as one of your query statements. There are two principles here:
+Here you must first decide what kind of materialized index to create based on the characteristics of your query statement. This is not to say that your materialized index definition is exactly the same as one of your query statements. There are two principles here:
 
-1. **Abstract** from the query statement, the grouping and aggregation methods shared by multiple queries are used as the definition of the materialized view.
-2. It is not necessary to create materialized views for all dimension combinations.
+1. **Abstract** from the query statement, the grouping and aggregation methods shared by multiple queries are used as the definition of the materialized index.
+2. It is not necessary to create materialized indexs for all dimension combinations.
 
-First of all, the first point, if a materialized view is abstracted, and multiple queries can be matched to this materialized view. This materialized view works best. Because the maintenance of the materialized view itself also consumes resources.
+First of all, the first point, if a materialized index is abstracted, and multiple queries can be matched to this materialized index. This materialized index works best. Because the maintenance of the materialized index itself also consumes resources.
 
-If the materialized view only fits a particular query, and other queries do not use this materialized view. As a result, the materialized view is not cost-effective, which not only occupies the storage resources of the cluster, but cannot serve more queries.
+If the materialized index only fits a particular query, and other queries do not use this materialized index. As a result, the materialized index is not cost-effective, which not only occupies the storage resources of the cluster, but cannot serve more queries.
 
-Therefore, users need to combine their own query statements and data dimension information to abstract the definition of some materialized views.
+Therefore, users need to combine their own query statements and data dimension information to abstract the definition of some materialized indexs.
 
-The second point is that in the actual analysis query, not all dimensional analysis will be covered. Therefore, it is enough to create a materialized view for the commonly used combination of dimensions, so as to achieve a space and time balance.
+The second point is that in the actual analysis query, not all dimensional analysis will be covered. Therefore, it is enough to create a materialized index for the commonly used combination of dimensions, so as to achieve a space and time balance.
 
-Creating a materialized view is an asynchronous operation, which means that after the user successfully submits the creation task, Doris will calculate the existing data in the background until the creation is successful.
+Creating a materialized index is an asynchronous operation, which means that after the user successfully submits the creation task, Doris will calculate the existing data in the background until the creation is successful.
 
 The specific syntax can be viewed through the following command:
 
 ```
-HELP CREATE MATERIALIZED VIEW
+HELP CREATE MATERIALIZED INDEX
 ```
 
 <version since="2.0.0"></version>
 
-In `Doris 2.0` we made some enhancements to materialized views (described in `Best Practice 4` of this article). We recommend that users check whether the expected query can hit the desired materialized view in the test environment before using the materialized view in the official production environment.
+In `Doris 2.0` we made some enhancements to materialized indexs (described in `Best Practice 4` of this article). We recommend that users check whether the expected query can hit the desired materialized index in the test environment before using the materialized index in the official production environment.
 
-If you don't know how to verify that a query hits a materialized view, you can read `Best Practice 1` of this article.
+If you don't know how to verify that a query hits a materialized index, you can read `Best Practice 1` of this article.
 
-At the same time, we do not recommend that users create multiple materialized views with similar shapes on the same table, as this may cause conflicts between multiple materialized views and cause query hit failures. (Of course, these possible problems can be verified in the test environment)
+At the same time, we do not recommend that users create multiple materialized indexs with similar shapes on the same table, as this may cause conflicts between multiple materialized indexs and cause query hit failures. (Of course, these possible problems can be verified in the test environment)
 
 ### Support aggregate functions
 
-The aggregate functions currently supported by the materialized view function are:
+The aggregate functions currently supported by the materialized index function are:
 
 + SUM, MIN, MAX (Version 0.12)
 + COUNT, BITMAP\_UNION, HLL\_UNION (Version 0.13)
 
 ### Update strategy
 
-In order to ensure the data consistency between the materialized view table and the Base table, Doris will import, delete and other operations on the Base table are synchronized to the materialized view table. And through incremental update to improve update efficiency. To ensure atomicity through transaction.
+In order to ensure the data consistency between the materialized index table and the Base table, Doris will import, delete and other operations on the Base table are synchronized to the materialized index table. And through incremental update to improve update efficiency. To ensure atomicity through transaction.
 
-For example, if the user inserts data into the base table through the INSERT command, this data will be inserted into the materialized view synchronously. When both the base table and the materialized view table are written successfully, the INSERT command will return successfully.
+For example, if the user inserts data into the base table through the INSERT command, this data will be inserted into the materialized index synchronously. When both the base table and the materialized index table are written successfully, the INSERT command will return successfully.
 
 ### Query automatic matching
 
-After the materialized view is successfully created, the user's query does not need to be changed, that is, it is still the base table of the query. Doris will automatically select an optimal materialized view based on the current query statement, read data from the materialized view and calculate it.
+After the materialized index is successfully created, the user's query does not need to be changed, that is, it is still the base table of the query. Doris will automatically select an optimal materialized index based on the current query statement, read data from the materialized index and calculate it.
 
-Users can use the EXPLAIN command to check whether the current query uses a materialized view.
+Users can use the EXPLAIN command to check whether the current query uses a materialized index.
 
-The matching relationship between the aggregation in the materialized view and the aggregation in the query:
+The matching relationship between the aggregation in the materialized index and the aggregation in the query:
 
-| Materialized View Aggregation | Query Aggregation |
+| materialized index Aggregation | Query Aggregation |
 | ---------- | -------- |
 | sum | sum |
 | min | min |
@@ -117,11 +117,11 @@ The matching relationship between the aggregation in the materialized view and t
 | bitmap\_union | bitmap\_union, bitmap\_union\_count, count(distinct) |
 | hll\_union | hll\_raw\_agg, hll\_union\_agg, ndv, approx\_count\_distinct |
 
-After the aggregation functions of bitmap and hll match the materialized view in the query, the aggregation operator of the query will be rewritten according to the table structure of the materialized view. See example 2 for details.
+After the aggregation functions of bitmap and hll match the materialized index in the query, the aggregation operator of the query will be rewritten according to the table structure of the materialized index. See example 2 for details.
 
-### Query materialized views
+### Query materialized indexs
 
-Check what materialized views the current table has, and what their table structure is. Through the following command:
+Check what materialized indexs the current table has, and what their table structure is. Through the following command:
 
 ```
 MySQL [test]> desc mv_test all;
@@ -147,36 +147,36 @@ MySQL [test]> desc mv_test all;
 +-----------+---------------+-----------------+----------+------+-------+---------+--------------+
 ```
 
-You can see that the current `mv_test` table has three materialized views: mv\_1, mv\_2 and mv\_3, and their table structure.
+You can see that the current `mv_test` table has three materialized indexs: mv\_1, mv\_2 and mv\_3, and their table structure.
 
-### Delete materialized view
+### Delete materialized index
 
-If the user no longer needs the materialized view, you can delete the materialized view by 'DROP' commen.
+If the user no longer needs the materialized index, you can delete the materialized index by 'DROP' commen.
 
-You can view the specific syntax[SHOW CREATE MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-MATERIALIZED-VIEW.md)
+You can view the specific syntax[SHOW CREATE materialized index](../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-MATERIALIZED-INDEX.md)
 
-### View the materialized view that has been created
+### View the materialized index that has been created
 
-Users can view the created materialized views by using commands
+Users can view the created materialized indexs by using commands
 
-You can view the specific syntax[SHOW CREATE MATERIALIZED VIEW](../sql-manual/sql-reference/Show-Statements/SHOW-CREATE-MATERIALIZED-VIEW.md)
+You can view the specific syntax[SHOW CREATE materialized index](../sql-manual/sql-reference/Show-Statements/SHOW-CREATE-MATERIALIZED-INDEX.md)
 
-### Cancel Create materialized view
+### Cancel Create materialized index
 
 ```text
-CANCEL ALTER MATERIALIZED VIEW FROM db_name.table_name
+CANCEL ALTER materialized index FROM db_name.table_name
 ```
 
 
 ## Best Practice 1
 
-The use of materialized views is generally divided into the following steps:
+The use of materialized indexs is generally divided into the following steps:
 
-1. Create a materialized view
-2. Asynchronously check whether the materialized view has been constructed
-3. Query and automatically match materialized views
+1. Create a materialized index
+2. Asynchronously check whether the materialized index has been constructed
+3. Query and automatically match materialized indexs
 
-**First is the first step: Create a materialized view**
+**First is the first step: Create a materialized index**
 
 Assume that the user has a sales record list, which stores the transaction id, salesperson, sales store, sales time, and amount of each transaction. The table building statement and insert data statement is:
 
@@ -199,28 +199,28 @@ MySQL [test]> desc sales_records;
 +-----------+--------+------+-------+---------+--- ----+
 ```
 
-At this time, if the user often performs an analysis query on the sales volume of different stores, you can create a materialized view for the `sales_records` table to group the sales stores and sum the sales of the same sales stores. The creation statement is as follows:
+At this time, if the user often performs an analysis query on the sales volume of different stores, you can create a materialized index for the `sales_records` table to group the sales stores and sum the sales of the same sales stores. The creation statement is as follows:
 
 ```
-MySQL [test]> create materialized view store_amt as select store_id, sum(sale_amt) from sales_records group by store_id;
+MySQL [test]> create materialized index store_amt as select store_id, sum(sale_amt) from sales_records group by store_id;
 ```
 
-The backend returns to the following figure, indicating that the task of creating a materialized view is submitted successfully.
+The backend returns to the following figure, indicating that the task of creating a materialized index is submitted successfully.
 
 ```
 Query OK, 0 rows affected (0.012 sec)
 ```
 
-**Step 2: Check whether the materialized view has been built**
+**Step 2: Check whether the materialized index has been built**
 
-Since the creation of a materialized view is an asynchronous operation, after the user submits the task of creating a materialized view, he needs to asynchronously check whether the materialized view has been constructed through a command. The command is as follows:
+Since the creation of a materialized index is an asynchronous operation, after the user submits the task of creating a materialized index, he needs to asynchronously check whether the materialized index has been constructed through a command. The command is as follows:
 
 ```
 SHOW ALTER TABLE ROLLUP FROM db_name; (Version 0.12)
-SHOW ALTER TABLE MATERIALIZED VIEW FROM db_name; (Version 0.13)
+SHOW ALTER TABLE materialized index FROM db_name; (Version 0.13)
 ```
 
-In this command, `db_name` is a parameter, you need to replace it with your real db name. The result of the command is to display all the tasks of creating a materialized view of this db. The results are as follows:
+In this command, `db_name` is a parameter, you need to replace it with your real db name. The result of the command is to display all the tasks of creating a materialized index of this db. The results are as follows:
 
 ```
 +-------+---------------+---------------------+--- ------------------+---------------+--------------- --+----------+---------------+-----------+-------- -------------------------------------------------- -------------------------------------------------- -------------+----------+---------+
@@ -231,13 +231,13 @@ In this command, `db_name` is a parameter, you need to replace it with your real
 
 ```
 
-Among them, TableName refers to which table the data of the materialized view comes from, and RollupIndexName refers to the name of the materialized view. One of the more important indicators is State.
+Among them, TableName refers to which table the data of the materialized index comes from, and RollupIndexName refers to the name of the materialized index. One of the more important indicators is State.
 
-When the State of the task of creating a materialized view has become FINISHED, it means that the materialized view has been created successfully. This means that it is possible to automatically match this materialized view when querying.
+When the State of the task of creating a materialized index has become FINISHED, it means that the materialized index has been created successfully. This means that it is possible to automatically match this materialized index when querying.
 
 **Step 3: Query**
 
-After the materialized view is created, when users query the sales volume of different stores, they will directly read the aggregated data from the materialized view `store_amt` just created. To achieve the effect of improving query efficiency.
+After the materialized index is created, when users query the sales volume of different stores, they will directly read the aggregated data from the materialized index `store_amt` just created. To achieve the effect of improving query efficiency.
 
 The user's query still specifies the query `sales_records` table, for example:
 
@@ -245,7 +245,7 @@ The user's query still specifies the query `sales_records` table, for example:
 SELECT store_id, sum(sale_amt) FROM sales_records GROUP BY store_id;
 ```
 
-The above query will automatically match `store_amt`. The user can use the following command to check whether the current query matches the appropriate materialized view.
+The above query will automatically match `store_amt`. The user can use the following command to check whether the current query matches the appropriate materialized index.
 
 ```sql
 EXPLAIN SELECT store_id, sum(sale_amt) FROM sales_records GROUP BY store_id;
@@ -299,13 +299,13 @@ EXPLAIN SELECT store_id, sum(sale_amt) FROM sales_records GROUP BY store_id;
 |      cardinality=1, avgRowSize=1520.0, numNodes=1                                            |
 +----------------------------------------------------------------------------------------------+
 ```
-From the bottom `test.sales_records(store_amt)`, it can be shown that this query hits the `store_amt` materialized view. It is worth noting that if there is no data in the table, then the materialized view may not be hit.
+From the bottom `test.sales_records(store_amt)`, it can be shown that this query hits the `store_amt` materialized index. It is worth noting that if there is no data in the table, then the materialized index may not be hit.
 
 ## Best Practice 2 PV,UV
 
 Business scenario: Calculate the UV and PV of advertising
 
-Assuming that the user's original ad click data is stored in Doris, then for ad PV and UV queries, the query speed can be improved by creating a materialized view of `bitmap_union`.
+Assuming that the user's original ad click data is stored in Doris, then for ad PV and UV queries, the query speed can be improved by creating a materialized index of `bitmap_union`.
 
 Use the following statement to first create a table that stores the details of the advertisement click data, including the click event of each click, what advertisement was clicked, what channel clicked, and who was the user who clicked.
 
@@ -328,7 +328,7 @@ MySQL [test]> desc advertiser_view_record;
 4 rows in set (0.001 sec)
 ```
 
-1. Create a materialized view
+1. Create a materialized index
 
 	Since the user wants to query the UV value of the advertisement, that is, a precise de-duplication of users of the same advertisement is required, the user's query is generally:
 
@@ -336,20 +336,20 @@ MySQL [test]> desc advertiser_view_record;
 	SELECT advertiser, channel, count(distinct user_id) FROM advertiser_view_record GROUP BY advertiser, channel;
 	```
 
-	For this kind of UV-seeking scene, we can create a materialized view with `bitmap_union` to achieve a precise deduplication effect in advance.
+	For this kind of UV-seeking scene, we can create a materialized index with `bitmap_union` to achieve a precise deduplication effect in advance.
 
-	In Doris, the result of `count(distinct)` aggregation is exactly the same as the result of `bitmap_union_count` aggregation. And `bitmap_union_count` is equal to the result of `bitmap_union` to calculate count, so if the query ** involves `count(distinct)`, you can speed up the query by creating a materialized view with `bitmap_union` aggregation.**
+	In Doris, the result of `count(distinct)` aggregation is exactly the same as the result of `bitmap_union_count` aggregation. And `bitmap_union_count` is equal to the result of `bitmap_union` to calculate count, so if the query ** involves `count(distinct)`, you can speed up the query by creating a materialized index with `bitmap_union` aggregation.**
 
-	For this case, you can create a materialized view that accurately deduplicate `user_id` based on advertising and channel grouping.
+	For this case, you can create a materialized index that accurately deduplicate `user_id` based on advertising and channel grouping.
 
 	```
-	MySQL [test]> create materialized view advertiser_uv as select advertiser, channel, bitmap_union(to_bitmap(user_id)) from advertiser_view_record group by advertiser, channel;
+	MySQL [test]> create materialized index advertiser_uv as select advertiser, channel, bitmap_union(to_bitmap(user_id)) from advertiser_view_record group by advertiser, channel;
 	Query OK, 0 rows affected (0.012 sec)
 	```
 
 	*Note: Because the user\_id itself is an INT type, it is called `bitmap_union` directly in Doris. The fields need to be converted to bitmap type through the function `to_bitmap` first, and then `bitmap_union` can be aggregated. *
 
-	After the creation is complete, the table structure of the advertisement click schedule and the materialized view table is as follows:
+	After the creation is complete, the table structure of the advertisement click schedule and the materialized index table is as follows:
 
 	```
 	MySQL [test]> desc advertiser_view_record all;
@@ -369,19 +369,19 @@ MySQL [test]> desc advertiser_view_record;
 
 2. Automatic query matching
 
-	When the materialized view table is created, when querying the advertisement UV, Doris will automatically query the data from the materialized view `advertiser_uv` just created. For example, the original query statement is as follows:
+	When the materialized index table is created, when querying the advertisement UV, Doris will automatically query the data from the materialized index `advertiser_uv` just created. For example, the original query statement is as follows:
 
 	```
 	SELECT advertiser, channel, count(distinct user_id) FROM advertiser_view_record GROUP BY advertiser, channel;
 	```
 
-	After the materialized view is selected, the actual query will be transformed into:
+	After the materialized index is selected, the actual query will be transformed into:
 
 	```
 	SELECT advertiser, channel, bitmap_union_count(to_bitmap(user_id)) FROM advertiser_uv GROUP BY advertiser, channel;
 	```
 
-	Through the EXPLAIN command, you can check whether Doris matches the materialized view:
+	Through the EXPLAIN command, you can check whether Doris matches the materialized index:
 
    ```sql
    mysql [test]>explain SELECT advertiser, channel, count(distinct user_id) FROM  advertiser_view_record GROUP BY advertiser, channel;
@@ -437,7 +437,7 @@ MySQL [test]> desc advertiser_view_record;
    +--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
    ```
 
-	In the result of EXPLAIN, you can first see that `VOlapScanNode` hits `advertiser_uv`. That is, the query scans the materialized view's data directly. Indicates that the match is successful.
+	In the result of EXPLAIN, you can first see that `VOlapScanNode` hits `advertiser_uv`. That is, the query scans the materialized index's data directly. Indicates that the match is successful.
 
 	Secondly, the calculation of `count(distinct)` for the `user_id` field is rewritten as `bitmap_union_count`. That is to achieve the effect of precise deduplication through bitmap.
 
@@ -450,15 +450,15 @@ The user's original table has three columns (k1, k2, k3). Among them, k1, k2 are
 
 But in some cases, the user's filter conditions cannot match the prefix index, such as `where k3=c`. Then the query speed cannot be improved through the index.
 
-This problem can be solved by creating a materialized view with k3 as the first column.
+This problem can be solved by creating a materialized index with k3 as the first column.
 
-1. Create a materialized view
+1. Create a materialized index
 
 	```
-	CREATE MATERIALIZED VIEW mv_1 as SELECT k3, k2, k1 FROM tableA ORDER BY k3;
+	CREATE materialized index mv_1 as SELECT k3, k2, k1 FROM tableA ORDER BY k3;
 	```
 
-	After the creation of the above grammar is completed, the complete detail data is retained in the materialized view, and the prefix index of the materialized view is the k3 column. The table structure is as follows:
+	After the creation of the above grammar is completed, the complete detail data is retained in the materialized index, and the prefix index of the materialized index is the k3 column. The table structure is as follows:
 
 	```
 	MySQL [test]> desc tableA all;
@@ -483,13 +483,13 @@ This problem can be solved by creating a materialized view with k3 as the first 
 	select k1, k2, k3 from table A where k3=1;
 	```
 
-	At this time, the query will read data directly from the mv_1 materialized view just created. The materialized view has a prefix index on k3, and query efficiency will also be improved.
+	At this time, the query will read data directly from the mv_1 materialized index just created. The materialized index has a prefix index on k3, and query efficiency will also be improved.
 
 ## Best Practice 4
 
 <version since="2.0.0"></version>
 
-In `Doris 2.0`, we have made some enhancements to the expressions supported by the materialized view. This example will mainly reflect the support for various expressions of the new version of the materialized view.
+In `Doris 2.0`, we have made some enhancements to the expressions supported by the materialized index. This example will mainly reflect the support for various expressions of the new version of the materialized index.
 
 1. Create a base table and insert some data.
     ```sql
@@ -508,13 +508,13 @@ In `Doris 2.0`, we have made some enhancements to the expressions supported by t
     insert into d_table select 3,-3,null,'2022-02-20';
     ```
    
-2. Create some materialized views.
+2. Create some materialized indexs.
     ```sql
-    create materialized view k1a2p2ap3ps as select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2+1;
-    create materialized view kymd as select year(k4),month(k4),day(k4) from d_table;
+    create materialized index k1a2p2ap3ps as select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2+1;
+    create materialized index kymd as select year(k4),month(k4),day(k4) from d_table;
     ```
 
-3. Use some queries to test if the materialized view was successfully hit.
+3. Use some queries to test if the materialized index was successfully hit.
     ```sql
     select abs(k1)+k2+1, sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2+1; // hit k1a2p2ap3ps
     select bin(abs(k1)+k2+1), sum(abs(k2+2)+k3+3) from d_table group by bin(abs(k1)+k2+1); // hit k1a2p2ap3ps
@@ -524,17 +524,17 @@ In `Doris 2.0`, we have made some enhancements to the expressions supported by t
 
 ## Limitations
 
-1. The parameter of the aggregate function of the materialized view does not support the expression only supports a single column, for example: sum(a+b) does not support. (Supported after 2.0)
-2. If the conditional column of the delete statement does not exist in the materialized view, the delete operation cannot be performed. If you must delete data, you need to delete the materialized view before deleting the data.
-3. Too many materialized views on a single table will affect the efficiency of importing: When importing data, the materialized view and base table data are updated synchronously. If a table has more than 10 materialized view tables, it may cause the import speed to be very high. slow. This is the same as a single import needs to import 10 tables at the same time.
-4. The same column with different aggregate functions cannot appear in a materialized view at the same time. For example, select sum(a), min(a) from table are not supported. (Supported after 2.0)
-5. For the Unique Key data model, the materialized view can only change the column order and cannot play the role of aggregation. Therefore, in the Unique Key model, it is not possible to perform coarse-grained aggregation operations on the data by creating a materialized view.
+1. The parameter of the aggregate function of the materialized index does not support the expression only supports a single column, for example: sum(a+b) does not support. (Supported after 2.0)
+2. If the conditional column of the delete statement does not exist in the materialized index, the delete operation cannot be performed. If you must delete data, you need to delete the materialized index before deleting the data.
+3. Too many materialized indexs on a single table will affect the efficiency of importing: When importing data, the materialized index and base table data are updated synchronously. If a table has more than 10 materialized index tables, it may cause the import speed to be very high. slow. This is the same as a single import needs to import 10 tables at the same time.
+4. The same column with different aggregate functions cannot appear in a materialized index at the same time. For example, select sum(a), min(a) from table are not supported. (Supported after 2.0)
+5. For the Unique Key data model, the materialized index can only change the column order and cannot play the role of aggregation. Therefore, in the Unique Key model, it is not possible to perform coarse-grained aggregation operations on the data by creating a materialized index.
 
 ## Error
 1. DATA_QUALITY_ERROR: "The data quality does not satisfy, please check your data"
-Materialized view creation failed due to data quality issues or Schema Change memory usage exceeding the limit. If it is a memory problem, increase the `memory_limitation_per_thread_for_schema_change_bytes` parameter.
-Note: The bitmap type only supports positive integers. If there are negative Numbers in the original data, the materialized view will fail to be created
+materialized index creation failed due to data quality issues or Schema Change memory usage exceeding the limit. If it is a memory problem, increase the `memory_limitation_per_thread_for_schema_change_bytes` parameter.
+Note: The bitmap type only supports positive integers. If there are negative Numbers in the original data, the materialized index will fail to be created
 
 ## More Help
 
-For more detailed syntax and best practices for using materialized views, see [CREATE MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-MATERIALIZED-VIEW.md) and [DROP MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-MATERIALIZED-VIEW.md) command manual, you can also Enter `HELP CREATE MATERIALIZED VIEW` and `HELP DROP MATERIALIZED VIEW` at the command line of the MySql client for more help information.
+For more detailed syntax and best practices for using materialized indexs, see [CREATE materialized index](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-MATERIALIZED-INDEX.md) and [DROP materialized index](../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-MATERIALIZED-INDEX.md) command manual, you can also Enter `HELP CREATE materialized index` and `HELP DROP materialized index` at the command line of the MySql client for more help information.

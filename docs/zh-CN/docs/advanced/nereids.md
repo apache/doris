@@ -63,7 +63,7 @@ SET enable_fallback_to_original_planner=true;
 
 - 不支持命中query cache和partition cache
 - 不支持选中多表物化视图
-- 不支持选中使用2.0版本新创建物化视图
+- 不支持选中使用2.0版本新创建物化索引
 - 部分不支持的子查询用法会产生错误结果而不是报错
 
 ## 研发背景

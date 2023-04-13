@@ -39,7 +39,7 @@ under the License.
         3. Database:                            Tablet 所属 DB 和其 ID
         4. Table:                               Tablet 所属 Table 和其 ID
         5. Partition:                           Tablet 所属 Partition 和其 ID
-        6. MaterializedIndex:                   Tablet 所属物化视图和其 ID
+        6. MaterializedIndex:                   Tablet 所属物化索引和其 ID
         7. Replicas(ReplicaId -> BackendId):    Tablet 各副本和其所在 BE。
         8. ReplicasNum:                         副本数量是否正确。
         9. ReplicaBackendStatus:                副本所在 BE 节点是否正常。

@@ -1,7 +1,7 @@
 ---
 {
-    "title": "SHOW-CREATE-MATERIALIZED-VIEW",
-    "language": "zh-CN"
+    "title": "SHOW-CREATE-MATERIALIZED-INDEX",
+    "language": "en"
 }
 ---
 
@@ -24,51 +24,48 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## SHOW-CREATE-MATERIALIZED-VIEW
+## SHOW-CREATE-MATERIALIZED-INDEX
 
 ### Name
 
-SHOW CREATE MATERIALIZED VIEW
+SHOW CREATE MATERIALIZED INDEX
 
 ### Description
 
-该语句用于查询创建物化视图的语句。
+This statement is used to query statements that create materialized indexs.
 
-语法：
+grammar：
 
 ```sql
-SHOW CREATE MATERIALIZED VIEW mv_name ON table_name
+SHOW CREATE materialized index mv_name ON table_name
 ```
 
 1. mv_name:
-        物化视图的名称。必填项。
+   materialized index name. required.
 
 2. table_name:
-        物化视图所属的表名。必填项。
+   The table name of materialized index. required.
 
 ### Example
 
-创建物化视图的语句为
+Create materialized index
 
 ```sql
-create materialized view id_col1 as select id,col1 from table3;
+create materialized index id_col1 as select id,col1 from table3;
 ```
 
-查询后返回
+Return after query
 
 ```sql
-mysql> show create materialized view id_col1 on table3;
+mysql> show create materialized index id_col1 on table3;
 +-----------+----------+----------------------------------------------------------------+
 | TableName | ViewName | CreateStmt                                                     |
 +-----------+----------+----------------------------------------------------------------+
-| table3    | id_col1  | create materialized view id_col1 as select id,col1 from table3 |
+| table3    | id_col1  | create materialized index id_col1 as select id,col1 from table3 |
 +-----------+----------+----------------------------------------------------------------+
 1 row in set (0.00 sec)
 ```
 
 ### Keywords
 
-    SHOW, MATERIALIZED, VIEW
-
-### Best Practice
-
+    SHOW, MATERIALIZED, INDEX

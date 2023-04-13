@@ -116,7 +116,7 @@ CREATE DATABASE example_db;
 >    CREATE FILE
 >    CREATE FUNCTION
 >    CREATE INDEX
->    CREATE MATERIALIZED VIEW
+>    CREATE MATERIALIZED INDEX
 >    CREATE REPOSITORY
 >    CREATE RESOURCE
 >    CREATE ROLE
@@ -573,13 +573,13 @@ For more help, see `HELP ALTER TABLE`.
 
 
 
-## Materialized Views
+## Materialized Indexs
 
-Materialized views are a space-for-time data analysis acceleration technique. Doris supports building materialized views on top of base tables. For example, a partial column-based aggregated view can be built on top of a table with a granular data model, allowing for fast querying of both granular and aggregated data.
+materialized indexs are a space-for-time data analysis acceleration technique. Doris supports building materialized indexs on top of base tables. For example, a partial column-based aggregated view can be built on top of a table with a granular data model, allowing for fast querying of both granular and aggregated data.
 
-Doris can automatically ensure data consistency between materialized views and base tables, and automatically match the appropriate materialized view at query time, greatly reducing the cost of data maintenance for users and providing a consistent and transparent query acceleration experience.
+Doris can automatically ensure data consistency between materialized indexs and base tables, and automatically match the appropriate materialized index at query time, greatly reducing the cost of data maintenance for users and providing a consistent and transparent query acceleration experience.
 
-For more information about materialized views, see [Materialized Views](../advanced/materialized-view.md)
+For more information about materialized indexs, see [Materialized Indexs](../advanced/materialized-index.md)
 
 ## Data Table Queries
 

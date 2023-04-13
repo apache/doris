@@ -35,7 +35,7 @@ suite ("test_dup_mv_bitmap_hash") {
     sql "insert into d_table select 2,2,'b';"
     sql "insert into d_table select 3,3,'c';"
 
-    createMV( "create materialized view k1g2bm as select k1,bitmap_union(to_bitmap(k2)) from d_table group by k1;")
+    createMV( "create materialized index k1g2bm as select k1,bitmap_union(to_bitmap(k2)) from d_table group by k1;")
 
     explain {
         sql("select bitmap_union_count(to_bitmap(k2)) from d_table group by k1 order by k1;")
@@ -44,9 +44,9 @@ suite ("test_dup_mv_bitmap_hash") {
     qt_select_mv "select bitmap_union_count(to_bitmap(k2)) from d_table group by k1 order by k1;"
 
     result = "null"
-    sql "create materialized view k1g3bm as select k1,bitmap_union(bitmap_hash(k3)) from d_table group by k1;"
+    sql "create materialized index k1g3bm as select k1,bitmap_union(bitmap_hash(k3)) from d_table group by k1;"
     while (!result.contains("FINISHED")){
-        result = sql "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='d_table' ORDER BY CreateTime DESC LIMIT 1;"
+        result = sql "SHOW ALTER TABLE materialized index WHERE TableName='d_table' ORDER BY CreateTime DESC LIMIT 1;"
         result = result.toString()
         logger.info("result: ${result}")
         if(result.contains("CANCELLED")){

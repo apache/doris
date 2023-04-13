@@ -142,7 +142,7 @@ FileUsage       = 1
 
 ### 查询用法
 
-完成在Doris中建立ODBC外表后，除了无法使用Doris中的数据模型(rollup、预聚合、物化视图等)外，与普通的Doris表并无区别
+完成在Doris中建立ODBC外表后，除了无法使用Doris中的数据模型(rollup、预聚合、物化索引等)外，与普通的Doris表并无区别
 
 
 ```

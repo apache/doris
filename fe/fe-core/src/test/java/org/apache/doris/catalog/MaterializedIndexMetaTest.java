@@ -81,7 +81,7 @@ public class MaterializedIndexMetaTest {
         short shortKeyColumnCount = 1;
         MaterializedIndexMeta indexMeta = new MaterializedIndexMeta(1, schema, 1, 1, shortKeyColumnCount,
                 TStorageType.COLUMN, KeysType.DUP_KEYS, new OriginStatement(
-                "create materialized view test as select k1, k2, k3, k4, k5, k6, k7, k8, k9, k10, k11, k12, sum(v1), "
+                "create materialized index test as select k1, k2, k3, k4, k5, k6, k7, k8, k9, k10, k11, k12, sum(v1), "
                         + "bitmap_union(to_bitmap(k1)) from test group by k1, k2, k3, k4, k5, "
                         + "k6, k7, k8, k9, k10, k11, k12",
                 0));

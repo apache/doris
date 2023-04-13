@@ -23,22 +23,22 @@ suite ("agg_invalid") {
         """
 
     test {
-        sql "CREATE MATERIALIZED VIEW mv_1 AS SELECT p1, SUM(v3) FROM t1 GROUP BY p1;"
+        sql "CREATE materialized index mv_1 AS SELECT p1, SUM(v3) FROM t1 GROUP BY p1;"
         exception "errCode = 2,"
     }
 
     test {
-        sql "CREATE MATERIALIZED VIEW mv_2 AS SELECT p1, MIN(v3+v3) FROM t1 GROUP BY p1;"
+        sql "CREATE materialized index mv_2 AS SELECT p1, MIN(v3+v3) FROM t1 GROUP BY p1;"
         exception "errCode = 2,"
     }
 
     test {
-        sql "CREATE MATERIALIZED VIEW mv_3 AS SELECT p1, SUM(v1) FROM t1 GROUP BY p1;"
+        sql "CREATE materialized index mv_3 AS SELECT p1, SUM(v1) FROM t1 GROUP BY p1;"
         exception null
     }
 
     test {
-        sql "CREATE MATERIALIZED VIEW mv_4 AS SELECT p1, SUM(abs(v1)) FROM t1 GROUP BY p1;"
+        sql "CREATE materialized index mv_4 AS SELECT p1, SUM(abs(v1)) FROM t1 GROUP BY p1;"
         exception "errCode = 2,"
     }
 }

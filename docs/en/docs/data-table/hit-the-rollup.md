@@ -373,7 +373,7 @@ The query here cannot hit the prefix index. (Even any Min/Max in the Doris stora
 
 ### Aggregate data
 
-Of course, the function of aggregated data is indispensable for general polymer views. Such materialized views are very helpful for aggregated queries or report queries. To hit the polymer views, the following prerequisites are needed:
+Of course, the function of aggregated data is indispensable for general polymer views. Such materialized indexs are very helpful for aggregated queries or report queries. To hit the polymer views, the following prerequisites are needed:
 
 1. There is a separate Rollup for all columns involved in a query or subquery.
 2. If there is Join in a query or sub-query, the type of Join needs to be Inner join.

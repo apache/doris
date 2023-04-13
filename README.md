@@ -100,7 +100,7 @@ Doris supports a variety of storage models and has optimized them for different 
 
 - Duplicate Key Model: This is a detailed data model capable of detailed storage of fact tables.
 
-Doris also supports strongly consistent materialized views. Materialized views are automatically selected and updated, which greatly reduces maintenance costs for users.
+Doris also supports strongly consistent materialized indexs. Materialized indexs are automatically selected and updated, which greatly reduces maintenance costs for users.
 
 ### 🔍 Query Engine
 
@@ -125,7 +125,7 @@ In terms of optimizers, Doris uses a combination of CBO and RBO. RBO supports co
 
 - 🎯 **Easy to Use:** Two processes, no other dependencies; online cluster scaling, automatic replica recovery; compatible with MySQL protocol, and using standard SQL.
 
-- 🚀 **High Performance:** Extremely fast performance for low-latency and high-throughput queries with columnar storage engine, modern MPP architecture, vectorized query engine, pre-aggregated materialized view and data index.
+- 🚀 **High Performance:** Extremely fast performance for low-latency and high-throughput queries with columnar storage engine, modern MPP architecture, vectorized query engine, pre-aggregated materialized index and data index.
 
 - 🖥️ **Single Unified:** A single system can support real-time data serving, interactive data analysis and offline data processing scenarios.
 

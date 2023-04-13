@@ -39,7 +39,7 @@ under the License.
         3. Database:                            The DB to which the Tablet belongs and its ID
         4. Table:                               The Table to which Tablet belongs and its ID
         5. Partition:                           The Partition to which the Tablet belongs and its ID
-        6. MaterializedIndex:                   The materialized view to which the Tablet belongs and its ID
+        6. MaterializedIndex:                   The materialized index to which the Tablet belongs and its ID
         7. Replicas(ReplicaId -> BackendId):    Tablet replicas and their BE.
         8. ReplicasNum:                         Whether the number of replicas is correct.
         9. ReplicaBackendStatus:                Whether the BE node where the replica is located is normal.

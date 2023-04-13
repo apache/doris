@@ -60,7 +60,7 @@ class CreateMVAction implements SuiteAction {
         def tryTimes = 0
         def sqlResult = "null"
         while (!sqlResult.contains("FINISHED")) {
-            def tmp = doRun("SHOW ALTER TABLE MATERIALIZED VIEW ORDER BY CreateTime DESC LIMIT 1;")
+            def tmp = doRun("SHOW ALTER TABLE MATERIALIZED INDEX ORDER BY CreateTime DESC LIMIT 1;")
             sqlResult = tmp.result[0]
             log.info("result: ${sqlResult}".toString())
             if (tryTimes == 60 || sqlResult.contains("CANCELLED")) {

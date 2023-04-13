@@ -15,6 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 suite("test_rollup") {
-    // todo: test rollup, such as: alter table rollup, materialized view, explain
+    // todo: test rollup, such as: alter table rollup, materialized index, explain
     sql "show alter table rollup"
 }

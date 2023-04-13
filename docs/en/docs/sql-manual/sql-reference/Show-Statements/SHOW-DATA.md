@@ -42,9 +42,9 @@ SHOW DATA [FROM db_name[.table_name]] [ORDER BY ...];
 
 illustrate:
 
-1. If the FROM clause is not specified, the data volume and number of replicas subdivided into each table under the current db will be displayed. The data volume is the total data volume of all replicas. The number of replicas is the number of replicas for all partitions of the table and all materialized views.
+1. If the FROM clause is not specified, the data volume and number of replicas subdivided into each table under the current db will be displayed. The data volume is the total data volume of all replicas. The number of replicas is the number of replicas for all partitions of the table and all materialized indexs.
 
-2. If the FROM clause is specified, the data volume, number of copies and number of statistical rows subdivided into each materialized view under the table will be displayed. The data volume is the total data volume of all replicas. The number of replicas is the number of replicas for all partitions of the corresponding materialized view. The number of statistical rows is the number of statistical rows for all partitions of the corresponding materialized view.
+2. If the FROM clause is specified, the data volume, number of copies and number of statistical rows subdivided into each materialized index under the table will be displayed. The data volume is the total data volume of all replicas. The number of replicas is the number of replicas for all partitions of the corresponding materialized index. The number of statistical rows is the number of statistical rows for all partitions of the corresponding materialized index.
 
 3. When counting the number of rows, the one with the largest number of rows among the multiple copies shall prevail.
 

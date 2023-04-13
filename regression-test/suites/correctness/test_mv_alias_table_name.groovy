@@ -39,7 +39,7 @@ suite("test_mv_alias_table_name") {
     """
 
     sql """
-        create materialized view mv_table as
+        create materialized index mv_table as
         select day,aid,lid,
             bitmap_union(to_bitmap(mh)) as wu,     
             bitmap_union(to_bitmap(my)) as mu 

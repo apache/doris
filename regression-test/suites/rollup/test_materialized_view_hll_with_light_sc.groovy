@@ -18,7 +18,7 @@ suite("test_materialized_view_hll_with_light_sc", "rollup") {
     def tbName1 = "test_materialized_view_hll_with_light_sc"
 
     def getJobState = { tableName ->
-        def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1; """
+        def jobStateResult = sql """  SHOW ALTER TABLE materialized index WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1; """
         return jobStateResult[0][8]
     }
     sql "DROP TABLE IF EXISTS ${tbName1}"
@@ -33,7 +33,7 @@ suite("test_materialized_view_hll_with_light_sc", "rollup") {
             DISTRIBUTED BY HASH(record_id) properties("replication_num" = "1", "light_schema_change" = "true");
         """
 
-    sql "CREATE materialized VIEW amt_count1 AS SELECT store_id, hll_union(hll_hash(sale_amt)) FROM ${tbName1} GROUP BY store_id;"
+    sql "CREATE materialized index amt_count1 AS SELECT store_id, hll_union(hll_hash(sale_amt)) FROM ${tbName1} GROUP BY store_id;"
     max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName1)

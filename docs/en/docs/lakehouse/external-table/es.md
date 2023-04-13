@@ -395,7 +395,7 @@ Currently, the FE and BE implement a trust-all method, which is temporary soluti
 
 ### Query
 
-After creating an ES External Table in Doris, you can query data from ES as simply as querying data in Doris itself, except that you won't be able to use the Doris data models (rollup, pre-aggregation, and materialized view).
+After creating an ES External Table in Doris, you can query data from ES as simply as querying data in Doris itself, except that you won't be able to use the Doris data models (rollup, pre-aggregation, and materialized index).
 
 #### Basic Query
 

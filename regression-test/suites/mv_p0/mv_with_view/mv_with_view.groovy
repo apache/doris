@@ -35,7 +35,7 @@ suite ("mv_with_view") {
     sql """insert into d_table select 1,1,1,'a';"""
     sql """insert into d_table select 2,2,2,'b';"""
 
-    createMV("create materialized view k132 as select k1,k3,k2 from d_table;")
+    createMV("create materialized index k132 as select k1,k3,k2 from d_table;")
 
     sql """insert into d_table select 3,-3,null,'c';"""
 

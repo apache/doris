@@ -18,7 +18,7 @@
 suite ("test_agg_mv_useless") {
     def testTable = "test_agg_mv_useless_table"
     def getJobState = { tableName ->
-        def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${testTable}' ORDER BY CreateTime DESC LIMIT 1; """
+        def jobStateResult = sql """  SHOW ALTER TABLE materialized index WHERE TableName='${testTable}' ORDER BY CreateTime DESC LIMIT 1; """
         return jobStateResult[0][8]
     }
     sql """ DROP TABLE IF EXISTS ${testTable}; """
@@ -39,26 +39,26 @@ suite ("test_agg_mv_useless") {
     sql "insert into ${testTable} select 3,3,3;"
 
     test {
-        sql "create materialized view k1 as select k1 from ${testTable};"
+        sql "create materialized index k1 as select k1 from ${testTable};"
         exception "errCode = 2,"
     }
 
     test {
-        sql "create materialized view k1_k2 as select k1,k2 from ${testTable};"
+        sql "create materialized index k1_k2 as select k1,k2 from ${testTable};"
         exception "errCode = 2,"
     }
     test {
-        sql "create materialized view k1_k2_sumk3 as select k1,k2,sum(k3) from${testTable} group by k1,k2;"
+        sql "create materialized index k1_k2_sumk3 as select k1,k2,sum(k3) from${testTable} group by k1,k2;"
         exception "errCode = 2,"
     }
 
     test {
-        sql "create materialized view k1_k2_u12 as select k1,k2 from ${testTable} group by k1,k2;"
+        sql "create materialized index k1_k2_u12 as select k1,k2 from ${testTable} group by k1,k2;"
         exception "errCode = 2,"
     }
 
-    createMV("create materialized view k1_u1 as select k1 from ${testTable} group by k1;")
-    createMV("create materialized view k1_k2_u21 as select k2,k1 from ${testTable} group by k2,k1 order by k2,k1;")
-    createMV("create materialized view k1_sumk3 as select k1,sum(k3) from ${testTable} group by k1;")
+    createMV("create materialized index k1_u1 as select k1 from ${testTable} group by k1;")
+    createMV("create materialized index k1_k2_u21 as select k2,k1 from ${testTable} group by k2,k1 order by k2,k1;")
+    createMV("create materialized index k1_sumk3 as select k1,sum(k3) from ${testTable} group by k1;")
     sql "insert into ${testTable} select 4,4,4;"
 }

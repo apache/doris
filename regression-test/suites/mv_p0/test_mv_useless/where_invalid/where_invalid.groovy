@@ -33,17 +33,17 @@ suite ("where_invalid") {
         """
 
     test {
-        sql "create materialized view where_1 as select k1,k4 from a_table where k4 =1;"
+        sql "create materialized index where_1 as select k1,k4 from a_table where k4 =1;"
         exception "errCode = 2,"
     }
 
     test {
-        sql "create materialized view where_2 as select k1,sum(k4) from a_table where k4 =1 group by k1;"
+        sql "create materialized index where_2 as select k1,sum(k4) from a_table where k4 =1 group by k1;"
         exception "errCode = 2,"
     }
 
     test {
-        sql "create materialized view where_2 as select k1,sum(k4) from a_table where k1+k4 =1 group by k1;"
+        sql "create materialized index where_2 as select k1,sum(k4) from a_table where k1+k4 =1 group by k1;"
         exception "errCode = 2,"
     }
 }

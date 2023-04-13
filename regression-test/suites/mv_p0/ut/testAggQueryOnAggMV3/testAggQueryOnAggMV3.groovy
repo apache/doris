@@ -38,7 +38,7 @@ suite ("testAggQueryOnAggMV3") {
 
 
 
-    createMV("create materialized view emps_mv as select deptno, commission, sum(salary) from emps group by deptno, commission ;")
+    createMV("create materialized index emps_mv as select deptno, commission, sum(salary) from emps group by deptno, commission ;")
 
 
     explain {

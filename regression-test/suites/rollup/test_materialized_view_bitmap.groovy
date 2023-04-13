@@ -18,7 +18,7 @@ suite("test_materialized_view_bitmap", "rollup") {
     def tbName1 = "test_materialized_view_bitmap"
 
     def getJobState = { tableName ->
-        def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1; """
+        def jobStateResult = sql """  SHOW ALTER TABLE materialized index WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1; """
         return jobStateResult[0][8]
     }
     sql "DROP TABLE IF EXISTS ${tbName1}"
@@ -31,7 +31,7 @@ suite("test_materialized_view_bitmap", "rollup") {
             DISTRIBUTED BY HASH(k1) properties("replication_num" = "1");
         """
 
-    sql "CREATE MATERIALIZED VIEW test_neg as select k1,bitmap_union(to_bitmap(k2)), bitmap_union(to_bitmap(k3)) FROM ${tbName1} GROUP BY k1;"
+    sql "CREATE materialized index test_neg as select k1,bitmap_union(to_bitmap(k2)), bitmap_union(to_bitmap(k3)) FROM ${tbName1} GROUP BY k1;"
     max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName1)

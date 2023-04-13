@@ -77,7 +77,7 @@ Doris supports a variety of **storage models** and has optimized them for differ
 -   Unique Key Model: Keys are unique in this model and data with the same key will be overwritten to achieve row-level data updates.
 -   Duplicate Key Model: This is a detailed data model capable of detailed storage of fact tables.
 
-Doris also supports strongly consistent materialized views. Materialized views are automatically selected and updated, which greatly reduces maintenance costs for users.
+Doris also supports strongly consistent materialized indexs. materialized indexs are automatically selected and updated, which greatly reduces maintenance costs for users.
 
 Doris adopts the MPP model in its query engine to realize parallel execution between and within nodes. It also supports distributed shuffle join for multiple large tables so as to handle complex queries.
 

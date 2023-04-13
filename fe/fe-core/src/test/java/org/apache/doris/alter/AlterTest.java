@@ -1125,22 +1125,22 @@ public class AlterTest {
 
     @Test
     public void testShowMV() throws Exception {
-        createMV("CREATE MATERIALIZED VIEW test_mv as select k1 from test.show_test group by k1;", false);
+        createMV("CREATE MATERIALIZED INDEX test_mv as select k1 from test.show_test group by k1;", false);
         waitSchemaChangeJobDone(true);
 
-        String showMvSql = "SHOW CREATE MATERIALIZED VIEW test_mv on test.show_test;";
+        String showMvSql = "SHOW CREATE MATERIALIZED INDEX test_mv on test.show_test;";
         ShowCreateMaterializedViewStmt showStmt = (ShowCreateMaterializedViewStmt) UtFrameUtils.parseAndAnalyzeStmt(
                 showMvSql, connectContext);
         ShowExecutor executor = new ShowExecutor(connectContext, showStmt);
         Assert.assertEquals(executor.execute().getResultRows().get(0).get(2),
-                "CREATE MATERIALIZED VIEW test_mv as select k1 from test.show_test group by k1;");
+                "CREATE MATERIALIZED INDEX test_mv as select k1 from test.show_test group by k1;");
 
-        showMvSql = "SHOW CREATE MATERIALIZED VIEW test_mv_empty on test.show_test;";
+        showMvSql = "SHOW CREATE MATERIALIZED INDEX test_mv_empty on test.show_test;";
         showStmt = (ShowCreateMaterializedViewStmt) UtFrameUtils.parseAndAnalyzeStmt(showMvSql, connectContext);
         executor = new ShowExecutor(connectContext, showStmt);
         Assert.assertTrue(executor.execute().getResultRows().isEmpty());
 
-        showMvSql = "SHOW CREATE MATERIALIZED VIEW test_mv on test.table1_error;";
+        showMvSql = "SHOW CREATE MATERIALIZED INDEX test_mv on test.table1_error;";
         showStmt = (ShowCreateMaterializedViewStmt) UtFrameUtils.parseAndAnalyzeStmt(showMvSql, connectContext);
         executor = new ShowExecutor(connectContext, showStmt);
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "Unknown table 'table1_error'",

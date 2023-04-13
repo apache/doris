@@ -46,8 +46,8 @@ suite ("testJoinOnLeftProjectToJoin") {
     sql """insert into depts values("2020-01-03",3,"c",3);"""
     sql """insert into depts values("2020-01-02",2,"b",1);"""
 
-    createMV("create materialized view emps_mv as select deptno, sum(salary), sum(commission) from emps group by deptno;")
-    createMV("create materialized view depts_mv as select deptno, max(cost) from depts group by deptno;")
+    createMV("create materialized index emps_mv as select deptno, sum(salary), sum(commission) from emps group by deptno;")
+    createMV("create materialized index depts_mv as select deptno, max(cost) from depts group by deptno;")
 
     explain {
         sql("select * from (select deptno , sum(salary) from emps group by deptno) A join (select deptno, max(cost) from depts group by deptno ) B on A.deptno = B.deptno;")

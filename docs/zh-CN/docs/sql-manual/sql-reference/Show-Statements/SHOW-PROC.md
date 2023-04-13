@@ -94,7 +94,7 @@ mysql> show proc "/";
 9. current_backend_instances ：显示当前正在执行作业的be节点列表
 10. current_queries  : 查看正在执行的查询列表，当前正在运行的SQL语句。                          
 11. current_query_stmts : 返回当前正在执行的 query。
-12. dbs ： 主要用于查看 Doris 集群中各个数据库以及其中的表的元数据信息。这些信息包括表结构、分区、物化视图、数据分片和副本等等。通过这个目录和其子目录，可以清楚的展示集群中的表元数据情况，以及定位一些如数据倾斜、副本故障等问题
+12. dbs ： 主要用于查看 Doris 集群中各个数据库以及其中的表的元数据信息。这些信息包括表结构、分区、物化索引、数据分片和副本等等。通过这个目录和其子目录，可以清楚的展示集群中的表元数据情况，以及定位一些如数据倾斜、副本故障等问题
 13. frontends ：显示集群中所有的 FE 节点信息，包括IP地址、角色、状态、是否是mater等，等同于 [SHOW FRONTENDS](./SHOW-FRONTENDS.md)   
 14. jobs ：各类任务的统计信息，可查看指定数据库的 Job 的统计信息，如果 `dbId` = -1, 则返回所有库的汇总信息
 15. load_error_hub ：Doris 支持将 load 作业产生的错误信息集中存储到一个 error hub 中。然后直接通过 <code>SHOW LOAD WARNINGS;</code> 语句查看错误信息。这里展示的就是 error hub 的配置信息。

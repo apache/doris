@@ -1,6 +1,6 @@
 ---
 {
-    "title": "SHOW ALTER TABLE MATERIALIZED VIEW",
+    "title": "SHOW ALTER TABLE materialized index",
     "language": "zh-CN"
 }
 ---
@@ -24,20 +24,20 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## SHOW ALTER TABLE MATERIALIZED VIEW
+## SHOW ALTER TABLE MATERIALIZED INDEX
 
 ### Name
 
-SHOW ALTER TABLE MATERIALIZED VIEW
+SHOW ALTER TABLE MATERIALIZED INDEX
 
 ### Description
 
-该命令用于查看通过 [CREATE-MATERIALIZED-VIEW](../../sql-reference/Data-Definition-Statements/Create/CREATE-MATERIALIZED-VIEW.md) 语句提交的创建物化视图作业的执行情况。
+该命令用于查看通过 [CREATE-MATERIALIZED-INDEX](../../sql-reference/Data-Definition-Statements/Create/CREATE-MATERIALIZED-INDEX.md) 语句提交的创建物化索引作业的执行情况。
 
 > 该语句等同于 `SHOW ALTER TABLE ROLLUP`;
 
 ```sql
-SHOW ALTER TABLE MATERIALIZED VIEW
+SHOW ALTER TABLE materialized index
 [FROM database]
 [WHERE]
 [ORDER BY]
@@ -55,7 +55,7 @@ SHOW ALTER TABLE MATERIALIZED VIEW
 返回结果说明：
 
 ```sql
-mysql> show alter table materialized view\G
+mysql> show alter table materialized index\G
 *************************** 1. row ***************************
           JobId: 11001
       TableName: tbl1
@@ -78,9 +78,9 @@ RollupIndexName: r1
 
 - `CreateTime/FinishTime`：作业创建时间和结束时间。
 
-- `BaseIndexName/RollupIndexName`：基表名称和物化视图名称。
+- `BaseIndexName/RollupIndexName`：基表名称和物化索引名称。
 
-- `RollupId`：物化视图的唯一 ID。
+- `RollupId`：物化索引的唯一 ID。
 
 - `TransactionId`：见 State 字段说明。
 
@@ -90,7 +90,7 @@ RollupIndexName: r1
 
   - WAITING_TXN：
 
-    在正式开始产生物化视图数据前，会等待当前这个表上的正在运行的导入事务完成。而 `TransactionId` 字段就是当前正在等待的事务ID。当这个ID之前的导入都完成后，就会实际开始作业。
+    在正式开始产生物化索引数据前，会等待当前这个表上的正在运行的导入事务完成。而 `TransactionId` 字段就是当前正在等待的事务ID。当这个ID之前的导入都完成后，就会实际开始作业。
 
   - RUNNING：作业运行中。
 
@@ -100,21 +100,18 @@ RollupIndexName: r1
 
 - `Msg`：错误信息
 
-- `Progress`：作业进度。这里的进度表示 `已完成的tablet数量/总tablet数量`。创建物化视图是按 tablet 粒度进行的。
+- `Progress`：作业进度。这里的进度表示 `已完成的tablet数量/总tablet数量`。创建物化索引是按 tablet 粒度进行的。
 
 - `Timeout`：作业超时时间，单位秒。
 
 ### Example
 
-1. 查看数据库 example_db 下的物化视图作业
+1. 查看数据库 example_db 下的物化索引作业
 
    ```sql
-   SHOW ALTER TABLE MATERIALIZED VIEW FROM example_db;
+   SHOW ALTER TABLE materialized index FROM example_db;
    ```
 
 ### Keywords
 
     SHOW, ALTER, TABLE, MATERIALIZED, VIEW
-
-### Best Practice
-

@@ -1930,6 +1930,10 @@ create_stmt ::=
     {:
         RESULT = new CreateMaterializedViewStmt(mvName, selectStmt, properties);
     :}
+    | KW_CREATE KW_MATERIALIZED KW_INDEX ident:mvName KW_AS select_stmt:selectStmt opt_properties:properties
+    {:
+        RESULT = new CreateMaterializedViewStmt(mvName, selectStmt, properties);
+    :}
     | KW_CREATE KW_MATERIALIZED KW_VIEW ident:mvName build_mv:buildMethod
          opt_mv_refersh_info:refreshInfo
          opt_mv_keys:keyDesc
@@ -2986,6 +2990,10 @@ drop_stmt ::=
     {:
         RESULT = new DropMaterializedViewStmt(ifExists, mvName, tableName);
     :}
+    | KW_DROP KW_MATERIALIZED KW_INDEX opt_if_exists:ifExists ident:mvName KW_ON table_name:tableName
+    {:
+        RESULT = new DropMaterializedViewStmt(ifExists, mvName, tableName);
+    :}
     | KW_DROP KW_RESOURCE opt_if_exists:ifExists ident_or_text:resourceName
     {:
         RESULT = new DropResourceStmt(ifExists, resourceName);
@@ -3981,6 +3989,10 @@ show_param ::=
     {:
         RESULT = new ShowCreateMaterializedViewStmt(mvName, tableName);
     :}
+    | KW_CREATE KW_MATERIALIZED KW_INDEX ident:mvName KW_ON table_name:tableName
+    {:
+        RESULT = new ShowCreateMaterializedViewStmt(mvName, tableName);
+    :}
     /* show analyze job */
     | KW_ANALYZE opt_table_name:tbl opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
     {:
@@ -4129,6 +4141,10 @@ opt_alter_type ::=
         RESULT = ShowAlterStmt.AlterType.ROLLUP;
     :}
     | KW_MATERIALIZED KW_VIEW
+    {:
+        RESULT =  ShowAlterStmt.AlterType.ROLLUP;
+    :}
+    | KW_MATERIALIZED KW_INDEX
     {:
         RESULT =  ShowAlterStmt.AlterType.ROLLUP;
     :}

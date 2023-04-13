@@ -20,7 +20,7 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 suite ("test_uniq_mv_schema_change") {
     def tableName = "schema_change_uniq_mv_regression_test"
     def getMVJobState = { tbName ->
-         def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tbName}' ORDER BY CreateTime DESC LIMIT 1 """
+         def jobStateResult = sql """  SHOW ALTER TABLE materialized index WHERE TableName='${tbName}' ORDER BY CreateTime DESC LIMIT 1 """
          return jobStateResult[0][8]
     }
     def waitForJob =  (tbName, timeout) -> {
@@ -107,17 +107,17 @@ suite ("test_uniq_mv_schema_change") {
 
 
 
-    //add materialized view
+    //add materialized index
     def mvName = "mv1"
-    sql "create materialized view ${mvName} as select user_id, date, city, age from ${tableName} group by user_id, date, city, age;"
+    sql "create materialized index ${mvName} as select user_id, date, city, age from ${tableName} group by user_id, date, city, age;"
     waitForJob(tableName, 3000)
 
     // alter and test light schema change
     sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
 
-    //add materialized view
+    //add materialized index
     def mvName2 = "mv2"
-    sql "create materialized view ${mvName2} as select user_id, date, city, age, cost from ${tableName} group by user_id, date, city, age, cost;"
+    sql "create materialized index ${mvName2} as select user_id, date, city, age, cost from ${tableName} group by user_id, date, city, age, cost;"
     waitForJob(tableName, 3000)
 
     sql """ INSERT INTO ${tableName} VALUES

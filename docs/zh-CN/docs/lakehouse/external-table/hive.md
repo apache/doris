@@ -202,7 +202,7 @@ PROPERTIES (
 
 ### 查询用法
 
-完成在 Doris 中建立 Hive 外表后，除了无法使用 Doris 中的数据模型(rollup、预聚合、物化视图等)外，与普通的 Doris OLAP 表并无区别
+完成在 Doris 中建立 Hive 外表后，除了无法使用 Doris 中的数据模型(rollup、预聚合、物化索引等)外，与普通的 Doris OLAP 表并无区别
 
 ```sql
 select * from t_hive where k1 > 1000 and k3 ='term' or k4 like '%doris';

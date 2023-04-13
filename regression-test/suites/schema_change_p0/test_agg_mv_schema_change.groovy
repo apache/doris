@@ -24,7 +24,7 @@ suite ("test_agg_mv_schema_change") {
          return jobStateResult[0][9]
     }
     def getMVJobState = { tbName ->
-         def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tbName}' ORDER BY CreateTime DESC LIMIT 1 """
+         def jobStateResult = sql """  SHOW ALTER TABLE materialized index WHERE TableName='${tbName}' ORDER BY CreateTime DESC LIMIT 1 """
          return jobStateResult[0][8]
     }
     def waitForJob =  (tbName, timeout) -> {
@@ -106,9 +106,9 @@ suite ("test_agg_mv_schema_change") {
             """
         qt_sc """ select * from ${tableName} order by user_id"""
 
-        //add materialized view
+        //add materialized index
         def mvName = "mv1"
-        sql "create materialized view ${mvName} as select user_id, date, city, age, sum(cost) from ${tableName} group by user_id, date, city, age, sex;"
+        sql "create materialized index ${mvName} as select user_id, date, city, age, sum(cost) from ${tableName} group by user_id, date, city, age, sex;"
 
         waitForJob(tableName, 3000)
 
@@ -116,7 +116,7 @@ suite ("test_agg_mv_schema_change") {
         sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
 
         def mvName2 = "mv2"
-        sql "create materialized view ${mvName2} as select user_id, date, city, cost, max(age) from ${tableName} group by user_id, date, city, cost, sex;"
+        sql "create materialized index ${mvName2} as select user_id, date, city, cost, max(age) from ${tableName} group by user_id, date, city, cost, sex;"
 
         waitForJob(tableName, 3000)
 

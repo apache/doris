@@ -18,7 +18,7 @@
 suite ("test_rename_column") {
     def tableName = "rename_column_test"
     def getMVJobState = { tbName ->
-         def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tbName}' ORDER BY CreateTime DESC LIMIT 1 """
+         def jobStateResult = sql """  SHOW ALTER TABLE materialized index WHERE TableName='${tbName}' ORDER BY CreateTime DESC LIMIT 1 """
          return jobStateResult[0][8]
     }
     def getRollupJobState = { tbName ->
@@ -195,7 +195,7 @@ suite ("test_rename_column") {
 
     sql """ DROP TABLE ${tableName} """
 
-    // materialized view
+    // materialized index
     sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
                 `user_id` LARGEINT NOT NULL COMMENT "用户id",
@@ -213,10 +213,10 @@ suite ("test_rename_column") {
             PROPERTIES ( "replication_num" = "1", "light_schema_change" = "true" );
         """
 
-    //add materialized view
+    //add materialized index
     def resMv = "null"
     def mvName = "mv1"
-    sql "create materialized view ${mvName} as select user_id, sum(cost) from ${tableName} group by user_id;"
+    sql "create materialized index ${mvName} as select user_id, sum(cost) from ${tableName} group by user_id;"
     max_try_time = 3000
     while (max_try_time--){
         String result = getMVJobState(tableName)

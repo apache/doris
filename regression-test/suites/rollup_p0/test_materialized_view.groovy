@@ -19,7 +19,7 @@ suite("test_materialized_view") {
     def tbName2 = "test_materialized_view2"
 
     def getJobState = { tableName ->
-        def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1; """
+        def jobStateResult = sql """  SHOW ALTER TABLE materialized index WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1; """
         return jobStateResult[0][8]
     }
     sql "DROP TABLE IF EXISTS ${tbName1}"
@@ -44,7 +44,7 @@ suite("test_materialized_view") {
             ) 
             DISTRIBUTED BY HASH(record_id) properties("replication_num" = "1");
         """
-    sql "CREATE materialized VIEW amt_sum AS SELECT store_id, sum(sale_amt) FROM ${tbName1} GROUP BY store_id;"
+    sql "CREATE materialized index amt_sum AS SELECT store_id, sum(sale_amt) FROM ${tbName1} GROUP BY store_id;"
     int max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName1)
@@ -59,7 +59,7 @@ suite("test_materialized_view") {
             }
         }
     }
-    sql "CREATE materialized VIEW seller_id_order AS SELECT store_id,seller_id, sale_amt FROM ${tbName2} ORDER BY store_id,seller_id;"
+    sql "CREATE materialized index seller_id_order AS SELECT store_id,seller_id, sale_amt FROM ${tbName2} ORDER BY store_id,seller_id;"
     max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName2)
@@ -74,8 +74,8 @@ suite("test_materialized_view") {
             }
         }
     }
-    sql "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tbName1}';"
-    sql "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tbName2}';"
+    sql "SHOW ALTER TABLE materialized index WHERE TableName='${tbName1}';"
+    sql "SHOW ALTER TABLE materialized index WHERE TableName='${tbName2}';"
     qt_sql "DESC ${tbName1} ALL;"
     qt_sql "DESC ${tbName2} ALL;"
     sql "insert into ${tbName1} values(1, 1, 1, '2020-05-30',100);"
@@ -92,7 +92,7 @@ suite("test_materialized_view") {
     qt_sql "SELECT * FROM ${tbName2} order by record_id;"
     qt_sql "SELECT store_id, sum(sale_amt) FROM ${tbName2} GROUP BY store_id order by store_id;"
 
-    sql "CREATE materialized VIEW amt_count AS SELECT store_id, count(sale_amt) FROM ${tbName1} GROUP BY store_id;"
+    sql "CREATE materialized index amt_count AS SELECT store_id, count(sale_amt) FROM ${tbName1} GROUP BY store_id;"
     max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName1)

@@ -40,19 +40,19 @@ After version 1.2.0, when the `"light_schema_change"="true"` option is enabled, 
 
 Before version 1.2.0 or when the `"light_schema_change"="true"` option is not enabled, modifying column names is not supported. The reasons are as follows:
 
-Doris supports modifying database name, table name, partition name, materialized view (Rollup) name, as well as column type, comment, default value, etc. But unfortunately, modifying column names is currently not supported.
+Doris supports modifying database name, table name, partition name, materialized index (Rollup) name, as well as column type, comment, default value, etc. But unfortunately, modifying column names is currently not supported.
 
 For some historical reasons, the column names are currently written directly to the data file. When Doris queries, it also finds the corresponding column through the class name. Therefore, modifying the column name is not only a simple metadata modification, but also involves data rewriting, which is a very heavy operation.
 
 We do not rule out some compatible means to support lightweight column name modification operations in the future.
 
-### Q3. Does the table of the Unique Key model support creating a materialized view?
+### Q3. Does the table of the Unique Key model support creating a materialized index?
 
 not support.
 
 The table of the Unique Key model is a business-friendly table. Because of its unique function of deduplication according to the primary key, it can easily synchronize business databases with frequently changed data. Therefore, many users will first consider using the Unique Key model when accessing data into Doris.
 
-But unfortunately, the table of the Unique Key model cannot establish a materialized view. The reason is that the essence of the materialized view is to "pre-compute" the data through pre-computation, so that the calculated data is directly returned during the query to speed up the query. In the materialized view, the "pre-computed" data is usually some aggregated indicators, such as sum and count. At this time, if the data changes, such as update or delete, because the pre-computed data has lost detailed information, it cannot be updated synchronously. For example, a sum value of 5 may be 1+4 or 2+3. Because of the loss of detailed information, we cannot distinguish how this summation value is calculated, so we cannot meet the needs of updating.
+But unfortunately, the table of the Unique Key model cannot establish a materialized index. The reason is that the essence of the materialized index is to "pre-compute" the data through pre-computation, so that the calculated data is directly returned during the query to speed up the query. In the materialized index, the "pre-computed" data is usually some aggregated indicators, such as sum and count. At this time, if the data changes, such as update or delete, because the pre-computed data has lost detailed information, it cannot be updated synchronously. For example, a sum value of 5 may be 1+4 or 2+3. Because of the loss of detailed information, we cannot distinguish how this summation value is calculated, so we cannot meet the needs of updating.
 
 ### Q4. tablet writer write failed, tablet_id=27306172, txn_id=28573520, err=-235 or -238
 

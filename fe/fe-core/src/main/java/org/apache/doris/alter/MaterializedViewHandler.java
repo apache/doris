@@ -563,7 +563,7 @@ public class MaterializedViewHandler extends AlterHandler {
         for (Column column : newMVColumns) {
             if (column.getDataType().isComplexType() || column.getDataType().isJsonbType()) {
                 throw new DdlException("The " + column.getDataType() + " column[" + column + "] not support "
-                        + "to create materialized view");
+                        + "to create materialized index");
             }
             if (addMVClause.getMVKeysType() != KeysType.AGG_KEYS
                     && (column.getType().isBitmapType() || column.getType().isHllType())) {

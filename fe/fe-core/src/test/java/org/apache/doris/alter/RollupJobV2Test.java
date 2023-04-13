@@ -329,7 +329,7 @@ public class RollupJobV2Test {
 
         RollupJobV2 rollupJobV2 = new RollupJobV2(1, 1, 1, "test", 1, 1, 1, "test", "rollup", columns, null, 1, 1,
                 KeysType.AGG_KEYS, keysCount,
-                new OriginStatement("create materialized view rollup as select bitmap_union(to_bitmap(c1)) from test",
+                new OriginStatement("create materialized index rollup as select bitmap_union(to_bitmap(c1)) from test",
                         0));
         rollupJobV2.setStorageFormat(TStorageFormat.V2);
 

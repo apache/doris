@@ -44,73 +44,73 @@ suite ("create_mv_complex_type") {
     // 1. special column - mv dup key
     success = false
     try {
-        sql """create materialized view mv as select c_jsonb, c_int from base_table;"""
+        sql """create materialized index mv as select c_jsonb, c_int from base_table;"""
         success = true
     } catch (Exception e) {
-        assertTrue(e.getMessage().contains("not support to create materialized view"), e.getMessage())
+        assertTrue(e.getMessage().contains("not support to create materialized index"), e.getMessage())
     }
     assertFalse(success)
 
     success = false
     try {
-        sql """create materialized view mv as select c_bigint, c_jsonb from base_table;"""
+        sql """create materialized index mv as select c_bigint, c_jsonb from base_table;"""
         success = true
     } catch (Exception e) {
-        assertTrue(e.getMessage().contains("not support to create materialized view"), e.getMessage())
+        assertTrue(e.getMessage().contains("not support to create materialized index"), e.getMessage())
     }
     assertFalse(success)
 
     success = false
     try {
-        sql """create materialized view mv as select c_array, c_int from base_table;"""
+        sql """create materialized index mv as select c_array, c_int from base_table;"""
         success = true
     } catch (Exception e) {
-        assertTrue(e.getMessage().contains("not support to create materialized view"), e.getMessage())
+        assertTrue(e.getMessage().contains("not support to create materialized index"), e.getMessage())
     }
     assertFalse(success)
 
     success = false
     try {
-        sql """create materialized view mv as select c_bigint, c_array from base_table;"""
+        sql """create materialized index mv as select c_bigint, c_array from base_table;"""
         success = true
     } catch (Exception e) {
-        assertTrue(e.getMessage().contains("not support to create materialized view"), e.getMessage())
+        assertTrue(e.getMessage().contains("not support to create materialized index"), e.getMessage())
     }
     assertFalse(success)
 
     success = false
     try {
-        sql """create materialized view mv as select c_map, c_int from base_table;"""
+        sql """create materialized index mv as select c_map, c_int from base_table;"""
         success = true
     } catch (Exception e) {
-        assertTrue(e.getMessage().contains("not support to create materialized view"), e.getMessage())
+        assertTrue(e.getMessage().contains("not support to create materialized index"), e.getMessage())
     }
     assertFalse(success)
 
     success = false
     try {
-        sql """create materialized view mv as select c_bigint, c_map from base_table;"""
+        sql """create materialized index mv as select c_bigint, c_map from base_table;"""
         success = true
     } catch (Exception e) {
-        assertTrue(e.getMessage().contains("not support to create materialized view"), e.getMessage())
+        assertTrue(e.getMessage().contains("not support to create materialized index"), e.getMessage())
     }
     assertFalse(success)
 
     success = false
     try {
-        sql """create materialized view mv as select c_struct, c_int from base_table;"""
+        sql """create materialized index mv as select c_struct, c_int from base_table;"""
         success = true
     } catch (Exception e) {
-        assertTrue(e.getMessage().contains("not support to create materialized view"), e.getMessage())
+        assertTrue(e.getMessage().contains("not support to create materialized index"), e.getMessage())
     }
     assertFalse(success)
 
     success = false
     try {
-        sql """create materialized view mv as select c_bigint, c_struct from base_table;"""
+        sql """create materialized index mv as select c_bigint, c_struct from base_table;"""
         success = true
     } catch (Exception e) {
-        assertTrue(e.getMessage().contains("not support to create materialized view"), e.getMessage())
+        assertTrue(e.getMessage().contains("not support to create materialized index"), e.getMessage())
     }
     assertFalse(success)
 
@@ -118,7 +118,7 @@ suite ("create_mv_complex_type") {
     // 2. special column - mv agg key
     success = false
     try {
-        sql """create materialized view mv as select c_bigint, c_int, c_jsonb, count(c_bigint) from base_table group by c_bigint, c_int, c_jsonb;"""
+        sql """create materialized index mv as select c_bigint, c_int, c_jsonb, count(c_bigint) from base_table group by c_bigint, c_int, c_jsonb;"""
         success = true
     } catch (Exception e) {
         assertTrue(e.getMessage().contains("don't support filter or group by"), e.getMessage())
@@ -127,7 +127,7 @@ suite ("create_mv_complex_type") {
 
     success = false
     try {
-        sql """create materialized view mv as select c_bigint, c_int, c_array, count(c_bigint) from base_table group by c_bigint, c_int, c_array;"""
+        sql """create materialized index mv as select c_bigint, c_int, c_array, count(c_bigint) from base_table group by c_bigint, c_int, c_array;"""
         success = true
     } catch (Exception e) {
         assertTrue(e.getMessage().contains("don't support filter or group by"), e.getMessage())
@@ -136,7 +136,7 @@ suite ("create_mv_complex_type") {
 
     success = false
     try {
-        sql """create materialized view mv as select c_bigint, c_int, c_map, count(c_bigint) from base_table group by c_bigint, c_int, c_map;"""
+        sql """create materialized index mv as select c_bigint, c_int, c_map, count(c_bigint) from base_table group by c_bigint, c_int, c_map;"""
         success = true
     } catch (Exception e) {
         assertTrue(e.getMessage().contains("don't support filter or group by"), e.getMessage())
@@ -145,7 +145,7 @@ suite ("create_mv_complex_type") {
 
     success = false
     try {
-        sql """create materialized view mv as select c_bigint, c_int, c_struct, count(c_bigint) from base_table group by c_bigint, c_int, c_struct;"""
+        sql """create materialized index mv as select c_bigint, c_int, c_struct, count(c_bigint) from base_table group by c_bigint, c_int, c_struct;"""
         success = true
     } catch (Exception e) {
         assertTrue(e.getMessage().contains("don't support filter or group by"), e.getMessage())
@@ -156,7 +156,7 @@ suite ("create_mv_complex_type") {
     // 3. special column - ORDER BY
     success = false
     try {
-        sql """create materialized view mv as select c_bigint, c_int, c_jsonb from base_table order by c_bigint, c_int, c_jsonb;"""
+        sql """create materialized index mv as select c_bigint, c_int, c_jsonb from base_table order by c_bigint, c_int, c_jsonb;"""
         success = true
     } catch (Exception e) {
         assertTrue(e.getMessage().contains("don't support filter or group by"), e.getMessage())
@@ -165,7 +165,7 @@ suite ("create_mv_complex_type") {
 
     success = false
     try {
-        sql """create materialized view mv as select c_bigint, c_int, c_array from base_table order by c_bigint, c_int, c_array;"""
+        sql """create materialized index mv as select c_bigint, c_int, c_array from base_table order by c_bigint, c_int, c_array;"""
         success = true
     } catch (Exception e) {
         assertTrue(e.getMessage().contains("don't support filter or group by"), e.getMessage())
@@ -174,7 +174,7 @@ suite ("create_mv_complex_type") {
 
     success = false
     try {
-        sql """create materialized view mv as select c_bigint, c_int, c_map from base_table order by c_bigint, c_int, c_map;"""
+        sql """create materialized index mv as select c_bigint, c_int, c_map from base_table order by c_bigint, c_int, c_map;"""
         success = true
     } catch (Exception e) {
         assertTrue(e.getMessage().contains("don't support filter or group by"), e.getMessage())
@@ -183,7 +183,7 @@ suite ("create_mv_complex_type") {
 
     success = false
     try {
-        sql """create materialized view mv as select c_bigint, c_int, c_struct from base_table order by c_bigint, c_int, c_struct;"""
+        sql """create materialized index mv as select c_bigint, c_int, c_struct from base_table order by c_bigint, c_int, c_struct;"""
         success = true
     } catch (Exception e) {
         assertTrue(e.getMessage().contains("don't support filter or group by"), e.getMessage())

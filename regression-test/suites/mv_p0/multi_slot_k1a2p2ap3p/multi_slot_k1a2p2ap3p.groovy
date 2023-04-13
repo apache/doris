@@ -36,7 +36,7 @@ suite ("multi_slot_k1a2p2ap3p") {
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,-3,null,'c';"
 
-    createMV ("create materialized view k1a2p2ap3p as select abs(k1)+k2+1,abs(k2+2)+k3+3 from d_table;")
+    createMV ("create materialized index k1a2p2ap3p as select abs(k1)+k2+1,abs(k2+2)+k3+3 from d_table;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
 

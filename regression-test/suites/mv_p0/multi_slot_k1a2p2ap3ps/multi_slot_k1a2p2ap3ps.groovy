@@ -38,13 +38,13 @@ suite ("multi_slot_k1a2p2ap3ps") {
 
     boolean createFail = false;
     try {
-        sql "create materialized view k1a2p2ap3ps as select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2;"
+        sql "create materialized index k1a2p2ap3ps as select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2;"
     } catch (Exception e) {
         createFail = true;
     }
     assertTrue(createFail);
 
-    createMV ("create materialized view k1a2p2ap3ps as select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2+1;")
+    createMV ("create materialized index k1a2p2ap3ps as select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2+1;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
 

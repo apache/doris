@@ -35,7 +35,7 @@ suite ("testUnionDistinct") {
     sql """insert into emps values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into emps values("2020-01-03",3,"c",3,3,3);"""
 
-    createMV("create materialized view emps_mv as select empid, deptno from emps order by empid, deptno;")
+    createMV("create materialized index emps_mv as select empid, deptno from emps order by empid, deptno;")
 
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
 
