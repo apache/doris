@@ -142,7 +142,7 @@ suite("bind_priority") {
               (
                 select 1 id, 'a' name
                 union all
-                select 2 id, 'b' name
+                select /*+SET_VAR(query_timeout=60) */ 2 id, 'b' name
                 union all
                 select 3 id, 'c' name
               ) a
