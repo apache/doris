@@ -1511,6 +1511,12 @@ public class Config extends ConfigBase {
     public static int grpc_max_message_size_bytes = 2147483647; // 2GB
 
     /**
+     * num of thread to handle grpc events in grpc_threadmgr
+     */
+    @ConfField
+    public static int grpc_threadmgr_threads_nums = 4096;
+
+    /**
      * Used to set minimal number of replication per tablet.
      */
     @ConfField(mutable = true, masterOnly = true)
