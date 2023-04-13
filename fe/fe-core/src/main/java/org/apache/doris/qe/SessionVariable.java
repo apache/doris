@@ -547,6 +547,8 @@ public class SessionVariable implements Serializable, Writable {
     // Whether drop table when create table as select insert data appear error.
     @VariableMgr.VarAttr(name = DROP_TABLE_IF_CTAS_FAILED, needForward = true)
     public boolean dropTableIfCtasFailed = true;
+    @VariableMgr.VarAttr(name = DROP_TABLE_IF_IOTS_FAILED, needForward = true)
+    public boolean isDropTableIfIotsFailed = true;
     // Whether drop table when insert overwrite table select insert data appear error.
     @VariableMgr.VarAttr(name = DROP_TABLE_IF_IOTS_FAILED, needForward = true)
     public boolean dropTableIfIotsFailed = true;
