@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.trees.expressions.functions.ExecutableFunctions;
+import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtract;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
@@ -114,5 +115,13 @@ public class ExecutableFunctionsTest {
         testDateGroupFunction(dateTimeLiterals, DateTimeLiteral.class, null);
         testDateGroupFunction(dateV2Literals, DateV2Literal.class, null);
         testDateGroupFunction(dateTimeV2Literals, DateTimeV2Literal.class, null);
+    }
+
+    @Test void testWeekOfYear() {
+        DateLiteral testDate = new DateLiteral(2020, 1, 1);
+        int[] answer = new int[] {0, 1, 52, 1, 1, 0, 1, 52};
+        for (int i = 0; i < 8; ++i) {
+            Assertions.assertEquals(DateTimeExtract.week(testDate).getValue(), answer[i]);
+        }
     }
 }
