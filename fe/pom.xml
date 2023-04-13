@@ -817,14 +817,6 @@ under the License.
                 <artifactId>iceberg-core</artifactId>
                 <version>${iceberg.version}</version>
             </dependency>
-
-            <!-- https://mvnrepository.com/artifact/org.apache.iceberg/iceberg-hive-metastore -->
-            <dependency>
-                <groupId>org.apache.iceberg</groupId>
-                <artifactId>iceberg-hive-metastore</artifactId>
-                <version>${iceberg.version}</version>
-            </dependency>
-
             <!-- For Iceberg, must be consistent with Iceberg version -->
             <dependency>
                 <groupId>org.apache.avro</groupId>
