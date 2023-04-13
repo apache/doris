@@ -55,7 +55,7 @@ public:
     virtual ~ScannerContext() = default;
     Status init();
 
-    vectorized::BlockUPtr get_free_block(bool* has_free_block);
+    vectorized::BlockUPtr get_free_block(bool* has_free_block, bool get_not_empty_block = false);
     void return_free_block(std::unique_ptr<vectorized::Block> block);
 
     // Append blocks from scanners to the blocks queue.
@@ -140,6 +140,8 @@ private:
     Status _close_and_clear_scanners(VScanNode* node, RuntimeState* state);
 
 protected:
+    virtual void _dispose_coloate_blocks_not_in_queue() {}
+
     RuntimeState* _state;
     VScanNode* _parent;
 
