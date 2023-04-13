@@ -713,7 +713,8 @@ Status JdbcConnector::exec_stmt_write(
             required_fields << "_col" << i;
             columns_types << type;
         } else {
-            required_fields << "," << "_col" << i;
+            required_fields << ","
+                            << "_col" << i;
             columns_types << "#" << type;
         }
     }
