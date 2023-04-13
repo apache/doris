@@ -187,11 +187,18 @@ struct StringInStrImpl {
     static Status vector_scalar(const ColumnString::Chars& ldata,
                                 const ColumnString::Offsets& loffsets, const StringRef& rdata,
                                 ResultPaddedPODArray& res) {
+        auto size = loffsets.size();
+        res.resize(size);
+        if (rdata.size == 0) {
+            for (int i = 0; i < size; ++i) {
+                res[i] = 1;
+            }
+            return Status::OK();
+        }
+        
         StringRef substr_sv(rdata.data, rdata.size);
         StringSearch search(&substr_sv);
 
-        auto size = loffsets.size();
-        res.resize(size);
         for (int i = 0; i < size; ++i) {
             const char* l_raw_str = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
             int l_str_size = loffsets[i] - loffsets[i - 1];
@@ -218,16 +225,21 @@ struct StringInStrImpl {
         auto size = loffsets.size();
         res.resize(size);
         for (int i = 0; i < size; ++i) {
+            const char* r_raw_str = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
+            int r_str_size = roffsets[i] - roffsets[i - 1];
+            if (r_str_size == 0) {
+                res[i] = 1;
+                continue;
+            }
+            StringRef rstr_ref(r_raw_str, r_str_size);
+
             const char* l_raw_str = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
             int l_str_size = loffsets[i] - loffsets[i - 1];
             StringRef lstr_ref(l_raw_str, l_str_size);
 
-            const char* r_raw_str = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
-            int r_str_size = roffsets[i] - roffsets[i - 1];
-            StringRef rstr_ref(r_raw_str, r_str_size);
-
+            StringSearch search(&rstr_ref);
             // Hive returns positions starting from 1.
-            int loc = search_str(0, lstr_ref, rstr_ref);
+            int loc = search.search(&lstr_ref);
             if (loc > 0) {
                 loc = get_char_len(lstr_ref, loc);
             }
@@ -235,19 +247,6 @@ struct StringInStrImpl {
         }
 
         return Status::OK();
-    }
-
-    static size_t search_str(size_t pos, const StringRef& lstr_ref, StringRef& rstr_ref) {
-        size_t str_size = lstr_ref.size;
-        while (pos < str_size &&
-               memcmp_small_allow_overflow15(lstr_ref.data + pos, rstr_ref.data, rstr_ref.size)) {
-            pos++;
-        }
-
-        if (pos == str_size) {
-            return -1;
-        }
-        return pos;
     }
 };
 
