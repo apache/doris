@@ -20,7 +20,7 @@ package org.apache.doris.statistics;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.Config;
 
-import org.apache.commons.lang.NotImplementedException;
+import org.apache.commons.lang3.NotImplementedException;
 
 public class HMSAnalysisTask extends BaseAnalysisTask {
 
@@ -35,7 +35,7 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
      * Collect the column level stats for external table through metadata.
      */
     protected void getColumnStatsByMeta() throws Exception {
-        throw new NotImplementedException();
+        throw new NotImplementedException("Code is not implemented");
     }
 
     /**
@@ -43,7 +43,7 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
      * @return ColumnStatistics
      */
     protected void getColumnStatsBySql() {
-        throw new NotImplementedException();
+        throw new NotImplementedException("getColumnStatsBySql is not implemented");
     }
 
     @Override
