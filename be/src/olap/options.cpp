@@ -200,12 +200,14 @@ Status parse_conf_cache_paths(const std::string& config_path, std::vector<CacheP
             }
         }
         if (total_size <= 0 || (config::enable_file_cache_query_limit && query_limit_bytes <= 0)) {
-            return Status::InvalidArgument("total_size or query_limit should not less than or equal to zero");
+            return Status::InvalidArgument(
+                    "total_size or query_limit should not less than or equal to zero");
         }
         paths.emplace_back(std::move(path), total_size, query_limit_bytes);
     }
     if (paths.empty()) {
-        return Status::InvalidArgument("fail to parse storage_root_path config. value={}", config_path);
+        return Status::InvalidArgument("fail to parse storage_root_path config. value={}",
+                                       config_path);
     }
     return Status::OK();
 }

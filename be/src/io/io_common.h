@@ -49,8 +49,8 @@ class IOContext {
 public:
     IOContext() = default;
 
-    IOContext(const TUniqueId* query_id, FileCacheStatistics* stats,
-              bool use_disposable_cache, bool read_segment_index)
+    IOContext(const TUniqueId* query_id, FileCacheStatistics* stats, bool use_disposable_cache,
+              bool read_segment_index)
             : query_id(query_id),
               is_disposable(use_disposable_cache),
               read_segment_index(read_segment_index),

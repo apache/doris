@@ -153,8 +153,7 @@ void IFileCache::QueryFileCacheContext::remove(const Key& key, size_t offset,
     lru_queue.remove(iter, cache_lock);
 }
 
-void IFileCache::QueryFileCacheContext::reserve(const Key& key, size_t offset,
-                                                size_t size,
+void IFileCache::QueryFileCacheContext::reserve(const Key& key, size_t offset, size_t size,
                                                 std::lock_guard<std::mutex>& cache_lock) {
     auto pair = std::make_pair(key, offset);
     if (records.find(pair) == records.end()) {

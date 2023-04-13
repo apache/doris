@@ -127,7 +127,7 @@ public:
      * it is guaranteed that these file segments are not removed from cache.
      */
     virtual FileBlocksHolder get_or_set(const Key& key, size_t offset, size_t size,
-                                          const CacheContext& context) = 0;
+                                        const CacheContext& context) = 0;
 
     /// For debug.
     virtual std::string dump_structure(const Key& key) = 0;
@@ -236,8 +236,7 @@ protected:
 
         QueryFileCacheContext(size_t max_cache_size) : max_cache_size(max_cache_size) {}
 
-        void remove(const Key& key, size_t offset,
-                    std::lock_guard<std::mutex>& cache_lock);
+        void remove(const Key& key, size_t offset, std::lock_guard<std::mutex>& cache_lock);
 
         void reserve(const Key& key, size_t offset, size_t size,
                      std::lock_guard<std::mutex>& cache_lock);

@@ -339,7 +339,7 @@ void LRUFileCache::fill_holes_with_empty_file_blocks(FileBlocks& file_blocks, co
 }
 
 FileBlocksHolder LRUFileCache::get_or_set(const Key& key, size_t offset, size_t size,
-                                            const CacheContext& context) {
+                                          const CacheContext& context) {
     FileBlock::Range range(offset, offset + size - 1);
 
     std::lock_guard cache_lock(_mutex);
@@ -787,7 +787,7 @@ Status LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& ca
                             std::error_code ec;
                             std::filesystem::remove(offset_it->path(), ec);
                             if (ec) {
-                                st =  Status::IOError(ec.message());
+                                st = Status::IOError(ec.message());
                                 break;
                             }
                             continue;
@@ -815,8 +815,7 @@ Status LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& ca
                 }
                 context.cache_type = cache_type;
                 if (try_reserve(key, context, offset, size, cache_lock)) {
-                    add_cell(key, context, offset, size, FileBlock::State::DOWNLOADED,
-                             cache_lock);
+                    add_cell(key, context, offset, size, FileBlock::State::DOWNLOADED, cache_lock);
                     queue_entries.emplace_back(key, offset);
                 } else {
                     std::error_code ec;
@@ -938,7 +937,7 @@ size_t LRUFileCache::get_file_segments_num(CacheType cache_type) const {
 }
 
 size_t LRUFileCache::get_file_segments_num_unlocked(CacheType cache_type,
-                                                  std::lock_guard<std::mutex>& cache_lock) const {
+                                                    std::lock_guard<std::mutex>& cache_lock) const {
     return get_queue(cache_type).get_elements_num(cache_lock);
 }
 

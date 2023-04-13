@@ -89,8 +89,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
     ReadStatistics stats;
     auto [align_left, align_size] = _align_size(offset, bytes_req);
     CacheContext cache_context(io_ctx);
-    FileBlocksHolder holder =
-            _cache->get_or_set(_cache_key, align_left, align_size, cache_context);
+    FileBlocksHolder holder = _cache->get_or_set(_cache_key, align_left, align_size, cache_context);
     std::vector<FileBlockSPtr> empty_segments;
     for (auto& segment : holder.file_segments) {
         switch (segment->state()) {

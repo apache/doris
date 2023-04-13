@@ -71,8 +71,8 @@ public:
         SKIP_CACHE,
     };
 
-    FileBlock(size_t offset, size_t size, const Key& key, IFileCache* cache,
-              State download_state, CacheType cache_type);
+    FileBlock(size_t offset, size_t size, const Key& key, IFileCache* cache, State download_state,
+              CacheType cache_type);
 
     ~FileBlock() = default;
 

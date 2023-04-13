@@ -30,6 +30,7 @@
 #include <utility>
 #include <vector>
 #include <thread>
+#include <unordered_map>
 
 #include "common/status.h"
 #include "io/cache/block/block_file_cache.h"
@@ -62,7 +63,8 @@ public:
     /**
      * get the files which range contain [offset, offset+size-1]
      */
-    FileBlocksHolder get_or_set(const Key& key, size_t offset, size_t size, const CacheContext& context) override;
+    FileBlocksHolder get_or_set(const Key& key, size_t offset, size_t size,
+                                const CacheContext& context) override;
 
     // init file cache
     Status initialize() override;
@@ -112,8 +114,7 @@ private:
         std::size_t operator()(const Key& k) const { return KeyHash()(k); }
     };
 
-    using CachedFiles =
-            std::unordered_map<Key, FileBlocksByOffset, HashCachedFileKey>;
+    using CachedFiles = std::unordered_map<Key, FileBlocksByOffset, HashCachedFileKey>;
 
     CachedFiles _files;
     size_t _cur_cache_size = 0;
@@ -124,15 +125,13 @@ private:
     LRUFileCache::LRUQueue& get_queue(CacheType type);
     const LRUFileCache::LRUQueue& get_queue(CacheType type) const;
 
-    FileBlocks get_impl(const Key& key, const CacheContext& context,
-                          const FileBlock::Range& range, std::lock_guard<std::mutex>& cache_lock);
+    FileBlocks get_impl(const Key& key, const CacheContext& context, const FileBlock::Range& range,
+                        std::lock_guard<std::mutex>& cache_lock);
 
-    FileBlockCell* get_cell(const Key& key, size_t offset,
-                              std::lock_guard<std::mutex>& cache_lock);
+    FileBlockCell* get_cell(const Key& key, size_t offset, std::lock_guard<std::mutex>& cache_lock);
 
-    FileBlockCell* add_cell(const Key& key, const CacheContext& context, size_t offset,
-                              size_t size, FileBlock::State state,
-                              std::lock_guard<std::mutex>& cache_lock);
+    FileBlockCell* add_cell(const Key& key, const CacheContext& context, size_t offset, size_t size,
+                            FileBlock::State state, std::lock_guard<std::mutex>& cache_lock);
 
     void use_cell(const FileBlockCell& cell, FileBlocks& result, bool not_need_move,
                   std::lock_guard<std::mutex>& cache_lock);
@@ -161,15 +160,15 @@ private:
     std::string read_file_cache_version() const;
 
     FileBlocks split_range_into_cells(const Key& key, const CacheContext& context, size_t offset,
-                                        size_t size, FileBlock::State state,
-                                        std::lock_guard<std::mutex>& cache_lock);
+                                      size_t size, FileBlock::State state,
+                                      std::lock_guard<std::mutex>& cache_lock);
 
     std::string dump_structure_unlocked(const Key& key, std::lock_guard<std::mutex>& cache_lock);
 
     void fill_holes_with_empty_file_blocks(FileBlocks& file_blocks, const Key& key,
-                                             const CacheContext& context,
-                                             const FileBlock::Range& range,
-                                             std::lock_guard<std::mutex>& cache_lock);
+                                           const CacheContext& context,
+                                           const FileBlock::Range& range,
+                                           std::lock_guard<std::mutex>& cache_lock);
 
     size_t get_used_cache_size_unlocked(CacheType type,
                                         std::lock_guard<std::mutex>& cache_lock) const;
@@ -179,7 +178,7 @@ private:
 
     size_t get_file_segments_num_unlocked(CacheType type,
                                           std::lock_guard<std::mutex>& cache_lock) const;
-    
+
     bool need_to_move(CacheType cell_type, CacheType query_type) const;
 
     void run_background_operation();
