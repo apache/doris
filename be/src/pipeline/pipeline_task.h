@@ -188,11 +188,11 @@ public:
 
     // 1.2 priority queue's queue level
     void update_queue_level(int queue_level) { this->_queue_level = queue_level; }
-    int get_queue_level() { return this->_queue_level; }
+    int get_queue_level() const { return this->_queue_level; }
 
     // 1.3 priority queue's core id
     void set_core_id(int core_id) { this->_core_id = core_id; }
-    int get_core_id() { return this->_core_id; }
+    int get_core_id() const { return this->_core_id; }
 
 private:
     Status _open();
