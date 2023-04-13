@@ -167,6 +167,12 @@ Default：100
 
 the max txn number which bdbje can rollback when trying to rejoin the group
 
+### grpc_threadmgr_threads_nums
+
+Default: 4096
+
+Num of thread to handle grpc events in grpc_threadmgr.
+
 #### `bdbje_replica_ack_timeout_second`
 
 Default：10  (s)
