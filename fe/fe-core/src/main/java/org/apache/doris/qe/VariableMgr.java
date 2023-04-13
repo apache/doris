@@ -237,17 +237,11 @@ public class VariableMgr {
         }
     }
 
-    public static void setVar(SessionVariable sessionVariable, SetVar setVar)
-            throws DdlException {
-        setVar(sessionVariable, setVar, false);
-    }
-
     // Entry of handling SetVarStmt
     // Input:
     //      sessionVariable: the variable of current session
     //      setVar: variable information that needs to be set
-    //      onlySetSessionVar: true means set SessionVar in follower node after forward
-    public static void setVar(SessionVariable sessionVariable, SetVar setVar, boolean onlySetSessionVar)
+    public static void setVar(SessionVariable sessionVariable, SetVar setVar)
             throws DdlException {
         VarContext ctx = ctxByVarName.get(setVar.getVariable());
         if (ctx == null) {
@@ -269,7 +263,7 @@ public class VariableMgr {
             }
         }
 
-        if (onlySetSessionVar == false && setVar.getType() == SetType.GLOBAL) {
+        if (setVar.getType() == SetType.GLOBAL) {
             setGlobalVarAndWriteEditLog(ctx, attr.name(), value);
         }
 
