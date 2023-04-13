@@ -1156,7 +1156,7 @@ public class JdbcExecutor {
         UdfUtils.copyMemory(bytes, UdfUtils.BYTE_ARRAY_OFFSET, null, bytesAddr, offsets[numRows - 1]);
     }
 
-    private void byteaPutToString(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+    private void byteaPutToHexString(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
             long offsetsAddr, long charsAddr) {
         int[] offsets = new int[numRows];
         byte[][] byteRes = new byte[numRows][];
@@ -1213,7 +1213,7 @@ public class JdbcExecutor {
             stringPutToString(column, isNullable, numRows, nullMapAddr, offsetsAddr, charsAddr);
         } else if (column[firstNotNullIndex] instanceof byte[]) {
             // for postgresql bytea type
-            byteaPutToString(column, isNullable, numRows, nullMapAddr, offsetsAddr, charsAddr);
+            byteaPutToHexString(column, isNullable, numRows, nullMapAddr, offsetsAddr, charsAddr);
         } else {
             // object like in pg type point, polygon, jsonb..... get object is
             // org.postgresql.util.PGobject.....
