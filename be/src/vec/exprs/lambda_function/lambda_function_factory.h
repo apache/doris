@@ -63,7 +63,6 @@ public:
         std::call_once(oc, []() {
             register_function_array_map(instance);
             register_function_array_filter(instance);
-            register_function_array_clone_expr(instance);
         });
         return instance;
     }
