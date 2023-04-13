@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions.functions;
+package org.apache.doris.nereids.trees.expressions.functions.executable;
 
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -29,56 +29,15 @@ import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
-import java.time.LocalDateTime;
 import java.util.Random;
 import java.util.UUID;
 
 /**
  * functions that can be executed in FE.
- * current we support: (IF YOU ADD A NEW FUNCTION, PLEASE ADD IT HERE)
- * add
- * subtract
- * multiply
- * divide
- * date_add
- * date_sub
- * years_add
- * months_add
- * days_add
- * hours_add
- * minutes_add
- * seconds_add
- * years_sub
- * months_sub
- * days_sub
- * hours_sub
- * minutes_sub
- * seconds_sub
- * date
- * datediff
- * date_format
- * date_trunc
- * dateofweek
- * datev2
- * time_round series.
  */
 public class ExecutableFunctions {
     public static final ExecutableFunctions INSTANCE = new ExecutableFunctions();
     private static final Random RANDOM = new Random();
-    private static final LocalDateTime START_ORIGINAL_DAY = LocalDateTime.of(1970, 1, 1, 0, 0, 0);
-    private static final LocalDateTime START_ORIGINAL_WEEK = LocalDateTime.of(1970, 1, 4, 0, 0, 0);
-
-    enum DATE {
-        YEAR,
-        MONTH,
-        DAY,
-        HOUR,
-        MINUTE,
-        SECOND
-    }
-
-
-
 
     /**
      * other scalar function
