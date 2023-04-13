@@ -843,8 +843,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 }
 
 template <typename Param>
-void FragmentMgr::_set_scan_concurrency(const Param& params,
-                                        QueryFragmentsCtx* fragments_ctx) {
+void FragmentMgr::_set_scan_concurrency(const Param& params, QueryFragmentsCtx* fragments_ctx) {
 #ifndef BE_TEST
     // If the token is set, the scan task will use limited_scan_pool in scanner scheduler.
     // Otherwise, the scan task will use local/remote scan pool in scanner scheduler
