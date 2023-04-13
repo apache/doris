@@ -127,4 +127,8 @@ public class AnalysisTaskInfo {
     public AnalysisState getState() {
         return state;
     }
+
+    public boolean isJob() {
+        return taskId == -1;
+    }
 }

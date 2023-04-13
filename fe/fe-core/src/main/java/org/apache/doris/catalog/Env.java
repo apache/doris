@@ -5350,7 +5350,7 @@ public class Env {
     //  1. handle partition level analysis statement properly
     //  2. support sample job
     //  3. support period job
-    public void createAnalysisJob(AnalyzeStmt analyzeStmt) {
+    public void createAnalysisJob(AnalyzeStmt analyzeStmt) throws DdlException {
         analysisManager.createAnalysisJob(analyzeStmt);
     }
 
