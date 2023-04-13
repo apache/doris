@@ -25,6 +25,7 @@
 #include "geo/geo_common.h"
 #include "geo/machine.h"
 #include "geo/wkt_parse_type.h"
+#include "iomanip"
 #include "geo_tobinary_type.h"
 #include "geo_types.h"
 
@@ -36,7 +37,15 @@ bool toBinary::geo_tobinary(GeoShape* shape, bool isEwkb, std::string* result) {
     ctx.outStream = &result_stream;
     ctx.isEwkb = isEwkb;
     if (toBinary::write(shape, &ctx)) {
-        *result = result_stream.str();
+        std::stringstream hex_stream;
+        hex_stream << std::hex << std::setfill('0');
+        result_stream.seekg(0);
+        unsigned char c;
+        while (result_stream >> c) {
+            hex_stream << std::setw(2) << static_cast<int>(c);
+        }
+        //for compatibility with postgres
+        *result = "\\x" + hex_stream.str();
         return true;
     }
     return false;

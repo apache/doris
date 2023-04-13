@@ -201,6 +201,9 @@ GeoShape* GeoShape::from_wkb(const char* data, size_t size, GeoParseStatus* stat
     std::stringstream wkb;
 
     for (int i = 0; i < size; ++i) {
+        if((i==1 && wkb.str() == "x") || (i==2 && wkb.str() == "\\x")){
+            wkb.str(std::string());
+        }
         wkb << *data;
         data++;
     }
