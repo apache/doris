@@ -706,13 +706,14 @@ Status JdbcConnector::exec_stmt_write(
     std::ostringstream required_fields;
     std::ostringstream columns_types;
     for (int i = 0; i < block->columns(); ++i) {
-        std::string field = block->get_by_position(i).name;
+        // column name maybe empty or has special characters
+        // std::string field = block->get_by_position(i).name;
         std::string type = JniConnector::get_hive_type(output_vexpr_ctxs[i]->root()->type());
         if (i == 0) {
-            required_fields << field;
+            required_fields << "_col" << i;
             columns_types << type;
         } else {
-            required_fields << "," << field;
+            required_fields << "," << "_col" << i;
             columns_types << "#" << type;
         }
     }
@@ -720,7 +721,7 @@ Status JdbcConnector::exec_stmt_write(
     // prepare table meta information
     std::unique_ptr<long[]> meta_data;
     RETURN_IF_ERROR(JniConnector::generate_meta_info(block, meta_data));
-    long meta_address = (long) meta_data.get();
+    long meta_address = (long)meta_data.get();
 
     // prepare constructor parameters
     std::map<String, String> write_params = {{"meta_address", std::to_string(meta_address)},

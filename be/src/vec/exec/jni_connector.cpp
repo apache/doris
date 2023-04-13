@@ -344,7 +344,7 @@ Status JniConnector::generate_meta_info(Block* block, std::unique_ptr<long[]>& m
         MutableColumnPtr data_column;
         if (column_ptr->is_nullable()) {
             auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-                    (*std::move(column_ptr)).mutate().get());
+                    column_ptr->assume_mutable().get());
             data_column = nullable_column->get_nested_column_ptr();
             NullMap& null_map = nullable_column->get_null_map_data();
             meta_data.emplace_back((long)null_map.data());

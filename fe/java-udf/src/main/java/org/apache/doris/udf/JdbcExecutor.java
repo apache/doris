@@ -137,6 +137,7 @@ public class JdbcExecutor {
             columnTypes[i] = ColumnType.parseType(requiredFields[i], types[i]);
         }
         VectorTable batchTable = new VectorTable(columnTypes, requiredFields, metaAddress);
+        // todo: insert the batch table by PreparedStatement
         // Can't release or close batchTable, it's released by c++
         return batchTable.getNumRows();
     }
