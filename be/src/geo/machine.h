@@ -15,39 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
-
-#include <ostream>
-#include <string>
-
 namespace doris {
-
-enum GeoShapeType {
-    GEO_SHAPE_ANY = 0,
-    GEO_SHAPE_POINT = 1,
-    GEO_SHAPE_LINE_STRING = 2,
-    GEO_SHAPE_POLYGON = 3,
-    GEO_SHAPE_MULTI_POINT = 4,
-    GEO_SHAPE_MULTI_LINE_STRING = 5,
-    GEO_SHAPE_MULTI_POLYGON = 6,
-    GEO_SHAPE_CIRCLE = 7,
-};
-
-enum GeoParseStatus {
-    GEO_PARSE_OK = 0,
-    GEO_PARSE_COORD_INVALID = 1,
-    GEO_PARSE_LOOP_NOT_CLOSED = 2,
-    GEO_PARSE_LOOP_LACK_VERTICES = 3,
-    GEO_PARSE_LOOP_INVALID = 4,
-    GEO_PARSE_POLYGON_NOT_HOLE = 5,
-    GEO_PARSE_POLYLINE_LACK_VERTICES = 6,
-    GEO_PARSE_POLYLINE_INVALID = 7,
-    GEO_PARSE_CIRCLE_INVALID = 8,
-    GEO_PARSE_WKT_SYNTAX_ERROR = 9,
-    GEO_PARSE_WKB_SYNTAX_ERROR = 10,
-};
-
-std::string to_string(GeoParseStatus status);
-std::ostream& operator<<(std::ostream& os, GeoParseStatus status);
-
+/**
+ * Check endianness of current machine.
+ * @return 0 for big_endian | xdr; 1 == little_endian | ndr
+ */
+inline int getMachineByteOrder() {
+    static int endian_check = 1; // don't modify !!
+    return *((char*)&endian_check);
+}
 } // namespace doris

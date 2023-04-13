@@ -17,37 +17,25 @@
 
 #pragma once
 
-#include <ostream>
-#include <string>
+#include "ByteOrderDataInStream.h"
+#include "array"
 
 namespace doris {
+class GeoShape;
+}
 
-enum GeoShapeType {
-    GEO_SHAPE_ANY = 0,
-    GEO_SHAPE_POINT = 1,
-    GEO_SHAPE_LINE_STRING = 2,
-    GEO_SHAPE_POLYGON = 3,
-    GEO_SHAPE_MULTI_POINT = 4,
-    GEO_SHAPE_MULTI_LINE_STRING = 5,
-    GEO_SHAPE_MULTI_POLYGON = 6,
-    GEO_SHAPE_CIRCLE = 7,
+struct WkbParseContext {
+    unsigned int inputDimension = 2;
+
+    doris::ByteOrderDataInStream dis;
+
+    std::array<double, 2> ordValues;
+
+    //Ewkb format：true ｜ false
+    bool isEwkb;
+
+    int srid;
+
+    doris::GeoShape* shape = nullptr;
+    doris::GeoParseStatus parse_status = doris::GEO_PARSE_OK;
 };
-
-enum GeoParseStatus {
-    GEO_PARSE_OK = 0,
-    GEO_PARSE_COORD_INVALID = 1,
-    GEO_PARSE_LOOP_NOT_CLOSED = 2,
-    GEO_PARSE_LOOP_LACK_VERTICES = 3,
-    GEO_PARSE_LOOP_INVALID = 4,
-    GEO_PARSE_POLYGON_NOT_HOLE = 5,
-    GEO_PARSE_POLYLINE_LACK_VERTICES = 6,
-    GEO_PARSE_POLYLINE_INVALID = 7,
-    GEO_PARSE_CIRCLE_INVALID = 8,
-    GEO_PARSE_WKT_SYNTAX_ERROR = 9,
-    GEO_PARSE_WKB_SYNTAX_ERROR = 10,
-};
-
-std::string to_string(GeoParseStatus status);
-std::ostream& operator<<(std::ostream& os, GeoParseStatus status);
-
-} // namespace doris
