@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 
 import net.sf.cglib.core.Local;
 
+import java.time.DayOfWeek;
 import java.time.LocalDateTime;
 import java.time.temporal.WeekFields;
 
@@ -245,26 +246,23 @@ public class DateTimeExtract {
             return null;
         }
         WeekFields fields;
-        switch (mode) {
-            case 0:
-                fields = WeekFields.of()
-                break;
-            case 1:
-                break;
-            case 2:
-                break;
-            case 3:
-                break;
-            case 4:
-                break;
-            case 5:
-                break;
-            case 6:
-                break;
-            case 7:
-                break;
-            default:
-                break;
+        if (mode == 0) {
+            fields = WeekFields.of(DayOfWeek.SUNDAY, 7);
+        } else if (mode == 1) {
+            fields = WeekFields.of(DayOfWeek.MONDAY, 4);
+        } else if (mode == 2) {
+            fields = WeekFields.of(DayOfWeek.SUNDAY, 0);
+        } else if (mode == 3) {
+            fields = WeekFields.of(DayOfWeek.MONDAY, 4);
+        } else if (mode == 4) {
+            fields = WeekFields.of(DayOfWeek.SUNDAY, 4);
+        } else if (mode == 5) {
+            fields = WeekFields.of(DayOfWeek.MONDAY, 0);
+        } else if (mode == 6) {
+            fields = WeekFields.of(DayOfWeek.SUNDAY, 4);
+        } else {
+            fields = WeekFields.of(DayOfWeek.MONDAY, 7);
         }
+        return new IntegerLiteral(((int) fields.weekOfYear().getFrom(date)));
     }
 }
