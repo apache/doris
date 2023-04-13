@@ -156,7 +156,7 @@ public:
             key_str = function_alias[name];
         }
 
-        bool replace_occured = temporary_function_update(be_version, key_str);
+        temporary_function_update(be_version, key_str);
 
         // if function is variadic, added types_str as key
         if (function_variadic_set.count(key_str)) {
@@ -175,7 +175,7 @@ public:
             return nullptr;
         }
 
-        return iter->second()->build(arguments, return_type, replace_occured);
+        return iter->second()->build(arguments, return_type);
     }
 
 private:
@@ -191,14 +191,12 @@ private:
     }
 
     /// @TEMPORARY: for be_exec_version=2
-    bool temporary_function_update(int fe_version_now, std::string& name) {
+    void temporary_function_update(int fe_version_now, std::string& name) {
         // replace if fe is old version.
         if (fe_version_now < DATETIME_FUNCTION_NEW &&
             function_to_replace.find(name) != function_to_replace.end()) {
             name = function_to_replace[name];
-            return true;
         }
-        return false;
     }
 
 public:

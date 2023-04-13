@@ -284,8 +284,7 @@ public:
     /// Check arguments and return IFunctionBase.
     /// @TEMPORARY: last bool for be_exec_version=2
     virtual FunctionBasePtr build(const ColumnsWithTypeAndName& arguments,
-                                  const DataTypePtr& return_type,
-                                  const bool skip_type_check = false) const = 0;
+                                  const DataTypePtr& return_type) const = 0;
 
     /// For higher-order functions (functions, that have lambda expression as at least one argument).
     /// You pass data types with empty DataTypeFunction for lambda arguments.
@@ -306,12 +305,11 @@ using FunctionBuilderPtr = std::shared_ptr<IFunctionBuilder>;
 /// will use DefaultFunctionBuilder as the default builder in function's registration if we didn't explicitly specify.
 class FunctionBuilderImpl : public IFunctionBuilder {
 public:
-    FunctionBasePtr build(const ColumnsWithTypeAndName& arguments, const DataTypePtr& return_type,
-                          const bool skip_type_check = false) const final {
+    FunctionBasePtr build(const ColumnsWithTypeAndName& arguments,
+                          const DataTypePtr& return_type) const final {
         const DataTypePtr& func_return_type = get_return_type(arguments);
         // check return types equal.
-        DCHECK(skip_type_check /*iff we did function replacement in exec_version 2*/ ||
-               return_type->equals(*func_return_type) ||
+        DCHECK(return_type->equals(*func_return_type) ||
                // For null constant argument, `get_return_type` would return
                // Nullable<DataTypeNothing> when `use_default_implementation_for_nulls` is true.
                (return_type->is_nullable() && func_return_type->is_nullable() &&
