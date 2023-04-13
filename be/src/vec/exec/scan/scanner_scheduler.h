@@ -18,11 +18,14 @@
 #pragma once
 
 #include "common/status.h"
+#include "runtime/exec_env.h"
 #include "util/blocking_queue.hpp"
 #include "util/threadpool.h"
 #include "vec/exec/scan/scanner_context.h"
 
 namespace doris::vectorized {
+
+class ScannerContext;
 
 // Responsible for the scheduling and execution of all Scanners of a BE node.
 // ScannerScheduler has two types of thread pools:

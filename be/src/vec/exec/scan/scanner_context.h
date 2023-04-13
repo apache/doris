@@ -24,6 +24,7 @@
 #include "common/status.h"
 #include "runtime/descriptors.h"
 #include "util/lock.h"
+#include "util/runtime_profile.h"
 #include "util/uid_util.h"
 #include "vec/core/block.h"
 
@@ -37,6 +38,7 @@ namespace vectorized {
 
 class VScanner;
 class VScanNode;
+class ScannerScheduler;
 
 // ScannerContext is responsible for recording the execution status
 // of a group of Scanners corresponding to a ScanNode.

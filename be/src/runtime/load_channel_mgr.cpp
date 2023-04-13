@@ -27,6 +27,8 @@
 #include "runtime/load_channel.h"
 #include "runtime/memory/mem_tracker.h"
 #include "util/doris_metrics.h"
+#include "util/mem_info.h"
+#include "util/perf_counters.h"
 #include "util/stopwatch.hpp"
 #include "util/time.h"
 
