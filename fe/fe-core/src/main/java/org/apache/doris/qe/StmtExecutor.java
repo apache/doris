@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ArrayLiteral;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
@@ -30,6 +31,7 @@ import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.ExportStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FloatLiteral;
+import org.apache.doris.analysis.InsertOverwriteTableSelect;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
 import org.apache.doris.analysis.LiteralExpr;
@@ -181,9 +183,13 @@ public class StmtExecutor implements ProfileWriter {
     private static final AtomicLong STMT_ID_GENERATOR = new AtomicLong(0);
     private static final int MAX_DATA_TO_SEND_FOR_TXN = 100;
     private static final String NULL_VALUE_FOR_LOAD = "\\N";
+    // The result schema if "dry_run_query" is true.
+    // Only one column to indicate the real return row numbers.
+    private static final CommonResultSetMetaData DRY_RUN_QUERY_METADATA = new CommonResultSetMetaData(
+            Lists.newArrayList(new Column("ReturnedRows", PrimitiveType.STRING)));
     private final Object writeProfileLock = new Object();
-    private ConnectContext context;
     private final StatementContext statementContext;
+    private ConnectContext context;
     private MysqlSerializer serializer;
     private OriginStatement originStmt;
     private StatementBase parsedStmt;
@@ -207,11 +213,6 @@ public class StmtExecutor implements ProfileWriter {
     private String mysqlLoadId;
     // Distinguish from prepare and execute command
     private boolean isExecuteStmt = false;
-
-    // The result schema if "dry_run_query" is true.
-    // Only one column to indicate the real return row numbers.
-    private static final CommonResultSetMetaData DRY_RUN_QUERY_METADATA = new CommonResultSetMetaData(
-            Lists.newArrayList(new Column("ReturnedRows", PrimitiveType.STRING)));
 
     // this constructor is mainly for proxy
     public StmtExecutor(ConnectContext context, OriginStatement originStmt, boolean isProxy) {
@@ -676,6 +677,8 @@ public class StmtExecutor implements ProfileWriter {
                 handleTransactionStmt();
             } else if (parsedStmt instanceof CreateTableAsSelectStmt) {
                 handleCtasStmt();
+            } else if (parsedStmt instanceof InsertOverwriteTableSelect) {
+                handleIotsStmt();
             } else if (parsedStmt instanceof InsertStmt) { // Must ahead of DdlStmt because InsertStmt is its subclass
                 try {
                     handleInsertStmt();
@@ -2121,6 +2124,61 @@ public class StmtExecutor implements ProfileWriter {
             }
         }
     }
+
+    private void handleIotsStmt() {
+        InsertOverwriteTableSelect iotsStmt = (InsertOverwriteTableSelect) this.parsedStmt;
+        try {
+            // create table
+            DdlExecutor.execute(context.getEnv(), iotsStmt.getCreateTableLikeStmt());
+            context.getState().setOk();
+        } catch (Exception e) {
+            // Maybe our bug
+            LOG.warn("IOTS create table error, stmt={}", originStmt.originStmt, e);
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+        }
+        // after success create table insert data
+        if (MysqlStateType.OK.equals(context.getState().getStateType())) {
+            try {
+                parsedStmt = iotsStmt.getInsertStmt();
+                parsedStmt.setUserInfo(context.getCurrentUserIdentity());
+                execute();
+                if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
+                    LOG.warn("IOTS insert data error, stmt={}", iotsStmt.toSql());
+                    handleIotsRollback(iotsStmt.getCreateTableLikeStmt().getDbTbl());
+                }
+            } catch (Exception e) {
+                LOG.warn("IOTS insert data error, stmt={}", iotsStmt.toSql(), e);
+                handleIotsRollback(iotsStmt.getCreateTableLikeStmt().getDbTbl());
+            }
+        }
+
+        // overwrite old table with new table
+        try {
+            AlterTableStmt alterTableStmt = iotsStmt.getAlterTableStmt();
+            DdlExecutor.execute(context.getEnv(), alterTableStmt);
+            context.getState().setOk();
+        } catch (Exception e) {
+            // Maybe our bug
+            LOG.warn("IOTS swap table error, stmt={}", originStmt.originStmt, e);
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+            handleIotsRollback(iotsStmt.getCreateTableLikeStmt().getDbTbl());
+        }
+
+    }
+
+    private void handleIotsRollback(TableName table) {
+        if (context.getSessionVariable().isDropTableIfIotsFailed()) {
+            // insert error drop table
+            DropTableStmt dropTableStmt = new DropTableStmt(true, table, true);
+            try {
+                DdlExecutor.execute(context.getEnv(), dropTableStmt);
+            } catch (Exception ex) {
+                LOG.warn("IOTS drop table error, stmt={}", parsedStmt.toSql(), ex);
+                context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + ex.getMessage());
+            }
+        }
+    }
+
 
     public Data.PQueryStatistics getQueryStatisticsForAuditLog() {
         if (statisticsForAuditLog == null) {

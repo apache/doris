@@ -28,6 +28,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
 import org.apache.doris.analysis.SetOperationStmt.Qualifier;
@@ -405,6 +406,7 @@ terminal String
     KW_INFILE,
     KW_INNER,
     KW_INSERT,
+    KW_OVERWRITE,
     KW_INSTALL,
     KW_INT,
     KW_INTERMEDIATE,
@@ -1819,6 +1821,11 @@ create_stmt ::=
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name KW_LIKE table_name:existed_name
     {:
         RESULT = new CreateTableLikeStmt(ifNotExists, name, existed_name, null, false);
+    :}
+    | KW_INSERT KW_OVERWRITE KW_TABLE table_name:existed_name query_stmt:insert_data
+    {:
+        UUID uuid = UUID.randomUUID();
+        RESULT = new InsertOverwriteTableSelect(new CreateTableLikeStmt(false, new TableName(null,null,"tmp_"+uuid), existed_name, null, false),insert_data);
     :}
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name
             LPAREN column_definition_list:columns RPAREN opt_engine:engineName

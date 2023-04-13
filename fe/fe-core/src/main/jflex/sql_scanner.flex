@@ -264,6 +264,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("inner", new Integer(SqlParserSymbols.KW_INNER));
         keywordMap.put("inner", new Integer(SqlParserSymbols.KW_INNER));
         keywordMap.put("insert", new Integer(SqlParserSymbols.KW_INSERT));
+        keywordMap.put("overwrite", new Integer(SqlParserSymbols.KW_OVERWRITE));
         keywordMap.put("install", new Integer(SqlParserSymbols.KW_INSTALL));
         keywordMap.put("int", new Integer(SqlParserSymbols.KW_INT));
         keywordMap.put("integer", new Integer(SqlParserSymbols.KW_INT));

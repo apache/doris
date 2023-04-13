@@ -224,81 +224,47 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_RUNTIME_FILTER_PRUNE =
             "enable_runtime_filter_prune";
-
-    static final String SESSION_CONTEXT = "session_context";
-
     public static final String DEFAULT_ORDER_BY_LIMIT = "default_order_by_limit";
-
     public static final String ENABLE_SINGLE_REPLICA_INSERT = "enable_single_replica_insert";
-
     public static final String ENABLE_FUNCTION_PUSHDOWN = "enable_function_pushdown";
-
     public static final String ENABLE_COMMON_EXPR_PUSHDOWN = "enable_common_expr_pushdown";
-
     public static final String FRAGMENT_TRANSMISSION_COMPRESSION_CODEC = "fragment_transmission_compression_codec";
-
     public static final String ENABLE_LOCAL_EXCHANGE = "enable_local_exchange";
-
     public static final String SKIP_STORAGE_ENGINE_MERGE = "skip_storage_engine_merge";
-
     public static final String SKIP_DELETE_PREDICATE = "skip_delete_predicate";
-
     public static final String SKIP_DELETE_SIGN = "skip_delete_sign";
-
     public static final String SKIP_DELETE_BITMAP = "skip_delete_bitmap";
-
     public static final String ENABLE_NEW_SHUFFLE_HASH_METHOD = "enable_new_shuffle_hash_method";
-
     public static final String ENABLE_PUSH_DOWN_NO_GROUP_AGG = "enable_push_down_no_group_agg";
-
     public static final String ENABLE_CBO_STATISTICS = "enable_cbo_statistics";
-
     public static final String ENABLE_ELIMINATE_SORT_NODE = "enable_eliminate_sort_node";
-
     public static final String NEREIDS_TRACE_EVENT_MODE = "nereids_trace_event_mode";
-
     public static final String INTERNAL_SESSION = "internal_session";
-
     public static final String PARTITIONED_HASH_JOIN_ROWS_THRESHOLD = "partitioned_hash_join_rows_threshold";
     public static final String PARTITIONED_HASH_AGG_ROWS_THRESHOLD = "partitioned_hash_agg_rows_threshold";
-
     public static final String PARTITION_PRUNING_EXPAND_THRESHOLD = "partition_pruning_expand_threshold";
-
     public static final String ENABLE_SHARE_HASH_TABLE_FOR_BROADCAST_JOIN
             = "enable_share_hash_table_for_broadcast_join";
-
     // support unicode in label, table, column, common name check
     public static final String ENABLE_UNICODE_NAME_SUPPORT = "enable_unicode_name_support";
-
     public static final String REPEAT_MAX_NUM = "repeat_max_num";
-
     public static final String GROUP_CONCAT_MAX_LEN = "group_concat_max_len";
-
     public static final String EXTERNAL_SORT_BYTES_THRESHOLD = "external_sort_bytes_threshold";
-
     public static final String ENABLE_TWO_PHASE_READ_OPT = "enable_two_phase_read_opt";
     public static final String TOPN_OPT_LIMIT_THRESHOLD = "topn_opt_limit_threshold";
-
     public static final String ENABLE_FILE_CACHE = "enable_file_cache";
-
     public static final String GROUP_BY_AND_HAVING_USE_ALIAS_FIRST = "group_by_and_having_use_alias_first";
     public static final String DROP_TABLE_IF_CTAS_FAILED = "drop_table_if_ctas_failed";
-
+    public static final String DROP_TABLE_IF_IOTS_FAILED = "drop_table_if_iots_failed";
     public static final String MAX_TABLE_COUNT_USE_CASCADES_JOIN_REORDER = "max_table_count_use_cascades_join_reorder";
     public static final int MIN_JOIN_REORDER_TABLE_COUNT = 2;
-
     public static final String SHOW_USER_DEFAULT_ROLE = "show_user_default_role";
-
     public static final String DUMP_NEREIDS_MEMO = "dump_nereids_memo";
-
     // fix replica to query. If num = 1, query the smallest replica, if 2 is the second smallest replica.
     public static final String USE_FIX_REPLICA = "use_fix_replica";
-
     public static final String DRY_RUN_QUERY = "dry_run_query";
-
     // Split size for ExternalFileScanNode. Default value 0 means use the block size of HDFS/S3.
     public static final String FILE_SPLIT_SIZE = "file_split_size";
-
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -306,77 +272,61 @@ public class SessionVariable implements Serializable, Writable {
             SKIP_STORAGE_ENGINE_MERGE,
             SHOW_HIDDEN_COLUMNS
     );
-
+    // If the memory consumption of sort node exceed this limit, will trigger spill to disk;
+    // Set to 0 to disable; min: 128M
+    public static final long MIN_EXTERNAL_SORT_BYTES_THRESHOLD = 134217728;
+    static final String SESSION_CONTEXT = "session_context";
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
     // if it is setStmt, we needn't collect session origin value
     public boolean isSingleSetVar = false;
-
-
-
     @VariableMgr.VarAttr(name = INSERT_VISIBLE_TIMEOUT_MS, needForward = true)
     public long insertVisibleTimeoutMs = DEFAULT_INSERT_VISIBLE_TIMEOUT_MS;
-
     // max memory used on every backend.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
     public long maxExecMemByte = 2147483648L;
-
     @VariableMgr.VarAttr(name = ENABLE_SPILLING)
     public boolean enableSpilling = false;
-
     @VariableMgr.VarAttr(name = ENABLE_EXCHANGE_NODE_PARALLEL_MERGE)
     public boolean enableExchangeNodeParallelMerge = false;
-
     // By default, the number of Limit items after OrderBy is changed from 65535 items
     // before v1.2.0 (not included), to return all items by default
     @VariableMgr.VarAttr(name = DEFAULT_ORDER_BY_LIMIT)
     public long defaultOrderByLimit = -1;
-
     // query timeout in second.
     @VariableMgr.VarAttr(name = QUERY_TIMEOUT)
     public int queryTimeoutS = 300;
-
     @VariableMgr.VarAttr(name = INSERT_TIMEOUT)
     public int insertTimeoutS = 14400;
-
     // if true, need report to coordinator when plan fragment execute successfully.
     @VariableMgr.VarAttr(name = ENABLE_PROFILE, needForward = true)
     public boolean enableProfile = false;
-
     // using hashset instead of group by + count can improve performance
     //        but may cause rpc failed when cluster has less BE
     // Whether this switch is turned on depends on the BE number
     @VariableMgr.VarAttr(name = ENABLE_SINGLE_DISTINCT_COLUMN_OPT)
     public boolean enableSingleDistinctColumnOpt = false;
-
     // Set sqlMode to empty string
     @VariableMgr.VarAttr(name = SQL_MODE, needForward = true)
     public long sqlMode = SqlModeHelper.MODE_DEFAULT;
-
     @VariableMgr.VarAttr(name = RESOURCE_VARIABLE)
     public String resourceGroup = "normal";
-
     // this is used to make mysql client happy
     @VariableMgr.VarAttr(name = AUTO_COMMIT)
     public boolean autoCommit = true;
-
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = TX_ISOLATION)
     public String txIsolation = "REPEATABLE-READ";
-
     // this is used to make mysql client happy
     @VariableMgr.VarAttr(name = TX_READ_ONLY)
     public boolean txReadonly = false;
-
     // this is used to make mysql client happy
     @VariableMgr.VarAttr(name = TRANSACTION_READ_ONLY)
     public boolean transactionReadonly = false;
-
     // this is used to make mysql client happy
     @VariableMgr.VarAttr(name = TRANSACTION_ISOLATION)
     public String transactionIsolation = "REPEATABLE-READ";
-
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = CHARACTER_SET_CLIENT)
     public String charsetClient = "utf8";
@@ -390,109 +340,79 @@ public class SessionVariable implements Serializable, Writable {
     public String collationConnection = "utf8_general_ci";
     @VariableMgr.VarAttr(name = COLLATION_DATABASE)
     public String collationDatabase = "utf8_general_ci";
-
     @VariableMgr.VarAttr(name = COLLATION_SERVER)
     public String collationServer = "utf8_general_ci";
-
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = SQL_AUTO_IS_NULL)
     public boolean sqlAutoIsNull = false;
-
     @VariableMgr.VarAttr(name = SQL_SELECT_LIMIT)
     public long sqlSelectLimit = 9223372036854775807L;
-
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = MAX_ALLOWED_PACKET)
     public int maxAllowedPacket = 1048576;
-
     @VariableMgr.VarAttr(name = AUTO_INCREMENT_INCREMENT)
     public int autoIncrementIncrement = 1;
-
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = QUERY_CACHE_TYPE)
     public int queryCacheType = 0;
-
     // The number of seconds the server waits for activity on an interactive connection before closing it
     @VariableMgr.VarAttr(name = INTERACTIVE_TIMTOUT)
     public int interactiveTimeout = 3600;
-
     // The number of seconds the server waits for activity on a noninteractive connection before closing it.
     @VariableMgr.VarAttr(name = WAIT_TIMEOUT)
     public int waitTimeoutS = 28800;
-
     // The number of seconds to wait for a block to be written to a connection before aborting the write
     @VariableMgr.VarAttr(name = NET_WRITE_TIMEOUT)
     public int netWriteTimeout = 60;
-
     // The number of seconds to wait for a block to be written to a connection before aborting the write
     @VariableMgr.VarAttr(name = NET_READ_TIMEOUT)
     public int netReadTimeout = 60;
-
     // The current time zone
     @VariableMgr.VarAttr(name = TIME_ZONE, needForward = true)
     public String timeZone = TimeUtils.getSystemTimeZone().getID();
-
     @VariableMgr.VarAttr(name = PARALLEL_EXCHANGE_INSTANCE_NUM)
     public int exchangeInstanceParallel = -1;
-
     @VariableMgr.VarAttr(name = SQL_SAFE_UPDATES)
     public int sqlSafeUpdates = 0;
-
     // only
     @VariableMgr.VarAttr(name = NET_BUFFER_LENGTH, flag = VariableMgr.READ_ONLY)
     public int netBufferLength = 16384;
-
     // if true, need report to coordinator when plan fragment execute successfully.
     @VariableMgr.VarAttr(name = CODEGEN_LEVEL)
     public int codegenLevel = 0;
-
     // 4096 minus 16 + 16 bytes padding that in padding pod array
     @VariableMgr.VarAttr(name = BATCH_SIZE, fuzzy = true)
     public int batchSize = 4064;
-
     @VariableMgr.VarAttr(name = DISABLE_STREAMING_PREAGGREGATIONS, fuzzy = true)
     public boolean disableStreamPreaggregations = false;
-
     @VariableMgr.VarAttr(name = DISABLE_COLOCATE_PLAN)
     public boolean disableColocatePlan = false;
-
     @VariableMgr.VarAttr(name = ENABLE_BUCKET_SHUFFLE_JOIN)
     public boolean enableBucketShuffleJoin = true;
-
     @VariableMgr.VarAttr(name = PREFER_JOIN_METHOD)
     public String preferJoinMethod = "broadcast";
-
     @VariableMgr.VarAttr(name = FRAGMENT_TRANSMISSION_COMPRESSION_CODEC)
     public String fragmentTransmissionCompressionCodec = "lz4";
-
     /*
      * the parallel exec instance num for one Fragment in one BE
      * 1 means disable this feature
      */
     @VariableMgr.VarAttr(name = PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM, fuzzy = true)
     public int parallelExecInstanceNum = 1;
-
     @VariableMgr.VarAttr(name = ENABLE_INSERT_STRICT, needForward = true)
     public boolean enableInsertStrict = true;
-
     @VariableMgr.VarAttr(name = ENABLE_ODBC_TRANSCATION)
     public boolean enableOdbcTransaction = false;
-
     @VariableMgr.VarAttr(name = ENABLE_SQL_CACHE)
     public boolean enableSqlCache = false;
-
     @VariableMgr.VarAttr(name = ENABLE_PARTITION_CACHE)
     public boolean enablePartitionCache = false;
-
     @VariableMgr.VarAttr(name = FORWARD_TO_MASTER)
     public boolean forwardToMaster = true;
-
     @VariableMgr.VarAttr(name = USE_V2_ROLLUP)
     public boolean useV2Rollup = false;
-
     @VariableMgr.VarAttr(name = REWRITE_COUNT_DISTINCT_TO_BITMAP_HLL)
     public boolean rewriteCountDistinct = true;
-
     // compatible with some mysql client connect, say DataGrip of JetBrains
     @VariableMgr.VarAttr(name = EVENT_SCHEDULER)
     public String eventScheduler = "OFF";
@@ -504,7 +424,6 @@ public class SessionVariable implements Serializable, Writable {
     public String defaultTmpStorageEngine = "olap";
     @VariableMgr.VarAttr(name = DIV_PRECISION_INCREMENT)
     public int divPrecisionIncrement = 4;
-
     // -1 means unset, BE will use its config value
     @VariableMgr.VarAttr(name = MAX_SCAN_KEY_NUM)
     public int maxScanKeyNum = -1;
@@ -512,97 +431,185 @@ public class SessionVariable implements Serializable, Writable {
     public int maxPushdownConditionsPerColumn = -1;
     @VariableMgr.VarAttr(name = SHOW_HIDDEN_COLUMNS, flag = VariableMgr.SESSION_ONLY)
     public boolean showHiddenColumns = false;
-
     @VariableMgr.VarAttr(name = ALLOW_PARTITION_COLUMN_NULLABLE)
     public boolean allowPartitionColumnNullable = true;
-
     @VariableMgr.VarAttr(name = DELETE_WITHOUT_PARTITION, needForward = true)
     public boolean deleteWithoutPartition = false;
-
     @VariableMgr.VarAttr(name = SEND_BATCH_PARALLELISM, needForward = true)
     public int sendBatchParallelism = 1;
-
     @VariableMgr.VarAttr(name = EXTRACT_WIDE_RANGE_EXPR, needForward = true)
     public boolean extractWideRangeExpr = true;
-
-
     @VariableMgr.VarAttr(name = ENABLE_PIPELINE_ENGINE, fuzzy = true)
     public boolean enablePipelineEngine = false;
-
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_OUTFILE)
     public boolean enableParallelOutfile = false;
-
     @VariableMgr.VarAttr(name = CPU_RESOURCE_LIMIT)
     public int cpuResourceLimit = -1;
-
     @VariableMgr.VarAttr(name = SQL_QUOTE_SHOW_CREATE)
     public boolean sqlQuoteShowCreate = true;
-
     @VariableMgr.VarAttr(name = TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY, needForward = true)
     public boolean trimTailingSpacesForExternalTableQuery = false;
-
-
     // the maximum size in bytes for a table that will be broadcast to all be nodes
     // when performing a join, By setting this value to -1 broadcasting can be disabled.
     // Default value is 1Gto
     @VariableMgr.VarAttr(name = AUTO_BROADCAST_JOIN_THRESHOLD)
     public double autoBroadcastJoinThreshold = 0.8;
+    @VariableMgr.VarAttr(name = ENABLE_RUNTIME_FILTER_PRUNE, needForward = true)
+    public boolean enableRuntimeFilterPrune = false;
+    /**
+     * The client can pass some special information by setting this session variable in the format: "k1:v1;k2:v2".
+     * For example, trace_id can be passed to trace the query request sent by the user.
+     * set session_context="trace_id:1234565678";
+     */
+    @VariableMgr.VarAttr(name = SESSION_CONTEXT, needForward = true)
+    public String sessionContext = "";
+    @VariableMgr.VarAttr(name = ENABLE_SINGLE_REPLICA_INSERT, needForward = true)
+    public boolean enableSingleReplicaInsert = false;
+    @VariableMgr.VarAttr(name = ENABLE_FUNCTION_PUSHDOWN)
+    public boolean enableFunctionPushdown = true;
+    @VariableMgr.VarAttr(name = ENABLE_COMMON_EXPR_PUSHDOWN, fuzzy = true)
+    public boolean enableCommonExprPushdown = true;
+    @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE, fuzzy = true)
+    public boolean enableLocalExchange = true;
+    /**
+     * For debug purpose, don't merge unique key and agg key when reading data.
+     */
+    @VariableMgr.VarAttr(name = SKIP_STORAGE_ENGINE_MERGE)
+    public boolean skipStorageEngineMerge = false;
+    /**
+     * For debug purpose, skip delete predicate when reading data.
+     */
+    @VariableMgr.VarAttr(name = SKIP_DELETE_PREDICATE)
+    public boolean skipDeletePredicate = false;
+    /**
+     * For debug purpose, skip delete sign when reading data.
+     */
+    @VariableMgr.VarAttr(name = SKIP_DELETE_SIGN)
+    public boolean skipDeleteSign = false;
+    /**
+     * For debug purpose, skip delete bitmap when reading data.
+     */
+    @VariableMgr.VarAttr(name = SKIP_DELETE_BITMAP)
+    public boolean skipDeleteBitmap = false;
+    // This variable is used to avoid FE fallback to the original parser. When we execute SQL in regression tests
+    // for nereids, fallback will cause the Doris return the correct result although the syntax is unsupported
+    // in nereids for some mistaken modification. You should set it on the
+    @VariableMgr.VarAttr(name = ENABLE_FALLBACK_TO_ORIGINAL_PLANNER, needForward = true)
+    public boolean enableFallbackToOriginalPlanner = true;
+    @VariableMgr.VarAttr(name = ENABLE_NEW_SHUFFLE_HASH_METHOD)
+    public boolean enableNewShuffleHashMethod = true;
+    @VariableMgr.VarAttr(name = ENABLE_PUSH_DOWN_NO_GROUP_AGG)
+    public boolean enablePushDownNoGroupAgg = true;
+    /**
+     * The current statistics are only used for CBO test,
+     * and are not available to users. (work in progress)
+     */
+    @VariableMgr.VarAttr(name = ENABLE_CBO_STATISTICS)
+    public boolean enableCboStatistics = false;
+    @VariableMgr.VarAttr(name = ENABLE_ELIMINATE_SORT_NODE)
+    public boolean enableEliminateSortNode = true;
+    @VariableMgr.VarAttr(name = INTERNAL_SESSION)
+    public boolean internalSession = false;
+    // Use partitioned hash join if build side row count >= the threshold . 0 - the threshold is not set.
+    @VariableMgr.VarAttr(name = PARTITIONED_HASH_JOIN_ROWS_THRESHOLD, fuzzy = true)
+    public int partitionedHashJoinRowsThreshold = 0;
+    // Use partitioned hash join if build side row count >= the threshold . 0 - the threshold is not set.
+    @VariableMgr.VarAttr(name = PARTITIONED_HASH_AGG_ROWS_THRESHOLD, fuzzy = true)
+    public int partitionedHashAggRowsThreshold = 0;
+    @VariableMgr.VarAttr(name = PARTITION_PRUNING_EXPAND_THRESHOLD, fuzzy = true)
+    public int partitionPruningExpandThreshold = 10;
+    @VariableMgr.VarAttr(name = ENABLE_SHARE_HASH_TABLE_FOR_BROADCAST_JOIN, fuzzy = true)
+    public boolean enableShareHashTableForBroadcastJoin = true;
+    @VariableMgr.VarAttr(name = ENABLE_UNICODE_NAME_SUPPORT)
+    public boolean enableUnicodeNameSupport = false;
+    @VariableMgr.VarAttr(name = REPEAT_MAX_NUM, needForward = true)
 
+    public int repeatMaxNum = 10000;
+    @VariableMgr.VarAttr(name = GROUP_CONCAT_MAX_LEN)
+    public long groupConcatMaxLen = 2147483646;
+    @VariableMgr.VarAttr(name = EXTERNAL_SORT_BYTES_THRESHOLD,
+            checker = "checkExternalSortBytesThreshold", fuzzy = true)
+    public long externalSortBytesThreshold = 0;
+    // Whether enable two phase read optimization
+    // 1. read related rowids along with necessary column data
+    // 2. spawn fetch RPC to other nodes to get related data by sorted rowids
+    @VariableMgr.VarAttr(name = ENABLE_TWO_PHASE_READ_OPT, fuzzy = true)
+    public boolean enableTwoPhaseReadOpt = true;
+    @VariableMgr.VarAttr(name = TOPN_OPT_LIMIT_THRESHOLD)
+    public long topnOptLimitThreshold = 1024;
+    // Default value is false, which means the group by and having clause
+    // should first use column name not alias. According to mysql.
+    @VariableMgr.VarAttr(name = GROUP_BY_AND_HAVING_USE_ALIAS_FIRST)
+    public boolean groupByAndHavingUseAliasFirst = false;
+    // Whether enable block file cache. Only take effect when BE config item enable_file_cache is true.
+    @VariableMgr.VarAttr(name = ENABLE_FILE_CACHE, needForward = true)
+    public boolean enableFileCache = true;
+    // Whether drop table when create table as select insert data appear error.
+    @VariableMgr.VarAttr(name = DROP_TABLE_IF_CTAS_FAILED, needForward = true)
+    public boolean dropTableIfCtasFailed = true;
+    // Whether drop table when insert overwrite table select insert data appear error.
+    @VariableMgr.VarAttr(name = DROP_TABLE_IF_IOTS_FAILED, needForward = true)
+    public boolean dropTableIfIotsFailed = true;
+    @VariableMgr.VarAttr(name = MAX_TABLE_COUNT_USE_CASCADES_JOIN_REORDER, needForward = true)
+    public int maxTableCountUseCascadesJoinReorder = 10;
+    // If this is true, the result of `show roles` will return all user default role
+    @VariableMgr.VarAttr(name = SHOW_USER_DEFAULT_ROLE, needForward = true)
+    public boolean showUserDefaultRole = false;
+    // Default value is -1, which means not fix replica
+    @VariableMgr.VarAttr(name = USE_FIX_REPLICA)
+    public int useFixReplica = -1;
+    @VariableMgr.VarAttr(name = DUMP_NEREIDS_MEMO)
+    public boolean dumpNereidsMemo = false;
+    // If set to true, all query will be executed without returning result
+    @VariableMgr.VarAttr(name = DRY_RUN_QUERY, needForward = true)
+    public boolean dryRunQuery = false;
+    @VariableMgr.VarAttr(name = FILE_SPLIT_SIZE, needForward = true)
+    public long fileSplitSize = 0;
+    /**
+     * syntax:
+     * all -> use all event
+     * all except event_1, event_2, ..., event_n -> use all events excluding the event_1~n
+     * event_1, event_2, ..., event_n -> use event_1~n
+     */
+    @VariableMgr.VarAttr(name = NEREIDS_TRACE_EVENT_MODE, checker = "checkNereidsTraceEventMode")
+    public String nereidsTraceEventMode = "all";
     @VariableMgr.VarAttr(name = ENABLE_COST_BASED_JOIN_REORDER)
     private boolean enableJoinReorderBasedCost = false;
-
     @VariableMgr.VarAttr(name = ENABLE_FOLD_CONSTANT_BY_BE, fuzzy = true)
     private boolean enableFoldConstantByBe = false;
-
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MODE)
     private String runtimeFilterMode = "GLOBAL";
-
     @VariableMgr.VarAttr(name = RUNTIME_BLOOM_FILTER_SIZE)
     private int runtimeBloomFilterSize = 2097152;
-
     @VariableMgr.VarAttr(name = RUNTIME_BLOOM_FILTER_MIN_SIZE)
     private int runtimeBloomFilterMinSize = 1048576;
-
     @VariableMgr.VarAttr(name = RUNTIME_BLOOM_FILTER_MAX_SIZE)
     private int runtimeBloomFilterMaxSize = 16777216;
-
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_WAIT_TIME_MS)
     private int runtimeFilterWaitTimeMs = 1000;
-
     @VariableMgr.VarAttr(name = RUNTIME_FILTERS_MAX_NUM)
     private int runtimeFiltersMaxNum = 10;
-
     // Set runtimeFilterType to IN_OR_BLOOM filter
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_TYPE, fuzzy = true)
     private int runtimeFilterType = 8;
-
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MAX_IN_NUM)
     private int runtimeFilterMaxInNum = 102400;
-
     @VariableMgr.VarAttr(name = DISABLE_JOIN_REORDER)
     private boolean disableJoinReorder = false;
-
     @VariableMgr.VarAttr(name = ENABLE_BUSHY_TREE, needForward = true)
     private boolean enableBushyTree = false;
-
     @VariableMgr.VarAttr(name = ENABLE_INFER_PREDICATE)
     private boolean enableInferPredicate = true;
-
     @VariableMgr.VarAttr(name = RETURN_OBJECT_DATA_AS_BINARY)
     private boolean returnObjectDataAsBinary = false;
-
     @VariableMgr.VarAttr(name = BLOCK_ENCRYPTION_MODE)
     private String blockEncryptionMode = "";
-
     @VariableMgr.VarAttr(name = ENABLE_PROJECTION)
     private boolean enableProjection = true;
-
     @VariableMgr.VarAttr(name = CHECK_OVERFLOW_FOR_DECIMAL)
     private boolean checkOverflowForDecimal = false;
-
     @VariableMgr.VarAttr(name = ENABLE_DPHYP_OPTIMIZER)
     private boolean enableDPHypOptimizer = false;
-
     /**
      * This variable is used to select n-th optimized plan in memo.
      * It can allow us select different plans for the same SQL statement
@@ -610,7 +617,6 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VariableMgr.VarAttr(name = NTH_OPTIMIZED_PLAN)
     private int nthOptimizedPlan = 1;
-
     /**
      * as the new optimizer is not mature yet, use this var
      * to control whether to use new optimizer, remove it when
@@ -619,181 +625,27 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_PLANNER, needForward = true)
     private boolean enableNereidsPlanner = false;
-
     @VariableMgr.VarAttr(name = DISABLE_NEREIDS_RULES, needForward = true)
     private String disableNereidsRules = "";
-
     @VariableMgr.VarAttr(name = ENABLE_NEW_COST_MODEL, needForward = true)
     private boolean enableNewCostModel = false;
-
     @VariableMgr.VarAttr(name = NEREIDS_STAR_SCHEMA_SUPPORT)
     private boolean nereidsStarSchemaSupport = true;
-
     @VariableMgr.VarAttr(name = REWRITE_OR_TO_IN_PREDICATE_THRESHOLD, fuzzy = true)
     private int rewriteOrToInPredicateThreshold = 2;
-
     @VariableMgr.VarAttr(name = NEREIDS_CBO_PENALTY_FACTOR, needForward = true)
     private double nereidsCboPenaltyFactor = 0.7;
-
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_TRACE)
     private boolean enableNereidsTrace = false;
-
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_RUNTIME_FILTER, needForward = true)
     private boolean enableNereidsRuntimeFilter = true;
-
     @VariableMgr.VarAttr(name = BROADCAST_RIGHT_TABLE_SCALE_FACTOR)
     private double broadcastRightTableScaleFactor = 10.0;
-
     @VariableMgr.VarAttr(name = BROADCAST_ROW_COUNT_LIMIT, needForward = true)
     private double broadcastRowCountLimit = 15000000;
-
     @VariableMgr.VarAttr(name = BROADCAST_HASHTABLE_MEM_LIMIT_PERCENTAGE, needForward = true)
     private double broadcastHashtableMemLimitPercentage = 0.2;
-
-    @VariableMgr.VarAttr(name = ENABLE_RUNTIME_FILTER_PRUNE, needForward = true)
-    public boolean enableRuntimeFilterPrune = false;
-
-    /**
-     * The client can pass some special information by setting this session variable in the format: "k1:v1;k2:v2".
-     * For example, trace_id can be passed to trace the query request sent by the user.
-     * set session_context="trace_id:1234565678";
-     */
-    @VariableMgr.VarAttr(name = SESSION_CONTEXT, needForward = true)
-    public String sessionContext = "";
-
-    @VariableMgr.VarAttr(name = ENABLE_SINGLE_REPLICA_INSERT, needForward = true)
-    public boolean enableSingleReplicaInsert = false;
-
-    @VariableMgr.VarAttr(name = ENABLE_FUNCTION_PUSHDOWN)
-    public boolean enableFunctionPushdown = true;
-
-    @VariableMgr.VarAttr(name = ENABLE_COMMON_EXPR_PUSHDOWN, fuzzy = true)
-    public boolean enableCommonExprPushdown = true;
-
-    @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE, fuzzy = true)
-    public boolean enableLocalExchange = true;
-
-    /**
-     * For debug purpose, don't merge unique key and agg key when reading data.
-     */
-    @VariableMgr.VarAttr(name = SKIP_STORAGE_ENGINE_MERGE)
-    public boolean skipStorageEngineMerge = false;
-
-    /**
-     * For debug purpose, skip delete predicate when reading data.
-     */
-    @VariableMgr.VarAttr(name = SKIP_DELETE_PREDICATE)
-    public boolean skipDeletePredicate = false;
-
-    /**
-     * For debug purpose, skip delete sign when reading data.
-     */
-    @VariableMgr.VarAttr(name = SKIP_DELETE_SIGN)
-    public boolean skipDeleteSign = false;
-
-    /**
-     * For debug purpose, skip delete bitmap when reading data.
-     */
-    @VariableMgr.VarAttr(name = SKIP_DELETE_BITMAP)
-    public boolean skipDeleteBitmap = false;
-
-    // This variable is used to avoid FE fallback to the original parser. When we execute SQL in regression tests
-    // for nereids, fallback will cause the Doris return the correct result although the syntax is unsupported
-    // in nereids for some mistaken modification. You should set it on the
-    @VariableMgr.VarAttr(name = ENABLE_FALLBACK_TO_ORIGINAL_PLANNER, needForward = true)
-    public boolean enableFallbackToOriginalPlanner = true;
-
-    @VariableMgr.VarAttr(name = ENABLE_NEW_SHUFFLE_HASH_METHOD)
-    public boolean enableNewShuffleHashMethod = true;
-
-    @VariableMgr.VarAttr(name = ENABLE_PUSH_DOWN_NO_GROUP_AGG)
-    public boolean enablePushDownNoGroupAgg = true;
-
-    /**
-     * The current statistics are only used for CBO test,
-     * and are not available to users. (work in progress)
-     */
-    @VariableMgr.VarAttr(name = ENABLE_CBO_STATISTICS)
-    public boolean enableCboStatistics = false;
-
-    @VariableMgr.VarAttr(name = ENABLE_ELIMINATE_SORT_NODE)
-    public boolean enableEliminateSortNode = true;
-
-    @VariableMgr.VarAttr(name = INTERNAL_SESSION)
-    public boolean internalSession = false;
-
-    // Use partitioned hash join if build side row count >= the threshold . 0 - the threshold is not set.
-    @VariableMgr.VarAttr(name = PARTITIONED_HASH_JOIN_ROWS_THRESHOLD, fuzzy = true)
-    public int partitionedHashJoinRowsThreshold = 0;
-
-    // Use partitioned hash join if build side row count >= the threshold . 0 - the threshold is not set.
-    @VariableMgr.VarAttr(name = PARTITIONED_HASH_AGG_ROWS_THRESHOLD, fuzzy = true)
-    public int partitionedHashAggRowsThreshold = 0;
-
-    @VariableMgr.VarAttr(name = PARTITION_PRUNING_EXPAND_THRESHOLD, fuzzy = true)
-    public int partitionPruningExpandThreshold = 10;
-
-    @VariableMgr.VarAttr(name = ENABLE_SHARE_HASH_TABLE_FOR_BROADCAST_JOIN, fuzzy = true)
-    public boolean enableShareHashTableForBroadcastJoin = true;
-
-    @VariableMgr.VarAttr(name = ENABLE_UNICODE_NAME_SUPPORT)
-    public boolean enableUnicodeNameSupport = false;
-
-    @VariableMgr.VarAttr(name = REPEAT_MAX_NUM, needForward = true)
-
-    public int repeatMaxNum = 10000;
-
-    @VariableMgr.VarAttr(name = GROUP_CONCAT_MAX_LEN)
-    public long groupConcatMaxLen = 2147483646;
-
-    // If the memory consumption of sort node exceed this limit, will trigger spill to disk;
-    // Set to 0 to disable; min: 128M
-    public static final long MIN_EXTERNAL_SORT_BYTES_THRESHOLD = 134217728;
-    @VariableMgr.VarAttr(name = EXTERNAL_SORT_BYTES_THRESHOLD,
-            checker = "checkExternalSortBytesThreshold", fuzzy = true)
-    public long externalSortBytesThreshold = 0;
-
-    // Whether enable two phase read optimization
-    // 1. read related rowids along with necessary column data
-    // 2. spawn fetch RPC to other nodes to get related data by sorted rowids
-    @VariableMgr.VarAttr(name = ENABLE_TWO_PHASE_READ_OPT, fuzzy = true)
-    public boolean enableTwoPhaseReadOpt = true;
-    @VariableMgr.VarAttr(name = TOPN_OPT_LIMIT_THRESHOLD)
-    public long topnOptLimitThreshold = 1024;
-
-    // Default value is false, which means the group by and having clause
-    // should first use column name not alias. According to mysql.
-    @VariableMgr.VarAttr(name = GROUP_BY_AND_HAVING_USE_ALIAS_FIRST)
-    public boolean groupByAndHavingUseAliasFirst = false;
-
-    // Whether enable block file cache. Only take effect when BE config item enable_file_cache is true.
-    @VariableMgr.VarAttr(name = ENABLE_FILE_CACHE, needForward = true)
-    public boolean enableFileCache = true;
-
-    // Whether drop table when create table as select insert data appear error.
-    @VariableMgr.VarAttr(name = DROP_TABLE_IF_CTAS_FAILED, needForward = true)
-    public boolean dropTableIfCtasFailed = true;
-
-    @VariableMgr.VarAttr(name = MAX_TABLE_COUNT_USE_CASCADES_JOIN_REORDER, needForward = true)
-    public int maxTableCountUseCascadesJoinReorder = 10;
-
-    // If this is true, the result of `show roles` will return all user default role
-    @VariableMgr.VarAttr(name = SHOW_USER_DEFAULT_ROLE, needForward = true)
-    public boolean showUserDefaultRole = false;
-
-    // Default value is -1, which means not fix replica
-    @VariableMgr.VarAttr(name = USE_FIX_REPLICA)
-    public int useFixReplica = -1;
-
-    @VariableMgr.VarAttr(name = DUMP_NEREIDS_MEMO)
-    public boolean dumpNereidsMemo = false;
-
-    // If set to true, all query will be executed without returning result
-    @VariableMgr.VarAttr(name = DRY_RUN_QUERY, needForward = true)
-    public boolean dryRunQuery = false;
-
-    @VariableMgr.VarAttr(name = FILE_SPLIT_SIZE, needForward = true)
-    public long fileSplitSize = 0;
+    private Set<Class<? extends Event>> parsedNereidsEventMode = EventSwitchParser.parse(Lists.newArrayList("all"));
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -873,23 +725,8 @@ public class SessionVariable implements Serializable, Writable {
         return Joiner.on(",").join(res);
     }
 
-    /**
-     * syntax:
-     * all -> use all event
-     * all except event_1, event_2, ..., event_n -> use all events excluding the event_1~n
-     * event_1, event_2, ..., event_n -> use event_1~n
-     */
-    @VariableMgr.VarAttr(name = NEREIDS_TRACE_EVENT_MODE, checker = "checkNereidsTraceEventMode")
-    public String nereidsTraceEventMode = "all";
-
-    private Set<Class<? extends Event>> parsedNereidsEventMode = EventSwitchParser.parse(Lists.newArrayList("all"));
-
     public boolean isInDebugMode() {
         return showHiddenColumns || skipDeleteBitmap || skipDeletePredicate || skipDeleteSign || skipStorageEngineMerge;
-    }
-
-    public void setEnableNereidsTrace(boolean enableNereidsTrace) {
-        this.enableNereidsTrace = enableNereidsTrace;
     }
 
     public void setNereidsTraceEventMode(String nereidsTraceEventMode) {
@@ -919,20 +756,35 @@ public class SessionVariable implements Serializable, Writable {
         this.blockEncryptionMode = blockEncryptionMode;
     }
 
-    public void setRewriteOrToInPredicateThreshold(int threshold) {
-        this.rewriteOrToInPredicateThreshold = threshold;
-    }
-
     public int getRewriteOrToInPredicateThreshold() {
         return rewriteOrToInPredicateThreshold;
+    }
+
+    public void setRewriteOrToInPredicateThreshold(int threshold) {
+        this.rewriteOrToInPredicateThreshold = threshold;
     }
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;
     }
 
+    /**
+     * setMaxExecMemByte.
+     **/
+    public void setMaxExecMemByte(long maxExecMemByte) {
+        if (maxExecMemByte < MIN_EXEC_MEM_LIMIT) {
+            this.maxExecMemByte = MIN_EXEC_MEM_LIMIT;
+        } else {
+            this.maxExecMemByte = maxExecMemByte;
+        }
+    }
+
     public int getQueryTimeoutS() {
         return queryTimeoutS;
+    }
+
+    public void setQueryTimeoutS(int queryTimeoutS) {
+        this.queryTimeoutS = queryTimeoutS;
     }
 
     public int getInsertTimeoutS() {
@@ -965,6 +817,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableJoinReorderBasedCost() {
         return enableJoinReorderBasedCost;
+    }
+
+    public void setEnableJoinReorderBasedCost(boolean enableJoinReorderBasedCost) {
+        this.enableJoinReorderBasedCost = enableJoinReorderBasedCost;
     }
 
     public boolean isAutoCommit() {
@@ -1067,27 +923,12 @@ public class SessionVariable implements Serializable, Writable {
         return codegenLevel;
     }
 
-    /**
-     * setMaxExecMemByte.
-     **/
-    public void setMaxExecMemByte(long maxExecMemByte) {
-        if (maxExecMemByte < MIN_EXEC_MEM_LIMIT) {
-            this.maxExecMemByte = MIN_EXEC_MEM_LIMIT;
-        } else {
-            this.maxExecMemByte = maxExecMemByte;
-        }
-    }
-
     public boolean isSqlQuoteShowCreate() {
         return sqlQuoteShowCreate;
     }
 
     public void setSqlQuoteShowCreate(boolean sqlQuoteShowCreate) {
         this.sqlQuoteShowCreate = sqlQuoteShowCreate;
-    }
-
-    public void setQueryTimeoutS(int queryTimeoutS) {
-        this.queryTimeoutS = queryTimeoutS;
     }
 
     public String getResourceGroup() {
@@ -1320,12 +1161,12 @@ public class SessionVariable implements Serializable, Writable {
         return runtimeFilterType;
     }
 
-    public boolean isRuntimeFilterTypeEnabled(TRuntimeFilterType type) {
-        return (runtimeFilterType & type.getValue()) == type.getValue();
-    }
-
     public void setRuntimeFilterType(int runtimeFilterType) {
         this.runtimeFilterType = runtimeFilterType;
+    }
+
+    public boolean isRuntimeFilterTypeEnabled(TRuntimeFilterType type) {
+        return (runtimeFilterType & type.getValue()) == type.getValue();
     }
 
     public int getRuntimeFilterMaxInNum() {
@@ -1438,6 +1279,10 @@ public class SessionVariable implements Serializable, Writable {
         return disableJoinReorder;
     }
 
+    public void setDisableJoinReorder(boolean disableJoinReorder) {
+        this.disableJoinReorder = disableJoinReorder;
+    }
+
     public boolean isEnableBushyTree() {
         return enableBushyTree;
     }
@@ -1478,14 +1323,6 @@ public class SessionVariable implements Serializable, Writable {
         this.trimTailingSpacesForExternalTableQuery = trimTailingSpacesForExternalTableQuery;
     }
 
-    public void setEnableJoinReorderBasedCost(boolean enableJoinReorderBasedCost) {
-        this.enableJoinReorderBasedCost = enableJoinReorderBasedCost;
-    }
-
-    public void setDisableJoinReorder(boolean disableJoinReorder) {
-        this.disableJoinReorder = disableJoinReorder;
-    }
-
     /**
      * Nereids only support vectorized engine.
      *
@@ -1517,16 +1354,16 @@ public class SessionVariable implements Serializable, Writable {
                 .collect(ImmutableSet.toImmutableSet());
     }
 
-    public void setEnableNewCostModel(boolean enable) {
-        this.enableNewCostModel = enable;
+    public void setDisableNereidsRules(String disableNereidsRules) {
+        this.disableNereidsRules = disableNereidsRules;
     }
 
     public boolean getEnableNewCostModel() {
         return this.enableNewCostModel;
     }
 
-    public void setDisableNereidsRules(String disableNereidsRules) {
-        this.disableNereidsRules = disableNereidsRules;
+    public void setEnableNewCostModel(boolean enable) {
+        this.enableNewCostModel = enable;
     }
 
     public double getNereidsCboPenaltyFactor() {
@@ -1539,6 +1376,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableNereidsTrace() {
         return isEnableNereidsPlanner() && enableNereidsTrace;
+    }
+
+    public void setEnableNereidsTrace(boolean enableNereidsTrace) {
+        this.enableNereidsTrace = enableNereidsTrace;
     }
 
     public boolean isEnableNereidsRuntimeFilter() {
@@ -1579,6 +1420,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isDropTableIfCtasFailed() {
         return dropTableIfCtasFailed;
+    }
+
+    public boolean isDropTableIfIotsFailed() {
+        return dropTableIfIotsFailed;
     }
 
     public void checkExternalSortBytesThreshold(String externalSortBytesThreshold) {
