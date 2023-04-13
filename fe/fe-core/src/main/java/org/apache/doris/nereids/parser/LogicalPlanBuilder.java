@@ -54,6 +54,8 @@ import org.apache.doris.nereids.DorisParser.HintStatementContext;
 import org.apache.doris.nereids.DorisParser.IdentifierListContext;
 import org.apache.doris.nereids.DorisParser.IdentifierOrTextContext;
 import org.apache.doris.nereids.DorisParser.IdentifierSeqContext;
+import org.apache.doris.nereids.DorisParser.InsertContext;
+import org.apache.doris.nereids.DorisParser.InsertIntoContext;
 import org.apache.doris.nereids.DorisParser.IntegerLiteralContext;
 import org.apache.doris.nereids.DorisParser.IntervalContext;
 import org.apache.doris.nereids.DorisParser.Is_not_null_predContext;
@@ -207,6 +209,7 @@ import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.commands.InsertIntoSelectCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
@@ -296,6 +299,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitStatementDefault(StatementDefaultContext ctx) {
         LogicalPlan plan = plan(ctx.query());
         return withExplain(plan, ctx.explain());
+    }
+
+    @Override
+    public LogicalPlan visitInsertInto(InsertIntoContext ctx) {
+        return withExplain(visitInsert(ctx.insert()), ctx.explain());
+    }
+
+    @Override
+    public LogicalPlan visitInsert(InsertContext ctx) {
+        return new InsertIntoSelectCommand(visitIdentifierList(ctx.identifierList(), visitQuery(ctx.query())));
     }
 
     /**
