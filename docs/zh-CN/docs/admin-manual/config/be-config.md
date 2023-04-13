@@ -723,7 +723,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 #### `single_replica_load_download_num_workers`
 * 类型: int32
-* 描述: 单副本数据导入功能中，Slave副本通过HTTP从Master副本下载数据文件的线程数。导入并发增大时，可以适当调大该参数来保证Slave副本及时同步Master副本数据。
+* 描述: 单副本数据导入功能中，Slave副本通过HTTP从Master副本下载数据文件的工作线程数。导入并发增大时，可以适当调大该参数来保证Slave副本及时同步Master副本数据。必要时也应相应地调大`webserver_num_workers`来提高IO效率。
 * 默认值: 64
 
 #### `load_task_high_priority_threshold_second`
