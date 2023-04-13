@@ -58,8 +58,13 @@ import org.apache.doris.task.AgentClient;
 import org.apache.doris.thrift.TAgentResult;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TPaloScanRange;
+import org.apache.doris.thrift.TScanRange;
+import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
+import org.apache.doris.thrift.TSnapshotRequest;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TypesConstants;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
@@ -92,6 +97,7 @@ public class ExportJob implements Writable {
 
     public enum JobState {
         PENDING,
+        IN_QUEUE,
         EXPORTING,
         FINISHED,
         CANCELLED,
@@ -439,12 +445,12 @@ public class ExportJob implements Writable {
         if (updateState(ExportJob.JobState.CANCELLED, false)) {
 
             // release snapshot
-            Status releaseSnapshotStatus = releaseSnapshotPaths();
-            if (!releaseSnapshotStatus.ok()) {
-                // snapshot will be removed by GC thread on BE, finally.
-                LOG.warn("failed to release snapshot for export job: {}. err: {}", id,
-                        releaseSnapshotStatus.getErrorMsg());
-            }
+            // Status releaseSnapshotStatus = releaseSnapshotPaths();
+            // if (!releaseSnapshotStatus.ok()) {
+            //     // snapshot will be removed by GC thread on BE, finally.
+            //     LOG.warn("failed to release snapshot for export job: {}. err: {}", id,
+            //             releaseSnapshotStatus.getErrorMsg());
+            // }
         }
     }
 
@@ -453,21 +459,27 @@ public class ExportJob implements Writable {
     }
 
     public synchronized boolean updateState(ExportJob.JobState newState, boolean isReplay) {
-        if (isFinalState()) {
+        // We do not persist EXPORTING state in new version of metadata,
+        // but EXPORTING state may still exist in older versions of metadata.
+        // So if isReplay == true and newState == EXPORTING, we just ignore this update.
+        if (isFinalState() || (isReplay && newState == JobState.EXPORTING)) {
             return false;
         }
         state = newState;
         switch (newState) {
             case PENDING:
+            case IN_QUEUE:
                 progress = 0;
                 break;
             case EXPORTING:
+                // if isReplay == true, startTimeMs will be read from log
                 if (!isReplay) {
                     startTimeMs = System.currentTimeMillis();
                 }
                 break;
             case FINISHED:
             case CANCELLED:
+                // if isReplay == true, finishTimeMs will be read from log
                 if (!isReplay) {
                     finishTimeMs = System.currentTimeMillis();
                 }
@@ -477,7 +489,8 @@ public class ExportJob implements Writable {
                 Preconditions.checkState(false, "wrong job state: " + newState.name());
                 break;
         }
-        if (!isReplay) {
+        // we only persist Pending/Cancel/Finish state
+        if (!isReplay && newState != JobState.EXPORTING && newState != JobState.IN_QUEUE) {
             Env.getCurrentEnv().getEditLog().logExportUpdateState(id, newState);
         }
         return true;
@@ -485,6 +498,52 @@ public class ExportJob implements Writable {
 
     public synchronized boolean isFinalState() {
         return this.state == ExportJob.JobState.CANCELLED || this.state == ExportJob.JobState.FINISHED;
+    }
+
+    public Status makeSnapshots() {
+        List<TScanRangeLocations> tabletLocations = getTabletLocations();
+        if (tabletLocations == null) {
+            return Status.OK;
+        }
+        for (TScanRangeLocations tablet : tabletLocations) {
+            TScanRange scanRange = tablet.getScanRange();
+            if (!scanRange.isSetPaloScanRange()) {
+                continue;
+            }
+            TPaloScanRange paloScanRange = scanRange.getPaloScanRange();
+            List<TScanRangeLocation> locations = tablet.getLocations();
+            for (TScanRangeLocation location : locations) {
+                TNetworkAddress address = location.getServer();
+                String host = address.getHostname();
+                int port = address.getPort();
+                Backend backend = Env.getCurrentSystemInfo().getBackendWithBePort(host, port);
+                if (backend == null) {
+                    return Status.CANCELLED;
+                }
+                long backendId = backend.getId();
+                if (!Env.getCurrentSystemInfo().checkBackendQueryAvailable(backendId)) {
+                    return Status.CANCELLED;
+                }
+                TSnapshotRequest snapshotRequest = new TSnapshotRequest();
+                snapshotRequest.setTabletId(paloScanRange.getTabletId());
+                snapshotRequest.setSchemaHash(Integer.parseInt(paloScanRange.getSchemaHash()));
+                snapshotRequest.setVersion(Long.parseLong(paloScanRange.getVersion()));
+                snapshotRequest.setTimeout(getTimeoutSecond());
+                snapshotRequest.setPreferredSnapshotVersion(TypesConstants.TPREFER_SNAPSHOT_REQ_VERSION);
+
+                AgentClient client = new AgentClient(host, port);
+                TAgentResult result = client.makeSnapshot(snapshotRequest);
+                if (result == null || result.getStatus().getStatusCode() != TStatusCode.OK) {
+                    String err = "snapshot for tablet " + paloScanRange.getTabletId() + " failed on backend "
+                            + address.toString() + ". reason: "
+                            + (result == null ? "unknown" : result.getStatus().error_msgs);
+                    LOG.warn("{}, export job: {}", err, id);
+                    return new Status(TStatusCode.CANCELLED, err);
+                }
+                addSnapshotPath(Pair.of(address, result.getSnapshotPath()));
+            }
+        }
+        return Status.OK;
     }
 
     public Status releaseSnapshotPaths() {

@@ -103,40 +103,43 @@ public class ExportMgr extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
-        List<ExportJob> jobs = getExportJobs(JobState.PENDING);
-        // Because exportJob may be replayed from log
-        // we also need handle EXPORTING state exportJob.
-        jobs.addAll(getExportJobs(JobState.EXPORTING));
-        int runningJobNumLimit = Config.export_running_job_num_limit;
-        if (runningJobNumLimit > 0 && !jobs.isEmpty()) {
-            // pending executor running + exporting state
-            int runningJobNum = exportingExecutor.getTaskNum();
-            if (runningJobNum >= runningJobNumLimit) {
-                LOG.info("running export job num {} exceeds system limit {}", runningJobNum, runningJobNumLimit);
-                return;
-            }
-
-            int remain = runningJobNumLimit - runningJobNum;
-            if (jobs.size() > remain) {
-                jobs = jobs.subList(0, remain);
+        List<ExportJob> pendingJobs = getExportJobs(JobState.PENDING);
+        List<ExportJob> newInQueueJobs = Lists.newArrayList();
+        for (ExportJob job : pendingJobs) {
+            if (handlePendingJobs(job)) {
+                newInQueueJobs.add(job);
             }
         }
-
-        LOG.debug("exporting export job num: {}", jobs.size());
-
-        for (ExportJob job : jobs) {
+        LOG.debug("new IN_QUEUE export job num: {}", newInQueueJobs.size());
+        for (ExportJob job : newInQueueJobs) {
             try {
                 MasterTask task = new ExportExportingTask(job);
                 if (exportingExecutor.submit(task)) {
-                    LOG.info("run exporting export job. job: {}", job);
+                    LOG.info("success to submit IN_QUEUE export job. job: {}", job);
                 } else {
-                    LOG.info("fail to submit exporting job to executor. job: {}", job);
+                    LOG.info("fail to submit IN_QUEUE job to executor. job: {}", job);
 
                 }
             } catch (Exception e) {
                 LOG.warn("run export exporting job error", e);
             }
         }
+    }
+
+    private boolean handlePendingJobs(ExportJob job) {
+        if (job.isReplayed()) {
+            // If the job is created from replay thread, all plan info will be lost.
+            // so the job has to be cancelled.
+            String failMsg = "FE restarted or Master changed during exporting. Job must be cancelled.";
+            job.cancel(ExportFailMsg.CancelType.RUN_FAIL, failMsg);
+            return false;
+        }
+
+        if (job.updateState(JobState.IN_QUEUE)) {
+            LOG.info("Exchange pending status to in_queue status success. job: {}", job);
+            return true;
+        }
+        return false;
     }
 
     public List<ExportJob> getJobs() {

@@ -20,8 +20,6 @@ package org.apache.doris.task;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.Pair;
-import org.apache.doris.common.Status;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ProfileManager;
@@ -29,22 +27,13 @@ import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.ExportFailMsg;
 import org.apache.doris.load.ExportJob;
+import org.apache.doris.load.ExportJob.JobState;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.thrift.TAgentResult;
-import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TPaloScanRange;
-import org.apache.doris.thrift.TScanRange;
-import org.apache.doris.thrift.TScanRangeLocation;
-import org.apache.doris.thrift.TScanRangeLocations;
-import org.apache.doris.thrift.TSnapshotRequest;
-import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
-import org.apache.doris.thrift.TypesConstants;
 
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
@@ -70,8 +59,8 @@ public class ExportExportingTask extends MasterTask {
 
     @Override
     protected void exec() {
-        if (job.getState() == ExportJob.JobState.PENDING) {
-            handlePendingState();
+        if (job.getState() == JobState.IN_QUEUE) {
+            handleInQueueState();
         }
 
         if (job.getState() != ExportJob.JobState.EXPORTING) {
@@ -85,14 +74,6 @@ public class ExportExportingTask extends MasterTask {
                 return;
             }
             job.setDoExportingThread(Thread.currentThread());
-        }
-
-        if (job.isReplayed()) {
-            // If the job is created from replay thread, all plan info will be lost.
-            // so the job has to be cancelled.
-            String failMsg = "FE restarted or Master changed during exporting. Job must be cancelled.";
-            job.cancel(ExportFailMsg.CancelType.RUN_FAIL, failMsg);
-            return;
         }
 
         List<QueryStmt> selectStmtList = job.getSelectStmtList();
@@ -137,14 +118,15 @@ public class ExportExportingTask extends MasterTask {
         if (job.updateState(ExportJob.JobState.FINISHED)) {
             LOG.info("export job success. job: {}", job);
             registerProfile();
+            // TODO(ftw): when we implement exporting tablet one by one, we should release snapshot here
             // release snapshot
-            Status releaseSnapshotStatus = job.releaseSnapshotPaths();
-            if (!releaseSnapshotStatus.ok()) {
-                // even if release snapshot failed, do not cancel this job.
-                // snapshot will be removed by GC thread on BE, finally.
-                LOG.warn("failed to release snapshot for export job: {}. err: {}", job.getId(),
-                        releaseSnapshotStatus.getErrorMsg());
-            }
+            // Status releaseSnapshotStatus = job.releaseSnapshotPaths();
+            // if (!releaseSnapshotStatus.ok()) {
+            //     // even if release snapshot failed, do not cancel this job.
+            //     // snapshot will be removed by GC thread on BE, finally.
+            //     LOG.warn("failed to release snapshot for export job: {}. err: {}", job.getId(),
+            //             releaseSnapshotStatus.getErrorMsg());
+            // }
         }
 
         synchronized (this) {
@@ -199,7 +181,7 @@ public class ExportExportingTask extends MasterTask {
         ProfileManager.getInstance().pushProfile(profile);
     }
 
-    private void handlePendingState() {
+    private void handleInQueueState() {
         long dbId = job.getDbId();
         Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
         if (db == null) {
@@ -207,16 +189,8 @@ public class ExportExportingTask extends MasterTask {
             return;
         }
 
-        if (job.isReplayed()) {
-            // If the job is created from replay thread, all plan info will be lost.
-            // so the job has to be cancelled.
-            String failMsg = "FE restarted or Master changed during exporting. Job must be cancelled.";
-            job.cancel(ExportFailMsg.CancelType.RUN_FAIL, failMsg);
-            return;
-        }
-
         // TODO(ftw): when we implement exporting tablet one by one, we should makeSnapshots here
-        // Status snapshotStatus = makeSnapshots();
+        // Status snapshotStatus = job.makeSnapshots();
         // if (!snapshotStatus.ok()) {
         //     job.cancel(ExportFailMsg.CancelType.RUN_FAIL, snapshotStatus.getErrorMsg());
         //     return;
@@ -224,53 +198,6 @@ public class ExportExportingTask extends MasterTask {
 
         if (job.updateState(ExportJob.JobState.EXPORTING)) {
             LOG.info("Exchange pending status to exporting status success. job: {}", job);
-            return;
         }
-    }
-
-    private Status makeSnapshots() {
-        List<TScanRangeLocations> tabletLocations = job.getTabletLocations();
-        if (tabletLocations == null) {
-            return Status.OK;
-        }
-        for (TScanRangeLocations tablet : tabletLocations) {
-            TScanRange scanRange = tablet.getScanRange();
-            if (!scanRange.isSetPaloScanRange()) {
-                continue;
-            }
-            TPaloScanRange paloScanRange = scanRange.getPaloScanRange();
-            List<TScanRangeLocation> locations = tablet.getLocations();
-            for (TScanRangeLocation location : locations) {
-                TNetworkAddress address = location.getServer();
-                String host = address.getHostname();
-                int port = address.getPort();
-                Backend backend = Env.getCurrentSystemInfo().getBackendWithBePort(host, port);
-                if (backend == null) {
-                    return Status.CANCELLED;
-                }
-                long backendId = backend.getId();
-                if (!Env.getCurrentSystemInfo().checkBackendQueryAvailable(backendId)) {
-                    return Status.CANCELLED;
-                }
-                TSnapshotRequest snapshotRequest = new TSnapshotRequest();
-                snapshotRequest.setTabletId(paloScanRange.getTabletId());
-                snapshotRequest.setSchemaHash(Integer.parseInt(paloScanRange.getSchemaHash()));
-                snapshotRequest.setVersion(Long.parseLong(paloScanRange.getVersion()));
-                snapshotRequest.setTimeout(job.getTimeoutSecond());
-                snapshotRequest.setPreferredSnapshotVersion(TypesConstants.TPREFER_SNAPSHOT_REQ_VERSION);
-
-                AgentClient client = new AgentClient(host, port);
-                TAgentResult result = client.makeSnapshot(snapshotRequest);
-                if (result == null || result.getStatus().getStatusCode() != TStatusCode.OK) {
-                    String err = "snapshot for tablet " + paloScanRange.getTabletId() + " failed on backend "
-                            + address.toString() + ". reason: "
-                            + (result == null ? "unknown" : result.getStatus().error_msgs);
-                    LOG.warn("{}, export job: {}", err, job.getId());
-                    return new Status(TStatusCode.CANCELLED, err);
-                }
-                job.addSnapshotPath(Pair.of(address, result.getSnapshotPath()));
-            }
-        }
-        return Status.OK;
     }
 }
