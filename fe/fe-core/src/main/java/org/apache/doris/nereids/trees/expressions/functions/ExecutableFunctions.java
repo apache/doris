@@ -74,6 +74,7 @@ import java.util.UUID;
  * date_trunc
  * dateofweek
  * datev2
+ * time_round series.
  */
 public class ExecutableFunctions {
     public static final ExecutableFunctions INSTANCE = new ExecutableFunctions();
@@ -1103,7 +1104,7 @@ public class ExecutableFunctions {
      */
     @ExecFunction(name = "year_ceil", argTypes = {"DATETIME"}, returnType = "DATETIME")
     public static DateTimeLiteral yearCeil(DateTimeLiteral date) {
-
+        return null;
     }
 
     @ExecFunction(name = "year_ceil", argTypes = {"DATETIMEV2"}, returnType = "DATETIMEV2")
