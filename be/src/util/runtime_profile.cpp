@@ -419,15 +419,6 @@ RuntimeProfile::Counter* RuntimeProfile::add_counter(const std::string& name, TU
     return counter;
 }
 
-void RuntimeProfile::remove_counter(const std::string& name) {
-    std::lock_guard<std::mutex> l(_counter_map_lock);
-    if (_counter_map.find(name) != _counter_map.end()) {
-        _counter_map.erase(name);
-        //the add counter parent_counter_name is ""
-        _child_counter_map[""].erase(name);
-    }
-}
-
 RuntimeProfile::DerivedCounter* RuntimeProfile::add_derived_counter(
         const std::string& name, TUnit::type type, const DerivedCounterFunction& counter_fn,
         const std::string& parent_counter_name) {

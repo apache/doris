@@ -17,8 +17,6 @@
 
 #include "vec/exec/scan/vscan_node.h"
 
-#include <string>
-
 #include "common/consts.h"
 #include "common/status.h"
 #include "exprs/bloom_filter_func.h"
@@ -84,7 +82,6 @@ Status VScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     }
 
     RETURN_IF_ERROR(_register_runtime_filter());
-    RETURN_IF_ERROR(_init_profile());
 
     return Status::OK();
 }
@@ -111,6 +108,17 @@ Status VScanNode::prepare(RuntimeState* state) {
         }
     }
 
+    // 1: running at not pipeline mode will init profile.
+    // 2: the scan node should create scanner at pipeline mode will init profile.
+    // during pipeline mode with more instances, olap scan node maybe not new VScanner object,
+    // so the profile of VScanner and SegmentIterator infos are always empty, could not init those.
+    if (!_is_pipeline_scan || _should_create_scanner) {
+        RETURN_IF_ERROR(_init_profile());
+    }
+    // if you want to add some profile in scan node, even it have not new VScanner object
+    // could add here, not in the _init_profile() function
+    _get_next_timer = ADD_TIMER(_runtime_profile, "GetNextTime");
+    _acquire_runtime_filter_timer = ADD_TIMER(_runtime_profile, "AcuireRuntimeFilterTime");
     return Status::OK();
 }
 
@@ -226,8 +234,6 @@ Status VScanNode::_init_profile() {
     _total_throughput_counter =
             runtime_profile()->add_rate_counter("TotalReadThroughput", _rows_read_counter);
     _num_scanners = ADD_COUNTER(_runtime_profile, "NumScanners", TUnit::UNIT);
-    _get_next_timer = ADD_TIMER(_runtime_profile, "GetNextTime");
-    _acquire_runtime_filter_timer = ADD_TIMER(_runtime_profile, "AcuireRuntimeFilterTime");
 
     // 2. counters for scanners
     _scanner_profile.reset(new RuntimeProfile("VScanner"));
@@ -410,16 +416,6 @@ Status VScanNode::close(RuntimeState* state) {
 
 void VScanNode::release_resource(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VScanNode::release_resource");
-    if (state->enable_profile() && _num_scanners->value() == 0) {
-        //during pipeline mode, olap scan node maybe not new scanner object, so those info are all empty
-        _runtime_profile->clear_children();
-        _runtime_profile->remove_counter("RowsRead");
-        _runtime_profile->remove_counter("MaxScannerThreadNum");
-        _runtime_profile->remove_counter("TotalReadThroughput");
-        _runtime_profile->remove_counter("ScannerWorkerWaitTime");
-        _runtime_profile->remove_counter("PreAllocFreeBlocksNum");
-        _runtime_profile->remove_counter("PeakMemoryUsage");
-    }
     if (_scanner_ctx.get()) {
         if (!state->enable_pipeline_exec() || _should_create_scanner) {
             // stop and wait the scanner scheduler to be done
