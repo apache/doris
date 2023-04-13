@@ -261,9 +261,9 @@ Status VScanNode::_init_profile() {
 
 Status VScanNode::_start_scanners(const std::list<VScanner*>& scanners) {
     if (_is_pipeline_scan) {
-        _scanner_ctx.reset(new pipeline::PipScannerContext(_state, this, _input_tuple_desc,
-                                                           _output_tuple_desc, scanners, limit(),
-                                                           _state->query_options().mem_limit / 20));
+        _scanner_ctx.reset(new pipeline::PipScannerContext(
+                _state, this, _input_tuple_desc, _output_tuple_desc, scanners, limit(),
+                _state->query_options().mem_limit / 20, _col_distribute_ids));
     } else {
         _scanner_ctx.reset(new ScannerContext(_state, this, _input_tuple_desc, _output_tuple_desc,
                                               scanners, limit(),
