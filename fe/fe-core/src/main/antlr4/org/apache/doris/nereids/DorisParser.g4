@@ -40,6 +40,7 @@ statement
         AS type=(RESTRICTIVE | PERMISSIVE)
         TO user=userIdentify
         USING LEFT_PAREN booleanExpression RIGHT_PAREN                 #createRowPolicy
+    | INSERT INTO identifier insert                                    #insertInto
     ;
 
 // -----------------Command accessories-----------------
@@ -66,6 +67,13 @@ planType
     | OPTIMIZED | PHYSICAL   // same type
     | SHAPE
     | ALL // default type
+    ;
+
+//  -----------------INSERT INTO------------------
+insert
+    : WITH LABEL labelName=identifier cte? query
+    | identifierList cte? query
+    | query
     ;
 
 //  -----------------Query-----------------
@@ -579,6 +587,7 @@ nonReserved
     | IS
     | ITEMS
     | KEYS
+    | LABEL
     | LAST
     | LAZY
     | LEADING
