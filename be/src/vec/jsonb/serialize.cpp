@@ -26,7 +26,6 @@
 #include "olap/tablet_schema.h"
 #include "runtime/descriptors.h"
 #include "util/jsonb_document.h"
-#include "runtime/jsonb_value.h"
 #include "util/jsonb_stream.h"
 #include "util/jsonb_writer.h"
 #include "vec/columns/column.h"

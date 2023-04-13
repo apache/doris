@@ -148,7 +148,6 @@ Status RowIDFetcher::fetch(const vectorized::ColumnPtr& row_ids,
         auto location = reinterpret_cast<const GlobalRowLoacation*>(row_ids->get_data_at(x).data);
         res_block->add_row(&tmp, row_order[format_rowid(*location)]);
     }
-    LOG(INFO) << "dump block " << res_block->dump_data();
     return Status::OK();
 }
 
