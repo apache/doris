@@ -32,7 +32,6 @@
 #include "common/compiler_util.h"
 #include "common/status.h"
 #include "runtime/primitive_type.h"
-#include "vec/data_types/data_type_decimal.h"
 
 namespace doris {
 
