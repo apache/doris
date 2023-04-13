@@ -107,6 +107,7 @@ public class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T>,
     }
 
     public final synchronized void makeSureInitialized() {
+        extCatalog.makeSureInitialized();
         if (!initialized) {
             if (!Env.getCurrentEnv().isMaster()) {
                 // Forward to master and wait the journal to replay.
