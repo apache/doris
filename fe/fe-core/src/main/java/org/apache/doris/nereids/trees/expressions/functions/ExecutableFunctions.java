@@ -82,7 +82,7 @@ public class ExecutableFunctions {
     private static final LocalDateTime START_ORIGINAL_DAY = LocalDateTime.of(1970, 1, 1, 0, 0, 0);
     private static final LocalDateTime START_ORIGINAL_WEEK = LocalDateTime.of(1970, 1, 4, 0, 0, 0);
 
-    enum DATE_TAGS {
+    enum DATE {
         YEAR,
         MONTH,
         DAY,
@@ -1084,7 +1084,8 @@ public class ExecutableFunctions {
     /**
      * datetime arithmetic function date-ceil and date-floor series helper function
      */
-    private static LocalDateTime getDateFloor(DATE_TAGS tag, LocalDateTime date, int period, LocalDateTime origin) {
+    private static LocalDateTime getDateFloor(DATE tag, LocalDateTime date, int period, LocalDateTime origin,
+            boolean getCeil) {
         // Algorithm:
         // Firstly, get the unit distance of the two date.
         // Secondly, if the origin date is bigger than the date, subtract it to a date before the date by unit.
@@ -1102,10 +1103,12 @@ public class ExecutableFunctions {
         // get distance
         Duration duration = Duration.between(origin, date);
         long hour = Math.abs(duration.toHours());
+        long ceil = ((hour - 1) / period + 1) * period;
         long floor = hour / period * period;
         LocalDateTime floorDate = origin.plusHours(floor);
+        LocalDateTime ceilDate = origin.plusHours(ceil);
 
-        return floorDate;
+        return getCeil ? ceilDate : floorDate;
     }
 
     /**
@@ -1114,73 +1117,73 @@ public class ExecutableFunctions {
     @ExecFunction(name = "year_ceil", argTypes = {"DATETIME"}, returnType = "DATETIME")
     public static DateTimeLiteral yearCeil(DateTimeLiteral date) {
         return DateTimeLiteral.fromJavaDateType(
-                getDateFloor(DATE_TAGS.YEAR, date.toJavaDateType(), 1, START_ORIGINAL_DAY));
+                getDateFloor(DATE.YEAR, date.toJavaDateType(), 1, START_ORIGINAL_DAY, true));
     }
 
     @ExecFunction(name = "year_ceil", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
     public static DateTimeLiteral yearCeil(DateTimeLiteral date, IntegerLiteral period) {
         return DateTimeLiteral.fromJavaDateType(
-                getDateFloor(DATE_TAGS.YEAR, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY));
+                getDateFloor(DATE.YEAR, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY, true));
     }
 
     @ExecFunction(name = "year_ceil", argTypes = {"DATETIME", "DATETIME"}, returnType = "DATETIME")
     public static DateTimeLiteral yearCeil(DateTimeLiteral date, DateTimeLiteral origin) {
         return DateTimeLiteral.fromJavaDateType(
-                getDateFloor(DATE_TAGS.YEAR, date.toJavaDateType(), 1, origin.toJavaDateType()));
+                getDateFloor(DATE.YEAR, date.toJavaDateType(), 1, origin.toJavaDateType(), true));
     }
 
     @ExecFunction(name = "year_ceil", argTypes = {"DATETIME", "INT", "DATETIME"}, returnType = "DATETIME")
     public static DateTimeLiteral yearCeil(DateTimeLiteral date, IntegerLiteral period, DateTimeLiteral origin) {
         return DateTimeLiteral.fromJavaDateType(
-                getDateFloor(DATE_TAGS.YEAR, date.toJavaDateType(), period.getValue(), origin.toJavaDateType()));
+                getDateFloor(DATE.YEAR, date.toJavaDateType(), period.getValue(), origin.toJavaDateType(), true));
     }
 
     @ExecFunction(name = "year_ceil", argTypes = {"DATEV2"}, returnType = "DATEV2")
     public static DateV2Literal yearCeil(DateV2Literal date) {
         return DateV2Literal.fromJavaDateType(
-                getDateFloor(DATE_TAGS.YEAR, date.toJavaDateType(), 1, START_ORIGINAL_DAY));
+                getDateFloor(DATE.YEAR, date.toJavaDateType(), 1, START_ORIGINAL_DAY, true));
     }
 
     @ExecFunction(name = "year_ceil", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
     public static DateV2Literal yearCeil(DateV2Literal date, IntegerLiteral period) {
         return DateV2Literal.fromJavaDateType(
-                getDateFloor(DATE_TAGS.YEAR, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY));
+                getDateFloor(DATE.YEAR, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY, true));
     }
 
     @ExecFunction(name = "year_ceil", argTypes = {"DATEV2", "DATEV2"}, returnType = "DATEV2")
     public static DateV2Literal yearCeil(DateV2Literal date, DateV2Literal origin) {
         return DateV2Literal.fromJavaDateType(
-                getDateFloor(DATE_TAGS.YEAR, date.toJavaDateType(), 1, origin.toJavaDateType()));
+                getDateFloor(DATE.YEAR, date.toJavaDateType(), 1, origin.toJavaDateType(), true));
     }
 
     @ExecFunction(name = "year_ceil", argTypes = {"DATEV2", "INT", "DATEV2"}, returnType = "DATEV2")
     public static DateV2Literal yearCeil(DateV2Literal date, IntegerLiteral period, DateV2Literal origin) {
         return DateV2Literal.fromJavaDateType(
-                getDateFloor(DATE_TAGS.YEAR, date.toJavaDateType(), period.getValue(), origin.toJavaDateType()));
+                getDateFloor(DATE.YEAR, date.toJavaDateType(), period.getValue(), origin.toJavaDateType(), true));
     }
 
     @ExecFunction(name = "year_ceil", argTypes = {"DATETIMEV2"}, returnType = "DATETIMEV2")
     public static DateTimeV2Literal yearCeil(DateTimeV2Literal date) {
         return DateTimeV2Literal.fromJavaDateType(
-                getDateFloor(DATE_TAGS.YEAR, date.toJavaDateType(), 1, START_ORIGINAL_DAY));
+                getDateFloor(DATE.YEAR, date.toJavaDateType(), 1, START_ORIGINAL_DAY, true));
     }
 
     @ExecFunction(name = "year_ceil", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
     public static DateTimeV2Literal yearCeil(DateTimeV2Literal date, IntegerLiteral period) {
         return DateTimeV2Literal.fromJavaDateType(
-                getDateFloor(DATE_TAGS.YEAR, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY));
+                getDateFloor(DATE.YEAR, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY, true));
     }
 
     @ExecFunction(name = "year_ceil", argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "DATETIMEV2")
     public static DateTimeV2Literal yearCeil(DateTimeV2Literal date, DateTimeV2Literal origin) {
         return DateTimeV2Literal.fromJavaDateType(
-                getDateFloor(DATE_TAGS.YEAR, date.toJavaDateType(), 1, origin.toJavaDateType()));
+                getDateFloor(DATE.YEAR, date.toJavaDateType(), 1, origin.toJavaDateType(), true));
     }
 
     @ExecFunction(name = "year_ceil", argTypes = {"DATETIMEV2", "INT", "DATETIMEV2"}, returnType = "DATETIMEV2")
     public static DateTimeV2Literal yearCeil(DateTimeV2Literal date, IntegerLiteral period, DateTimeV2Literal origin) {
         return DateTimeV2Literal.fromJavaDateType(
-                getDateFloor(DATE_TAGS.YEAR, date.toJavaDateType(), period.getValue(), origin.toJavaDateType()));
+                getDateFloor(DATE.YEAR, date.toJavaDateType(), period.getValue(), origin.toJavaDateType(), true));
     }
 
     /**
@@ -1189,73 +1192,73 @@ public class ExecutableFunctions {
     @ExecFunction(name = "month_ceil", argTypes = {"DATETIME"}, returnType = "DATETIME")
     public static DateTimeLiteral monthCeil(DateTimeLiteral date) {
         return DateTimeLiteral.fromJavaDateType(
-                getDateFloor(DATE_TAGS.MONTH, date.toJavaDateType(), 1, START_ORIGINAL_DAY));
+                getDateFloor(DATE.MONTH, date.toJavaDateType(), 1, START_ORIGINAL_DAY, true));
     }
 
     @ExecFunction(name = "month_ceil", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
     public static DateTimeLiteral monthCeil(DateTimeLiteral date, IntegerLiteral period) {
         return DateTimeLiteral.fromJavaDateType(
-                getDateFloor(DATE_TAGS.MONTH, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY));
+                getDateFloor(DATE.MONTH, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY, true));
     }
 
     @ExecFunction(name = "month_ceil", argTypes = {"DATETIME", "DATETIME"}, returnType = "DATETIME")
     public static DateTimeLiteral monthCeil(DateTimeLiteral date, DateTimeLiteral origin) {
         return DateTimeLiteral.fromJavaDateType(
-                getDateFloor(DATE_TAGS.MONTH, date.toJavaDateType(), 1, origin.toJavaDateType()));
+                getDateFloor(DATE.MONTH, date.toJavaDateType(), 1, origin.toJavaDateType(), true));
     }
 
     @ExecFunction(name = "month_ceil", argTypes = {"DATETIME", "INT", "DATETIME"}, returnType = "DATETIME")
     public static DateTimeLiteral monthCeil(DateTimeLiteral date, IntegerLiteral period, DateTimeLiteral origin) {
         return DateTimeLiteral.fromJavaDateType(
-                getDateFloor(DATE_TAGS.MONTH, date.toJavaDateType(), period.getValue(), origin.toJavaDateType()));
+                getDateFloor(DATE.MONTH, date.toJavaDateType(), period.getValue(), origin.toJavaDateType(), true));
     }
 
     @ExecFunction(name = "month_ceil", argTypes = {"DATEV2"}, returnType = "DATEV2")
     public static DateV2Literal monthCeil(DateV2Literal date) {
         return DateV2Literal.fromJavaDateType(
-                getDateFloor(DATE_TAGS.MONTH, date.toJavaDateType(), 1, START_ORIGINAL_DAY));
+                getDateFloor(DATE.MONTH, date.toJavaDateType(), 1, START_ORIGINAL_DAY, true));
     }
 
     @ExecFunction(name = "month_ceil", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
     public static DateV2Literal monthCeil(DateV2Literal date, IntegerLiteral period) {
         return DateV2Literal.fromJavaDateType(
-                getDateFloor(DATE_TAGS.MONTH, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY));
+                getDateFloor(DATE.MONTH, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY, true));
     }
 
     @ExecFunction(name = "month_ceil", argTypes = {"DATEV2", "DATEV2"}, returnType = "DATEV2")
     public static DateV2Literal monthCeil(DateV2Literal date, DateV2Literal origin) {
         return DateV2Literal.fromJavaDateType(
-                getDateFloor(DATE_TAGS.MONTH, date.toJavaDateType(), 1, origin.toJavaDateType()));
+                getDateFloor(DATE.MONTH, date.toJavaDateType(), 1, origin.toJavaDateType(), true));
     }
 
     @ExecFunction(name = "month_ceil", argTypes = {"DATEV2", "INT", "DATEV2"}, returnType = "DATEV2")
     public static DateV2Literal monthCeil(DateV2Literal date, IntegerLiteral period, DateV2Literal origin) {
         return DateV2Literal.fromJavaDateType(
-                getDateFloor(DATE_TAGS.MONTH, date.toJavaDateType(), period.getValue(), origin.toJavaDateType()));
+                getDateFloor(DATE.MONTH, date.toJavaDateType(), period.getValue(), origin.toJavaDateType(), true));
     }
 
     @ExecFunction(name = "month_ceil", argTypes = {"DATETIMEV2"}, returnType = "DATETIMEV2")
     public static DateTimeV2Literal monthCeil(DateTimeV2Literal date) {
         return DateTimeV2Literal.fromJavaDateType(
-                getDateFloor(DATE_TAGS.MONTH, date.toJavaDateType(), 1, START_ORIGINAL_DAY));
+                getDateFloor(DATE.MONTH, date.toJavaDateType(), 1, START_ORIGINAL_DAY, true));
     }
 
     @ExecFunction(name = "month_ceil", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
     public static DateTimeV2Literal monthCeil(DateTimeV2Literal date, IntegerLiteral period) {
         return DateTimeV2Literal.fromJavaDateType(
-                getDateFloor(DATE_TAGS.MONTH, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY));
+                getDateFloor(DATE.MONTH, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY, true));
     }
 
     @ExecFunction(name = "month_ceil", argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "DATETIMEV2")
     public static DateTimeV2Literal monthCeil(DateTimeV2Literal date, DateTimeV2Literal origin) {
         return DateTimeV2Literal.fromJavaDateType(
-                getDateFloor(DATE_TAGS.MONTH, date.toJavaDateType(), 1, origin.toJavaDateType()));
+                getDateFloor(DATE.MONTH, date.toJavaDateType(), 1, origin.toJavaDateType(), true));
     }
 
     @ExecFunction(name = "month_ceil", argTypes = {"DATETIMEV2", "INT", "DATETIMEV2"}, returnType = "DATETIMEV2")
     public static DateTimeV2Literal monthCeil(DateTimeV2Literal date, IntegerLiteral period, DateTimeV2Literal origin) {
         return DateTimeV2Literal.fromJavaDateType(
-                getDateFloor(DATE_TAGS.MONTH, date.toJavaDateType(), period.getValue(), origin.toJavaDateType()));
+                getDateFloor(DATE.MONTH, date.toJavaDateType(), period.getValue(), origin.toJavaDateType(), true));
     }
 
     /**
@@ -1264,73 +1267,73 @@ public class ExecutableFunctions {
     @ExecFunction(name = "day_ceil", argTypes = {"DATETIME"}, returnType = "DATETIME")
     public static DateTimeLiteral dayCeil(DateTimeLiteral date) {
         return DateTimeLiteral.fromJavaDateType(
-                getDateFloor(DATE_TAGS.DAY, date.toJavaDateType(), 1, START_ORIGINAL_DAY));
+                getDateFloor(DATE.DAY, date.toJavaDateType(), 1, START_ORIGINAL_DAY, true));
     }
 
     @ExecFunction(name = "day_ceil", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
     public static DateTimeLiteral dayCeil(DateTimeLiteral date, IntegerLiteral period) {
         return DateTimeLiteral.fromJavaDateType(
-                getDateFloor(DATE_TAGS.DAY, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY));
+                getDateFloor(DATE.DAY, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY, true));
     }
 
     @ExecFunction(name = "day_ceil", argTypes = {"DATETIME", "DATETIME"}, returnType = "DATETIME")
     public static DateTimeLiteral dayCeil(DateTimeLiteral date, DateTimeLiteral origin) {
         return DateTimeLiteral.fromJavaDateType(
-                getDateFloor(DATE_TAGS.DAY, date.toJavaDateType(), 1, origin.toJavaDateType()));
+                getDateFloor(DATE.DAY, date.toJavaDateType(), 1, origin.toJavaDateType(), true));
     }
 
     @ExecFunction(name = "day_ceil", argTypes = {"DATETIME", "INT", "DATETIME"}, returnType = "DATETIME")
     public static DateTimeLiteral dayCeil(DateTimeLiteral date, IntegerLiteral period, DateTimeLiteral origin) {
         return DateTimeLiteral.fromJavaDateType(
-                getDateFloor(DATE_TAGS.DAY, date.toJavaDateType(), period.getValue(), origin.toJavaDateType()));
+                getDateFloor(DATE.DAY, date.toJavaDateType(), period.getValue(), origin.toJavaDateType(), true));
     }
 
     @ExecFunction(name = "day_ceil", argTypes = {"DATEV2"}, returnType = "DATEV2")
     public static DateV2Literal dayCeil(DateV2Literal date) {
         return DateV2Literal.fromJavaDateType(
-                getDateFloor(DATE_TAGS.DAY, date.toJavaDateType(), 1, START_ORIGINAL_DAY));
+                getDateFloor(DATE.DAY, date.toJavaDateType(), 1, START_ORIGINAL_DAY, true));
     }
 
     @ExecFunction(name = "day_ceil", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
     public static DateV2Literal dayCeil(DateV2Literal date, IntegerLiteral period) {
         return DateV2Literal.fromJavaDateType(
-                getDateFloor(DATE_TAGS.DAY, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY));
+                getDateFloor(DATE.DAY, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY, true));
     }
 
     @ExecFunction(name = "day_ceil", argTypes = {"DATEV2", "DATEV2"}, returnType = "DATEV2")
     public static DateV2Literal dayCeil(DateV2Literal date, DateV2Literal origin) {
         return DateV2Literal.fromJavaDateType(
-                getDateFloor(DATE_TAGS.DAY, date.toJavaDateType(), 1, origin.toJavaDateType()));
+                getDateFloor(DATE.DAY, date.toJavaDateType(), 1, origin.toJavaDateType(), true));
     }
 
     @ExecFunction(name = "day_ceil", argTypes = {"DATEV2", "INT", "DATEV2"}, returnType = "DATEV2")
     public static DateV2Literal dayCeil(DateV2Literal date, IntegerLiteral period, DateV2Literal origin) {
         return DateV2Literal.fromJavaDateType(
-                getDateFloor(DATE_TAGS.DAY, date.toJavaDateType(), period.getValue(), origin.toJavaDateType()));
+                getDateFloor(DATE.DAY, date.toJavaDateType(), period.getValue(), origin.toJavaDateType(), true));
     }
 
     @ExecFunction(name = "day_ceil", argTypes = {"DATETIMEV2"}, returnType = "DATETIMEV2")
     public static DateTimeV2Literal dayCeil(DateTimeV2Literal date) {
         return DateTimeV2Literal.fromJavaDateType(
-                getDateFloor(DATE_TAGS.DAY, date.toJavaDateType(), 1, START_ORIGINAL_DAY));
+                getDateFloor(DATE.DAY, date.toJavaDateType(), 1, START_ORIGINAL_DAY, true));
     }
 
     @ExecFunction(name = "day_ceil", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
     public static DateTimeV2Literal dayCeil(DateTimeV2Literal date, IntegerLiteral period) {
         return DateTimeV2Literal.fromJavaDateType(
-                getDateFloor(DATE_TAGS.DAY, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY));
+                getDateFloor(DATE.DAY, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY, true));
     }
 
     @ExecFunction(name = "day_ceil", argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "DATETIMEV2")
     public static DateTimeV2Literal dayCeil(DateTimeV2Literal date, DateTimeV2Literal origin) {
         return DateTimeV2Literal.fromJavaDateType(
-                getDateFloor(DATE_TAGS.DAY, date.toJavaDateType(), 1, origin.toJavaDateType()));
+                getDateFloor(DATE.DAY, date.toJavaDateType(), 1, origin.toJavaDateType(), true));
     }
 
     @ExecFunction(name = "day_ceil", argTypes = {"DATETIMEV2", "INT", "DATETIMEV2"}, returnType = "DATETIMEV2")
     public static DateTimeV2Literal dayCeil(DateTimeV2Literal date, IntegerLiteral period, DateTimeV2Literal origin) {
         return DateTimeV2Literal.fromJavaDateType(
-                getDateFloor(DATE_TAGS.DAY, date.toJavaDateType(), period.getValue(), origin.toJavaDateType()));
+                getDateFloor(DATE.DAY, date.toJavaDateType(), period.getValue(), origin.toJavaDateType(), true));
     }
 
     /**
@@ -1339,73 +1342,678 @@ public class ExecutableFunctions {
     @ExecFunction(name = "hour_ceil", argTypes = {"DATETIME"}, returnType = "DATETIME")
     public static DateTimeLiteral hourCeil(DateTimeLiteral date) {
         return DateTimeLiteral.fromJavaDateType(
-                getDateFloor(DATE_TAGS.HOUR, date.toJavaDateType(), 1, START_ORIGINAL_DAY));
+                getDateFloor(DATE.HOUR, date.toJavaDateType(), 1, START_ORIGINAL_DAY, true));
     }
 
     @ExecFunction(name = "hour_ceil", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
     public static DateTimeLiteral hourCeil(DateTimeLiteral date, IntegerLiteral period) {
         return DateTimeLiteral.fromJavaDateType(
-                getDateFloor(DATE_TAGS.HOUR, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY));
+                getDateFloor(DATE.HOUR, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY, true));
     }
 
     @ExecFunction(name = "hour_ceil", argTypes = {"DATETIME", "DATETIME"}, returnType = "DATETIME")
     public static DateTimeLiteral hourCeil(DateTimeLiteral date, DateTimeLiteral origin) {
         return DateTimeLiteral.fromJavaDateType(
-                getDateFloor(DATE_TAGS.HOUR, date.toJavaDateType(), 1, origin.toJavaDateType()));
+                getDateFloor(DATE.HOUR, date.toJavaDateType(), 1, origin.toJavaDateType(), true));
     }
 
     @ExecFunction(name = "hour_ceil", argTypes = {"DATETIME", "INT", "DATETIME"}, returnType = "DATETIME")
     public static DateTimeLiteral hourCeil(DateTimeLiteral date, IntegerLiteral period, DateTimeLiteral origin) {
         return DateTimeLiteral.fromJavaDateType(
-                getDateFloor(DATE_TAGS.HOUR, date.toJavaDateType(), period.getValue(), origin.toJavaDateType()));
+                getDateFloor(DATE.HOUR, date.toJavaDateType(), period.getValue(), origin.toJavaDateType(), true));
     }
 
     @ExecFunction(name = "hour_ceil", argTypes = {"DATEV2"}, returnType = "DATEV2")
     public static DateV2Literal hourCeil(DateV2Literal date) {
         return DateV2Literal.fromJavaDateType(
-                getDateFloor(DATE_TAGS.HOUR, date.toJavaDateType(), 1, START_ORIGINAL_DAY));
+                getDateFloor(DATE.HOUR, date.toJavaDateType(), 1, START_ORIGINAL_DAY, true));
     }
 
     @ExecFunction(name = "hour_ceil", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
     public static DateV2Literal hourCeil(DateV2Literal date, IntegerLiteral period) {
         return DateV2Literal.fromJavaDateType(
-                getDateFloor(DATE_TAGS.HOUR, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY));
+                getDateFloor(DATE.HOUR, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY, true));
     }
 
     @ExecFunction(name = "hour_ceil", argTypes = {"DATEV2", "DATEV2"}, returnType = "DATEV2")
     public static DateV2Literal hourCeil(DateV2Literal date, DateV2Literal origin) {
         return DateV2Literal.fromJavaDateType(
-                getDateFloor(DATE_TAGS.HOUR, date.toJavaDateType(), 1, origin.toJavaDateType()));
+                getDateFloor(DATE.HOUR, date.toJavaDateType(), 1, origin.toJavaDateType(), true));
     }
 
     @ExecFunction(name = "hour_ceil", argTypes = {"DATEV2", "INT", "DATEV2"}, returnType = "DATEV2")
     public static DateV2Literal hourCeil(DateV2Literal date, IntegerLiteral period, DateV2Literal origin) {
         return DateV2Literal.fromJavaDateType(
-                getDateFloor(DATE_TAGS.HOUR, date.toJavaDateType(), period.getValue(), origin.toJavaDateType()));
+                getDateFloor(DATE.HOUR, date.toJavaDateType(), period.getValue(), origin.toJavaDateType(), true));
     }
 
     @ExecFunction(name = "hour_ceil", argTypes = {"DATETIMEV2"}, returnType = "DATETIMEV2")
     public static DateTimeV2Literal hourCeil(DateTimeV2Literal date) {
         return DateTimeV2Literal.fromJavaDateType(
-                getDateFloor(DATE_TAGS.HOUR, date.toJavaDateType(), 1, START_ORIGINAL_DAY));
+                getDateFloor(DATE.HOUR, date.toJavaDateType(), 1, START_ORIGINAL_DAY, true));
     }
 
     @ExecFunction(name = "hour_ceil", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
     public static DateTimeV2Literal hourCeil(DateTimeV2Literal date, IntegerLiteral period) {
         return DateTimeV2Literal.fromJavaDateType(
-                getDateFloor(DATE_TAGS.HOUR, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY));
+                getDateFloor(DATE.HOUR, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY, true));
     }
 
     @ExecFunction(name = "hour_ceil", argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "DATETIMEV2")
     public static DateTimeV2Literal hourCeil(DateTimeV2Literal date, DateTimeV2Literal origin) {
         return DateTimeV2Literal.fromJavaDateType(
-                getDateFloor(DATE_TAGS.HOUR, date.toJavaDateType(), 1, origin.toJavaDateType()));
+                getDateFloor(DATE.HOUR, date.toJavaDateType(), 1, origin.toJavaDateType(), true));
     }
 
     @ExecFunction(name = "hour_ceil", argTypes = {"DATETIMEV2", "INT", "DATETIMEV2"}, returnType = "DATETIMEV2")
     public static DateTimeV2Literal hourCeil(DateTimeV2Literal date, IntegerLiteral period, DateTimeV2Literal origin) {
         return DateTimeV2Literal.fromJavaDateType(
-                getDateFloor(DATE_TAGS.HOUR, date.toJavaDateType(), period.getValue(), origin.toJavaDateType()));
+                getDateFloor(DATE.HOUR, date.toJavaDateType(), period.getValue(), origin.toJavaDateType(), true));
+    }
+
+    /**
+     * datetime arithmetic function minute-ceil
+     */
+    @ExecFunction(name = "minute_ceil", argTypes = {"DATETIME"}, returnType = "DATETIME")
+    public static DateTimeLiteral minuteCeil(DateTimeLiteral date) {
+        return DateTimeLiteral.fromJavaDateType(
+                getDateFloor(DATE.MINUTE, date.toJavaDateType(), 1, START_ORIGINAL_DAY, true));
+    }
+
+    @ExecFunction(name = "minute_ceil", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
+    public static DateTimeLiteral minuteCeil(DateTimeLiteral date, IntegerLiteral period) {
+        return DateTimeLiteral.fromJavaDateType(
+                getDateFloor(DATE.MINUTE, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY, true));
+    }
+
+    @ExecFunction(name = "minute_ceil", argTypes = {"DATETIME", "DATETIME"}, returnType = "DATETIME")
+    public static DateTimeLiteral minuteCeil(DateTimeLiteral date, DateTimeLiteral origin) {
+        return DateTimeLiteral.fromJavaDateType(
+                getDateFloor(DATE.MINUTE, date.toJavaDateType(), 1, origin.toJavaDateType(), true));
+    }
+
+    @ExecFunction(name = "minute_ceil", argTypes = {"DATETIME", "INT", "DATETIME"}, returnType = "DATETIME")
+    public static DateTimeLiteral minuteCeil(DateTimeLiteral date, IntegerLiteral period, DateTimeLiteral origin) {
+        return DateTimeLiteral.fromJavaDateType(
+                getDateFloor(DATE.MINUTE, date.toJavaDateType(), period.getValue(), origin.toJavaDateType(), true));
+    }
+
+    @ExecFunction(name = "minute_ceil", argTypes = {"DATEV2"}, returnType = "DATEV2")
+    public static DateV2Literal minuteCeil(DateV2Literal date) {
+        return DateV2Literal.fromJavaDateType(
+                getDateFloor(DATE.MINUTE, date.toJavaDateType(), 1, START_ORIGINAL_DAY, true));
+    }
+
+    @ExecFunction(name = "minute_ceil", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
+    public static DateV2Literal minuteCeil(DateV2Literal date, IntegerLiteral period) {
+        return DateV2Literal.fromJavaDateType(
+                getDateFloor(DATE.MINUTE, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY, true));
+    }
+
+    @ExecFunction(name = "minute_ceil", argTypes = {"DATEV2", "DATEV2"}, returnType = "DATEV2")
+    public static DateV2Literal minuteCeil(DateV2Literal date, DateV2Literal origin) {
+        return DateV2Literal.fromJavaDateType(
+                getDateFloor(DATE.MINUTE, date.toJavaDateType(), 1, origin.toJavaDateType(), true));
+    }
+
+    @ExecFunction(name = "minute_ceil", argTypes = {"DATEV2", "INT", "DATEV2"}, returnType = "DATEV2")
+    public static DateV2Literal minuteCeil(DateV2Literal date, IntegerLiteral period, DateV2Literal origin) {
+        return DateV2Literal.fromJavaDateType(
+                getDateFloor(DATE.MINUTE, date.toJavaDateType(), period.getValue(), origin.toJavaDateType(), true));
+    }
+
+    @ExecFunction(name = "minute_ceil", argTypes = {"DATETIMEV2"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal minuteCeil(DateTimeV2Literal date) {
+        return DateTimeV2Literal.fromJavaDateType(
+                getDateFloor(DATE.MINUTE, date.toJavaDateType(), 1, START_ORIGINAL_DAY, true));
+    }
+
+    @ExecFunction(name = "minute_ceil", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal minuteCeil(DateTimeV2Literal date, IntegerLiteral period) {
+        return DateTimeV2Literal.fromJavaDateType(
+                getDateFloor(DATE.MINUTE, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY, true));
+    }
+
+    @ExecFunction(name = "minute_ceil", argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal minuteCeil(DateTimeV2Literal date, DateTimeV2Literal origin) {
+        return DateTimeV2Literal.fromJavaDateType(
+                getDateFloor(DATE.MINUTE, date.toJavaDateType(), 1, origin.toJavaDateType(), true));
+    }
+
+    @ExecFunction(name = "minute_ceil", argTypes = {"DATETIMEV2", "INT", "DATETIMEV2"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal minuteCeil(DateTimeV2Literal date, IntegerLiteral period,
+            DateTimeV2Literal origin) {
+        return DateTimeV2Literal.fromJavaDateType(
+                getDateFloor(DATE.MINUTE, date.toJavaDateType(), period.getValue(), origin.toJavaDateType(), true));
+    }
+
+    /**
+     * datetime arithmetic function SECOND-ceil
+     */
+    @ExecFunction(name = "second_ceil", argTypes = {"DATETIME"}, returnType = "DATETIME")
+    public static DateTimeLiteral secondCeil(DateTimeLiteral date) {
+        return DateTimeLiteral.fromJavaDateType(
+                getDateFloor(DATE.SECOND, date.toJavaDateType(), 1, START_ORIGINAL_DAY, true));
+    }
+
+    @ExecFunction(name = "second_ceil", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
+    public static DateTimeLiteral secondCeil(DateTimeLiteral date, IntegerLiteral period) {
+        return DateTimeLiteral.fromJavaDateType(
+                getDateFloor(DATE.SECOND, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY, true));
+    }
+
+    @ExecFunction(name = "second_ceil", argTypes = {"DATETIME", "DATETIME"}, returnType = "DATETIME")
+    public static DateTimeLiteral secondCeil(DateTimeLiteral date, DateTimeLiteral origin) {
+        return DateTimeLiteral.fromJavaDateType(
+                getDateFloor(DATE.SECOND, date.toJavaDateType(), 1, origin.toJavaDateType(), true));
+    }
+
+    @ExecFunction(name = "second_ceil", argTypes = {"DATETIME", "INT", "DATETIME"}, returnType = "DATETIME")
+    public static DateTimeLiteral secondCeil(DateTimeLiteral date, IntegerLiteral period, DateTimeLiteral origin) {
+        return DateTimeLiteral.fromJavaDateType(
+                getDateFloor(DATE.SECOND, date.toJavaDateType(), period.getValue(), origin.toJavaDateType(), true));
+    }
+
+    @ExecFunction(name = "second_ceil", argTypes = {"DATEV2"}, returnType = "DATEV2")
+    public static DateV2Literal secondCeil(DateV2Literal date) {
+        return DateV2Literal.fromJavaDateType(
+                getDateFloor(DATE.SECOND, date.toJavaDateType(), 1, START_ORIGINAL_DAY, true));
+    }
+
+    @ExecFunction(name = "second_ceil", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
+    public static DateV2Literal secondCeil(DateV2Literal date, IntegerLiteral period) {
+        return DateV2Literal.fromJavaDateType(
+                getDateFloor(DATE.SECOND, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY, true));
+    }
+
+    @ExecFunction(name = "second_ceil", argTypes = {"DATEV2", "DATEV2"}, returnType = "DATEV2")
+    public static DateV2Literal secondCeil(DateV2Literal date, DateV2Literal origin) {
+        return DateV2Literal.fromJavaDateType(
+                getDateFloor(DATE.SECOND, date.toJavaDateType(), 1, origin.toJavaDateType(), true));
+    }
+
+    @ExecFunction(name = "second_ceil", argTypes = {"DATEV2", "INT", "DATEV2"}, returnType = "DATEV2")
+    public static DateV2Literal secondCeil(DateV2Literal date, IntegerLiteral period, DateV2Literal origin) {
+        return DateV2Literal.fromJavaDateType(
+                getDateFloor(DATE.SECOND, date.toJavaDateType(), period.getValue(), origin.toJavaDateType(), true));
+    }
+
+    @ExecFunction(name = "second_ceil", argTypes = {"DATETIMEV2"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal secondCeil(DateTimeV2Literal date) {
+        return DateTimeV2Literal.fromJavaDateType(
+                getDateFloor(DATE.SECOND, date.toJavaDateType(), 1, START_ORIGINAL_DAY, true));
+    }
+
+    @ExecFunction(name = "second_ceil", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal secondCeil(DateTimeV2Literal date, IntegerLiteral period) {
+        return DateTimeV2Literal.fromJavaDateType(
+                getDateFloor(DATE.SECOND, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY, true));
+    }
+
+    @ExecFunction(name = "second_ceil", argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal secondCeil(DateTimeV2Literal date, DateTimeV2Literal origin) {
+        return DateTimeV2Literal.fromJavaDateType(
+                getDateFloor(DATE.SECOND, date.toJavaDateType(), 1, origin.toJavaDateType(), true));
+    }
+
+    @ExecFunction(name = "second_ceil", argTypes = {"DATETIMEV2", "INT", "DATETIMEV2"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal secondCeil(DateTimeV2Literal date, IntegerLiteral period,
+            DateTimeV2Literal origin) {
+        return DateTimeV2Literal.fromJavaDateType(
+                getDateFloor(DATE.SECOND, date.toJavaDateType(), period.getValue(), origin.toJavaDateType(), true));
+    }
+
+    /**
+     * datetime arithmetic function year-floor
+     */
+    @ExecFunction(name = "year_floor", argTypes = {"DATETIME"}, returnType = "DATETIME")
+    public static DateTimeLiteral yearFloor(DateTimeLiteral date) {
+        return DateTimeLiteral.fromJavaDateType(
+                getDateFloor(DATE.YEAR, date.toJavaDateType(), 1, START_ORIGINAL_DAY, false));
+    }
+
+    @ExecFunction(name = "year_floor", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
+    public static DateTimeLiteral yearFloor(DateTimeLiteral date, IntegerLiteral period) {
+        return DateTimeLiteral.fromJavaDateType(
+                getDateFloor(DATE.YEAR, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY, false));
+    }
+
+    @ExecFunction(name = "year_floor", argTypes = {"DATETIME", "DATETIME"}, returnType = "DATETIME")
+    public static DateTimeLiteral yearFloor(DateTimeLiteral date, DateTimeLiteral origin) {
+        return DateTimeLiteral.fromJavaDateType(
+                getDateFloor(DATE.YEAR, date.toJavaDateType(), 1, origin.toJavaDateType(), false));
+    }
+
+    @ExecFunction(name = "year_floor", argTypes = {"DATETIME", "INT", "DATETIME"}, returnType = "DATETIME")
+    public static DateTimeLiteral yearFloor(DateTimeLiteral date, IntegerLiteral period, DateTimeLiteral origin) {
+        return DateTimeLiteral.fromJavaDateType(
+                getDateFloor(DATE.YEAR, date.toJavaDateType(), period.getValue(), origin.toJavaDateType(), false));
+    }
+
+    @ExecFunction(name = "year_floor", argTypes = {"DATEV2"}, returnType = "DATEV2")
+    public static DateV2Literal yearFloor(DateV2Literal date) {
+        return DateV2Literal.fromJavaDateType(
+                getDateFloor(DATE.YEAR, date.toJavaDateType(), 1, START_ORIGINAL_DAY, false));
+    }
+
+    @ExecFunction(name = "year_floor", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
+    public static DateV2Literal yearFloor(DateV2Literal date, IntegerLiteral period) {
+        return DateV2Literal.fromJavaDateType(
+                getDateFloor(DATE.YEAR, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY, false));
+    }
+
+    @ExecFunction(name = "year_floor", argTypes = {"DATEV2", "DATEV2"}, returnType = "DATEV2")
+    public static DateV2Literal yearFloor(DateV2Literal date, DateV2Literal origin) {
+        return DateV2Literal.fromJavaDateType(
+                getDateFloor(DATE.YEAR, date.toJavaDateType(), 1, origin.toJavaDateType(), false));
+    }
+
+    @ExecFunction(name = "year_floor", argTypes = {"DATEV2", "INT", "DATEV2"}, returnType = "DATEV2")
+    public static DateV2Literal yearFloor(DateV2Literal date, IntegerLiteral period, DateV2Literal origin) {
+        return DateV2Literal.fromJavaDateType(
+                getDateFloor(DATE.YEAR, date.toJavaDateType(), period.getValue(), origin.toJavaDateType(), false));
+    }
+
+    @ExecFunction(name = "year_floor", argTypes = {"DATETIMEV2"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal yearFloor(DateTimeV2Literal date) {
+        return DateTimeV2Literal.fromJavaDateType(
+                getDateFloor(DATE.YEAR, date.toJavaDateType(), 1, START_ORIGINAL_DAY, false));
+    }
+
+    @ExecFunction(name = "year_floor", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal yearFloor(DateTimeV2Literal date, IntegerLiteral period) {
+        return DateTimeV2Literal.fromJavaDateType(
+                getDateFloor(DATE.YEAR, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY, false));
+    }
+
+    @ExecFunction(name = "year_floor", argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal yearFloor(DateTimeV2Literal date, DateTimeV2Literal origin) {
+        return DateTimeV2Literal.fromJavaDateType(
+                getDateFloor(DATE.YEAR, date.toJavaDateType(), 1, origin.toJavaDateType(), false));
+    }
+
+    @ExecFunction(name = "year_floor", argTypes = {"DATETIMEV2", "INT", "DATETIMEV2"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal yearFloor(DateTimeV2Literal date, IntegerLiteral period, DateTimeV2Literal origin) {
+        return DateTimeV2Literal.fromJavaDateType(
+                getDateFloor(DATE.YEAR, date.toJavaDateType(), period.getValue(), origin.toJavaDateType(), false));
+    }
+
+    /**
+     * datetime arithmetic function month-floor
+     */
+    @ExecFunction(name = "month_floor", argTypes = {"DATETIME"}, returnType = "DATETIME")
+    public static DateTimeLiteral monthFloor(DateTimeLiteral date) {
+        return DateTimeLiteral.fromJavaDateType(
+                getDateFloor(DATE.MONTH, date.toJavaDateType(), 1, START_ORIGINAL_DAY, false));
+    }
+
+    @ExecFunction(name = "month_floor", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
+    public static DateTimeLiteral monthFloor(DateTimeLiteral date, IntegerLiteral period) {
+        return DateTimeLiteral.fromJavaDateType(
+                getDateFloor(DATE.MONTH, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY, false));
+    }
+
+    @ExecFunction(name = "month_floor", argTypes = {"DATETIME", "DATETIME"}, returnType = "DATETIME")
+    public static DateTimeLiteral monthFloor(DateTimeLiteral date, DateTimeLiteral origin) {
+        return DateTimeLiteral.fromJavaDateType(
+                getDateFloor(DATE.MONTH, date.toJavaDateType(), 1, origin.toJavaDateType(), false));
+    }
+
+    @ExecFunction(name = "month_floor", argTypes = {"DATETIME", "INT", "DATETIME"}, returnType = "DATETIME")
+    public static DateTimeLiteral monthFloor(DateTimeLiteral date, IntegerLiteral period, DateTimeLiteral origin) {
+        return DateTimeLiteral.fromJavaDateType(
+                getDateFloor(DATE.MONTH, date.toJavaDateType(), period.getValue(), origin.toJavaDateType(), false));
+    }
+
+    @ExecFunction(name = "month_floor", argTypes = {"DATEV2"}, returnType = "DATEV2")
+    public static DateV2Literal monthFloor(DateV2Literal date) {
+        return DateV2Literal.fromJavaDateType(
+                getDateFloor(DATE.MONTH, date.toJavaDateType(), 1, START_ORIGINAL_DAY, false));
+    }
+
+    @ExecFunction(name = "month_floor", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
+    public static DateV2Literal monthFloor(DateV2Literal date, IntegerLiteral period) {
+        return DateV2Literal.fromJavaDateType(
+                getDateFloor(DATE.MONTH, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY, false));
+    }
+
+    @ExecFunction(name = "month_floor", argTypes = {"DATEV2", "DATEV2"}, returnType = "DATEV2")
+    public static DateV2Literal monthFloor(DateV2Literal date, DateV2Literal origin) {
+        return DateV2Literal.fromJavaDateType(
+                getDateFloor(DATE.MONTH, date.toJavaDateType(), 1, origin.toJavaDateType(), false));
+    }
+
+    @ExecFunction(name = "month_floor", argTypes = {"DATEV2", "INT", "DATEV2"}, returnType = "DATEV2")
+    public static DateV2Literal monthFloor(DateV2Literal date, IntegerLiteral period, DateV2Literal origin) {
+        return DateV2Literal.fromJavaDateType(
+                getDateFloor(DATE.MONTH, date.toJavaDateType(), period.getValue(), origin.toJavaDateType(), false));
+    }
+
+    @ExecFunction(name = "month_floor", argTypes = {"DATETIMEV2"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal monthFloor(DateTimeV2Literal date) {
+        return DateTimeV2Literal.fromJavaDateType(
+                getDateFloor(DATE.MONTH, date.toJavaDateType(), 1, START_ORIGINAL_DAY, false));
+    }
+
+    @ExecFunction(name = "month_floor", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal monthFloor(DateTimeV2Literal date, IntegerLiteral period) {
+        return DateTimeV2Literal.fromJavaDateType(
+                getDateFloor(DATE.MONTH, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY, false));
+    }
+
+    @ExecFunction(name = "month_floor", argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal monthFloor(DateTimeV2Literal date, DateTimeV2Literal origin) {
+        return DateTimeV2Literal.fromJavaDateType(
+                getDateFloor(DATE.MONTH, date.toJavaDateType(), 1, origin.toJavaDateType(), false));
+    }
+
+    @ExecFunction(name = "month_floor", argTypes = {"DATETIMEV2", "INT", "DATETIMEV2"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal monthFloor(DateTimeV2Literal date, IntegerLiteral period,
+            DateTimeV2Literal origin) {
+        return DateTimeV2Literal.fromJavaDateType(
+                getDateFloor(DATE.MONTH, date.toJavaDateType(), period.getValue(), origin.toJavaDateType(), false));
+    }
+
+    /**
+     * datetime arithmetic function day-floor
+     */
+    @ExecFunction(name = "day_floor", argTypes = {"DATETIME"}, returnType = "DATETIME")
+    public static DateTimeLiteral dayFloor(DateTimeLiteral date) {
+        return DateTimeLiteral.fromJavaDateType(
+                getDateFloor(DATE.DAY, date.toJavaDateType(), 1, START_ORIGINAL_DAY, false));
+    }
+
+    @ExecFunction(name = "day_floor", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
+    public static DateTimeLiteral dayFloor(DateTimeLiteral date, IntegerLiteral period) {
+        return DateTimeLiteral.fromJavaDateType(
+                getDateFloor(DATE.DAY, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY, false));
+    }
+
+    @ExecFunction(name = "day_floor", argTypes = {"DATETIME", "DATETIME"}, returnType = "DATETIME")
+    public static DateTimeLiteral dayFloor(DateTimeLiteral date, DateTimeLiteral origin) {
+        return DateTimeLiteral.fromJavaDateType(
+                getDateFloor(DATE.DAY, date.toJavaDateType(), 1, origin.toJavaDateType(), false));
+    }
+
+    @ExecFunction(name = "day_floor", argTypes = {"DATETIME", "INT", "DATETIME"}, returnType = "DATETIME")
+    public static DateTimeLiteral dayFloor(DateTimeLiteral date, IntegerLiteral period, DateTimeLiteral origin) {
+        return DateTimeLiteral.fromJavaDateType(
+                getDateFloor(DATE.DAY, date.toJavaDateType(), period.getValue(), origin.toJavaDateType(), false));
+    }
+
+    @ExecFunction(name = "day_floor", argTypes = {"DATEV2"}, returnType = "DATEV2")
+    public static DateV2Literal dayFloor(DateV2Literal date) {
+        return DateV2Literal.fromJavaDateType(
+                getDateFloor(DATE.DAY, date.toJavaDateType(), 1, START_ORIGINAL_DAY, false));
+    }
+
+    @ExecFunction(name = "day_floor", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
+    public static DateV2Literal dayFloor(DateV2Literal date, IntegerLiteral period) {
+        return DateV2Literal.fromJavaDateType(
+                getDateFloor(DATE.DAY, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY, false));
+    }
+
+    @ExecFunction(name = "day_floor", argTypes = {"DATEV2", "DATEV2"}, returnType = "DATEV2")
+    public static DateV2Literal dayFloor(DateV2Literal date, DateV2Literal origin) {
+        return DateV2Literal.fromJavaDateType(
+                getDateFloor(DATE.DAY, date.toJavaDateType(), 1, origin.toJavaDateType(), false));
+    }
+
+    @ExecFunction(name = "day_floor", argTypes = {"DATEV2", "INT", "DATEV2"}, returnType = "DATEV2")
+    public static DateV2Literal dayFloor(DateV2Literal date, IntegerLiteral period, DateV2Literal origin) {
+        return DateV2Literal.fromJavaDateType(
+                getDateFloor(DATE.DAY, date.toJavaDateType(), period.getValue(), origin.toJavaDateType(), false));
+    }
+
+    @ExecFunction(name = "day_floor", argTypes = {"DATETIMEV2"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal dayFloor(DateTimeV2Literal date) {
+        return DateTimeV2Literal.fromJavaDateType(
+                getDateFloor(DATE.DAY, date.toJavaDateType(), 1, START_ORIGINAL_DAY, false));
+    }
+
+    @ExecFunction(name = "day_floor", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal dayFloor(DateTimeV2Literal date, IntegerLiteral period) {
+        return DateTimeV2Literal.fromJavaDateType(
+                getDateFloor(DATE.DAY, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY, false));
+    }
+
+    @ExecFunction(name = "day_floor", argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal dayFloor(DateTimeV2Literal date, DateTimeV2Literal origin) {
+        return DateTimeV2Literal.fromJavaDateType(
+                getDateFloor(DATE.DAY, date.toJavaDateType(), 1, origin.toJavaDateType(), false));
+    }
+
+    @ExecFunction(name = "day_floor", argTypes = {"DATETIMEV2", "INT", "DATETIMEV2"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal dayFloor(DateTimeV2Literal date, IntegerLiteral period, DateTimeV2Literal origin) {
+        return DateTimeV2Literal.fromJavaDateType(
+                getDateFloor(DATE.DAY, date.toJavaDateType(), period.getValue(), origin.toJavaDateType(), false));
+    }
+
+    /**
+     * datetime arithmetic function hour-floor
+     */
+    @ExecFunction(name = "hour_floor", argTypes = {"DATETIME"}, returnType = "DATETIME")
+    public static DateTimeLiteral hourFloor(DateTimeLiteral date) {
+        return DateTimeLiteral.fromJavaDateType(
+                getDateFloor(DATE.HOUR, date.toJavaDateType(), 1, START_ORIGINAL_DAY, false));
+    }
+
+    @ExecFunction(name = "hour_floor", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
+    public static DateTimeLiteral hourFloor(DateTimeLiteral date, IntegerLiteral period) {
+        return DateTimeLiteral.fromJavaDateType(
+                getDateFloor(DATE.HOUR, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY, false));
+    }
+
+    @ExecFunction(name = "hour_floor", argTypes = {"DATETIME", "DATETIME"}, returnType = "DATETIME")
+    public static DateTimeLiteral hourFloor(DateTimeLiteral date, DateTimeLiteral origin) {
+        return DateTimeLiteral.fromJavaDateType(
+                getDateFloor(DATE.HOUR, date.toJavaDateType(), 1, origin.toJavaDateType(), false));
+    }
+
+    @ExecFunction(name = "hour_floor", argTypes = {"DATETIME", "INT", "DATETIME"}, returnType = "DATETIME")
+    public static DateTimeLiteral hourFloor(DateTimeLiteral date, IntegerLiteral period, DateTimeLiteral origin) {
+        return DateTimeLiteral.fromJavaDateType(
+                getDateFloor(DATE.HOUR, date.toJavaDateType(), period.getValue(), origin.toJavaDateType(), false));
+    }
+
+    @ExecFunction(name = "hour_floor", argTypes = {"DATEV2"}, returnType = "DATEV2")
+    public static DateV2Literal hourFloor(DateV2Literal date) {
+        return DateV2Literal.fromJavaDateType(
+                getDateFloor(DATE.HOUR, date.toJavaDateType(), 1, START_ORIGINAL_DAY, false));
+    }
+
+    @ExecFunction(name = "hour_floor", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
+    public static DateV2Literal hourFloor(DateV2Literal date, IntegerLiteral period) {
+        return DateV2Literal.fromJavaDateType(
+                getDateFloor(DATE.HOUR, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY, false));
+    }
+
+    @ExecFunction(name = "hour_floor", argTypes = {"DATEV2", "DATEV2"}, returnType = "DATEV2")
+    public static DateV2Literal hourFloor(DateV2Literal date, DateV2Literal origin) {
+        return DateV2Literal.fromJavaDateType(
+                getDateFloor(DATE.HOUR, date.toJavaDateType(), 1, origin.toJavaDateType(), false));
+    }
+
+    @ExecFunction(name = "hour_floor", argTypes = {"DATEV2", "INT", "DATEV2"}, returnType = "DATEV2")
+    public static DateV2Literal hourFloor(DateV2Literal date, IntegerLiteral period, DateV2Literal origin) {
+        return DateV2Literal.fromJavaDateType(
+                getDateFloor(DATE.HOUR, date.toJavaDateType(), period.getValue(), origin.toJavaDateType(), false));
+    }
+
+    @ExecFunction(name = "hour_floor", argTypes = {"DATETIMEV2"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal hourFloor(DateTimeV2Literal date) {
+        return DateTimeV2Literal.fromJavaDateType(
+                getDateFloor(DATE.HOUR, date.toJavaDateType(), 1, START_ORIGINAL_DAY, false));
+    }
+
+    @ExecFunction(name = "hour_floor", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal hourFloor(DateTimeV2Literal date, IntegerLiteral period) {
+        return DateTimeV2Literal.fromJavaDateType(
+                getDateFloor(DATE.HOUR, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY, false));
+    }
+
+    @ExecFunction(name = "hour_floor", argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal hourFloor(DateTimeV2Literal date, DateTimeV2Literal origin) {
+        return DateTimeV2Literal.fromJavaDateType(
+                getDateFloor(DATE.HOUR, date.toJavaDateType(), 1, origin.toJavaDateType(), false));
+    }
+
+    @ExecFunction(name = "hour_floor", argTypes = {"DATETIMEV2", "INT", "DATETIMEV2"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal hourFloor(DateTimeV2Literal date, IntegerLiteral period, DateTimeV2Literal origin) {
+        return DateTimeV2Literal.fromJavaDateType(
+                getDateFloor(DATE.HOUR, date.toJavaDateType(), period.getValue(), origin.toJavaDateType(), false));
+    }
+
+    /**
+     * datetime arithmetic function minute-floor
+     */
+    @ExecFunction(name = "minute_floor", argTypes = {"DATETIME"}, returnType = "DATETIME")
+    public static DateTimeLiteral minuteFloor(DateTimeLiteral date) {
+        return DateTimeLiteral.fromJavaDateType(
+                getDateFloor(DATE.MINUTE, date.toJavaDateType(), 1, START_ORIGINAL_DAY, false));
+    }
+
+    @ExecFunction(name = "minute_floor", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
+    public static DateTimeLiteral minuteFloor(DateTimeLiteral date, IntegerLiteral period) {
+        return DateTimeLiteral.fromJavaDateType(
+                getDateFloor(DATE.MINUTE, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY, false));
+    }
+
+    @ExecFunction(name = "minute_floor", argTypes = {"DATETIME", "DATETIME"}, returnType = "DATETIME")
+    public static DateTimeLiteral minuteFloor(DateTimeLiteral date, DateTimeLiteral origin) {
+        return DateTimeLiteral.fromJavaDateType(
+                getDateFloor(DATE.MINUTE, date.toJavaDateType(), 1, origin.toJavaDateType(), false));
+    }
+
+    @ExecFunction(name = "minute_floor", argTypes = {"DATETIME", "INT", "DATETIME"}, returnType = "DATETIME")
+    public static DateTimeLiteral minuteFloor(DateTimeLiteral date, IntegerLiteral period, DateTimeLiteral origin) {
+        return DateTimeLiteral.fromJavaDateType(
+                getDateFloor(DATE.MINUTE, date.toJavaDateType(), period.getValue(), origin.toJavaDateType(), false));
+    }
+
+    @ExecFunction(name = "minute_floor", argTypes = {"DATEV2"}, returnType = "DATEV2")
+    public static DateV2Literal minuteFloor(DateV2Literal date) {
+        return DateV2Literal.fromJavaDateType(
+                getDateFloor(DATE.MINUTE, date.toJavaDateType(), 1, START_ORIGINAL_DAY, false));
+    }
+
+    @ExecFunction(name = "minute_floor", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
+    public static DateV2Literal minuteFloor(DateV2Literal date, IntegerLiteral period) {
+        return DateV2Literal.fromJavaDateType(
+                getDateFloor(DATE.MINUTE, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY, false));
+    }
+
+    @ExecFunction(name = "minute_floor", argTypes = {"DATEV2", "DATEV2"}, returnType = "DATEV2")
+    public static DateV2Literal minuteFloor(DateV2Literal date, DateV2Literal origin) {
+        return DateV2Literal.fromJavaDateType(
+                getDateFloor(DATE.MINUTE, date.toJavaDateType(), 1, origin.toJavaDateType(), false));
+    }
+
+    @ExecFunction(name = "minute_floor", argTypes = {"DATEV2", "INT", "DATEV2"}, returnType = "DATEV2")
+    public static DateV2Literal minuteFloor(DateV2Literal date, IntegerLiteral period, DateV2Literal origin) {
+        return DateV2Literal.fromJavaDateType(
+                getDateFloor(DATE.MINUTE, date.toJavaDateType(), period.getValue(), origin.toJavaDateType(), false));
+    }
+
+    @ExecFunction(name = "minute_floor", argTypes = {"DATETIMEV2"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal minuteFloor(DateTimeV2Literal date) {
+        return DateTimeV2Literal.fromJavaDateType(
+                getDateFloor(DATE.MINUTE, date.toJavaDateType(), 1, START_ORIGINAL_DAY, false));
+    }
+
+    @ExecFunction(name = "minute_floor", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal minuteFloor(DateTimeV2Literal date, IntegerLiteral period) {
+        return DateTimeV2Literal.fromJavaDateType(
+                getDateFloor(DATE.MINUTE, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY, false));
+    }
+
+    @ExecFunction(name = "minute_floor", argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal minuteFloor(DateTimeV2Literal date, DateTimeV2Literal origin) {
+        return DateTimeV2Literal.fromJavaDateType(
+                getDateFloor(DATE.MINUTE, date.toJavaDateType(), 1, origin.toJavaDateType(), false));
+    }
+
+    @ExecFunction(name = "minute_floor", argTypes = {"DATETIMEV2", "INT", "DATETIMEV2"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal minuteFloor(DateTimeV2Literal date, IntegerLiteral period,
+            DateTimeV2Literal origin) {
+        return DateTimeV2Literal.fromJavaDateType(
+                getDateFloor(DATE.MINUTE, date.toJavaDateType(), period.getValue(), origin.toJavaDateType(), false));
+    }
+
+    /**
+     * datetime arithmetic function SECOND-floor
+     */
+    @ExecFunction(name = "second_floor", argTypes = {"DATETIME"}, returnType = "DATETIME")
+    public static DateTimeLiteral secondFloor(DateTimeLiteral date) {
+        return DateTimeLiteral.fromJavaDateType(
+                getDateFloor(DATE.SECOND, date.toJavaDateType(), 1, START_ORIGINAL_DAY, false));
+    }
+
+    @ExecFunction(name = "second_floor", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
+    public static DateTimeLiteral secondFloor(DateTimeLiteral date, IntegerLiteral period) {
+        return DateTimeLiteral.fromJavaDateType(
+                getDateFloor(DATE.SECOND, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY, false));
+    }
+
+    @ExecFunction(name = "second_floor", argTypes = {"DATETIME", "DATETIME"}, returnType = "DATETIME")
+    public static DateTimeLiteral secondFloor(DateTimeLiteral date, DateTimeLiteral origin) {
+        return DateTimeLiteral.fromJavaDateType(
+                getDateFloor(DATE.SECOND, date.toJavaDateType(), 1, origin.toJavaDateType(), false));
+    }
+
+    @ExecFunction(name = "second_floor", argTypes = {"DATETIME", "INT", "DATETIME"}, returnType = "DATETIME")
+    public static DateTimeLiteral secondFloor(DateTimeLiteral date, IntegerLiteral period, DateTimeLiteral origin) {
+        return DateTimeLiteral.fromJavaDateType(
+                getDateFloor(DATE.SECOND, date.toJavaDateType(), period.getValue(), origin.toJavaDateType(), false));
+    }
+
+    @ExecFunction(name = "second_floor", argTypes = {"DATEV2"}, returnType = "DATEV2")
+    public static DateV2Literal secondFloor(DateV2Literal date) {
+        return DateV2Literal.fromJavaDateType(
+                getDateFloor(DATE.SECOND, date.toJavaDateType(), 1, START_ORIGINAL_DAY, false));
+    }
+
+    @ExecFunction(name = "second_floor", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
+    public static DateV2Literal secondFloor(DateV2Literal date, IntegerLiteral period) {
+        return DateV2Literal.fromJavaDateType(
+                getDateFloor(DATE.SECOND, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY, false));
+    }
+
+    @ExecFunction(name = "second_floor", argTypes = {"DATEV2", "DATEV2"}, returnType = "DATEV2")
+    public static DateV2Literal secondFloor(DateV2Literal date, DateV2Literal origin) {
+        return DateV2Literal.fromJavaDateType(
+                getDateFloor(DATE.SECOND, date.toJavaDateType(), 1, origin.toJavaDateType(), false));
+    }
+
+    @ExecFunction(name = "second_floor", argTypes = {"DATEV2", "INT", "DATEV2"}, returnType = "DATEV2")
+    public static DateV2Literal secondFloor(DateV2Literal date, IntegerLiteral period, DateV2Literal origin) {
+        return DateV2Literal.fromJavaDateType(
+                getDateFloor(DATE.SECOND, date.toJavaDateType(), period.getValue(), origin.toJavaDateType(), false));
+    }
+
+    @ExecFunction(name = "second_floor", argTypes = {"DATETIMEV2"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal secondFloor(DateTimeV2Literal date) {
+        return DateTimeV2Literal.fromJavaDateType(
+                getDateFloor(DATE.SECOND, date.toJavaDateType(), 1, START_ORIGINAL_DAY, false));
+    }
+
+    @ExecFunction(name = "second_floor", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal secondFloor(DateTimeV2Literal date, IntegerLiteral period) {
+        return DateTimeV2Literal.fromJavaDateType(
+                getDateFloor(DATE.SECOND, date.toJavaDateType(), period.getValue(), START_ORIGINAL_DAY, false));
+    }
+
+    @ExecFunction(name = "second_floor", argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal secondFloor(DateTimeV2Literal date, DateTimeV2Literal origin) {
+        return DateTimeV2Literal.fromJavaDateType(
+                getDateFloor(DATE.SECOND, date.toJavaDateType(), 1, origin.toJavaDateType(), false));
+    }
+
+    @ExecFunction(name = "second_floor", argTypes = {"DATETIMEV2", "INT", "DATETIMEV2"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal secondFloor(DateTimeV2Literal date, IntegerLiteral period,
+            DateTimeV2Literal origin) {
+        return DateTimeV2Literal.fromJavaDateType(
+                getDateFloor(DATE.SECOND, date.toJavaDateType(), period.getValue(), origin.toJavaDateType(), false));
     }
 
     /**
