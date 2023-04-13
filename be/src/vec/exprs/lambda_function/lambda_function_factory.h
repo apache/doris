@@ -28,7 +28,6 @@ class LambdaFunctionFactory;
 
 void register_function_array_map(LambdaFunctionFactory& factory);
 void register_function_array_filter(LambdaFunctionFactory& factory);
-void register_function_array_clone_expr(LambdaFunctionFactory& facotry);
 
 class LambdaFunctionFactory {
     using Creator = std::function<LambdaFunctionPtr()>;
