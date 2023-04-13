@@ -87,8 +87,6 @@ public:
 
     RuntimeState* state() { return _state; }
 
-    std::string& string_result() { return _string_result; }
-
     bool check_overflow_for_decimal() const { return _check_overflow_for_decimal; }
 
     bool set_check_overflow_for_decimal(bool check_overflow_for_decimal) {
