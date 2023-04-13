@@ -111,7 +111,8 @@ enum TSchemaTableType {
     SCH_VIEWS,
     SCH_INVALID,
     SCH_ROWSETS,
-    SCH_COLUMN_STATISTICS
+    SCH_COLUMN_STATISTICS,
+    SCH_BACKENDS
 }
 
 enum THdfsCompression {
