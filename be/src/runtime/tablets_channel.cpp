@@ -69,10 +69,21 @@ Status TabletsChannel::open(const PTabletWriterOpenRequest& request) {
     _next_seqs.resize(_num_remaining_senders, 0);
     _closed_senders.Reset(_num_remaining_senders);
 
-    RETURN_IF_ERROR(_open_all_writers(request));
+    _build_partition_tablets_relation(request);
 
     _state = kOpened;
     return Status::OK();
+}
+
+void TabletsChannel::_build_partition_tablets_relation(const PTabletWriterOpenRequest& request) {
+    for (auto& tablet : request.tablets()) {
+        if (_partition_tablets_map.find(tablet.partition_id()) == _partition_tablets_map.end()) {
+            _partition_tablets_map[tablet.partition_id()] = std::vector<int64_t>();
+        }
+        _partition_tablets_map[tablet.partition_id()].emplace_back(tablet.tablet_id());
+
+        _tablet_partition_map[tablet.tablet_id()] = tablet.partition_id();
+    }
 }
 
 Status TabletsChannel::close(
@@ -216,7 +227,9 @@ int64_t TabletsChannel::mem_consumption() {
     return mem_usage;
 }
 
-Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request) {
+template <typename TabletWriterAddRequest>
+Status TabletsChannel::_open_all_writers_in_partition(const int64_t& tablet_id,
+                                                      const TabletWriterAddRequest& request) {
     std::vector<SlotDescriptor*>* index_slots = nullptr;
     int32_t schema_hash = 0;
     for (auto& index : _schema->indexes()) {
@@ -228,17 +241,24 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
     }
     if (index_slots == nullptr) {
         std::stringstream ss;
-        ss << "unknown index id, key=" << _key;
+        ss << "unknown index id, key=" << _key << " tablet_id=" << tablet_id;
         return Status::InternalError(ss.str());
     }
-    for (auto& tablet : request.tablets()) {
+    int64_t partition_id = _tablet_partition_map[tablet_id];
+    DCHECK(partition_id != 0);
+    auto tablets = _partition_tablets_map[partition_id];
+    DCHECK(tablets.size() > 0);
+    VLOG_DEBUG << fmt::format(
+            "write tablet={}, open writers for all tablets in partition={}, total writers num={}",
+            tablet_id, partition_id, tablets.size());
+    for (auto& tablet : tablets) {
         WriteRequest wrequest;
         wrequest.index_id = request.index_id();
-        wrequest.tablet_id = tablet.tablet_id();
+        wrequest.tablet_id = tablet;
         wrequest.schema_hash = schema_hash;
         wrequest.write_type = WriteType::LOAD;
         wrequest.txn_id = _txn_id;
-        wrequest.partition_id = tablet.partition_id();
+        wrequest.partition_id = partition_id;
         wrequest.load_id = request.id();
         wrequest.tuple_desc = _tuple_desc;
         wrequest.slots = index_slots;
@@ -251,17 +271,16 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
             auto err_msg = fmt::format(
                     "open delta writer failed, tablet_id={}"
                     ", txn_id={}, partition_id={}, err={}",
-                    tablet.tablet_id(), _txn_id, tablet.partition_id(), st.to_string());
+                    tablet, _txn_id, partition_id, st.to_string());
             LOG(WARNING) << err_msg;
             return Status::InternalError(err_msg);
         }
         {
             std::lock_guard<SpinLock> l(_tablet_writers_lock);
-            _tablet_writers.emplace(tablet.tablet_id(), writer);
+            _tablet_writers.emplace(tablet, writer);
         }
     }
-    _s_tablet_writer_count += _tablet_writers.size();
-    DCHECK_EQ(_tablet_writers.size(), request.tablets_size());
+    _s_tablet_writer_count += tablets.size();
     return Status::OK();
 }
 
@@ -336,7 +355,8 @@ Status TabletsChannel::add_batch(const TabletWriterAddRequest& request,
                 response->mutable_tablet_errors();
         auto tablet_writer_it = _tablet_writers.find(tablet_id);
         if (tablet_writer_it == _tablet_writers.end()) {
-            return Status::InternalError("unknown tablet to append data, tablet={}", tablet_id);
+            RETURN_IF_ERROR(_open_all_writers_in_partition(tablet_id, request));
+            tablet_writer_it = _tablet_writers.find(tablet_id);
         }
         Status st = write_func(tablet_writer_it->second);
         if (!st.ok()) {
