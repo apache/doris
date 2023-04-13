@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <queue>
 #include <shared_mutex>
 
@@ -70,10 +71,7 @@ public:
 
     TaskGroupEntity* task_entity() { return &_task_entity; }
 
-    uint64_t cpu_share() const {
-        std::shared_lock<std::shared_mutex> rl {mutex};
-        return _cpu_share;
-    }
+    uint64_t cpu_share() const { return _cpu_share.load(); }
 
     uint64_t id() const { return _id; }
 
@@ -84,10 +82,10 @@ public:
     void check_and_update(const TaskGroupInfo& tg_info);
 
 private:
-    mutable std::shared_mutex mutex; // lock _name, _cpu_share, _version
+    mutable std::shared_mutex mutex;
     const uint64_t _id;
     std::string _name;
-    uint64_t _cpu_share;
+    std::atomic<uint64_t> _cpu_share;
     TaskGroupEntity _task_entity;
     int64_t _version;
 };
