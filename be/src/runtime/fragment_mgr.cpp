@@ -768,8 +768,8 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 
     if (params.__isset.resource_groups && !params.resource_groups.empty()) {
         taskgroup::TaskGroupInfo task_group_info;
-        auto status = taskgroup::TaskGroupManager::parse_group_info(params.resource_groups[0],
-                                                                    &task_group_info);
+        auto status = taskgroup::TaskGroupInfo::parse_group_info(params.resource_groups[0],
+                                                                 &task_group_info);
         if (status.ok()) {
             auto tg = taskgroup::TaskGroupManager::instance()->get_or_create_task_group(
                     task_group_info);

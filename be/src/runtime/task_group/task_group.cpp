@@ -17,6 +17,9 @@
 
 #include "task_group.h"
 
+#include <charconv>
+
+#include "gen_cpp/PaloInternalService_types.h"
 #include "pipeline/pipeline_task.h"
 
 namespace doris {
@@ -79,6 +82,33 @@ void TaskGroup::check_and_update(const TaskGroupInfo& tg_info) {
         _cpu_share = tg_info._cpu_share;
         _version = tg_info._version;
     }
+}
+
+Status TaskGroupInfo::parse_group_info(const TPipelineResourceGroup& resource_group,
+                                       TaskGroupInfo* task_group_info) {
+    if (!check_group_info(resource_group)) {
+        std::stringstream ss;
+        ss << "incomplete resource group parameters: ";
+        resource_group.printTo(ss);
+        LOG(WARNING) << ss.str();
+        return Status::InternalError(ss.str());
+    }
+
+    auto iter = resource_group.properties.find(CPU_SHARE);
+    uint64_t share = 0;
+    std::from_chars(iter->second.c_str(), iter->second.c_str() + iter->second.size(), share);
+
+    task_group_info->_id = resource_group.id;
+    task_group_info->_name = resource_group.name;
+    task_group_info->_version = resource_group.version;
+    task_group_info->_cpu_share = share;
+    return Status::OK();
+}
+
+bool TaskGroupInfo::check_group_info(const TPipelineResourceGroup& resource_group) {
+    return resource_group.__isset.id && resource_group.__isset.version &&
+           resource_group.__isset.name && resource_group.__isset.properties &&
+           resource_group.properties.count(CPU_SHARE) > 0;
 }
 
 } // namespace taskgroup

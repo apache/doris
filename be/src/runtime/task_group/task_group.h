@@ -30,6 +30,7 @@ class PipelineTask;
 }
 
 class QueryFragmentsCtx;
+class TPipelineResourceGroup;
 
 namespace taskgroup {
 
@@ -97,6 +98,12 @@ struct TaskGroupInfo {
     std::string _name;
     uint64_t _cpu_share;
     int64_t _version;
+
+    static Status parse_group_info(const TPipelineResourceGroup& resource_group,
+                                   TaskGroupInfo* task_group_info);
+
+private:
+    static bool check_group_info(const TPipelineResourceGroup& resource_group);
 };
 
 } // namespace taskgroup

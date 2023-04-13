@@ -19,7 +19,6 @@
 #include <shared_mutex>
 #include <unordered_map>
 
-#include "gen_cpp/PaloInternalService_types.h"
 #include "task_group.h"
 
 namespace doris::taskgroup {
@@ -30,17 +29,9 @@ public:
     ~TaskGroupManager();
     static TaskGroupManager* instance();
 
-    // TODO pipeline task group
-    TaskGroupPtr get_task_group(uint64_t id);
-
     TaskGroupPtr get_or_create_task_group(const TaskGroupInfo& task_group_info);
 
-    static Status parse_group_info(const TPipelineResourceGroup& resource_group,
-                                   TaskGroupInfo* task_group_info);
-
 private:
-    static bool check_group_info(const TPipelineResourceGroup& resource_group);
-
     std::shared_mutex _group_mutex;
     std::unordered_map<uint64_t, TaskGroupPtr> _task_groups;
 };
