@@ -134,7 +134,6 @@ import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
 import org.apache.doris.deploy.DeployManager;
-import org.apache.doris.deploy.DeployManager.NodeType;
 import org.apache.doris.deploy.impl.AmbariDeployManager;
 import org.apache.doris.deploy.impl.K8sDeployManager;
 import org.apache.doris.deploy.impl.LocalFileDeployManager;
@@ -270,6 +269,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -1095,19 +1095,10 @@ public class Env {
     }
 
     public String genFeNodeName(String host, int port, boolean isOldStyle) {
-        if (Config.enable_deploy_manager.equalsIgnoreCase("k8s") && Config.enable_fqdn_mode) {
-            // If we are in k8s mode, we should get name from k8s deploy manager.
-            // Otherwise, when k8s deploy manager inspect nodes from remote, the names it got will be different from
-            // the names we generate here.
-            // And the first FE is always with the first index: 0.
-            return ((K8sDeployManager) deployManager).getDomainName(NodeType.ELECTABLE, 0);
+        if (isOldStyle) {
+            return host + "_" + port;
         } else {
-            String name = host + "_" + port;
-            if (isOldStyle) {
-                return name;
-            } else {
-                return name + "_" + System.currentTimeMillis();
-            }
+            return "fe_" + UUID.randomUUID().toString().replace("-", "_");
         }
     }
 
