@@ -23,7 +23,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.planner.external.FileQueryScanNode;
 import org.apache.doris.planner.external.IcebergSplitter;
 import org.apache.doris.planner.external.QueryScanProvider;
 import org.apache.doris.thrift.TFileAttributes;
@@ -143,11 +142,6 @@ public class IcebergScanProvider extends QueryScanProvider {
     @Override
     public Map<String, String> getLocationProperties() throws MetaNotFoundException, DdlException {
         return icebergSource.getCatalog().getProperties();
-    }
-
-    @Override
-    public FileQueryScanNode.ParamCreateContext createContext(Analyzer analyzer) throws UserException {
-        return icebergSource.createContext();
     }
 
     @Override
