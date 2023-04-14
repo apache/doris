@@ -297,7 +297,7 @@ public class Group {
      */
     public void mergeTo(Group target) {
         // move parentExpressions Ownership
-        parentExpressions.keySet().forEach(target::addParentExpression);
+        parentExpressions.keySet().forEach(parent -> target.addParentExpression(parent));
         // PhysicalEnforcer isn't in groupExpressions, so mergeGroup() can't replace its children.
         // So we need to manually replace the children of PhysicalEnforcer in here.
         // TODO: SortEnforcer?
