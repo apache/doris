@@ -68,12 +68,16 @@ public class OutFileClause {
     public static final Map<String, TParquetCompressionType> PARQUET_COMPRESSION_TYPE_MAP = Maps.newHashMap();
     public static final Map<String, TParquetVersion> PARQUET_VERSION_MAP = Maps.newHashMap();
     public static final Set<String> ORC_DATA_TYPE = Sets.newHashSet();
+    public static final String FILE_NUMBER = "FileNumber";
+    public static final String TOTAL_ROWS = "TotalRows";
+    public static final String FILE_SIZE = "FileSize";
+    public static final String URL = "URL";
 
     static {
-        RESULT_COL_NAMES.add("FileNumber");
-        RESULT_COL_NAMES.add("TotalRows");
-        RESULT_COL_NAMES.add("FileSize");
-        RESULT_COL_NAMES.add("URL");
+        RESULT_COL_NAMES.add(FILE_NUMBER);
+        RESULT_COL_NAMES.add(TOTAL_ROWS);
+        RESULT_COL_NAMES.add(FILE_SIZE);
+        RESULT_COL_NAMES.add(URL);
 
         RESULT_COL_TYPES.add(ScalarType.createType(PrimitiveType.INT));
         RESULT_COL_TYPES.add(ScalarType.createType(PrimitiveType.BIGINT));

@@ -17,6 +17,7 @@
 
 package org.apache.doris.task;
 
+import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -40,6 +41,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 public class ExportExportingTask extends MasterTask {
@@ -80,6 +82,7 @@ public class ExportExportingTask extends MasterTask {
         boolean isFailed = false;
         ExportFailMsg errorMsg = null;
         int completeTaskNum = 0;
+        List<ExportJob.OutfileInfo> outfileInfoList = Lists.newArrayList();
         // begin exporting
         for (int i = 0; i < selectStmtList.size(); ++i) {
             try (AutoCloseConnectContext r = buildConnectContext()) {
@@ -91,6 +94,8 @@ public class ExportExportingTask extends MasterTask {
                     isFailed = true;
                     break;
                 }
+                ExportJob.OutfileInfo outfileInfo = getOutFileInfo(r.connectContext.getResultAttachedInfo());
+                outfileInfoList.add(outfileInfo);
                 ++completeTaskNum;
             } catch (Exception e) {
                 errorMsg = new ExportFailMsg(ExportFailMsg.CancelType.RUN_FAIL, e.getMessage());
@@ -115,7 +120,7 @@ public class ExportExportingTask extends MasterTask {
             return;
         }
 
-        if (job.updateState(ExportJob.JobState.FINISHED)) {
+        if (job.finish(outfileInfoList)) {
             LOG.info("export job success. job: {}", job);
             registerProfile();
             // TODO(ftw): when we implement exporting tablet one by one, we should release snapshot here
@@ -147,6 +152,15 @@ public class ExportExportingTask extends MasterTask {
         connectContext.setStartTime();
         connectContext.setCluster(SystemInfoService.DEFAULT_CLUSTER);
         return new AutoCloseConnectContext(connectContext);
+    }
+
+    private ExportJob.OutfileInfo getOutFileInfo(Map<String, String> resultAttachedInfo) {
+        ExportJob.OutfileInfo outfileInfo = new ExportJob.OutfileInfo();
+        outfileInfo.setFileNumber(resultAttachedInfo.get(OutFileClause.FILE_NUMBER));
+        outfileInfo.setTotalRows(resultAttachedInfo.get(OutFileClause.TOTAL_ROWS));
+        outfileInfo.setFileSize(resultAttachedInfo.get(OutFileClause.FILE_SIZE));
+        outfileInfo.setUrl(resultAttachedInfo.get(OutFileClause.URL));
+        return outfileInfo;
     }
 
     private void initProfile() {

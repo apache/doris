@@ -364,6 +364,14 @@ public class ExportJob implements Writable {
         return timeoutSecond;
     }
 
+    public String getFormat() {
+        return format;
+    }
+
+    public String getMaxFileSize() {
+        return maxFileSize;
+    }
+
     public String getQualifiedUser() {
         return qualifiedUser;
     }
@@ -466,6 +474,14 @@ public class ExportJob implements Writable {
             //             releaseSnapshotStatus.getErrorMsg());
             // }
         }
+    }
+
+    public synchronized boolean finish(List<OutfileInfo> outfileInfoList) {
+        outfileInfo = GsonUtils.GSON.toJson(outfileInfoList);
+        if (updateState(ExportJob.JobState.FINISHED)) {
+            return true;
+        }
+        return false;
     }
 
     public synchronized boolean updateState(ExportJob.JobState newState) {
@@ -758,8 +774,6 @@ public class ExportJob implements Writable {
             this.state = JobState.CANCELLED;
         }
 
-        // maxFileSize
-
         public StateTransfer(long jobId, JobState state) {
             this.jobId = jobId;
             this.state = state;
@@ -814,6 +828,45 @@ public class ExportJob implements Writable {
 
         public ExportFailMsg getFailMsg() {
             return failMsg;
+        }
+    }
+
+    public static class OutfileInfo {
+        private String fileNumber;
+        private String totalRows;
+        private String fileSize;
+        private String url;
+
+        public String getUrl() {
+            return url;
+        }
+
+        public void setUrl(String url) {
+            this.url = url;
+        }
+
+        public String getFileNumber() {
+            return fileNumber;
+        }
+
+        public void setFileNumber(String fileNumber) {
+            this.fileNumber = fileNumber;
+        }
+
+        public String getTotalRows() {
+            return totalRows;
+        }
+
+        public void setTotalRows(String totalRows) {
+            this.totalRows = totalRows;
+        }
+
+        public String getFileSize() {
+            return fileSize;
+        }
+
+        public void setFileSize(String fileSize) {
+            this.fileSize = fileSize;
         }
     }
 }

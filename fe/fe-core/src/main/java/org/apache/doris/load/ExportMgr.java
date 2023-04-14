@@ -408,10 +408,12 @@ public class ExportMgr extends MasterDaemon {
         }
         infoMap.put("partitions", partitions);
         infoMap.put("broker", job.getBrokerDesc().getName());
-        infoMap.put("column separator", job.getColumnSeparator());
-        infoMap.put("line delimiter", job.getLineDelimiter());
+        infoMap.put("column_separator", job.getColumnSeparator());
+        infoMap.put("format", job.getFormat());
+        infoMap.put("line_delimiter", job.getLineDelimiter());
         infoMap.put("columns", job.getColumns());
-        infoMap.put("tablet num", job.getTabletLocations() == null ? -1 : job.getTabletLocations().size());
+        infoMap.put("tablet_num", job.getTabletLocations() == null ? -1 : job.getTabletLocations().size());
+        infoMap.put("max_file_size", job.getMaxFileSize());
         jobInfo.add(new Gson().toJson(infoMap));
         // path
         jobInfo.add(job.getShowExportPath());
@@ -425,6 +427,13 @@ public class ExportMgr extends MasterDaemon {
         if (job.getState() == ExportJob.JobState.CANCELLED) {
             ExportFailMsg failMsg = job.getFailMsg();
             jobInfo.add("type:" + failMsg.getCancelType() + "; msg:" + failMsg.getMsg());
+        } else {
+            jobInfo.add(FeConstants.null_string);
+        }
+
+        // outfileInfo
+        if (job.getState() == JobState.FINISHED) {
+            jobInfo.add(job.getOutfileInfo());
         } else {
             jobInfo.add(FeConstants.null_string);
         }

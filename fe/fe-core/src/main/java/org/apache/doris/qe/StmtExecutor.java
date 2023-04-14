@@ -1365,6 +1365,7 @@ public class StmtExecutor implements ProfileWriter {
                     }
                     plannerProfile.freshWriteResultConsumeTime();
                     context.updateReturnRows(batch.getBatch().getRows().size());
+                    context.setResultAttachedInfo(batch.getBatch().getAttachedInfos());
                 }
                 if (batch.isEos()) {
                     break;
