@@ -532,25 +532,20 @@ public class MTMVJobManager {
 
     public static MTMVJobManager read(DataInputStream dis, long checksum) throws IOException {
         MTMVJobManager mtmvJobManager = new MTMVJobManager();
-        try {
-            String s = Text.readString(dis);
-            MTMVCheckpointData data = GsonUtils.GSON.fromJson(s, MTMVCheckpointData.class);
-            if (data != null) {
-                if (data.jobs != null) {
-                    for (MTMVJob job : data.jobs) {
-                        mtmvJobManager.replayCreateJob(job);
-                    }
-                }
-
-                if (data.tasks != null) {
-                    for (MTMVTask runStatus : data.tasks) {
-                        mtmvJobManager.replayCreateJobTask(runStatus);
-                    }
+        String s = Text.readString(dis);
+        MTMVCheckpointData data = GsonUtils.GSON.fromJson(s, MTMVCheckpointData.class);
+        if (data != null) {
+            if (data.jobs != null) {
+                for (MTMVJob job : data.jobs) {
+                    mtmvJobManager.replayCreateJob(job);
                 }
             }
-            LOG.info("finished replaying JobManager from image");
-        } catch (Exception e) {
-            LOG.info("no job or task to replay.");
+
+            if (data.tasks != null) {
+                for (MTMVTask runStatus : data.tasks) {
+                    mtmvJobManager.replayCreateJobTask(runStatus);
+                }
+            }
         }
         return mtmvJobManager;
     }
