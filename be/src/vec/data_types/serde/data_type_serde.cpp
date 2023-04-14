@@ -19,6 +19,6 @@
 namespace doris {
 namespace vectorized {
 DataTypeSerDe::DataTypeSerDe() = default;
-DataTypeSerDe::~DataTypeSerDe() {}
+DataTypeSerDe::~DataTypeSerDe() = default;
 } // namespace vectorized
 } // namespace doris
