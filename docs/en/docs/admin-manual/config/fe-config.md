@@ -2667,3 +2667,17 @@ MasterOnly：false
 Only take effect when `prefer_compute_node_for_external_table` is true. If the compute node number is less than this value, query on external table will try to get some mix node to assign, to let the total number of node reach this value.
 If the compute node number is larger than this value, query on external table will assign to compute node only.
 
+#### `infodb_support_ext_catalog`
+
+<version since="1.2.4"></version>
+
+Default: false
+
+IsMutable: true
+
+MasterOnly: false
+
+If false, when select from tables in information_schema database,
+the result will not contain the information of the table in external catalog.
+This is to avoid query time when external catalog is not reachable.
+
