@@ -2292,30 +2292,76 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        auto col_substr =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        auto col_str =
+        const auto& left = block.get_by_position(arguments[0]);
+        const auto& right =
                 block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
-        auto col_pos =
+        const auto& pos =
                 block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
+        const auto& [lcol, lcol_const] = unpack_if_const(left.column);
 
         ColumnInt32::MutablePtr col_res = ColumnInt32::create();
-
-        auto& vec_pos = reinterpret_cast<const ColumnInt32*>(col_pos.get())->get_data();
         auto& vec_res = col_res->get_data();
-        vec_res.resize(input_rows_count);
+        vec_res.resize(block.rows());
+        if (auto col_left = check_and_get_column<ColumnString>(lcol.get())) {
+            if (auto col_right = check_and_get_column<ColumnString>(right.get())) {
+                if (auto col_pos = check_and_get_column<ColumnInt32>(pos.get())) {
+                    if (lcol_const) {
+                        scalar_vector(col_left->get_data_at(0), col_right->get_chars(),
+                                      col_right->get_offsets(), col_pos->get_data(), vec_res);
+                    } else {
+                        vector_vector(col_left->get_chars(), col_left->get_offsets(),
+                                      col_right->get_chars(), col_right->get_offsets(),
+                                      col_pos->get_data(), vec_res);
+                    }
 
-        for (int i = 0; i < input_rows_count; ++i) {
-            vec_res[i] =
-                    locate_pos(col_substr->get_data_at(i), col_str->get_data_at(i), vec_pos[i]);
+                    block.replace_by_position(result, std::move(col_res));
+                    return Status::OK();
+                }
+            }
         }
-
-        block.replace_by_position(result, std::move(col_res));
-        return Status::OK();
+        return Status::RuntimeError("unimplements function {}", get_name());
     }
 
 private:
-    int locate_pos(StringRef substr, StringRef str, int start_pos) {
+    void scalar_vector(const StringRef& ldata, const ColumnString::Chars& rdata,
+                       const ColumnString::Offsets& roffsets, const PaddedPODArray<Int32>& posdata,
+                       PaddedPODArray<Int32>& res) {
+        auto size = roffsets.size();
+        res.resize(size);
+        StringRef substr(ldata.data, ldata.size);
+        std::shared_ptr<StringSearch> search_ptr(new StringSearch(&substr));
+        for (int i = 0; i < size; ++i) {
+            const char* r_raw_str = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
+            int r_str_size = roffsets[i] - roffsets[i - 1];
+            StringRef str(r_raw_str, r_str_size);
+
+            res[i] = locate_pos(substr, str, search_ptr, posdata[i]);
+        }
+    }
+    void vector_vector(const ColumnString::Chars& ldata, const ColumnString::Offsets& loffsets,
+                       const ColumnString::Chars& rdata, const ColumnString::Offsets& roffsets,
+                       const PaddedPODArray<Int32>& posdata, PaddedPODArray<Int32>& res) {
+        DCHECK_EQ(loffsets.size(), roffsets.size());
+
+        auto size = loffsets.size();
+        res.resize(size);
+        std::shared_ptr<StringSearch> search_ptr;
+        for (int i = 0; i < size; ++i) {
+            const char* l_raw_str = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
+            int l_str_size = loffsets[i] - loffsets[i - 1];
+
+            const char* r_raw_str = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
+            int r_str_size = roffsets[i] - roffsets[i - 1];
+
+            StringRef substr(l_raw_str, l_str_size);
+            StringRef str(r_raw_str, r_str_size);
+
+            res[i] = locate_pos(substr, str, search_ptr, posdata[i]);
+        }
+    }
+
+    int locate_pos(StringRef& substr, StringRef& str, std::shared_ptr<StringSearch> search_ptr,
+                   int start_pos) {
         if (substr.size == 0) {
             if (start_pos <= 0) {
                 return 0;
@@ -2335,11 +2381,12 @@ private:
         if (start_pos <= 0 || start_pos > str.size || start_pos > char_len) {
             return 0;
         }
-        StringRef substr_sv = StringRef(substr);
-        StringSearch search(&substr_sv);
+        if (!search_ptr) {
+            search_ptr.reset(new StringSearch(&substr));
+        }
         // Input start_pos starts from 1.
         StringRef adjusted_str(str.data + index[start_pos - 1], str.size - index[start_pos - 1]);
-        int32_t match_pos = search.search(&adjusted_str);
+        int32_t match_pos = search_ptr->search(&adjusted_str);
         if (match_pos >= 0) {
             // Hive returns the position in the original string starting from 1.
             return start_pos + get_char_len(adjusted_str, match_pos);
