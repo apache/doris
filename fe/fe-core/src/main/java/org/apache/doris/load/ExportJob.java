@@ -218,11 +218,7 @@ public class ExportJob implements Writable {
         String path = stmt.getPath();
         Preconditions.checkArgument(!Strings.isNullOrEmpty(path));
         this.whereExpr = stmt.getWhereExpr();
-        if (path.charAt(path.length() - 1) == '/') {
-            this.exportPath = path + PATH_PREFIXES;
-        } else {
-            this.exportPath = path + "/" + PATH_PREFIXES;
-        }
+        this.exportPath = path;
         this.sessionVariables = stmt.getSessionVariables();
         this.timeoutSecond = sessionVariables.getQueryTimeoutS();
         this.qualifiedUser = stmt.getQualifiedUser();
@@ -769,11 +765,15 @@ public class ExportJob implements Writable {
         @SerializedName("outFileInfo")
         private String outFileInfo;
 
+        // used for reading from one log
         public StateTransfer() {
             this.jobId = -1;
             this.state = JobState.CANCELLED;
+            this.failMsg = new ExportFailMsg(ExportFailMsg.CancelType.UNKNOWN, "");
+            this.outFileInfo = "";
         }
 
+        // used for persisting one log
         public StateTransfer(long jobId, JobState state) {
             this.jobId = jobId;
             this.state = state;
