@@ -134,6 +134,7 @@ import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
 import org.apache.doris.deploy.DeployManager;
+import org.apache.doris.deploy.DeployManager.NodeType;
 import org.apache.doris.deploy.impl.AmbariDeployManager;
 import org.apache.doris.deploy.impl.K8sDeployManager;
 import org.apache.doris.deploy.impl.LocalFileDeployManager;
@@ -962,7 +963,7 @@ public class Env {
                 isFirstTimeStartUp = true;
                 String hostName = selfNode.getHostName();
                 if (Config.enable_deploy_manager.equalsIgnoreCase("k8s") && Config.enable_fqdn_mode) {
-                    hostName = nodeName;
+                    hostName = ((K8sDeployManager) deployManager).getDomainName(NodeType.ELECTABLE.ELECTABLE, 0);
                 }
                 Frontend self = new Frontend(role, nodeName, selfNode.getIp(), hostName,
                         selfNode.getPort());
