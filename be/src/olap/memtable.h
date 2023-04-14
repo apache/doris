@@ -154,6 +154,7 @@ private:
     size_t _schema_size;
 
     std::unique_ptr<VecTable> _vec_skip_list;
+    std::vector<RowInBlock*> _vec_row;
     VecTable::Hint _vec_hint;
     void _init_columns_offset_by_slot_descs(const std::vector<SlotDescriptor*>* slot_descs,
                                             const TupleDescriptor* tuple_desc);

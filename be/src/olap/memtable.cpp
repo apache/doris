@@ -185,6 +185,7 @@ void MemTable::insert(const vectorized::Block* input_block, const std::vector<in
         _row_in_blocks.emplace_back(new RowInBlock {cursor_in_mutableblock + i});
         _insert_one_row_from_block(_row_in_blocks.back());
     }
+//   std::sort(_vec_row.begin(), _vec_row.end(), *_vec_row_comparator);
 }
 
 void MemTable::_insert_one_row_from_block(RowInBlock* row_in_block) {
@@ -192,7 +193,7 @@ void MemTable::_insert_one_row_from_block(RowInBlock* row_in_block) {
     bool overwritten = false;
     if (_keys_type == KeysType::DUP_KEYS) {
         // TODO: dup keys only need sort opertaion. Rethink skiplist is the beat way to sort columns?
-        _vec_skip_list->Insert(row_in_block, &overwritten);
+        _vec_row.emplace_back(row_in_block);
         DCHECK(!overwritten) << "Duplicate key model meet overwrite in SkipList";
         return;
     }
@@ -243,11 +244,12 @@ void MemTable::_collect_vskiplist_results() {
     VecTable::Iterator it(_vec_skip_list.get());
     vectorized::Block in_block = _input_mutable_block.to_block();
     if (_keys_type == KeysType::DUP_KEYS) {
+        std::sort(_vec_row.begin(), _vec_row.end(), *_vec_row_comparator);
         std::vector<int> row_pos_vec;
         DCHECK(in_block.rows() <= std::numeric_limits<int>::max());
         row_pos_vec.reserve(in_block.rows());
-        for (it.SeekToFirst(); it.Valid(); it.Next()) {
-            row_pos_vec.emplace_back(it.key()->_row_pos);
+        for (int i = 0; i < _vec_row.size(); i++) {
+            row_pos_vec.emplace_back(_vec_row[i]->_row_pos);
         }
         _output_mutable_block.add_rows(&in_block, row_pos_vec.data(),
                                        row_pos_vec.data() + in_block.rows());
