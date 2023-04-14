@@ -17,6 +17,7 @@
 
 #include "agent/agent_server.h"
 
+#include <gen_cpp/Types_types.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <filesystem>
@@ -205,6 +206,18 @@ void AgentServer::submit_tasks(TAgentResult& agent_result,
                         signature);
             }
             break;
+        case TTaskType::CANCEL_BATCH_TASK:
+            if (task.__isset.cancel_batch_task_req) {
+                int64_t batch_id = task.cancel_batch_task_req.batch_id;
+                // get task type and batch id, to cancel task in specific worker pool
+                TTaskType::type cancel_type = task.cancel_batch_task_req.cancel_type;
+                _cancel_batch_task(batch_id, cancel_type);
+            } else {
+                ret_st = Status::InvalidArgument(
+                        "task(signature={}) has wrong request member = cancel_batch_task",
+                        signature);
+            }
+            break;
         default:
             ret_st = Status::InvalidArgument("task(signature={}, type={}) has wrong task type",
                                              signature, task_type);
@@ -268,6 +281,17 @@ void AgentServer::publish_cluster_state(TAgentResult& t_agent_result,
                                         const TAgentPublishRequest& request) {
     Status status = Status::NotSupported("deprecated method(publish_cluster_state) was invoked");
     status.to_thrift(&t_agent_result.status);
+}
+
+void AgentServer::_cancel_batch_task(int64_t batchId, TTaskType::type task_type) {
+    // support cancel alter_tablet only currently
+    switch (task_type) {
+    case TTaskType::ALTER:
+        _alter_tablet_workers->cancel_batch_task(batchId);
+        break;
+    default:
+        LOG_WARNING("failed to cancel batch task").tag("batch id", batchId);
+    }
 }
 
 } // namespace doris

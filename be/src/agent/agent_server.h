@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+
 #include <memory>
 #include <string>
 #include <vector>
@@ -49,6 +51,8 @@ public:
 
 private:
     DISALLOW_COPY_AND_ASSIGN(AgentServer);
+
+    void _cancel_batch_task(int64_t batchId, TTaskType::type task_type);
 
     // Reference to the ExecEnv::_master_info
     const TMasterInfo& _master_info;

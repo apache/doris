@@ -18,8 +18,11 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include <deque>
+#include <map>
 #include <memory>
+#include <mutex>
 #include <utility>
 #include <vector>
 
@@ -167,6 +170,8 @@ public:
     // notify the worker. currently for task/disk/tablet report thread
     void notify_thread();
 
+    void cancel_batch_task(int64_t batch_id);
+
 private:
     bool _register_task_info(const TTaskType::type task_type, int64_t signature);
     void _remove_task_info(const TTaskType::type task_type, int64_t signature);
@@ -244,6 +249,10 @@ private:
     // Always 1 when _thread_model is SINGLE_THREAD
     uint32_t _worker_count;
     TaskWorkerType _task_worker_type;
+
+    // contains batch ids to be canceled in this worker pool
+    std::set<int64_t> _cancel_set;
+    std::mutex _cancel_lock;
 
     static std::atomic_ulong _s_report_version;
 

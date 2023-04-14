@@ -388,6 +388,11 @@ struct TPushCooldownConfReq {
     1: required list<TCooldownConf> cooldown_confs
 }
 
+struct TCancelBatchTaskrequest {
+    1: required Types.TTaskType cancel_type
+    2: required i64 batch_id
+}
+
 struct TAgentTaskRequest {
     1: required TAgentServiceVersion protocol_version
     2: required Types.TTaskType task_type
@@ -422,6 +427,8 @@ struct TAgentTaskRequest {
     30: optional TPushCooldownConfReq push_cooldown_conf
     31: optional TPushStoragePolicyReq push_storage_policy_req
     32: optional TAlterInvertedIndexReq alter_inverted_index_req
+    33: optional TCancelBatchTaskrequest cancel_batch_task_req
+    34: required i64 batch_id
 }
 
 struct TAgentResult {

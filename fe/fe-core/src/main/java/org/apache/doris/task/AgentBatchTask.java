@@ -26,6 +26,7 @@ import org.apache.doris.thrift.TAgentServiceVersion;
 import org.apache.doris.thrift.TAgentTaskRequest;
 import org.apache.doris.thrift.TAlterInvertedIndexReq;
 import org.apache.doris.thrift.TAlterTabletReqV2;
+import org.apache.doris.thrift.TCancelBatchTaskrequest;
 import org.apache.doris.thrift.TCheckConsistencyReq;
 import org.apache.doris.thrift.TClearAlterTaskRequest;
 import org.apache.doris.thrift.TClearTransactionTaskRequest;
@@ -50,11 +51,13 @@ import org.apache.doris.thrift.TUploadReq;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TException;
 
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BiFunction;
 
 /*
  * This class group tasks by backend
@@ -62,10 +65,16 @@ import java.util.Map;
 public class AgentBatchTask implements Runnable {
     private static final Logger LOG = LogManager.getLogger(AgentBatchTask.class);
 
+    /**
+     * for tracing this batch task
+     */
+    private long batchId;
+
     // backendId -> AgentTask List
-    private Map<Long, List<AgentTask>> backendIdToTasks;
+    private final Map<Long, List<AgentTask>> backendIdToTasks;
 
     public AgentBatchTask() {
+        this.batchId = Env.getCurrentEnv().getNextId();
         this.backendIdToTasks = new HashMap<Long, List<AgentTask>>();
     }
 
@@ -146,36 +155,70 @@ public class AgentBatchTask implements Runnable {
         return count;
     }
 
+    /**
+     * cancel this agent batch task
+     */
+    public void cancel(TTaskType taskType) {
+        dispatchToAllBackends((backend, client) -> {
+            // send a cancel request to target be
+            final TCancelBatchTaskrequest cancelRequest = new TCancelBatchTaskrequest();
+            cancelRequest.setBatchId(batchId);
+            cancelRequest.setCancelType(taskType);
+            final LinkedList<TAgentTaskRequest> agentTasks = new LinkedList<>();
+            final TAgentTaskRequest agentTask = new TAgentTaskRequest();
+            agentTask.setTaskType(TTaskType.CANCEL_BATCH_TASK);
+            agentTask.setProtocolVersion(TAgentServiceVersion.V1);
+            agentTask.setSignature(batchId);
+            agentTask.setCancelBatchTaskReq(cancelRequest);
+            agentTasks.add(agentTask);
+            try {
+                client.submitTasks(agentTasks);
+            } catch (TException e) {
+                throw new RuntimeException(e);
+            }
+            return true;
+        });
+    }
+
     @Override
     public void run() {
-        for (Long backendId : this.backendIdToTasks.keySet()) {
-            BackendService.Client client = null;
-            TNetworkAddress address = null;
-            boolean ok = false;
+        dispatchToAllBackends((backend, client) -> {
+            List<TAgentTaskRequest> agentTaskRequests = new LinkedList<>();
+            List<AgentTask> tasks = this.backendIdToTasks.get(backend.getId());
+            for (AgentTask task : tasks) {
+                agentTaskRequests.add(toAgentTaskRequest(task));
+            }
             try {
-                Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
-                if (backend == null || !backend.isAlive()) {
-                    continue;
-                }
-                List<AgentTask> tasks = this.backendIdToTasks.get(backendId);
-                // create AgentClient
-                String host = FeConstants.runningUnitTest ? "127.0.0.1" : backend.getIp();
-                address = new TNetworkAddress(host, backend.getBePort());
-                client = ClientPool.backendPool.borrowObject(address);
-                List<TAgentTaskRequest> agentTaskRequests = new LinkedList<TAgentTaskRequest>();
-                for (AgentTask task : tasks) {
-                    agentTaskRequests.add(toAgentTaskRequest(task));
-                }
                 client.submitTasks(agentTaskRequests);
-                if (LOG.isDebugEnabled()) {
-                    for (AgentTask task : tasks) {
-                        LOG.debug("send task: type[{}], backend[{}], signature[{}]",
-                                task.getTaskType(), backendId, task.getSignature());
-                    }
+            } catch (TException e) {
+                throw new RuntimeException(e);
+            }
+            if (LOG.isDebugEnabled()) {
+                for (AgentTask task : tasks) {
+                    LOG.debug("send task: type[{}], backend[{}], signature[{}]",
+                            task.getTaskType(), backend.getId(), task.getSignature());
                 }
-                ok = true;
+            }
+            return true;
+        });
+    }
+
+    private void dispatchToAllBackends(BiFunction<Backend, BackendService.Client, Boolean> dispatchCallback) {
+        for (Long backendId : backendIdToTasks.keySet()) {
+            Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
+            if (backend == null || !backend.isAlive()) {
+                continue;
+            }
+            BackendService.Client client = null;
+            boolean ok = false;
+            // create AgentClient
+            String host = FeConstants.runningUnitTest ? "127.0.0.1" : backend.getIp();
+            TNetworkAddress address = new TNetworkAddress(host, backend.getBePort());
+            try {
+                client = ClientPool.backendPool.borrowObject(address);
+                ok = dispatchCallback.apply(backend, client);
             } catch (Exception e) {
-                LOG.warn("task exec error. backend[{}]", backendId, e);
+                LOG.warn("task exec error. backend[{}]", backend.getId(), e);
             } finally {
                 if (ok) {
                     ClientPool.backendPool.returnObject(address, client);
@@ -183,7 +226,7 @@ public class AgentBatchTask implements Runnable {
                     ClientPool.backendPool.invalidateObject(address, client);
                 }
             }
-        } // end for backend
+        }
     }
 
     private TAgentTaskRequest toAgentTaskRequest(AgentTask task) {
@@ -193,6 +236,7 @@ public class AgentBatchTask implements Runnable {
 
         TTaskType taskType = task.getTaskType();
         tAgentTaskRequest.setTaskType(taskType);
+        tAgentTaskRequest.setBatchId(batchId);
         switch (taskType) {
             case CREATE: {
                 CreateReplicaTask createReplicaTask = (CreateReplicaTask) task;

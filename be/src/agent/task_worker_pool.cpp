@@ -18,14 +18,19 @@
 #include "agent/task_worker_pool.h"
 
 #include <gen_cpp/AgentService_types.h>
+#include <glog/logging.h>
 #include <pthread.h>
 #include <sys/stat.h>
 
+#include <algorithm>
 #include <boost/lexical_cast.hpp>
 #include <chrono>
 #include <csignal>
+#include <cstdint>
 #include <ctime>
 #include <memory>
+#include <mutex>
+#include <shared_mutex>
 #include <sstream>
 #include <string>
 
@@ -267,6 +272,11 @@ void TaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
 void TaskWorkerPool::notify_thread() {
     _worker_thread_condition_variable.notify_one();
     VLOG_CRITICAL << "notify task worker pool: " << _name;
+}
+
+void TaskWorkerPool::cancel_batch_task(int64_t batch_id) {
+    std::lock_guard<std::mutex> cancel_lock(_cancel_lock);
+    _cancel_set.insert(batch_id);
 }
 
 bool TaskWorkerPool::_register_task_info(const TTaskType::type task_type, int64_t signature) {
@@ -592,12 +602,33 @@ void TaskWorkerPool::_alter_tablet_worker_thread_callback() {
         TAgentTaskRequest agent_task_req;
         {
             std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
+            agent_task_req = _tasks.front();
+            {
+                // check if the task has been removed
+                std::unique_lock<std::mutex> cancel_lock(_cancel_lock);
+                auto it = _cancel_set.find(agent_task_req.batch_id);
+                if (it != _cancel_set.end()) {
+                    _tasks.pop_front();
+                    _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
+                    LOG(INFO) << "alter table task is successfully canceled, signature: "
+                              << agent_task_req.signature;
+                    // because cancel behavior is relatively rare,
+                    // it does no harm that we do this scaning check here
+                    if (std::count_if(_tasks.begin(), _tasks.end(),
+                                      [&agent_task_req](const TAgentTaskRequest& req) {
+                                          return req.batch_id == agent_task_req.batch_id;
+                                      }) == 0) {
+                        // indicates the last canceled task
+                        _cancel_set.erase(it);
+                    }
+                    return;
+                }
+            }
             _worker_thread_condition_variable.wait(
                     worker_thread_lock, [this]() { return !_is_work || !_tasks.empty(); });
             if (!_is_work) {
                 return;
             }
-
             agent_task_req = _tasks.front();
             _tasks.pop_front();
         }

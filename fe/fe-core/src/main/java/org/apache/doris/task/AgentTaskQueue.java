@@ -78,6 +78,11 @@ public class AgentTaskQueue {
         }
     }
 
+    public static synchronized void removeAndCancelBatchTask(AgentBatchTask batchTask, TTaskType type) {
+        removeBatchTask(batchTask, type);
+        batchTask.cancel(type);
+    }
+
     public static synchronized void removeTask(long backendId, TTaskType type, long signature) {
         if (!tasks.contains(backendId, type)) {
             return;
