@@ -35,6 +35,7 @@
 #include "io/fs/stream_load_pipe.h"
 #include "opentelemetry/trace/scope.h"
 #include "pipeline/pipeline_fragment_context.h"
+#include "pipeline/task_scheduler.h"
 #include "runtime/client_cache.h"
 #include "runtime/datetime_value.h"
 #include "runtime/descriptors.h"
@@ -654,19 +655,6 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
             fragments_ctx->query_mem_tracker->enable_print_log_usage();
         }
 
-        if (pipeline) {
-            int ts = fragments_ctx->timeout_second;
-            taskgroup::TaskGroupPtr tg;
-            auto ts_id = taskgroup::TaskGroupManager::DEFAULT_TG_ID;
-            if (ts > 0 && ts <= config::pipeline_short_query_timeout_s) {
-                ts_id = taskgroup::TaskGroupManager::SHORT_TG_ID;
-            }
-            tg = taskgroup::TaskGroupManager::instance()->get_task_group(ts_id);
-            fragments_ctx->set_task_group(tg);
-            LOG(INFO) << "Query/load id: " << print_id(fragments_ctx->query_id)
-                      << "use task group: " << tg->debug_string();
-        }
-
         {
             // Find _fragments_ctx_map again, in case some other request has already
             // create the query fragments context.
@@ -778,6 +766,23 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     std::shared_ptr<FragmentExecState> exec_state;
     std::shared_ptr<QueryFragmentsCtx> fragments_ctx;
     RETURN_IF_ERROR(_get_query_ctx(params, params.query_id, true, fragments_ctx));
+
+    if (params.__isset.resource_groups && !params.resource_groups.empty()) {
+        taskgroup::TaskGroupInfo task_group_info;
+        auto status = taskgroup::TaskGroupInfo::parse_group_info(params.resource_groups[0],
+                                                                 &task_group_info);
+        if (status.ok()) {
+            auto tg = taskgroup::TaskGroupManager::instance()->get_or_create_task_group(
+                    task_group_info);
+            _exec_env->pipeline_task_group_scheduler()->try_update_task_group(task_group_info, tg);
+            fragments_ctx->set_task_group(tg);
+            LOG(INFO) << "Query/load id: " << print_id(fragments_ctx->query_id)
+                      << " use task group: " << tg->debug_string();
+        }
+    } else {
+        VLOG_DEBUG << "Query/load id: " << print_id(fragments_ctx->query_id)
+                   << " does not use task group.";
+    }
 
     for (size_t i = 0; i < params.local_params.size(); i++) {
         const auto& local_params = params.local_params[i];

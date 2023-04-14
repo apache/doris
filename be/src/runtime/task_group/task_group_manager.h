@@ -29,19 +29,9 @@ public:
     ~TaskGroupManager();
     static TaskGroupManager* instance();
 
-    // TODO pipeline task group
-    TaskGroupPtr get_task_group(uint64_t id);
-
-    static constexpr uint64_t DEFAULT_TG_ID = 0;
-    static constexpr uint64_t DEFAULT_TG_CPU_SHARE = 64;
-
-    static constexpr uint64_t SHORT_TG_ID = 1;
-    static constexpr uint64_t SHORT_TG_CPU_SHARE = 128;
+    TaskGroupPtr get_or_create_task_group(const TaskGroupInfo& task_group_info);
 
 private:
-    void _create_default_task_group();
-    void _create_short_task_group();
-
     std::shared_mutex _group_mutex;
     std::unordered_map<uint64_t, TaskGroupPtr> _task_groups;
 };
