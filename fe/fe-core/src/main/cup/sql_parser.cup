@@ -355,6 +355,7 @@ terminal String
     KW_EXCEPT,
     KW_EXCLUDE,
     KW_EXISTS,
+    KW_EXPIRED,
     KW_EXPORT,
     KW_EXTENDED,
     KW_EXTERNAL,
@@ -3015,7 +3016,11 @@ drop_stmt ::=
     /* statistics */
     | KW_DROP KW_STATS opt_table_name:tbl opt_col_list:cols opt_partition_names:partitionNames
     {:
-        RESULT = new DropTableStatsStmt(tbl, partitionNames, cols);
+        RESULT = new DropStatsStmt(tbl, partitionNames, cols);
+    :}
+    | KW_DROP KW_EXPIRED KW_STATS
+    {:
+        RESULT = new DropStatsStmt(true);
     :}
     ;
 
@@ -7355,6 +7360,8 @@ keyword ::=
     | KW_HISTOGRAM:id
     {: RESULT = id; :}
     | KW_CURRENT_CATALOG:id
+    {: RESULT = id; :}
+    | KW_EXPIRED: id
     {: RESULT = id; :}
     ;
 
