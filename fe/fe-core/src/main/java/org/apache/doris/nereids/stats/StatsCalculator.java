@@ -479,11 +479,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     //all column stats are unknown, use default ratio
                     resultSetCount = inputRowCount * DEFAULT_AGGREGATE_RATIO;
                 } else {
-                    resultSetCount = groupByKeyStats.stream()
-                            .map(s -> s.ndv)
-                            .reduce(1.0, (a, b) -> a * b);
-                    //agg output tuples should be less than input tuples
-                    resultSetCount = Math.min(resultSetCount, inputRowCount);
+                    resultSetCount = groupByKeyStats.stream().map(s -> s.ndv)
+                            .max(Double::compare).get();
                 }
             }
         }
