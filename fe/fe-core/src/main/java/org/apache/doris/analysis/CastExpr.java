@@ -130,10 +130,12 @@ public class CastExpr extends Expr {
             if (type.isDecimalV2() && e.type.isDecimalV2()) {
                 getChild(0).setType(type);
             }
+            analysisDone();
             return;
         }
 
         if (e.type.isNull()) {
+            analysisDone();
             return;
         }
 
