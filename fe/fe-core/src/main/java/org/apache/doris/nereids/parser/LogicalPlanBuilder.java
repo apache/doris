@@ -308,7 +308,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitInsert(InsertContext ctx) {
-        return new InsertIntoSelectCommand(visitIdentifierList(ctx.identifierList(), visitQuery(ctx.query())));
+        return new InsertIntoSelectCommand(null, null,
+                visitIdentifierList(ctx.identifierList()), visitQuery(ctx.query()));
     }
 
     /**
