@@ -693,8 +693,9 @@ void LRUFileCache::remove(FileBlockSPtr file_block, std::lock_guard<std::mutex>&
     auto type = file_block->cache_type();
     auto* cell = get_cell(key, offset, cache_lock);
     // It will be removed concurrently
-    if (!cell) [[unlikely]]
+    if (!cell) [[unlikely]] {
         return;
+    }
 
     if (cell->queue_iterator) {
         auto& queue = get_queue(file_block->cache_type());
