@@ -636,7 +636,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 #### `enable_segcompaction`
 
 * 类型：bool
-* 描述：在导入时进行 segment compaction 来减少 segment 数量
+* 描述：在导入时进行 segment compaction 来减少 segment 数量, 以避免出现写入时的 -238 错误
 * 默认值：true
 
 #### `segcompaction_threshold_segment_num`

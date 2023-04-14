@@ -622,7 +622,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 #### `enable_segcompaction`
 
 * Type: bool
-* Description: Enable to use segment compaction during loading
+* Description: Enable to use segment compaction during loading to avoid -238 error
 * Default value: true
 
 #### `segcompaction_threshold_segment_num`
