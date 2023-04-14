@@ -214,7 +214,7 @@ public:
         if (str.size == 0 || rhs.size == 0) {
             return str;
         }
-        return rtrim(ltrim(str, rhs)), rhs;
+        return rtrim(ltrim(str, rhs), rhs);
     }
 
     // Gcc will do auto simd in this function
