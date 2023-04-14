@@ -345,6 +345,11 @@ public:
         _env->_master_info = new TMasterInfo();
         _env->_internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
         _env->_function_client_cache = new BrpcClientCache<PFunctionService_Stub>();
+        ThreadPoolBuilder("SinkerThreadPool")
+                .set_min_threads(1)
+                .set_max_threads(5)
+                .set_max_queue_size(100)
+                .build(&_env->_sinker_thread_pool);
         ThreadPoolBuilder("SendBatchThreadPool")
                 .set_min_threads(1)
                 .set_max_threads(5)

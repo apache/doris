@@ -212,6 +212,8 @@ public:
 
     UIntGauge* scanner_thread_pool_queue_size;
     UIntGauge* add_batch_task_queue_size;
+    UIntGauge* sinker_thread_pool_thread_num;
+    UIntGauge* sinker_thread_pool_queue_size;
     UIntGauge* send_batch_thread_pool_thread_num;
     UIntGauge* send_batch_thread_pool_queue_size;
     UIntGauge* download_cache_thread_pool_thread_num;

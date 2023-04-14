@@ -18,6 +18,7 @@
 #pragma once
 #include <brpc/controller.h>
 
+#include <future>
 #include <memory>
 #include <queue>
 #include <string>
@@ -499,7 +500,9 @@ private:
     std::vector<std::shared_ptr<IndexChannel>> _channels;
 
     CountDownLatch _stop_background_threads_latch;
-    scoped_refptr<Thread> _sender_thread;
+    bool _sender_thread_created;
+    std::promise<bool> _sender_thread_promise;
+    std::future<bool> _sender_thread_future;
     std::unique_ptr<ThreadPoolToken> _send_batch_thread_pool_token;
 
     std::map<std::pair<int, int>, DecimalV2Value> _max_decimalv2_val;

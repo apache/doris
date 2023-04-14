@@ -841,11 +841,13 @@ VOlapTableSink::VOlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
         : _pool(pool),
           _input_row_desc(row_desc),
           _filter_bitmap(1024),
-          _stop_background_threads_latch(1) {
+          _stop_background_threads_latch(1),
+          _sender_thread_created(false) {
     // From the thrift expressions create the real exprs.
     *status = vectorized::VExpr::create_expr_trees(pool, texprs, &_output_vexpr_ctxs);
     _name = "VOlapTableSink";
     _transfer_large_data_by_brpc = config::transfer_large_data_by_brpc;
+    _sender_thread_future = _sender_thread_promise.get_future();
 }
 
 VOlapTableSink::~VOlapTableSink() {
@@ -1006,9 +1008,11 @@ Status VOlapTableSink::open(RuntimeState* state) {
             MIN(_send_batch_parallelism, config::max_send_batch_parallelism_per_job);
     _send_batch_thread_pool_token = state->exec_env()->send_batch_thread_pool()->new_token(
             ThreadPool::ExecutionMode::CONCURRENT, send_batch_parallelism);
-    RETURN_IF_ERROR(Thread::create(
-            "OlapTableSink", "send_batch_process",
-            [this, state]() { this->_send_batch_process(state); }, &_sender_thread));
+    state->exec_env()->sinker_thread_pool()->submit_func([this, state] {
+            Defer defer {[&]() { this->_sender_thread_promise.set_value(true); }};
+            this->_send_batch_process(state);
+        });        
+    _sender_thread_created = true;
 
     return Status::OK();
 }
@@ -1336,8 +1340,8 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
     // Sender join() must put after node channels mark_close/cancel.
     // But there is no specific sequence required between sender join() & close_wait().
     _stop_background_threads_latch.count_down();
-    if (_sender_thread) {
-        _sender_thread->join();
+    if (_sender_thread_created) {
+        _sender_thread_future.wait();
         // We have to wait all task in _send_batch_thread_pool_token finished,
         // because it is difficult to handle concurrent problem if we just
         // shutdown it.

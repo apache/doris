@@ -702,6 +702,10 @@ CONF_mInt32(max_send_batch_parallelism_per_job, "5");
 CONF_Validator(max_send_batch_parallelism_per_job,
                [](const int config) -> bool { return config >= 1; });
 
+// number of sink thread pool size
+CONF_Int32(sinker_thread_pool_thread_num, "32");
+// number of sink thread pool queue size
+CONF_Int32(sinker_thread_pool_queue_size, "102400");
 // number of send batch thread pool size
 CONF_Int32(send_batch_thread_pool_thread_num, "64");
 // number of send batch thread pool queue size

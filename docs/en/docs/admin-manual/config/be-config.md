@@ -843,6 +843,18 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * Description: Webserver default number of worker threads
 * Default value: 48
 
+#### `sinker_thread_pool_thread_num`
+
+* Type: int32
+* 描述：The number of threads in the Sinker thread pool. In sending data task, the SendBatch operation will be scheduled by a sinker thread, This parameter determines the size of the Sinker thread pool.
+* Default value: 32
+
+#### `sinker_thread_pool_queue_size`
+
+* Type: int32
+* Description: The queue length of the Sinker thread pool. In sending data task, the SendBatch operation will be scheduled by a sinker thread, and after the number of sinker exceeds the length of the thread pool queue, subsequent submitted tasks will be blocked until there is a empty slot in the queue.
+* Default value: 102400
+
 #### `send_batch_thread_pool_thread_num`
 
 * Type: int32

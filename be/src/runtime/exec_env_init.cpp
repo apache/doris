@@ -64,6 +64,8 @@
 namespace doris {
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(scanner_thread_pool_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(sinker_thread_pool_thread_num, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(sinker_thread_pool_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(send_batch_thread_pool_thread_num, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(send_batch_thread_pool_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(download_cache_thread_pool_thread_num, MetricUnit::NOUNIT);
@@ -92,6 +94,11 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _frontend_client_cache = new FrontendServiceClientCache(config::max_client_cache_size_per_host);
     _broker_client_cache = new BrokerServiceClientCache(config::max_client_cache_size_per_host);
 
+    ThreadPoolBuilder("SinkerThreadPool")
+            .set_min_threads(config::sinker_thread_pool_thread_num)
+            .set_max_threads(config::sinker_thread_pool_thread_num)
+            .set_max_queue_size(config::sinker_thread_pool_queue_size)
+            .build(&_sinker_thread_pool);
     ThreadPoolBuilder("SendBatchThreadPool")
             .set_min_threads(config::send_batch_thread_pool_thread_num)
             .set_max_threads(config::send_batch_thread_pool_thread_num)
@@ -318,6 +325,12 @@ void ExecEnv::init_download_cache_required_components() {
 }
 
 void ExecEnv::_register_metrics() {
+    REGISTER_HOOK_METRIC(sinker_thread_pool_thread_num,
+                         [this]() { return _sinker_thread_pool->num_threads(); });
+
+    REGISTER_HOOK_METRIC(sinker_thread_pool_queue_size,
+                         [this]() { return _sinker_thread_pool->get_queue_size(); });
+
     REGISTER_HOOK_METRIC(send_batch_thread_pool_thread_num,
                          [this]() { return _send_batch_thread_pool->num_threads(); });
 
@@ -333,6 +346,8 @@ void ExecEnv::_register_metrics() {
 
 void ExecEnv::_deregister_metrics() {
     DEREGISTER_HOOK_METRIC(scanner_thread_pool_queue_size);
+    DEREGISTER_HOOK_METRIC(sinker_thread_pool_thread_num);
+    DEREGISTER_HOOK_METRIC(sinker_thread_pool_queue_size);
     DEREGISTER_HOOK_METRIC(send_batch_thread_pool_thread_num);
     DEREGISTER_HOOK_METRIC(send_batch_thread_pool_queue_size);
     DEREGISTER_HOOK_METRIC(download_cache_thread_pool_thread_num);

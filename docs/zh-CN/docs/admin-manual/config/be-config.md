@@ -857,6 +857,18 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * 描述：webserver默认工作线程数
 * 默认值：48
 
+#### `sinker_thread_pool_thread_num`
+
+* 类型：int32
+* 描述：Sinker线程池线程数目。在发送数据任务之中，会由一个sinker线程处理SendBatch操作，该参数决定了Sinker线程池的大小。
+* 默认值：32
+
+#### `sinker_thread_pool_queue_size`
+
+* 类型：int32
+* 描述：Sinker线程池的队列长度。在发送数据任务之中，会由一个sinker线程处理SendBatch操作，而sinker数目超过线程池队列的长度之后，后续提交的任务将阻塞直到队列之中有新的空缺。
+* 默认值：102400
+
 #### `send_batch_thread_pool_thread_num`
 
 * 类型：int32

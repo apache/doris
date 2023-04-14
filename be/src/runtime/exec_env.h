@@ -125,6 +125,7 @@ public:
     MemTrackerLimiter* experimental_mem_tracker() { return _experimental_mem_tracker.get(); }
     MemTracker* page_no_cache_mem_tracker() { return _page_no_cache_mem_tracker.get(); }
 
+    ThreadPool* sinker_thread_pool() { return _sinker_thread_pool.get(); }
     ThreadPool* send_batch_thread_pool() { return _send_batch_thread_pool.get(); }
     ThreadPool* download_cache_thread_pool() { return _download_cache_thread_pool.get(); }
     ThreadPool* buffered_reader_prefetch_thread_pool() {
@@ -218,6 +219,7 @@ private:
     // page size not in cache, data page/index page/etc.
     std::shared_ptr<MemTracker> _page_no_cache_mem_tracker;
 
+    std::unique_ptr<ThreadPool> _sinker_thread_pool;
     std::unique_ptr<ThreadPool> _send_batch_thread_pool;
 
     // Threadpool used to download cache from remote storage
