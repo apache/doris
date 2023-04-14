@@ -408,8 +408,8 @@ struct Trim2Impl {
         const auto& rcol =
                 assert_cast<const ColumnConst*>(block.get_by_position(arguments[1]).column.get())
                         ->get_data_column_ptr();
-        if (const ColumnString* col = check_and_get_column<ColumnString>(column.get())) {
-            if (auto col_right = check_and_get_column<ColumnString>(rcol.get())) {
+        if (auto col = assert_cast<const ColumnString*>(column.get())) {
+            if (auto col_right = assert_cast<const ColumnString*>(rcol.get())) {
                 auto col_res = ColumnString::create();
                 const char* raw_rhs = reinterpret_cast<const char*>(&(col_right->get_chars()[0]));
                 ColumnString::Offset rhs_size = col_right->get_offsets()[0];

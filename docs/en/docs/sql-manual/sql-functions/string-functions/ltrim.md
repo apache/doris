@@ -28,7 +28,7 @@ under the License.
 ### Description
 #### Syntax
 
-`VARCHAR ltrim(VARCHAR str)`
+`VARCHAR ltrim(VARCHAR str[, VARCHAR rhs])`
 
 
 When the 'rhs' parameter is not present, remove the continuous spaces that appear from the beginning of the 'str' parameter. Otherwise, remove 'rhs'.
