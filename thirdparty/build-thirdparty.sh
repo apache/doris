@@ -171,6 +171,13 @@ pushd "${TP_DIR}/installed"/
 ln -sf lib64 lib
 popd
 
+# Configure the search paths for pkg-config and cmake
+export PKG_CONFIG_PATH="${TP_DIR}/installed/lib64/pkgconfig"
+export CMAKE_PREFIX_PATH="${TP_DIR}/installed"
+
+echo "PKG_CONFIG_PATH: ${PKG_CONFIG_PATH}"
+echo "CMAKE_PREFIX_PATH: ${CMAKE_PREFIX_PATH}"
+
 check_prerequest() {
     local CMD="$1"
     local NAME="$2"
