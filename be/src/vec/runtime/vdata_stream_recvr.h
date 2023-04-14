@@ -221,10 +221,6 @@ public:
     }
 
     void add_block(Block* block, bool use_move) override {
-        // Avoid deadlock when calling SenderQueue::cancel() in tcmalloc hook,
-        // limit memory via DataStreamRecvr::exceeds_limit.
-        STOP_CHECK_THREAD_MEM_TRACKER_LIMIT();
-
         if (_is_cancelled || !block->rows()) {
             return;
         }
