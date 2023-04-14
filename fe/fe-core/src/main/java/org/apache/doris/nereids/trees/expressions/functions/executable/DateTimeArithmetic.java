@@ -188,6 +188,14 @@ public class DateTimeArithmetic {
     }
 
     /**
+     * datetime arithmetic function microseconds-add.
+     */
+    @ExecFunction(name = "seconds_add", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal microSecondsAdd(DateTimeV2Literal date, IntegerLiteral microSecond) throws AnalysisException {
+        return date.plusMicroSeconds(microSecond.getValue());
+    }
+
+    /**
      * datetime arithmetic function years-sub.
      */
     @ExecFunction(name = "years_sub", argTypes = {"DATE", "INT"}, returnType = "DATE")

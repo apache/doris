@@ -78,48 +78,53 @@ public class DateTimeV2Literal extends DateTimeLiteral {
 
     @Override
     public DateTimeV2Literal plusYears(int years) {
-        LocalDateTime d = DateUtils.getTime(DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue()).plusYears(years);
-        return new DateTimeV2Literal(this.getDataType(), d.getYear(), d.getMonthValue(), d.getDayOfMonth(),
-                d.getHour(), d.getMinute(), d.getSecond(), d.getNano() / 1000L);
+        return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
+                .plusYears(years));
     }
 
     @Override
     public DateTimeV2Literal plusMonths(int months) {
-        LocalDateTime d = DateUtils.getTime(DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue()).plusMonths(months);
-        return new DateTimeV2Literal(this.getDataType(), d.getYear(), d.getMonthValue(), d.getDayOfMonth(),
-                d.getHour(), d.getMinute(), d.getSecond(), d.getNano() / 1000L);
+        return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
+                .plusMonths(months));
     }
 
     @Override
     public DateTimeV2Literal plusDays(int days) {
-        LocalDateTime d = DateUtils.getTime(DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue()).plusDays(days);
-        return new DateTimeV2Literal(this.getDataType(), d.getYear(), d.getMonthValue(), d.getDayOfMonth(),
-                d.getHour(), d.getMinute(), d.getSecond(), d.getNano() / 1000L);
+        return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
+                .plusDays(days));
     }
 
     @Override
     public DateTimeV2Literal plusHours(int hours) {
-        LocalDateTime d = DateUtils.getTime(DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue()).plusHours(hours);
-        return new DateTimeV2Literal(this.getDataType(), d.getYear(), d.getMonthValue(), d.getDayOfMonth(),
-                d.getHour(), d.getMinute(), d.getSecond(), d.getNano() / 1000L);
+        return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
+                .plusHours(hours));
     }
 
     @Override
     public DateTimeV2Literal plusMinutes(int minutes) {
-        LocalDateTime d = DateUtils.getTime(DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue()).plusMinutes(minutes);
-        return new DateTimeV2Literal(this.getDataType(), d.getYear(), d.getMonthValue(), d.getDayOfMonth(),
-                d.getHour(), d.getMinute(), d.getSecond(), d.getNano() / 1000L);
+        return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
+                .plusMinutes(minutes));
     }
 
     @Override
     public DateTimeV2Literal plusSeconds(int seconds) {
-        LocalDateTime d = DateUtils.getTime(DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue()).plusSeconds(seconds);
-        return new DateTimeV2Literal(this.getDataType(), d.getYear(), d.getMonthValue(), d.getDayOfMonth(),
-                d.getHour(), d.getMinute(), d.getSecond(), d.getNano() / 1000L);
+        return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
+                .plusSeconds(seconds));
+    }
+
+    public DateTimeV2Literal plusMicroSeconds(int microSeconds) {
+        return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
+                .plusNanos(microSeconds * 1000L));
     }
 
     public static DateTimeV2Literal fromJavaDateType(LocalDateTime dateTime) {
         return new DateTimeV2Literal(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(),
-                dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(), 0);
+                dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(), dateTime.getNano() / 1000);
+    }
+
+    public static DateTimeV2Literal fromJavaDateType(LocalDateTime dateTime, int percision) {
+        return new DateTimeV2Literal(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(),
+                dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(),
+                dateTime.getNano() / (long) Math.pow(10, 9 - percision));
     }
 }
