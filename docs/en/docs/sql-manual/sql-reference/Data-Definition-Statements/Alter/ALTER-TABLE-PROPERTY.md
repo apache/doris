@@ -169,6 +169,14 @@ Note:
 changed.
 3. For partitioned tables, the actual replica distribution of the table is at the partition level, that is, each partition has its own replica distribution, which can be viewed through the `show partitions from tbl` statement. If you want to modify the actual replica distribution, see `ALTER TABLE PARTITION`.
 
+13\. **[Experimental]** turn on `light_schema_change`
+
+  For tables that were not created with light_schema_change enabled, you can enable it by using the following statement.
+
+```sql
+ALTER TABLE example_db.mysql_table SET ("light_schema_change" = "true");
+```
+
 ### Example
 
 1. Modify the bloom filter column of the table
