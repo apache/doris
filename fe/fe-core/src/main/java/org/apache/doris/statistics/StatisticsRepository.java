@@ -18,7 +18,7 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.AlterColumnStatsStmt;
-import org.apache.doris.analysis.DropTableStatsStmt;
+import org.apache.doris.analysis.DropStatsStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -89,6 +89,12 @@ public class StatisticsRepository {
                     + " WHERE part_id is NULL "
                     + " ORDER BY update_time DESC LIMIT "
                     + StatisticConstants.STATISTICS_RECORDS_CACHE_SIZE;
+
+    private static final String FETCH_STATS_FULL_NAME =
+            "SELECT id, catalog_id, db_id, tbl_id, idx_id, col_id, part_id FROM "
+                    + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.STATISTIC_TBL_NAME
+                    + " ORDER BY update_time "
+                    + "LIMIT ${limit} OFFSET ${offset}";
 
     public static ColumnStatistic queryColumnStatisticsByName(long tableId, String colName) {
         ResultRow resultRow = queryColumnStatisticById(tableId, colName);
@@ -272,7 +278,7 @@ public class StatisticsRepository {
                 .updateColStatsCache(objects.table.getId(), -1, colName, builder.build());
     }
 
-    public static void dropTableStatistics(DropTableStatsStmt dropTableStatsStmt) {
+    public static void dropTableStatistics(DropStatsStmt dropTableStatsStmt) {
         Long dbId = dropTableStatsStmt.getDbId();
         Set<Long> tbIds = dropTableStatsStmt.getTbIds();
         Set<String> cols = dropTableStatsStmt.getColumnNames();
@@ -283,5 +289,12 @@ public class StatisticsRepository {
 
     public static List<ResultRow> fetchRecentStatsUpdatedCol() {
         return StatisticsUtil.execStatisticQuery(FETCH_RECENT_STATS_UPDATED_COL);
+    }
+
+    public static List<ResultRow> fetchStatsFullName(long limit, long offset) {
+        Map<String, String> params = new HashMap<>();
+        params.put("limit", String.valueOf(limit));
+        params.put("offset", String.valueOf(offset));
+        return StatisticsUtil.execStatisticQuery(new StringSubstitutor(params).replace(FETCH_STATS_FULL_NAME));
     }
 }

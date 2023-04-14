@@ -42,11 +42,14 @@ import java.util.stream.Collectors;
  * Manually drop statistics for tables or partitions.
  * Table or partition can be specified, if neither is specified,
  * all statistics under the current database will be deleted.
- *
+ * <p>
  * syntax:
- *     DROP STATS [TableName [PARTITIONS(partitionNames)]];
+ * DROP [EXPIRED] STATS [TableName [PARTITIONS(partitionNames)]];
  */
-public class DropTableStatsStmt extends DdlStmt {
+public class DropStatsStmt extends DdlStmt {
+
+    public final boolean dropExpired;
+
     private final TableName tableName;
     private final PartitionNames partitionNames;
     private final List<String> columnNames;
@@ -56,17 +59,27 @@ public class DropTableStatsStmt extends DdlStmt {
     private final Set<Long> tbIds = Sets.newHashSet();
     private final Set<Long> partitionIds = Sets.newHashSet();
 
-    public DropTableStatsStmt(TableName tableName,
+    public DropStatsStmt(boolean dropExpired) {
+        this.dropExpired = dropExpired;
+        this.tableName = null;
+        this.partitionNames = null;
+        this.columnNames = null;
+    }
+
+    public DropStatsStmt(TableName tableName,
             PartitionNames partitionNames, List<String> columnNames) {
         this.tableName = tableName;
         this.partitionNames = partitionNames;
         this.columnNames = columnNames;
+        dropExpired = false;
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-
+        if (dropExpired) {
+            return;
+        }
         if (tableName != null) {
             tableName.analyze(analyzer);
 
