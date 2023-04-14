@@ -2665,3 +2665,17 @@ show data （其他用法：HELP SHOW DATA）
 
 仅在 `prefer_compute_node_for_external_table` 为 true 时生效。如果计算节点数小于此值，则对外部表的查询将尝试使用一些混合节点，让节点总数达到这个值。
 如果计算节点数大于这个值，外部表的查询将只分配给计算节点。
+
+#### `infodb_support_ext_catalog`
+
+<version since="1.2.4"></version>
+
+默认值：false
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：false
+
+当设置为 false 时，查询 `information_schema` 中的表时，将不再返回 external catalog 中的表的信息。
+
+这个参数主要用于避免因 external catalog 无法访问、信息过多等原因导致的查询 `information_schema` 超时的问题。
