@@ -298,7 +298,6 @@ public class ExportStmt extends StatementBase {
                 throw new AnalysisException(
                         "Invalid export path. please use valid '" + OutFileClause.LOCAL_FILE_PREFIX + "' path.");
             }
-            path = path.substring(OutFileClause.LOCAL_FILE_PREFIX.length() - 1);
         }
         return path;
     }

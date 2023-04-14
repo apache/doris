@@ -121,7 +121,7 @@ public class ExportMgr extends MasterDaemon {
 
                 }
             } catch (Exception e) {
-                LOG.warn("run export exporting job error", e);
+                LOG.warn("run export exporting job {}.", job, e);
             }
         }
     }
@@ -222,6 +222,17 @@ public class ExportMgr extends MasterDaemon {
     private ExportJob createJob(long jobId, ExportStmt stmt) throws Exception {
         ExportJob job = new ExportJob(jobId);
         job.setJob(stmt);
+        return job;
+    }
+
+    public ExportJob getJob(long jobId) {
+        ExportJob job = null;
+        readLock();
+        try {
+            job = idToJob.get(jobId);
+        } finally {
+            readUnlock();
+        }
         return job;
     }
 
@@ -451,11 +462,15 @@ public class ExportMgr extends MasterDaemon {
         }
     }
 
-    public void replayUpdateJobState(long jobId, ExportJob.JobState newState) {
+    public void replayUpdateJobState(ExportJob.StateTransfer stateTransfer) {
         readLock();
         try {
-            ExportJob job = idToJob.get(jobId);
-            job.updateState(newState, true);
+            ExportJob job = idToJob.get(stateTransfer.getJobId());
+            job.updateState(stateTransfer.getState(), true);
+            job.setStartTimeMs(stateTransfer.getStartTimeMs());
+            job.setFinishTimeMs(stateTransfer.getFinishTimeMs());
+            job.setFailMsg(stateTransfer.getFailMsg());
+            job.setOutfileInfo(stateTransfer.getOutFileInfo());
         } finally {
             readUnlock();
         }

@@ -105,6 +105,7 @@ public class ExportJob implements Writable {
 
     @SerializedName("id")
     private long id;
+    @SerializedName("queryId")
     private String queryId;
     @SerializedName("label")
     private String label;
@@ -114,7 +115,6 @@ public class ExportJob implements Writable {
     private long tableId;
     @SerializedName("brokerDesc")
     private BrokerDesc brokerDesc;
-    private Expr whereExpr;
     @SerializedName("exportPath")
     private String exportPath;
     @SerializedName("columnSeparator")
@@ -129,17 +129,6 @@ public class ExportJob implements Writable {
     private JobState state;
     @SerializedName("createTimeMs")
     private long createTimeMs;
-    @SerializedName("startTimeMs")
-    private long startTimeMs;
-    @SerializedName("finishTimeMs")
-    private long finishTimeMs;
-    // progress has two functions at EXPORTING stage:
-    // 1. when progress < 100, it indicates exporting
-    // 2. set progress = 100 ONLY when exporting progress is completely done
-    @SerializedName("progress")
-    private int progress;
-    @SerializedName("failMsg")
-    private ExportFailMsg failMsg;
     // this is the origin stmt of ExportStmt, we use it to persist where expr of Export job,
     // because we can not serialize the Expressions contained in job.
     @SerializedName("origStmt")
@@ -150,16 +139,25 @@ public class ExportJob implements Writable {
     private UserIdentity userIdentity;
     @SerializedName("columns")
     private String columns;
-    @SerializedName("sqlMode")
-    private long sqlMode;
     @SerializedName("format")
     private String format;
     @SerializedName("timeoutSecond")
     private int timeoutSecond;
     @SerializedName("maxFileSize")
     private String maxFileSize;
+    // progress has two functions at EXPORTING stage:
+    // 1. when progress < 100, it indicates exporting
+    // 2. set progress = 100 ONLY when exporting progress is completely done
+    private int progress;
+    private long startTimeMs;
+    private long finishTimeMs;
+    private ExportFailMsg failMsg;
+    private String outfileInfo;
+
 
     private TableRef tableRef;
+
+    private Expr whereExpr;
 
     private String sql = "";
 
@@ -196,6 +194,7 @@ public class ExportJob implements Writable {
         this.startTimeMs = -1;
         this.finishTimeMs = -1;
         this.failMsg = new ExportFailMsg(ExportFailMsg.CancelType.UNKNOWN, "");
+        this.outfileInfo = "";
         this.exportPath = "";
         this.columnSeparator = "\t";
         this.lineDelimiter = "\n";
@@ -225,7 +224,6 @@ public class ExportJob implements Writable {
             this.exportPath = path + "/" + PATH_PREFIXES;
         }
         this.sessionVariables = stmt.getSessionVariables();
-        this.sqlMode = sessionVariables.getSqlMode();
         this.timeoutSecond = sessionVariables.getQueryTimeoutS();
         this.qualifiedUser = stmt.getQualifiedUser();
         this.userIdentity = stmt.getUserIdentity();
@@ -386,10 +384,6 @@ public class ExportJob implements Writable {
         this.progress = progress;
     }
 
-    public void setFailMsg(ExportFailMsg failMsg) {
-        this.failMsg = failMsg;
-    }
-
     public long getCreateTimeMs() {
         return createTimeMs;
     }
@@ -398,13 +392,34 @@ public class ExportJob implements Writable {
         return startTimeMs;
     }
 
+    public void setStartTimeMs(long startTimeMs) {
+        this.startTimeMs = startTimeMs;
+    }
+
     public long getFinishTimeMs() {
         return finishTimeMs;
+    }
+
+    public void setFinishTimeMs(long finishTimeMs) {
+        this.finishTimeMs = finishTimeMs;
     }
 
     public ExportFailMsg getFailMsg() {
         return failMsg;
     }
+
+    public void setFailMsg(ExportFailMsg failMsg) {
+        this.failMsg = failMsg;
+    }
+
+    public String getOutfileInfo() {
+        return outfileInfo;
+    }
+
+    public void setOutfileInfo(String outfileInfo) {
+        this.outfileInfo = outfileInfo;
+    }
+
 
     public synchronized Thread getDoExportingThread() {
         return doExportingThread;
@@ -443,7 +458,6 @@ public class ExportJob implements Writable {
             failMsg = new ExportFailMsg(type, msg);
         }
         if (updateState(ExportJob.JobState.CANCELLED, false)) {
-
             // release snapshot
             // Status releaseSnapshotStatus = releaseSnapshotPaths();
             // if (!releaseSnapshotStatus.ok()) {
@@ -490,7 +504,7 @@ public class ExportJob implements Writable {
                 break;
         }
         // we only persist Pending/Cancel/Finish state
-        if (!isReplay && newState != JobState.EXPORTING && newState != JobState.IN_QUEUE) {
+        if (!isReplay && newState != JobState.IN_QUEUE && newState != JobState.EXPORTING) {
             Env.getCurrentEnv().getEditLog().logExportUpdateState(id, newState);
         }
         return true;
@@ -500,7 +514,7 @@ public class ExportJob implements Writable {
         return this.state == ExportJob.JobState.CANCELLED || this.state == ExportJob.JobState.FINISHED;
     }
 
-    public Status makeSnapshots() {
+    private Status makeSnapshots() {
         List<TScanRangeLocations> tabletLocations = getTabletLocations();
         if (tabletLocations == null) {
             return Status.OK;
@@ -610,7 +624,6 @@ public class ExportJob implements Writable {
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_120) {
             ExportJob job = new ExportJob();
             job.readFields(in);
-            // TODO(ftw): maybe need covert
             return job;
         }
         String json = Text.readString(in);
@@ -727,17 +740,34 @@ public class ExportJob implements Writable {
 
     // for only persist op when switching job state.
     public static class StateTransfer implements Writable {
+        @SerializedName("jobId")
         long jobId;
+        @SerializedName("state")
         JobState state;
+        @SerializedName("startTimeMs")
+        private long startTimeMs;
+        @SerializedName("finishTimeMs")
+        private long finishTimeMs;
+        @SerializedName("failMsg")
+        private ExportFailMsg failMsg;
+        @SerializedName("outFileInfo")
+        private String outFileInfo;
 
         public StateTransfer() {
             this.jobId = -1;
             this.state = JobState.CANCELLED;
         }
 
+        // maxFileSize
+
         public StateTransfer(long jobId, JobState state) {
             this.jobId = jobId;
             this.state = state;
+            ExportJob job = Env.getCurrentEnv().getExportMgr().getJob(jobId);
+            this.startTimeMs = job.getStartTimeMs();
+            this.finishTimeMs = job.getFinishTimeMs();
+            this.failMsg = job.getFailMsg();
+            this.outFileInfo = job.getOutfileInfo();
         }
 
         public long getJobId() {
@@ -750,13 +780,40 @@ public class ExportJob implements Writable {
 
         @Override
         public void write(DataOutput out) throws IOException {
-            out.writeLong(jobId);
-            Text.writeString(out, state.name());
+            String json = GsonUtils.GSON.toJson(this);
+            Text.writeString(out, json);
         }
 
-        public void readFields(DataInput in) throws IOException {
+        public static StateTransfer read(DataInput in) throws IOException {
+            if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_120) {
+                StateTransfer transfer = new StateTransfer();
+                transfer.readFields(in);
+                return transfer;
+            }
+            String json = Text.readString(in);
+            StateTransfer transfer = GsonUtils.GSON.fromJson(json, ExportJob.StateTransfer.class);
+            return transfer;
+        }
+
+        private void readFields(DataInput in) throws IOException {
             jobId = in.readLong();
             state = JobState.valueOf(Text.readString(in));
+        }
+
+        public long getStartTimeMs() {
+            return startTimeMs;
+        }
+
+        public long getFinishTimeMs() {
+            return finishTimeMs;
+        }
+
+        public String getOutFileInfo() {
+            return outFileInfo;
+        }
+
+        public ExportFailMsg getFailMsg() {
+            return failMsg;
         }
     }
 }
