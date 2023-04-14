@@ -1009,9 +1009,9 @@ Status VOlapTableSink::open(RuntimeState* state) {
     _send_batch_thread_pool_token = state->exec_env()->send_batch_thread_pool()->new_token(
             ThreadPool::ExecutionMode::CONCURRENT, send_batch_parallelism);
     state->exec_env()->sinker_thread_pool()->submit_func([this, state] {
-            Defer defer {[&]() { this->_sender_thread_promise.set_value(true); }};
-            this->_send_batch_process(state);
-        });        
+        Defer defer {[&]() { this->_sender_thread_promise.set_value(true); }};
+        this->_send_batch_process(state);
+    });        
     _sender_thread_created = true;
 
     return Status::OK();
