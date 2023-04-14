@@ -832,9 +832,13 @@ public class ExportJob implements Writable {
     }
 
     public static class OutfileInfo {
+        @SerializedName("fileNumber")
         private String fileNumber;
+        @SerializedName("totalRows")
         private String totalRows;
+        @SerializedName("fileSize")
         private String fileSize;
+        @SerializedName("url")
         private String url;
 
         public String getUrl() {

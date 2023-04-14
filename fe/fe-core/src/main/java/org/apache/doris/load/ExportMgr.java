@@ -252,6 +252,7 @@ public class ExportMgr extends MasterDaemon {
         return result;
     }
 
+    // used for `show export` statement
     // NOTE: jobid and states may both specified, or only one of them, or neither
     public List<List<String>> getExportJobInfosByIdOrState(
             long dbId, long jobId, String label, boolean isLabelUseLike, Set<ExportJob.JobState> states,
