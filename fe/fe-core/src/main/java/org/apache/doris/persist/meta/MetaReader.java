@@ -92,11 +92,11 @@ public class MetaReader {
                 if (i < metaFooter.metaIndices.size() - 1
                         && metaIndex.offset == metaFooter.metaIndices.get(i + 1).offset) {
                     // skip empty meta
-                    LOG.info("Skip {} module since empty meta length in the end.", metaIndex.name);
+                    LOG.info("Skip {} module since empty meta length.", metaIndex.name);
                     continue;
                 } else if (metaIndex.offset == footerIndex) {
                     // skip last empty meta
-                    LOG.info("Skip {} module since empty meta length.", metaIndex.name);
+                    LOG.info("Skip {} module since empty meta length in the end.", metaIndex.name);
                     continue;
                 }
                 // Should skip some bytes because ignore some meta, such as load job
