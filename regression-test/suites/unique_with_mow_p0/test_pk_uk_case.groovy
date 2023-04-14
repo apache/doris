@@ -102,7 +102,7 @@ suite("test_pk_uk_case") {
     for (int idx = 0; idx < 10; idx++) {
         order_key = rd.nextInt(10)
         part_key = rd.nextInt(10)
-        decimal = rd.nextFloat()
+        decimal = rd.nextInt(10) + 0.11
         city = RandomStringUtils.randomAlphabetic(10)
         name = UUID.randomUUID().toString()
         sql """ INSERT INTO ${tableNamePk} VALUES
@@ -116,7 +116,7 @@ suite("test_pk_uk_case") {
 
         order_key = rd.nextInt(10)
         part_key = rd.nextInt(10)
-        decimal = rd.nextFloat()
+        decimal = rd.nextInt(10) + 0.11
         city = RandomStringUtils.randomAlphabetic(10)
         name = UUID.randomUUID().toString()
         sql """ INSERT INTO ${tableNamePk} VALUES
@@ -130,7 +130,7 @@ suite("test_pk_uk_case") {
 
         order_key = rd.nextInt(10)
         part_key = rd.nextInt(10)
-        decimal = rd.nextFloat()
+        decimal = rd.nextInt(10) + 0.11
         city = RandomStringUtils.randomAlphabetic(10)
         name = UUID.randomUUID().toString()
         sql """ INSERT INTO ${tableNamePk} VALUES
@@ -144,7 +144,7 @@ suite("test_pk_uk_case") {
 
         order_key = rd.nextInt(10)
         part_key = rd.nextInt(10)
-        decimal = rd.nextFloat()
+        decimal = rd.nextInt(10) + 0.11
         city = RandomStringUtils.randomAlphabetic(10)
         name = UUID.randomUUID().toString()
         sql """ INSERT INTO ${tableNamePk} VALUES
@@ -158,7 +158,7 @@ suite("test_pk_uk_case") {
         
         order_key = rd.nextInt(10)
         part_key = rd.nextInt(10)
-        decimal = rd.nextFloat()
+        decimal = rd.nextInt(10) + 0.11
         city = RandomStringUtils.randomAlphabetic(10)
         name = UUID.randomUUID().toString()
         sql """ INSERT INTO ${tableNamePk} VALUES
@@ -173,7 +173,7 @@ suite("test_pk_uk_case") {
         // insert batch key 
         order_key = rd.nextInt(10)
         part_key = rd.nextInt(10)
-        decimal = rd.nextFloat()
+        decimal = rd.nextInt(10) + 0.11
         city = RandomStringUtils.randomAlphabetic(10)
         name = UUID.randomUUID().toString()
         sql """ INSERT INTO ${tableNamePk} VALUES
