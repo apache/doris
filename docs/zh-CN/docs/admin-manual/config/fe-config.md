@@ -2449,3 +2449,18 @@ hive partition 的最大缓存数量。
 是否为 Master FE 节点独有的配置项：true
 
 broker load job 保存的失败tablet 信息的最大数量
+
+#### `infodb_support_ext_catalog`
+
+<version since="1.2.4"></version>
+
+默认值：false
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：false
+
+当设置为 false 时，查询 `information_schema` 中的表时，将不再返回 external catalog 中的表的信息。
+
+这个参数主要用于避免因 external catalog 无法访问、信息过多等原因导致的查询 `information_schema` 超时的问题。
+
