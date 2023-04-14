@@ -78,6 +78,7 @@
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
 #include "vec/data_types/data_type_time_v2.h"
+#include "vec/data_types/data_type_time.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
 #include "vec/io/io_helper.h"
@@ -339,7 +340,7 @@ struct ConvertImpl {
                 }
             } else {
                 if constexpr (IsDataTypeNumber<FromDataType> &&
-                              std::is_same_v<ToDataType, DataTypeNumber<double>>) {
+                              std::is_same_v<ToDataType, DataTypeTime>) {
                     // 300 -> 00:03:00  360 will be parse failed , so value maybe null
                     ColumnUInt8::MutablePtr col_null_map_to;
                     ColumnUInt8::Container* vec_null_map_to [[maybe_unused]] = nullptr;
@@ -797,7 +798,7 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb, const DateL
     }
 
     if constexpr (std::is_same_v<DataTypeString, FromDataType> &&
-                  std::is_floating_point_v<typename DataType::FieldType>) {
+                  std::is_same_v<DataTypeTime, DataType>) {
         // string to time(float64)
         auto len = rb.count();
         auto s = rb.position();
@@ -1088,6 +1089,8 @@ using FunctionToFloat32 =
         FunctionConvert<DataTypeFloat32, NameToFloat32, ToNumberMonotonicity<Float32>>;
 using FunctionToFloat64 =
         FunctionConvert<DataTypeFloat64, NameToFloat64, ToNumberMonotonicity<Float64>>;
+
+using FunctionToTime = FunctionConvert<DataTypeTime, NameToFloat64, ToNumberMonotonicity<Float64>>;
 using FunctionToString = FunctionConvert<DataTypeString, NameToString, ToStringMonotonicity>;
 using FunctionToDecimal32 =
         FunctionConvert<DataTypeDecimal<Decimal32>, NameToDecimal32, UnknownMonotonicity>;
@@ -1182,7 +1185,10 @@ template <>
 struct FunctionTo<DataTypeDateTimeV2> {
     using Type = FunctionToDateTimeV2;
 };
-
+template <>
+struct FunctionTo<DataTypeTime> {
+    using Type = FunctionToTime;
+};
 class PreparedFunctionCast : public PreparedFunctionImpl {
 public:
     using WrapperType = std::function<Status(FunctionContext* context, Block&, const ColumnNumbers&,
@@ -1923,7 +1929,8 @@ private:
                           std::is_same_v<ToDataType, DataTypeDate> ||
                           std::is_same_v<ToDataType, DataTypeDateTime> ||
                           std::is_same_v<ToDataType, DataTypeDateV2> ||
-                          std::is_same_v<ToDataType, DataTypeDateTimeV2>) {
+                          std::is_same_v<ToDataType, DataTypeDateTimeV2> ||
+                          std::is_same_v<ToDataType, DataTypeTime>) {
                 ret = create_wrapper(from_type, check_and_get_data_type<ToDataType>(to_type.get()),
                                      requested_result_is_nullable);
                 return true;
