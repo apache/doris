@@ -951,6 +951,7 @@ visible_functions = [
     [['timestamp'], 'DATETIMEV2', ['DATETIMEV2'], ''],
 
     [['to_days'], 'INT', ['DATEV2'], ''],
+    [['time_to_sec'], 'INT', ['TIME'], ''],
 
     [['year'], 'INT', ['DATETIMEV2'], ''],
     [['month'], 'INT', ['DATETIMEV2'], ''],
@@ -1770,6 +1771,18 @@ visible_functions = [
     [['ST_AsText', 'ST_AsWKT'], 'VARCHAR', ['STRING'], 'ALWAYS_NULLABLE'],
     [['ST_GeometryFromText', 'ST_GeomFromText'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
     [['ST_GeometryFromText', 'ST_GeomFromText'], 'VARCHAR', ['STRING'], 'ALWAYS_NULLABLE'],
+
+    [['ST_GeometryFromWkb', 'ST_GeomFromWkb'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['ST_GeometryFromWkb', 'ST_GeomFromWkb'], 'VARCHAR', ['STRING'], 'ALWAYS_NULLABLE'],
+
+    [['ST_GeometryFromEwkb', 'ST_GeomFromEwkb'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['ST_GeometryFromEwkb', 'ST_GeomFromEwkb'], 'VARCHAR', ['STRING'], 'ALWAYS_NULLABLE'],
+
+    [['ST_AsBinary'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['ST_AsBinary'], 'VARCHAR', ['STRING'], 'ALWAYS_NULLABLE'],
+
+    [['ST_AsEwkb'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['ST_AsEwkb'], 'VARCHAR', ['STRING'], 'ALWAYS_NULLABLE'],
 
     [['ST_LineFromText', 'ST_LineStringFromText'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
     [['ST_LineFromText', 'ST_LineStringFromText'], 'VARCHAR', ['STRING'], 'ALWAYS_NULLABLE'],

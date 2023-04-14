@@ -312,6 +312,7 @@ protected:
     RuntimeProfile::HighWaterMarkCounter* _free_blocks_memory_usage;
 
     std::unordered_map<std::string, int> _colname_to_slot_id;
+    std::vector<int> _col_distribute_ids;
 
 private:
     // Register and get all runtime filters at Init phase.

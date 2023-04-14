@@ -2176,6 +2176,180 @@ POLYGON ((4 4, 45 4, 45 45, 4 45, 4 4))
 59.939093
 79.939093
 
+-- !sql_st_asbinary_Varchar --
+\N
+POINT (-46.35620117 39.939093)
+POINT (-74.35620117 79.939093)
+POINT (126.35620117 -39.939093)
+POINT (16.35620117 19.939093)
+POINT (43.35620117 35.939093)
+POINT (47.35620117 26.939093)
+POINT (5 5)
+POINT (90.35620117 39.939093)
+POINT (90.35620117 47.939093)
+POINT (90.35620117 49.939093)
+POINT (90.35620117 59.939093)
+POINT (98.35620117 36.939093)
+
+-- !sql_st_asbinary_Varchar_notnull --
+POINT (-46.35620117 39.939093)
+POINT (-74.35620117 79.939093)
+POINT (126.35620117 -39.939093)
+POINT (16.35620117 19.939093)
+POINT (43.35620117 35.939093)
+POINT (47.35620117 26.939093)
+POINT (5 5)
+POINT (90.35620117 39.939093)
+POINT (90.35620117 47.939093)
+POINT (90.35620117 49.939093)
+POINT (90.35620117 59.939093)
+POINT (98.35620117 36.939093)
+
+-- !sql_st_geometryfromwkb_Varchar --
+\N
+POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))
+POLYGON ((0 0, 12 0, 10 16, 1 10, 0 0))
+POLYGON ((0 0, 38 4, 38 37, 4 1, 0 0))
+POLYGON ((1 1, 11 4, 42 44, 4 18, 1 1))
+POLYGON ((1 1, 16 1, 16 16, 1 16, 1 1))
+POLYGON ((1 1, 34 1, 34 34, 1 34, 1 1))
+POLYGON ((1 1, 4 1, 4 4, 1 4, 1 1))
+POLYGON ((1 1, 5 0, 10 4, 4 3, 1 1))
+POLYGON ((1 1, 56 0, 67 89, 4 32, 1 1))
+POLYGON ((1 1, 8 0, 48 34, 4 10, 1 1))
+POLYGON ((4 1, 10 4, 9 4, 1 1, 4 1))
+POLYGON ((4 4, 45 4, 45 45, 4 45, 4 4))
+
+-- !sql_st_geometryfromwkb_Varchar_notnull --
+POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))
+POLYGON ((0 0, 12 0, 10 16, 1 10, 0 0))
+POLYGON ((0 0, 38 4, 38 37, 4 1, 0 0))
+POLYGON ((1 1, 11 4, 42 44, 4 18, 1 1))
+POLYGON ((1 1, 16 1, 16 16, 1 16, 1 1))
+POLYGON ((1 1, 34 1, 34 34, 1 34, 1 1))
+POLYGON ((1 1, 4 1, 4 4, 1 4, 1 1))
+POLYGON ((1 1, 5 0, 10 4, 4 3, 1 1))
+POLYGON ((1 1, 56 0, 67 89, 4 32, 1 1))
+POLYGON ((1 1, 8 0, 48 34, 4 10, 1 1))
+POLYGON ((4 1, 10 4, 9 4, 1 1, 4 1))
+POLYGON ((4 4, 45 4, 45 45, 4 45, 4 4))
+
+-- !sql_st_geomfromwkb_Varchar --
+\N
+POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))
+POLYGON ((0 0, 12 0, 10 16, 1 10, 0 0))
+POLYGON ((0 0, 38 4, 38 37, 4 1, 0 0))
+POLYGON ((1 1, 11 4, 42 44, 4 18, 1 1))
+POLYGON ((1 1, 16 1, 16 16, 1 16, 1 1))
+POLYGON ((1 1, 34 1, 34 34, 1 34, 1 1))
+POLYGON ((1 1, 4 1, 4 4, 1 4, 1 1))
+POLYGON ((1 1, 5 0, 10 4, 4 3, 1 1))
+POLYGON ((1 1, 56 0, 67 89, 4 32, 1 1))
+POLYGON ((1 1, 8 0, 48 34, 4 10, 1 1))
+POLYGON ((4 1, 10 4, 9 4, 1 1, 4 1))
+POLYGON ((4 4, 45 4, 45 45, 4 45, 4 4))
+
+-- !sql_st_geomfromwkb_Varchar_notnull --
+POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))
+POLYGON ((0 0, 12 0, 10 16, 1 10, 0 0))
+POLYGON ((0 0, 38 4, 38 37, 4 1, 0 0))
+POLYGON ((1 1, 11 4, 42 44, 4 18, 1 1))
+POLYGON ((1 1, 16 1, 16 16, 1 16, 1 1))
+POLYGON ((1 1, 34 1, 34 34, 1 34, 1 1))
+POLYGON ((1 1, 4 1, 4 4, 1 4, 1 1))
+POLYGON ((1 1, 5 0, 10 4, 4 3, 1 1))
+POLYGON ((1 1, 56 0, 67 89, 4 32, 1 1))
+POLYGON ((1 1, 8 0, 48 34, 4 10, 1 1))
+POLYGON ((4 1, 10 4, 9 4, 1 1, 4 1))
+POLYGON ((4 4, 45 4, 45 45, 4 45, 4 4))
+
+-- !sql_st_asewkb_Varchar --
+\N
+LINESTRING (1 1, 2 2)
+LINESTRING (1 1, 2 2)
+LINESTRING (1 1, 2 2)
+LINESTRING (1 1, 2 2)
+LINESTRING (1 1, 2 2)
+LINESTRING (1 1, 2 2)
+LINESTRING (1 1, 2 2)
+LINESTRING (1 1, 2 2)
+LINESTRING (1 1, 2 2)
+LINESTRING (1 1, 2 2)
+LINESTRING (1 1, 2 2)
+LINESTRING (1 1, 2 2)
+
+-- !sql_st_asewkb_Varchar_notnull --
+LINESTRING (1 1, 2 2)
+LINESTRING (1 1, 2 2)
+LINESTRING (1 1, 2 2)
+LINESTRING (1 1, 2 2)
+LINESTRING (1 1, 2 2)
+LINESTRING (1 1, 2 2)
+LINESTRING (1 1, 2 2)
+LINESTRING (1 1, 2 2)
+LINESTRING (1 1, 2 2)
+LINESTRING (1 1, 2 2)
+LINESTRING (1 1, 2 2)
+LINESTRING (1 1, 2 2)
+
+-- !sql_st_geometryfromewkb_Varchar --
+\N
+POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))
+POLYGON ((0 0, 12 0, 10 16, 1 10, 0 0))
+POLYGON ((0 0, 38 4, 38 37, 4 1, 0 0))
+POLYGON ((1 1, 11 4, 42 44, 4 18, 1 1))
+POLYGON ((1 1, 16 1, 16 16, 1 16, 1 1))
+POLYGON ((1 1, 34 1, 34 34, 1 34, 1 1))
+POLYGON ((1 1, 4 1, 4 4, 1 4, 1 1))
+POLYGON ((1 1, 5 0, 10 4, 4 3, 1 1))
+POLYGON ((1 1, 56 0, 67 89, 4 32, 1 1))
+POLYGON ((1 1, 8 0, 48 34, 4 10, 1 1))
+POLYGON ((4 1, 10 4, 9 4, 1 1, 4 1))
+POLYGON ((4 4, 45 4, 45 45, 4 45, 4 4))
+
+-- !sql_st_geometryfromewkb_Varchar_notnull --
+POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))
+POLYGON ((0 0, 12 0, 10 16, 1 10, 0 0))
+POLYGON ((0 0, 38 4, 38 37, 4 1, 0 0))
+POLYGON ((1 1, 11 4, 42 44, 4 18, 1 1))
+POLYGON ((1 1, 16 1, 16 16, 1 16, 1 1))
+POLYGON ((1 1, 34 1, 34 34, 1 34, 1 1))
+POLYGON ((1 1, 4 1, 4 4, 1 4, 1 1))
+POLYGON ((1 1, 5 0, 10 4, 4 3, 1 1))
+POLYGON ((1 1, 56 0, 67 89, 4 32, 1 1))
+POLYGON ((1 1, 8 0, 48 34, 4 10, 1 1))
+POLYGON ((4 1, 10 4, 9 4, 1 1, 4 1))
+POLYGON ((4 4, 45 4, 45 45, 4 45, 4 4))
+
+-- !sql_st_geomfromewkb_Varchar --
+\N
+POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))
+POLYGON ((0 0, 12 0, 10 16, 1 10, 0 0))
+POLYGON ((0 0, 38 4, 38 37, 4 1, 0 0))
+POLYGON ((1 1, 11 4, 42 44, 4 18, 1 1))
+POLYGON ((1 1, 16 1, 16 16, 1 16, 1 1))
+POLYGON ((1 1, 34 1, 34 34, 1 34, 1 1))
+POLYGON ((1 1, 4 1, 4 4, 1 4, 1 1))
+POLYGON ((1 1, 5 0, 10 4, 4 3, 1 1))
+POLYGON ((1 1, 56 0, 67 89, 4 32, 1 1))
+POLYGON ((1 1, 8 0, 48 34, 4 10, 1 1))
+POLYGON ((4 1, 10 4, 9 4, 1 1, 4 1))
+POLYGON ((4 4, 45 4, 45 45, 4 45, 4 4))
+
+-- !sql_st_geomfromewkb_Varchar_notnull --
+POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))
+POLYGON ((0 0, 12 0, 10 16, 1 10, 0 0))
+POLYGON ((0 0, 38 4, 38 37, 4 1, 0 0))
+POLYGON ((1 1, 11 4, 42 44, 4 18, 1 1))
+POLYGON ((1 1, 16 1, 16 16, 1 16, 1 1))
+POLYGON ((1 1, 34 1, 34 34, 1 34, 1 1))
+POLYGON ((1 1, 4 1, 4 4, 1 4, 1 1))
+POLYGON ((1 1, 5 0, 10 4, 4 3, 1 1))
+POLYGON ((1 1, 56 0, 67 89, 4 32, 1 1))
+POLYGON ((1 1, 8 0, 48 34, 4 10, 1 1))
+POLYGON ((4 1, 10 4, 9 4, 1 1, 4 1))
+POLYGON ((4 4, 45 4, 45 45, 4 45, 4 4))
+
 -- !sql_starts_with_Varchar_Varchar --
 true
 true

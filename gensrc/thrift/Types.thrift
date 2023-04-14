@@ -662,7 +662,8 @@ enum TSortType {
 
 enum TMetadataType {
   ICEBERG,
-  BACKENDS
+  BACKENDS,
+  RESOURCE_GROUPS
 }
 
 enum TIcebergQueryType {
