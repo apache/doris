@@ -377,7 +377,7 @@ struct Trim1Impl {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           size_t result, size_t input_rows_count) {
         const ColumnPtr column = block.get_by_position(arguments[0]).column;
-        if (const ColumnString* col = check_and_get_column<ColumnString>(column.get())) {
+        if (auto col = assert_cast<const ColumnString*>(column.get())) {
             auto col_res = ColumnString::create();
             char blank[] = " ";
             StringRef rhs(blank, 1);
