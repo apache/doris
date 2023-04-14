@@ -42,7 +42,9 @@ suite("test_gis_function") {
     qt_sql "SELECT ST_AsText(ST_PolyFromText(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"));"
     qt_sql "SELECT ST_AsText(ST_PolygonFromText(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"));"
 
+    qt_sql "SELECT ST_X(ST_Point(1, 2));"
     qt_sql "SELECT ST_X(ST_Point(24.7, 56.7));"
+    qt_sql "SELECT ST_Y(ST_Point(2, 1));"
     qt_sql "SELECT ST_Y(ST_Point(24.7, 56.7));"
 
     qt_sql "SELECT ST_Area_Square_Meters(ST_Circle(0, 0, 1));"
