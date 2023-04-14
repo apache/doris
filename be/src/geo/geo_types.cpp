@@ -313,11 +313,13 @@ bool GeoPoint::decode(const void* data, size_t size) {
 }
 
 double GeoPoint::x() const {
-    return S2LatLng(*_point).lng().degrees();
+    //Accurate to 13 decimal places
+    return std::stod(absl::StrFormat("%.13f", S2LatLng::Longitude(*_point).degrees()));
 }
 
 double GeoPoint::y() const {
-    return S2LatLng(*_point).lat().degrees();
+    //Accurate to 13 decimal places
+    return std::stod(absl::StrFormat("%.13f", S2LatLng::Latitude(*_point).degrees()));
 }
 
 std::string GeoPoint::as_wkt() const {

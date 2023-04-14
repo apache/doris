@@ -18,6 +18,7 @@
 #pragma once
 
 #include "io/fs/local_file_writer.h"
+#include "util/runtime_profile.h"
 #include "vec/core/block.h"
 namespace doris {
 namespace vectorized {

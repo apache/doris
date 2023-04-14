@@ -47,6 +47,7 @@
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
+#include "util/mem_info.h"
 #include "util/network_util.h"
 #include "util/stopwatch.hpp"
 #include "util/telemetry/telemetry.h"
