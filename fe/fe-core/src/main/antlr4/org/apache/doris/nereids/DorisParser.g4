@@ -40,7 +40,7 @@ statement
         AS type=(RESTRICTIVE | PERMISSIVE)
         TO user=userIdentify
         USING LEFT_PAREN booleanExpression RIGHT_PAREN                 #createRowPolicy
-    | INSERT INTO identifier insert                                    #insertInto
+    | explain? INSERT INTO identifier insert                           #insertInto
     ;
 
 // -----------------Command accessories-----------------
@@ -71,7 +71,7 @@ planType
 
 //  -----------------INSERT INTO------------------
 insert
-    : WITH LABEL labelName=identifier cte? query
+    : identifierList? WITH LABEL labelName=identifier cte? query
     | identifierList cte? query
     | query
     ;
