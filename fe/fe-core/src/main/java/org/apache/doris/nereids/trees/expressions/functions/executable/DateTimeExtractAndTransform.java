@@ -358,17 +358,57 @@ public class DateTimeExtractAndTransform {
         return DateLiteral.fromJavaDateType(nextMonthFirstDay.minusDays(1));
     }
 
+    @ExecFunction(name = "last_day", argTypes = {"DATETIME"}, returnType = "DATE")
+    public static DateTimeLiteral lastDay(DateTimeLiteral date) {
+        LocalDateTime nextMonthFirstDay = LocalDateTime.of((int) date.getYear(), (int) date.getMonth(), 1,
+                0, 0, 0).plusMonths(1);
+        return DateTimeLiteral.fromJavaDateType(nextMonthFirstDay.minusDays(1));
+    }
+
+    @ExecFunction(name = "last_day", argTypes = {"DATEV2"}, returnType = "DATEV2")
+    public static DateV2Literal lastDay(DateV2Literal date) {
+        LocalDateTime nextMonthFirstDay = LocalDateTime.of((int) date.getYear(), (int) date.getMonth(), 1,
+                0, 0, 0).plusMonths(1);
+        return DateV2Literal.fromJavaDateType(nextMonthFirstDay.minusDays(1));
+    }
+
+    @ExecFunction(name = "last_day", argTypes = {"DATETIMEV2"}, returnType = "DATEV2")
+    public static DateV2Literal lastDay(DateTimeV2Literal date) {
+        LocalDateTime nextMonthFirstDay = LocalDateTime.of((int) date.getYear(), (int) date.getMonth(), 1,
+                0, 0, 0).plusMonths(1);
+        return DateV2Literal.fromJavaDateType(nextMonthFirstDay.minusDays(1));
+    }
+
     /**
      * datetime transformation function: to_monday
      */
     @ExecFunction(name = "to_monday", argTypes = {"DATE"}, returnType = "DATE")
     public static DateLiteral toMonday(DateLiteral date) {
-        DateLiteral specialUpperBound = new DateLiteral(1970, 1, 4);
-        DateLiteral specialLowerBound = new DateLiteral(1970, 1, 1);
-        if (date.compareTo(specialUpperBound) <= 0 && date.compareTo(specialLowerBound) >= 0) {
-            return specialLowerBound;
+        return DateLiteral.fromJavaDateType(toMonday(date.toJavaDateType()));
+    }
+
+    @ExecFunction(name = "to_monday", argTypes = {"DATETIME"}, returnType = "DATETIME")
+    public static DateTimeLiteral toMonday(DateTimeLiteral date) {
+        return DateTimeLiteral.fromJavaDateType(toMonday(date.toJavaDateType()));
+    }
+
+    @ExecFunction(name = "to_monday", argTypes = {"DATEV2"}, returnType = "DATEV2")
+    public static DateV2Literal toMonday(DateV2Literal date) {
+        return DateV2Literal.fromJavaDateType(toMonday(date.toJavaDateType()));
+    }
+
+    @ExecFunction(name = "to_monday", argTypes = {"DATE"}, returnType = "DATE")
+    public static DateTimeV2Literal toMonday(DateTimeV2Literal date) {
+        return DateTimeV2Literal.fromJavaDateType(toMonday(date.toJavaDateType()));
+    }
+
+    private static LocalDateTime toMonday(LocalDateTime dateTime) {
+        LocalDateTime specialUpperBound = LocalDateTime.of(1970, 1, 4, 0, 0, 0);
+        LocalDateTime specialLowerBound = LocalDateTime.of(1970, 1, 1, 0, 0, 0);
+        if (dateTime.isAfter(specialUpperBound) || dateTime.isBefore(specialLowerBound)) {
+            return dateTime.plusDays(-dateTime.getDayOfWeek().getValue() + 1);
         }
-        return date.plusDays(-dayOfWeek(date).getValue() + 1);
+        return specialLowerBound;
     }
 
     /**
@@ -450,11 +490,21 @@ public class DateTimeExtractAndTransform {
         return new DateLiteral(date.getYear(), date.getMonth(), date.getDay());
     }
 
+    @ExecFunction(name = "to_date", argTypes = {"DATETIMEV2"}, returnType = "DATE")
+    public static DateLiteral toDate(DateTimeV2Literal date) {
+        return new DateLiteral(date.getYear(), date.getMonth(), date.getDay());
+    }
+
     /**
      * date transformation function: to_days
      */
     @ExecFunction(name = "to_days", argTypes = {"DATETIME"}, returnType = "INT")
     public static IntegerLiteral toDays(DateTimeLiteral date) {
+        return new IntegerLiteral(((int) Duration.between(LocalDate.of(0, 1, 1), date.toJavaDateType()).toDays()));
+    }
+
+    @ExecFunction(name = "to_days", argTypes = {"DATETIMEV2"}, returnType = "INT")
+    public static IntegerLiteral toDays(DateTimeV2Literal date) {
         return new IntegerLiteral(((int) Duration.between(LocalDate.of(0, 1, 1), date.toJavaDateType()).toDays()));
     }
 
