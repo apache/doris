@@ -111,6 +111,7 @@ enum TSchemaTableType {
     SCH_VIEWS,
     SCH_INVALID,
     SCH_ROWSETS,
+    SCH_BACKENDS,
     SCH_COLUMN_STATISTICS
 }
 
