@@ -87,6 +87,11 @@ public class MetaReader {
                     // skip meta header, which has been read before.
                     continue;
                 }
+                if (i < metaFooter.metaIndices.size() - 1
+                        && metaIndex.offset == metaFooter.metaIndices.get(i + 1).offset) {
+                    // skip empty meta
+                    continue;
+                }
                 // Should skip some bytes because ignore some meta, such as load job
                 if (metaIndex.name.equals("loadJob")
                         || metaIndex.name.equals("cooldownJob")) {

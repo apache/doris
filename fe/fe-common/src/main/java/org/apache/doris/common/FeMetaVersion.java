@@ -58,11 +58,9 @@ public final class FeMetaVersion {
     public static final int VERSION_118 = 118;
     // TablePropertyInfo add db id
     public static final int VERSION_119 = 119;
-    // MTMV meta
-    public static final int VERSION_120 = 120;
 
     // note: when increment meta version, should assign the latest version to VERSION_CURRENT
-    public static final int VERSION_CURRENT = VERSION_120;
+    public static final int VERSION_CURRENT = VERSION_119;
 
     // all logs meta version should >= the minimum version, so that we could remove many if clause, for example
     // if (FE_METAVERSION < VERSION_94) ...

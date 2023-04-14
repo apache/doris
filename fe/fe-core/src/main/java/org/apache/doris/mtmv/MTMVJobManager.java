@@ -45,7 +45,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.EOFException;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -550,7 +549,7 @@ public class MTMVJobManager {
                 }
             }
             LOG.info("finished replaying JobManager from image");
-        } catch (EOFException e) {
+        } catch (Exception e) {
             LOG.info("no job or task to replay.");
         }
         return mtmvJobManager;
