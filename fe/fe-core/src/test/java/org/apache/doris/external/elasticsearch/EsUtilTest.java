@@ -250,4 +250,14 @@ public class EsUtilTest extends EsTestCase {
         }
     }
 
+    @Test
+    public void testDynamicMapping() throws IOException, URISyntaxException {
+
+        ObjectNode testAliases = EsUtil.getMappingProps("test", loadJsonFromFile("data/es/dynamic_mappings.json"),
+                null);
+        Assertions.assertEquals("{\"time\":{\"type\":\"long\"},\"type\":{\"type\":\"keyword\"},\"userId\":{\"type\":\"text\",\"fields\":{\"keyword\":{\"type\":\"keyword\"}}}}",
+                testAliases.toString());
+
+    }
+
 }
