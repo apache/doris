@@ -326,8 +326,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
             defaultResult = newDefault;
         }
         if (whenClauses.isEmpty()) {
-            // TODO: compute the type of null literal
-            return defaultResult == null ? Literal.of(null) : defaultResult;
+            return defaultResult == null ? new NullLiteral(caseWhen.getDataType()) : defaultResult;
         }
         if (defaultResult == null) {
             return new CaseWhen(whenClauses);
