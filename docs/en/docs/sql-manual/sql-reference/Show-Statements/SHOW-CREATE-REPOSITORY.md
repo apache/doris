@@ -1,6 +1,6 @@
 ---
 {
-    "title": "SHOW-CREATE-LOAD",
+    "title": "SHOW-CREATE-REPOSITORY",
     "language": "en"
 }
 ---
@@ -24,37 +24,36 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## SHOW-CREATE-LOAD
+## SHOW-CREATE-REPOSITORY
 
 ### Name
 
-SHOW CREATE LOAD
+SHOW CREATE REPOSITORY
 
 ### Description
 
-This statement is used to demonstrate the creation statement of a import job.
+This statement is used to demonstrate the creation statement of a repository.
 
 grammar:
 
 ```sql
-SHOW CREATE LOAD for load_name;
+SHOW CREATE REPOSITORY for repository_name;
 ````
 
 illustrate:
-
--  `load_name`: import job name
+-  `repository_name`: repository name
 
 ### Example
 
-1. Show the creation statement of the specified import job under the default db
+1. Show the creation statement of the specified repository
 
     ```sql
-    SHOW CREATE LOAD for test_load
+    SHOW CREATE REPOSITORY for test_repository
     ````
 
 ### Keywords
 
-    SHOW, CREATE, LOAD
+    SHOW, CREATE, REPOSITORY
 
 ### Best Practice
 
