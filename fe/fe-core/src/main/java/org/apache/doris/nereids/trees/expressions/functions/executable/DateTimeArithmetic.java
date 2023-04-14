@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.Calendar;
 
 /**
  * executable function:
@@ -192,7 +191,8 @@ public class DateTimeArithmetic {
      * datetime arithmetic function microseconds-add.
      */
     @ExecFunction(name = "seconds_add", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
-    public static DateTimeV2Literal microSecondsAdd(DateTimeV2Literal date, IntegerLiteral microSecond) throws AnalysisException {
+    public static DateTimeV2Literal microSecondsAdd(DateTimeV2Literal date, IntegerLiteral microSecond)
+            throws AnalysisException {
         return date.plusMicroSeconds(microSecond.getValue());
     }
 

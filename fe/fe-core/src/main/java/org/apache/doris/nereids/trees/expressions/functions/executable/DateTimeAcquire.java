@@ -66,7 +66,7 @@ public class DateTimeAcquire {
         return DateTimeLiteral.fromJavaDateType(LocalDateTime.now(TimeZone.getDefault().toZoneId()));
     }
 
-    @ExecFunction(name = "localtimestamp", argTypes = {"INT"}, returnType = "DATETIMEV2")
+    @ExecFunction(name = "localtimestamp", argTypes = {}, returnType = "DATETIME")
     public static DateTimeV2Literal localTimestamp() {
         return DateTimeV2Literal.fromJavaDateType(LocalDateTime.now(TimeZone.getDefault().toZoneId()));
     }
