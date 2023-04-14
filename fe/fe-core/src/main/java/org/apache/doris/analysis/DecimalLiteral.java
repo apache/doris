@@ -245,19 +245,6 @@ public class DecimalLiteral extends LiteralExpr {
     }
 
     @Override
-    public void checkValueValid() throws AnalysisException {
-        if (type.isDecimalV3()) {
-            if (value.precision() - value.scale() > type.getPrecision() - ((ScalarType) type).getScalarScale()) {
-                throw new AnalysisException(String.format("Decimal literal %s is invalid! Required precision = %d,"
-                        + "scale = %d", value, type.getPrecision(), ((ScalarType) type).getScalarScale()));
-            }
-        } else if (value.precision() - value.scale() > type.getPrecision() - ((ScalarType) type).getScalarScale()) {
-            throw new AnalysisException(String.format("Decimal literal %s is invalid! Required precision = %d,"
-                    + "scale = %d", value, type.getPrecision(), ((ScalarType) type).getScalarScale()));
-        }
-    }
-
-    @Override
     public String toSqlImpl() {
         return getStringValue();
     }
@@ -287,13 +274,6 @@ public class DecimalLiteral extends LiteralExpr {
         // TODO(hujie01) deal with loss information
         msg.node_type = TExprNodeType.DECIMAL_LITERAL;
         msg.decimal_literal = new TDecimalLiteral(value.toPlainString());
-        try {
-            checkValueValid();
-        } catch (AnalysisException e) {
-            // If date value is invalid, set this to null
-            msg.node_type = TExprNodeType.NULL_LITERAL;
-            msg.setIsNullable(true);
-        }
     }
 
     @Override

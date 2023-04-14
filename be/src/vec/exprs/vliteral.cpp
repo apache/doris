@@ -147,6 +147,9 @@ void VLiteral::init(const TExprNode& node) {
             if (value.parse_from_str(node.decimal_literal.value.c_str(),
                                      node.decimal_literal.value.size()) == E_DEC_OK) {
                 field = DecimalField<Decimal128>(value.value(), value.scale());
+            } else {
+                throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                       "Invalid decimal value: " + node.decimal_literal.value);
             }
             break;
         }
@@ -161,6 +164,9 @@ void VLiteral::init(const TExprNode& node) {
                 auto scale =
                         typeid_cast<const DataTypeDecimal<Decimal32>*>(type_ptr.get())->get_scale();
                 field = DecimalField<Decimal32>(val, scale);
+            } else {
+                throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                       "Invalid decimal value: " + node.decimal_literal.value);
             }
             break;
         }
@@ -175,6 +181,9 @@ void VLiteral::init(const TExprNode& node) {
                 auto scale =
                         typeid_cast<const DataTypeDecimal<Decimal64>*>(type_ptr.get())->get_scale();
                 field = DecimalField<Decimal64>(val, scale);
+            } else {
+                throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                       "Invalid decimal value: " + node.decimal_literal.value);
             }
             break;
         }
@@ -189,6 +198,9 @@ void VLiteral::init(const TExprNode& node) {
                 auto scale = typeid_cast<const DataTypeDecimal<Decimal128I>*>(type_ptr.get())
                                      ->get_scale();
                 field = DecimalField<Decimal128I>(val, scale);
+            } else {
+                throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                       "Invalid decimal value: " + node.decimal_literal.value);
             }
             break;
         }
