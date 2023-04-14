@@ -28,7 +28,12 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.util.DateUtils;
 
+import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatterBuilder;
+import java.util.TimeZone;
 
 /**
  * executable function:
@@ -366,6 +371,9 @@ public class DateTimeExtractAndTransform {
         return date.plusDays(-dayOfWeek(date).getValue() + 1);
     }
 
+    /**
+     * date transformation function: from_unixtime
+     */
     @ExecFunction(name = "from_unixtime", argTypes = {"INT"}, returnType = "VARCHAR")
     public static VarcharLiteral fromUnixTime(BigIntLiteral second) {
         if (second.getValue() < 0 || second.getValue() >= 253402271999L) {
@@ -377,6 +385,9 @@ public class DateTimeExtractAndTransform {
                 new VarcharLiteral("%Y-%m-%d %H:%i:%s"));
     }
 
+    /**
+     * date transformation function: from_unixtime
+     */
     @ExecFunction(name = "from_unixtime", argTypes = {"INT", "VARCHAR"}, returnType = "VARCHAR")
     public static VarcharLiteral fromUnixTime(BigIntLiteral second, VarcharLiteral format) {
         if (second.getValue() < 0 || second.getValue() >= 253402271999L) {
@@ -386,5 +397,82 @@ public class DateTimeExtractAndTransform {
                         LocalDateTime.of(1970, 1, 1, 0, 0, 0)
                                 .plusSeconds(second.getValue())),
                 format);
+    }
+
+    /**
+     * date transformation function: unix_timestamp
+     */
+    @ExecFunction(name = "unix_timestamp", argTypes = {}, returnType = "INT")
+    public static IntegerLiteral unixTimestamp() {
+        return new IntegerLiteral(getTimestamp(LocalDateTime.now()));
+    }
+
+    /**
+     * date transformation function: unix_timestamp
+     */
+    @ExecFunction(name = "unix_timestamp", argTypes = {"VARCHAR"}, returnType = "INT")
+    public static IntegerLiteral unixTimestamp(VarcharLiteral date) {
+        return new IntegerLiteral(getTimestamp(LocalDateTime.parse(date.getValue(),
+                DateUtils.formatBuilder("%Y-%m-%d %H:%i:%s").toFormatter())));
+    }
+
+    /**
+     * date transformation function: unix_timestamp
+     */
+    @ExecFunction(name = "unix_timestamp", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "INT")
+    public static IntegerLiteral unixTimestamp(VarcharLiteral date, VarcharLiteral format) {
+        return new IntegerLiteral(getTimestamp(LocalDateTime.parse(date.getValue(),
+                DateUtils.formatBuilder(format.getValue()).toFormatter())));
+    }
+
+    private static Integer getTimestamp(LocalDateTime dateTime) {
+        LocalDateTime specialUpperBound = LocalDateTime.of(2038, 1, 19, 3, 14, 7);
+        LocalDateTime specialLowerBound = LocalDateTime.of(1970, 1, 1, 0, 0, 0);
+        if (dateTime.isBefore(specialLowerBound) || dateTime.isAfter(specialUpperBound)) {
+            return 0;
+        }
+        return ((int) Duration.between(dateTime, specialLowerBound).getSeconds());
+    }
+
+    /**
+     * date transformation function: utc_timestamp
+     */
+    @ExecFunction(name = "utc_timestamp", argTypes = {}, returnType = "INT")
+    public static DateTimeLiteral utcTimestamp() {
+        return DateTimeLiteral.fromJavaDateType(LocalDateTime.now());
+    }
+
+    /**
+     * date transformation function: to_date
+     */
+    @ExecFunction(name = "to_date", argTypes = {"DATETIME"}, returnType = "DATE")
+    public static DateLiteral toDate(DateTimeLiteral date) {
+        return new DateLiteral(date.getYear(), date.getMonth(), date.getDay());
+    }
+
+    /**
+     * date transformation function: to_days
+     */
+    @ExecFunction(name = "to_days", argTypes = {"DATETIME"}, returnType = "INT")
+    public static IntegerLiteral toDays(DateTimeLiteral date) {
+        return new IntegerLiteral(((int) Duration.between(LocalDate.of(0, 1, 1), date.toJavaDateType()).toDays()));
+    }
+
+    /**
+     * date transformation function: makedate
+     */
+    @ExecFunction(name = "makedate", argTypes = {"INT, INT"}, returnType = "DATE")
+    public static DateLiteral makeDate(IntegerLiteral year, IntegerLiteral dayOfYear) {
+        return DateLiteral.fromJavaDateType(LocalDateTime.of(year.getValue(), 1, 1, 0, 0, 0)
+                .plusDays(dayOfYear.getValue() - 1));
+    }
+
+    /**
+     * date transformation function: str_to_date
+     */
+    @ExecFunction(name = "str_to_date", argTypes = {"VARCHAR, VARCHAR"}, returnType = "DATETIME")
+    public static DateTimeLiteral strToDate(VarcharLiteral str, VarcharLiteral format) {
+        return DateTimeLiteral.fromJavaDateType(DateUtils.getTime(DateUtils.formatBuilder(format.getValue())
+                        .toFormatter(), str.getValue()));
     }
 }

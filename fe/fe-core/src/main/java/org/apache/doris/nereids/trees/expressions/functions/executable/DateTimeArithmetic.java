@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Calendar;
 
@@ -332,11 +333,6 @@ public class DateTimeArithmetic {
     }
 
     private static int dateDiff(LocalDateTime date1, LocalDateTime date2) {
-        Calendar calendar = Calendar.getInstance();
-        calendar.set(date1.getYear(), date1.getMonthValue(), date1.getDayOfMonth());
-        long time1 = calendar.getTimeInMillis();
-        calendar.set(date2.getYear(), date2.getMonthValue(), date2.getDayOfMonth());
-        long time2 = calendar.getTimeInMillis();
-        return ((int) ((time1 - time2) / (1000 * 3600 * 24)));
+        return ((int) Duration.between(date1, date2).toDays());
     }
 }
