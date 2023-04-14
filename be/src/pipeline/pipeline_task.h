@@ -181,7 +181,7 @@ public:
     static constexpr auto THREAD_TIME_SLICE = 100'000'000L;
 
     // 1 used for update priority queue
-    // note(wb) a ugly implementation, need refactor later
+    // note(wb) an ugly implementation, need refactor later
     // 1.1 pipeline task
     void inc_runtime_ns(uint64_t delta_time) { this->_runtime += delta_time; }
     uint64_t get_runtime_ns() { return this->_runtime; }
@@ -219,7 +219,9 @@ private:
     TaskQueue* _task_queue = nullptr;
 
     // used for priority queue
-    std::atomic_uint64_t _runtime = 0; // may visit in different thread
+    // it may be visited by different thread but there is no race condition
+    // so no need to add lock
+    uint64_t _runtime = 0;
     // it's visited in one thread, so no need to thread synchronization
     // 1 get task, (set _queue_level/_core_id)
     // 2 exe task
