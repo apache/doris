@@ -41,6 +41,7 @@ import org.apache.doris.planner.external.iceberg.IcebergSource;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.thrift.TExpr;
+import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileScanSlotInfo;
 
 import com.google.common.base.Preconditions;
@@ -54,7 +55,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * ExternalFileScanNode for the file access type of catalog, now only support
+ * FileQueryScanNode for querying the file access type of catalog, now only support
  * hive,hudi and iceberg.
  */
 public class FileQueryScanNode extends FileScanNode {
@@ -62,8 +63,9 @@ public class FileQueryScanNode extends FileScanNode {
 
     // For query, there is only one FileScanProvider.
     private FileScanProviderIf scanProvider;
-    // For query, there is only one ParamCreateContext.
-    private ParamCreateContext context;
+
+    private Map<String, SlotDescriptor> destSlotDescByName;
+    private TFileScanRangeParams params;
 
     /**
      * External file scan node for Query hms table
@@ -92,7 +94,7 @@ public class FileQueryScanNode extends FileScanNode {
         }
         backendPolicy.init();
         numNodes = backendPolicy.numBackends();
-        initParamCreateContexts(analyzer);
+        initScanRangeParams();
     }
 
     /**
@@ -114,9 +116,7 @@ public class FileQueryScanNode extends FileScanNode {
 
         backendPolicy.init();
         numNodes = backendPolicy.numBackends();
-        context = scanProvider.createContext(analyzer);
-        context.createDestSlotMap();
-        context.conjuncts = conjuncts;
+        initScanRangeParams();
     }
 
     /**
@@ -126,7 +126,7 @@ public class FileQueryScanNode extends FileScanNode {
     @Override
     public void updateRequiredSlots(PlanTranslatorContext planTranslatorContext,
             Set<SlotId> requiredByProjectSlotIdSet) throws UserException {
-        context.params.unsetRequiredSlots();
+        params.unsetRequiredSlots();
         for (SlotDescriptor slot : desc.getSlots()) {
             if (!slot.isMaterialized()) {
                 continue;
@@ -135,7 +135,7 @@ public class FileQueryScanNode extends FileScanNode {
             TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
             slotInfo.setSlotId(slot.getId().asInt());
             slotInfo.setIsFileSlot(!scanProvider.getPathPartitionKeys().contains(slot.getColumn().getName()));
-            context.params.addToRequiredSlots(slotInfo);
+            params.addToRequiredSlots(slotInfo);
         }
     }
 
@@ -202,25 +202,41 @@ public class FileQueryScanNode extends FileScanNode {
         scanProvider = new TVFScanProvider(table, desc, tvf);
     }
 
-    // Create a corresponding ParamCreateContext
-    private void initParamCreateContexts(Analyzer analyzer) throws UserException {
-        context = scanProvider.createContext(analyzer);
-        context.createDestSlotMap();
-        context.conjuncts = conjuncts;
+    // Create a corresponding TFileScanRangeParams
+    private void initScanRangeParams() throws UserException {
+        Preconditions.checkNotNull(desc);
+        destSlotDescByName = Maps.newHashMap();
+        for (SlotDescriptor slot : desc.getSlots()) {
+            destSlotDescByName.put(slot.getColumn().getName(), slot);
+        }
+        params = new TFileScanRangeParams();
+        params.setDestTupleId(desc.getId().asInt());
+        List<String> partitionKeys = scanProvider.getPathPartitionKeys();
+        List<Column> columns = desc.getTable().getBaseSchema(false);
+        params.setNumOfColumnsFromFile(columns.size() - partitionKeys.size());
+        for (SlotDescriptor slot : desc.getSlots()) {
+            if (!slot.isMaterialized()) {
+                continue;
+            }
+            TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
+            slotInfo.setSlotId(slot.getId().asInt());
+            slotInfo.setIsFileSlot(!partitionKeys.contains(slot.getColumn().getName()));
+            params.addToRequiredSlots(slotInfo);
+        }
     }
 
     @Override
     public void finalize(Analyzer analyzer) throws UserException {
-        setDefaultValueExprs(scanProvider, context);
-        setColumnPositionMappingForTextFile(scanProvider, context);
-        context.params.setSrcTupleId(-1);
-        createScanRangeLocations(context, scanProvider);
+        setDefaultValueExprs();
+        setColumnPositionMappingForTextFile();
+        params.setSrcTupleId(-1);
+        createScanRangeLocations(conjuncts, params, scanProvider);
         this.inputSplitsNum += scanProvider.getInputSplitNum();
         this.totalFileSize += scanProvider.getInputFileSize();
         TableIf table = desc.getTable();
         if (table instanceof HMSExternalTable) {
             if (((HMSExternalTable) table).getDlaType().equals(HMSExternalTable.DLAType.HIVE)) {
-                genSlotToSchemaIdMap(context);
+                genSlotToSchemaIdMap();
             }
         }
         if (scanProvider instanceof HiveScanProvider) {
@@ -231,16 +247,16 @@ public class FileQueryScanNode extends FileScanNode {
 
     @Override
     public void finalizeForNereids() throws UserException {
-        setDefaultValueExprs(scanProvider, context);
-        setColumnPositionMappingForTextFile(scanProvider, context);
-        context.params.setSrcTupleId(-1);
-        createScanRangeLocations(context, scanProvider);
+        setDefaultValueExprs();
+        setColumnPositionMappingForTextFile();
+        params.setSrcTupleId(-1);
+        createScanRangeLocations(conjuncts, params, scanProvider);
         this.inputSplitsNum += scanProvider.getInputSplitNum();
         this.totalFileSize += scanProvider.getInputFileSize();
         TableIf table = desc.getTable();
         if (table instanceof HMSExternalTable) {
             if (((HMSExternalTable) table).getDlaType().equals(HMSExternalTable.DLAType.HIVE)) {
-                genSlotToSchemaIdMap(context);
+                genSlotToSchemaIdMap();
             }
         }
         if (scanProvider instanceof HiveScanProvider) {
@@ -249,12 +265,12 @@ public class FileQueryScanNode extends FileScanNode {
         }
     }
 
-    private void setColumnPositionMappingForTextFile(FileScanProviderIf scanProvider, ParamCreateContext context)
+    private void setColumnPositionMappingForTextFile()
             throws UserException {
         TableIf tbl = scanProvider.getTargetTable();
         List<Integer> columnIdxs = Lists.newArrayList();
 
-        for (TFileScanSlotInfo slot : context.params.getRequiredSlots()) {
+        for (TFileScanSlotInfo slot : params.getRequiredSlots()) {
             if (!slot.isIsFileSlot()) {
                 continue;
             }
@@ -266,10 +282,10 @@ public class FileQueryScanNode extends FileScanNode {
             }
             columnIdxs.add(idx);
         }
-        context.params.setColumnIdxs(columnIdxs);
+        params.setColumnIdxs(columnIdxs);
     }
 
-    protected void setDefaultValueExprs(FileScanProviderIf scanProvider, ParamCreateContext context)
+    protected void setDefaultValueExprs()
             throws UserException {
         TableIf tbl = scanProvider.getTargetTable();
         Preconditions.checkNotNull(tbl);
@@ -291,7 +307,7 @@ public class FileQueryScanNode extends FileScanNode {
                     expr = null;
                 }
             }
-            SlotDescriptor slotDesc = context.destSlotDescByName.get(column.getName());
+            SlotDescriptor slotDesc = destSlotDescByName.get(column.getName());
             // if slot desc is null, which mean it is an unrelated slot, just skip.
             // eg:
             // (a, b, c) set (x=a, y=b, z=c)
@@ -300,15 +316,15 @@ public class FileQueryScanNode extends FileScanNode {
             if (slotDesc != null) {
                 if (expr != null) {
                     expr = castToSlot(slotDesc, expr);
-                    context.params.putToDefaultValueOfSrcSlot(slotDesc.getId().asInt(), expr.treeToThrift());
+                    params.putToDefaultValueOfSrcSlot(slotDesc.getId().asInt(), expr.treeToThrift());
                 } else {
-                    context.params.putToDefaultValueOfSrcSlot(slotDesc.getId().asInt(), tExpr);
+                    params.putToDefaultValueOfSrcSlot(slotDesc.getId().asInt(), tExpr);
                 }
             }
         }
     }
 
-    private void genSlotToSchemaIdMap(ParamCreateContext context) {
+    private void genSlotToSchemaIdMap() {
         List<Column> baseSchema = desc.getTable().getBaseSchema();
         Map<String, Integer> columnNameToPosition = Maps.newHashMap();
         for (SlotDescriptor slot : desc.getSlots()) {
@@ -321,6 +337,6 @@ public class FileQueryScanNode extends FileScanNode {
                 idx += 1;
             }
         }
-        context.params.setSlotNameToSchemaPos(columnNameToPosition);
+        params.setSlotNameToSchemaPos(columnNameToPosition);
     }
 }

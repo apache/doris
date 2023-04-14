@@ -62,10 +62,34 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * FileLoadScanNode for broker node and stream load.
+ * FileLoadScanNode for broker load and stream load.
  */
 public class FileLoadScanNode extends FileScanNode {
     private static final Logger LOG = LogManager.getLogger(FileLoadScanNode.class);
+
+    public static class ParamCreateContext {
+        public BrokerFileGroup fileGroup;
+        public List<Expr> conjuncts;
+
+        public TupleDescriptor destTupleDescriptor;
+        public Map<String, SlotDescriptor> destSlotDescByName;
+        // === Set when init ===
+        public TupleDescriptor srcTupleDescriptor;
+        public Map<String, SlotDescriptor> srcSlotDescByName;
+        public Map<String, Expr> exprMap;
+        public String timezone;
+        // === Set when init ===
+
+        public TFileScanRangeParams params;
+
+        public void createDestSlotMap() {
+            Preconditions.checkNotNull(destTupleDescriptor);
+            destSlotDescByName = Maps.newHashMap();
+            for (SlotDescriptor slot : destTupleDescriptor.getSlots()) {
+                destSlotDescByName.put(slot.getColumn().getName(), slot);
+            }
+        }
+    }
 
     // Save all info about load attributes and files.
     // Each DataDescription in a load stmt conreponding to a FileGroupInfo in this list.
@@ -188,7 +212,7 @@ public class FileLoadScanNode extends FileScanNode {
         Preconditions.checkState(contexts.size() == scanProviders.size(),
                 contexts.size() + " vs. " + scanProviders.size());
         for (int i = 0; i < contexts.size(); ++i) {
-            FileScanNode.ParamCreateContext context = contexts.get(i);
+            FileLoadScanNode.ParamCreateContext context = contexts.get(i);
             FileScanProviderIf scanProvider = scanProviders.get(i);
             setDefaultValueExprs(scanProvider, context);
             finalizeParamsForLoad(context, analyzer);

@@ -42,12 +42,6 @@ public abstract class ExternalScanNode extends ScanNode {
     // set to false means this scan node does not need to check column priv.
     protected boolean needCheckColumnPriv;
 
-    // For explain
-    protected long inputSplitsNum = 0;
-    protected long totalFileSize = 0;
-    protected long totalPartitionNum = 0;
-    protected long readPartitionNum = 0;
-
     // Final output of this file scan node
     protected List<TScanRangeLocations> scanRangeLocations = Lists.newArrayList();
 
