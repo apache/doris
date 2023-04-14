@@ -34,6 +34,7 @@
 #include "http/http_headers.h"
 #include "http/http_request.h"
 #include "runtime/thread_context.h"
+#include "service/backend_options.h"
 #include "service/brpc.h"
 #include "util/debug_util.h"
 #include "util/threadpool.h"
