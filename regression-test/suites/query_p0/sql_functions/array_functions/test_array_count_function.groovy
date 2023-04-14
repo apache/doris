@@ -32,15 +32,16 @@ suite("test_array_functions_of_array_count") {
             )
         """
     sql """ INSERT INTO ${tableName} VALUES(1, []) """
-    sql """ INSERT INTO ${tableName} VALUES(2, [0,0,0]) """
+    sql """ INSERT INTO ${tableName} VALUES(2, [0,0]) """
     sql """ INSERT INTO ${tableName} VALUES(3, [1,2,3]) """
-    sql """ INSERT INTO ${tableName} VALUES(4, [0,0,0,3,2,1]) """
+    sql """ INSERT INTO ${tableName} VALUES(4, [0,0,0,3,3,1]) """
     sql """ INSERT INTO ${tableName} VALUES(5, [1,2,3,4,5,4,3,2,1]) """
     sql """ INSERT INTO ${tableName} VALUES(6, [1111,12324,8674,123,3434,435,45,53,54,2,0]) """
     sql """ INSERT INTO ${tableName} VALUES(7, [0, 0, 0, 1000004]) """
     sql """ INSERT INTO ${tableName} VALUES(8, [0, 0, 0, 5, 5, 5]) """
-    sql """ INSERT INTO ${tableName} VALUES(9, NULL) """
-    sql """ INSERT INTO ${tableName} VALUES(10, [NULL,NULL,NULL]) """
+    sql """ INSERT INTO ${tableName} VALUES(9, [0, 1, 2, 3, NULL]) """
+    sql """ INSERT INTO ${tableName} VALUES(10, NULL) """
+    sql """ INSERT INTO ${tableName} VALUES(11, [NULL,NULL,NULL]) """
 
     qt_select "select *, array_count(k2) from ${tableName} order by k1;"
     
