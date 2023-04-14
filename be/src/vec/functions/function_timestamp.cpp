@@ -52,12 +52,12 @@ struct StrToDate {
         ColumnPtr argument_columns[2] = {
                 col_const[0] ? static_cast<const ColumnConst&>(*col0).convert_to_full_column()
                              : col0};
-        check_set_nullable(argument_columns[0], null_map);
+        check_set_nullable(argument_columns[0], null_map, col_const[0]);
         //TODO: when we set default implementation for nullable, the check_set_nullable for arguments is useless. consider to remove it.
 
         std::tie(argument_columns[1], col_const[1]) =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
-        check_set_nullable(argument_columns[1], null_map);
+        check_set_nullable(argument_columns[1], null_map, col_const[1]);
 
         auto specific_str_column = assert_cast<const ColumnString*>(argument_columns[0].get());
         auto specific_char_column = assert_cast<const ColumnString*>(argument_columns[1].get());
@@ -190,11 +190,11 @@ struct MakeDateImpl {
         ColumnPtr argument_columns[2] = {
                 col_const[0] ? static_cast<const ColumnConst&>(*col0).convert_to_full_column()
                              : col0};
-        check_set_nullable(argument_columns[0], null_map);
+        check_set_nullable(argument_columns[0], null_map, col_const[0]);
 
         std::tie(argument_columns[1], col_const[1]) =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
-        check_set_nullable(argument_columns[1], null_map);
+        check_set_nullable(argument_columns[1], null_map, col_const[1]);
 
         ColumnPtr res = nullptr;
         WhichDataType which(remove_nullable(block.get_by_position(result).type));

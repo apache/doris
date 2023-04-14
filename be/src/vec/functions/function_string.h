@@ -140,7 +140,7 @@ struct SubstringUtil {
         default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block, arguments);
 
         for (int i = 0; i < 3; i++) {
-            check_set_nullable(argument_columns[i], null_map);
+            check_set_nullable(argument_columns[i], null_map, col_const[i]);
         }
 
         auto specific_str_column = assert_cast<const ColumnString*>(argument_columns[0].get());

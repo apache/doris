@@ -23,6 +23,26 @@
 -- !sql --
 \N
 
+-- !sql_convert_tz_null --
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+
 -- !sql1 --
 1	2019-08-01T13:21:03	Asia/Shanghai	Asia/Shanghai	2019-08-01T13:21:03
 2	2019-08-01T13:21:03	Asia/Singapore	Asia/Shanghai	2019-08-01T13:21:03
