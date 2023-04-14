@@ -71,6 +71,10 @@ public class JdbcExecutor {
     private int curBlockRows = 0;
     private static final byte[] emptyBytes = new byte[0];
     private DruidDataSource druidDataSource = null;
+    private int minPoolSize = 1;
+    private int maxPoolSize = 100;
+    private int minIdleSize = 1;
+    private int maxIdelTime = 600000;
 
     public JdbcExecutor(byte[] thriftParams) throws Exception {
         TJdbcExecutorCtorParams request = new TJdbcExecutorCtorParams();
@@ -80,6 +84,10 @@ public class JdbcExecutor {
         } catch (TException e) {
             throw new InternalException(e.getMessage());
         }
+        minPoolSize = Integer.valueOf(System.getProperty("JDBC_MIN_POOL"));
+        maxPoolSize = Integer.valueOf(System.getProperty("JDBC_MAX_POOL"));
+        maxIdelTime = Integer.valueOf(System.getProperty("JDBC_MAX_IDEL_TIME"));
+        minIdleSize = minPoolSize > 0 ? 1 : 0;
         init(request.driver_path, request.statement, request.batch_size, request.jdbc_driver_class,
                 request.jdbc_url, request.jdbc_user, request.jdbc_password, request.op, request.table_type);
     }
@@ -228,16 +236,16 @@ public class JdbcExecutor {
                 ds.setUrl(jdbcUrl);
                 ds.setUsername(jdbcUser);
                 ds.setPassword(jdbcPassword);
-                ds.setMinIdle(1);
-                ds.setInitialSize(1);
-                ds.setMaxActive(100);
+                ds.setMinIdle(minIdleSize);
+                ds.setInitialSize(minPoolSize);
+                ds.setMaxActive(maxPoolSize);
                 ds.setMaxWait(5000);
-                ds.setTimeBetweenEvictionRunsMillis(600000);
-                ds.setMinEvictableIdleTimeMillis(300000);
+                ds.setTimeBetweenEvictionRunsMillis(maxIdelTime);
+                ds.setMinEvictableIdleTimeMillis(maxIdelTime / 2);
                 druidDataSource = ds;
                 // here is a cache of datasource, which using the string(jdbcUrl + jdbcUser +
                 // jdbcPassword) as key.
-                // and the datasource init = 1, min = 1, max = 100, if one of connection idle
+                // and the default datasource init = 1, min = 1, max = 100, if one of connection idle
                 // time greater than 10 minutes. then connection will be retrieved.
                 JdbcDataSource.getDataSource().putSource(jdbcUrl + jdbcUser + jdbcPassword, ds);
             }
