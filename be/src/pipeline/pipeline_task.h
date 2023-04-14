@@ -184,7 +184,7 @@ public:
     // note(wb) an ugly implementation, need refactor later
     // 1.1 pipeline task
     void inc_runtime_ns(uint64_t delta_time) { this->_runtime += delta_time; }
-    uint64_t get_runtime_ns() { return this->_runtime; }
+    uint64_t get_runtime_ns() const { return this->_runtime; }
 
     // 1.2 priority queue's queue level
     void update_queue_level(int queue_level) { this->_queue_level = queue_level; }
