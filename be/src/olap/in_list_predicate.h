@@ -577,7 +577,7 @@ ColumnPredicate* _create_in_list_predicate(uint32_t column_id, const ConditionTy
                                            const TabletColumn* col = nullptr,
                                            vectorized::Arena* arena = nullptr) {
     using T = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
-    if constexpr (N >= 1 && N <= 12) {
+    if constexpr (N >= 1 && N <= FIXED_CONTAINER_MAX_SIZE) {
         using Set = std::conditional_t<
                 std::is_same_v<T, StringRef>, StringSet<FixedContainer<std::string, N>>,
                 HybridSet<Type, FixedContainer<T, N>,
@@ -620,21 +620,10 @@ ColumnPredicate* create_in_list_predicate(uint32_t column_id, const ConditionTyp
     } else if (conditions.size() == 7) {
         return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 7>(
                 column_id, conditions, convert, is_opposite, col, arena);
-    } else if (conditions.size() == 8) {
-        return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 8>(
-                column_id, conditions, convert, is_opposite, col, arena);
-    } else if (conditions.size() == 9) {
-        return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 9>(
-                column_id, conditions, convert, is_opposite, col, arena);
-    } else if (conditions.size() == 10) {
-        return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 10>(
-                column_id, conditions, convert, is_opposite, col, arena);
-    } else if (conditions.size() == 11) {
-        return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 11>(
-                column_id, conditions, convert, is_opposite, col, arena);
-    } else if (conditions.size() == 12) {
-        return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 12>(
-                column_id, conditions, convert, is_opposite, col, arena);
+    } else if (conditions.size() == FIXED_CONTAINER_MAX_SIZE) {
+        return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc,
+                                         FIXED_CONTAINER_MAX_SIZE>(column_id, conditions, convert,
+                                                                   is_opposite, col, arena);
     } else {
         return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc>(
                 column_id, conditions, convert, is_opposite, col, arena);
@@ -646,7 +635,7 @@ ColumnPredicate* _create_in_list_predicate(uint32_t column_id,
                                            const std::shared_ptr<HybridSetBase>& hybrid_set,
                                            size_t char_length = 0) {
     using T = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
-    if constexpr (N >= 1 && N <= 12) {
+    if constexpr (N >= 1 && N <= FIXED_CONTAINER_MAX_SIZE) {
         using Set = std::conditional_t<
                 std::is_same_v<T, StringRef>, StringSet<FixedContainer<std::string, N>>,
                 HybridSet<Type, FixedContainer<T, N>,
@@ -679,16 +668,9 @@ ColumnPredicate* create_in_list_predicate(uint32_t column_id,
         return _create_in_list_predicate<Type, PT, 6>(column_id, hybrid_set, char_length);
     } else if (hybrid_set->size() == 7) {
         return _create_in_list_predicate<Type, PT, 7>(column_id, hybrid_set, char_length);
-    } else if (hybrid_set->size() == 8) {
-        return _create_in_list_predicate<Type, PT, 8>(column_id, hybrid_set, char_length);
-    } else if (hybrid_set->size() == 9) {
-        return _create_in_list_predicate<Type, PT, 9>(column_id, hybrid_set, char_length);
-    } else if (hybrid_set->size() == 10) {
-        return _create_in_list_predicate<Type, PT, 10>(column_id, hybrid_set, char_length);
-    } else if (hybrid_set->size() == 11) {
-        return _create_in_list_predicate<Type, PT, 11>(column_id, hybrid_set, char_length);
-    } else if (hybrid_set->size() == 12) {
-        return _create_in_list_predicate<Type, PT, 12>(column_id, hybrid_set, char_length);
+    } else if (hybrid_set->size() == FIXED_CONTAINER_MAX_SIZE) {
+        return _create_in_list_predicate<Type, PT, FIXED_CONTAINER_MAX_SIZE>(column_id, hybrid_set,
+                                                                             char_length);
     } else {
         return _create_in_list_predicate<Type, PT>(column_id, hybrid_set, char_length);
     }
