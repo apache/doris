@@ -717,13 +717,16 @@ public class Memo {
                 }
             }
 
-            builder.append("  lowest Plan(cost, properties, plan)");
+            builder.append("  lowest Plan(cost, properties, plan, childrenRequires)");
             group.getAllProperties().forEach(
                     prop -> {
                         Optional<Pair<Cost, GroupExpression>> costAndGroupExpression = group.getLowestCostPlan(prop);
                         if (costAndGroupExpression.isPresent()) {
-                            builder.append("\n    " + costAndGroupExpression.get().first.getValue() + " " + prop)
-                                    .append("\n     ").append(costAndGroupExpression.get().second);
+                            Cost cost = costAndGroupExpression.get().first;
+                            GroupExpression child = costAndGroupExpression.get().second;
+                            builder.append("\n    " + cost.getValue() + " " + prop)
+                                    .append("\n     ").append(child)
+                                    .append("\n     " + child.getInputPropertiesListOrEmpty(prop));
                         }
                     }
             );

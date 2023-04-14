@@ -268,10 +268,6 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
         throw new AnalysisException("cannot cast " + desc + " from type " + this.dataType + " to type " + targetType);
     }
 
-    public boolean isCharacterLiteral() {
-        return this instanceof StringLiteral || this instanceof CharLiteral || this instanceof VarcharLiteral;
-    }
-
     /** fromLegacyLiteral */
     public static Literal fromLegacyLiteral(LiteralExpr literalExpr, Type type) {
         DataType dataType = DataType.fromCatalogType(type);

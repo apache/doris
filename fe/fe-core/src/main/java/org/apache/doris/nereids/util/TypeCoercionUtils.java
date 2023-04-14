@@ -229,7 +229,7 @@ public class TypeCoercionUtils {
     public static Expression castIfNotSameType(Expression input, DataType targetType) {
         if (input.getDataType().equals(targetType) || isSubqueryAndDataTypeIsBitmap(input)
                 || (isVarCharOrStringType(input.getDataType())
-                        && isVarCharOrStringType(targetType))) {
+                && isVarCharOrStringType(targetType))) {
             return input;
         } else {
             checkCanCastTo(input.getDataType(), targetType);
@@ -296,11 +296,13 @@ public class TypeCoercionUtils {
             // process by constant folding
             return (T) op.withChildren(left, right);
         }
-        if (left instanceof Literal && ((Literal) left).isCharacterLiteral()) {
+        if (left instanceof Literal && ((Literal) left).isStringLikeLiteral()
+                && !right.getDataType().isStringLikeType()) {
             left = TypeCoercionUtils.characterLiteralTypeCoercion(
                     ((Literal) left).getStringValue(), right.getDataType()).orElse(left);
         }
-        if (right instanceof Literal && ((Literal) right).isCharacterLiteral()) {
+        if (right instanceof Literal && ((Literal) right).isStringLikeLiteral()
+                && !left.getDataType().isStringLikeType()) {
             right = TypeCoercionUtils.characterLiteralTypeCoercion(
                     ((Literal) right).getStringValue(), left.getDataType()).orElse(right);
 

@@ -126,8 +126,8 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Double, Void> {
             if (ConnectContext.get().getSessionVariable().isEnableBucketShuffleJoin()) {
                 // We need to recalculate the required property of right child,
                 // to make right child compatible with left child.
-                PhysicalProperties rightRequireProperties = calRightRequiredOfBucketShuffleJoin(leftHashSpec,
-                        rightHashSpec);
+                PhysicalProperties rightRequireProperties = calRightRequiredOfBucketShuffleJoin(
+                        leftHashSpec, rightHashSpec);
                 if (!rightOutput.equals(rightRequireProperties)) {
                     updateChildEnforceAndCost(rightChild, rightOutput,
                             (DistributionSpecHash) rightRequireProperties.getDistributionSpec(), rightLowest.first);
