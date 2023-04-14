@@ -26,7 +26,7 @@ under the License.
 
 ## array_count
 
-<version since="1.2.0">
+<version since="1.2.4">
 
 array_count
 
