@@ -21,6 +21,8 @@ import org.apache.doris.analysis.ExportStmt;
 import org.apache.doris.analysis.SetStmt;
 import org.apache.doris.analysis.ShowVariablesStmt;
 import org.apache.doris.common.CaseSensibility;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.ExperimentalUtil.ExperimentalType;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.PatternMatcher;
@@ -118,14 +120,9 @@ public class SessionVariablesTest extends TestWithFeService {
         // 4. set experimental for none experimental var
         sql = "set experimental_repeat_max_num=5";
         setStmt = (SetStmt) parseAndAnalyzeStmt(sql, connectContext);
-        setExecutor = new SetExecutor(connectContext, setStmt);
-        try {
-            setExecutor.execute();
-            Assert.fail();
-        } catch (Exception e) {
-            e.printStackTrace();
-            Assert.assertTrue(e.getMessage().contains("Unknown system variable"));
-        }
+        SetExecutor setExecutor2 = new SetExecutor(connectContext, setStmt);
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Unknown system variable",
+                () -> setExecutor2.execute());
 
         // 5. show variables
         String showSql = "show variables like '%experimental%'";

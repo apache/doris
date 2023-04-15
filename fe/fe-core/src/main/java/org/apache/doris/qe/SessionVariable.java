@@ -1928,10 +1928,10 @@ public class SessionVariable implements Serializable, Writable {
     // return number of variables by given experimental type
     public int getVariableNumByExperimentalType(ExperimentalType type) {
         int num = 0;
-        Field[] fields = SessionVariable.class.getFields();
+        Field[] fields = SessionVariable.class.getDeclaredFields();
         for (Field f : fields) {
             VarAttr varAttr = f.getAnnotation(VarAttr.class);
-            if (varAttr == null || !varAttr.needForward()) {
+            if (varAttr == null) {
                 continue;
             }
             if (varAttr.expType() == type) {

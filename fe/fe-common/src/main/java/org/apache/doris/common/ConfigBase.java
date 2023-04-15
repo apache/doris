@@ -421,4 +421,18 @@ public class ConfigBase {
                     + "will overwrite the configurations in fe.conf");
         }
     }
+
+    public static int getConfigNumByExperimentalType(ExperimentalType type) {
+        int num = 0;
+        for (Field field : Config.class.getFields()) {
+            ConfField confField = field.getAnnotation(ConfField.class);
+            if (confField == null) {
+                continue;
+            }
+            if (confField.expType() == type) {
+                ++num;
+            }
+        }
+        return num;
+    }
 }
