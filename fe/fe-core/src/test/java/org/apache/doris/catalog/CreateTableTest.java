@@ -570,7 +570,7 @@ public class CreateTableTest {
 
         // create z-order sort table, default col_num
         ExceptionChecker.
-        .expectThrowsWithMsg(AnalysisException.class, "only support lexical method!",
+        .expectThrowsWithMsg(AnalysisException.class, "only support lexical method now!",
                 ()  -> createTable(
                 "create table test.zorder_tbl2\n" + "(k1 varchar(40), k2 int, k3 int)\n" + "duplicate key(k1, k2, k3)\n"
                         + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
@@ -579,7 +579,7 @@ public class CreateTableTest {
 
         // create z-order sort table, define sort_col_num
         ExceptionChecker
-        .expectThrowsWithMsg(AnalysisException.class, "only support lexical method!",
+        .expectThrowsWithMsg(AnalysisException.class, "only support lexical method now!",
                 ()  -> createTable(
                 "create table test.zorder_tbl3\n" + "(k1 varchar(40), k2 int, k3 int)\n" + "duplicate key(k1, k2, k3)\n"
                         + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
@@ -588,7 +588,7 @@ public class CreateTableTest {
                         + " 'data_sort.col_num' = '2');"));
         // create z-order sort table, only 1 sort column
         ExceptionChecker
-                .expectThrowsWithMsg(AnalysisException.class, "only support lexical method!",
+                .expectThrowsWithMsg(AnalysisException.class, "only support lexical method now!",
                         () -> createTable("create table test.zorder_tbl4\n" + "(k1 varchar(40), k2 int, k3 int)\n" + "duplicate key(k1, k2, k3)\n"
                                 + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
                                 + "distributed by hash(k1) buckets 1\n" + "properties('replication_num' = '1',"
@@ -596,7 +596,7 @@ public class CreateTableTest {
                                 + " 'data_sort.col_num' = '1');"));
         // create z-order sort table, sort column is empty
         ExceptionChecker
-                .expectThrowsWithMsg(AnalysisException.class, "only support lexical method!",
+                .expectThrowsWithMsg(AnalysisException.class, "only support lexical method now!",
                         () -> createTable("create table test.zorder_tbl4\n" + "(k1 varchar(40), k2 int, k3 int)\n" + "duplicate key(k1, k2, k3)\n"
                                 + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
                                 + "distributed by hash(k1) buckets 1\n" + "properties('replication_num' = '1',"

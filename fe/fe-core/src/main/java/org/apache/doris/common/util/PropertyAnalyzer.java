@@ -755,7 +755,7 @@ public class PropertyAnalyzer {
         if (sortMethod.equalsIgnoreCase(TSortType.LEXICAL.name())) {
             sortType = TSortType.LEXICAL;
         } else {
-            throw new AnalysisException("only support lexical method!");
+            throw new AnalysisException("only support lexical method now!");
         }
 
         int colNum = keyCount;
