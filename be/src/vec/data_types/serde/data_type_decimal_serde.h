@@ -27,7 +27,8 @@ class DataTypeDecimalSerDe : public DataTypeSerDe {
     static_assert(IsDecimalNumber<T>);
 
 public:
-    Status write_column_to_pb(const IColumn& column, PValues& result, int start, int end) const override;
+    Status write_column_to_pb(const IColumn& column, PValues& result, int start,
+                              int end) const override;
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
 };
 
@@ -36,20 +37,30 @@ Status DataTypeDecimalSerDe<T>::write_column_to_pb(const IColumn& column, PValue
                                                    int start, int end) const {
     int row_count = end - start;
     const auto* col = check_and_get_column<ColumnDecimal<T>>(column);
+    auto ptype = result.mutable_type();
     if constexpr (std::is_same_v<T, Decimal<Int128>>) {
-        result.mutable_bytes_value()->Reserve(row_count);
-        for (size_t row_num = start; row_num < end; ++row_num) {
-            StringRef single_data = col->get_data_at(row_num);
-            result.add_bytes_value(single_data.data, single_data.size);
-        }
-        return Status::OK();
+        ptype->set_id(PGenericType::DECIMAL128);
+    } else if constexpr (std::is_same_v<T, Decimal<Int128I>>) {
+        ptype->set_id(PGenericType::DECIMAL128I);
+    } else if constexpr (std::is_same_v<T, Decimal<Int32>>) {
+        ptype->set_id(PGenericType::INT32);
+    } else if constexpr (std::is_same_v<T, Decimal<Int64>>) {
+        ptype->set_id(PGenericType::INT64);
+    } else {
+        return Status::NotSupported("unknown ColumnType for writing to pb");
     }
-    return Status::NotSupported("unknown ColumnType for writing to pb");
+    result.mutable_bytes_value()->Reserve(row_count);
+    for (size_t row_num = start; row_num < end; ++row_num) {
+        StringRef single_data = col->get_data_at(row_num);
+        result.add_bytes_value(single_data.data, single_data.size);
+    }
+    return Status::OK();
 }
 
 template <typename T>
 Status DataTypeDecimalSerDe<T>::read_column_from_pb(IColumn& column, const PValues& arg) const {
-    if constexpr (std::is_same_v<T, Decimal<Int128>>) {
+    if constexpr (std::is_same_v<T, Decimal<Int128>> || std::is_same_v<T, Decimal<Int128I>> ||
+                  std::is_same_v<T, Decimal<Int16>> || std::is_same_v<T, Decimal<Int32>>) {
         column.resize(arg.bytes_value_size());
         auto& data = reinterpret_cast<ColumnDecimal<T>&>(column).get_data();
         for (int i = 0; i < arg.bytes_value_size(); ++i) {

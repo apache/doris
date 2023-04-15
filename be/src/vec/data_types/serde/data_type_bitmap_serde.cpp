@@ -17,22 +17,34 @@
 
 #include "data_type_bitmap_serde.h"
 
+#include "vec/columns/column_complex.h"
+#include "vec/data_types/data_type.h"
+
 namespace doris {
 
 namespace vectorized {
 Status DataTypeBitMapSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
                                                int end) const {
-    result.mutable_bytes_value()->Reserve(end - start);
-    for (size_t row_num = start; row_num < end; ++row_num) {
-        StringRef data = column.get_data_at(row_num);
-        result.add_bytes_value(data.to_string());
+    auto ptype = result.mutable_type();
+    ptype->set_id(PGenericType::BITMAP);
+    auto& data_column = assert_cast<const ColumnBitmap&>(column);
+    int row_count = end - start;
+    result.mutable_bytes_value()->Reserve(row_count);
+    for (int row = start; row < end; ++row) {
+        auto& value = const_cast<BitmapValue&>(data_column.get_element(row));
+        std::string memory_buffer;
+        int bytesize = value.getSizeInBytes();
+        memory_buffer.resize(bytesize);
+        value.write_to(const_cast<char*>(memory_buffer.data()));
+        result.add_bytes_value(memory_buffer);
     }
     return Status::OK();
 }
 Status DataTypeBitMapSerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
-    column.reserve(arg.bytes_value_size());
+    auto& col = reinterpret_cast<ColumnBitmap&>(column);
     for (int i = 0; i < arg.bytes_value_size(); ++i) {
-        column.insert_data(arg.bytes_value(i).c_str(), arg.bytes_value(i).size());
+        BitmapValue value(arg.bytes_value(i).data());
+        col.insert_value(value);
     }
     return Status::OK();
 }

@@ -102,7 +102,6 @@ public:
     bool get_have_explicit_names() const { return have_explicit_names; }
     DataTypeSerDeSPtr get_serde() const override {
         DataTypeSerDeSPtrs ptrs;
-        ptrs.reserve(elems.size());
         for (auto iter = elems.begin(); iter < elems.end(); ++iter) {
             ptrs.push_back((*iter)->get_serde());
         }

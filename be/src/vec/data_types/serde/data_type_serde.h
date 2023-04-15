@@ -46,6 +46,8 @@ public:
 
     virtual Status read_column_from_pb(IColumn& column, const PValues& arg) const = 0;
 
+    // JSONB serializer and deserializer
+
     // MySQL serializer and deserializer
 
     // Thrift serializer and deserializer

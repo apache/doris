@@ -22,10 +22,11 @@ namespace vectorized {
 
 Status DataTypeHLLSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
                                             int end) const {
-    result.mutable_bytes_value()->Reserve(end - start);
+    auto ptype = result.mutable_type();
+    ptype->set_id(PGenericType::HLL);
     for (size_t row_num = start; row_num < end; ++row_num) {
         StringRef data = column.get_data_at(row_num);
-        result.add_bytes_value(data.to_string());
+        result.add_bytes_value(data.data, data.size);
     }
     return Status::OK();
 }

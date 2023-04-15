@@ -89,8 +89,10 @@ template <typename T>
 Status DataTypeNumberSerDe<T>::write_column_to_pb(const IColumn& column, PValues& result, int start,
                                                   int end) const {
     int row_count = end - start;
+    auto ptype = result.mutable_type();
     const auto* col = check_and_get_column<ColumnVector<T>>(column);
     if constexpr (std::is_same_v<T, Int128>) {
+        ptype->set_id(PGenericType::INT128);
         result.mutable_bytes_value()->Reserve(row_count);
         for (size_t row_num = start; row_num < end; ++row_num) {
             StringRef single_data = col->get_data_at(row_num);
@@ -99,29 +101,53 @@ Status DataTypeNumberSerDe<T>::write_column_to_pb(const IColumn& column, PValues
         return Status::OK();
     }
     auto& data = col->get_data();
-    if constexpr (std::is_same_v<T, UInt8> || std::is_same_v<T, UInt16> ||
-                  std::is_same_v<T, UInt32>) {
+    if constexpr (std::is_same_v<T, UInt8>) {
+        ptype->set_id(PGenericType::UINT8);
         auto* values = result.mutable_uint32_value();
         values->Reserve(row_count);
         values->Add(data.begin() + start, data.begin() + end);
-    } else if constexpr (std::is_same_v<T, Int8> || std::is_same_v<T, Int16> ||
-                         std::is_same_v<T, Int32>) {
-        auto* values = result.mutable_int32_value();
+    } else if constexpr (std::is_same_v<T, UInt16>) {
+        ptype->set_id(PGenericType::UINT16);
+        auto* values = result.mutable_uint32_value();
+        values->Reserve(row_count);
+        values->Add(data.begin() + start, data.begin() + end);
+    } else if constexpr (std::is_same_v<T, UInt32>) {
+        ptype->set_id(PGenericType::UINT32);
+        auto* values = result.mutable_uint32_value();
         values->Reserve(row_count);
         values->Add(data.begin() + start, data.begin() + end);
     } else if constexpr (std::is_same_v<T, UInt64>) {
+        ptype->set_id(PGenericType::UINT64);
         auto* values = result.mutable_uint64_value();
         values->Reserve(row_count);
         values->Add(data.begin() + start, data.begin() + end);
+    } else if constexpr (std::is_same_v<T, Int8>) {
+        ptype->set_id(PGenericType::INT8);
+        auto* values = result.mutable_int32_value();
+        values->Reserve(row_count);
+        values->Add(data.begin() + start, data.begin() + end);
+    } else if constexpr (std::is_same_v<T, Int16>) {
+        ptype->set_id(PGenericType::INT16);
+        auto* values = result.mutable_int32_value();
+        values->Reserve(row_count);
+        values->Add(data.begin() + start, data.begin() + end);
+    } else if constexpr (std::is_same_v<T, Int32>) {
+        ptype->set_id(PGenericType::INT32);
+        auto* values = result.mutable_int32_value();
+        values->Reserve(row_count);
+        values->Add(data.begin() + start, data.begin() + end);
     } else if constexpr (std::is_same_v<T, Int64>) {
+        ptype->set_id(PGenericType::INT64);
         auto* values = result.mutable_int64_value();
         values->Reserve(row_count);
         values->Add(data.begin() + start, data.begin() + end);
     } else if constexpr (std::is_same_v<T, float>) {
+        ptype->set_id(PGenericType::FLOAT);
         auto* values = result.mutable_float_value();
         values->Reserve(row_count);
         values->Add(data.begin() + start, data.begin() + end);
     } else if constexpr (std::is_same_v<T, double>) {
+        ptype->set_id(PGenericType::DOUBLE);
         auto* values = result.mutable_double_value();
         values->Reserve(row_count);
         values->Add(data.begin() + start, data.begin() + end);

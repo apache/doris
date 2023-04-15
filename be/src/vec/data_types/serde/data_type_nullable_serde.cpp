@@ -29,6 +29,7 @@ Status DataTypeNullableSerDe::write_column_to_pb(const IColumn& column, PValues&
     auto& nullable_col = assert_cast<const ColumnNullable&>(column);
     auto& null_col = nullable_col.get_null_map_column();
     if (nullable_col.has_null(row_count)) {
+        result.set_has_null(true);
         auto* null_map = result.mutable_null_map();
         null_map->Reserve(row_count);
         const auto* col = check_and_get_column<ColumnUInt8>(null_col);
@@ -43,9 +44,9 @@ Status DataTypeNullableSerDe::read_column_from_pb(IColumn& column, const PValues
     auto& col = reinterpret_cast<ColumnNullable&>(column);
     auto& null_map_data = col.get_null_map_data();
     auto& nested = col.get_nested_column();
-    null_map_data.reserve(nested.size());
+    null_map_data.resize(arg.null_map_size());
     if (arg.has_null()) {
-        for (int i = 0; i < nested.size(); ++i) {
+        for (int i = 0; i < arg.null_map_size(); ++i) {
             null_map_data[i] = arg.null_map(i);
         }
     } else {
