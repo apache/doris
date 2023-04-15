@@ -49,7 +49,7 @@ public class CreateTableLikeStmt extends DdlStmt {
     private final boolean withAllRollup;
 
     public CreateTableLikeStmt(boolean ifNotExists, TableName tableName, TableName existedTableName,
-                               ArrayList<String> rollupNames, boolean withAllRollup) throws DdlException {
+            ArrayList<String> rollupNames, boolean withAllRollup) throws DdlException {
         this.ifNotExists = ifNotExists;
         this.tableName = tableName;
         this.existedTableName = existedTableName;
