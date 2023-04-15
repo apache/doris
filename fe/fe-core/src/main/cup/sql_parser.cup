@@ -468,6 +468,7 @@ terminal String
     KW_NEVER,
     KW_NEXT,
     KW_NO,
+    KW_NO_KEY,
     KW_NOT,
     KW_NULL,
     KW_NULLS,
@@ -3181,6 +3182,11 @@ opt_keys ::=
     | KW_DUPLICATE KW_KEY LPAREN ident_list:keys RPAREN
     {:
         RESULT = new KeysDesc(KeysType.DUP_KEYS, keys);
+    :}
+    /* dup_keys no key*/
+    | KW_DUPLICATE KW_NO_KEY
+    {:
+        RESULT = new KeysDesc(KeysType.DUP_KEYS, new ArrayList<String>());
     :}
     /* unique_keys */
     | KW_UNIQUE KW_KEY LPAREN ident_list:keys RPAREN
