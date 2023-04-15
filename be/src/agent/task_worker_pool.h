@@ -23,6 +23,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <shared_mutex>
 #include <utility>
 #include <vector>
 
@@ -252,7 +253,7 @@ private:
 
     // contains batch ids to be canceled in this worker pool
     std::set<int64_t> _cancel_set;
-    std::mutex _cancel_lock;
+    std::shared_mutex _cancel_lock;
 
     static std::atomic_ulong _s_report_version;
 

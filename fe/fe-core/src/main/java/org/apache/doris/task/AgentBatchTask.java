@@ -68,14 +68,18 @@ public class AgentBatchTask implements Runnable {
     /**
      * for tracing this batch task
      */
-    private long batchId;
+    private final long batchId;
 
     // backendId -> AgentTask List
     private final Map<Long, List<AgentTask>> backendIdToTasks;
 
     public AgentBatchTask() {
-        this.batchId = Env.getCurrentEnv().getNextId();
-        this.backendIdToTasks = new HashMap<Long, List<AgentTask>>();
+        if (FeConstants.runningUnitTest) {
+            this.batchId = 1L;
+        } else {
+            this.batchId = Env.getCurrentEnv().getNextId();
+        }
+        this.backendIdToTasks = new HashMap<>();
     }
 
     public AgentBatchTask(AgentTask singleTask) {
@@ -92,14 +96,14 @@ public class AgentBatchTask implements Runnable {
             List<AgentTask> tasks = backendIdToTasks.get(backendId);
             tasks.add(agentTask);
         } else {
-            List<AgentTask> tasks = new LinkedList<AgentTask>();
+            List<AgentTask> tasks = new LinkedList<>();
             tasks.add(agentTask);
             backendIdToTasks.put(backendId, tasks);
         }
     }
 
     public List<AgentTask> getAllTasks() {
-        List<AgentTask> tasks = new LinkedList<AgentTask>();
+        List<AgentTask> tasks = new LinkedList<>();
         for (Long backendId : this.backendIdToTasks.keySet()) {
             tasks.addAll(this.backendIdToTasks.get(backendId));
         }
