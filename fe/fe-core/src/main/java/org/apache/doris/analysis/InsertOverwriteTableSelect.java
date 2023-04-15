@@ -17,53 +17,25 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 
 import lombok.Getter;
 
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 public class InsertOverwriteTableSelect extends DdlStmt {
-    @Getter
-    private final CreateTableLikeStmt createTableLikeStmt;
 
     @Getter
     private final InsertStmt insertStmt;
-    @Getter
-    private final AlterTableStmt alterTableStmt;
-    @Getter
-    private QueryStmt queryStmt;
 
-    public InsertOverwriteTableSelect(CreateTableLikeStmt createTableLikeStmt, QueryStmt queryStmt) {
-        this.createTableLikeStmt = createTableLikeStmt;
-        this.insertStmt = new InsertStmt(createTableLikeStmt.getDbTbl(), queryStmt.clone());
-        this.queryStmt = queryStmt;
-
-        List<AlterClause> ops = new ArrayList<>();
-        Map<String, String> properties = new HashMap<>();
-        properties.put("swap", "false");
-        ops.add(new ReplaceTableClause(createTableLikeStmt.getDbTbl().getTbl(), properties));
-        this.alterTableStmt = new AlterTableStmt(createTableLikeStmt.getExistedTable(), ops);
+    public InsertOverwriteTableSelect(InsertTarget target, String label, List<String> cols, InsertSource source,
+                                      List<String> hints) {
+        this.insertStmt = new InsertStmt(target, label, cols, source, hints);
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
-        // first: we analyze queryStmt before create table.
-        // To avoid duplicate registrations of table/colRefs,
-        // create a new root analyzer and clone the query statement for this initial pass.
         Analyzer dummyRootAnalyzer = new Analyzer(analyzer.getEnv(), analyzer.getContext());
-        QueryStmt tmpStmt = queryStmt.clone();
-        tmpStmt.analyze(dummyRootAnalyzer);
-        this.queryStmt = tmpStmt;
-        ArrayList<Expr> resultExprs = getQueryStmt().getResultExprs();
-        List<String> columnNames = createTableLikeStmt.getColLabels();
-        if (columnNames != null && columnNames.size() != resultExprs.size()) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_COL_NUMBER_NOT_MATCH);
-        }
+        insertStmt.analyze(dummyRootAnalyzer);
     }
 }

@@ -17,10 +17,12 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ArrayLiteral;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
+import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.DeleteStmt;
@@ -43,6 +45,7 @@ import org.apache.doris.analysis.PrepareStmt;
 import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.RedirectStatus;
+import org.apache.doris.analysis.ReplaceTableClause;
 import org.apache.doris.analysis.SelectListItem;
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SetOperationStmt;
@@ -165,6 +168,7 @@ import java.io.StringReader;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -414,7 +418,7 @@ public class StmtExecutor implements ProfileWriter {
      *      isValuesOrConstantSelect: when this interface return true, original string is truncated at 1024
      *
      * @return parsed and analyzed statement for Stale planner.
-     * an unresolved LogicalPlan wrapped with a LogicalPlanAdapter for Nereids.
+     *         an unresolved LogicalPlan wrapped with a LogicalPlanAdapter for Nereids.
      */
     public StatementBase getParsedStmt() {
         return parsedStmt;
@@ -563,7 +567,7 @@ public class StmtExecutor implements ProfileWriter {
         int retryTime = Config.max_query_retry_time;
         for (int i = 0; i < retryTime; i++) {
             try {
-                //reset query id for each retry
+                // reset query id for each retry
                 if (i > 0) {
                     UUID uuid = UUID.randomUUID();
                     TUniqueId newQueryId = new TUniqueId(uuid.getMostSignificantBits(),
@@ -1823,10 +1827,10 @@ public class StmtExecutor implements ProfileWriter {
     private void handlePrepareStmt() throws Exception {
         // register prepareStmt
         LOG.debug("add prepared statement {}, isBinaryProtocol {}",
-                        prepareStmt.getName(), prepareStmt.isBinaryProtocol());
+                prepareStmt.getName(), prepareStmt.isBinaryProtocol());
         context.addPreparedStmt(prepareStmt.getName(),
                 new PrepareStmtContext(prepareStmt,
-                            context, planner, analyzer, prepareStmt.getName()));
+                        context, planner, analyzer, prepareStmt.getName()));
         if (prepareStmt.isBinaryProtocol()) {
             sendStmtPrepareOK();
         }
@@ -1891,7 +1895,7 @@ public class StmtExecutor implements ProfileWriter {
         context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         if (numParams > 0) {
             sendFields(prepareStmt.getColLabelsOfPlaceHolders(),
-                        exprToType(prepareStmt.getSlotRefOfPlaceHolders()));
+                    exprToType(prepareStmt.getSlotRefOfPlaceHolders()));
         }
         context.getState().setOk();
     }
@@ -2131,13 +2135,19 @@ public class StmtExecutor implements ProfileWriter {
 
     private void handleIotsStmt() {
         InsertOverwriteTableSelect iotsStmt = (InsertOverwriteTableSelect) this.parsedStmt;
+        UUID uuid = UUID.randomUUID();
+        TableName tmpTableName = new TableName(null, null, "tmp_" + uuid);
+        TableName targetTableName = new TableName(null, iotsStmt.getInsertStmt().getDb(),
+                iotsStmt.getInsertStmt().getTbl());
         try {
-            // create table
-            DdlExecutor.execute(context.getEnv(), iotsStmt.getCreateTableLikeStmt());
+            // create a tmp table with uuid
+            CreateTableLikeStmt createTableLikeStmt = new CreateTableLikeStmt(false, tmpTableName, targetTableName,
+                    null, false);
+            DdlExecutor.execute(context.getEnv(), createTableLikeStmt);
             context.getState().setOk();
         } catch (Exception e) {
             // Maybe our bug
-            LOG.warn("IOTS create table error, stmt={}", originStmt.originStmt, e);
+            LOG.warn("IOTS create a tmp table error, stmt={}", originStmt.originStmt, e);
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
         }
         // after success create table insert data
@@ -2148,38 +2158,39 @@ public class StmtExecutor implements ProfileWriter {
                 execute();
                 if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
                     LOG.warn("IOTS insert data error, stmt={}", iotsStmt.toSql());
-                    handleIotsRollback(iotsStmt.getCreateTableLikeStmt().getDbTbl());
+                    handleIotsRollback(tmpTableName);
                 }
             } catch (Exception e) {
                 LOG.warn("IOTS insert data error, stmt={}", iotsStmt.toSql(), e);
-                handleIotsRollback(iotsStmt.getCreateTableLikeStmt().getDbTbl());
+                handleIotsRollback(tmpTableName);
             }
         }
 
-        // overwrite old table with new table
+        // overwrite old table with tmp table
         try {
-            AlterTableStmt alterTableStmt = iotsStmt.getAlterTableStmt();
+            List<AlterClause> ops = new ArrayList<>();
+            Map<String, String> properties = new HashMap<>();
+            properties.put("swap", "false");
+            ops.add(new ReplaceTableClause(tmpTableName.getTbl(), properties));
+            AlterTableStmt alterTableStmt = new AlterTableStmt(targetTableName, ops);
             DdlExecutor.execute(context.getEnv(), alterTableStmt);
-            context.getState().setOk();
         } catch (Exception e) {
             // Maybe our bug
-            LOG.warn("IOTS swap table error, stmt={}", originStmt.originStmt, e);
+            LOG.warn("IOTS overwrite table error, stmt={}", originStmt.originStmt, e);
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
-            handleIotsRollback(iotsStmt.getCreateTableLikeStmt().getDbTbl());
+            handleIotsRollback(tmpTableName);
         }
 
     }
 
     private void handleIotsRollback(TableName table) {
-        if (context.getSessionVariable().isDropTableIfIotsFailed()) {
-            // insert error drop table
-            DropTableStmt dropTableStmt = new DropTableStmt(true, table, true);
-            try {
-                DdlExecutor.execute(context.getEnv(), dropTableStmt);
-            } catch (Exception ex) {
-                LOG.warn("IOTS drop table error, stmt={}", parsedStmt.toSql(), ex);
-                context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + ex.getMessage());
-            }
+        // insert error drop the tmp table
+        DropTableStmt dropTableStmt = new DropTableStmt(true, table, true);
+        try {
+            DdlExecutor.execute(context.getEnv(), dropTableStmt);
+        } catch (Exception ex) {
+            LOG.warn("IOTS drop table error, stmt={}", parsedStmt.toSql(), ex);
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + ex.getMessage());
         }
     }
 

@@ -283,8 +283,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String GROUP_BY_AND_HAVING_USE_ALIAS_FIRST = "group_by_and_having_use_alias_first";
     public static final String DROP_TABLE_IF_CTAS_FAILED = "drop_table_if_ctas_failed";
 
-    public static final String DROP_TABLE_IF_IOTS_FAILED = "drop_table_if_iots_failed";
-
     public static final String MAX_TABLE_COUNT_USE_CASCADES_JOIN_REORDER = "max_table_count_use_cascades_join_reorder";
     public static final int MIN_JOIN_REORDER_TABLE_COUNT = 2;
 
@@ -774,10 +772,6 @@ public class SessionVariable implements Serializable, Writable {
     // Whether drop table when create table as select insert data appear error.
     @VariableMgr.VarAttr(name = DROP_TABLE_IF_CTAS_FAILED, needForward = true)
     public boolean dropTableIfCtasFailed = true;
-
-    // Whether drop table when insert overwrite table insert data appear error.
-    @VariableMgr.VarAttr(name = DROP_TABLE_IF_IOTS_FAILED, needForward = true)
-    public boolean dropTableIfIotsFailed = true;
 
     @VariableMgr.VarAttr(name = MAX_TABLE_COUNT_USE_CASCADES_JOIN_REORDER, needForward = true)
     public int maxTableCountUseCascadesJoinReorder = 10;
@@ -1580,10 +1574,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isDropTableIfCtasFailed() {
         return dropTableIfCtasFailed;
-    }
-
-    public boolean isDropTableIfIotsFailed(){
-        return dropTableIfIotsFailed;
     }
 
     public void checkExternalSortBytesThreshold(String externalSortBytesThreshold) {

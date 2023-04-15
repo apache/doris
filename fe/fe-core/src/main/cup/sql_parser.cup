@@ -1827,11 +1827,6 @@ create_stmt ::=
     {:
         RESULT = new CreateTableLikeStmt(ifNotExists, name, existed_name, null, false);
     :}
-    | KW_INSERT KW_OVERWRITE KW_TABLE table_name:existed_name query_stmt:insert_data
-    {:
-        UUID uuid = UUID.randomUUID();
-        RESULT = new InsertOverwriteTableSelect(new CreateTableLikeStmt(false, new TableName(null,null,"tmp_"+uuid), existed_name, null, false),insert_data);
-    :}
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name
             LPAREN column_definition_list:columns RPAREN opt_engine:engineName
             opt_keys:keys
@@ -4521,6 +4516,10 @@ insert_stmt ::=
     KW_INSERT KW_INTO insert_target:target opt_with_label:label opt_col_list:cols opt_plan_hints:hints insert_source:source
     {:
         RESULT = new InsertStmt(target, label, cols, source, hints);
+    :}
+    | KW_INSERT KW_OVERWRITE insert_target:target opt_with_label:label opt_col_list:cols opt_plan_hints:hints insert_source:source
+    {:
+       RESULT = new InsertOverwriteStmt(target, label, cols, source, hints);
     :}
     // TODO(zc) add default value for SQL-2003
     // | KW_INSERT KW_INTO insert_target:target KW_DEFAULT KW_VALUES
