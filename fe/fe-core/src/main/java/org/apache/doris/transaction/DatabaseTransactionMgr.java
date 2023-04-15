@@ -1009,7 +1009,20 @@ public class DatabaseTransactionMgr {
                                 }
                             }
 
-                            if (healthReplicaNum < quorumReplicaNum) {
+                            if (transactionState.isPublishTimeout() && healthReplicaNum > 0) {
+                                // We can not do any thing except retrying,
+                                // because publish task is assigned a version,
+                                // and doris does not permit discontinuous
+                                // versions.
+                                //
+                                // If a timeout happens, it means that the rowset
+                                // that are being publised exists on a few replicas we should go
+                                // ahead, otherwise data may be lost and thre
+                                // publish task hangs forever.
+                                LOG.info("publish version timeout for transaction {} on tablet {},"
+                                                + " with {} replicas",
+                                        transactionState, tablet, healthReplicaNum, quorumReplicaNum);
+                            } else if (healthReplicaNum < quorumReplicaNum) {
                                 LOG.info("publish version {} failed for transaction {} on tablet {},"
                                                 + " with only {} replicas less than quorum {}",
                                          partitionCommitInfo.getVersion(), transactionState, tablet, healthReplicaNum,
