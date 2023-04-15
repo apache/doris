@@ -50,6 +50,7 @@ Usage: $0 <options>
      -j                 build Backend parallel
 
   Environment variables:
+    USE_AVX512                  If the CPU does not support both AVX512F and AVX512BW instruction set, please set USE_AVX512=0. Default is ON.
     USE_AVX2                    If the CPU does not support AVX2 instruction set, please set USE_AVX2=0. Default is ON.
     STRIP_DEBUG_INFO            If set STRIP_DEBUG_INFO=ON, the debug information in the compiled binaries will be stored separately in the 'be/lib/debug_info' directory. Default is OFF.
     DISABLE_JAVA_UDF            If set DISABLE_JAVA_UDF=ON, we will do not build binary with java-udf. Default is OFF.
@@ -65,7 +66,7 @@ Usage: $0 <options>
     $0 --be --fe                            build Backend, Frontend, Spark Dpp application and Java UDF library
     $0 --be --coverage                      build Backend with coverage enabled
 
-    USE_AVX2=0 $0 --be                      build Backend and not using AVX2 instruction.
+    USE_AVX512=0 $0 --be                    build Backend and not using AVX512 instruction.
     USE_AVX2=0 STRIP_DEBUG_INFO=ON $0       build all and not using AVX2 instruction, and strip the debug info for Backend
   "
     exit 1
@@ -280,6 +281,9 @@ fi
 if [[ -z "${USE_AVX2}" ]]; then
     USE_AVX2='ON'
 fi
+if [[ -z "${USE_AVX512}" ]]; then
+    USE_AVX512='ON'
+fi
 if [[ -z "${WITH_LZO}" ]]; then
     WITH_LZO='OFF'
 fi
@@ -372,6 +376,7 @@ echo "Get params:
     WITH_LZO            -- ${WITH_LZO}
     GLIBC_COMPATIBILITY -- ${GLIBC_COMPATIBILITY}
     USE_AVX2            -- ${USE_AVX2}
+    USE_AVX512          -- ${USE_AVX512}
     USE_LIBCPP          -- ${USE_LIBCPP}
     USE_DWARF           -- ${USE_DWARF}
     STRIP_DEBUG_INFO    -- ${STRIP_DEBUG_INFO}
@@ -454,6 +459,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DUSE_BTHREAD_SCANNER="${USE_BTHREAD_SCANNER}" \
         -DENABLE_STACKTRACE="${ENABLE_STACKTRACE}" \
         -DUSE_AVX2="${USE_AVX2}" \
+        -DUSE_AVX512="${USE_AVX512}" \
         -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
         -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
         -DENABLE_CLANG_COVERAGE="${DENABLE_CLANG_COVERAGE}" \

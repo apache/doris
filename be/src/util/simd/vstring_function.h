@@ -24,6 +24,7 @@
 #include <cstdint>
 
 #include "util/simd/lower_upper_impl.h"
+#include "util/simd/simd.h"
 #include "util/sse_util.hpp"
 #include "vec/common/string_ref.h"
 
@@ -48,28 +49,22 @@ namespace simd {
 
 class VStringFunctions {
 public:
-#if defined(__SSE2__) || defined(__aarch64__)
-    /// n equals to 16 chars length
-    static constexpr auto REGISTER_SIZE = sizeof(__m128i);
-#endif
-public:
     static StringRef rtrim(const StringRef& str) {
         if (str.size == 0) {
             return str;
         }
         auto begin = 0;
         int64_t end = str.size - 1;
-#if defined(__SSE2__) || defined(__aarch64__)
+#ifdef SIMD_AVAILABLE
         char blank = ' ';
-        const auto pattern = _mm_set1_epi8(blank);
-        while (end - begin + 1 >= REGISTER_SIZE) {
-            const auto v_haystack = _mm_loadu_si128(
-                    reinterpret_cast<const __m128i*>(str.data + end + 1 - REGISTER_SIZE));
-            const auto v_against_pattern = _mm_cmpeq_epi8(v_haystack, pattern);
-            const auto mask = _mm_movemask_epi8(v_against_pattern);
-            int offset = __builtin_clz(~(mask << REGISTER_SIZE));
-            /// means not found
-            if (offset == 0) {
+        const auto pattern = fill_with_pi8(blank);
+        while (end - begin + 1 >= INT_WORD_SIZE) {
+            const auto v_haystack = load_si(str.data + end + 1 - INT_WORD_SIZE);
+            const auto v_against_pattern = eq_for_epi8(v_haystack, pattern);
+            int offset = __builtin_clz(bitwise_not(movemask_epi8(
+                    v_against_pattern))); // count leading zeros will get original equal number
+
+            if (offset == 0) { // means not found
                 return StringRef(str.data + begin, end - begin + 1);
             } else {
                 end -= offset;
@@ -91,17 +86,16 @@ public:
         }
         auto begin = 0;
         auto end = str.size - 1;
-#if defined(__SSE2__) || defined(__aarch64__)
+#ifdef SIMD_AVAILABLE
         char blank = ' ';
-        const auto pattern = _mm_set1_epi8(blank);
-        while (end - begin + 1 >= REGISTER_SIZE) {
-            const auto v_haystack =
-                    _mm_loadu_si128(reinterpret_cast<const __m128i*>(str.data + begin));
-            const auto v_against_pattern = _mm_cmpeq_epi8(v_haystack, pattern);
-            const auto mask = _mm_movemask_epi8(v_against_pattern) ^ 0xffff;
+        const auto pattern = fill_with_pi8(blank);
+        while (end - begin + 1 >= INT_WORD_SIZE) {
+            const auto v_haystack = load_si(str.data + begin);
+            const auto v_against_pattern = eq_for_epi8(v_haystack, pattern);
+            const auto mask = bitwise_not(movemask_epi8(v_against_pattern));
             /// zero means not found
             if (mask == 0) {
-                begin += REGISTER_SIZE;
+                begin += INT_WORD_SIZE;
             } else {
                 const auto offset = __builtin_ctz(mask);
                 begin += offset;
