@@ -252,11 +252,17 @@ public class VariableMgr {
     public static void setVar(SessionVariable sessionVariable, SetVar setVar)
             throws DdlException {
         String varName = setVar.getVariable();
+        boolean hasExpPrefix = false;
         if (varName.startsWith(ExperimentalUtil.EXPERIMENTAL_PREFIX)) {
             varName = varName.substring(ExperimentalUtil.EXPERIMENTAL_PREFIX.length());
+            hasExpPrefix = true;
         }
         VarContext ctx = ctxByVarName.get(varName);
         if (ctx == null) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, setVar.getVariable());
+        }
+        // for non experimental variables, can not set it with "experimental_" prefix
+        if (hasExpPrefix && ctx.getField().getAnnotation(VarAttr.class).expType() == ExperimentalType.NONE) {
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, setVar.getVariable());
         }
         // Check variable attribute and setVar
