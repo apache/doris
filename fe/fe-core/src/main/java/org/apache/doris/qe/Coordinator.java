@@ -400,6 +400,7 @@ public class Coordinator {
         this.queryOptions = context.getSessionVariable().toThrift();
         this.queryOptions.setEnablePipelineEngine(VectorizedUtil.isPipeline());
         this.queryOptions.setBeExecVersion(Config.be_exec_version);
+        this.queryOptions.setQueryTimeout(context.getExecTimeout());
         this.queryOptions.setExecutionTimeout(context.getExecTimeout());
     }
 
@@ -461,6 +462,7 @@ public class Coordinator {
 
     public void setTimeout(int timeout) {
         this.queryOptions.setQueryTimeout(timeout);
+        this.queryOptions.setExecutionTimeout(timeout);
     }
 
     public void setLoadZeroTolerance(boolean loadZeroTolerance) {
