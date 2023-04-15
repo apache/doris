@@ -174,7 +174,6 @@ void do_dir_response(const std::string& dir_path, HttpRequest* req) {
 
     std::string result_str = result.str();
     HttpChannel::send_reply(req, result_str);
-    return;
 }
 
 } // namespace doris

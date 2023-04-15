@@ -30,6 +30,7 @@
 #include "olap/inverted_index_parser.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/common.h"
+#include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
 #include "olap/tablet_schema.h"
 
@@ -76,6 +77,9 @@ public:
     virtual Status try_query(OlapReaderStatistics* stats, const std::string& column_name,
                              const void* query_value, InvertedIndexQueryType query_type,
                              InvertedIndexParserType analyser_type, uint32_t* count) = 0;
+
+    Status read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle,
+                            lucene::store::Directory* dir = nullptr);
 
     virtual InvertedIndexReaderType type() = 0;
     bool indexExists(io::Path& index_file_path);
@@ -218,6 +222,11 @@ public:
                                     roaring::Roaring* bit_map, bool skip_try = false);
     Status try_read_from_inverted_index(const std::string& column_name, const void* query_value,
                                         InvertedIndexQueryType query_type, uint32_t* count);
+
+    Status read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle,
+                            lucene::store::Directory* dir = nullptr) {
+        return _reader->read_null_bitmap(cache_handle, dir);
+    }
 
     InvertedIndexParserType get_inverted_index_analyser_type() const;
 

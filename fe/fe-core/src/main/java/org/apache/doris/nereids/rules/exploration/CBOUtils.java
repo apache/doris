@@ -15,13 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.exploration.join;
+package org.apache.doris.nereids.rules.exploration;
 
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -35,8 +34,8 @@ import java.util.stream.Collectors;
 /**
  * Common
  */
-class JoinReorderUtils {
-    static boolean isAllSlotProject(LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project) {
+public class CBOUtils {
+    public static boolean isAllSlotProject(LogicalProject<? extends Plan> project) {
         return project.getProjects().stream().allMatch(expr -> expr instanceof Slot);
     }
 
@@ -44,7 +43,7 @@ class JoinReorderUtils {
      * Split project according to whether namedExpr contains by splitChildExprIds.
      * Notice: projects must all be Slot.
      */
-    static Map<Boolean, List<NamedExpression>> splitProject(List<NamedExpression> projects,
+    public static Map<Boolean, List<NamedExpression>> splitProject(List<NamedExpression> projects,
             Set<ExprId> splitChildExprIds) {
         return projects.stream()
                 .collect(Collectors.partitioningBy(expr -> {
@@ -102,6 +101,9 @@ class JoinReorderUtils {
         return new LogicalProject<>(projects, plan);
     }
 
+    /**
+     * Split topJoin Condition to two part according to include bExprIdSet.
+     */
     public static Map<Boolean, List<Expression>> splitConjuncts(List<Expression> topConjuncts,
             List<Expression> bottomConjuncts, Set<ExprId> bExprIdSet) {
         // top: (A B)(error) (A C) (B C) (A B C)

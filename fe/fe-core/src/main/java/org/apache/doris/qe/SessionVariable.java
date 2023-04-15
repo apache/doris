@@ -208,6 +208,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_NEW_COST_MODEL = "enable_new_cost_model";
     public static final String ENABLE_FALLBACK_TO_ORIGINAL_PLANNER = "enable_fallback_to_original_planner";
 
+    public static final String FORBID_UNKNOWN_COLUMN_STATS = "forbid_unknown_col_stats";
     public static final String BROADCAST_RIGHT_TABLE_SCALE_FACTOR = "broadcast_right_table_scale_factor";
     public static final String BROADCAST_ROW_COUNT_LIMIT = "broadcast_row_count_limit";
 
@@ -665,6 +666,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_FUNCTION_PUSHDOWN)
     public boolean enableFunctionPushdown = true;
+
+    @VariableMgr.VarAttr(name = FORBID_UNKNOWN_COLUMN_STATS)
+    public boolean forbidUnknownColStats = false;
 
     @VariableMgr.VarAttr(name = ENABLE_COMMON_EXPR_PUSHDOWN, fuzzy = true)
     public boolean enableCommonExprPushdown = true;
@@ -1353,6 +1357,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getEnableFunctionPushdown() {
         return this.enableFunctionPushdown;
+    }
+
+    public boolean getForbidUnknownColStats() {
+        return forbidUnknownColStats;
+    }
+
+    public void setForbidUnownColStats(boolean forbid) {
+        forbidUnknownColStats = forbid;
     }
 
     public boolean getEnableLocalExchange() {

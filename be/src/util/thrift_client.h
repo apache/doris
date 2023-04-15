@@ -41,7 +41,7 @@ class ThriftClientImpl {
 public:
     virtual ~ThriftClientImpl() { close(); }
     const std::string& ipaddress() { return _ipaddress; }
-    int port() { return _port; }
+    int port() const { return _port; }
 
     // Open the connection to the remote server. May be called
     // repeatedly, is idempotent unless there is a failure to connect.
@@ -69,7 +69,6 @@ protected:
               _port(port),
               _socket(new apache::thrift::transport::TSocket(ipaddress, port)) {}
 
-protected:
     std::string _ipaddress;
     int _port;
 
@@ -106,7 +105,7 @@ ThriftClient<InterfaceType>::ThriftClient(const std::string& ipaddress, int port
 template <class InterfaceType>
 ThriftClient<InterfaceType>::ThriftClient(const std::string& ipaddress, int port,
                                           ThriftServer::ServerType server_type)
-        : ThriftClientImpl(ipaddress, port), _iface(new InterfaceType(_protocol)) {
+        : ThriftClientImpl(ipaddress, port) {
     switch (server_type) {
     case ThriftServer::NON_BLOCKING:
         _transport.reset(new apache::thrift::transport::TFramedTransport(_socket));

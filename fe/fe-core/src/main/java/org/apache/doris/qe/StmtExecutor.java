@@ -790,6 +790,12 @@ public class StmtExecutor implements ProfileWriter {
         masterOpExecutor = new MasterOpExecutor(originStmt, context, redirectStatus, isQuery());
         LOG.debug("need to transfer to Master. stmt: {}", context.getStmtId());
         masterOpExecutor.execute();
+        if (parsedStmt instanceof SetStmt) {
+            SetStmt setStmt = (SetStmt) parsedStmt;
+            setStmt.modifySetVarsForExecute();
+            SetExecutor executor = new SetExecutor(context, setStmt);
+            executor.execute();
+        }
     }
 
     @Override

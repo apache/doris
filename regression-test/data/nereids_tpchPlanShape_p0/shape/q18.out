@@ -3,25 +3,23 @@
 PhysicalTopN
 --PhysicalDistribute
 ----PhysicalTopN
-------hashAgg[GLOBAL]
---------hashAgg[LOCAL]
-----------PhysicalProject
-------------hashJoin[INNER_JOIN](orders.o_orderkey = lineitem.l_orderkey)
+------hashAgg[LOCAL]
+--------PhysicalProject
+----------hashJoin[INNER_JOIN](orders.o_orderkey = lineitem.l_orderkey)
+------------PhysicalProject
+--------------PhysicalOlapScan[lineitem]
+------------PhysicalDistribute
 --------------PhysicalProject
-----------------PhysicalOlapScan[lineitem]
---------------PhysicalDistribute
-----------------PhysicalProject
-------------------hashJoin[INNER_JOIN](customer.c_custkey = orders.o_custkey)
---------------------PhysicalProject
-----------------------PhysicalOlapScan[customer]
---------------------PhysicalDistribute
-----------------------hashJoin[LEFT_SEMI_JOIN](orders.o_orderkey = lineitem.l_orderkey)
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[orders]
-------------------------PhysicalProject
---------------------------filter((sum(l_quantity) > 300.000000000))
-----------------------------hashAgg[GLOBAL]
-------------------------------hashAgg[LOCAL]
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[lineitem]
+----------------hashJoin[INNER_JOIN](customer.c_custkey = orders.o_custkey)
+------------------PhysicalProject
+--------------------PhysicalOlapScan[customer]
+------------------PhysicalDistribute
+--------------------hashJoin[LEFT_SEMI_JOIN](orders.o_orderkey = lineitem.l_orderkey)
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[orders]
+----------------------PhysicalProject
+------------------------filter((sum(l_quantity) > 300.000000000))
+--------------------------hashAgg[LOCAL]
+----------------------------PhysicalProject
+------------------------------PhysicalOlapScan[lineitem]
 

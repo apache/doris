@@ -19,7 +19,6 @@
 
 #include "common/signal_handler.h"
 #include "runtime/runtime_state.h"
-#include "util/doris_metrics.h"
 
 namespace doris {
 
@@ -28,15 +27,6 @@ DEFINE_STATIC_THREAD_LOCAL(ThreadContext, ThreadContextPtr, _ptr);
 ThreadContextPtr::ThreadContextPtr() {
     INIT_STATIC_THREAD_LOCAL(ThreadContext, _ptr);
     init = true;
-}
-
-ScopeMemCount::ScopeMemCount(int64_t* scope_mem) {
-    _scope_mem = scope_mem;
-    thread_context()->thread_mem_tracker_mgr->start_count_scope_mem();
-}
-
-ScopeMemCount::~ScopeMemCount() {
-    *_scope_mem += thread_context()->thread_mem_tracker_mgr->stop_count_scope_mem();
 }
 
 AttachTask::AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
@@ -57,16 +47,6 @@ AttachTask::~AttachTask() {
 #ifndef NDEBUG
     DorisMetrics::instance()->attach_task_thread_count->increment(1);
 #endif // NDEBUG
-}
-
-SwitchThreadMemTrackerLimiter::SwitchThreadMemTrackerLimiter(
-        const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
-    _old_mem_tracker = thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
-    thread_context()->thread_mem_tracker_mgr->attach_limiter_tracker(mem_tracker, TUniqueId());
-}
-
-SwitchThreadMemTrackerLimiter::~SwitchThreadMemTrackerLimiter() {
-    thread_context()->thread_mem_tracker_mgr->detach_limiter_tracker(_old_mem_tracker);
 }
 
 AddThreadMemTrackerConsumer::AddThreadMemTrackerConsumer(MemTracker* mem_tracker) {

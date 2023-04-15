@@ -44,6 +44,9 @@ public:
 
     virtual void update_statistics(PipelineTask* task, int64_t time_spent) {}
 
+    virtual void update_task_group(const taskgroup::TaskGroupInfo& task_group_info,
+                                   taskgroup::TaskGroupPtr& task_group) = 0;
+
     int cores() const { return _core_size; }
 
 protected:
@@ -126,6 +129,11 @@ public:
     // TODO pipeline update NormalWorkTaskQueue by time_spent.
     // void update_statistics(PipelineTask* task, int64_t time_spent) override;
 
+    void update_task_group(const taskgroup::TaskGroupInfo& task_group_info,
+                           taskgroup::TaskGroupPtr& task_group) override {
+        LOG(FATAL) << "update_task_group not implemented";
+    }
+
 private:
     PipelineTask* _steal_take(size_t core_id);
 
@@ -150,6 +158,9 @@ public:
     Status push_back(PipelineTask* task, size_t core_id) override;
 
     void update_statistics(PipelineTask* task, int64_t time_spent) override;
+
+    void update_task_group(const taskgroup::TaskGroupInfo& task_group_info,
+                           taskgroup::TaskGroupPtr& task_group) override;
 
 private:
     template <bool from_executor>

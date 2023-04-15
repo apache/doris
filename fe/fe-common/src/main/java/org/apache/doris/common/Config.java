@@ -1825,10 +1825,10 @@ public class Config extends ConfigBase {
     public static int statistic_task_scheduler_execution_interval_ms = 1000;
 
     /*
-     * mtmv scheduler framework is still under dev, remove this config when it is graduate.
+     * mtmv is still under dev, remove this config when it is graduate.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_mtmv_scheduler_framework = false;
+    public static boolean enable_mtmv = false;
 
     /* Max running task num at the same time, otherwise the submitted task will still be keep in pending poll*/
     @ConfField(mutable = true, masterOnly = true)
@@ -2104,5 +2104,14 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static long lock_reporting_threshold_ms = 500L;
+
+    /**
+     * If false, when select from tables in information_schema database,
+     * the result will not contain the information of the table in external catalog.
+     * This is to avoid query time when external catalog is not reachable.
+     * TODO: this is a temp solution, we should support external catalog in the future.
+     */
+    @ConfField(mutable = true)
+    public static boolean infodb_support_ext_catalog = false;
 }
 
