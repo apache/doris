@@ -17,6 +17,10 @@
 
 package org.apache.doris.catalog;
 
+import java.io.File;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.UUID;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.common.AnalysisException;
@@ -27,16 +31,10 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.UtFrameUtils;
-
 import org.junit.AfterClass;
-import org.junit.Assert;
 import org.junit.BeforeClass;
-import org.junit.Test;
 
-import java.io.File;
-import java.util.HashSet;
-import java.util.Set;
-import java.util.UUID;
+
 
 public class CreateTableTest {
     private static String runningDir = "fe/mocked/CreateTableTest2/" + UUID.randomUUID().toString() + "/";
@@ -571,14 +569,18 @@ public class CreateTableTest {
                         + " 'data_sort.sort_type' = 'lexical');"));
 
         // create z-order sort table, default col_num
-        ExceptionChecker.expectThrowsNoException(() -> createTable(
+        ExceptionChecker.
+        .expectThrowsWithMsg(AnalysisException.class, "only support lexical method!",
+                ()  -> createTable(
                 "create table test.zorder_tbl2\n" + "(k1 varchar(40), k2 int, k3 int)\n" + "duplicate key(k1, k2, k3)\n"
                         + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
                         + "distributed by hash(k1) buckets 1\n" + "properties('replication_num' = '1',"
                         + " 'data_sort.sort_type' = 'zorder');"));
 
         // create z-order sort table, define sort_col_num
-        ExceptionChecker.expectThrowsNoException(() -> createTable(
+        ExceptionChecker
+        .expectThrowsWithMsg(AnalysisException.class, "only support lexical method!",
+                ()  -> createTable(
                 "create table test.zorder_tbl3\n" + "(k1 varchar(40), k2 int, k3 int)\n" + "duplicate key(k1, k2, k3)\n"
                         + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
                         + "distributed by hash(k1) buckets 1\n" + "properties('replication_num' = '1',"
@@ -586,7 +588,7 @@ public class CreateTableTest {
                         + " 'data_sort.col_num' = '2');"));
         // create z-order sort table, only 1 sort column
         ExceptionChecker
-                .expectThrowsWithMsg(AnalysisException.class, "z-order needs 2 columns at least, 3 columns at most",
+                .expectThrowsWithMsg(AnalysisException.class, "only support lexical method!",
                         () -> createTable("create table test.zorder_tbl4\n" + "(k1 varchar(40), k2 int, k3 int)\n" + "duplicate key(k1, k2, k3)\n"
                                 + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
                                 + "distributed by hash(k1) buckets 1\n" + "properties('replication_num' = '1',"
@@ -594,7 +596,7 @@ public class CreateTableTest {
                                 + " 'data_sort.col_num' = '1');"));
         // create z-order sort table, sort column is empty
         ExceptionChecker
-                .expectThrowsWithMsg(AnalysisException.class, "param data_sort.col_num error",
+                .expectThrowsWithMsg(AnalysisException.class, "only support lexical method!",
                         () -> createTable("create table test.zorder_tbl4\n" + "(k1 varchar(40), k2 int, k3 int)\n" + "duplicate key(k1, k2, k3)\n"
                                 + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
                                 + "distributed by hash(k1) buckets 1\n" + "properties('replication_num' = '1',"

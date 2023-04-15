@@ -17,6 +17,12 @@
 
 package org.apache.doris.common.util;
 
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.catalog.Column;
@@ -42,17 +48,7 @@ import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletType;
 
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
 
 public class PropertyAnalyzer {
 
@@ -756,18 +752,10 @@ public class PropertyAnalyzer {
             sortMethod = properties.remove(DataSortInfo.DATA_SORT_TYPE);
         }
         TSortType sortType = TSortType.LEXICAL;
-        if (sortMethod.equalsIgnoreCase(TSortType.ZORDER.name())) {
-            sortType = TSortType.ZORDER;
-        } else if (sortMethod.equalsIgnoreCase(TSortType.LEXICAL.name())) {
+        if (sortMethod.equalsIgnoreCase(TSortType.LEXICAL.name())) {
             sortType = TSortType.LEXICAL;
         } else {
-            throw new AnalysisException("only support zorder/lexical method!");
-        }
-        if (keyType != KeysType.DUP_KEYS && sortType == TSortType.ZORDER) {
-            throw new AnalysisException("only duplicate key supports zorder method!");
-        }
-        if (storageFormat != TStorageFormat.V2 && sortType == TSortType.ZORDER) {
-            throw new AnalysisException("only V2 storage format supports zorder method!");
+            throw new AnalysisException("only support lexical method!");
         }
 
         int colNum = keyCount;
@@ -777,9 +765,6 @@ public class PropertyAnalyzer {
             } catch (Exception e) {
                 throw new AnalysisException("param " + DataSortInfo.DATA_SORT_COL_NUM + " error");
             }
-        }
-        if (sortType == TSortType.ZORDER && (colNum <= 1 || colNum > keyCount)) {
-            throw new AnalysisException("z-order needs 2 columns at least, " + keyCount + " columns at most!");
         }
         DataSortInfo dataSortInfo = new DataSortInfo(sortType, colNum);
         return dataSortInfo;
