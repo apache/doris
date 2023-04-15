@@ -185,7 +185,8 @@
                 "advanced/cold_hot_separation",
                 "advanced/compute_node",
                 "advanced/hight-concurrent-point-query",
-                "advanced/nereids"
+                "advanced/nereids",
+                "advanced/lateral-view"
             ]
         },
         {
@@ -912,6 +913,7 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-DATABASE",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-MATERIALIZED-VIEW",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-LOAD",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-REPOSITORY",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-ROUTINE-LOAD",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-FUNCTION",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-COLUMNS",

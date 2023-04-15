@@ -98,8 +98,10 @@ public class JdbcClient {
             dataSource.setUsername(jdbcUser);
             dataSource.setPassword(password);
             dataSource.setMinIdle(1);
-            dataSource.setInitialSize(2);
-            dataSource.setMaxActive(5);
+            dataSource.setInitialSize(1);
+            dataSource.setMaxActive(100);
+            dataSource.setTimeBetweenEvictionRunsMillis(600000);
+            dataSource.setMinEvictableIdleTimeMillis(300000);
             // set connection timeout to 5s.
             // The default is 30s, which is too long.
             // Because when querying information_schema db, BE will call thrift rpc(default timeout is 30s)
@@ -262,6 +264,7 @@ public class JdbcClient {
         String[] types = {"TABLE", "VIEW"};
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
+            String catalogName = conn.getCatalog();
             switch (dbType) {
                 case JdbcResource.MYSQL:
                     rs = databaseMetaData.getTables(dbName, null, null, types);
@@ -271,8 +274,10 @@ public class JdbcClient {
                 case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
                 case JdbcResource.SAP_HANA:
-                case JdbcResource.TRINO:
                     rs = databaseMetaData.getTables(null, dbName, null, types);
+                    break;
+                case JdbcResource.TRINO:
+                    rs = databaseMetaData.getTables(catalogName, dbName, null, types);
                     break;
                 default:
                     throw new JdbcClientException("Unknown database type");
@@ -299,6 +304,7 @@ public class JdbcClient {
         String[] types = {"TABLE", "VIEW"};
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
+            String catalogName = conn.getCatalog();
             switch (dbType) {
                 case JdbcResource.MYSQL:
                     rs = databaseMetaData.getTables(dbName, null, tableName, types);
@@ -308,8 +314,10 @@ public class JdbcClient {
                 case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
                 case JdbcResource.SAP_HANA:
-                case JdbcResource.TRINO:
                     rs = databaseMetaData.getTables(null, dbName, null, types);
+                    break;
+                case JdbcResource.TRINO:
+                    rs = databaseMetaData.getTables(catalogName, dbName, null, types);
                     break;
                 default:
                     throw new JdbcClientException("Unknown database type: " + dbType);
@@ -362,6 +370,7 @@ public class JdbcClient {
         }
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
+            String catalogName = conn.getCatalog();
             // getColumns(String catalog, String schemaPattern, String tableNamePattern, String columnNamePattern)
             // catalog - the catalog of this table, `null` means all catalogs
             // schema - The schema of the table; corresponding to tablespace in Oracle
@@ -380,8 +389,10 @@ public class JdbcClient {
                 case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
                 case JdbcResource.SAP_HANA:
-                case JdbcResource.TRINO:
                     rs = databaseMetaData.getColumns(null, dbName, tableName, null);
+                    break;
+                case JdbcResource.TRINO:
+                    rs = databaseMetaData.getColumns(catalogName, dbName, tableName, null);
                     break;
                 default:
                     throw new JdbcClientException("Unknown database type");

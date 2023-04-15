@@ -27,12 +27,12 @@
 #include "gen_cpp/Exprs_types.h"
 #include "runtime/descriptors.h"
 #include "runtime/query_statistics.h"
+#include "util/runtime_profile.h"
 #include "util/telemetry/telemetry.h"
 
 namespace doris {
 
 class ObjectPool;
-class RuntimeProfile;
 class RuntimeState;
 class TPlanFragmentExecParams;
 class RowDescriptor;

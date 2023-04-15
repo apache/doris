@@ -18,6 +18,7 @@
 #pragma once
 
 #include "io/fs/file_reader.h"
+#include "util/runtime_profile.h"
 #include "vec/core/block.h"
 
 namespace doris {

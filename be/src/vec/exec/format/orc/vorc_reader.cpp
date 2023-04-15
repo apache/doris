@@ -660,23 +660,36 @@ Status OrcReader::_decode_string_column(const std::string& col_name,
     string_values.reserve(num_values);
     if (type_kind == orc::TypeKind::CHAR) {
         // Possibly there are some zero padding characters in CHAR type, we have to strip them off.
-        for (int i = 0; i < num_values; ++i) {
-            if (cvb->notNull[i]) {
+        if (cvb->hasNulls) {
+            for (int i = 0; i < num_values; ++i) {
+                if (cvb->notNull[i]) {
+                    string_values.emplace_back(data->data[i],
+                                               trim_right(data->data[i], data->length[i]));
+                } else {
+                    // Orc doesn't fill null values in new batch, but the former batch has been release.
+                    // Other types like int/long/timestamp... are flat types without pointer in them,
+                    // so other types do not need to be handled separately like string.
+                    string_values.emplace_back(empty_string.data(), 0);
+                }
+            }
+        } else {
+            for (int i = 0; i < num_values; ++i) {
                 string_values.emplace_back(data->data[i],
                                            trim_right(data->data[i], data->length[i]));
-            } else {
-                // Orc doesn't fill null values in new batch, but the former batch has been release.
-                // Other types like int/long/timestamp... are flat types without pointer in them,
-                // so other types do not need to be handled separately like string.
-                string_values.emplace_back(empty_string.data(), 0);
             }
         }
     } else {
-        for (int i = 0; i < num_values; ++i) {
-            if (cvb->notNull[i]) {
+        if (cvb->hasNulls) {
+            for (int i = 0; i < num_values; ++i) {
+                if (cvb->notNull[i]) {
+                    string_values.emplace_back(data->data[i], data->length[i]);
+                } else {
+                    string_values.emplace_back(empty_string.data(), 0);
+                }
+            }
+        } else {
+            for (int i = 0; i < num_values; ++i) {
                 string_values.emplace_back(data->data[i], data->length[i]);
-            } else {
-                string_values.emplace_back(empty_string.data(), 0);
             }
         }
     }

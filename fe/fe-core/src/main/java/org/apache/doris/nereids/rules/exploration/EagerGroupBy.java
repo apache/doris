@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -57,59 +58,75 @@ import java.util.stream.Collectors;
  * After Eager Group By, new plan also can apply `Eager Count`.
  * It's `Double Eager`.
  */
-public class EagerGroupBy extends OneExplorationRuleFactory {
-    public static final EagerGroupBy INSTANCE = new EagerGroupBy();
-
+public class EagerGroupBy implements ExplorationRuleFactory {
     @Override
-    public Rule build() {
-        return logicalAggregate(innerLogicalJoin())
-                .when(agg -> agg.child().getOtherJoinConjuncts().size() == 0)
-                .when(agg -> agg.getAggregateFunctions().stream()
-                        .allMatch(f -> f instanceof Sum
-                                && ((Sum) f).child() instanceof SlotReference
-                                && agg.child().left().getOutputSet().contains((SlotReference) ((Sum) f).child())))
-                .then(agg -> {
-                    LogicalJoin<GroupPlan, GroupPlan> join = agg.child();
-                    List<Slot> leftOutput = join.left().getOutput();
-                    List<Sum> sums = agg.getAggregateFunctions().stream().map(Sum.class::cast)
-                            .collect(Collectors.toList());
+    public List<Rule> buildRules() {
+        return ImmutableList.of(
+                logicalAggregate(innerLogicalJoin())
+                        .when(agg -> agg.child().getOtherJoinConjuncts().size() == 0)
+                        .when(agg -> agg.getAggregateFunctions().stream()
+                                .allMatch(f -> f instanceof Sum
+                                        && ((Sum) f).child() instanceof SlotReference
+                                        && agg.child().left().getOutputSet()
+                                        .contains((SlotReference) ((Sum) f).child())))
+                        .then(agg -> eagerGroupBy(agg, agg.child(), ImmutableList.of()))
+                        .toRule(RuleType.EAGER_GROUP_BY),
+                logicalAggregate(logicalProject(innerLogicalJoin()))
+                        .when(agg -> CBOUtils.isAllSlotProject(agg.child()))
+                        .when(agg -> agg.child().child().getOtherJoinConjuncts().size() == 0)
+                        .when(agg -> agg.getGroupByExpressions().stream().allMatch(e -> e instanceof Slot))
+                        .when(agg -> agg.getAggregateFunctions().stream()
+                                .allMatch(f -> f instanceof Sum
+                                        && ((Sum) f).child() instanceof SlotReference
+                                        && agg.child().child().left().getOutputSet()
+                                        .contains((SlotReference) ((Sum) f).child())))
+                        .then(agg -> eagerGroupBy(agg, agg.child().child(), agg.child().getProjects()))
+                        .toRule(RuleType.EAGER_GROUP_BY)
+        );
+    }
 
-                    // eager group-by
-                    Set<Slot> sumAggGroupBy = new HashSet<>();
-                    agg.getGroupByExpressions().stream().map(e -> (Slot) e).filter(leftOutput::contains)
-                            .forEach(sumAggGroupBy::add);
-                    join.getHashJoinConjuncts().forEach(e -> e.getInputSlots().forEach(slot -> {
-                        if (leftOutput.contains(slot)) {
-                            sumAggGroupBy.add(slot);
-                        }
-                    }));
-                    List<NamedExpression> bottomSums = new ArrayList<>();
-                    for (int i = 0; i < sums.size(); i++) {
-                        bottomSums.add(new Alias(new Sum(sums.get(i).child()), "sum" + i));
-                    }
-                    List<NamedExpression> sumAggOutput = ImmutableList.<NamedExpression>builder()
-                            .addAll(sumAggGroupBy).addAll(bottomSums).build();
-                    LogicalAggregate<GroupPlan> sumAgg = new LogicalAggregate<>(
-                            ImmutableList.copyOf(sumAggGroupBy), sumAggOutput, join.left());
-                    Plan newJoin = join.withChildren(sumAgg, join.right());
+    private LogicalAggregate<Plan> eagerGroupBy(LogicalAggregate<? extends Plan> agg,
+            LogicalJoin<GroupPlan, GroupPlan> join, List<NamedExpression> projects) {
+        List<Slot> leftOutput = join.left().getOutput();
+        List<Sum> sums = agg.getAggregateFunctions().stream().map(Sum.class::cast)
+                .collect(Collectors.toList());
 
-                    List<NamedExpression> newOutputExprs = new ArrayList<>();
-                    List<Alias> sumOutputExprs = new ArrayList<>();
-                    for (NamedExpression ne : agg.getOutputExpressions()) {
-                        if (ne instanceof Alias && ((Alias) ne).child() instanceof Sum) {
-                            sumOutputExprs.add((Alias) ne);
-                        } else {
-                            newOutputExprs.add(ne);
-                        }
-                    }
-                    for (int i = 0; i < sumOutputExprs.size(); i++) {
-                        Alias oldSum = sumOutputExprs.get(i);
-                        // sum in bottom Agg
-                        Slot bottomSum = bottomSums.get(i).toSlot();
-                        Alias newSum = new Alias(oldSum.getExprId(), new Sum(bottomSum), oldSum.getName());
-                        newOutputExprs.add(newSum);
-                    }
-                    return agg.withAggOutputChild(newOutputExprs, newJoin);
-                }).toRule(RuleType.EAGER_GROUP_BY);
+        // eager group-by
+        Set<Slot> sumAggGroupBy = new HashSet<>();
+        agg.getGroupByExpressions().stream().map(e -> (Slot) e).filter(leftOutput::contains)
+                .forEach(sumAggGroupBy::add);
+        join.getHashJoinConjuncts().forEach(e -> e.getInputSlots().forEach(slot -> {
+            if (leftOutput.contains(slot)) {
+                sumAggGroupBy.add(slot);
+            }
+        }));
+        List<NamedExpression> bottomSums = new ArrayList<>();
+        for (int i = 0; i < sums.size(); i++) {
+            bottomSums.add(new Alias(new Sum(sums.get(i).child()), "sum" + i));
+        }
+        List<NamedExpression> sumAggOutput = ImmutableList.<NamedExpression>builder()
+                .addAll(sumAggGroupBy).addAll(bottomSums).build();
+        LogicalAggregate<GroupPlan> sumAgg = new LogicalAggregate<>(
+                ImmutableList.copyOf(sumAggGroupBy), sumAggOutput, join.left());
+        Plan newJoin = join.withChildren(sumAgg, join.right());
+
+        List<NamedExpression> newOutputExprs = new ArrayList<>();
+        List<Alias> sumOutputExprs = new ArrayList<>();
+        for (NamedExpression ne : agg.getOutputExpressions()) {
+            if (ne instanceof Alias && ((Alias) ne).child() instanceof Sum) {
+                sumOutputExprs.add((Alias) ne);
+            } else {
+                newOutputExprs.add(ne);
+            }
+        }
+        for (int i = 0; i < sumOutputExprs.size(); i++) {
+            Alias oldSum = sumOutputExprs.get(i);
+            // sum in bottom Agg
+            Slot bottomSum = bottomSums.get(i).toSlot();
+            Alias newSum = new Alias(oldSum.getExprId(), new Sum(bottomSum), oldSum.getName());
+            newOutputExprs.add(newSum);
+        }
+        Plan child = PlanUtils.projectOrSelf(projects, newJoin);
+        return agg.withAggOutputChild(newOutputExprs, child);
     }
 }

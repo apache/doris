@@ -33,6 +33,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.parquet.Strings;
 
+import java.util.Collections;
 import java.util.List;
 
 public class Histogram {
@@ -44,13 +45,18 @@ public class Histogram {
 
     public final List<Bucket> buckets;
 
-    public Histogram(Type dataType, double sampleRate, List<Bucket> buckets) {
+    public final int numBuckets;
+
+    public Histogram(Type dataType, double sampleRate, int numBuckets, List<Bucket> buckets) {
         this.dataType = dataType;
         this.sampleRate = sampleRate;
+        this.numBuckets = numBuckets;
         this.buckets = buckets;
     }
 
-
+    public static Histogram UNKNOWN = new HistogramBuilder().setDataType(Type.NULL)
+            .setSampleRate(0).setNumBuckets(0).setBuckets(Collections.emptyList())
+            .build();
 
     // TODO: use thrift
     public static Histogram fromResultRow(ResultRow resultRow) {
@@ -151,11 +157,19 @@ public class Histogram {
         histogramJson.addProperty("sample_rate", histogram.sampleRate);
         histogramJson.addProperty("num_buckets", histogram.buckets.size());
 
-        JsonArray bucketsJsonArray = new JsonArray();
-        histogram.buckets.stream().map(Bucket::serializeToJsonObj).forEach(bucketsJsonArray::add);
-        histogramJson.add("buckets", bucketsJsonArray);
+        JsonArray bucketsJson = getBucketsJson(histogram.buckets);
+        histogramJson.add("buckets", bucketsJson);
 
         return histogramJson.toString();
+    }
+
+    public static JsonArray getBucketsJson(List<Bucket> buckets) {
+        if (buckets == null) {
+            return null;
+        }
+        JsonArray bucketsJsonArray = new JsonArray();
+        buckets.stream().map(Bucket::serializeToJsonObj).forEach(bucketsJsonArray::add);
+        return bucketsJsonArray;
     }
 
     public double size() {
@@ -163,6 +177,6 @@ public class Histogram {
             return 0;
         }
         Bucket lastBucket = buckets.get(buckets.size() - 1);
-        return lastBucket.getPreSum() + lastBucket.getCount();
+        return lastBucket.preSum + lastBucket.count;
     }
 }
