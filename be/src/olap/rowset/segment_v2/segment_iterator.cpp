@@ -721,8 +721,7 @@ bool SegmentIterator::_column_has_fulltext_index(int32_t unique_id) {
 }
 
 inline bool SegmentIterator::_inverted_index_not_support_pred_type(const PredicateType& type) {
-    return type == PredicateType::IS_NULL || type == PredicateType::IS_NOT_NULL ||
-           type == PredicateType::BF || type == PredicateType::BITMAP_FILTER;
+    return type == PredicateType::BF || type == PredicateType::BITMAP_FILTER;
 }
 
 #define all_predicates_are_range_predicate(predicate_set)   \
