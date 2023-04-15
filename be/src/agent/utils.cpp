@@ -32,7 +32,6 @@
 using std::map;
 using std::string;
 using std::stringstream;
-using apache::thrift::TException;
 using apache::thrift::transport::TTransportException;
 
 namespace doris {
@@ -80,7 +79,7 @@ Status MasterServerClient::finish_task(const TFinishTaskRequest& request, TMaste
             }
             client->finishTask(*result, request);
         }
-    } catch (TException& e) {
+    } catch (std::exception& e) {
         client.reopen(config::thrift_rpc_timeout_ms);
         LOG(WARNING) << "fail to finish_task. "
                      << "host=" << _master_info.network_address.hostname
@@ -130,7 +129,7 @@ Status MasterServerClient::report(const TReportRequest& request, TMasterResult* 
                 return Status::InternalError("Fail to report to master");
             }
         }
-    } catch (TException& e) {
+    } catch (std::exception& e) {
         client.reopen(config::thrift_rpc_timeout_ms);
         LOG(WARNING) << "fail to report to master. "
                      << "host=" << _master_info.network_address.hostname
@@ -181,7 +180,7 @@ Status MasterServerClient::confirm_unused_remote_files(
                         client_status.code(), e.what());
             }
         }
-    } catch (TException& e) {
+    } catch (std::exception& e) {
         client.reopen(config::thrift_rpc_timeout_ms);
         return Status::InternalError(
                 "fail to confirm unused remote files. host={}, port={}, code={}, reason={}",
