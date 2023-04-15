@@ -63,18 +63,18 @@ public class AdminSetConfigStmtTest extends TestWithFeService {
     @Test
     public void testExperimentalConfig() throws Exception {
         // 1. set without experimental
-        boolean enableSsl = Config.enable_ssl;
-        String stmt = "admin set frontend config('enable_ssl' = '" + String.valueOf(!enableSsl) + "');";
+        boolean enableMtmv = Config.enable_mtmv;
+        String stmt = "admin set frontend config('enable_mtmv' = '" + String.valueOf(!enableMtmv) + "');";
         AdminSetConfigStmt adminSetConfigStmt = (AdminSetConfigStmt) parseAndAnalyzeStmt(stmt);
         Env.getCurrentEnv().setConfig(adminSetConfigStmt);
-        Assert.assertNotEquals(enableSsl, Config.enable_ssl);
+        Assert.assertNotEquals(enableMtmv, Config.enable_mtmv);
 
         // 2. set with experimental
-        enableSsl = Config.enable_ssl;
-        stmt = "admin set frontend config('experimental_enable_ssl' = '" + String.valueOf(!enableSsl) + "');";
+        enableMtmv = Config.enable_mtmv;
+        stmt = "admin set frontend config('experimental_enable_mtmv' = '" + String.valueOf(!enableMtmv) + "');";
         adminSetConfigStmt = (AdminSetConfigStmt) parseAndAnalyzeStmt(stmt);
         Env.getCurrentEnv().setConfig(adminSetConfigStmt);
-        Assert.assertNotEquals(enableSsl, Config.enable_ssl);
+        Assert.assertNotEquals(enableMtmv, Config.enable_mtmv);
 
         // 3. show config
         int num = ConfigBase.getConfigNumByExperimentalType(ExperimentalType.EXPERIMENTAL);
@@ -84,3 +84,4 @@ public class AdminSetConfigStmtTest extends TestWithFeService {
         Assert.assertEquals(num, results.size());
     }
 }
+
