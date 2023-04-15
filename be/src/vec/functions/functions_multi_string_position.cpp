@@ -19,6 +19,7 @@
 // and modified by Doris
 
 #include <cstdint>
+#include <iterator>
 
 #include "function.h"
 #include "function_helpers.h"
@@ -106,20 +107,9 @@ public:
 };
 
 struct FunctionMultiSearchAllPositionsImpl {
-private:
-    using SingleSearcher = ASCIICaseSensitiveStringSearcher;
-    static SingleSearcher create_multi_searcher(const StringRef& needle) {
-        return SingleSearcher {needle.data, needle.size};
-    }
-
-    template <typename T>
-    static size_t count_chars(const T* begin, const T* end) {
-        return reinterpret_cast<const char*>(end) - reinterpret_cast<const char*>(begin);
-    }
-
 public:
     using ResultType = Int32;
-
+    using SingleSearcher = ASCIICaseSensitiveStringSearcher;
     static constexpr auto name = "multi_search_all_positions";
 
     static Status vector_constant(const ColumnString::Chars& haystack_data,
@@ -133,21 +123,15 @@ public:
                     name, needles_arr.size());
         }
 
-        std::vector<StringRef> needles;
-        needles.reserve(needles_arr.size());
-        for (const auto& needle : needles_arr) {
-            needles.emplace_back(needle.get<StringRef>());
-        }
-
-        const size_t needles_size = needles.size();
+        const size_t needles_size = needles_arr.size();
         std::vector<SingleSearcher> searchers;
         searchers.reserve(needles_size);
-        for (auto needle : needles) {
-            searchers.emplace_back(needle.data, needle.size);
+        for (const auto& needle : needles_arr) {
+            searchers.emplace_back(needle.get<StringRef>().data, needle.get<StringRef>().size);
         }
 
         const size_t haystack_size = haystack_offsets.size();
-        vec_res.resize(haystack_size * needles.size());
+        vec_res.resize(haystack_size * needles_size);
         offsets_res.resize(haystack_size);
 
         std::fill(vec_res.begin(), vec_res.end(), 0);
@@ -165,10 +149,9 @@ public:
                 const auto* haystack_end =
                         haystack - prev_haystack_offset + haystack_offsets[haystack_index];
 
-                auto ans_now = searcher.search(haystack, haystack_end) - haystack;
+                auto ans_now = searcher.search(haystack, haystack_end);
                 vec_res[res_index] =
-                        ans_now >= count_chars(haystack, haystack_end) ? 0 : ans_now + 1;
-
+                        ans_now >= haystack_end ? 0 : std::distance(haystack, ans_now) + 1;
                 prev_haystack_offset = haystack_offsets[haystack_index];
             }
         }
@@ -241,9 +224,9 @@ public:
                 //  is i.e. answer slot index in one Vector(row) of answer
                 auto& searcher = searchers[ans_slot_in_row];
 
-                auto ans_now = searcher.search(haystack, haystack_end) - haystack;
+                auto ans_now = searcher.search(haystack, haystack_end);
                 vec_res[ans_row_begin + ans_slot_in_row] =
-                        ans_now >= count_chars(haystack, haystack_end) ? 0 : ans_now + 1;
+                        ans_now >= haystack_end ? 0 : std::distance(haystack, ans_now) + 1;
             }
 
             prev_haystack_offset = haystack_offsets[haystack_index];
