@@ -2001,7 +2001,7 @@ public class Config extends ConfigBase {
      * When enable_fqdn_mode is true, the name of the pod where be is located will remain unchanged
      * after reconstruction, while the ip can be changed.
      */
-    @ConfField(mutable = false, masterOnly = true)
+    @ConfField(mutable = false, masterOnly = true, expType = ExperimentalType.EXPERIMENTAL)
     public static boolean enable_fqdn_mode = false;
 
     /**
@@ -2038,7 +2038,7 @@ public class Config extends ConfigBase {
     /**
      * If set to ture, doris will establish an encrypted channel based on the SSL protocol with mysql.
      */
-    @ConfField(mutable = false, masterOnly = false)
+    @ConfField(mutable = false, masterOnly = false, expType = ExperimentalType.EXPERIMENTAL)
     public static boolean enable_ssl = true;
 
     /**
