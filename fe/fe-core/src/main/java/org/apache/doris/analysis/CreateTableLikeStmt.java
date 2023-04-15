@@ -72,14 +72,6 @@ public class CreateTableLikeStmt extends DdlStmt {
         return tableName.getTbl();
     }
 
-    public TableName getDbTbl() {
-        return tableName;
-    }
-
-    public TableName getExistedTable() {
-        return existedTableName;
-    }
-
     public String getExistedDbName() {
         return existedTableName.getDb();
     }

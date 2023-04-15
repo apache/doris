@@ -187,13 +187,9 @@ public class StmtExecutor implements ProfileWriter {
     private static final AtomicLong STMT_ID_GENERATOR = new AtomicLong(0);
     private static final int MAX_DATA_TO_SEND_FOR_TXN = 100;
     private static final String NULL_VALUE_FOR_LOAD = "\\N";
-    // The result schema if "dry_run_query" is true.
-    // Only one column to indicate the real return row numbers.
-    private static final CommonResultSetMetaData DRY_RUN_QUERY_METADATA = new CommonResultSetMetaData(
-            Lists.newArrayList(new Column("ReturnedRows", PrimitiveType.STRING)));
     private final Object writeProfileLock = new Object();
-    private final StatementContext statementContext;
     private ConnectContext context;
+    private final StatementContext statementContext;
     private MysqlSerializer serializer;
     private OriginStatement originStmt;
     private StatementBase parsedStmt;
@@ -217,6 +213,11 @@ public class StmtExecutor implements ProfileWriter {
     private String mysqlLoadId;
     // Distinguish from prepare and execute command
     private boolean isExecuteStmt = false;
+
+    // The result schema if "dry_run_query" is true.
+    // Only one column to indicate the real return row numbers.
+    private static final CommonResultSetMetaData DRY_RUN_QUERY_METADATA = new CommonResultSetMetaData(
+            Lists.newArrayList(new Column("ReturnedRows", PrimitiveType.STRING)));
 
     // this constructor is mainly for proxy
     public StmtExecutor(ConnectContext context, OriginStatement originStmt, boolean isProxy) {
@@ -418,7 +419,7 @@ public class StmtExecutor implements ProfileWriter {
      *      isValuesOrConstantSelect: when this interface return true, original string is truncated at 1024
      *
      * @return parsed and analyzed statement for Stale planner.
-     *         an unresolved LogicalPlan wrapped with a LogicalPlanAdapter for Nereids.
+     * an unresolved LogicalPlan wrapped with a LogicalPlanAdapter for Nereids.
      */
     public StatementBase getParsedStmt() {
         return parsedStmt;
@@ -567,7 +568,7 @@ public class StmtExecutor implements ProfileWriter {
         int retryTime = Config.max_query_retry_time;
         for (int i = 0; i < retryTime; i++) {
             try {
-                // reset query id for each retry
+                //reset query id for each retry
                 if (i > 0) {
                     UUID uuid = UUID.randomUUID();
                     TUniqueId newQueryId = new TUniqueId(uuid.getMostSignificantBits(),
@@ -1833,10 +1834,10 @@ public class StmtExecutor implements ProfileWriter {
     private void handlePrepareStmt() throws Exception {
         // register prepareStmt
         LOG.debug("add prepared statement {}, isBinaryProtocol {}",
-                prepareStmt.getName(), prepareStmt.isBinaryProtocol());
+                        prepareStmt.getName(), prepareStmt.isBinaryProtocol());
         context.addPreparedStmt(prepareStmt.getName(),
                 new PrepareStmtContext(prepareStmt,
-                        context, planner, analyzer, prepareStmt.getName()));
+                            context, planner, analyzer, prepareStmt.getName()));
         if (prepareStmt.isBinaryProtocol()) {
             sendStmtPrepareOK();
         }
@@ -1901,7 +1902,7 @@ public class StmtExecutor implements ProfileWriter {
         context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         if (numParams > 0) {
             sendFields(prepareStmt.getColLabelsOfPlaceHolders(),
-                    exprToType(prepareStmt.getSlotRefOfPlaceHolders()));
+                        exprToType(prepareStmt.getSlotRefOfPlaceHolders()));
         }
         context.getState().setOk();
     }
