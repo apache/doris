@@ -624,6 +624,8 @@ void TaskWorkerPool::_alter_tablet_worker_thread_callback() {
                                   }) == 0) {
                     // indicates the last canceled task
                     _cancel_set.erase(it);
+                    LOG(INFO) << "all tasks with batch id:" << agent_task_req.batch_id
+                              << " have been canceled successfully";
                 }
                 continue;
             }
