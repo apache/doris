@@ -70,8 +70,8 @@ download() {
     echo "Begin to download ${MODULE} from \"${LINK}\" to \"${DIR}/\" ..."
     total_size=$(curl -sI "${LINK}" | grep -i Content-Length | awk '{print $2}' | tr -d '\r')
     echo "Total size: ${total_size} Bytes"
-    echo "curl -# ${LINK} | tar xz -C ${DIR}/"
-    curl -# "${LINK}" | tar xz -C "${DIR}/"
+    echo "curl -# ${LINK} | tar xJ -C ${DIR}/"
+    curl -# "${LINK}" | tar xJ -C "${DIR}/"
 }
 
 download "FE" "${FE_LINK}" "${DOWNLOAD_DIR}"
