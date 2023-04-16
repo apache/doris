@@ -17,6 +17,8 @@
 
 package org.apache.doris.udf;
 
+import org.apache.doris.jni.vec.ColumnType;
+import org.apache.doris.jni.vec.VectorTable;
 import org.apache.doris.thrift.TJdbcExecutorCtorParams;
 import org.apache.doris.thrift.TJdbcOperation;
 import org.apache.doris.thrift.TOdbcTableType;
@@ -130,6 +132,22 @@ public class JdbcExecutor {
         } catch (SQLException e) {
             throw new UdfRuntimeException("JDBC executor sql has error: ", e);
         }
+    }
+
+    public int write(Map<String, String> params) {
+        String[] requiredFields = params.get("required_fields").split(",");
+        String[] types = params.get("columns_types").split("#");
+        long metaAddress = Long.parseLong(params.get("meta_address"));
+        // Get sql string from configuration map
+        // String sql = params.get("write_sql");
+        ColumnType[] columnTypes = new ColumnType[types.length];
+        for (int i = 0; i < types.length; i++) {
+            columnTypes[i] = ColumnType.parseType(requiredFields[i], types[i]);
+        }
+        VectorTable batchTable = new VectorTable(columnTypes, requiredFields, metaAddress);
+        // todo: insert the batch table by PreparedStatement
+        // Can't release or close batchTable, it's released by c++
+        return batchTable.getNumRows();
     }
 
     public List<String> getResultColumnTypeNames() {
