@@ -46,7 +46,7 @@ fi
 
 # Check download dir
 if [[ -f "${DOWNLOAD_DIR}" || -d "${DOWNLOAD_DIR}" ]]; then
-    read -p "Download dir ${DOWNLOAD_DIR} already exists. Overwrite? [y/n] " resp
+    read -r -p "Download dir ${DOWNLOAD_DIR} already exists. Overwrite? [y/n] " resp
     if [[ "${resp}" = "y" || "${resp}" = "Y" ]]; then
         rm -rf "${DOWNLOAD_DIR}"
         echo "Origin ${DOWNLOAD_DIR} has been removed and created a new one".
@@ -70,6 +70,7 @@ download() {
     echo "Begin to download ${MODULE} from \"${LINK}\" to \"${DIR}/\" ..."
     total_size=$(curl -sI "${LINK}" | grep -i Content-Length | awk '{print $2}' | tr -d '\r')
     echo "Total size: ${total_size} Bytes"
+    echo "curl -# ${LINK} | tar xz -C ${DIR}/"
     curl -# "${LINK}" | tar xz -C "${DIR}/"
 }
 
