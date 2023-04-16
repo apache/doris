@@ -22,8 +22,6 @@
 #include <glog/logging.h>
 #include <string.h>
 
-#include <algorithm>
-#include <cstddef>
 #include <new>
 #include <ostream>
 #include <utility>

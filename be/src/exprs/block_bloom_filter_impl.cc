@@ -25,14 +25,15 @@
 #include <stdint.h>
 
 #include <algorithm>
-#include <climits>
-#include <cmath>
+#include <climits> // IWYU pragma: keep
+#include <cmath>   // IWYU pragma: keep
 #include <cstdlib>
 #include <cstring>
 #include <string>
 
 #include "common/status.h"
 #include "exprs/block_bloom_filter.hpp"
+// IWYU pragma: no_include <emmintrin.h>
 #include "util/sse_util.hpp"
 
 namespace doris {

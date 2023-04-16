@@ -25,7 +25,6 @@
 #include <opentelemetry/common/threadlocal.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
-#include <algorithm>
 #include <map>
 #include <sstream>
 #include <typeinfo>

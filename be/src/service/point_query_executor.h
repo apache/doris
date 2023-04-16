@@ -26,6 +26,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include <algorithm>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -59,6 +60,7 @@ class PTabletKeyLookupResponse;
 class RuntimeState;
 class TDescriptorTable;
 class TExpr;
+
 namespace vectorized {
 class VExprContext;
 } // namespace vectorized

@@ -25,7 +25,8 @@
 #include <stddef.h>
 
 #include <algorithm>
-#include <chrono>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
 #include <map>
 #include <memory>
 #include <mutex>

@@ -18,13 +18,11 @@
 
 #include <arrow/buffer.h>
 #include <arrow/record_batch.h>
-#include <arrow/status.h>
-#include <arrow/type_fwd.h>
 #include <opentelemetry/common/threadlocal.h>
-#include <time.h>
 
 #include <algorithm>
-#include <chrono>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
 #include <ostream>
 #include <utility>
 

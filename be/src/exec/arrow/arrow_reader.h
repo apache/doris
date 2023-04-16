@@ -65,6 +65,7 @@ class RuntimeState;
 class SlotDescriptor;
 class FileReader;
 class TupleDescriptor;
+
 namespace vectorized {
 class Block;
 } // namespace vectorized

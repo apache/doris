@@ -29,10 +29,8 @@
 #include <s2/s2polyline.h>
 #include <s2/util/coding/coder.h>
 #include <s2/util/units/length-units.h>
-#include <stdio.h>
 #include <string.h>
-
-#include <algorithm>
+// IWYU pragma: no_include <bits/std_abs.h>
 #include <cmath>
 #include <iomanip>
 #include <sstream>

@@ -22,7 +22,7 @@
 #include <rapidjson/encodings.h>
 #include <rapidjson/rapidjson.h>
 #include <re2/re2.h>
-#include <simdjson/simdjson.h>
+#include <simdjson/simdjson.h> // IWYU pragma: keep
 #include <stdlib.h>
 
 #include <boost/iterator/iterator_facade.hpp>

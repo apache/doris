@@ -26,7 +26,6 @@
 #include <parallel_hashmap/phmap.h>
 #include <stddef.h>
 
-#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <iterator>
 #include <map>

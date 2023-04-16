@@ -31,6 +31,7 @@ namespace doris {
 class DorisNodesInfo;
 class RuntimeState;
 class TupleDescriptor;
+
 namespace vectorized {
 class ColumnString;
 class MutableBlock;

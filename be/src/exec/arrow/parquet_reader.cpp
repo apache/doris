@@ -29,7 +29,8 @@
 
 #include <algorithm>
 #include <atomic>
-#include <chrono>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
 #include <condition_variable>
 #include <list>
 #include <map>

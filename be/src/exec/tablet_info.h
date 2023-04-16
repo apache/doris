@@ -46,6 +46,7 @@ class TExprNode;
 class TabletColumn;
 class TabletIndex;
 class TupleDescriptor;
+
 namespace vectorized {
 class VExprContext;
 } // namespace vectorized

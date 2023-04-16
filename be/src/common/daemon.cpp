@@ -19,6 +19,7 @@
 
 #include <bthread/errno.h>
 #include <gflags/gflags.h>
+// IWYU pragma: no_include <bits/std_abs.h>
 #include <math.h>
 #include <signal.h>
 #include <stdint.h>
@@ -26,7 +27,8 @@
 #include <string.h>
 
 #include <algorithm>
-#include <chrono>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
 #include <map>
 #include <memory>
 #include <ostream>

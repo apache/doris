@@ -17,7 +17,8 @@
 
 #include "http/action/compaction_action.h"
 
-#include <chrono>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
 #include <exception>
 #include <future>
 #include <memory>

@@ -17,7 +17,6 @@
 
 #include "exec/olap_common.h"
 
-#include <algorithm>
 #include <utility>
 #include <vector>
 

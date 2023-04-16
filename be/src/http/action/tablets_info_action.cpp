@@ -26,7 +26,7 @@
 #include <string>
 #include <vector>
 
-#include "gutil/stringprintf.h"
+#include "gutil/strings/numbers.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"

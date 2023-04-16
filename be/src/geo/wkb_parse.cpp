@@ -17,8 +17,6 @@
 
 #include "wkb_parse.h"
 
-#include <string.h>
-
 #include <array>
 #include <cstddef>
 #include <istream>

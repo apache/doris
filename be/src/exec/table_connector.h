@@ -37,6 +37,7 @@
 namespace doris {
 class RuntimeState;
 class TupleDescriptor;
+
 namespace vectorized {
 class Block;
 class VExprContext;

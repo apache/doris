@@ -30,6 +30,7 @@
 
 #include "common/status.h"
 #include "gutil/stringprintf.h"
+#include "gutil/strings/numbers.h"
 #include "http/http_handler.h"
 #include "olap/data_dir.h"
 #include "olap/tablet.h"

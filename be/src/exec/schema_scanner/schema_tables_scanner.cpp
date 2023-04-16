@@ -21,7 +21,6 @@
 #include <gen_cpp/FrontendService_types.h>
 #include <stdint.h>
 
-#include <algorithm>
 #include <string>
 
 #include "common/status.h"
@@ -35,6 +34,7 @@
 
 namespace doris {
 class RuntimeState;
+
 namespace vectorized {
 class Block;
 } // namespace vectorized

@@ -29,6 +29,7 @@
 
 namespace doris {
 class RuntimeState;
+
 namespace vectorized {
 class Block;
 } // namespace vectorized

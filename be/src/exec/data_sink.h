@@ -24,7 +24,7 @@
 #include <gen_cpp/Exprs_types.h>
 #include <opentelemetry/trace/span.h>
 #include <stddef.h>
-
+// IWYU pragma: no_include <opentelemetry/nostd/shared_ptr.h>
 #include <memory>
 #include <string>
 #include <vector>

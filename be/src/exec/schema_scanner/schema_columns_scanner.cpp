@@ -22,7 +22,6 @@
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/Types_types.h>
 
-#include <algorithm>
 #include <cstdint>
 
 #include "exec/schema_scanner/schema_helper.h"
@@ -32,6 +31,7 @@
 
 namespace doris {
 class RuntimeState;
+
 namespace vectorized {
 class Block;
 } // namespace vectorized
