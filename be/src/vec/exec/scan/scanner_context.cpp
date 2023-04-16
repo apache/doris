@@ -272,7 +272,6 @@ void ScannerContext::clear_and_join(VScanNode* node, RuntimeState* state) {
     _close_and_clear_scanners(node, state);
 
     _blocks_queue.clear();
-    _free_blocks.clear();
 }
 
 bool ScannerContext::no_schedule() {
