@@ -1011,7 +1011,7 @@ Status VOlapTableSink::open(RuntimeState* state) {
     state->exec_env()->sinker_thread_pool()->submit_func([this, state] {
         Defer defer {[&]() { this->_sender_thread_promise.set_value(true); }};
         this->_send_batch_process(state);
-    });        
+    });
     _sender_thread_created = true;
 
     return Status::OK();
