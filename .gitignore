@@ -26,7 +26,6 @@ package-lock.json
 **/build/
 **/target/
 **/node_modules/
-**/dist/
 **/log/
 
 # ignore project file
