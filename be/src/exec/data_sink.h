@@ -22,7 +22,6 @@
 
 #include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/Exprs_types.h>
-#include <opentelemetry/nostd/shared_ptr.h>
 #include <opentelemetry/trace/span.h>
 #include <stddef.h>
 

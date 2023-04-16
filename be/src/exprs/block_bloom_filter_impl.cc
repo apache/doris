@@ -20,19 +20,20 @@
 // and modified by Doris
 
 #include <butil/iobuf.h>
-#include <emmintrin.h>
 #include <fmt/format.h>
 #include <glog/logging.h>
-#include <mm_malloc.h>
 #include <stdint.h>
 
 #include <algorithm>
+#include <climits>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <string>
 
 #include "common/status.h"
 #include "exprs/block_bloom_filter.hpp"
+#include "util/sse_util.hpp"
 
 namespace doris {
 
