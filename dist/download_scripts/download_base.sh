@@ -86,4 +86,3 @@ mv "${DOWNLOAD_DIR}/${DEPS}/java-udf-jar-with-dependencies.jar" "${DOWNLOAD_DIR}
 
 echo "Download complete!"
 echo "You can now deploy Apache Doris from ${DOWNLOAD_DIR}/"
-
