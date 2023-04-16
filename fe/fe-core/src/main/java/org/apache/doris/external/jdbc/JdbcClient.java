@@ -586,6 +586,7 @@ public class JdbcClient {
             case "varbit":
             case "jsonb":
             case "uuid":
+            case "bytea":
                 return ScalarType.createStringType();
             default:
                 return Type.UNSUPPORTED;

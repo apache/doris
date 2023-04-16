@@ -1164,6 +1164,49 @@ public class JdbcExecutor {
         UdfUtils.copyMemory(bytes, UdfUtils.BYTE_ARRAY_OFFSET, null, bytesAddr, offsets[numRows - 1]);
     }
 
+    private void byteaPutToHexString(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+            long offsetsAddr, long charsAddr) {
+        int[] offsets = new int[numRows];
+        byte[][] byteRes = new byte[numRows][];
+        int offset = 0;
+        if (isNullable) {
+            for (int i = 0; i < numRows; i++) {
+                if (column[i] == null) {
+                    byteRes[i] = emptyBytes;
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+                } else {
+                    byteRes[i] = byteArrayToHexString((byte[]) column[i]).getBytes(StandardCharsets.UTF_8);
+                }
+                offset += byteRes[i].length;
+                offsets[i] = offset;
+            }
+        } else {
+            for (int i = 0; i < numRows; i++) {
+                byteRes[i] = byteArrayToHexString((byte[]) column[i]).getBytes(StandardCharsets.UTF_8);
+                offset += byteRes[i].length;
+                offsets[i] = offset;
+            }
+        }
+        byte[] bytes = new byte[offsets[numRows - 1]];
+        long bytesAddr = JNINativeMethod.resizeStringColumn(charsAddr, offsets[numRows - 1]);
+        int dst = 0;
+        for (int i = 0; i < numRows; i++) {
+            for (int j = 0; j < byteRes[i].length; j++) {
+                bytes[dst++] = byteRes[i][j];
+            }
+        }
+        UdfUtils.copyMemory(offsets, UdfUtils.INT_ARRAY_OFFSET, null, offsetsAddr, numRows * 4L);
+        UdfUtils.copyMemory(bytes, UdfUtils.BYTE_ARRAY_OFFSET, null, bytesAddr, offsets[numRows - 1]);
+    }
+
+    private static String byteArrayToHexString(byte[] bytes) {
+        StringBuilder hexString = new StringBuilder("\\x");
+        for (byte b : bytes) {
+            hexString.append(String.format("%02x", b & 0xff));
+        }
+        return hexString.toString();
+    }
+
     public void copyBatchStringResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long offsetsAddr, long charsAddr) {
         Object[] column = (Object[]) columnObj;
@@ -1176,6 +1219,9 @@ public class JdbcExecutor {
         }
         if (column[firstNotNullIndex] instanceof String) {
             stringPutToString(column, isNullable, numRows, nullMapAddr, offsetsAddr, charsAddr);
+        } else if (column[firstNotNullIndex] instanceof byte[]) {
+            // for postgresql bytea type
+            byteaPutToHexString(column, isNullable, numRows, nullMapAddr, offsetsAddr, charsAddr);
         } else {
             // object like in pg type point, polygon, jsonb..... get object is
             // org.postgresql.util.PGobject.....
