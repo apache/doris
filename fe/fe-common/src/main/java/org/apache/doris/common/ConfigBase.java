@@ -17,6 +17,8 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.common.ExperimentalUtil.ExperimentalType;
+
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -46,10 +48,14 @@ public class ConfigBase {
 
     @Retention(RetentionPolicy.RUNTIME)
     public @interface ConfField {
-        String value() default "";
         boolean mutable() default false;
+
         boolean masterOnly() default false;
+
         String comment() default "";
+
+        ExperimentalType expType() default ExperimentalType.NONE;
+
         Class<? extends ConfHandler> callback() default DefaultConfHandler.class;
     }
 
@@ -87,7 +93,11 @@ public class ConfigBase {
                 if (confField == null) {
                     continue;
                 }
-                confFields.put(confField.value().equals("") ? field.getName() : confField.value(), field);
+                confFields.put(field.getName(), field);
+                if (confField.expType() == ExperimentalType.EXPERIMENTAL
+                        || confField.expType() == ExperimentalType.EXPERIMENTAL_ONLINE) {
+                    confFields.put(ExperimentalUtil.EXPERIMENTAL_PREFIX + field.getName(), field);
+                }
             }
 
             initConf(confFile);
@@ -100,7 +110,11 @@ public class ConfigBase {
                 if (confField == null) {
                     continue;
                 }
-                ldapConfFields.put(confField.value().equals("") ? field.getName() : confField.value(), field);
+                ldapConfFields.put(field.getName(), field);
+                if (confField.expType() == ExperimentalType.EXPERIMENTAL
+                        || confField.expType() == ExperimentalType.EXPERIMENTAL_ONLINE) {
+                    ldapConfFields.put(ExperimentalUtil.EXPERIMENTAL_PREFIX + field.getName(), field);
+                }
             }
             initConf(ldapConfFile);
         }
@@ -129,7 +143,7 @@ public class ConfigBase {
         for (Field f : fields) {
             ConfField anno = f.getAnnotation(ConfField.class);
             if (anno != null) {
-                map.put(anno.value().isEmpty() ? f.getName() : anno.value(), getConfValue(f));
+                map.put(f.getName(), getConfValue(f));
             }
         }
         return map;
@@ -199,8 +213,9 @@ public class ConfigBase {
             }
 
             // ensure that field has property string
-            String confKey = anno.value().equals("") ? f.getName() : anno.value();
-            String confVal = props.getProperty(confKey);
+            String confKey = f.getName();
+            String confVal = props.getProperty(confKey,
+                    props.getProperty(ExperimentalUtil.EXPERIMENTAL_PREFIX + confKey));
             if (Strings.isNullOrEmpty(confVal)) {
                 continue;
             }
@@ -214,7 +229,7 @@ public class ConfigBase {
         }
     }
 
-    public static void setConfigField(Field f, String confVal) throws Exception {
+    private static void setConfigField(Field f, String confVal) throws Exception {
         confVal = confVal.trim();
 
         String[] sa = confVal.split(",");
@@ -320,22 +335,49 @@ public class ConfigBase {
         LOG.info("set config {} to {}", key, value);
     }
 
+    /**
+     * Get display name of experimental configs.
+     * For an experimental config, the given "configsToFilter" contains both config w/o "experimental_" prefix.
+     * We need to return the right display name for these configs, by following rules:
+     * 1. If this config is EXPERIMENTAL, only return the config with "experimental_" prefix.
+     * 2. If this config is not EXPERIMENTAL, only return the config without "experimental_" prefix.
+     *
+     * @param configsToFilter
+     * @param allConfigs
+     */
+    private static void getDisplayConfigInfo(Map<String, Field> configsToFilter, Map<String, Field> allConfigs) {
+        for (Map.Entry<String, Field> e : configsToFilter.entrySet()) {
+            Field f = e.getValue();
+            ConfField confField = f.getAnnotation(ConfField.class);
+            boolean isExperimental = e.getKey().startsWith(ExperimentalUtil.EXPERIMENTAL_PREFIX);
+
+            if (isExperimental && confField.expType() != ExperimentalType.EXPERIMENTAL) {
+                continue;
+            }
+            if (!isExperimental && confField.expType() == ExperimentalType.EXPERIMENTAL) {
+                continue;
+            }
+            allConfigs.put(e.getKey(), f);
+        }
+    }
+
     public static synchronized List<List<String>> getConfigInfo(PatternMatcher matcher) {
         Map<String, Field> allConfFields = Maps.newHashMap();
-        allConfFields.putAll(confFields);
-        allConfFields.putAll(ldapConfFields);
+        getDisplayConfigInfo(confFields, allConfFields);
+        getDisplayConfigInfo(ldapConfFields, allConfFields);
+
         return allConfFields.entrySet().stream().sorted(Map.Entry.comparingByKey()).flatMap(e -> {
             String confKey = e.getKey();
             Field f = e.getValue();
-            ConfField anno = f.getAnnotation(ConfField.class);
+            ConfField confField = f.getAnnotation(ConfField.class);
             if (matcher == null || matcher.match(confKey)) {
                 List<String> config = Lists.newArrayList();
                 config.add(confKey);
                 config.add(getConfValue(f));
                 config.add(f.getType().getSimpleName());
-                config.add(String.valueOf(anno.mutable()));
-                config.add(String.valueOf(anno.masterOnly()));
-                config.add(anno.comment());
+                config.add(String.valueOf(confField.mutable()));
+                config.add(String.valueOf(confField.masterOnly()));
+                config.add(confField.comment());
                 return Stream.of(config);
             } else {
                 return Stream.empty();
@@ -378,5 +420,19 @@ public class ConfigBase {
                     + "You can modify this file manually, and the configurations in this file\n"
                     + "will overwrite the configurations in fe.conf");
         }
+    }
+
+    public static int getConfigNumByExperimentalType(ExperimentalType type) {
+        int num = 0;
+        for (Field field : Config.class.getFields()) {
+            ConfField confField = field.getAnnotation(ConfField.class);
+            if (confField == null) {
+                continue;
+            }
+            if (confField.expType() == type) {
+                ++num;
+            }
+        }
+        return num;
     }
 }
