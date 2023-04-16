@@ -1323,11 +1323,13 @@ public class Env {
 
         // MUST set master ip before starting checkpoint thread.
         // because checkpoint thread need this info to select non-master FE to push image
+
         this.masterInfo = new MasterInfo(Env.getCurrentEnv().getSelfNode().getIp(),
                 Env.getCurrentEnv().getSelfNode().getHostName(),
                 Config.http_port,
                 Config.rpc_port);
         editLog.logMasterInfo(masterInfo);
+        LOG.info("logMasterInfo:{}", masterInfo);
 
         this.resourceGroupMgr.init();
 
@@ -3674,6 +3676,7 @@ public class Env {
 
     public void setMaster(MasterInfo info) {
         this.masterInfo = info;
+        LOG.info("setMaster MasterInfo:{}", info);
     }
 
     public boolean canRead() {
