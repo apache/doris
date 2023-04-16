@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -15,20 +16,21 @@
 # specific language governing permissions and limitations
 # under the License.
 
-This directory is used to organize the list of third-party dependent licenses required by the binary release.
+set -eo pipefail
 
-1. `LICENSE-dist.txt`
+FE="apache-doris-fe-1.2.3-bin-x86_64"
+BE="apache-doris-be-1.2.3-bin-x86_64-noavx2"
+DEPS="apache-doris-dependencies-1.2.3-bin-x86_64"
+DOWNLOAD_LINK_PREFIX="https://dlcdn.apache.org/doris/1.2/1.2.3-rc02/"
+DOWNLOAD_DIR="apache-doris-1.2.3-bin"
 
-    This file holds a list of all the licenses for third-party dependencies
+# Check and download download_base.sh
+DOWNLOAD_BASE_SCRIPTS="download_base.sh"
 
-2. `licenses/`
+if [[ ! -f "${DOWNLOAD_BASE_SCRIPTS}" ]]; then
+    curl -O https://raw.githubusercontent.com/apache/doris/master/dist/download_scripts/download_base.sh &&
+        chmod a+x "${DOWNLOAD_BASE_SCRIPTS}"
+fi
 
-    This directory holds the license files related to third-party dependencies.
-
-2. `tools/`
-
-    This directory stores tools related to license organization.
-
-3. `download_scripts/`
-
-    This directory stores scripts for downloading release binaries.
+# Begin to download
+./"${DOWNLOAD_BASE_SCRIPTS}" "${FE}" "${BE}" "${DEPS}" "${DOWNLOAD_LINK_PREFIX}" "${DOWNLOAD_DIR}"
