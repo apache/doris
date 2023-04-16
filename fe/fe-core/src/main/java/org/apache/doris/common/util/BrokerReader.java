@@ -126,7 +126,7 @@ public class BrokerReader {
         } catch (TException e) {
             LOG.warn("Broker close reader failed. fd={}, address={}", fd.toString(), address, e);
         }
-        if (tOperationStatus == null || tOperationStatus.getStatusCode() != TBrokerOperationStatusCode.OK) {
+        if (tOperationStatus.getStatusCode() != TBrokerOperationStatusCode.OK) {
             LOG.warn("Broker close reader failed. fd={}, address={}, error={}", fd.toString(), address,
                     tOperationStatus.getMessage());
         }
