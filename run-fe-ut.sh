@@ -33,9 +33,11 @@ Usage: $0 <options>
      --run                build and run ut
 
   Eg.
-    $0                      build and run ut
-    $0 --coverage           build and run coverage statistic
-    $0 --run xxx            build and run the specified class
+    $0                                                                      build and run ut
+    $0 --coverage                                                           build and run coverage statistic
+    $0 --run org.apache.doris.utframe.Demo                                  build and run the test named Demo
+    $0 --run org.apache.doris.utframe.Demo#testCreateDbAndTable+test2       build and run testCreateDbAndTable in Demo test
+    $0 --run org.apache.doris.Demo,org.apache.doris.Demo2                   build and run Demo and Demo2 test
   "
     exit 1
 }
@@ -112,9 +114,9 @@ else
         # eg:
         # sh run-fe-ut.sh --run org.apache.doris.utframe.Demo
         # sh run-fe-ut.sh --run org.apache.doris.utframe.Demo#testCreateDbAndTable+test2
-        "${MVN_CMD}" test -DfailIfNoTests=false -D test="$1"
+        "${MVN_CMD}" test -Dcheckstyle.skip=true -DfailIfNoTests=false -D test="$1"
     else
         echo "Run Frontend UT"
-        "${MVN_CMD}" test -DfailIfNoTests=false
+        "${MVN_CMD}" test -Dcheckstyle.skip=true -DfailIfNoTests=false
     fi
 fi

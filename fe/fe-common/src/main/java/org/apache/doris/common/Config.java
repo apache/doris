@@ -17,6 +17,8 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.common.ExperimentalUtil.ExperimentalType;
+
 public class Config extends ConfigBase {
 
     /**
@@ -1827,7 +1829,7 @@ public class Config extends ConfigBase {
     /*
      * mtmv is still under dev, remove this config when it is graduate.
      */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, expType = ExperimentalType.EXPERIMENTAL)
     public static boolean enable_mtmv = false;
 
     /* Max running task num at the same time, otherwise the submitted task will still be keep in pending poll*/
@@ -1999,7 +2001,7 @@ public class Config extends ConfigBase {
      * When enable_fqdn_mode is true, the name of the pod where be is located will remain unchanged
      * after reconstruction, while the ip can be changed.
      */
-    @ConfField(mutable = false, masterOnly = true)
+    @ConfField(mutable = false, masterOnly = true, expType = ExperimentalType.EXPERIMENTAL)
     public static boolean enable_fqdn_mode = false;
 
     /**
@@ -2036,7 +2038,7 @@ public class Config extends ConfigBase {
     /**
      * If set to ture, doris will establish an encrypted channel based on the SSL protocol with mysql.
      */
-    @ConfField(mutable = false, masterOnly = false)
+    @ConfField(mutable = false, masterOnly = false, expType = ExperimentalType.EXPERIMENTAL)
     public static boolean enable_ssl = true;
 
     /**
