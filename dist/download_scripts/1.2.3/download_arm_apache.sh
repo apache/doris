@@ -18,8 +18,6 @@
 
 set -eo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
-
 FE="apache-doris-fe-1.2.3-bin-arm"
 BE="apache-doris-be-1.2.3-bin-arm"
 DEPS="apache-doris-dependencies-1.2.3-bin-arm"
@@ -29,11 +27,10 @@ DOWNLOAD_DIR="apache-doris-1.2.3-bin"
 # Check and download download_base.sh
 DOWNLOAD_BASE_SCRIPTS="download_base.sh"
 
-if [ ! -f "${DOWNLOAD_BASE_SCRIPTS}" ]; then
-   curl -O https://raw.githubusercontent.com/apache/doris/master/dist/download_scripts/download_base.sh \
-        && chmod a+x ${DOWNLOAD_BASE_SCRIPTS}
+if [[ ! -f "${DOWNLOAD_BASE_SCRIPTS}" ]]; then
+    curl -O https://raw.githubusercontent.com/apache/doris/master/dist/download_scripts/download_base.sh &&
+        chmod a+x "${DOWNLOAD_BASE_SCRIPTS}"
 fi
 
 # Begin to download
-./${DOWNLOAD_BASE_SCRIPTS} "${FE}" "${BE}" "${DEPS}" "${DOWNLOAD_LINK_PREFIX}" "${DOWNLOAD_DIR}"
-
+./"${DOWNLOAD_BASE_SCRIPTS}" "${FE}" "${BE}" "${DEPS}" "${DOWNLOAD_LINK_PREFIX}" "${DOWNLOAD_DIR}"

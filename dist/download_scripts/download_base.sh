@@ -27,12 +27,9 @@
 #       apache-doris-dependencies-1.2.3-bin-x86_64                          \
 #       https://mirrors.tuna.tsinghua.edu.cn/apache/doris/1.2/1.2.3-rc02/   \
 #       apache-doris-1.2.3-bin
- 
 ###############################################################################
 
 set -eo pipefail
-
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
 FE="$1"
 BE="$2"
@@ -42,17 +39,15 @@ DOWNLOAD_DIR="$5"
 FILE_SUFFIX=".tar.xz"
 
 # Check if curl cmd exists
-which curl > /dev/null 2>&1
-if [ $? -ne 0 ]; then
+if [[ ! $(which curl >/dev/null 2>&1) ]]; then
     echo "curl command not found on the system"
     exit 1
 fi
 
 # Check download dir
-if [ -f "${DOWNLOAD_DIR}" -o -d "${DOWNLOAD_DIR}" ]; then
+if [[ -f "${DOWNLOAD_DIR}" || -d "${DOWNLOAD_DIR}" ]]; then
     read -p "Download dir ${DOWNLOAD_DIR} already exists. Overwrite? [y/n] " resp
-    if [ "${resp}" = "y" -o "${resp}" = "Y" ]
-    then
+    if [[ "${resp}" = "y" || "${resp}" = "Y" ]]; then
         rm -rf "${DOWNLOAD_DIR}"
         echo "Origin ${DOWNLOAD_DIR} has been removed and created a new one".
     else
@@ -74,13 +69,13 @@ download() {
     DIR="$3"
     echo "Begin to download ${MODULE} from \"${LINK}\" to \"${DIR}/\" ..."
     total_size=$(curl -sI "${LINK}" | grep -i Content-Length | awk '{print $2}' | tr -d '\r')
-    echo "Total size: ${total_size}"
+    echo "Total size: ${total_size} Bytes"
     curl -# "${LINK}" | tar xz -C "${DIR}/"
 }
 
-download "FE" ${FE_LINK} ${DOWNLOAD_DIR}
-download "BE" ${BE_LINK} ${DOWNLOAD_DIR}
-download "DEPS" ${DEPS_LINK} ${DOWNLOAD_DIR}
+download "FE" "${FE_LINK}" "${DOWNLOAD_DIR}"
+download "BE" "${BE_LINK}" "${DOWNLOAD_DIR}"
+download "DEPS" "${DEPS_LINK}" "${DOWNLOAD_DIR}"
 
 # Assemble
 echo "Begin to assemble the binaries ..."
