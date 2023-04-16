@@ -16,23 +16,33 @@
 // under the License.
 #include "exec/arrow/parquet_reader.h"
 
-#include <arrow/array.h>
+#include <arrow/record_batch.h>
+#include <arrow/result.h>
 #include <arrow/status.h>
-#include <arrow/type_fwd.h>
-#include <time.h>
+#include <arrow/type.h>
+#include <opentelemetry/common/threadlocal.h>
+#include <parquet/exception.h>
+#include <parquet/file_reader.h>
+#include <parquet/metadata.h>
+#include <parquet/properties.h>
+#include <parquet/schema.h>
 
 #include <algorithm>
-#include <cinttypes>
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <list>
+#include <map>
 #include <mutex>
+#include <ostream>
 #include <thread>
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "runtime/descriptors.h"
 #include "util/string_util.h"
-#include "vec/common/string_ref.h"
 
 namespace doris {
+class TupleDescriptor;
 
 // Broker
 ParquetReaderWrap::ParquetReaderWrap(RuntimeState* state,

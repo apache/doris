@@ -17,19 +17,27 @@
 
 #include "geo/geo_types.h"
 
+#include <absl/strings/str_format.h>
+#include <glog/logging.h>
+#include <s2/s1angle.h>
 #include <s2/s2cap.h>
-#include <s2/s2cell.h>
 #include <s2/s2earth.h>
 #include <s2/s2latlng.h>
+#include <s2/s2loop.h>
+#include <s2/s2point.h>
 #include <s2/s2polygon.h>
 #include <s2/s2polyline.h>
 #include <s2/util/coding/coder.h>
 #include <s2/util/units/length-units.h>
 #include <stdio.h>
+#include <string.h>
 
+#include <algorithm>
+#include <cmath>
 #include <iomanip>
 #include <sstream>
-#include <type_traits>
+#include <utility>
+#include <vector>
 
 #include "geo/geo_tobinary.h"
 #include "geo/wkb_parse.h"

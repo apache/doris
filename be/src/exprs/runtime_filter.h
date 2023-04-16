@@ -17,12 +17,31 @@
 
 #pragma once
 
+#include <fmt/format.h>
+#include <gen_cpp/Exprs_types.h>
+#include <stdint.h>
+
+#include <atomic>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
+#include "runtime/datetime_value.h"
+#include "runtime/decimalv2_value.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/large_int_value.h"
+#include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
+#include "runtime/types.h"
 #include "util/lock.h"
 #include "util/runtime_profile.h"
 #include "util/time.h"
 #include "util/uid_util.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace butil {
 class IOBufAsZeroCopyInputStream;
@@ -42,6 +61,8 @@ class HashJoinNode;
 class RuntimeProfile;
 class BloomFilterFuncBase;
 class BitmapFilterFuncBase;
+class TNetworkAddress;
+class TQueryOptions;
 
 namespace vectorized {
 class VExpr;
@@ -339,6 +360,7 @@ protected:
     std::vector<doris::vectorized::VExpr*> _push_down_vexprs;
 
     struct rpc_context;
+
     std::shared_ptr<rpc_context> _rpc_context;
 
     // parent profile

@@ -15,6 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#pragma once
+
+#include <stddef.h>
+
 #include <memory>
 
 #include "geo/geo_common.h"

@@ -24,7 +24,9 @@
 
 #include <iomanip>
 #include <locale>
+#include <memory>
 #include <sstream>
+#include <string>
 #include <string_view>
 
 #include "gutil/strings/numbers.h"

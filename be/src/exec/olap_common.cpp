@@ -17,10 +17,7 @@
 
 #include "exec/olap_common.h"
 
-#include <boost/lexical_cast.hpp>
-#include <set>
-#include <sstream>
-#include <string>
+#include <algorithm>
 #include <utility>
 #include <vector>
 
