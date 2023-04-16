@@ -212,6 +212,12 @@ public class ConnectProcessor {
         packetBuf.getInt();
         LOG.debug("execute prepared statement {}", stmtId);
         PrepareStmtContext prepareCtx = ctx.getPreparedStmt(String.valueOf(stmtId));
+        if (prepareCtx == null) {
+            LOG.debug("No such statement in context, stmtId:{}", stmtId);
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR,
+                    "msg: Not supported such prepared statement");
+            return;
+        }
         int paramCount = prepareCtx.stmt.getParmCount();
         // null bitmap
         byte[] nullbitmapData = new byte[(paramCount + 7) / 8];
