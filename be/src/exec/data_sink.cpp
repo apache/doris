@@ -34,6 +34,7 @@
 #include "vec/sink/vdata_stream_sender.h"
 #include "vec/sink/vjdbc_table_sink.h"
 #include "vec/sink/vmemory_scratch_sink.h"
+#include "vec/sink/vmysql_table_sink.h"
 #include "vec/sink/vodbc_table_sink.h"
 #include "vec/sink/vresult_file_sink.h"
 #include "vec/sink/vresult_sink.h"
