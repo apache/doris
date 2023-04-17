@@ -42,6 +42,8 @@ under the License.
 
 `GET /rest/v2/manager/query/profile/fragments/{query_id}`
 
+`GET /rest/v2/manager/query/profile/instances/{query_id}/{fragment_id}`
+
 `GET /rest/v2/manager/query/current_queries`
 
 `GET /rest/v2/manager/query/kill/{query_id}`
@@ -354,6 +356,92 @@ Admin 和 Root 用户可以查看所有 Query。普通用户仅能查看自己�
                 "instance_id": {
                     "d7c93d9275334c35-9e6ac5f295a7134d": "7.83ms"
                 }
+            }
+        ],
+        "count": 0
+    }
+    ```
+
+## 获取指定查询fragment对应的instance信息
+
+`GET /rest/v2/manager/query/profile/instances/{query_id}/{fragment_id}`
+
+### Description
+
+用于获取指定query id和fragment id的instance信息，包括instance id、主机IP及端口和执行时长。
+
+### Path parameters
+
+* `query_id`
+
+  query id。
+
+* `fragment_id`
+
+  fragment id。
+
+### Query parameters
+
+* `is_all_node`
+
+  可选，若为 true 则在所有fe节点中查询指定query id和fragment id的信息，若为 false 则在当前连接的fe节点中查询指定query id和fragment id的信息。默认为true。
+
+### Response
+
+```
+{
+    "msg": "success",
+    "code": 0,
+    "data": [
+        {
+            "instance_id": "",
+            "host": "",
+            "active_time": ""
+        }
+    ],
+    "count": 0
+}
+```
+
+<version since="1.2">
+
+Admin 和 Root 用户可以查看所有 Query。普通用户仅能查看自己发送的 Query。若指定 query id或fragment id 不存在或无权限，则返回 Bad Request：
+
+```
+{
+    "msg": "Bad Request", 
+    "code": 403, 
+    "data": "error messages",
+    "count": 0
+}
+```
+
+</version>
+
+### Examples
+
+    ```
+    GET /rest/v2/manager/query/profile/instances/20875ce5ea264f88-af482f388d31bf54/1
+    
+    Response:
+    {
+        "msg": "success",
+        "code": 0,
+        "data": [
+            {
+                "instance_id": "20875ce5ea264f88-af482f388d31bf57",
+                "host": "172.19.0.3:9060",
+                "active_time": "21.947ms"
+            },
+            {
+                "instance_id": "20875ce5ea264f88-af482f388d31bf56",
+                "host": "172.19.0.4:9060",
+                "active_time": "18.838ms"
+            },
+            {
+                "instance_id": "20875ce5ea264f88-af482f388d31bf55",
+                "host": "172.19.0.5:9060",
+                "active_time": "14.828ms"
             }
         ],
         "count": 0
