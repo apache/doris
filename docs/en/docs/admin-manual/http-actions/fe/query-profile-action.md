@@ -42,6 +42,8 @@ under the License.
 
 `GET /rest/v2/manager/query/profile/fragments/{query_id}`
 
+`GET /rest/v2/manager/query/profile/instances/{query_id}/{fragment_id}`
+
 `GET /rest/v2/manager/query/current_queries`
 
 `GET /rest/v2/manager/query/kill/{query_id}`
@@ -359,6 +361,92 @@ Response:
     "count": 0
 }
 ```
+
+## Get the instances information of specified query fragment
+
+`GET /rest/v2/manager/query/profile/instances/{query_id}/{fragment_id}`
+
+### Description
+
+Get the instance id, host ip and port, execution time for the specified query id and fragment id.
+
+### Path parameters
+
+* `query_id`
+
+  The query id.
+
+* `fragment_id`
+
+  The fragment id.
+
+### Query parameters
+
+* `is_all_node`
+
+  Optional, if true then query for the specified query id and fragment id in all fe nodes, if false then query for the specified query id and fragment id in the currently connected fe nodes. The default is true.
+
+### Response
+
+```
+{
+    "msg": "success",
+    "code": 0,
+    "data": [
+        {
+            "instance_id": "",
+            "host": "",
+            "active_time": ""
+        }
+    ],
+    "count": 0
+}
+```
+
+<version since="1.2">
+
+Admin and Root user can view all queries. Ordinary users can only view the Query sent by themselves. If the specified query id or fragment id does not exist or has no permission, it will return Bad Request:
+
+```
+{
+    "msg": "Bad Request", 
+    "code": 403, 
+    "data": "error messages",
+    "count": 0
+}
+```
+
+</version>
+
+### Examples
+
+    ```
+    GET /rest/v2/manager/query/profile/instances/20875ce5ea264f88-af482f388d31bf54/1
+    
+    Response:
+    {
+        "msg": "success",
+        "code": 0,
+        "data": [
+            {
+                "instance_id": "20875ce5ea264f88-af482f388d31bf57",
+                "host": "172.19.0.3:9060",
+                "active_time": "21.947ms"
+            },
+            {
+                "instance_id": "20875ce5ea264f88-af482f388d31bf56",
+                "host": "172.19.0.4:9060",
+                "active_time": "18.838ms"
+            },
+            {
+                "instance_id": "20875ce5ea264f88-af482f388d31bf55",
+                "host": "172.19.0.5:9060",
+                "active_time": "14.828ms"
+            }
+        ],
+        "count": 0
+    }
+    ```
 
 ## Get the specified query id tree profile information
 
