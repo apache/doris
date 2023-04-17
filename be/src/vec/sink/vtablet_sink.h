@@ -445,6 +445,9 @@ private:
     template <bool is_min>
     DecimalV2Value _get_decimalv2_min_or_max(const TypeDescriptor& type);
 
+    template <typename DecimalType, bool IsMin>
+    DecimalType _get_decimalv3_min_or_max(const TypeDescriptor& type);
+
     Status _validate_column(RuntimeState* state, const TypeDescriptor& type, bool is_nullable,
                             vectorized::ColumnPtr column, size_t slot_index, Bitmap* filter_bitmap,
                             bool* stop_processing, fmt::memory_buffer& error_prefix,
@@ -504,6 +507,13 @@ private:
 
     std::map<std::pair<int, int>, DecimalV2Value> _max_decimalv2_val;
     std::map<std::pair<int, int>, DecimalV2Value> _min_decimalv2_val;
+
+    std::map<int, int32_t> _max_decimal32_val;
+    std::map<int, int32_t> _min_decimal32_val;
+    std::map<int, int64_t> _max_decimal64_val;
+    std::map<int, int64_t> _min_decimal64_val;
+    std::map<int, int128_t> _max_decimal128_val;
+    std::map<int, int128_t> _min_decimal128_val;
 
     // Stats for this
     int64_t _validate_data_ns = 0;
