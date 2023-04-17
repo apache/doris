@@ -488,7 +488,7 @@ distribution_desc
     );
     ```
 
-7. 创建一个带有 bitmap 索引以及 bloom filter 索引的内存表
+7. 创建一个带有 bitmap 索引以及 bloom filter 索引的表
 
     ```sql
     CREATE TABLE example_db.table_hash
@@ -502,8 +502,7 @@ distribution_desc
     AGGREGATE KEY(k1, k2)
     DISTRIBUTED BY HASH(k1) BUCKETS 32
     PROPERTIES (
-        "bloom_filter_columns" = "k2",
-        "in_memory" = "true"
+        "bloom_filter_columns" = "k2"
     );
     ```
 
