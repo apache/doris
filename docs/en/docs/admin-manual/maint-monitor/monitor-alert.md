@@ -26,7 +26,7 @@ under the License.
 
 # Monitoring and alarming
 
-This document mainly introduces Doris's monitoring items and how to collect and display them. And how to configure alarm
+This document mainly introduces Doris's monitoring items and how to collect and display them. And how to configure alarm (TODO)
 
 [Dashboard template click download](https://grafana.com/api/dashboards/9734/revisions/5/download)
 
