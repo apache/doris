@@ -36,6 +36,8 @@ Status BloomFilter::create(BloomFilterAlgorithmPB algorithm, std::unique_ptr<Blo
         bf->reset(new BlockSplitBloomFilter());
     } else if (algorithm == NGRAM_BLOOM_FILTER) {
         bf->reset(new NGramBloomFilter(bf_size));
+    } else if (algorithm == TOKEN_BLOOM_FILTER) {
+        bf->reset(new TokenBloomFilter(bf_size));
     } else {
         return Status::InternalError("invalid bloom filter algorithm:{}", algorithm);
     }

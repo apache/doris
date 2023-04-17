@@ -75,9 +75,15 @@ public:
     void set_page_ng_bf(std::unique_ptr<segment_v2::BloomFilter> src) override {
         _page_ng_bf = std::move(src);
     }
+    void set_page_token_bf(std::unique_ptr<segment_v2::BloomFilter> src) override {
+        _page_token_bf = std::move(src);
+    }
     bool evaluate_and(const BloomFilter* bf) const override {
         if (_page_ng_bf) {
             return bf->contains(*_page_ng_bf);
+        }
+        if (_page_token_bf) {
+            return bf->contains(*_page_token_bf);
         }
         return true;
     }
@@ -167,6 +173,7 @@ private:
     // LikeColumnPredicate.
     vectorized::LikeSearchState _like_state;
     std::unique_ptr<segment_v2::BloomFilter> _page_ng_bf; // for ngram-bf index
+    std::unique_ptr<segment_v2::BloomFilter> _page_token_bf; // for ngram-bf index
 };
 
 } // namespace doris

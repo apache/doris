@@ -209,12 +209,13 @@ public class Index implements Writable {
         Set<String> bfColumns = new HashSet<>();
         for (Index index : indices) {
             if (IndexDef.IndexType.NGRAM_BF == index.getIndexType()
-                    || IndexDef.IndexType.BLOOMFILTER == index.getIndexType()) {
+                    || IndexDef.IndexType.BLOOMFILTER == index.getIndexType()
+                    || IndexDef.IndexType.TOKEN_BF == index.getIndexType()) {
                 for (String column : index.getColumns()) {
                     column = column.toLowerCase();
                     if (bfColumns.contains(column)) {
-                        throw new AnalysisException(column + " should have only one ngram bloom filter index or bloom "
-                            + "filter index");
+                        throw new AnalysisException(column + " should have only one ngram bloom filter index or "
+                            + "token bloom filter index or bloom filter index");
                     }
                     bfColumns.add(column);
                 }
@@ -223,8 +224,8 @@ public class Index implements Writable {
         for (String column : bloomFilters) {
             column = column.toLowerCase();
             if (bfColumns.contains(column)) {
-                throw new AnalysisException(column + " should have only one ngram bloom filter index or bloom "
-                    + "filter index");
+                throw new AnalysisException(column + " should have only one ngram bloom filter index or "
+                    + "token bloom filter index or bloom filter index");
             }
             bfColumns.add(column);
         }

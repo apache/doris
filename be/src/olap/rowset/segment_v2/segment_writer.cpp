@@ -152,6 +152,13 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key,
             opts.gram_bf_size = tablet_index->get_gram_bf_size();
         }
 
+        tablet_index = _tablet_schema->get_token_bf_index(column.unique_id());
+        if (tablet_index) {
+            opts.need_bloom_filter = true;
+            opts.is_token_bf_index = true;
+            opts.token_bf_size = tablet_index->get_token_bf_size();
+        }
+
         opts.need_bitmap_index = column.has_bitmap_index();
         bool skip_inverted_index = false;
         if (_opts.rowset_ctx != nullptr) {

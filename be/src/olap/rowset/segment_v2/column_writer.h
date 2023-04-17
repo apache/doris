@@ -60,8 +60,10 @@ struct ColumnWriterOptions {
     bool need_bitmap_index = false;
     bool need_bloom_filter = false;
     bool is_ngram_bf_index = false;
+    bool is_token_bf_index = false;
     uint8_t gram_size;
     uint16_t gram_bf_size;
+    uint16_t token_bf_size;
     std::vector<const TabletIndex*> indexes;
     const TabletIndex* inverted_index = nullptr;
     std::string to_string() const {

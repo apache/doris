@@ -88,5 +88,27 @@ private:
     std::vector<std::unique_ptr<BloomFilter>> _bfs;
 };
 
+class TokenBloomFilterIndexWriterImpl : public BloomFilterIndexWriter {
+public:
+    static Status create(const BloomFilterOptions& bf_options, const TypeInfo* typeinfo,
+                         uint16_t _bf_size, std::unique_ptr<BloomFilterIndexWriter>* res);
+
+    TokenBloomFilterIndexWriterImpl(const BloomFilterOptions& bf_options, uint16_t bf_size);
+    void add_values(const void* values, size_t count) override;
+    void add_nulls(uint32_t) override {}
+    Status flush() override;
+    Status finish(io::FileWriter* file_writer, ColumnIndexMetaPB* index_meta) override;
+    uint64_t size() override;
+
+private:
+    BloomFilterOptions _bf_options;
+    uint16_t _bf_size;
+    vectorized::Arena _arena;
+    uint64_t _bf_buffer_size;
+    SplitTokenExtractor _token_extractor;
+    std::unique_ptr<BloomFilter> _bf;
+    std::vector<std::unique_ptr<BloomFilter>> _bfs;
+};
+
 } // namespace segment_v2
 } // namespace doris

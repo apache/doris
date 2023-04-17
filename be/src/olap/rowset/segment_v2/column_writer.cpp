@@ -488,6 +488,10 @@ Status ScalarColumnWriter::init() {
             RETURN_IF_ERROR(NGramBloomFilterIndexWriterImpl::create(
                     BloomFilterOptions(), get_field()->type_info(), _opts.gram_size,
                     _opts.gram_bf_size, &_bloom_filter_index_builder));
+        } else if (_opts.is_token_bf_index) {
+            RETURN_IF_ERROR(TokenBloomFilterIndexWriterImpl::create(
+                    BloomFilterOptions(), get_field()->type_info(),
+                    _opts.token_bf_size, &_bloom_filter_index_builder));
         } else {
             RETURN_IF_ERROR(BloomFilterIndexWriter::create(
                     BloomFilterOptions(), get_field()->type_info(), &_bloom_filter_index_builder));

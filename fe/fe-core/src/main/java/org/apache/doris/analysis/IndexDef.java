@@ -47,6 +47,9 @@ public class IndexDef {
     public static final String DEFAULT_NGRAM_SIZE = "2";
     public static final String DEFAULT_NGRAM_BF_SIZE = "256";
 
+    public static final String TOKEN_BF_SIZE_KEY = "bf_size";
+    public static final String DEFAULT_TOKEN_BF_SIZE = "256";
+
     public IndexDef(String indexName, boolean ifNotExists, List<String> columns, IndexType indexType,
                     Map<String, String> properties, String comment) {
         this.indexName = indexName;
@@ -70,6 +73,9 @@ public class IndexDef {
         if (indexType == IndexType.NGRAM_BF) {
             properties.putIfAbsent(NGRAM_SIZE_KEY, DEFAULT_NGRAM_SIZE);
             properties.putIfAbsent(NGRAM_BF_SIZE_KEY, DEFAULT_NGRAM_BF_SIZE);
+        }
+        if (indexType == IndexType.TOKEN_BF) {
+            properties.putIfAbsent(NGRAM_BF_TOKEN_KEY, DEFAULT_TOKEN_BF_SIZE);
         }
     }
 
@@ -172,7 +178,8 @@ public class IndexDef {
         BITMAP,
         INVERTED,
         BLOOMFILTER,
-        NGRAM_BF
+        NGRAM_BF,
+        TOKEN_BF
     }
 
     public boolean isInvertedIndex() {
@@ -182,7 +189,7 @@ public class IndexDef {
     public void checkColumn(Column column, KeysType keysType, boolean enableUniqueKeyMergeOnWrite)
             throws AnalysisException {
         if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED || indexType == IndexType.BLOOMFILTER
-                || indexType == IndexType.NGRAM_BF) {
+                || indexType == IndexType.NGRAM_BF || indexType == IndexType.TOKEN_BF) {
             String indexColName = column.getName();
             caseSensitivityColumns.add(indexColName);
             PrimitiveType colType = column.getDataType();
@@ -231,7 +238,28 @@ public class IndexDef {
                         throw new AnalysisException("bf_size should be integer and between 64 and 65536");
                     }
                 } catch (NumberFormatException e) {
-                    throw new AnalysisException("invalid ngram properties:" + e.getMessage(), e);
+                    throw new AnalysisException("invalid ngram_bf properties:" + e.getMessage(), e);
+                }
+            } else if (indexType == IndexType.TOKEN_BF) {
+                if (colType != PrimitiveType.CHAR && colType != PrimitiveType.VARCHAR
+                        && colType != PrimitiveType.STRING) {
+                    throw new AnalysisException(colType + " is not supported in token_bf index. "
+                                                    + "invalid column: " + indexColName);
+                } else if ((keysType == KeysType.AGG_KEYS && !column.isKey())) {
+                    throw new AnalysisException(
+                        "token_bf index only used in columns of DUP_KEYS/UNIQUE_KEYS table or key columns of"
+                        + " AGG_KEYS table. invalid column: " + indexColName);
+                }
+                if (properties.size() != 1) {
+                    throw new AnalysisException("token_bf index should have gram_size and bf_size properties");
+                }
+                try {
+                    int bfSize = Integer.parseInt(properties.get(TOKEN_BF_SIZE_KEY));
+                    if (bfSize > 65536 || bfSize < 64) {
+                        throw new AnalysisException("bf_size should be integer and between 64 and 65536");
+                    }
+                } catch (NumberFormatException e) {
+                    throw new AnalysisException("invalid token_bf properties:" + e.getMessage(), e);
                 }
             }
         } else {

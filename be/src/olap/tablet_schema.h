@@ -173,6 +173,13 @@ public:
 
         return 0;
     }
+    int32_t get_token_bf_size() const {
+        if (_properties.count("bf_size")) {
+            return std::stoi(_properties.at("bf_size"));
+        }
+
+        return 0;
+    }
 
 private:
     int64_t _index_id;
@@ -240,6 +247,8 @@ public:
     const TabletIndex* get_inverted_index(int32_t col_unique_id) const;
     bool has_ngram_bf_index(int32_t col_unique_id) const;
     const TabletIndex* get_ngram_bf_index(int32_t col_unique_id) const;
+    bool has_token_bf_index(int32_t col_unique_id) const;
+    const TabletIndex* get_token_bf_index(int32_t col_unique_id) const;
     void update_indexes_from_thrift(const std::vector<doris::TOlapTableIndex>& indexes);
 
     int32_t schema_version() const { return _schema_version; }

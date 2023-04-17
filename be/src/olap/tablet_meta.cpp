@@ -179,7 +179,8 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                         break;
                     }
                 } else if (index.index_type == TIndexType::type::BLOOMFILTER ||
-                           index.index_type == TIndexType::type::NGRAM_BF) {
+                           index.index_type == TIndexType::type::NGRAM_BF ||
+                           index.index_type == TIndexType::type::TOKEN_BF) {
                     DCHECK_EQ(index.columns.size(), 1);
                     if (iequal(tcolumn.column_name, index.columns[0])) {
                         column->set_is_bf_column(true);
@@ -217,6 +218,9 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                 break;
             case TIndexType::NGRAM_BF:
                 index_pb->set_index_type(IndexType::NGRAM_BF);
+                break;
+            case TIndexType::TOKEN_BF:
+                index_pb->set_index_type(IndexType::TOKEN_BF);
                 break;
             }
 
