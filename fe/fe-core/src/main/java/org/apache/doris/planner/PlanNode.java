@@ -317,6 +317,14 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return cardinality;
     }
 
+    public long getCardinalityAfterFilter() {
+        if (cardinalityAfterFilter < 0) {
+            return cardinality;
+        } else {
+            return cardinalityAfterFilter;
+        }
+    }
+
     public int getNumNodes() {
         return numNodes;
     }
