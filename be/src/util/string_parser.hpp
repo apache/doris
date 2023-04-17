@@ -32,7 +32,6 @@
 #include "common/compiler_util.h"
 #include "common/status.h"
 #include "runtime/primitive_type.h"
-#include "vec/data_types/data_type_decimal.h"
 
 namespace doris {
 
@@ -618,15 +617,6 @@ inline T StringParser::string_to_decimal(const char* s, int len, int type_precis
             DCHECK(value >= 0); // For some reason //DCHECK_GE doesn't work with __int128.
             ++precision;
             scale += found_dot;
-            if (precision > type_precision) {
-                if constexpr (std::is_same_v<int32_t, T>) {
-                    value = vectorized::max_decimal_value<vectorized::Decimal32>();
-                } else if constexpr (std::is_same_v<int64_t, T>) {
-                    value = vectorized::max_decimal_value<vectorized::Decimal64>();
-                } else {
-                    value = vectorized::max_decimal_value<vectorized::Decimal128>();
-                }
-            }
         } else if (c == '.' && LIKELY(!found_dot)) {
             found_dot = 1;
         } else if ((c == 'e' || c == 'E') && LIKELY(!found_exponent)) {
