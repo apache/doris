@@ -44,7 +44,10 @@ Status DataTypeNullableSerDe::read_column_from_pb(IColumn& column, const PValues
     auto& col = reinterpret_cast<ColumnNullable&>(column);
     auto& null_map_data = col.get_null_map_data();
     auto& nested = col.get_nested_column();
-    null_map_data.resize(arg.null_map_size());
+    if (Status st = nested_serde->read_column_from_pb(nested, arg); st != Status::OK()) {
+        return st;
+    }
+    null_map_data.resize(nested.size());
     if (arg.has_null()) {
         for (int i = 0; i < arg.null_map_size(); ++i) {
             null_map_data[i] = arg.null_map(i);
@@ -54,7 +57,7 @@ Status DataTypeNullableSerDe::read_column_from_pb(IColumn& column, const PValues
             null_map_data[i] = false;
         }
     }
-    return nested_serde->read_column_from_pb(nested, arg);
+    return Status::OK();
 }
 } // namespace vectorized
 } // namespace doris

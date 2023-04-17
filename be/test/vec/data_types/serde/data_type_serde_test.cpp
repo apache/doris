@@ -15,8 +15,10 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_hll.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_quantilestate.h"
 #include "vec/data_types/data_type_string.h"
 
 namespace doris::vectorized {
@@ -94,6 +96,39 @@ void serialize_and_deserialize_pb_test() {
         }
         check_pb_col(bitmap_data_type, *bitmap_column.get());
     }
+    // hll
+    {
+        vectorized::DataTypePtr hll_data_type(std::make_shared<vectorized::DataTypeHLL>());
+        auto hll_column = hll_data_type->create_column();
+        std::vector<HyperLogLog>& container =
+                ((vectorized::ColumnHLL*)hll_column.get())->get_data();
+        for (int i = 0; i < 4; ++i) {
+            HyperLogLog hll;
+            hll.update(i);
+            container.push_back(hll);
+        }
+        check_pb_col(hll_data_type, *hll_column.get());
+    }
+    // quantilestate
+    {
+        vectorized::DataTypePtr quantile_data_type(
+                std::make_shared<vectorized::DataTypeQuantileStateDouble>());
+        auto quantile_column = quantile_data_type->create_column();
+        std::vector<QuantileStateDouble>& container =
+                ((vectorized::ColumnQuantileStateDouble*)quantile_column.get())->get_data();
+        const long max_rand = 1000000L;
+        double lower_bound = 0;
+        double upper_bound = 100;
+        srandom(time(NULL));
+        for (int i = 0; i < 1024; ++i) {
+            QuantileStateDouble q;
+            double random_double =
+                    lower_bound + (upper_bound - lower_bound) * (random() % max_rand) / max_rand;
+            q.add_value(random_double);
+            container.push_back(q);
+        }
+        check_pb_col(quantile_data_type, *quantile_column.get());
+    }
     // nullable string
     {
         vectorized::DataTypePtr string_data_type(std::make_shared<vectorized::DataTypeString>());
@@ -110,6 +145,22 @@ void serialize_and_deserialize_pb_test() {
                 std::make_shared<vectorized::DataTypeNullable>(decimal_data_type));
         auto nullable_column = nullable_data_type->create_column();
         ((vectorized::ColumnNullable*)nullable_column.get())->insert_null_elements(1024);
+        check_pb_col(nullable_data_type, *nullable_column.get());
+    }
+    // int with 1024 batch size
+    {
+        auto vec = vectorized::ColumnVector<Int32>::create();
+        auto& data = vec->get_data();
+        for (int i = 0; i < 1024; ++i) {
+            data.push_back(i);
+        }
+        std::cout << vec->size() << std::endl;
+        vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeInt32>());
+        vectorized::DataTypePtr nullable_data_type(
+                std::make_shared<vectorized::DataTypeNullable>(data_type));
+        auto nullable_column = nullable_data_type->create_column();
+        ((vectorized::ColumnNullable*)nullable_column.get())
+                ->insert_range_from_not_nullable(*vec, 0, 1024);
         check_pb_col(nullable_data_type, *nullable_column.get());
     }
 }

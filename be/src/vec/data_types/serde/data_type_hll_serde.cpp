@@ -16,6 +16,9 @@
 // under the License.
 
 #include "data_type_hll_serde.h"
+
+#include "vec/columns/column_complex.h"
+
 namespace doris {
 
 namespace vectorized {
@@ -24,16 +27,23 @@ Status DataTypeHLLSerDe::write_column_to_pb(const IColumn& column, PValues& resu
                                             int end) const {
     auto ptype = result.mutable_type();
     ptype->set_id(PGenericType::HLL);
+    auto& data_column = assert_cast<const ColumnHLL&>(column);
+    int row_count = end - start;
+    result.mutable_bytes_value()->Reserve(row_count);
     for (size_t row_num = start; row_num < end; ++row_num) {
-        StringRef data = column.get_data_at(row_num);
-        result.add_bytes_value(data.data, data.size);
+        auto& value = const_cast<HyperLogLog&>(data_column.get_element(row_num));
+        std::string memory_buffer(value.max_serialized_size(), '0');
+        value.serialize((uint8_t*)memory_buffer.data());
+        result.add_bytes_value(memory_buffer.data(), memory_buffer.size());
     }
     return Status::OK();
 }
 Status DataTypeHLLSerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
-    column.reserve(arg.bytes_value_size());
+    auto& col = reinterpret_cast<ColumnHLL&>(column);
     for (int i = 0; i < arg.bytes_value_size(); ++i) {
-        column.insert_data(arg.bytes_value(i).c_str(), arg.bytes_value(i).size());
+        HyperLogLog value;
+        value.deserialize(Slice(arg.bytes_value(i)));
+        col.insert_value(value);
     }
     return Status::OK();
 }
