@@ -17,9 +17,9 @@
 
 #include "wkb_parse.h"
 
-#include <array>
 #include <cstddef>
 #include <istream>
+#include <sstream>
 #include <vector>
 
 #include "geo/ByteOrderDataInStream.h"
