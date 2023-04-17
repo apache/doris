@@ -17,10 +17,16 @@
 
 #include "wkb_parse.h"
 
-#include <string.h>
+#include <array>
+#include <cstddef>
+#include <istream>
+#include <vector>
 
+#include "geo/ByteOrderDataInStream.h"
+#include "geo/ByteOrderValues.h"
+#include "geo/geo_types.h"
+#include "geo/wkb_parse_ctx.h"
 #include "geo_tobinary_type.h"
-#include "sstream"
 
 namespace doris {
 

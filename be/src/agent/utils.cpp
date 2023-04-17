@@ -17,17 +17,38 @@
 
 #include "agent/utils.h"
 
+#include <errno.h>
+#include <gen_cpp/FrontendService.h>
+#include <gen_cpp/HeartbeatService_types.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
 #include <rapidjson/document.h>
+#include <rapidjson/encodings.h>
 #include <rapidjson/rapidjson.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <thrift/transport/TTransportException.h>
 
 #include <cstdio>
+#include <exception>
 #include <fstream>
-#include <sstream>
+#include <memory>
+#include <utility>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "runtime/client_cache.h"
+
+namespace doris {
+class TConfirmUnusedRemoteFilesRequest;
+class TConfirmUnusedRemoteFilesResult;
+class TFinishTaskRequest;
+class TMasterResult;
+class TReportRequest;
+} // namespace doris
 
 using std::map;
 using std::string;

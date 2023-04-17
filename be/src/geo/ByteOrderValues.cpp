@@ -17,7 +17,8 @@
 
 #include "ByteOrderValues.h"
 
-#include <cassert>
+#include <stdint.h>
+
 #include <cstring>
 
 namespace doris {

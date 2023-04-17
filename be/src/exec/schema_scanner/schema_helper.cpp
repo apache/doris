@@ -17,15 +17,24 @@
 
 #include "exec/schema_scanner/schema_helper.h"
 
-#include <sstream>
-#include <thread>
+#include <gen_cpp/FrontendService.h>
 
-#include "gen_cpp/FrontendService.h"
-#include "gen_cpp/FrontendService_types.h"
 #include "runtime/client_cache.h"
 #include "util/thrift_rpc_helper.h"
 
 namespace doris {
+class TDescribeTableParams;
+class TDescribeTableResult;
+class TDescribeTablesParams;
+class TDescribeTablesResult;
+class TGetDbsParams;
+class TGetDbsResult;
+class TGetTablesParams;
+class TGetTablesResult;
+class TListPrivilegesResult;
+class TListTableStatusResult;
+class TShowVariableRequest;
+class TShowVariableResult;
 
 Status SchemaHelper::get_db_names(const std::string& ip, const int32_t port,
                                   const TGetDbsParams& request, TGetDbsResult* result) {

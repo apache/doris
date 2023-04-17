@@ -20,18 +20,27 @@
 
 #pragma once
 
+#include <gen_cpp/PlanNodes_types.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <atomic>
+#include <functional>
+#include <memory>
 #include <mutex>
 #include <sstream>
+#include <string>
 #include <vector>
 
+#include "common/global_types.h"
 #include "common/status.h"
-#include "gen_cpp/PlanNodes_types.h"
 #include "runtime/descriptors.h"
 #include "runtime/query_statistics.h"
 #include "service/backend_options.h"
 #include "util/blocking_queue.hpp"
 #include "util/runtime_profile.h"
 #include "util/telemetry/telemetry.h"
+#include "vec/core/block.h"
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris {
@@ -40,10 +49,12 @@ class Counters;
 class RuntimeState;
 class TPlan;
 class MemTracker;
+class QueryStatistics;
 
 namespace vectorized {
 class Block;
 class VExpr;
+class VExprContext;
 } // namespace vectorized
 
 namespace pipeline {
