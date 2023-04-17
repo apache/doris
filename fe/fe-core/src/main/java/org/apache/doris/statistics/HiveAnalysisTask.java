@@ -57,8 +57,8 @@ public class HiveAnalysisTask extends HMSAnalysisTask {
     public static final String TIMESTAMP = "transient_lastDdlTime";
     public static final String DELIMITER = "-";
 
-    public HiveAnalysisTask(AnalysisTaskScheduler analysisTaskScheduler, AnalysisTaskInfo info) {
-        super(analysisTaskScheduler, info);
+    public HiveAnalysisTask(AnalysisTaskInfo info) {
+        super(info);
     }
 
     private static final String ANALYZE_PARTITION_SQL_TEMPLATE = "INSERT INTO "
@@ -142,7 +142,7 @@ public class HiveAnalysisTask extends HMSAnalysisTask {
                 this.stmtExecutor.execute();
             }
         }
-        Env.getCurrentEnv().getStatisticsCache().refreshSync(tbl.getId(), -1, col.getName());
+        Env.getCurrentEnv().getStatisticsCache().refreshColStatsSync(tbl.getId(), -1, col.getName());
     }
 
     private void getStatData(ColumnStatisticsData data, Map<String, String> params) {

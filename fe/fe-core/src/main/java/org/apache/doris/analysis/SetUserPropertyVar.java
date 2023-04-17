@@ -39,6 +39,7 @@ public class SetUserPropertyVar extends SetVar {
     public SetUserPropertyVar(String key, String value) {
         this.key = key;
         this.value = value;
+        this.varType = SetVarType.SET_USER_PROPERTY_VAR;
     }
 
     public String getPropertyKey() {

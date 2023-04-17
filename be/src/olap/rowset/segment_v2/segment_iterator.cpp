@@ -721,8 +721,7 @@ bool SegmentIterator::_column_has_fulltext_index(int32_t unique_id) {
 }
 
 inline bool SegmentIterator::_inverted_index_not_support_pred_type(const PredicateType& type) {
-    return type == PredicateType::IS_NULL || type == PredicateType::IS_NOT_NULL ||
-           type == PredicateType::BF || type == PredicateType::BITMAP_FILTER;
+    return type == PredicateType::BF || type == PredicateType::BITMAP_FILTER;
 }
 
 #define all_predicates_are_range_predicate(predicate_set)   \
@@ -1322,12 +1321,13 @@ bool SegmentIterator::_can_evaluated_by_vectorized(ColumnPredicate* predicate) {
     case PredicateType::LT:
     case PredicateType::GE:
     case PredicateType::GT: {
-        if (field_type == OLAP_FIELD_TYPE_VARCHAR || field_type == OLAP_FIELD_TYPE_CHAR ||
-            field_type == OLAP_FIELD_TYPE_STRING) {
+        if (field_type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
+            field_type == FieldType::OLAP_FIELD_TYPE_CHAR ||
+            field_type == FieldType::OLAP_FIELD_TYPE_STRING) {
             return config::enable_low_cardinality_optimize &&
                    _opts.io_ctx.reader_type == ReaderType::READER_QUERY &&
                    _column_iterators[_schema.unique_id(cid)]->is_all_dict_encoding();
-        } else if (field_type == OLAP_FIELD_TYPE_DECIMAL) {
+        } else if (field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL) {
             return false;
         }
         return true;
@@ -1343,13 +1343,13 @@ void SegmentIterator::_vec_init_char_column_id() {
         auto column_desc = _schema.column(cid);
 
         do {
-            if (column_desc->type() == OLAP_FIELD_TYPE_CHAR) {
+            if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
                 _char_type_idx.emplace_back(i);
                 if (i != 0) {
                     _char_type_idx_no_0.emplace_back(i);
                 }
                 break;
-            } else if (column_desc->type() != OLAP_FIELD_TYPE_ARRAY) {
+            } else if (column_desc->type() != FieldType::OLAP_FIELD_TYPE_ARRAY) {
                 break;
             }
             // for Array<Char> or Array<Array<Char>>
@@ -1409,11 +1409,11 @@ void SegmentIterator::_init_current_block(
         } else { // non-predicate column
             current_columns[cid] = std::move(*block->get_by_position(i).column).mutate();
 
-            if (column_desc->type() == OLAP_FIELD_TYPE_DATE) {
+            if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_DATE) {
                 current_columns[cid]->set_date_type();
-            } else if (column_desc->type() == OLAP_FIELD_TYPE_DATETIME) {
+            } else if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_DATETIME) {
                 current_columns[cid]->set_datetime_type();
-            } else if (column_desc->type() == OLAP_FIELD_TYPE_DECIMAL) {
+            } else if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_DECIMAL) {
                 current_columns[cid]->set_decimalv2_type();
             }
             current_columns[cid]->reserve(_opts.block_row_max);

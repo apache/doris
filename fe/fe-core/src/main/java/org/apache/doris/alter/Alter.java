@@ -60,7 +60,6 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
@@ -195,7 +194,7 @@ public class Alter {
         boolean needProcessOutsideTableLock = false;
         if (currentAlterOps.checkTableStoragePolicy(alterClauses)) {
             String tableStoragePolicy = olapTable.getStoragePolicy();
-            if (!tableStoragePolicy.equals("")) {
+            if (!tableStoragePolicy.isEmpty()) {
                 for (Partition partition : olapTable.getAllPartitions()) {
                     for (Tablet tablet : partition.getBaseIndex().getTablets()) {
                         for (Replica replica : tablet.getReplicas()) {
@@ -525,7 +524,7 @@ public class Alter {
             if (!isReplay) {
                 Env.getCurrentEnv().getEditLog().logAlterMTMV(alterView);
                 // 5. master node generate new jobs
-                if (Config.enable_mtmv_scheduler_framework && MTMVJobFactory.isGenerateJob(olapTable)) {
+                if (MTMVJobFactory.isGenerateJob(olapTable)) {
                     List<MTMVJob> jobs = MTMVJobFactory.buildJob(olapTable, db.getFullName());
                     for (MTMVJob job : jobs) {
                         Env.getCurrentEnv().getMTMVJobManager().createJob(job, false);

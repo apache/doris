@@ -1795,28 +1795,31 @@ bool DateV2Value<T>::is_invalid(uint32_t year, uint32_t month, uint32_t day, uin
 }
 
 template <typename T>
-void DateV2Value<T>::format_datetime(uint32_t* date_val) const {
+void DateV2Value<T>::format_datetime(uint32_t* date_val, bool* carry_bits) const {
     // ms
     DCHECK(date_val[6] < 1000000L);
     // hour, minute, second
     for (size_t i = 5; i > 2; i--) {
-        if (date_val[i] == MAX_TIME_PART_VALUE[i - 3] + 1) {
+        if (date_val[i] == MAX_TIME_PART_VALUE[i - 3] + 1 && carry_bits[i + 1]) {
             date_val[i] = 0;
             date_val[i - 1] += 1;
+            carry_bits[i] = true;
         }
     }
     // day
     if (date_val[1] == 2 && doris::is_leap(date_val[0])) {
-        if (date_val[2] == 30) {
+        if (date_val[2] == 30 && carry_bits[3]) {
             date_val[2] = 1;
             date_val[1] += 1;
+            carry_bits[2] = true;
         }
-    } else if (date_val[2] == s_days_in_month[date_val[1]] + 1) {
+    } else if (date_val[2] == s_days_in_month[date_val[1]] + 1 && carry_bits[3]) {
         date_val[2] = 1;
         date_val[1] += 1;
+        carry_bits[2] = true;
     }
     // month
-    if (date_val[1] == 13) {
+    if (date_val[1] == 13 && carry_bits[2]) {
         date_val[1] = 1;
         date_val[0] += 1;
     }
@@ -1833,6 +1836,7 @@ bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale) {
     const static int allow_space_mask = 4 | 64;
     uint32_t date_val[MAX_DATE_PARTS] = {0};
     int32_t date_len[MAX_DATE_PARTS] = {0};
+    bool carry_bits[MAX_DATE_PARTS] = {false};
 
     // Skip space character
     while (ptr < end && isspace(*ptr)) {
@@ -1891,6 +1895,7 @@ bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale) {
                         if (temp_val == 1000000L) {
                             temp_val = 0;
                             date_val[field_idx - 1] += 1;
+                            carry_bits[field_idx] = true;
                         }
                     }
                 }
@@ -1955,7 +1960,7 @@ bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale) {
     }
 
     if (num_field < 3) return false;
-    format_datetime(date_val);
+    format_datetime(date_val, carry_bits);
     return check_range_and_set_time(date_val[0], date_val[1], date_val[2], date_val[3], date_val[4],
                                     date_val[5], date_val[6]);
 }

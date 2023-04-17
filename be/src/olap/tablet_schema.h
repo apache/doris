@@ -54,14 +54,17 @@ public:
     void set_type(FieldType type) { _type = type; }
     bool is_key() const { return _is_key; }
     bool is_nullable() const { return _is_nullable; }
-    bool is_variant_type() const { return _type == OLAP_FIELD_TYPE_VARIANT; }
+    bool is_variant_type() const { return _type == FieldType::OLAP_FIELD_TYPE_VARIANT; }
     bool is_bf_column() const { return _is_bf_column; }
     bool has_bitmap_index() const { return _has_bitmap_index; }
-    bool is_array_type() const { return _type == OLAP_FIELD_TYPE_ARRAY; }
+    bool is_array_type() const { return _type == FieldType::OLAP_FIELD_TYPE_ARRAY; }
     bool is_length_variable_type() const {
-        return _type == OLAP_FIELD_TYPE_CHAR || _type == OLAP_FIELD_TYPE_VARCHAR ||
-               _type == OLAP_FIELD_TYPE_STRING || _type == OLAP_FIELD_TYPE_HLL ||
-               _type == OLAP_FIELD_TYPE_OBJECT || _type == OLAP_FIELD_TYPE_QUANTILE_STATE;
+        return _type == FieldType::OLAP_FIELD_TYPE_CHAR ||
+               _type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
+               _type == FieldType::OLAP_FIELD_TYPE_STRING ||
+               _type == FieldType::OLAP_FIELD_TYPE_HLL ||
+               _type == FieldType::OLAP_FIELD_TYPE_OBJECT ||
+               _type == FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE;
     }
     bool has_default_value() const { return _has_default_value; }
     std::string default_value() const { return _default_value; }

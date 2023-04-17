@@ -66,7 +66,7 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
                 .setColName("col1").setJobType(JobType.MANUAL).setAnalysisMethod(AnalysisMethod.FULL).setAnalysisType(
                         AnalysisType.COLUMN)
                 .build();
-        OlapAnalysisTask analysisJob = new OlapAnalysisTask(analysisTaskScheduler, analysisJobInfo);
+        OlapAnalysisTask analysisJob = new OlapAnalysisTask(analysisJobInfo);
 
         new MockUp<AnalysisTaskScheduler>() {
             public synchronized BaseAnalysisTask getPendingTasks() {
@@ -98,7 +98,7 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
                         AnalysisType.COLUMN)
                 .setPartitionNames(Sets.newHashSet("t1"))
                 .build();
-        OlapAnalysisTask task = new OlapAnalysisTask(analysisTaskScheduler, analysisTaskInfo);
+        OlapAnalysisTask task = new OlapAnalysisTask(analysisTaskInfo);
         new MockUp<AnalysisTaskScheduler>() {
             @Mock
             public synchronized BaseAnalysisTask getPendingTasks() {

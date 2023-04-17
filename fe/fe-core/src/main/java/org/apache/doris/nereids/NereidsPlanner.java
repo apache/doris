@@ -65,6 +65,10 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -187,6 +191,11 @@ public class NereidsPlanner extends Planner {
                 }
             }
 
+            Optional<ScheduledExecutorService> timeoutExecutor = Optional.empty();
+            if (ConnectContext.get().getSessionVariable().enableNereidsTimeout) {
+                timeoutExecutor = Optional.of(runTimeoutExecutor());
+            }
+
             // rule-based optimize
             rewrite();
             if (explainLevel == ExplainLevel.REWRITTEN_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
@@ -224,6 +233,8 @@ public class NereidsPlanner extends Planner {
                 optimizedPlan = physicalPlan;
             }
 
+            timeoutExecutor.ifPresent(ExecutorService::shutdown);
+
             return physicalPlan;
         }
     }
@@ -259,7 +270,7 @@ public class NereidsPlanner extends Planner {
 
     private void dpHypOptimize() {
         Group root = getRoot();
-        if (root.isJoinGroup()) {
+        if (root.isInnerJoinGroup()) {
             // If the root group is join group, DPHyp can change the root group.
             // To keep the root group is not changed, we add a project operator above join
             List<NamedExpression> outputs = ImmutableList.copyOf(root.getLogicalExpression().getPlan().getOutput());
@@ -341,6 +352,14 @@ public class NereidsPlanner extends Planner {
             LOG.warn("Failed to choose best plan, memo structure:{}", memo, e);
             throw new AnalysisException("Failed to choose best plan", e);
         }
+    }
+
+    private ScheduledExecutorService runTimeoutExecutor() {
+        ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
+        Runnable task = () -> cascadesContext.setIsTimeout(true);
+        executor.schedule(task, 5, TimeUnit.SECONDS);
+
+        return executor;
     }
 
     @Override

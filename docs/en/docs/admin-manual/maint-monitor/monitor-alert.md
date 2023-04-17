@@ -28,9 +28,9 @@ under the License.
 
 This document mainly introduces Doris's monitoring items and how to collect and display them. And how to configure alarm (TODO)
 
-[Dashboard template click download](https://grafana.com/api/dashboards/9734/revisions/4/download)
+[Dashboard template click download](https://grafana.com/api/dashboards/9734/revisions/5/download)
 
-> Note: Before 0.9.0 (excluding), please use revision 1. For version 0.9.x, use revision 2. For version 0.10.x, use revision 3.
+> Note: Before 0.9.0 (excluding), please use revision 1. For version 0.9.x, use revision 2. For version 0.10.x, use revision 3. For version 1.1.x, use revision 4. For version 1.2.x, use revision 5.
 
 Dashboard templates are updated from time to time. The way to update the template is shown in the last section.
 

@@ -17,6 +17,8 @@
 
 #include "exec/es/es_scan_reader.h"
 
+#include <stdlib.h>
+
 #include <map>
 #include <sstream>
 #include <string>
@@ -24,7 +26,9 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "exec/es/es_scroll_parser.h"
 #include "exec/es/es_scroll_query.h"
+#include "http/http_method.h"
 
 namespace doris {
 

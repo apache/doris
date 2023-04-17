@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -25,6 +26,8 @@
 #include "common/status.h"
 #include "http/http_method.h"
 #include "util/path_trie.hpp"
+
+struct event_base;
 
 namespace doris {
 

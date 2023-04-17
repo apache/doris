@@ -22,6 +22,7 @@ header:
     - "be/src/common/status.h"
     - "be/src/env/env.h"
     - "be/src/env/env_posix.cpp"
+    - "**/apache-orc/**"
     - "**/glibc-compatibility/**"
     - "**/gutil/**"
     - "**/test_data/**"
@@ -80,5 +81,7 @@ header:
     - "docker/thirdparties/docker-compose/hive/scripts/create_tpch1_parquet.hql"
     - "docker/thirdparties/docker-compose/hive/scripts/preinstalled_data/"
     - "docker/thirdparties/docker-compose/iceberg/spark-defaults.conf.tpl"
+    - "extension/beats/go.mod"
+    - "extension/beats/go.sum"
 
   comment: on-failure

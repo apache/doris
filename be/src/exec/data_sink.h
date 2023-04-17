@@ -20,22 +20,32 @@
 
 #pragma once
 
+#include <gen_cpp/DataSinks_types.h>
+#include <gen_cpp/Exprs_types.h>
+#include <opentelemetry/trace/span.h>
+#include <stddef.h>
+// IWYU pragma: no_include <opentelemetry/nostd/shared_ptr.h>
+#include <memory>
+#include <string>
 #include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/DataSinks_types.h"
-#include "gen_cpp/Exprs_types.h"
 #include "runtime/descriptors.h"
 #include "runtime/query_statistics.h"
+#include "util/runtime_profile.h"
 #include "util/telemetry/telemetry.h"
 
 namespace doris {
 
 class ObjectPool;
-class RuntimeProfile;
 class RuntimeState;
 class TPlanFragmentExecParams;
 class RowDescriptor;
+class DescriptorTbl;
+class QueryStatistics;
+class TDataSink;
+class TExpr;
+class TPipelineFragmentParams;
 
 namespace vectorized {
 class Block;

@@ -44,6 +44,9 @@ public:
 
     virtual void update_statistics(PipelineTask* task, int64_t time_spent) {}
 
+    virtual void update_task_group(const taskgroup::TaskGroupInfo& task_group_info,
+                                   taskgroup::TaskGroupPtr& task_group) = 0;
+
     int cores() const { return _core_size; }
 
 protected:
@@ -51,34 +54,39 @@ protected:
     static constexpr auto WAIT_CORE_TASK_TIMEOUT_MS = 100;
 };
 
-class SubWorkTaskQueue {
-    friend class WorkTaskQueue;
-    friend class NormalWorkTaskQueue;
+class SubTaskQueue {
+    friend class PriorityTaskQueue;
 
 public:
     void push_back(PipelineTask* task) { _queue.emplace(task); }
 
     PipelineTask* try_take(bool is_steal);
 
-    void set_factor_for_normal(double factor_for_normal) { _factor_for_normal = factor_for_normal; }
+    void set_level_factor(double level_factor) { _level_factor = level_factor; }
 
-    double schedule_time_after_normal() { return _schedule_time * _factor_for_normal; }
+    // note:
+    // runtime is the time consumed by the actual execution of the task
+    // vruntime(means virtual runtime) = runtime / _level_factor
+    double get_vruntime() { return _runtime / _level_factor; }
+
+    void inc_runtime(uint64_t delta_time) { _runtime += delta_time; }
+
+    void adjust_runtime(uint64_t vruntime) { this->_runtime = vruntime * _level_factor; }
 
     bool empty() { return _queue.empty(); }
 
 private:
     std::queue<PipelineTask*> _queue;
-    // factor for normalization
-    double _factor_for_normal = 1;
-    // the value cal the queue task time consume, the WorkTaskQueue
-    // use it to find the min queue to take task work
-    std::atomic<uint64_t> _schedule_time = 0;
+    // depends on LEVEL_QUEUE_TIME_FACTOR
+    double _level_factor = 1;
+
+    std::atomic<uint64_t> _runtime = 0;
 };
 
-// Each thread have private MLFQ
-class NormalWorkTaskQueue {
+// A Multilevel Feedback Queue
+class PriorityTaskQueue {
 public:
-    explicit NormalWorkTaskQueue();
+    explicit PriorityTaskQueue();
 
     void close();
 
@@ -90,27 +98,35 @@ public:
 
     Status push(PipelineTask* task);
 
+    void inc_sub_queue_runtime(int level, uint64_t runtime) {
+        _sub_queues[level].inc_runtime(runtime);
+    }
+
 private:
-    static constexpr auto LEVEL_QUEUE_TIME_FACTOR = 1.5;
-    static constexpr size_t SUB_QUEUE_LEVEL = 5;
-    // 3, 6, 9, 12
-    static constexpr uint32_t BASE_LIMIT = 3;
-    SubWorkTaskQueue _sub_queues[SUB_QUEUE_LEVEL];
-    uint32_t _task_schedule_limit[SUB_QUEUE_LEVEL - 1];
+    static constexpr auto LEVEL_QUEUE_TIME_FACTOR = 2;
+    static constexpr size_t SUB_QUEUE_LEVEL = 6;
+    SubTaskQueue _sub_queues[SUB_QUEUE_LEVEL];
+    // 1s, 3s, 10s, 60s, 300s
+    uint64_t _queue_level_limit[SUB_QUEUE_LEVEL - 1] = {1000000000, 3000000000, 10000000000,
+                                                        60000000000, 300000000000};
     std::mutex _work_size_mutex;
     std::condition_variable _wait_task;
     std::atomic<size_t> _total_task_size = 0;
     bool _closed;
 
-    int _compute_level(PipelineTask* task);
+    // used to adjust vruntime of a queue when it's not empty
+    // protected by lock _work_size_mutex
+    uint64_t _queue_level_min_vruntime = 0;
+
+    int _compute_level(uint64_t real_runtime);
 };
 
 // Need consider NUMA architecture
-class NormalTaskQueue : public TaskQueue {
+class MultiCoreTaskQueue : public TaskQueue {
 public:
-    explicit NormalTaskQueue(size_t core_size);
+    explicit MultiCoreTaskQueue(size_t core_size);
 
-    ~NormalTaskQueue() override;
+    ~MultiCoreTaskQueue() override;
 
     void close() override;
 
@@ -123,13 +139,21 @@ public:
 
     Status push_back(PipelineTask* task, size_t core_id) override;
 
-    // TODO pipeline update NormalWorkTaskQueue by time_spent.
-    // void update_statistics(PipelineTask* task, int64_t time_spent) override;
+    void update_statistics(PipelineTask* task, int64_t time_spent) override {
+        task->inc_runtime_ns(time_spent);
+        _prio_task_queue_list[task->get_core_id()].inc_sub_queue_runtime(task->get_queue_level(),
+                                                                         time_spent);
+    }
+
+    void update_task_group(const taskgroup::TaskGroupInfo& task_group_info,
+                           taskgroup::TaskGroupPtr& task_group) override {
+        LOG(FATAL) << "update_task_group not implemented";
+    }
 
 private:
     PipelineTask* _steal_take(size_t core_id);
 
-    std::unique_ptr<NormalWorkTaskQueue[]> _async_queue;
+    std::unique_ptr<PriorityTaskQueue[]> _prio_task_queue_list;
     std::atomic<size_t> _next_core = 0;
     std::atomic<bool> _closed;
 };
@@ -150,6 +174,9 @@ public:
     Status push_back(PipelineTask* task, size_t core_id) override;
 
     void update_statistics(PipelineTask* task, int64_t time_spent) override;
+
+    void update_task_group(const taskgroup::TaskGroupInfo& task_group_info,
+                           taskgroup::TaskGroupPtr& task_group) override;
 
 private:
     template <bool from_executor>

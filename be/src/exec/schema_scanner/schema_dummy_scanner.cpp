@@ -17,6 +17,15 @@
 
 #include "schema_dummy_scanner.h"
 
+#include <vector>
+
+namespace doris {
+class RuntimeState;
+namespace vectorized {
+class Block;
+} // namespace vectorized
+} // namespace doris
+
 namespace {
 std::vector<doris::SchemaScanner::ColumnDesc> DUMMY_COLUMN;
 }

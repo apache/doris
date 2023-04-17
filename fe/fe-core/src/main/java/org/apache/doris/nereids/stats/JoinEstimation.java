@@ -135,15 +135,6 @@ public class JoinEstimation {
         return statistics.getRowCount() / crossJoinStats.getRowCount();
     }
 
-    private static double adjustSemiOrAntiByOtherJoinConditions(Join join) {
-        int otherConditionCount = join.getOtherJoinConjuncts().size();
-        double sel = 1.0;
-        for (int i = 0; i < otherConditionCount; i++) {
-            sel *= Math.pow(FilterEstimation.DEFAULT_INEQUALITY_COEFFICIENT, 1 / Math.pow(2, i));
-        }
-        return sel;
-    }
-
     private static double estimateSemiOrAntiRowCountBySlotsEqual(Statistics leftStats,
             Statistics rightStats, Join join, EqualTo equalTo) {
         Expression eqLeft = equalTo.left();
@@ -162,10 +153,22 @@ public class JoinEstimation {
 
         double rowCount;
         if (join.getJoinType().isLeftSemiOrAntiJoin()) {
-            rowCount = StatsMathUtil.divide(leftStats.getRowCount() * buildColStats.ndv, buildColStats.originalNdv);
+            double semiRowCount = StatsMathUtil.divide(leftStats.getRowCount() * buildColStats.ndv,
+                    buildColStats.originalNdv);
+            if (join.getJoinType().isSemiJoin()) {
+                rowCount = semiRowCount;
+            } else {
+                rowCount = leftStats.getRowCount() - semiRowCount;
+            }
         } else {
             //right semi or anti
-            rowCount = StatsMathUtil.divide(rightStats.getRowCount() * probColStats.ndv, probColStats.originalNdv);
+            double semiRowCount = StatsMathUtil.divide(rightStats.getRowCount() * probColStats.ndv,
+                    probColStats.originalNdv);
+            if (join.getJoinType().isSemiJoin()) {
+                rowCount = semiRowCount;
+            } else {
+                rowCount = rightStats.getRowCount() - semiRowCount;
+            }
         }
         return rowCount;
     }
@@ -173,20 +176,20 @@ public class JoinEstimation {
     private static Statistics estimateSemiOrAnti(Statistics leftStats, Statistics rightStats, Join join) {
         double rowCount = Double.POSITIVE_INFINITY;
         for (Expression conjunct : join.getHashJoinConjuncts()) {
-            double eqRowCount = estimateSemiOrAntiRowCountBySlotsEqual(leftStats, rightStats, join, (EqualTo) conjunct);
+            double eqRowCount = estimateSemiOrAntiRowCountBySlotsEqual(leftStats, rightStats,
+                    join, (EqualTo) conjunct);
             if (rowCount > eqRowCount) {
                 rowCount = eqRowCount;
             }
         }
         if (Double.isInfinite(rowCount)) {
-            //slotsEqual estimation failed, estimate by innerJoin
+            //slotsEqual estimation failed, fall back to original algorithm
             Statistics innerJoinStats = estimateInnerJoin(leftStats, rightStats, join);
             double baseRowCount =
                     join.getJoinType().isLeftSemiOrAntiJoin() ? leftStats.getRowCount() : rightStats.getRowCount();
             rowCount = Math.min(innerJoinStats.getRowCount(), baseRowCount);
             return innerJoinStats.withRowCount(rowCount);
         } else {
-            rowCount = rowCount * adjustSemiOrAntiByOtherJoinConditions(join);
             StatisticsBuilder builder;
             double originalRowCount = leftStats.getRowCount();
             if (join.getJoinType().isLeftSemiOrAntiJoin()) {

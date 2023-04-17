@@ -47,7 +47,7 @@ Status MatchPredicate::evaluate(const Schema& schema, InvertedIndexIterator* ite
     auto inverted_index_query_type = _to_inverted_index_query_type(_match_type);
 
     if (is_string_type(column_desc->type()) ||
-        (column_desc->type() == OLAP_FIELD_TYPE_ARRAY &&
+        (column_desc->type() == FieldType::OLAP_FIELD_TYPE_ARRAY &&
          is_string_type(column_desc->get_sub_field(0)->type_info()->type()))) {
         StringRef match_value;
         int32_t length = _value.length();
@@ -55,13 +55,24 @@ Status MatchPredicate::evaluate(const Schema& schema, InvertedIndexIterator* ite
         match_value.replace(buffer, length); //is it safe?
         s = iterator->read_from_inverted_index(column_desc->name(), &match_value,
                                                inverted_index_query_type, num_rows, &roaring);
-    } else if (column_desc->type() == OLAP_FIELD_TYPE_ARRAY &&
+    } else if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_ARRAY &&
                is_numeric_type(column_desc->get_sub_field(0)->type_info()->type())) {
         char buf[column_desc->get_sub_field(0)->type_info()->size()];
         column_desc->get_sub_field(0)->from_string(buf, _value);
         s = iterator->read_from_inverted_index(column_desc->name(), buf, inverted_index_query_type,
                                                num_rows, &roaring, true);
     }
+
+    // mask out null_bitmap, since NULL cmp VALUE will produce NULL
+    //  and be treated as false in WHERE
+    // keep it after query, since query will try to read null_bitmap and put it to cache
+    InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+    RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap_cache_handle));
+    roaring::Roaring* null_bitmap = null_bitmap_cache_handle.get_bitmap();
+    if (null_bitmap) {
+        *bitmap -= *null_bitmap;
+    }
+
     *bitmap &= roaring;
     return s;
 }

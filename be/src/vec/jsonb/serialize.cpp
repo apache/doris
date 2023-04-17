@@ -29,7 +29,7 @@ namespace doris::vectorized {
 
 static inline bool is_column_null_at(int row, const IColumn* column, const doris::FieldType& type,
                                      const StringRef& data_ref) {
-    if (type != OLAP_FIELD_TYPE_ARRAY) {
+    if (type != FieldType::OLAP_FIELD_TYPE_ARRAY) {
         return data_ref.data == nullptr;
     } else {
         Field array;
@@ -39,11 +39,11 @@ static inline bool is_column_null_at(int row, const IColumn* column, const doris
 }
 
 static bool is_jsonb_blob_type(FieldType type) {
-    return type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_CHAR ||
-           type == OLAP_FIELD_TYPE_STRING || type == OLAP_FIELD_TYPE_STRUCT ||
-           type == OLAP_FIELD_TYPE_ARRAY || type == OLAP_FIELD_TYPE_MAP ||
-           type == OLAP_FIELD_TYPE_HLL || type == OLAP_FIELD_TYPE_OBJECT ||
-           type == OLAP_FIELD_TYPE_JSONB;
+    return type == FieldType::OLAP_FIELD_TYPE_VARCHAR || type == FieldType::OLAP_FIELD_TYPE_CHAR ||
+           type == FieldType::OLAP_FIELD_TYPE_STRING || type == FieldType::OLAP_FIELD_TYPE_STRUCT ||
+           type == FieldType::OLAP_FIELD_TYPE_ARRAY || type == FieldType::OLAP_FIELD_TYPE_MAP ||
+           type == FieldType::OLAP_FIELD_TYPE_HLL || type == FieldType::OLAP_FIELD_TYPE_OBJECT ||
+           type == FieldType::OLAP_FIELD_TYPE_JSONB;
 }
 
 // jsonb -> column value
@@ -168,7 +168,7 @@ static void serialize_column(Arena* mem_pool, const TabletColumn& tablet_column,
         jsonb_writer.writeStartBinary();
         jsonb_writer.writeBinary(value.data, value.size);
         jsonb_writer.writeEndBinary();
-    } else if (tablet_column.type() == OLAP_FIELD_TYPE_OBJECT) {
+    } else if (tablet_column.type() == FieldType::OLAP_FIELD_TYPE_OBJECT) {
         auto bitmap_value = (BitmapValue*)(data_ref.data);
         auto size = bitmap_value->getSizeInBytes();
         // serialize the content of string
@@ -177,7 +177,7 @@ static void serialize_column(Arena* mem_pool, const TabletColumn& tablet_column,
         jsonb_writer.writeStartBinary();
         jsonb_writer.writeBinary(reinterpret_cast<const char*>(ptr), size);
         jsonb_writer.writeEndBinary();
-    } else if (tablet_column.type() == OLAP_FIELD_TYPE_HLL) {
+    } else if (tablet_column.type() == FieldType::OLAP_FIELD_TYPE_HLL) {
         auto hll_value = (HyperLogLog*)(data_ref.data);
         auto size = hll_value->max_serialized_size();
         auto ptr = reinterpret_cast<char*>(mem_pool->alloc(size));
@@ -191,89 +191,90 @@ static void serialize_column(Arena* mem_pool, const TabletColumn& tablet_column,
         jsonb_writer.writeEndBinary();
     } else {
         switch (tablet_column.type()) {
-        case OLAP_FIELD_TYPE_BOOL: {
+        case FieldType::OLAP_FIELD_TYPE_BOOL: {
             int8_t val = *reinterpret_cast<const int8_t*>(data_ref.data);
             jsonb_writer.writeInt8(val);
             break;
         }
-        case OLAP_FIELD_TYPE_TINYINT: {
+        case FieldType::OLAP_FIELD_TYPE_TINYINT: {
             int8_t val = *reinterpret_cast<const int8_t*>(data_ref.data);
             jsonb_writer.writeInt8(val);
             break;
         }
-        case OLAP_FIELD_TYPE_SMALLINT: {
+        case FieldType::OLAP_FIELD_TYPE_SMALLINT: {
             int16_t val = *reinterpret_cast<const int16_t*>(data_ref.data);
             jsonb_writer.writeInt16(val);
             break;
         }
-        case OLAP_FIELD_TYPE_INT: {
+        case FieldType::OLAP_FIELD_TYPE_INT: {
             int32_t val = *reinterpret_cast<const int32_t*>(data_ref.data);
             jsonb_writer.writeInt32(val);
             break;
         }
-        case OLAP_FIELD_TYPE_BIGINT: {
+        case FieldType::OLAP_FIELD_TYPE_BIGINT: {
             int64_t val = *reinterpret_cast<const int64_t*>(data_ref.data);
             jsonb_writer.writeInt64(val);
             break;
         }
-        case OLAP_FIELD_TYPE_LARGEINT: {
+        case FieldType::OLAP_FIELD_TYPE_LARGEINT: {
             __int128_t val = *reinterpret_cast<const __int128_t*>(data_ref.data);
             jsonb_writer.writeInt128(val);
             break;
         }
-        case OLAP_FIELD_TYPE_FLOAT: {
+        case FieldType::OLAP_FIELD_TYPE_FLOAT: {
             float val = *reinterpret_cast<const float*>(data_ref.data);
             jsonb_writer.writeFloat(val);
             break;
         }
-        case OLAP_FIELD_TYPE_DOUBLE: {
+        case FieldType::OLAP_FIELD_TYPE_DOUBLE: {
             double val = *reinterpret_cast<const double*>(data_ref.data);
             jsonb_writer.writeDouble(val);
             break;
         }
-        case OLAP_FIELD_TYPE_DATE: {
+        case FieldType::OLAP_FIELD_TYPE_DATE: {
             const auto* datetime_cur = reinterpret_cast<const VecDateTimeValue*>(data_ref.data);
             jsonb_writer.writeInt32(datetime_cur->to_olap_date());
             break;
         }
-        case OLAP_FIELD_TYPE_DATETIME: {
+        case FieldType::OLAP_FIELD_TYPE_DATETIME: {
             const auto* datetime_cur = reinterpret_cast<const VecDateTimeValue*>(data_ref.data);
             jsonb_writer.writeInt64(datetime_cur->to_olap_datetime());
             break;
         }
-        case OLAP_FIELD_TYPE_DATEV2: {
+        case FieldType::OLAP_FIELD_TYPE_DATEV2: {
             uint32_t val = *reinterpret_cast<const uint32_t*>(data_ref.data);
             jsonb_writer.writeInt32(val);
             break;
         }
-        case OLAP_FIELD_TYPE_DATETIMEV2: {
+        case FieldType::OLAP_FIELD_TYPE_DATETIMEV2: {
             uint64_t val = *reinterpret_cast<const uint64_t*>(data_ref.data);
             jsonb_writer.writeInt64(val);
             break;
         }
-        case OLAP_FIELD_TYPE_DECIMAL32: {
+        case FieldType::OLAP_FIELD_TYPE_DECIMAL32: {
             Decimal32::NativeType val =
                     *reinterpret_cast<const Decimal32::NativeType*>(data_ref.data);
             jsonb_writer.writeInt32(val);
             break;
         }
-        case OLAP_FIELD_TYPE_DECIMAL64: {
+        case FieldType::OLAP_FIELD_TYPE_DECIMAL64: {
             Decimal64::NativeType val =
                     *reinterpret_cast<const Decimal64::NativeType*>(data_ref.data);
             jsonb_writer.writeInt64(val);
             break;
         }
-        case OLAP_FIELD_TYPE_DECIMAL128I: {
+        case FieldType::OLAP_FIELD_TYPE_DECIMAL128I: {
             Decimal128I::NativeType val =
                     *reinterpret_cast<const Decimal128I::NativeType*>(data_ref.data);
             jsonb_writer.writeInt128(val);
             break;
         }
-        case OLAP_FIELD_TYPE_DECIMAL:
-            LOG(FATAL) << "OLAP_FIELD_TYPE_DECIMAL not implemented use DecimalV3 instead";
+        case FieldType::OLAP_FIELD_TYPE_DECIMAL:
+            LOG(FATAL)
+                    << "FieldType::OLAP_FIELD_TYPE_DECIMAL not implemented use DecimalV3 instead";
             break;
         default:
-            LOG(FATAL) << "unknow type " << tablet_column.type();
+            LOG(FATAL) << "unknow type " << int(tablet_column.type());
             break;
         }
     }

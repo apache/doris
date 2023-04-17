@@ -25,6 +25,7 @@
 #include "util/binary_cast.hpp"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_vector.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_number.h"
@@ -997,6 +998,33 @@ struct CurrentTimeImpl {
         }
         block.get_by_position(result).column =
                 ColumnConst::create(std::move(col_to), input_rows_count);
+        return Status::OK();
+    }
+};
+
+struct TimeToSecImpl {
+    using ReturnType = DataTypeInt32;
+    static constexpr auto name = "time_to_sec";
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          size_t result, size_t input_rows_count) {
+        auto res_col = ColumnVector<Int32>::create();
+        const auto& [argument_column, arg_is_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+        const auto& column_data = assert_cast<const ColumnFloat64&>(*argument_column);
+        if (arg_is_const) {
+            double time = column_data.get_element(0);
+            res_col->insert_value(static_cast<int>(time));
+            block.replace_by_position(result,
+                                      ColumnConst::create(std::move(res_col), input_rows_count));
+        } else {
+            auto& res_data = res_col->get_data();
+            res_data.resize(input_rows_count);
+            for (int i = 0; i < input_rows_count; ++i) {
+                double time = column_data.get_element(i);
+                res_data[i] = static_cast<int>(time);
+            }
+            block.replace_by_position(result, std::move(res_col));
+        }
         return Status::OK();
     }
 };

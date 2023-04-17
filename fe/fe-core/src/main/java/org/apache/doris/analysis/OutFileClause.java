@@ -62,7 +62,7 @@ public class OutFileClause {
     private static final Logger LOG = LogManager.getLogger(OutFileClause.class);
 
     public static final List<String> RESULT_COL_NAMES = Lists.newArrayList();
-    public static final List<PrimitiveType> RESULT_COL_TYPES = Lists.newArrayList();
+    public static final List<Type> RESULT_COL_TYPES = Lists.newArrayList();
     public static final Map<String, TParquetRepetitionType> PARQUET_REPETITION_TYPE_MAP = Maps.newHashMap();
     public static final Map<String, TParquetDataType> PARQUET_DATA_TYPE_MAP = Maps.newHashMap();
     public static final Map<String, TParquetCompressionType> PARQUET_COMPRESSION_TYPE_MAP = Maps.newHashMap();
@@ -75,10 +75,10 @@ public class OutFileClause {
         RESULT_COL_NAMES.add("FileSize");
         RESULT_COL_NAMES.add("URL");
 
-        RESULT_COL_TYPES.add(PrimitiveType.INT);
-        RESULT_COL_TYPES.add(PrimitiveType.BIGINT);
-        RESULT_COL_TYPES.add(PrimitiveType.BIGINT);
-        RESULT_COL_TYPES.add(PrimitiveType.VARCHAR);
+        RESULT_COL_TYPES.add(ScalarType.createType(PrimitiveType.INT));
+        RESULT_COL_TYPES.add(ScalarType.createType(PrimitiveType.BIGINT));
+        RESULT_COL_TYPES.add(ScalarType.createType(PrimitiveType.BIGINT));
+        RESULT_COL_TYPES.add(ScalarType.createType(PrimitiveType.VARCHAR));
 
         PARQUET_REPETITION_TYPE_MAP.put("required", TParquetRepetitionType.REQUIRED);
         PARQUET_REPETITION_TYPE_MAP.put("repeated", TParquetRepetitionType.REPEATED);

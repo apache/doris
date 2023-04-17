@@ -73,6 +73,7 @@ set(VEC_FILES
   common/sort/vsort_exec_exprs.cpp
   common/string_utils/string_utils.cpp
   common/hex.cpp
+  common/allocator.cpp
   core/block.cpp
   core/block_spill_reader.cpp
   core/block_spill_writer.cpp
@@ -193,6 +194,7 @@ set(VEC_FILES
   functions/array/function_array_pushfront.cpp
   functions/array/function_array_first_index.cpp
   functions/function_map.cpp
+  functions/function_struct.cpp
   exprs/table_function/vexplode_json_array.cpp
   functions/math.cpp
   functions/function_bitmap.cpp

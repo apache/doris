@@ -112,6 +112,8 @@ create directory and download doris
 su <your user>
 mkdir code && cd code
 git clone https://github.com/apache/doris.git
+cd doris
+git submodule update --init --recursive
 ```
 
 ## Compile

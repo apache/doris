@@ -21,16 +21,17 @@ import org.apache.doris.alter.AlterCancelException;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalSchemaCache;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.statistics.AnalysisTaskInfo;
-import org.apache.doris.statistics.AnalysisTaskScheduler;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.thrift.TTableDescriptor;
 
@@ -104,7 +105,13 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     }
 
     protected void makeSureInitialized() {
-        throw new NotImplementedException();
+        try {
+            // getDbOrAnalysisException will call makeSureInitialized in ExternalCatalog.
+            ExternalDatabase db = catalog.getDbOrAnalysisException(dbName);
+            db.makeSureInitialized();
+        } catch (AnalysisException e) {
+            Util.logAndThrowRuntimeException(LOG, String.format("Exception to get db %s", dbName), e);
+        }
     }
 
     @Override
@@ -301,7 +308,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     }
 
     @Override
-    public BaseAnalysisTask createAnalysisTask(AnalysisTaskScheduler scheduler, AnalysisTaskInfo info) {
+    public BaseAnalysisTask createAnalysisTask(AnalysisTaskInfo info) {
         throw new NotImplementedException();
     }
 
@@ -319,6 +326,10 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
      */
     public List<Column> initSchema() {
         throw new NotImplementedException("implement in sub class");
+    }
+
+    public void unsetObjectCreated() {
+        this.objectCreated = false;
     }
 
     @Override

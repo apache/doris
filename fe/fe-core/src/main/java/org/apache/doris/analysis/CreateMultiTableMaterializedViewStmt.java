@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -61,6 +62,10 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
+        if (!Config.enable_mtmv) {
+            throw new UserException("Multi table materialized view was not graduated."
+                    + " You should set `enable_mtmv = true` in fe to enabled it manually.");
+        }
         refreshInfo.analyze(analyzer);
         queryStmt.setNeedToSql(true);
         queryStmt.setToSQLWithHint(true);

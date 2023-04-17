@@ -84,13 +84,7 @@ public:
             if (!exists) {
                 continue;
             }
-            bool is_dir = true;
-            RETURN_IF_ERROR(io::global_local_filesystem()->is_directory(p, &is_dir));
-            if (is_dir) {
-                RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(p));
-            } else {
-                RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(p));
-            }
+            RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory_or_file(p));
         }
         return Status::OK();
     }

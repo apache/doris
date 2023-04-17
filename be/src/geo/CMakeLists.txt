@@ -25,9 +25,12 @@ add_library(Geo STATIC
     geo_common.cpp
     geo_types.cpp
     wkt_parse.cpp
+    wkb_parse.cpp
     ${GENSRC_DIR}/geo/wkt_lex.l.cpp
     ${GENSRC_DIR}/geo/wkt_yacc.y.cpp
-)
+    geo_tobinary.cpp
+    ByteOrderValues.cpp
+    machine.h)
 
 include(CheckCXXCompilerFlag)
 set(WARNING_OPTION "-Wno-unused-but-set-variable")

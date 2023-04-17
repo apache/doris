@@ -102,6 +102,10 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
         return excepts;
     }
 
+    public boolean isAllSlots() {
+        return projects.stream().allMatch(NamedExpression::isSlot);
+    }
+
     @Override
     public List<Slot> computeOutput() {
         return projects.stream()

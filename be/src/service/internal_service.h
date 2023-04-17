@@ -17,10 +17,21 @@
 
 #pragma once
 
+#include <gen_cpp/internal_service.pb.h>
+#include <stdint.h>
+
+#include <string>
+
 #include "common/status.h"
-#include "gen_cpp/internal_service.pb.h"
 #include "runtime/cache/result_cache.h"
 #include "util/priority_thread_pool.hpp"
+
+namespace google {
+namespace protobuf {
+class Closure;
+class RpcController;
+} // namespace protobuf
+} // namespace google
 
 namespace brpc {
 class Controller;
@@ -29,6 +40,8 @@ class Controller;
 namespace doris {
 
 class ExecEnv;
+class PHandShakeRequest;
+class PHandShakeResponse;
 
 class PInternalServiceImpl : public PBackendService {
 public:
@@ -159,6 +172,11 @@ public:
                            PTabletKeyLookupResponse* response,
                            google::protobuf::Closure* done) override;
 
+    void get_column_ids_by_tablet_ids(google::protobuf::RpcController* controller,
+                                      const PFetchColIdsRequest* request,
+                                      PFetchColIdsResponse* response,
+                                      google::protobuf::Closure* done) override;
+
 private:
     Status _exec_plan_fragment(const std::string& s_request, PFragmentRequestVersion version,
                                bool compact);
@@ -187,6 +205,11 @@ private:
                                      int64_t txn_id, int64_t tablet_id, int64_t node_id,
                                      bool is_succeed);
     Status _multi_get(const PMultiGetRequest* request, PMultiGetResponse* response);
+
+    void _get_column_ids_by_tablet_ids(google::protobuf::RpcController* controller,
+                                       const PFetchColIdsRequest* request,
+                                       PFetchColIdsResponse* response,
+                                       google::protobuf::Closure* done);
 
 private:
     ExecEnv* _exec_env;

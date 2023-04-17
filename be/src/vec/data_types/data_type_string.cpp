@@ -22,15 +22,12 @@
 
 #include <string_view>
 
+#include "util/sse_util.hpp"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/field.h"
-
-#ifdef __SSE2__
-#include <emmintrin.h>
-#endif
 
 namespace doris::vectorized {
 

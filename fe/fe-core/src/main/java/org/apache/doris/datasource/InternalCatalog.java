@@ -974,7 +974,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
 
-        if (table instanceof MaterializedView && Config.enable_mtmv_scheduler_framework) {
+        if (table instanceof MaterializedView) {
             List<Long> dropIds = Env.getCurrentEnv().getMTMVJobManager().showJobs(db.getFullName(), table.getName())
                     .stream().map(MTMVJob::getId).collect(Collectors.toList());
             Env.getCurrentEnv().getMTMVJobManager().dropJobs(dropIds, isReplay);
@@ -1107,6 +1107,11 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         // check if db exists
         Database db = (Database) getDbOrDdlException(dbName);
+        // InfoSchemaDb can not create table
+        if (db instanceof InfoSchemaDb) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName,
+                    ErrorCode.ERR_CANT_CREATE_TABLE.getCode(), "not supported create table in this database");
+        }
 
         // only internal table should check quota and cluster capacity
         if (!stmt.isExternal()) {
@@ -2318,8 +2323,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw e;
         }
 
-        if (olapTable instanceof MaterializedView && Config.enable_mtmv_scheduler_framework
-                && MTMVJobFactory.isGenerateJob((MaterializedView) olapTable)) {
+        if (olapTable instanceof MaterializedView && MTMVJobFactory.isGenerateJob((MaterializedView) olapTable)) {
             List<MTMVJob> jobs = MTMVJobFactory.buildJob((MaterializedView) olapTable, db.getFullName());
             for (MTMVJob job : jobs) {
                 Env.getCurrentEnv().getMTMVJobManager().createJob(job, false);
@@ -3511,5 +3515,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         getEsRepository().loadTableFromCatalog();
         LOG.info("finished replay databases from image");
         return newChecksum;
+    }
+
+    public ConcurrentHashMap<Long, Database> getIdToDb() {
+        return new ConcurrentHashMap<>(idToDb);
     }
 }

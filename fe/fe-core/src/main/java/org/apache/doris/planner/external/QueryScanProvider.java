@@ -17,6 +17,8 @@
 
 package org.apache.doris.planner.external;
 
+import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.HdfsResource;
@@ -24,9 +26,9 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
+import org.apache.doris.planner.FileLoadScanNode;
 import org.apache.doris.planner.Split;
 import org.apache.doris.planner.Splitter;
-import org.apache.doris.planner.external.ExternalFileScanNode.ParamCreateContext;
 import org.apache.doris.planner.external.iceberg.IcebergScanProvider;
 import org.apache.doris.planner.external.iceberg.IcebergSplit;
 import org.apache.doris.system.Backend;
@@ -59,21 +61,33 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
     public abstract TFileAttributes getFileAttributes() throws UserException;
 
     @Override
-    public void createScanRangeLocations(ParamCreateContext context, FederationBackendPolicy backendPolicy,
-            List<TScanRangeLocations> scanRangeLocations) throws UserException {
+    public void createScanRangeLocations(FileLoadScanNode.ParamCreateContext context,
+                                         FederationBackendPolicy backendPolicy,
+                                         List<TScanRangeLocations> scanRangeLocations) throws UserException {
+    }
+
+    @Override
+    public FileLoadScanNode.ParamCreateContext createContext(Analyzer analyzer) throws UserException {
+        return null;
+    }
+
+    @Override
+    public void createScanRangeLocations(List<Expr> conjuncts, TFileScanRangeParams params,
+                                         FederationBackendPolicy backendPolicy,
+                                         List<TScanRangeLocations> scanRangeLocations) throws UserException {
         long start = System.currentTimeMillis();
-        List<Split> inputSplits = splitter.getSplits(context.conjuncts);
+        List<Split> inputSplits = splitter.getSplits(conjuncts);
         this.inputSplitNum = inputSplits.size();
         if (inputSplits.isEmpty()) {
             return;
         }
         FileSplit inputSplit = (FileSplit) inputSplits.get(0);
         TFileType locationType = getLocationType();
-        context.params.setFileType(locationType);
+        params.setFileType(locationType);
         TFileFormatType fileFormatType = getFileFormatType();
-        context.params.setFormatType(getFileFormatType());
+        params.setFormatType(getFileFormatType());
         if (fileFormatType == TFileFormatType.FORMAT_CSV_PLAIN || fileFormatType == TFileFormatType.FORMAT_JSON) {
-            context.params.setFileAttributes(getFileAttributes());
+            params.setFileAttributes(getFileAttributes());
         }
 
         // set hdfs params for hdfs file type.
@@ -92,21 +106,21 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
             }
             THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(locationProperties);
             tHdfsParams.setFsName(fsName);
-            context.params.setHdfsParams(tHdfsParams);
+            params.setHdfsParams(tHdfsParams);
 
             if (locationType == TFileType.FILE_BROKER) {
                 FsBroker broker = Env.getCurrentEnv().getBrokerMgr().getAnyAliveBroker();
                 if (broker == null) {
                     throw new UserException("No alive broker.");
                 }
-                context.params.addToBrokerAddresses(new TNetworkAddress(broker.ip, broker.port));
+                params.addToBrokerAddresses(new TNetworkAddress(broker.ip, broker.port));
             }
         } else if (locationType == TFileType.FILE_S3) {
-            context.params.setProperties(locationProperties);
+            params.setProperties(locationProperties);
         }
 
         for (Split split : inputSplits) {
-            TScanRangeLocations curLocations = newLocations(context.params, backendPolicy);
+            TScanRangeLocations curLocations = newLocations(params, backendPolicy);
             FileSplit fileSplit = (FileSplit) split;
             List<String> pathPartitionKeys = getPathPartitionKeys();
             List<String> partitionValuesFromPath = BrokerUtil.parseColumnsFromPath(fileSplit.getPath().toString(),

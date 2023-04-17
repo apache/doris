@@ -94,6 +94,7 @@ public class ColumnStatistic {
     public final LiteralExpr minExpr;
     public final LiteralExpr maxExpr;
 
+    // assign value when do stats estimation.
     public final Histogram histogram;
 
     public ColumnStatistic(double count, double ndv, double originalNdv, double avgSizeByte,
@@ -154,7 +155,8 @@ public class ColumnStatistic {
             }
             columnStatisticBuilder.setSelectivity(1.0);
             columnStatisticBuilder.setOriginalNdv(ndv);
-            Histogram histogram = Env.getCurrentEnv().getStatisticsCache().getHistogram(tblId, idxId, colName);
+            Histogram histogram = Env.getCurrentEnv().getStatisticsCache().getHistogram(tblId, idxId, colName)
+                    .orElse(null);
             columnStatisticBuilder.setHistogram(histogram);
             return columnStatisticBuilder.build();
         } catch (Exception e) {
@@ -249,26 +251,15 @@ public class ColumnStatistic {
         }
     }
 
+    public boolean notEnclosed(ColumnStatistic other) {
+        return !enclosed(other);
+    }
+
     /**
-     * the percentage of intersection range to this range
-     * @param other
-     * @return
+     * Return true if range of this is enclosed by another.
      */
-    public double coverage(ColumnStatistic other) {
-        if (isUnKnown) {
-            return 1.0;
-        }
-        if (minValue == maxValue) {
-            if (other.minValue <= minValue && minValue <= other.maxValue) {
-                return 1.0;
-            } else {
-                return 0.0;
-            }
-        } else {
-            double myRange = maxValue - minValue;
-            double interSection = Math.min(maxValue, other.maxValue) - Math.max(minValue, other.minValue);
-            return interSection / myRange;
-        }
+    public boolean enclosed(ColumnStatistic other) {
+        return this.maxValue >= other.maxValue && this.maxValue <= other.maxValue;
     }
 
     @Override

@@ -18,6 +18,7 @@
 package org.apache.doris.statistics;
 
 import java.util.Objects;
+import java.util.StringJoiner;
 
 public class StatisticsCacheKey {
 
@@ -27,6 +28,8 @@ public class StatisticsCacheKey {
     public final long tableId;
     public final long idxId;
     public final String colName;
+
+    private static final String DELIMITER = "-";
 
     public StatisticsCacheKey(long tableId, String colName) {
         this(tableId, -1, colName);
@@ -53,5 +56,14 @@ public class StatisticsCacheKey {
         }
         StatisticsCacheKey k = (StatisticsCacheKey) obj;
         return this.tableId == k.tableId && this.idxId == k.idxId && this.colName.equals(k.colName);
+    }
+
+    @Override
+    public String toString() {
+        StringJoiner sj = new StringJoiner(DELIMITER);
+        sj.add(String.valueOf(tableId));
+        sj.add(String.valueOf(idxId));
+        sj.add(colName);
+        return sj.toString();
     }
 }

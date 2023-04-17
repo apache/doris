@@ -24,11 +24,8 @@
 #include "util/jsonb_error.h"
 #include "util/jsonb_parser_simd.h"
 #include "util/jsonb_utils.h"
-#include "vec/common/string_ref.h"
-
-#ifdef __SSE4_2__
 #include "util/sse_util.hpp"
-#endif
+#include "vec/common/string_ref.h"
 
 namespace doris {
 

@@ -88,10 +88,10 @@ TEST(BlockSerializeTest, Array) {
     TabletColumn c2;
     c1.set_name("k1");
     c1.set_unique_id(1);
-    c1.set_type(OLAP_FIELD_TYPE_ARRAY);
+    c1.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
     c2.set_name("k2");
     c2.set_unique_id(2);
-    c2.set_type(OLAP_FIELD_TYPE_ARRAY);
+    c2.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
     schema.append_column(c1);
     schema.append_column(c2);
     // array int and array string
@@ -138,13 +138,13 @@ TEST(BlockSerializeTest, JsonbBlock) {
     vectorized::Block block;
     TabletSchema schema;
     std::vector<std::tuple<std::string, FieldType, int, PrimitiveType>> cols {
-            {"k1", OLAP_FIELD_TYPE_INT, 1, TYPE_INT},
-            {"k2", OLAP_FIELD_TYPE_STRING, 2, TYPE_STRING},
-            {"k3", OLAP_FIELD_TYPE_DECIMAL128I, 3, TYPE_DECIMAL128I},
-            {"k4", OLAP_FIELD_TYPE_STRING, 4, TYPE_STRING},
-            {"k5", OLAP_FIELD_TYPE_DECIMAL128I, 5, TYPE_DECIMAL128I},
-            {"k6", OLAP_FIELD_TYPE_INT, 6, TYPE_INT},
-            {"k9", OLAP_FIELD_TYPE_DATEV2, 9, TYPE_DATEV2}};
+            {"k1", FieldType::OLAP_FIELD_TYPE_INT, 1, TYPE_INT},
+            {"k2", FieldType::OLAP_FIELD_TYPE_STRING, 2, TYPE_STRING},
+            {"k3", FieldType::OLAP_FIELD_TYPE_DECIMAL128I, 3, TYPE_DECIMAL128I},
+            {"k4", FieldType::OLAP_FIELD_TYPE_STRING, 4, TYPE_STRING},
+            {"k5", FieldType::OLAP_FIELD_TYPE_DECIMAL128I, 5, TYPE_DECIMAL128I},
+            {"k6", FieldType::OLAP_FIELD_TYPE_INT, 6, TYPE_INT},
+            {"k9", FieldType::OLAP_FIELD_TYPE_DATEV2, 9, TYPE_DATEV2}};
     for (auto t : cols) {
         TabletColumn c;
         c.set_name(std::get<0>(t));

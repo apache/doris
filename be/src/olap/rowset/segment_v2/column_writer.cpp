@@ -133,10 +133,10 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
                 null_options.meta = opts.meta->add_children_columns();
                 null_options.meta->set_column_id(column->get_subtype_count() + 1);
                 null_options.meta->set_unique_id(column->get_subtype_count() + 1);
-                null_options.meta->set_type(null_type);
+                null_options.meta->set_type(int(null_type));
                 null_options.meta->set_is_nullable(false);
                 null_options.meta->set_length(
-                        get_scalar_type_info<OLAP_FIELD_TYPE_TINYINT>()->size());
+                        get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_TINYINT>()->size());
                 null_options.meta->set_encoding(DEFAULT_ENCODING);
                 null_options.meta->set_compression(opts.meta->compression());
 
@@ -190,10 +190,10 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
             length_options.meta = opts.meta->add_children_columns();
             length_options.meta->set_column_id(2);
             length_options.meta->set_unique_id(2);
-            length_options.meta->set_type(length_type);
+            length_options.meta->set_type(int(length_type));
             length_options.meta->set_is_nullable(false);
             length_options.meta->set_length(
-                    get_scalar_type_info<OLAP_FIELD_TYPE_UNSIGNED_BIGINT>()->size());
+                    get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT>()->size());
             length_options.meta->set_encoding(DEFAULT_ENCODING);
             length_options.meta->set_compression(opts.meta->compression());
 
@@ -218,10 +218,10 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
                 null_options.meta = opts.meta->add_children_columns();
                 null_options.meta->set_column_id(3);
                 null_options.meta->set_unique_id(3);
-                null_options.meta->set_type(null_type);
+                null_options.meta->set_type(int(null_type));
                 null_options.meta->set_is_nullable(false);
                 null_options.meta->set_length(
-                        get_scalar_type_info<OLAP_FIELD_TYPE_TINYINT>()->size());
+                        get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_TINYINT>()->size());
                 null_options.meta->set_encoding(DEFAULT_ENCODING);
                 null_options.meta->set_compression(opts.meta->compression());
 
@@ -281,10 +281,10 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
             length_options.meta = opts.meta->add_children_columns();
             length_options.meta->set_column_id(column->get_subtype_count() + 1);
             length_options.meta->set_unique_id(column->get_subtype_count() + 1);
-            length_options.meta->set_type(length_type);
+            length_options.meta->set_type(int(length_type));
             length_options.meta->set_is_nullable(false);
             length_options.meta->set_length(
-                    get_scalar_type_info<OLAP_FIELD_TYPE_UNSIGNED_BIGINT>()->size());
+                    get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT>()->size());
             length_options.meta->set_encoding(DEFAULT_ENCODING);
             length_options.meta->set_compression(opts.meta->compression());
 
@@ -308,10 +308,10 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
                 null_options.meta = opts.meta->add_children_columns();
                 null_options.meta->set_column_id(column->get_subtype_count() + 2);
                 null_options.meta->set_unique_id(column->get_subtype_count() + 2);
-                null_options.meta->set_type(null_type);
+                null_options.meta->set_type(int(null_type));
                 null_options.meta->set_is_nullable(false);
                 null_options.meta->set_length(
-                        get_scalar_type_info<OLAP_FIELD_TYPE_TINYINT>()->size());
+                        get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_TINYINT>()->size());
                 null_options.meta->set_encoding(DEFAULT_ENCODING);
                 null_options.meta->set_compression(opts.meta->compression());
 
@@ -340,7 +340,7 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
         }
         default:
             return Status::NotSupported("unsupported type for ColumnWriter: {}",
-                                        std::to_string(field->type()));
+                                        std::to_string(int(field->type())));
         }
     }
 }
@@ -367,10 +367,11 @@ Status ColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** pt
     auto next_run_step = [&]() {
         size_t step = 1;
         for (auto i = offset + 1; i < num_rows; ++i) {
-            if (null_map[offset] == null_map[i])
+            if (null_map[offset] == null_map[i]) {
                 step++;
-            else
+            } else {
                 break;
+            }
         }
         return step;
     };

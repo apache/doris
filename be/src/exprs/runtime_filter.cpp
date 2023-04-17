@@ -17,27 +17,46 @@
 
 #include "runtime_filter.h"
 
-#include <memory>
+#include <gen_cpp/Opcodes_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <stddef.h>
 
+#include <algorithm>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <map>
+#include <memory>
+#include <mutex>
+#include <ostream>
+#include <utility>
+
+#include "common/logging.h"
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "exprs/bitmapfilter_predicate.h"
+#include "exprs/bloom_filter_func.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
 #include "exprs/minmax_predicate.h"
-#include "gen_cpp/internal_service.pb.h"
+#include "gutil/strings/substitute.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/large_int_value.h"
 #include "runtime/primitive_type.h"
 #include "runtime/runtime_filter_mgr.h"
+#include "util/bitmap_value.h"
 #include "util/runtime_profile.h"
 #include "util/string_parser.hpp"
 #include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
+#include "vec/common/assert_cast.h"
 #include "vec/exprs/vbitmap_predicate.h"
 #include "vec/exprs/vbloom_predicate.h"
 #include "vec/exprs/vdirect_in_predicate.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
 #include "vec/runtime/shared_hash_table_controller.h"
@@ -334,7 +353,8 @@ public:
               _fragment_instance_id(params->fragment_instance_id),
               _filter_id(params->filter_id),
               _use_batch(IRuntimeFilter::enable_use_batch(_state->be_exec_version(),
-                                                          _column_return_type)) {}
+                                                          _column_return_type)),
+              _use_new_hash(_state->be_exec_version() >= 2) {}
     // for a 'tmp' runtime predicate wrapper
     // only could called assign method or as a param for merge
     RuntimePredicateWrapper(RuntimeState* state, ObjectPool* pool, PrimitiveType column_type,
@@ -347,7 +367,8 @@ public:
               _fragment_instance_id(fragment_instance_id),
               _filter_id(filter_id),
               _use_batch(IRuntimeFilter::enable_use_batch(_state->be_exec_version(),
-                                                          _column_return_type)) {}
+                                                          _column_return_type)),
+              _use_new_hash(_state->be_exec_version() >= 2) {}
     // init runtime filter wrapper
     // alloc memory to init runtime filter function
     Status init(const RuntimeFilterParams* params) {
@@ -433,7 +454,11 @@ public:
         }
         case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
             if (_is_bloomfilter) {
-                _context.bloom_filter_func->insert(data);
+                if (_use_new_hash) {
+                    _context.bloom_filter_func->insert_crc32_hash(data);
+                } else {
+                    _context.bloom_filter_func->insert(data);
+                }
             } else {
                 _context.hybrid_set->insert(data);
             }
@@ -1011,6 +1036,10 @@ private:
 
     // When _column_return_type is invalid, _use_batch will be always false.
     bool _use_batch;
+
+    // When _use_new_hash is set to true, use the new hash method.
+    // This is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
+    const bool _use_new_hash;
 };
 
 Status IRuntimeFilter::create(RuntimeState* state, ObjectPool* pool, const TRuntimeFilterDesc* desc,

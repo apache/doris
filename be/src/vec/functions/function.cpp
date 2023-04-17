@@ -70,7 +70,7 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
             } else {
                 if (!mutable_result_null_map_column) {
                     mutable_result_null_map_column =
-                            (*std::move(result_null_map_column)).assume_mutable();
+                            std::move(result_null_map_column)->assume_mutable();
                 }
 
                 NullMap& result_null_map =
@@ -166,15 +166,24 @@ Status PreparedFunctionImpl::default_implementation_for_constant_arguments(
         !all_arguments_are_constant(block, args)) {
         return Status::OK();
     }
+
     // now all columns is const.
     Block temporary_block;
 
     size_t arguments_size = args.size();
     for (size_t arg_num = 0; arg_num < arguments_size; ++arg_num) {
         const ColumnWithTypeAndName& column = block.get_by_position(args[arg_num]);
-        temporary_block.insert(
-                {assert_cast<const ColumnConst*>(column.column.get())->get_data_column_ptr(),
-                 column.type, column.name});
+        // Columns in const_list --> column_const,    others --> nested_column
+        // that's because some functions supposes some specific columns always constant.
+        // If we unpack it, there will be unnecessary cost of virtual judge.
+        if (args_expect_const.end() !=
+            std::find(args_expect_const.begin(), args_expect_const.end(), arg_num)) {
+            temporary_block.insert({column.column, column.type, column.name});
+        } else {
+            temporary_block.insert(
+                    {assert_cast<const ColumnConst*>(column.column.get())->get_data_column_ptr(),
+                     column.type, column.name});
+        }
     }
 
     temporary_block.insert(block.get_by_position(result));
