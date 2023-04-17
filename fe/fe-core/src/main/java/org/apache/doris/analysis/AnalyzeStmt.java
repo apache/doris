@@ -337,7 +337,7 @@ public class AnalyzeStmt extends DdlStmt {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("ANALYZE");
+        sb.append("ANALYZE TABLE ");
 
         if (tableName != null) {
             sb.append(" ");
