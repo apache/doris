@@ -291,6 +291,9 @@ public class StatisticsUtil {
         return tableIf.getColumn(columnName);
     }
 
+    /**
+     * Throw RuntimeException if table not exists.
+     */
     @SuppressWarnings({"unchecked", "rawtypes"})
     public static TableIf findTable(String catalogName, String dbName, String tblName) throws Throwable {
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr()
