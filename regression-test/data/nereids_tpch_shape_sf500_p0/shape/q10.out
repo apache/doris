@@ -5,22 +5,20 @@ PhysicalTopN
 ----PhysicalTopN
 ------PhysicalProject
 --------hashAgg[LOCAL]
-----------PhysicalDistribute
-------------PhysicalProject
---------------hashJoin[INNER_JOIN](lineitem.l_orderkey = orders.o_orderkey)
+----------PhysicalProject
+------------hashJoin[INNER_JOIN](customer.c_nationkey = nation.n_nationkey)
+--------------hashJoin[INNER_JOIN](customer.c_custkey = orders.o_custkey)
 ----------------PhysicalProject
-------------------filter((lineitem.l_returnflag = 'R'))
---------------------PhysicalOlapScan[lineitem]
+------------------PhysicalOlapScan[customer]
 ----------------PhysicalDistribute
-------------------hashJoin[INNER_JOIN](customer.c_nationkey = nation.n_nationkey)
---------------------hashJoin[INNER_JOIN](customer.c_custkey = orders.o_custkey)
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[customer]
-----------------------PhysicalDistribute
-------------------------PhysicalProject
---------------------------filter((orders.o_orderdate < 1994-01-01)(orders.o_orderdate >= 1993-10-01))
-----------------------------PhysicalOlapScan[orders]
---------------------PhysicalDistribute
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[nation]
+------------------hashJoin[INNER_JOIN](lineitem.l_orderkey = orders.o_orderkey)
+--------------------PhysicalProject
+----------------------filter((lineitem.l_returnflag = 'R'))
+------------------------PhysicalOlapScan[lineitem]
+--------------------PhysicalProject
+----------------------filter((orders.o_orderdate < 1994-01-01)(orders.o_orderdate >= 1993-10-01))
+------------------------PhysicalOlapScan[orders]
+--------------PhysicalDistribute
+----------------PhysicalProject
+------------------PhysicalOlapScan[nation]
 
