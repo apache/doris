@@ -128,7 +128,7 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
 
     public void createResourceGroup(CreateResourceGroupStmt stmt) throws DdlException {
         if (!Config.enable_resource_group) {
-            throw new DdlException("Please add `enable_resource_group=true` in fe.conf to enable resource group.");
+            throw new DdlException("unsupported feature now,coming soon");
         }
 
         ResourceGroup resourceGroup = ResourceGroup.create(stmt.getResourceGroupName(), stmt.getProperties());
