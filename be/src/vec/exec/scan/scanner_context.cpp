@@ -55,7 +55,7 @@ Status ScannerContext::init() {
     // 1. Calculate max concurrency
     // TODO: now the max thread num <= config::doris_scanner_thread_pool_thread_num / 4
     // should find a more reasonable value.
-    _max_thread_num = _state->shared_scan_opt() ? config::doris_scanner_thread_pool_thread_num
+    _max_thread_num = _parent->_shared_scan_opt ? config::doris_scanner_thread_pool_thread_num
                                                 : config::doris_scanner_thread_pool_thread_num / 4;
     _max_thread_num = _max_thread_num == 0 ? 1 : _max_thread_num;
     DCHECK(_max_thread_num > 0);
