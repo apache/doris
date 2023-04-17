@@ -614,19 +614,17 @@ inline T StringParser::string_to_decimal(const char* s, int len, int type_precis
             // an exponent will be made later.
             if (LIKELY(type_precision > precision)) {
                 value = (value * 10) + (c - '0'); // Benchmarks are faster with parenthesis...
+            } else {
+                *result = StringParser::PARSE_OVERFLOW;
+                value = is_negative ? vectorized::min_decimal_value<vectorized::Decimal<T>>(
+                                              type_precision)
+                                    : vectorized::max_decimal_value<vectorized::Decimal<T>>(
+                                              type_precision);
+                return value;
             }
             DCHECK(value >= 0); // For some reason //DCHECK_GE doesn't work with __int128.
             ++precision;
             scale += found_dot;
-            if (precision > type_precision) {
-                if constexpr (std::is_same_v<int32_t, T>) {
-                    value = vectorized::max_decimal_value<vectorized::Decimal32>();
-                } else if constexpr (std::is_same_v<int64_t, T>) {
-                    value = vectorized::max_decimal_value<vectorized::Decimal64>();
-                } else {
-                    value = vectorized::max_decimal_value<vectorized::Decimal128>();
-                }
-            }
         } else if (c == '.' && LIKELY(!found_dot)) {
             found_dot = 1;
         } else if ((c == 'e' || c == 'E') && LIKELY(!found_exponent)) {
