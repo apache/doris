@@ -54,6 +54,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -103,6 +104,12 @@ public class JdbcExecutor {
         }
         if (conn != null) {
             conn.close();
+        }
+        if (minIdleSize == 0) {
+            // it can be immediately closed if there is no need to maintain the cache of datasource
+            druidDataSource.close();
+            JdbcDataSource.getDataSource().getSourcesMap().clear();
+            druidDataSource = null;
         }
         resultSet = null;
         stmt = null;
