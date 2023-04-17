@@ -131,6 +131,7 @@ struct TCreateTabletReq {
     // 18: optional string storage_policy
     19: optional bool enable_unique_key_merge_on_write = false
     20: optional i64 storage_policy_id
+    21: optional bool duplicate_no_keys = false
 }
 
 struct TDropTabletReq {

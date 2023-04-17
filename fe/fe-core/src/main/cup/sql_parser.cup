@@ -468,7 +468,7 @@ terminal String
     KW_NEVER,
     KW_NEXT,
     KW_NO,
-    KW_NO_KEY,
+    KW_NO_KEYS,
     KW_NOT,
     KW_NULL,
     KW_NULLS,
@@ -3184,7 +3184,7 @@ opt_keys ::=
         RESULT = new KeysDesc(KeysType.DUP_KEYS, keys);
     :}
     /* dup_keys no key*/
-    | KW_DUPLICATE KW_NO_KEY
+    | KW_DUPLICATE KW_NO_KEYS
     {:
         RESULT = new KeysDesc(KeysType.DUP_KEYS, new ArrayList<String>());
     :}

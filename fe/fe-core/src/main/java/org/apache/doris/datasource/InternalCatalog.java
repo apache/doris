@@ -1506,7 +1506,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                     olapTable.getCopiedIndexes(), singlePartitionDesc.isInMemory(), olapTable.getStorageFormat(),
                     singlePartitionDesc.getTabletType(), olapTable.getCompressionType(), olapTable.getDataSortInfo(),
                     olapTable.getEnableUniqueKeyMergeOnWrite(), storagePolicy, idGeneratorBuffer,
-                    olapTable.disableAutoCompaction(), olapTable.storeRowColumn(), olapTable.isDynamicSchema());
+                    olapTable.disableAutoCompaction(), olapTable.storeRowColumn(), olapTable.isDynamicSchema(),
+                    olapTable.getDuplicateNoKeys());
 
             // check again
             table = db.getOlapTableOrDdlException(tableName);
@@ -1739,7 +1740,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             boolean isInMemory, TStorageFormat storageFormat, TTabletType tabletType, TCompressionType compressionType,
             DataSortInfo dataSortInfo, boolean enableUniqueKeyMergeOnWrite, String storagePolicy,
             IdGeneratorBuffer idGeneratorBuffer, boolean disableAutoCompaction,
-            boolean storeRowColumn, boolean isDynamicSchema) throws DdlException {
+            boolean storeRowColumn, boolean isDynamicSchema, boolean duplicateNoKeys) throws DdlException {
         // create base index first.
         Preconditions.checkArgument(baseIndexId != -1);
         MaterializedIndex baseIndex = new MaterializedIndex(baseIndexId, IndexState.NORMAL);
@@ -1801,7 +1802,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tabletId, replicaId, shortKeyColumnCount, schemaHash, version, keysType, storageType,
                             storageMedium, schema, bfColumns, bfFpp, countDownLatch, indexes, isInMemory, tabletType,
                             dataSortInfo, compressionType, enableUniqueKeyMergeOnWrite, storagePolicy,
-                            disableAutoCompaction, storeRowColumn, isDynamicSchema);
+                            disableAutoCompaction, storeRowColumn, isDynamicSchema, duplicateNoKeys);
 
                     task.setStorageFormat(storageFormat);
                     batchTask.addTask(task);
@@ -1854,9 +1855,16 @@ public class InternalCatalog implements CatalogIf<Database> {
         String tableName = stmt.getTableName();
         LOG.debug("begin create olap table: {}", tableName);
 
+        // get keys type
+        KeysDesc keysDesc = stmt.getKeysDesc();
+        Preconditions.checkNotNull(keysDesc);
+        KeysType keysType = keysDesc.getKeysType();
+        int keysColumnSize = keysDesc.keysColumnSize();
+        boolean isDupNoKeys = (keysType == KeysType.DUP_KEYS && keysColumnSize == 0);
+
         // create columns
         List<Column> baseSchema = stmt.getColumns();
-        validateColumns(baseSchema);
+        validateColumns(baseSchema, isDupNoKeys);
 
         // analyze replica allocation
         ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(stmt.getProperties(), "");
@@ -1888,18 +1896,13 @@ public class InternalCatalog implements CatalogIf<Database> {
             partitionInfo = new SinglePartitionInfo();
         }
 
-        // get keys type
-        KeysDesc keysDesc = stmt.getKeysDesc();
-        Preconditions.checkNotNull(keysDesc);
-        KeysType keysType = keysDesc.getKeysType();
-
         // create distribution info
         DistributionDesc distributionDesc = stmt.getDistributionDesc();
         Preconditions.checkNotNull(distributionDesc);
         DistributionInfo defaultDistributionInfo = distributionDesc.toDistributionInfo(baseSchema);
 
         // calc short key column count
-        short shortKeyColumnCount = Env.calcShortKeyColumnCount(baseSchema, stmt.getProperties());
+        short shortKeyColumnCount = Env.calcShortKeyColumnCount(baseSchema, stmt.getProperties(), isDupNoKeys);
         LOG.debug("create table[{}] short key column count: {}", tableName, shortKeyColumnCount);
 
         // create table
@@ -1976,6 +1979,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
         olapTable.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
+
+        olapTable.setDuplicateNoKeys(isDupNoKeys);
 
         // analyze bloom filter columns
         Set<String> bfColumns = null;
@@ -2138,7 +2143,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             // set rollup index meta to olap table
             List<Column> rollupColumns = Env.getCurrentEnv().getMaterializedViewHandler()
                     .checkAndPrepareMaterializedView(addRollupClause, olapTable, baseRollupIndex, false);
-            short rollupShortKeyColumnCount = Env.calcShortKeyColumnCount(rollupColumns, alterClause.getProperties());
+            short rollupShortKeyColumnCount = Env.calcShortKeyColumnCount(rollupColumns, alterClause.getProperties(),
+                                                        false/*isDupNoKeys*/);
             int rollupSchemaHash = Util.generateSchemaHash();
             long rollupIndexId = idGeneratorBuffer.getNextId();
             olapTable.setIndexMeta(rollupIndexId, addRollupClause.getRollupName(), rollupColumns, schemaVersion,
@@ -2223,7 +2229,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                         partitionInfo.getReplicaAllocation(partitionId), versionInfo, bfColumns, bfFpp, tabletIdSet,
                         olapTable.getCopiedIndexes(), isInMemory, storageFormat, tabletType, compressionType,
                         olapTable.getDataSortInfo(), olapTable.getEnableUniqueKeyMergeOnWrite(), storagePolicy,
-                        idGeneratorBuffer, olapTable.disableAutoCompaction(), storeRowColumn, isDynamicSchema);
+                        idGeneratorBuffer, olapTable.disableAutoCompaction(), storeRowColumn, isDynamicSchema,
+                        olapTable.getDuplicateNoKeys());
                 olapTable.addPartition(partition);
             } else if (partitionInfo.getType() == PartitionType.RANGE
                     || partitionInfo.getType() == PartitionType.LIST) {
@@ -2288,7 +2295,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tabletIdSet, olapTable.getCopiedIndexes(), isInMemory, storageFormat,
                             partitionInfo.getTabletType(entry.getValue()), compressionType,
                             olapTable.getDataSortInfo(), olapTable.getEnableUniqueKeyMergeOnWrite(), storagePolicy,
-                            idGeneratorBuffer, olapTable.disableAutoCompaction(), storeRowColumn, isDynamicSchema);
+                            idGeneratorBuffer, olapTable.disableAutoCompaction(), storeRowColumn, isDynamicSchema,
+                            olapTable.getDuplicateNoKeys());
                     olapTable.addPartition(partition);
                 }
             } else {
@@ -2387,7 +2395,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (baseSchema.isEmpty()) {
             baseSchema = esTable.genColumnsFromEs();
         }
-        validateColumns(baseSchema);
+        validateColumns(baseSchema, false);
         esTable.setNewFullSchema(baseSchema);
 
         // create partition info
@@ -2593,7 +2601,7 @@ public class InternalCatalog implements CatalogIf<Database> {
     /*
      * generate and check columns' order and key's existence
      */
-    private void validateColumns(List<Column> columns) throws DdlException {
+    private void validateColumns(List<Column> columns, boolean isDupNoKeys) throws DdlException {
         if (columns.isEmpty()) {
             ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_MUST_HAVE_COLUMNS);
         }
@@ -2611,7 +2619,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
 
-        if (!hasKey) {
+        if (!hasKey && !isDupNoKeys) {
             ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_MUST_HAVE_KEYS);
         }
     }
@@ -2693,7 +2701,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         copiedTbl.getDataSortInfo(), copiedTbl.getEnableUniqueKeyMergeOnWrite(),
                         olapTable.getPartitionInfo().getDataProperty(oldPartitionId).getStoragePolicy(),
                         idGeneratorBuffer, olapTable.disableAutoCompaction(),
-                        olapTable.storeRowColumn(), olapTable.isDynamicSchema());
+                        olapTable.storeRowColumn(), olapTable.isDynamicSchema(), olapTable.getDuplicateNoKeys());
                 newPartitions.add(newPartition);
             }
         } catch (DdlException e) {

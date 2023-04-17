@@ -80,6 +80,8 @@ public class TableProperty implements Writable {
 
     private boolean storeRowColumn = false;
 
+    private boolean duplicateNoKeys = false;
+
     private DataSortInfo dataSortInfo = new DataSortInfo();
 
     public TableProperty(Map<String, String> properties) {
@@ -304,6 +306,15 @@ public class TableProperty implements Writable {
     public boolean getEnableUniqueKeyMergeOnWrite() {
         return Boolean.parseBoolean(properties.getOrDefault(
                 PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "true"));
+    }
+
+    public void setDuplicateNoKeys(boolean enable) {
+        properties.put(PropertyAnalyzer.DUPLICATE_NO_KEYS, Boolean.toString(enable));
+    }
+
+    public boolean getDuplicateNoKeys() {
+        return Boolean.parseBoolean(properties.getOrDefault(
+                PropertyAnalyzer.DUPLICATE_NO_KEYS, "true"));
     }
 
     public void setSequenceMapCol(String colName) {

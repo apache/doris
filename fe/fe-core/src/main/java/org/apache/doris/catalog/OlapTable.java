@@ -1975,6 +1975,20 @@ public class OlapTable extends Table {
         return tableProperty.getEnableUniqueKeyMergeOnWrite();
     }
 
+    public void setDuplicateNoKeys(boolean isDupNoKeys) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.setDuplicateNoKeys(isDupNoKeys);
+    }
+
+    public boolean getDuplicateNoKeys() {
+        if (tableProperty == null) {
+            return false;
+        }
+        return tableProperty.getDuplicateNoKeys();
+    }
+
     // For non partitioned table:
     //   The table's distribute hash columns need to be a subset of the aggregate columns.
     //

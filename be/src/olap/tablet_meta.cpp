@@ -60,7 +60,8 @@ Status TabletMeta::create(const TCreateTabletReq& request, const TabletUid& tabl
             request.compression_type, request.storage_policy_id,
             request.__isset.enable_unique_key_merge_on_write
                     ? request.enable_unique_key_merge_on_write
-                    : false));
+                    : false,
+            request.__isset.duplicate_no_keys ? request.duplicate_no_keys : false));
     return Status::OK();
 }
 
@@ -75,7 +76,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                        const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
                        TabletUid tablet_uid, TTabletType::type tabletType,
                        TCompressionType::type compression_type, int64_t storage_policy_id,
-                       bool enable_unique_key_merge_on_write)
+                       bool enable_unique_key_merge_on_write, bool duplicate_no_keys)
         : _tablet_uid(0, 0),
           _schema(new TabletSchema),
           _delete_bitmap(new DeleteBitmap(tablet_id)) {
@@ -95,6 +96,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                                            ? TabletTypePB::TABLET_TYPE_DISK
                                            : TabletTypePB::TABLET_TYPE_MEMORY);
     tablet_meta_pb.set_enable_unique_key_merge_on_write(enable_unique_key_merge_on_write);
+    tablet_meta_pb.set_duplicate_no_keys(duplicate_no_keys);
     tablet_meta_pb.set_storage_policy_id(storage_policy_id);
     TabletSchemaPB* schema = tablet_meta_pb.mutable_schema();
     schema->set_num_short_key_columns(tablet_schema.short_key_column_count);
@@ -537,6 +539,10 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
 
     if (tablet_meta_pb.has_enable_unique_key_merge_on_write()) {
         _enable_unique_key_merge_on_write = tablet_meta_pb.enable_unique_key_merge_on_write();
+    }
+
+    if (tablet_meta_pb.has_duplicate_no_keys()) {
+        _duplicate_no_keys = tablet_meta_pb.duplicate_no_keys();
     }
 
     if (tablet_meta_pb.has_delete_bitmap()) {
