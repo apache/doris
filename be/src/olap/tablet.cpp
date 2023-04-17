@@ -2242,7 +2242,7 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset, const TabletT
     }
 
     RETURN_IF_ERROR(calc_delete_bitmap(rowset->rowset_id(), segments, &rowset_ids_to_add,
-                                       delete_bitmap, cur_version - 1, true));
+                                       delete_bitmap, cur_version - 1, false));
 
     // update version without write lock, compaction and publish_txn
     // will update delete bitmap, handle compaction with _rowset_update_lock
