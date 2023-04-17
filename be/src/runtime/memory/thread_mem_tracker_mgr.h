@@ -21,12 +21,11 @@
 #include <fmt/format.h>
 
 #include "gutil/macros.h"
+#include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 
 namespace doris {
-
-using ExceedCallBack = void (*)();
 
 // Memory Hook is counted in the memory tracker of the current thread.
 class ThreadMemTrackerMgr {
@@ -35,7 +34,7 @@ public:
 
     ~ThreadMemTrackerMgr() {
         // if _init == false, exec env is not initialized when init(). and never consumed mem tracker once.
-        if (_init) flush_untracked_mem<false, true>();
+        if (_init) flush_untracked_mem();
     }
 
     void init();
@@ -59,26 +58,16 @@ public:
     }
 
     int64_t stop_count_scope_mem() {
-        flush_untracked_mem<false, true>();
+        flush_untracked_mem();
         _count_scope_mem = false;
         return _scope_mem;
     }
-
-    void set_exceed_call_back(ExceedCallBack cb_func) { _cb_func = cb_func; }
 
     // Note that, If call the memory allocation operation in Memory Hook,
     // such as calling LOG/iostream/sstream/stringstream/etc. related methods,
     // must increase the control to avoid entering infinite recursion, otherwise it may cause crash or stuck,
     // Returns whether the memory exceeds limit, and will consume mem trcker no matter whether the limit is exceeded.
     void consume(int64_t size);
-    // If the memory exceeds the limit, return false, and will not consume mem tracker.
-    bool try_consume(int64_t size);
-
-    // Force is equal to false. When the memory exceeds the limit,this alloc will be terminated and false
-    // will be returned.
-    // Force is equal to true, even if the memory is found to be overrun, continue to consume mem tracker,
-    // because this time alloc will still actually allocate memory, and always return true.
-    template <bool CheckLimit, bool Force>
     bool flush_untracked_mem();
 
     bool is_attach_query() { return _fragment_instance_id != TUniqueId(); }
@@ -92,9 +81,8 @@ public:
         return _limiter_tracker_raw;
     }
 
-    bool check_limit() { return _check_limit; }
-    void set_check_limit(bool check_limit) { _check_limit = check_limit; }
     std::string exceed_mem_limit_msg() { return _exceed_mem_limit_msg; }
+    void save_exceed_mem_limit_msg(const std::string& msg) { _exceed_mem_limit_msg = msg; }
     void clear_exceed_mem_limit_msg() { _exceed_mem_limit_msg = ""; }
     void disable_wait_gc() { _wait_gc = false; }
     bool wait_gc() { return _wait_gc; }
@@ -113,14 +101,6 @@ public:
     }
 
 private:
-    void exceeded(int64_t size);
-
-    void save_exceed_mem_limit_msg() {
-        _exceed_mem_limit_msg = _limiter_tracker_raw->mem_limit_exceeded(
-                fmt::format("execute:<{}>", last_consumer_tracker()), _failed_consume_msg);
-    }
-
-private:
     // is false: ExecEnv::GetInstance()->initialized() = false when thread local is initialized
     bool _init = false;
     // Cache untracked mem.
@@ -132,19 +112,17 @@ private:
 
     std::string _failed_consume_msg = std::string();
     std::string _exceed_mem_limit_msg = std::string();
-    bool _is_process_exceed = false;
-    bool _wait_gc = true;
+    // If true, the Allocator will wait for the GC to free memory if it finds that the memory exceed limit.
+    // A thread of query/load will only wait once during execution.
+    bool _wait_gc = false;
 
     std::shared_ptr<MemTrackerLimiter> _limiter_tracker;
     MemTrackerLimiter* _limiter_tracker_raw = nullptr;
     std::vector<MemTracker*> _consumer_tracker_stack;
 
-    // If true, call memtracker try_consume, otherwise call consume.
-    bool _check_limit = false;
     // If there is a memory new/delete operation in the consume method, it may enter infinite recursion.
     bool _stop_consume = false;
     TUniqueId _fragment_instance_id = TUniqueId();
-    ExceedCallBack _cb_func = nullptr;
 };
 
 inline void ThreadMemTrackerMgr::init() {
@@ -154,7 +132,7 @@ inline void ThreadMemTrackerMgr::init() {
         DCHECK(_limiter_tracker == nullptr);
         _limiter_tracker = ExecEnv::GetInstance()->orphan_mem_tracker();
         _limiter_tracker_raw = ExecEnv::GetInstance()->orphan_mem_tracker_raw();
-        _check_limit = true;
+        _wait_gc = true;
         _init = true;
     }
 }
@@ -184,48 +162,38 @@ inline void ThreadMemTrackerMgr::consume(int64_t size) {
     if ((_untracked_mem >= config::mem_tracker_consume_min_size_bytes ||
          _untracked_mem <= -config::mem_tracker_consume_min_size_bytes) &&
         !_stop_consume && ExecEnv::GetInstance()->initialized()) {
-        if (_check_limit) {
-            flush_untracked_mem<true, true>();
-        } else {
-            flush_untracked_mem<false, true>();
+        flush_untracked_mem();
+    }
+    // Large memory alloc should use allocator.h
+    // Direct malloc or new large memory, unable to catch std::bad_alloc, BE may OOM.
+    if (size > 4294967296) { // 4G
+        _stop_consume = true;
+        LOG(WARNING) << fmt::format("MemHook alloc large memory: {}.", size);
+        if (config::memory_debug) {
+            doris::MemTrackerLimiter::print_log_process_usage(
+                    fmt::format("MemHook alloc large memory: {}.", size));
         }
+        _stop_consume = false;
     }
 }
 
-inline bool ThreadMemTrackerMgr::try_consume(int64_t size) {
-    _untracked_mem += size;
-    if ((_untracked_mem >= config::mem_tracker_consume_min_size_bytes ||
-         _untracked_mem <= -config::mem_tracker_consume_min_size_bytes) &&
-        !_stop_consume && ExecEnv::GetInstance()->initialized()) {
-        if (_check_limit) {
-            return flush_untracked_mem<true, false>();
-        } else {
-            return flush_untracked_mem<false, true>();
-        }
-    }
-    return true;
-}
-
-template <bool CheckLimit, bool Force>
-bool ThreadMemTrackerMgr::flush_untracked_mem() {
+inline bool ThreadMemTrackerMgr::flush_untracked_mem() {
     // Temporary memory may be allocated during the consumption of the mem tracker, which will lead to entering
     // the Memory Hook again, so suspend consumption to avoid falling into an infinite loop.
     _stop_consume = true;
     init();
     DCHECK(_limiter_tracker_raw);
+    if (doris::MemTrackerLimiter::sys_mem_exceed_limit_check(_untracked_mem)) {
+        LOG(WARNING) << fmt::format(
+                "MemHook alloc:{} failed, not enough system memory, consuming tracker:<{}>, exec "
+                "node:<{}>, {}.",
+                _untracked_mem, _limiter_tracker_raw->label(), last_consumer_tracker(),
+                doris::MemTrackerLimiter::process_limit_exceeded_errmsg_str(_untracked_mem));
+    }
+
     old_untracked_mem = _untracked_mem;
     if (_count_scope_mem) _scope_mem += _untracked_mem;
-    if (CheckLimit) {
-        if (!_limiter_tracker_raw->try_consume(old_untracked_mem, _failed_consume_msg,
-                                               _is_process_exceed)) {
-            if (Force) _limiter_tracker_raw->consume(old_untracked_mem);
-            save_exceed_mem_limit_msg();
-            exceeded(old_untracked_mem);
-            if (!Force) return false;
-        }
-    } else {
-        _limiter_tracker_raw->consume(old_untracked_mem);
-    }
+    _limiter_tracker_raw->consume(old_untracked_mem);
     for (auto tracker : _consumer_tracker_stack) {
         tracker->consume(old_untracked_mem);
     }

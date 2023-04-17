@@ -197,7 +197,7 @@ class SlotBinder extends SubExprAnalyzer {
     }
 
     private List<Slot> bindSlot(UnboundSlot unboundSlot, List<Slot> boundSlots) {
-        return boundSlots.stream().filter(boundSlot -> {
+        return boundSlots.stream().distinct().filter(boundSlot -> {
             List<String> nameParts = unboundSlot.getNameParts();
             int qualifierSize = boundSlot.getQualifier().size();
             int namePartsSize = nameParts.size();

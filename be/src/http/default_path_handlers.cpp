@@ -35,6 +35,7 @@
 #include "http/web_page_handler.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "util/debug_util.h"
+#include "util/mem_info.h"
 #include "util/perf_counters.h"
 #include "util/pretty_printer.h"
 #include "util/thread.h"

@@ -20,6 +20,7 @@ package org.apache.doris.nereids.stats;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -90,6 +91,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Histogram;
@@ -435,6 +437,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             ColumnStatistic cache =
                     Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(table.getId(), colName);
             if (cache == ColumnStatistic.UNKNOWN) {
+                if (ConnectContext.get().getSessionVariable().forbidUnknownColStats) {
+                    throw new AnalysisException("column stats for " + colName
+                            + " is unknown, `set forbid_unknown_col_stats = false` to execute sql with unknown stats");
+                }
                 columnStatisticMap.put(slotReference, cache);
                 continue;
             }
@@ -479,11 +485,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     //all column stats are unknown, use default ratio
                     resultSetCount = inputRowCount * DEFAULT_AGGREGATE_RATIO;
                 } else {
-                    resultSetCount = groupByKeyStats.stream()
-                            .map(s -> s.ndv)
-                            .reduce(1.0, (a, b) -> a * b);
-                    //agg output tuples should be less than input tuples
-                    resultSetCount = Math.min(resultSetCount, inputRowCount);
+                    resultSetCount = groupByKeyStats.stream().map(s -> s.ndv)
+                            .max(Double::compare).get();
                 }
             }
         }

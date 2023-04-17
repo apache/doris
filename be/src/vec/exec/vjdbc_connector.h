@@ -67,6 +67,9 @@ public:
     Status exec_write_sql(const std::u16string& insert_stmt,
                           const fmt::memory_buffer& insert_stmt_buffer) override;
 
+    Status exec_stmt_write(Block* block,
+                           const std::vector<vectorized::VExprContext*>& output_vexpr_ctxs);
+
     Status get_next(bool* eos, std::vector<MutableColumnPtr>& columns, Block* block,
                     int batch_size);
 
@@ -99,6 +102,7 @@ private:
     jobject _executor_obj;
     jmethodID _executor_ctor_id;
     jmethodID _executor_write_id;
+    jmethodID _executor_stmt_write_id;
     jmethodID _executor_read_id;
     jmethodID _executor_has_next_id;
     jmethodID _executor_block_rows_id;
