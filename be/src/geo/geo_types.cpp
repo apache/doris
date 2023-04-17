@@ -201,26 +201,14 @@ GeoShape* GeoShape::from_wkb(const char* data, size_t size, GeoParseStatus* stat
     std::stringstream wkb;
 
     for (int i = 0; i < size; ++i) {
-        if((i==1 && wkb.str() == "x") || (i==2 && wkb.str() == "\\x")){
+        if ((i == 1 && wkb.str() == "x") || (i == 2 && wkb.str() == "\\x")) {
             wkb.str(std::string());
         }
         wkb << *data;
         data++;
     }
     GeoShape* shape = nullptr;
-    *status = WkbParse::parse_wkb(wkb, false, &shape);
-    return shape;
-}
-
-GeoShape* GeoShape::from_ewkb(const char* data, size_t size, GeoParseStatus* status) {
-    std::stringstream ewkb;
-
-    for (int i = 0; i < size; ++i) {
-        ewkb << *data;
-        data++;
-    }
-    GeoShape* shape = nullptr;
-    *status = WkbParse::parse_wkb(ewkb, true, &shape);
+    *status = WkbParse::parse_wkb(wkb, &shape);
     return shape;
 }
 
@@ -277,8 +265,10 @@ GeoCoordinateList GeoLine::to_coords() const {
     GeoCoordinateList coords;
     for (int i = 0; i < GeoLine::numPoint(); ++i) {
         GeoCoordinate coord;
-        coord.x = S2LatLng(*GeoLine::getPoint(i)).lng().degrees();
-        coord.y = S2LatLng(*GeoLine::getPoint(i)).lat().degrees();
+        coord.x = std::stod(
+                absl::StrFormat("%.13f", S2LatLng::Longitude(*GeoLine::getPoint(i)).degrees()));
+        coord.y = std::stod(
+                absl::StrFormat("%.13f", S2LatLng::Latitude(*GeoLine::getPoint(i)).degrees()));
         coords.add(coord);
     }
     return coords;
@@ -291,12 +281,16 @@ GeoCoordinateListList* GeoPolygon::to_coords() const {
         S2Loop* loop = GeoPolygon::getLoop(i);
         for (int j = 0; j < loop->num_vertices(); ++j) {
             GeoCoordinate coord;
-            coord.x = S2LatLng(loop->vertex(j)).lng().degrees();
-            coord.y = S2LatLng(loop->vertex(j)).lat().degrees();
+            coord.x = std::stod(
+                    absl::StrFormat("%.13f", S2LatLng::Longitude(loop->vertex(j)).degrees()));
+            coord.y = std::stod(
+                    absl::StrFormat("%.13f", S2LatLng::Latitude(loop->vertex(j)).degrees()));
             coords->add(coord);
             if (j == loop->num_vertices() - 1) {
-                coord.x = S2LatLng(loop->vertex(0)).lng().degrees();
-                coord.y = S2LatLng(loop->vertex(0)).lat().degrees();
+                coord.x = std::stod(
+                        absl::StrFormat("%.13f", S2LatLng::Longitude(loop->vertex(0)).degrees()));
+                coord.y = std::stod(
+                        absl::StrFormat("%.13f", S2LatLng::Latitude(loop->vertex(0)).degrees()));
                 coords->add(coord);
             }
         }
@@ -600,15 +594,7 @@ bool GeoShape::ComputeArea(GeoShape* rhs, double* area, std::string square_unit)
 
 std::string GeoShape::as_binary(GeoShape* rhs) {
     std::string res;
-    if (toBinary::geo_tobinary(rhs, false, &res)) {
-        return res;
-    }
-    return res;
-}
-
-std::string GeoShape::as_ewkb(doris::GeoShape* rhs) {
-    std::string res;
-    if (toBinary::geo_tobinary(rhs, true, &res)) {
+    if (toBinary::geo_tobinary(rhs, &res)) {
         return res;
     }
     return res;

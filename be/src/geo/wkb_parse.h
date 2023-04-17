@@ -37,9 +37,9 @@ class GeoPolygon;
 
 class WkbParse {
 public:
-    static GeoParseStatus parse_wkb(std::istream& is, bool isEwkb, GeoShape** shape);
+    static GeoParseStatus parse_wkb(std::istream& is, GeoShape** shape);
 
-    static WkbParseContext* read_hex(std::istream& is,WkbParseContext* ctx);
+    static WkbParseContext* read_hex(std::istream& is, WkbParseContext* ctx);
 
     static WkbParseContext* read(std::istream& is, WkbParseContext* ctx);
 

@@ -31,9 +31,6 @@ struct WkbParseContext {
 
     std::array<double, 2> ordValues;
 
-    //Ewkb format：true ｜ false
-    bool isEwkb;
-
     int srid;
 
     doris::GeoShape* shape = nullptr;

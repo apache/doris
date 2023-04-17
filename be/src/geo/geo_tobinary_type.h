@@ -38,8 +38,6 @@ const int SRID = 4326;
 struct ToBinaryContext {
     // WKBConstants::wkbwkbXDR | WKBConstants::wkbNDR
     int byteOrder;
-    //Ewkb format：true ｜ false
-    bool isEwkb;
 
     unsigned char buf[8];
 

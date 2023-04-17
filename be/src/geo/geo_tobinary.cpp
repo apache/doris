@@ -31,17 +31,16 @@
 
 namespace doris {
 
-bool toBinary::geo_tobinary(GeoShape* shape, bool isEwkb, std::string* result) {
+bool toBinary::geo_tobinary(GeoShape* shape, std::string* result) {
     ToBinaryContext ctx;
     std::stringstream result_stream;
     ctx.outStream = &result_stream;
-    ctx.isEwkb = isEwkb;
     if (toBinary::write(shape, &ctx)) {
         std::stringstream hex_stream;
         hex_stream << std::hex << std::setfill('0');
         result_stream.seekg(0);
         unsigned char c;
-        while (result_stream >> c) {
+        while (result_stream.read(reinterpret_cast<char*>(&c), 1)) {
             hex_stream << std::setw(2) << static_cast<int>(c);
         }
         //for compatibility with postgres
@@ -70,9 +69,6 @@ bool toBinary::write(GeoShape* shape, ToBinaryContext* ctx) {
 bool toBinary::writeGeoPoint(GeoPoint* point, ToBinaryContext* ctx) {
     writeByteOrder(ctx);
     writeGeometryType(wkbType::wkbPoint, ctx);
-    if (ctx->isEwkb) {
-        writeSRID(ctx);
-    }
     GeoCoordinateList p = point->to_coords();
 
     writeCoordinateList(p, false, ctx);
@@ -82,9 +78,6 @@ bool toBinary::writeGeoPoint(GeoPoint* point, ToBinaryContext* ctx) {
 bool toBinary::writeGeoLine(GeoLine* line, ToBinaryContext* ctx) {
     writeByteOrder(ctx);
     writeGeometryType(wkbType::wkbLine, ctx);
-    if (ctx->isEwkb) {
-        writeSRID(ctx);
-    }
     GeoCoordinateList p = line->to_coords();
 
     writeCoordinateList(p, true, ctx);
@@ -94,9 +87,6 @@ bool toBinary::writeGeoLine(GeoLine* line, ToBinaryContext* ctx) {
 bool toBinary::writeGeoPolygon(doris::GeoPolygon* polygon, ToBinaryContext* ctx) {
     writeByteOrder(ctx);
     writeGeometryType(wkbType::wkbPolygon, ctx);
-    if (ctx->isEwkb) {
-        writeSRID(ctx);
-    }
     writeInt(polygon->numLoops(), ctx);
     GeoCoordinateListList* coordss = polygon->to_coords();
 
@@ -118,9 +108,6 @@ void toBinary::writeByteOrder(ToBinaryContext* ctx) {
 }
 
 void toBinary::writeGeometryType(int typeId, ToBinaryContext* ctx) {
-    if (ctx->isEwkb) {
-        typeId |= 0x20000000;
-    }
     writeInt(typeId, ctx);
 }
 

@@ -53,7 +53,6 @@ public:
     static GeoShape* from_wkt(const char* data, size_t size, GeoParseStatus* status);
 
     static GeoShape* from_wkb(const char* data, size_t size, GeoParseStatus* status);
-    static GeoShape* from_ewkb(const char* data, size_t size, GeoParseStatus* status);
 
     void encode_to(std::string* buf);
     bool decode_from(const void* data, size_t size);
@@ -63,7 +62,6 @@ public:
     virtual bool contains(const GeoShape* rhs) const { return false; }
     virtual std::string to_string() const { return ""; }
     static std::string as_binary(GeoShape* rhs);
-    static std::string as_ewkb(GeoShape* rhs);
 
     static bool ComputeArea(GeoShape* rhs, double* angle, std::string square_unit);
 
