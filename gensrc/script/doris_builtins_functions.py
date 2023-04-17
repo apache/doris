@@ -1384,6 +1384,9 @@ visible_functions = [
     [['esquery'], 'BOOLEAN', ['STRING', 'VARCHAR'], ''],
     [['esquery'], 'BOOLEAN', ['VARIANT', 'VARCHAR'], ''],
 
+    # used for accept graph sql
+    [['g'], 'BOOLEAN', ['VARCHAR'], ''],
+
     # String builtin functions
     [['substr', 'substring'], 'VARCHAR', ['VARCHAR', 'INT'], 'ALWAYS_NULLABLE'],
     [['substr', 'substring'], 'VARCHAR', ['VARCHAR', 'INT', 'INT'], 'ALWAYS_NULLABLE'],

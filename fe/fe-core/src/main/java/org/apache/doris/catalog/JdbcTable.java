@@ -75,6 +75,7 @@ public class JdbcTable extends Table {
         tempMap.put("oracle", TOdbcTableType.ORACLE);
         tempMap.put("clickhouse", TOdbcTableType.CLICKHOUSE);
         tempMap.put("sap_hana", TOdbcTableType.SAP_HANA);
+        tempMap.put("nebula", TOdbcTableType.NEBULA);
         TABLE_TYPE_MAP = Collections.unmodifiableMap(tempMap);
     }
 

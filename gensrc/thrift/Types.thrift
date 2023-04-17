@@ -380,7 +380,8 @@ enum TOdbcTableType {
     REDIS,
     MONGODB,
     CLICKHOUSE,
-    SAP_HANA
+    SAP_HANA,
+    NEBULA
 }
 
 struct TJdbcExecutorCtorParams {
