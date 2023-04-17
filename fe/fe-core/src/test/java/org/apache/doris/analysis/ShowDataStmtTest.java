@@ -57,7 +57,7 @@ public class ShowDataStmtTest {
 
     @Before
     public void setUp() throws UserException {
-        auth = AccessTestUtil.fetchAdminAccess();
+        auth = new PaloAuth();
         new Expectations() {
             {
                 Env.getCurrentInvertedIndex();
@@ -115,6 +115,8 @@ public class ShowDataStmtTest {
                 minTimes = 0;
                 result = "192.168.1.1";
             }
+
+            AccessTestUtil.fetchAdminAccess();
         };
 
         new Expectations() {
@@ -127,7 +129,7 @@ public class ShowDataStmtTest {
                 minTimes = 0;
                 result = true;
 
-                auth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                auth.checkTblPriv((ConnectContext) any, anyString, anyString, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
             }
