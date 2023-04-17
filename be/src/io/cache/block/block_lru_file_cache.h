@@ -118,6 +118,13 @@ private:
 
     CachedFiles _files;
     size_t _cur_cache_size = 0;
+
+    // The three queues are level queue.
+    // It means as level1/level2/level3 queue.
+    // but the level2 is maximum.
+    // If some datas are importance, we can cache it into index queue
+    // If some datas are just use once, we can cache it into disposable queue
+    // The size proportion is [1:17:2].
     LRUQueue _index_queue;
     LRUQueue _normal_queue;
     LRUQueue _disposable_queue;

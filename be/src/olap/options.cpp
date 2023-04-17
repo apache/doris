@@ -186,7 +186,7 @@ Status parse_conf_cache_paths(const std::string& config_path, std::vector<CacheP
             if (value.IsInt64()) {
                 total_size = value.GetInt64();
             } else {
-                return Status::InvalidArgument("normal should be int64");
+                return Status::InvalidArgument("total_size should be int64");
             }
         }
         if (config::enable_file_cache_query_limit) {
