@@ -161,6 +161,8 @@ public class S3Resource extends Resource {
                 throw new DdlException("current not support modify property : " + any.get());
             }
         }
+        // compatible with old version, Need convert if modified properties map uses old properties.
+        S3Properties.convertToStdProperties(properties);
         boolean needCheck = isNeedCheck(properties);
         LOG.debug("s3 info need check validity : {}", needCheck);
         if (needCheck) {
