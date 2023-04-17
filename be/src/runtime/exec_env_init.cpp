@@ -167,7 +167,7 @@ Status ExecEnv::init_pipeline_task_scheduler() {
     }
 
     // TODO pipeline task group combie two blocked schedulers.
-    auto t_queue = std::make_shared<pipeline::NormalTaskQueue>(executors_size);
+    auto t_queue = std::make_shared<pipeline::MultiCoreTaskQueue>(executors_size);
     auto b_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>(t_queue);
     _pipeline_task_scheduler = new pipeline::TaskScheduler(this, b_scheduler, t_queue);
     RETURN_IF_ERROR(_pipeline_task_scheduler->start());
