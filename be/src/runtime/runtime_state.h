@@ -201,10 +201,6 @@ public:
 
     int64_t load_job_id() const { return _load_job_id; }
 
-    void set_shared_scan_opt(bool shared_scan_opt) { _shared_scan_opt = shared_scan_opt; }
-
-    bool shared_scan_opt() const { return _shared_scan_opt; }
-
     const std::string get_error_log_file_path() const { return _error_log_file_path; }
 
     // append error msg and error line to file when loading data.
@@ -458,7 +454,6 @@ private:
     std::string _db_name;
     std::string _load_dir;
     int64_t _load_job_id;
-    bool _shared_scan_opt = false;
 
     // mini load
     int64_t _normal_row_number;

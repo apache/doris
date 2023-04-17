@@ -1223,6 +1223,11 @@ public class OlapScanNode extends ScanNode {
     }
 
     @Override
+    public boolean getShouldColoScan() {
+        return shouldColoScan;
+    }
+
+    @Override
     protected void toThrift(TPlanNode msg) {
         List<String> keyColumnNames = new ArrayList<String>();
         List<TPrimitiveType> keyColumnTypes = new ArrayList<TPrimitiveType>();
