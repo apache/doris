@@ -138,13 +138,6 @@ Field DataTypeDecimal<T>::get_default() const {
 }
 
 template <typename T>
-DataTypePtr DataTypeDecimal<T>::promote_numeric_type() const {
-    using PromotedType = std::conditional_t<IsDecimalV2<T>, DataTypeDecimal<Decimal128>,
-                                            DataTypeDecimal<Decimal128I>>;
-    return std::make_shared<PromotedType>(PromotedType::max_precision(), scale);
-}
-
-template <typename T>
 MutableColumnPtr DataTypeDecimal<T>::create_column() const {
     if constexpr (IsDecimalV2<T>) {
         auto col = ColumnDecimal128::create(0, scale);

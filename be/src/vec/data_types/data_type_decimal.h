@@ -175,8 +175,6 @@ public:
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
 
     Field get_default() const override;
-    bool can_be_promoted() const override { return true; }
-    DataTypePtr promote_numeric_type() const override;
     MutableColumnPtr create_column() const override;
     bool equals(const IDataType& rhs) const override;
 
