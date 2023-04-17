@@ -77,6 +77,11 @@ Status NewJdbcScanner::prepare(RuntimeState* state, VExprContext** vconjunct_ctx
     _jdbc_param.query_string = std::move(_query_string);
     _jdbc_param.table_type = _table_type;
 
+    get_parent()->_scanner_profile->add_info_string("JdbcDriverClass", _jdbc_param.driver_class);
+    get_parent()->_scanner_profile->add_info_string("JdbcDriverUrl", _jdbc_param.driver_path);
+    get_parent()->_scanner_profile->add_info_string("JdbcUrl", _jdbc_param.jdbc_url);
+    get_parent()->_scanner_profile->add_info_string("QuerySql", _jdbc_param.query_string);
+
     _jdbc_connector.reset(new (std::nothrow) JdbcConnector(_jdbc_param));
     if (_jdbc_connector == nullptr) {
         return Status::InternalError("new a jdbc scanner failed.");

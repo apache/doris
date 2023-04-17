@@ -57,9 +57,9 @@
         "compression_type": "LZ4F",
         "schema_version": 0,
         "disable_auto_compaction": false,
+        "version_col_idx": -1,
         "store_row_column": false,
-        "is_dynamic_schema": false,
-        "version_col_idx": -1
+        "is_dynamic_schema": false
     },
     "rs_metas": [
         {

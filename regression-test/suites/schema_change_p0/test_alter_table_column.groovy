@@ -29,8 +29,12 @@ suite("test_alter_table_column") {
                 value1 INT
             )
             DUPLICATE KEY (k1)
-            DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1", "light_schema_change" = "true");
+            DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1", "light_schema_change" = "false");
         """
+
+    // alter and test light schema change
+    sql """ALTER TABLE ${tbName1} SET ("light_schema_change" = "true");"""
+
     sql """
             ALTER TABLE ${tbName1} 
             ADD COLUMN k2 INT KEY AFTER k1,

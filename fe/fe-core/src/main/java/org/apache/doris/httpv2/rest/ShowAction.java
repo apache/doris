@@ -115,9 +115,13 @@ public class ShowAction extends RestBaseController {
 
         // forward to master if necessary
         if (!Env.getCurrentEnv().isMaster() && isForward) {
-            RedirectView redirectView = redirectToMaster(request, response);
-            Preconditions.checkNotNull(redirectView);
-            return redirectView;
+            try {
+                RedirectView redirectView = redirectToMasterOrException(request, response);
+                Preconditions.checkNotNull(redirectView);
+                return redirectView;
+            } catch (Exception e) {
+                return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+            }
         } else {
             ProcNodeInterface procNode = null;
             ProcService instance = ProcService.getInstance();

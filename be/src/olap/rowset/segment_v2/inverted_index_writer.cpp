@@ -30,6 +30,7 @@
 #include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/tablet_schema.h"
+#include "util/faststring.h"
 #include "util/string_util.h"
 
 #define FINALIZE_OUTPUT(x) \
@@ -170,12 +171,12 @@ public:
         _index_writer->setUseCompoundFile(false);
         _doc->clear();
 
-        int field_config =
-                lucene::document::Field::STORE_NO | lucene::document::Field::INDEX_NONORMS;
+        int field_config = int(lucene::document::Field::STORE_NO) |
+                           int(lucene::document::Field::INDEX_NONORMS);
         if (_parser_type == InvertedIndexParserType::PARSER_NONE) {
-            field_config |= lucene::document::Field::INDEX_UNTOKENIZED;
+            field_config |= int(lucene::document::Field::INDEX_UNTOKENIZED);
         } else {
-            field_config |= lucene::document::Field::INDEX_TOKENIZED;
+            field_config |= int(lucene::document::Field::INDEX_TOKENIZED);
         }
         _field = _CLNEW lucene::document::Field(_field_name.c_str(), field_config);
         _doc->add(*_field);
@@ -183,6 +184,7 @@ public:
     }
 
     Status add_nulls(uint32_t count) override {
+        _null_bitmap.addRange(_rid, _rid + count);
         _rid += count;
         if constexpr (field_is_slice_type(field_type)) {
             if (_field == nullptr || _index_writer == nullptr) {
@@ -321,15 +323,30 @@ public:
     }
 
     Status finish() override {
-        lucene::store::Directory* dir = nullptr;
+        auto index_path = InvertedIndexDescriptor::get_temporary_index_path(
+                _directory + "/" + _segment_file_name, _index_meta->index_id());
+        lucene::store::Directory* dir =
+                DorisCompoundDirectory::getDirectory(_fs, index_path.c_str(), true);
+        lucene::store::IndexOutput* null_bitmap_out = nullptr;
         lucene::store::IndexOutput* data_out = nullptr;
         lucene::store::IndexOutput* index_out = nullptr;
         lucene::store::IndexOutput* meta_out = nullptr;
         try {
+            // write null_bitmap file
+            _null_bitmap.runOptimize();
+            size_t size = _null_bitmap.getSizeInBytes(false);
+            if (size > 0) {
+                null_bitmap_out = dir->createOutput(
+                        InvertedIndexDescriptor::get_temporary_null_bitmap_file_name().c_str());
+                faststring buf;
+                buf.resize(size);
+                _null_bitmap.write(reinterpret_cast<char*>(buf.data()), false);
+                null_bitmap_out->writeBytes(reinterpret_cast<uint8_t*>(buf.data()), size);
+                FINALIZE_OUTPUT(null_bitmap_out)
+            }
+
+            // write bkd file
             if constexpr (field_is_numeric_type(field_type)) {
-                auto index_path = InvertedIndexDescriptor::get_temporary_index_path(
-                        _directory + "/" + _segment_file_name, _index_meta->index_id());
-                dir = DorisCompoundDirectory::getDirectory(_fs, index_path.c_str(), true);
                 _bkd_writer->max_doc_ = _rid;
                 _bkd_writer->docs_seen_ = _row_ids_seen_for_bkd;
                 data_out = dir->createOutput(
@@ -350,6 +367,7 @@ public:
                 close();
             }
         } catch (CLuceneError& e) {
+            FINALLY_FINALIZE_OUTPUT(null_bitmap_out)
             FINALLY_FINALIZE_OUTPUT(meta_out)
             FINALLY_FINALIZE_OUTPUT(data_out)
             FINALLY_FINALIZE_OUTPUT(index_out)

@@ -21,6 +21,8 @@
 #include <fmt/format.h>
 
 #include "exprs/create_predicate_function.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type.h"
@@ -115,7 +117,7 @@ public:
 
         /// First argument may be a single column.
         const ColumnWithTypeAndName& left_arg = block.get_by_position(arguments[0]);
-        auto materialized_column = left_arg.column->convert_to_full_column_if_const();
+        const auto& [materialized_column, col_const] = unpack_if_const(left_arg.column);
 
         if (in_state->use_set) {
             if (materialized_column->is_nullable()) {
@@ -125,23 +127,16 @@ public:
                                          null_col_ptr->get_null_map_column())
                                          .get_data();
                 auto* nested_col_ptr = null_col_ptr->get_nested_column_ptr().get();
-                auto search_hash_set = [&](auto* col_ptr) {
-                    if constexpr (!negative) {
-                        in_state->hybrid_set->find_batch_nullable(*col_ptr, input_rows_count,
-                                                                  null_map, vec_res);
-                    } else {
-                        in_state->hybrid_set->find_batch_nullable_negative(
-                                *col_ptr, input_rows_count, null_map, vec_res);
-                    }
-                };
 
                 if (nested_col_ptr->is_column_string()) {
                     const auto* column_string_ptr =
                             reinterpret_cast<const vectorized::ColumnString*>(nested_col_ptr);
-                    search_hash_set(column_string_ptr);
+                    search_hash_set_check_null(in_state, input_rows_count, vec_res, null_map,
+                                               column_string_ptr);
                 } else {
-                    // todo support other column type
-                    search_hash_set(nested_col_ptr);
+                    //TODO: support other column type
+                    search_hash_set_check_null(in_state, input_rows_count, vec_res, null_map,
+                                               nested_col_ptr);
                 }
 
                 if (!in_state->null_in_set) {
@@ -155,23 +150,13 @@ public:
                 }
 
             } else { // non-nullable
-
-                auto search_hash_set = [&](auto* col_ptr) {
-                    if constexpr (!negative) {
-                        in_state->hybrid_set->find_batch(*col_ptr, input_rows_count, vec_res);
-                    } else {
-                        in_state->hybrid_set->find_batch_negative(*col_ptr, input_rows_count,
-                                                                  vec_res);
-                    }
-                };
-
                 if (materialized_column->is_column_string()) {
                     const auto* column_string_ptr =
                             reinterpret_cast<const vectorized::ColumnString*>(
                                     materialized_column.get());
-                    search_hash_set(column_string_ptr);
+                    search_hash_set(in_state, input_rows_count, vec_res, column_string_ptr);
                 } else {
-                    search_hash_set(materialized_column.get());
+                    search_hash_set(in_state, input_rows_count, vec_res, materialized_column.get());
                 }
 
                 if (in_state->null_in_set) {
@@ -180,37 +165,17 @@ public:
                     }
                 }
             }
-        } else {
+        } else { //!in_state->use_set
             std::vector<ColumnPtr> set_columns;
             for (int i = 1; i < arguments.size(); ++i) {
                 set_columns.emplace_back(block.get_by_position(arguments[i]).column);
             }
-
-            for (size_t i = 0; i < input_rows_count; ++i) {
-                const auto& ref_data = materialized_column->get_data_at(i);
-                if (ref_data.data == nullptr) {
-                    vec_null_map_to[i] = true;
-                    continue;
-                }
-
-                std::unique_ptr<HybridSetBase> hybrid_set(
-                        create_set(context->get_arg_type(0)->type, set_columns.size()));
-                bool null_in_set = false;
-
-                for (const auto& set_column : set_columns) {
-                    auto set_data = set_column->get_data_at(i);
-                    if (set_data.data == nullptr) {
-                        null_in_set = true;
-                    } else {
-                        hybrid_set->insert((void*)(set_data.data), set_data.size);
-                    }
-                }
-                vec_res[i] = negative ^ hybrid_set->find((void*)ref_data.data, ref_data.size);
-                if (null_in_set) {
-                    vec_null_map_to[i] = negative == vec_res[i];
-                } else {
-                    vec_null_map_to[i] = false;
-                }
+            if (col_const) {
+                impl_without_set<true>(context, set_columns, input_rows_count, vec_res,
+                                       vec_null_map_to, materialized_column);
+            } else {
+                impl_without_set<false>(context, set_columns, input_rows_count, vec_res,
+                                        vec_null_map_to, materialized_column);
             }
         }
 
@@ -226,6 +191,64 @@ public:
 
     Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         return Status::OK();
+    }
+
+private:
+    template <typename T>
+    static void search_hash_set_check_null(InState* in_state, size_t input_rows_count,
+                                           ColumnUInt8::Container& vec_res,
+                                           const ColumnUInt8::Container& null_map, T* col_ptr) {
+        if constexpr (!negative) {
+            in_state->hybrid_set->find_batch_nullable(*col_ptr, input_rows_count, null_map,
+                                                      vec_res);
+        } else {
+            in_state->hybrid_set->find_batch_nullable_negative(*col_ptr, input_rows_count, null_map,
+                                                               vec_res);
+        }
+    }
+
+    template <typename T>
+    static void search_hash_set(InState* in_state, size_t input_rows_count,
+                                ColumnUInt8::Container& vec_res, T* col_ptr) {
+        if constexpr (!negative) {
+            in_state->hybrid_set->find_batch(*col_ptr, input_rows_count, vec_res);
+        } else {
+            in_state->hybrid_set->find_batch_negative(*col_ptr, input_rows_count, vec_res);
+        }
+    }
+
+    template <bool Const>
+    static void impl_without_set(FunctionContext* context,
+                                 const std::vector<ColumnPtr>& set_columns, size_t input_rows_count,
+                                 ColumnUInt8::Container& vec_res,
+                                 ColumnUInt8::Container& vec_null_map_to,
+                                 const ColumnPtr& materialized_column) {
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            const auto& ref_data = materialized_column->get_data_at(index_check_const(i, Const));
+            if (ref_data.data == nullptr) {
+                vec_null_map_to[i] = true;
+                continue;
+            }
+
+            std::unique_ptr<HybridSetBase> hybrid_set(
+                    create_set(context->get_arg_type(0)->type, set_columns.size()));
+            bool null_in_set = false;
+
+            for (const auto& set_column : set_columns) {
+                auto set_data = set_column->get_data_at(i);
+                if (set_data.data == nullptr) {
+                    null_in_set = true;
+                } else {
+                    hybrid_set->insert((void*)(set_data.data), set_data.size);
+                }
+            }
+            vec_res[i] = negative ^ hybrid_set->find((void*)ref_data.data, ref_data.size);
+            if (null_in_set) {
+                vec_null_map_to[i] = negative == vec_res[i];
+            } else {
+                vec_null_map_to[i] = false;
+            }
+        }
     }
 };
 

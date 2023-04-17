@@ -59,7 +59,9 @@ public:
     }
 
     DataTypes get_variadic_argument_types_impl() const override {
-        if constexpr (has_variadic_argument) return Impl::get_variadic_argument_types();
+        if constexpr (has_variadic_argument) {
+            return Impl::get_variadic_argument_types();
+        }
         return {};
     }
 
@@ -232,8 +234,8 @@ private:
                       nullptr>
     Status execute_inner_impl(const ColumnWithTypeAndName& left, const ColumnWithTypeAndName& right,
                               Block& block, const ColumnNumbers& arguments, size_t result) {
-        auto lcol = left.column->convert_to_full_column_if_const();
-        auto rcol = right.column->convert_to_full_column_if_const();
+        const auto& [lcol, left_const] = unpack_if_const(left.column);
+        const auto& [rcol, right_const] = unpack_if_const(right.column);
 
         using ResultType = typename ResultDataType::FieldType;
         using ColVecResult = ColumnVector<ResultType>;
@@ -244,9 +246,20 @@ private:
 
         if (auto col_left = check_and_get_column<ColVecLeft>(lcol.get())) {
             if (auto col_right = check_and_get_column<ColVecRight>(rcol.get())) {
-                Impl<LeftDataType, RightDataType>::vector_vector(
-                        col_left->get_chars(), col_left->get_offsets(), col_right->get_chars(),
-                        col_right->get_offsets(), vec_res);
+                if (left_const) {
+                    Impl<LeftDataType, RightDataType>::scalar_vector(
+                            col_left->get_data_at(0), col_right->get_chars(),
+                            col_right->get_offsets(), vec_res);
+                } else if (right_const) {
+                    Impl<LeftDataType, RightDataType>::vector_scalar(
+                            col_left->get_chars(), col_left->get_offsets(),
+                            col_right->get_data_at(0), vec_res);
+                } else {
+                    Impl<LeftDataType, RightDataType>::vector_vector(
+                            col_left->get_chars(), col_left->get_offsets(), col_right->get_chars(),
+                            col_right->get_offsets(), vec_res);
+                }
+
                 block.replace_by_position(result, std::move(col_res));
                 return Status::OK();
             }
@@ -259,16 +272,28 @@ private:
                       nullptr>
     Status execute_inner_impl(const ColumnWithTypeAndName& left, const ColumnWithTypeAndName& right,
                               Block& block, const ColumnNumbers& arguments, size_t result) {
-        auto lcol = left.column->convert_to_full_column_if_const();
-        auto rcol = right.column->convert_to_full_column_if_const();
+        const auto& [lcol, left_const] = unpack_if_const(left.column);
+        const auto& [rcol, right_const] = unpack_if_const(right.column);
 
         using ColVecResult = ColumnString;
         typename ColVecResult::MutablePtr col_res = ColVecResult::create();
         if (auto col_left = check_and_get_column<ColVecLeft>(lcol.get())) {
             if (auto col_right = check_and_get_column<ColVecRight>(rcol.get())) {
-                Impl<LeftDataType, RightDataType>::vector_vector(
-                        col_left->get_chars(), col_left->get_offsets(), col_right->get_chars(),
-                        col_right->get_offsets(), col_res->get_chars(), col_res->get_offsets());
+                if (left_const) {
+                    Impl<LeftDataType, RightDataType>::scalar_vector(
+                            col_left->get_data_at(0), col_right->get_chars(),
+                            col_right->get_offsets(), col_res->get_chars(), col_res->get_offsets());
+                } else if (right_const) {
+                    Impl<LeftDataType, RightDataType>::vector_scalar(
+                            col_left->get_chars(), col_left->get_offsets(),
+                            col_right->get_data_at(0), col_res->get_chars(),
+                            col_res->get_offsets());
+                } else {
+                    Impl<LeftDataType, RightDataType>::vector_vector(
+                            col_left->get_chars(), col_left->get_offsets(), col_right->get_chars(),
+                            col_right->get_offsets(), col_res->get_chars(), col_res->get_offsets());
+                }
+
                 block.replace_by_position(result, std::move(col_res));
                 return Status::OK();
             }
@@ -299,18 +324,13 @@ public:
                         size_t result, size_t input_rows_count) override {
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
         DCHECK_EQ(arguments.size(), 2);
+
         ColumnPtr argument_columns[2];
+        bool col_const[2];
         for (int i = 0; i < 2; ++i) {
-            argument_columns[i] =
-                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
-            if (auto* nullable = check_and_get_column<ColumnNullable>(*argument_columns[i])) {
-                // Danger: Here must dispose the null map data first! Because
-                // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
-                // of column nullable mem of null map
-                VectorizedUtils::update_null_map(null_map->get_data(),
-                                                 nullable->get_null_map_data());
-                argument_columns[i] = nullable->get_nested_column_ptr();
-            }
+            std::tie(argument_columns[i], col_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
+            check_set_nullable(argument_columns[i], null_map);
         }
 
         using ResultDataType = typename Impl<LeftDataType, RightDataType, ResultDateType,
@@ -337,8 +357,20 @@ public:
 
         if (auto col_left = check_and_get_column<ColVecLeft>(argument_columns[0].get())) {
             if (auto col_right = check_and_get_column<ColVecRight>(argument_columns[1].get())) {
-                Impl<LeftDataType, RightDataType, ResultDateType, ReturnType>::vector_vector(
-                        col_left->get_data(), col_right->get_data(), vec_res, null_map->get_data());
+                if (col_const[0]) {
+                    Impl<LeftDataType, RightDataType, ResultDateType, ReturnType>::scalar_vector(
+                            col_left->get_data()[0], col_right->get_data(), vec_res,
+                            null_map->get_data());
+                } else if (col_const[1]) {
+                    Impl<LeftDataType, RightDataType, ResultDateType, ReturnType>::vector_scalar(
+                            col_left->get_data(), col_right->get_data()[0], vec_res,
+                            null_map->get_data());
+                } else {
+                    Impl<LeftDataType, RightDataType, ResultDateType, ReturnType>::vector_vector(
+                            col_left->get_data(), col_right->get_data(), vec_res,
+                            null_map->get_data());
+                }
+
                 block.get_by_position(result).column =
                         ColumnNullable::create(std::move(col_res), std::move(null_map));
                 return Status::OK();
@@ -366,20 +398,11 @@ public:
                         size_t result, size_t input_rows_count) override {
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
         ColumnPtr argument_columns[2];
-
-        // focus convert const to full column to simply execute logic
-        // handle
+        bool col_const[2];
         for (int i = 0; i < 2; ++i) {
-            argument_columns[i] =
-                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
-            if (auto* nullable = check_and_get_column<ColumnNullable>(*argument_columns[i])) {
-                // Danger: Here must dispose the null map data first! Because
-                // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
-                // of column nullable mem of null map
-                VectorizedUtils::update_null_map(null_map->get_data(),
-                                                 nullable->get_null_map_data());
-                argument_columns[i] = nullable->get_nested_column_ptr();
-            }
+            std::tie(argument_columns[i], col_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
+            check_set_nullable(argument_columns[i], null_map);
         }
 
         auto res = Impl::ColumnType::create();
@@ -397,11 +420,27 @@ public:
         if constexpr (std::is_same_v<typename Impl::ReturnType, DataTypeString>) {
             auto& res_data = res->get_chars();
             auto& res_offsets = res->get_offsets();
-            Impl::vector_vector(context, ldata, loffsets, rdata, roffsets, res_data, res_offsets,
-                                null_map->get_data());
+            if (col_const[0]) {
+                Impl::scalar_vector(context, specific_str_column->get_data_at(0), rdata, roffsets,
+                                    res_data, res_offsets, null_map->get_data());
+            } else if (col_const[1]) {
+                Impl::vector_scalar(context, ldata, loffsets, specific_char_column->get_data_at(0),
+                                    res_data, res_offsets, null_map->get_data());
+            } else {
+                Impl::vector_vector(context, ldata, loffsets, rdata, roffsets, res_data,
+                                    res_offsets, null_map->get_data());
+            }
         } else {
-            Impl::vector_vector(context, ldata, loffsets, rdata, roffsets, res->get_data(),
-                                null_map->get_data());
+            if (col_const[0]) {
+                Impl::scalar_vector(context, specific_str_column->get_data_at(0), rdata, roffsets,
+                                    res->get_data(), null_map->get_data());
+            } else if (col_const[1]) {
+                Impl::vector_scalar(context, ldata, loffsets, specific_char_column->get_data_at(0),
+                                    res->get_data(), null_map->get_data());
+            } else {
+                Impl::vector_vector(context, ldata, loffsets, rdata, roffsets, res->get_data(),
+                                    null_map->get_data());
+            }
         }
 
         block.get_by_position(result).column =

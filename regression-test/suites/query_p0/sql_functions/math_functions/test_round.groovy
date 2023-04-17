@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_round") {
+    suite("test_round") {
     qt_select "SELECT round(10.12345)"
     qt_select "SELECT round(10.12345, 2)"
     qt_select "SELECT round_bankers(10.12345)"
@@ -50,6 +50,12 @@ suite("test_round") {
     qt_select """ SELECT ceil(col1, -1), ceil(col2, -1), ceil(col3, -1) FROM `${tableName}`; """
     qt_select """ SELECT truncate(col1, -1), truncate(col2, -1), truncate(col3, -1) FROM `${tableName}`; """
     qt_select """ SELECT round_bankers(col1, -1), round_bankers(col2, -1), round_bankers(col3, -1) FROM `${tableName}`; """
+
+    qt_select """ SELECT round(col1, 7), round(col2, 7), round(col3, 7) FROM `${tableName}`; """
+    qt_select """ SELECT floor(col1, 7), floor(col2, 7), floor(col3, 7) FROM `${tableName}`; """
+    qt_select """ SELECT ceil(col1, 7), ceil(col2, 7), ceil(col3, 7) FROM `${tableName}`; """
+    qt_select """ SELECT truncate(col1, 7), truncate(col2, 7), truncate(col3, 7) FROM `${tableName}`; """
+    qt_select """ SELECT round_bankers(col1, 7), round_bankers(col2, 7), round_bankers(col3, 7) FROM `${tableName}`; """
 
     sql """ DROP TABLE IF EXISTS `${tableName}` """
 

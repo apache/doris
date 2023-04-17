@@ -50,9 +50,14 @@ public class StatisticAction extends RestBaseController {
             executeCheckPassword(request, response);
         }
 
-        if (!Env.getCurrentEnv().isMaster()) {
-            return redirectToMaster(request, response);
+        try {
+            if (!Env.getCurrentEnv().isMaster()) {
+                return redirectToMasterOrException(request, response);
+            }
+        } catch (Exception e) {
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
+
         Map<String, Object> resultMap = Maps.newHashMap();
         Env env = Env.getCurrentEnv();
         SystemInfoService infoService = Env.getCurrentSystemInfo();

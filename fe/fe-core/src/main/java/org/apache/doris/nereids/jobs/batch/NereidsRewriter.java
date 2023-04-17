@@ -19,6 +19,7 @@ package org.apache.doris.nereids.jobs.batch;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.RewriteJob;
+import org.apache.doris.nereids.processor.pre.EliminateLogicalSelectHint;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.RuleType;
@@ -26,9 +27,9 @@ import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySe
 import org.apache.doris.nereids.rules.analysis.AvgDistinctToSumDivCount;
 import org.apache.doris.nereids.rules.analysis.CheckAfterRewrite;
 import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProject;
-import org.apache.doris.nereids.rules.expression.rewrite.ExpressionNormalization;
-import org.apache.doris.nereids.rules.expression.rewrite.ExpressionOptimization;
-import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewrite;
+import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
+import org.apache.doris.nereids.rules.expression.ExpressionOptimization;
+import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.mv.SelectMaterializedIndexWithAggregate;
 import org.apache.doris.nereids.rules.mv.SelectMaterializedIndexWithoutAggregate;
 import org.apache.doris.nereids.rules.rewrite.logical.AdjustNullable;
@@ -68,6 +69,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.PushdownLimit;
 import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinAggTranspose;
 import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinAggTransposeProject;
+import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinCommute;
 import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinLogicalJoinTranspose;
 import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinLogicalJoinTransposeProject;
 import org.apache.doris.nereids.rules.rewrite.logical.SplitLimit;
@@ -133,6 +135,10 @@ public class NereidsRewriter extends BatchRewriteJob {
                 new AdjustAggregateNullableForEmptySet()
             ),
 
+            // we should eliminate hint again because some hint maybe exist in the CTE or subquery.
+            // so this rule should invoke after "Subquery unnesting"
+            custom(RuleType.ELIMINATE_HINT, EliminateLogicalSelectHint::new),
+
             // The rule modification needs to be done after the subquery is unnested,
             // because for scalarSubQuery, the connection condition is stored in apply in the analyzer phase,
             // but when normalizeAggregate/normalizeSort is performed, the members in apply cannot be obtained,
@@ -176,7 +182,7 @@ public class NereidsRewriter extends BatchRewriteJob {
 
                 // pushdown SEMI Join
                 bottomUp(
-                    // new SemiJoinCommute(),
+                    new SemiJoinCommute(),
                     new SemiJoinLogicalJoinTranspose(),
                     new SemiJoinLogicalJoinTransposeProject(),
                     new SemiJoinAggTranspose(),

@@ -36,6 +36,7 @@ import io.opentelemetry.context.Context;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
@@ -49,9 +50,10 @@ public class BackendServiceClient {
     private final ManagedChannel channel;
     private final long execPlanTimeout;
 
-    public BackendServiceClient(TNetworkAddress address) {
+    public BackendServiceClient(TNetworkAddress address, Executor executor) {
         this.address = address;
         channel = NettyChannelBuilder.forAddress(address.getHostname(), address.getPort())
+                .executor(executor)
                 .flowControlWindow(Config.grpc_max_message_size_bytes)
                 .keepAliveWithoutCalls(true)
                 .maxInboundMessageSize(Config.grpc_max_message_size_bytes).enableRetry().maxRetryAttempts(MAX_RETRY_NUM)
@@ -65,19 +67,19 @@ public class BackendServiceClient {
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentAsync(
             InternalService.PExecPlanFragmentRequest request) {
         return stub.withDeadlineAfter(execPlanTimeout, TimeUnit.MILLISECONDS)
-            .execPlanFragment(request);
+                .execPlanFragment(request);
     }
 
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentPrepareAsync(
             InternalService.PExecPlanFragmentRequest request) {
         return stub.withDeadlineAfter(execPlanTimeout, TimeUnit.MILLISECONDS)
-            .execPlanFragmentPrepare(request);
+                .execPlanFragmentPrepare(request);
     }
 
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentStartAsync(
             InternalService.PExecPlanFragmentStartRequest request) {
         return stub.withDeadlineAfter(execPlanTimeout, TimeUnit.MILLISECONDS)
-            .execPlanFragmentStart(request);
+                .execPlanFragmentStart(request);
     }
 
     public Future<InternalService.PCancelPlanFragmentResult> cancelPlanFragmentAsync(
@@ -90,7 +92,7 @@ public class BackendServiceClient {
     }
 
     public Future<InternalService.PTabletKeyLookupResponse> fetchTabletDataAsync(
-                InternalService.PTabletKeyLookupRequest request) {
+            InternalService.PTabletKeyLookupRequest request) {
         return stub.tabletFetchData(request);
     }
 
@@ -99,7 +101,7 @@ public class BackendServiceClient {
     }
 
     public Future<InternalService.PFetchTableSchemaResult> fetchTableStructureAsync(
-                                InternalService.PFetchTableSchemaRequest request) {
+            InternalService.PFetchTableSchemaRequest request) {
         return stub.fetchTableSchema(request);
     }
 
@@ -133,6 +135,11 @@ public class BackendServiceClient {
 
     public Future<InternalService.PConstantExprResult> foldConstantExpr(InternalService.PConstantExprRequest request) {
         return stub.foldConstantExpr(request);
+    }
+
+    public Future<InternalService.PFetchColIdsResponse> getColIdsByTabletIds(
+            InternalService.PFetchColIdsRequest request) {
+        return stub.getColumnIdsByTabletIds(request);
     }
 
     public void shutdown() {

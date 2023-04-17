@@ -57,13 +57,7 @@ inline doris::vectorized::UInt64 int_hash64(doris::vectorized::UInt64 x) {
   *  due to high speed (latency 3 + 1 clock cycle, throughput 1 clock cycle).
   * Works only with SSE 4.2 support.
   */
-#ifdef __SSE4_2__
-#include <nmmintrin.h>
-#endif
-
-#if defined(__aarch64__)
-#include <sse2neon.h>
-#endif
+#include "util/sse_util.hpp"
 
 inline doris::vectorized::UInt64 int_hash_crc32(doris::vectorized::UInt64 x) {
 #if defined(__SSE4_2__) || (defined(__aarch64__) && defined(__ARM_FEATURE_CRC32))

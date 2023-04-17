@@ -84,9 +84,9 @@ public class ColocateMetaService extends RestBaseController {
     }
 
     public Object executeWithoutPassword(HttpServletRequest request, HttpServletResponse response)
-            throws DdlException {
+            throws Exception {
         executeCheckPassword(request, response);
-        RedirectView redirectView = redirectToMaster(request, response);
+        RedirectView redirectView = redirectToMasterOrException(request, response);
         if (redirectView != null) {
             return redirectView;
         }
@@ -95,14 +95,14 @@ public class ColocateMetaService extends RestBaseController {
     }
 
     @RequestMapping(path = "/api/colocate", method = RequestMethod.GET)
-    public Object colocate(HttpServletRequest request, HttpServletResponse response) throws DdlException {
+    public Object colocate(HttpServletRequest request, HttpServletResponse response) throws Exception {
         executeWithoutPassword(request, response);
         return ResponseEntityBuilder.ok(Env.getCurrentColocateIndex());
     }
 
     @RequestMapping(path = "/api/colocate/group_stable", method = {RequestMethod.POST, RequestMethod.DELETE})
     public Object group_stable(HttpServletRequest request, HttpServletResponse response)
-            throws DdlException {
+            throws Exception {
         if (needRedirect(request.getScheme())) {
             return redirectToHttps(request);
         }
@@ -121,7 +121,7 @@ public class ColocateMetaService extends RestBaseController {
 
     @RequestMapping(path = "/api/colocate/bucketseq", method = RequestMethod.POST)
     public Object bucketseq(HttpServletRequest request, HttpServletResponse response, @RequestBody String meta)
-            throws DdlException {
+            throws Exception {
         if (needRedirect(request.getScheme())) {
             return redirectToHttps(request);
         }
@@ -165,7 +165,7 @@ public class ColocateMetaService extends RestBaseController {
     }
 
     private void updateBackendPerBucketSeq(GroupId groupId, List<List<Long>> backendsPerBucketSeq)
-            throws DdlException {
-        throw new DdlException("Currently not support");
+            throws Exception {
+        throw new Exception("Currently not support");
     }
 }

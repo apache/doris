@@ -51,7 +51,14 @@ public class TopNScanOpt extends PlanPostProcessor {
             return topN;
         }
         Expression firstKey = topN.getOrderKeys().get(0).getExpr();
-        if (!(firstKey instanceof SlotReference)) {
+
+        // if firstKey's column is not present, it means the firstKey is not a original column from scan node
+        // for example: "select cast(k1 as INT) as id from tbl1 order by id limit 2;" the firstKey "id" is
+        // a cast expr which is not from tbl1 and its column is not present.
+        // On the other hand "select k1 as id from tbl1 order by id limit 2;" the firstKey "id" is just an alias of k1
+        // so its column is present which is valid for topN optimize
+        // see Alias::toSlot() method to get how column info is passed around by alias of slotReference
+        if (!(firstKey instanceof SlotReference) || !((SlotReference) firstKey).getColumn().isPresent()) {
             return topN;
         }
         if (firstKey.getDataType().isStringLikeType()

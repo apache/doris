@@ -20,17 +20,14 @@
 
 #pragma once
 
-#include "vec/columns/column_vector.h"
-#include "vec/core/types.h"
-#ifdef __aarch64__
-#include <sse2neon.h>
-#endif
-
+#include "util/sse_util.hpp"
 #include "vec/columns/column.h"
 #include "vec/columns/column_impl.h"
+#include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/typeid_cast.h"
+#include "vec/core/types.h"
 
 namespace doris::vectorized {
 

@@ -27,11 +27,14 @@
 #endif
 
 extern "C" {
+
+// Both je_nallocx and je_malloc will use the lock je_malloc_mutex_lock_slow,
+// so enabling the jemalloc hook will double the lock usage.
+// In extreme cases this will affect performance, consider turning off mem hook
+// mem hook should avoid nesting new/malloc.
+
 void* doris_malloc(size_t size) __THROW {
-    // Both je_nallocx and je_malloc will use the lock je_malloc_mutex_lock_slow,
-    // so enabling the jemalloc hook will double the lock usage.
-    // In extreme cases this will affect performance, consider turning off mem hook
-    TRY_CONSUME_MEM_TRACKER(jenallocx(size, 0), nullptr);
+    CONSUME_MEM_TRACKER(jenallocx(size, 0));
     void* ptr = jemalloc(size);
     if (UNLIKELY(ptr == nullptr)) {
         RELEASE_MEM_TRACKER(jenallocx(size, 0));
@@ -53,7 +56,7 @@ void* doris_realloc(void* p, size_t size) __THROW {
     int64_t old_size = jemalloc_usable_size(p);
 #endif
 
-    TRY_CONSUME_MEM_TRACKER(jenallocx(size, 0) - old_size, nullptr);
+    CONSUME_MEM_TRACKER(jenallocx(size, 0) - old_size);
     void* ptr = jerealloc(p, size);
     if (UNLIKELY(ptr == nullptr)) {
         RELEASE_MEM_TRACKER(jenallocx(size, 0) - old_size);
@@ -66,7 +69,7 @@ void* doris_calloc(size_t n, size_t size) __THROW {
         return nullptr;
     }
 
-    TRY_CONSUME_MEM_TRACKER(n * size, nullptr);
+    CONSUME_MEM_TRACKER(n * size);
     void* ptr = jecalloc(n, size);
     if (UNLIKELY(ptr == nullptr)) {
         RELEASE_MEM_TRACKER(n * size);
@@ -82,7 +85,7 @@ void doris_cfree(void* ptr) __THROW {
 }
 
 void* doris_memalign(size_t align, size_t size) __THROW {
-    TRY_CONSUME_MEM_TRACKER(size, nullptr);
+    CONSUME_MEM_TRACKER(size);
     void* ptr = jealigned_alloc(align, size);
     if (UNLIKELY(ptr == nullptr)) {
         RELEASE_MEM_TRACKER(size);
@@ -93,7 +96,7 @@ void* doris_memalign(size_t align, size_t size) __THROW {
 }
 
 void* doris_aligned_alloc(size_t align, size_t size) __THROW {
-    TRY_CONSUME_MEM_TRACKER(size, nullptr);
+    CONSUME_MEM_TRACKER(size);
     void* ptr = jealigned_alloc(align, size);
     if (UNLIKELY(ptr == nullptr)) {
         RELEASE_MEM_TRACKER(size);
@@ -104,7 +107,7 @@ void* doris_aligned_alloc(size_t align, size_t size) __THROW {
 }
 
 void* doris_valloc(size_t size) __THROW {
-    TRY_CONSUME_MEM_TRACKER(size, nullptr);
+    CONSUME_MEM_TRACKER(size);
     void* ptr = jevalloc(size);
     if (UNLIKELY(ptr == nullptr)) {
         RELEASE_MEM_TRACKER(size);
@@ -115,7 +118,7 @@ void* doris_valloc(size_t size) __THROW {
 }
 
 void* doris_pvalloc(size_t size) __THROW {
-    TRY_CONSUME_MEM_TRACKER(size, nullptr);
+    CONSUME_MEM_TRACKER(size);
     void* ptr = jevalloc(size);
     if (UNLIKELY(ptr == nullptr)) {
         RELEASE_MEM_TRACKER(size);
@@ -126,7 +129,7 @@ void* doris_pvalloc(size_t size) __THROW {
 }
 
 int doris_posix_memalign(void** r, size_t align, size_t size) __THROW {
-    TRY_CONSUME_MEM_TRACKER(size, ENOMEM);
+    CONSUME_MEM_TRACKER(size);
     int ret = jeposix_memalign(r, align, size);
     if (UNLIKELY(ret != 0)) {
         RELEASE_MEM_TRACKER(size);

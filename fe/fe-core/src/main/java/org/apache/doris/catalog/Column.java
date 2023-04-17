@@ -213,6 +213,8 @@ public class Column implements Writable, GsonPostProcessable {
         this.visible = column.visible;
         this.children = column.getChildren();
         this.uniqueId = column.getUniqueId();
+        this.defineExpr = column.getDefineExpr();
+        this.defineName = column.getDefineName();
     }
 
     public void createChildrenColumn(Type type, Column column) {

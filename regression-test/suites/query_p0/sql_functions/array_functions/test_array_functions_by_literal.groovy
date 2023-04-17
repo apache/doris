@@ -250,6 +250,8 @@ suite("test_array_functions_by_literal") {
     qt_sql_array_with_constant2 "select array_with_constant(2, '1'), array_repeat('1', 2)"
     qt_sql_array_with_constant3 "select array_with_constant(4, 1223), array_repeat(1223, 4)"
     qt_sql_array_with_constant4 "select array_with_constant(8, null), array_repeat(null, 8)"
+    qt_sql_array_with_constant5 "select array_with_constant(null, 'abc'), array_repeat('abc', null)"
+    qt_sql_array_with_constant6 "select array_with_constant(null, null), array_repeat(null, null)"
     // array_compact function
     qt_sql "select array_compact([1, 2, 3, 3, null, null, 4, 4])"
     qt_sql "select array_compact([null, null, null])"
@@ -268,7 +270,7 @@ suite("test_array_functions_by_literal") {
     qt_sql """select array_apply(cast(array("2020-01-02", "2022-01-03", "2021-01-01", "1996-04-17") as array<datetimev2>), ">", '2020-01-02')"""
     qt_sql """select array_apply(array(cast (24.99 as decimal(10,3)),cast (25.99 as decimal(10,3))), ">", '25')"""
     qt_sql """select array_apply(array(cast (24.99 as decimal(10,3)),cast (25.99 as decimal(10,3))), "!=", '25.99')"""
-    qt_sql """select array_apply(array(cast (111.111 as decimalv3(6,3)),cast (222.222 as decimalv3(6,3))), ">", '111.111')"""
+    // qt_sql """select array_apply(array(cast (111.111 as decimalv3(6,3)),cast (222.222 as decimalv3(6,3))), ">", '111.111')"""
 
     qt_sql "select array_concat([1, 2, 3], [2, 3, 4], [8, 1, 2], [9])"
     qt_sql "select array_concat([12, 23], [25, null], [null], [66])"

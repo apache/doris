@@ -18,14 +18,11 @@
 #include "data_type_jsonb.h"
 
 #include "gen_cpp/data.pb.h"
+#include "util/sse_util.hpp"
 #include "vec/columns/column_const.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/field.h"
 #include "vec/io/io_helper.h"
-
-#ifdef __SSE2__
-#include <emmintrin.h>
-#endif
 
 namespace doris::vectorized {
 

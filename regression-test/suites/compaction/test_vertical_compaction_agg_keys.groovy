@@ -125,7 +125,7 @@ suite("test_vertical_compaction_agg_keys") {
         sql """ INSERT INTO ${tableName} VALUES
              (1, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2017-10-01 11:11:11.160000', '2017-10-01 11:11:11.100111', '2020-01-02', 1, 31, 19, hll_hash(2), to_bitmap(2))
             """
-        
+
         sql """
             DELETE from ${tableName} where user_id < 0
             """

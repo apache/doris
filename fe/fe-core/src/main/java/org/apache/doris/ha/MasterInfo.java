@@ -87,6 +87,16 @@ public class MasterInfo implements Writable {
     }
 
     @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("MasterInfo: ip=").append(ip)
+                .append(" hostName=").append(hostName)
+                .append(" httpPort=").append(httpPort)
+                .append(" rpcPort=").append(rpcPort);
+        return sb.toString();
+    }
+
+    @Override
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this);
         Text.writeString(out, json);

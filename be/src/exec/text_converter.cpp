@@ -17,15 +17,25 @@
 
 #include "text_converter.h"
 
+#include <glog/logging.h>
 #include <sql.h>
+#include <stdint.h>
 
+#include <ostream>
+
+#include "common/compiler_util.h"
+#include "olap/hll.h"
 #include "runtime/decimalv2_value.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
+#include "runtime/types.h"
+#include "util/slice.h"
 #include "util/string_parser.hpp"
-#include "util/types.h"
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/common/string_ref.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
+#include "vec/core/types.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {

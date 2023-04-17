@@ -86,7 +86,7 @@ import org.apache.doris.analysis.DropRepositoryStmt;
 import org.apache.doris.analysis.DropResourceStmt;
 import org.apache.doris.analysis.DropRoleStmt;
 import org.apache.doris.analysis.DropSqlBlockRuleStmt;
-import org.apache.doris.analysis.DropTableStatsStmt;
+import org.apache.doris.analysis.DropStatsStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.DropUserStmt;
 import org.apache.doris.analysis.GrantStmt;
@@ -327,9 +327,8 @@ public class DdlExecutor {
             env.getAuth().alterUser((AlterUserStmt) ddlStmt);
         } else if (ddlStmt instanceof CleanProfileStmt) {
             ProfileManager.getInstance().cleanProfile();
-        } else if (ddlStmt instanceof DropTableStatsStmt) {
-            DropTableStatsStmt stmt = (DropTableStatsStmt) ddlStmt;
-            StatisticsRepository.dropTableStatistics(stmt);
+        } else if (ddlStmt instanceof DropStatsStmt) {
+            env.getAnalysisManager().dropStats((DropStatsStmt) ddlStmt);
         } else {
             throw new DdlException("Unknown statement.");
         }

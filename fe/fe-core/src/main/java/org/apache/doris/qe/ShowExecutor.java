@@ -36,6 +36,7 @@ import org.apache.doris.analysis.ShowCatalogRecycleBinStmt;
 import org.apache.doris.analysis.ShowCatalogStmt;
 import org.apache.doris.analysis.ShowClusterStmt;
 import org.apache.doris.analysis.ShowCollationStmt;
+import org.apache.doris.analysis.ShowColumnHistStmt;
 import org.apache.doris.analysis.ShowColumnStatsStmt;
 import org.apache.doris.analysis.ShowColumnStmt;
 import org.apache.doris.analysis.ShowCreateCatalogStmt;
@@ -43,6 +44,7 @@ import org.apache.doris.analysis.ShowCreateDbStmt;
 import org.apache.doris.analysis.ShowCreateFunctionStmt;
 import org.apache.doris.analysis.ShowCreateLoadStmt;
 import org.apache.doris.analysis.ShowCreateMaterializedViewStmt;
+import org.apache.doris.analysis.ShowCreateRepositoryStmt;
 import org.apache.doris.analysis.ShowCreateRoutineLoadStmt;
 import org.apache.doris.analysis.ShowCreateTableStmt;
 import org.apache.doris.analysis.ShowDataSkewStmt;
@@ -184,6 +186,7 @@ import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.mtmv.metadata.MTMVTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.Histogram;
 import org.apache.doris.statistics.StatisticsRepository;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Diagnoser;
@@ -297,6 +300,8 @@ public class ShowExecutor {
             handleShowCreateRoutineLoad();
         } else if (stmt instanceof ShowCreateLoadStmt) {
             handleShowCreateLoad();
+        } else if (stmt instanceof ShowCreateRepositoryStmt) {
+            handleShowCreateRepository();
         } else if (stmt instanceof ShowDeleteStmt) {
             handleShowDelete();
         } else if (stmt instanceof ShowAlterStmt) {
@@ -375,6 +380,8 @@ public class ShowExecutor {
             handleShowSqlBlockRule();
         } else if (stmt instanceof ShowColumnStatsStmt) {
             handleShowColumnStats();
+        } else if (stmt instanceof ShowColumnHistStmt) {
+            handleShowColumnHist();
         } else if (stmt instanceof ShowTableCreationStmt) {
             handleShowTableCreation();
         } else if (stmt instanceof ShowLastInsertStmt) {
@@ -1002,8 +1009,6 @@ public class ShowExecutor {
                         ? new ShowResultSet(showStmt.getMetaData(), rows)
                         : new ShowResultSet(ShowCreateTableStmt.getMaterializedViewMetaData(), rows);
             }
-        } catch (MetaNotFoundException e) {
-            throw new AnalysisException(e.getMessage());
         } finally {
             table.readUnlock();
         }
@@ -2199,6 +2204,20 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
+    private void handleShowCreateRepository() throws AnalysisException {
+        ShowCreateRepositoryStmt showCreateRepositoryStmt = (ShowCreateRepositoryStmt) stmt;
+
+        String repoName = showCreateRepositoryStmt.getRepoName();
+        List<List<String>> rows = Lists.newArrayList();
+
+        Repository repo = Env.getCurrentEnv().getBackupHandler().getRepoMgr().getRepo(repoName);
+        if (repo == null) {
+            throw new AnalysisException("repository not exist.");
+        }
+        rows.add(Lists.newArrayList(repoName, repo.getCreateStatement()));
+        resultSet = new ShowResultSet(showCreateRepositoryStmt.getMetaData(), rows);
+    }
+
     private void handleShowCreateRoutineLoad() throws AnalysisException {
         ShowCreateRoutineLoadStmt showCreateRoutineLoadStmt = (ShowCreateRoutineLoadStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
@@ -2286,20 +2305,15 @@ public class ShowExecutor {
         ShowColumnStatsStmt showColumnStatsStmt = (ShowColumnStatsStmt) stmt;
         TableName tableName = showColumnStatsStmt.getTableName();
         TableIf tableIf = showColumnStatsStmt.getTable();
-        if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.SHOW)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "Permission denied",
-                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                    tableName.getDb() + ": " + tableName.getTbl());
-        }
         List<Pair<String, ColumnStatistic>> columnStatistics = new ArrayList<>();
+        Set<String> columnNames = showColumnStatsStmt.getColumnNames();
         PartitionNames partitionNames = showColumnStatsStmt.getPartitionNames();
-        for (Column column : tableIf.getColumns()) {
-            String colName = column.getName();
+
+        for (String colName : columnNames) {
             if (partitionNames == null) {
                 ColumnStatistic columnStatistic =
                         StatisticsRepository.queryColumnStatisticsByName(tableIf.getId(), colName);
-                columnStatistics.add(Pair.of(column.getName(), columnStatistic));
+                columnStatistics.add(Pair.of(colName, columnStatistic));
             } else {
                 columnStatistics.addAll(StatisticsRepository.queryColumnStatisticsByPartitions(tableName,
                                 colName, showColumnStatsStmt.getPartitionNames().getPartitionNames())
@@ -2309,6 +2323,19 @@ public class ShowExecutor {
 
         }
         resultSet = showColumnStatsStmt.constructResultSet(columnStatistics);
+    }
+
+    public void handleShowColumnHist() {
+        ShowColumnHistStmt showColumnHistStmt = (ShowColumnHistStmt) stmt;
+        TableIf tableIf = showColumnHistStmt.getTable();
+        Set<String> columnNames = showColumnHistStmt.getColumnNames();
+
+        List<Pair<String, Histogram>> columnStatistics = columnNames.stream()
+                .map(colName -> Pair.of(colName,
+                        StatisticsRepository.queryColumnHistogramByName(tableIf.getId(), colName)))
+                .collect(Collectors.toList());
+
+        resultSet = showColumnHistStmt.constructResultSet(columnStatistics);
     }
 
     public void handleShowSqlBlockRule() throws AnalysisException {

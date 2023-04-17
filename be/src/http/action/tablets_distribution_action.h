@@ -17,12 +17,15 @@
 
 #pragma once
 
+#include <stdint.h>
+
 #include <string>
 
 #include "http/http_handler.h"
 #include "util/easy_json.h"
 
 namespace doris {
+class HttpRequest;
 
 // Get BE tablets distribution info from http API.
 class TabletsDistributionAction : public HttpHandler {

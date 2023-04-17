@@ -163,6 +163,7 @@ under the License.
         <doris.home>${basedir}/../</doris.home>
         <revision>1.2-SNAPSHOT</revision>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <doris.hive.catalog.shade.version>1.0.3-SNAPSHOT</doris.hive.catalog.shade.version>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
         <sonar.organization>apache</sonar.organization>
@@ -318,6 +319,11 @@ under the License.
                 <artifactId>hadoop-client</artifactId>
                 <version>${hadoop.version}</version>
             </dependency>
+            <dependency>
+                <groupId>org.apache.doris</groupId>
+                <artifactId>hive-catalog-shade</artifactId>
+                <version>${doris.hive.catalog.shade.version}</version>
+            </dependency>
             <!-- https://mvnrepository.com/artifact/org.apache.zookeeper/zookeeper -->
             <dependency>
                 <groupId>org.apache.zookeeper</groupId>
@@ -420,7 +426,6 @@ under the License.
                 <groupId>javax.servlet</groupId>
                 <artifactId>javax.servlet-api</artifactId>
                 <version>${javax.servlet-api.version}</version>
-                <scope>provided</scope>
             </dependency>
             <dependency>
                 <groupId>org.apache.doris</groupId>
@@ -746,98 +751,11 @@ under the License.
                 <version>${spark.version}</version>
                 <scope>provided</scope>
             </dependency>
-            <dependency>
-                <groupId>org.apache.hive</groupId>
-                <artifactId>hive-metastore</artifactId>
-                <version>${hive.version}</version>
-                <scope>provided</scope>
-                <exclusions>
-                    <exclusion>
-                        <artifactId>servlet-api</artifactId>
-                        <groupId>javax.servlet</groupId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>jdk.tools</groupId>
-                        <artifactId>jdk.tools</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>org.apache.logging.log4j</groupId>
-                        <artifactId>log4j-1.2-api</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>tomcat</groupId>
-                        <artifactId>jasper-compiler</artifactId>
-                    </exclusion>
-                    <!-- confilict with parquet version in iceberg -->
-                    <exclusion>
-                        <groupId>org.apache.parquet</groupId>
-                        <artifactId>parquet-hadoop-bundle</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>org.apache.hbase</groupId>
-                        <artifactId>hbase-client</artifactId>
-                    </exclusion>
-                </exclusions>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.hive</groupId>
-                <artifactId>hive-exec</artifactId>
-                <classifier>core</classifier>
-                <version>${hive.version}</version>
-                <scope>provided</scope>
-                <exclusions>
-                    <exclusion>
-                        <groupId>org.apache.logging.log4j</groupId>
-                        <artifactId>log4j-1.2-api</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>org.codehaus.groovy</groupId>
-                        <artifactId>groovy-all</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>org.pentaho</groupId>
-                        <artifactId>*</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>org.apache.hive</groupId>
-                        <artifactId>hive-vector-code-gen</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>org.apache.hive</groupId>
-                        <artifactId>hive-llap-tez</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>org.apache.hive</groupId>
-                        <artifactId>hive-shims</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>org.apache.hadoop</groupId>
-                        <artifactId>hadoop-yarn-registry</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>org.eclipse.jetty</groupId>
-                        <artifactId>jetty-util-ajax</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>org.eclipse.jetty</groupId>
-                        <artifactId>jetty-util</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>org.apache.zookeeper</groupId>
-                        <artifactId>zookeeper</artifactId>
-                    </exclusion>
-                </exclusions>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.hive</groupId>
-                <artifactId>hive-serde</artifactId>
-                <version>${hive.version}</version>
-            </dependency>
+
             <dependency>
                 <groupId>org.apache.hadoop</groupId>
                 <artifactId>hadoop-hdfs</artifactId>
                 <version>${hadoop.version}</version>
-                <scope>provided</scope>
                 <exclusions>
                     <exclusion>
                         <artifactId>servlet-api</artifactId>
@@ -877,7 +795,6 @@ under the License.
                 <groupId>org.apache.hadoop</groupId>
                 <artifactId>hadoop-common</artifactId>
                 <version>${hadoop.version}</version>
-                <scope>provided</scope>
                 <exclusions>
                     <exclusion>
                         <groupId>jdk.tools</groupId>
@@ -900,14 +817,6 @@ under the License.
                 <artifactId>iceberg-core</artifactId>
                 <version>${iceberg.version}</version>
             </dependency>
-
-            <!-- https://mvnrepository.com/artifact/org.apache.iceberg/iceberg-hive-metastore -->
-            <dependency>
-                <groupId>org.apache.iceberg</groupId>
-                <artifactId>iceberg-hive-metastore</artifactId>
-                <version>${iceberg.version}</version>
-            </dependency>
-
             <!-- For Iceberg, must be consistent with Iceberg version -->
             <dependency>
                 <groupId>org.apache.avro</groupId>
@@ -928,24 +837,26 @@ under the License.
                 <artifactId>hudi-hadoop-mr</artifactId>
                 <version>${hudi.version}</version>
             </dependency>
+            <dependency>
+                <groupId>org.apache.parquet</groupId>
+                <artifactId>parquet-avro</artifactId>
+                <version>${parquet.version}</version>
+            </dependency>
 
             <dependency>
                 <groupId>org.apache.parquet</groupId>
                 <artifactId>parquet-column</artifactId>
                 <version>${parquet.version}</version>
-                <scope>provided</scope>
             </dependency>
             <dependency>
                 <groupId>org.apache.parquet</groupId>
                 <artifactId>parquet-hadoop</artifactId>
                 <version>${parquet.version}</version>
-                <scope>provided</scope>
             </dependency>
             <dependency>
                 <groupId>org.apache.parquet</groupId>
                 <artifactId>parquet-common</artifactId>
                 <version>${parquet.version}</version>
-                <scope>provided</scope>
             </dependency>
             <dependency>
                 <groupId>commons-collections</groupId>
@@ -1081,4 +992,15 @@ under the License.
             </plugin>
         </plugins>
     </reporting>
+    <repositories>
+        <!--todo waiting hive-catalog release-->
+        <repository>
+            <id>snapshots</id>
+            <name>apache snapshots maven repo https</name>
+            <url>https://repository.apache.org/content/repositories/snapshots/</url>
+            <snapshots>
+              <updatePolicy>always</updatePolicy>
+            </snapshots>
+        </repository>
+    </repositories>
 </project>

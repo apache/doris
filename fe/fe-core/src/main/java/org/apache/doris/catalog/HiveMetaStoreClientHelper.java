@@ -71,7 +71,7 @@ import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.thrift.TException;
+import shade.doris.hive.org.apache.thrift.TException;
 
 import java.io.IOException;
 import java.text.ParseException;

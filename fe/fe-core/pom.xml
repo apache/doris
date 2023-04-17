@@ -197,7 +197,6 @@ under the License.
             <groupId>javax.servlet</groupId>
             <artifactId>javax.servlet-api</artifactId>
             <version>3.1.0</version>
-            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.doris</groupId>
@@ -207,7 +206,6 @@ under the License.
         <dependency>
             <groupId>de.jflex</groupId>
             <artifactId>jflex</artifactId>
-            <scope>provided</scope>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.jmockit/jmockit -->
         <dependency>
@@ -564,51 +562,8 @@ under the License.
             <artifactId>grpc-stub</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.apache.hive</groupId>
-            <artifactId>hive-metastore</artifactId>
-            <scope>provided</scope>
-            <exclusions>
-                <exclusion>
-                    <artifactId>netty-all</artifactId>
-                    <groupId>io.netty</groupId>
-                </exclusion>
-                <exclusion>
-                    <artifactId>log4j</artifactId>
-                    <groupId>log4j</groupId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.hive</groupId>
-            <artifactId>hive-exec</artifactId>
-            <classifier>core</classifier>
-            <scope>provided</scope>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.apache.velocity</groupId>
-                    <artifactId>velocity</artifactId>
-                </exclusion>
-                <exclusion>
-                    <artifactId>commons-httpclient</artifactId>
-                    <groupId>commons-httpclient</groupId>
-                </exclusion>
-                <exclusion>
-                    <artifactId>calcite-core</artifactId>
-                    <groupId>org.apache.calcite</groupId>
-                </exclusion>
-                <exclusion>
-                    <artifactId>calcite-druid</artifactId>
-                    <groupId>org.apache.calcite</groupId>
-                </exclusion>
-                <exclusion>
-                    <artifactId>calcite-linq4j</artifactId>
-                    <groupId>org.apache.calcite</groupId>
-                </exclusion>
-                <exclusion>
-                    <artifactId>avatica</artifactId>
-                    <groupId>org.apache.calcite.avatica</groupId>
-                </exclusion>
-            </exclusions>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>hive-catalog-shade</artifactId>
         </dependency>
         <dependency>
            <groupId>org.apache.httpcomponents</groupId>
@@ -624,7 +579,6 @@ under the License.
         <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-hdfs</artifactId>
-            <scope>provided</scope>
             <exclusions>
                 <exclusion>
                     <artifactId>netty-all</artifactId>
@@ -640,7 +594,6 @@ under the License.
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-auth</artifactId>
             <version>${hadoop.version}</version>
-            <scope>provided</scope>
         </dependency>
         <!-- https://mvnrepository.com/artifact/io.opentelemetry/opentelemetry-api -->
         <dependency>
@@ -672,13 +625,11 @@ under the License.
         <dependency>
             <groupId>org.apache.iceberg</groupId>
             <artifactId>iceberg-core</artifactId>
-            <scope>provided</scope>
         </dependency>
 
         <dependency>
             <groupId>org.apache.iceberg</groupId>
             <artifactId>iceberg-aws</artifactId>
-            <scope>provided</scope>
             <version>${iceberg.version}</version>
         </dependency>
 
@@ -719,17 +670,10 @@ under the License.
             <artifactId>protocol-core</artifactId>
             <version>${awssdk.version}</version>
         </dependency>
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-hive-metastore</artifactId>
-            <scope>provided</scope>
-        </dependency>
-
         <!-- For Iceberg, must be consistent with Iceberg version -->
         <dependency>
             <groupId>org.apache.avro</groupId>
             <artifactId>avro</artifactId>
-            <scope>provided</scope>
         </dependency>
 
         <!-- https://mvnrepository.com/artifact/org.apache.hudi/hudi-common -->
@@ -757,7 +701,10 @@ under the License.
             <groupId>org.apache.hudi</groupId>
             <artifactId>hudi-hadoop-mr</artifactId>
         </dependency>
-
+        <dependency>
+            <groupId>org.apache.parquet</groupId>
+            <artifactId>parquet-avro</artifactId>
+        </dependency>        
         <dependency> 
             <groupId>org.mariadb.jdbc</groupId>
             <artifactId>mariadb-java-client</artifactId>
@@ -815,6 +762,10 @@ under the License.
                 <exclusion>
                     <artifactId>elasticsearch-rest-high-level-client</artifactId>
                     <groupId>org.elasticsearch.client</groupId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.hive</groupId>
+                    <artifactId>hive-storage-api</artifactId>
                 </exclusion>
             </exclusions>
         </dependency>
@@ -1112,6 +1063,7 @@ under the License.
                             <overWriteReleases>false</overWriteReleases>
                             <overWriteSnapshots>false</overWriteSnapshots>
                             <overWriteIfNewer>true</overWriteIfNewer>
+                            <includeScope>runtime</includeScope>
                             <skip>${skip.plugin}</skip>
                         </configuration>
                     </execution>

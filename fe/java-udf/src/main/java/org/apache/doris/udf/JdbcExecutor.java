@@ -17,6 +17,8 @@
 
 package org.apache.doris.udf;
 
+import org.apache.doris.jni.vec.ColumnType;
+import org.apache.doris.jni.vec.VectorTable;
 import org.apache.doris.thrift.TJdbcExecutorCtorParams;
 import org.apache.doris.thrift.TJdbcOperation;
 import org.apache.doris.thrift.TOdbcTableType;
@@ -71,6 +73,10 @@ public class JdbcExecutor {
     private int curBlockRows = 0;
     private static final byte[] emptyBytes = new byte[0];
     private DruidDataSource druidDataSource = null;
+    private int minPoolSize = 1;
+    private int maxPoolSize = 100;
+    private int minIdleSize = 1;
+    private int maxIdelTime = 600000;
 
     public JdbcExecutor(byte[] thriftParams) throws Exception {
         TJdbcExecutorCtorParams request = new TJdbcExecutorCtorParams();
@@ -80,6 +86,10 @@ public class JdbcExecutor {
         } catch (TException e) {
             throw new InternalException(e.getMessage());
         }
+        minPoolSize = Integer.valueOf(System.getProperty("JDBC_MIN_POOL"));
+        maxPoolSize = Integer.valueOf(System.getProperty("JDBC_MAX_POOL"));
+        maxIdelTime = Integer.valueOf(System.getProperty("JDBC_MAX_IDEL_TIME"));
+        minIdleSize = minPoolSize > 0 ? 1 : 0;
         init(request.driver_path, request.statement, request.batch_size, request.jdbc_driver_class,
                 request.jdbc_url, request.jdbc_user, request.jdbc_password, request.op, request.table_type);
     }
@@ -122,6 +132,22 @@ public class JdbcExecutor {
         } catch (SQLException e) {
             throw new UdfRuntimeException("JDBC executor sql has error: ", e);
         }
+    }
+
+    public int write(Map<String, String> params) {
+        String[] requiredFields = params.get("required_fields").split(",");
+        String[] types = params.get("columns_types").split("#");
+        long metaAddress = Long.parseLong(params.get("meta_address"));
+        // Get sql string from configuration map
+        // String sql = params.get("write_sql");
+        ColumnType[] columnTypes = new ColumnType[types.length];
+        for (int i = 0; i < types.length; i++) {
+            columnTypes[i] = ColumnType.parseType(requiredFields[i], types[i]);
+        }
+        VectorTable batchTable = new VectorTable(columnTypes, requiredFields, metaAddress);
+        // todo: insert the batch table by PreparedStatement
+        // Can't release or close batchTable, it's released by c++
+        return batchTable.getNumRows();
     }
 
     public List<String> getResultColumnTypeNames() {
@@ -228,11 +254,17 @@ public class JdbcExecutor {
                 ds.setUrl(jdbcUrl);
                 ds.setUsername(jdbcUser);
                 ds.setPassword(jdbcPassword);
-                ds.setMinIdle(1);
-                ds.setInitialSize(2);
-                ds.setMaxActive(5);
+                ds.setMinIdle(minIdleSize);
+                ds.setInitialSize(minPoolSize);
+                ds.setMaxActive(maxPoolSize);
                 ds.setMaxWait(5000);
+                ds.setTimeBetweenEvictionRunsMillis(maxIdelTime);
+                ds.setMinEvictableIdleTimeMillis(maxIdelTime / 2);
                 druidDataSource = ds;
+                // here is a cache of datasource, which using the string(jdbcUrl + jdbcUser +
+                // jdbcPassword) as key.
+                // and the default datasource init = 1, min = 1, max = 100, if one of connection idle
+                // time greater than 10 minutes. then connection will be retrieved.
                 JdbcDataSource.getDataSource().putSource(jdbcUrl + jdbcUser + jdbcPassword, ds);
             }
             conn = druidDataSource.getConnection();
@@ -1150,6 +1182,49 @@ public class JdbcExecutor {
         UdfUtils.copyMemory(bytes, UdfUtils.BYTE_ARRAY_OFFSET, null, bytesAddr, offsets[numRows - 1]);
     }
 
+    private void byteaPutToHexString(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+            long offsetsAddr, long charsAddr) {
+        int[] offsets = new int[numRows];
+        byte[][] byteRes = new byte[numRows][];
+        int offset = 0;
+        if (isNullable) {
+            for (int i = 0; i < numRows; i++) {
+                if (column[i] == null) {
+                    byteRes[i] = emptyBytes;
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+                } else {
+                    byteRes[i] = byteArrayToHexString((byte[]) column[i]).getBytes(StandardCharsets.UTF_8);
+                }
+                offset += byteRes[i].length;
+                offsets[i] = offset;
+            }
+        } else {
+            for (int i = 0; i < numRows; i++) {
+                byteRes[i] = byteArrayToHexString((byte[]) column[i]).getBytes(StandardCharsets.UTF_8);
+                offset += byteRes[i].length;
+                offsets[i] = offset;
+            }
+        }
+        byte[] bytes = new byte[offsets[numRows - 1]];
+        long bytesAddr = JNINativeMethod.resizeStringColumn(charsAddr, offsets[numRows - 1]);
+        int dst = 0;
+        for (int i = 0; i < numRows; i++) {
+            for (int j = 0; j < byteRes[i].length; j++) {
+                bytes[dst++] = byteRes[i][j];
+            }
+        }
+        UdfUtils.copyMemory(offsets, UdfUtils.INT_ARRAY_OFFSET, null, offsetsAddr, numRows * 4L);
+        UdfUtils.copyMemory(bytes, UdfUtils.BYTE_ARRAY_OFFSET, null, bytesAddr, offsets[numRows - 1]);
+    }
+
+    private static String byteArrayToHexString(byte[] bytes) {
+        StringBuilder hexString = new StringBuilder("\\x");
+        for (byte b : bytes) {
+            hexString.append(String.format("%02x", b & 0xff));
+        }
+        return hexString.toString();
+    }
+
     public void copyBatchStringResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long offsetsAddr, long charsAddr) {
         Object[] column = (Object[]) columnObj;
@@ -1162,6 +1237,9 @@ public class JdbcExecutor {
         }
         if (column[firstNotNullIndex] instanceof String) {
             stringPutToString(column, isNullable, numRows, nullMapAddr, offsetsAddr, charsAddr);
+        } else if (column[firstNotNullIndex] instanceof byte[]) {
+            // for postgresql bytea type
+            byteaPutToHexString(column, isNullable, numRows, nullMapAddr, offsetsAddr, charsAddr);
         } else {
             // object like in pg type point, polygon, jsonb..... get object is
             // org.postgresql.util.PGobject.....

@@ -18,6 +18,7 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.AnalyzeStmt;
+import org.apache.doris.analysis.DropStatsStmt;
 import org.apache.doris.analysis.ShowAnalyzeStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Env;
@@ -39,10 +40,12 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.text.StringSubstitutor;
-import org.apache.log4j.LogManager;
-import org.apache.log4j.Logger;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -60,7 +63,7 @@ public class AnalysisManager {
 
     private static final String UPDATE_JOB_STATE_SQL_TEMPLATE = "UPDATE "
             + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.ANALYSIS_JOB_TABLE + " "
-            + "SET state = '${jobState}' ${message} ${updateExecTime} WHERE job_id = ${jobId}";
+            + "SET state = '${jobState}' ${message} ${updateExecTime} WHERE job_id = ${jobId} and task_id=${taskId}";
 
     private static final String SHOW_JOB_STATE_SQL_TEMPLATE = "SELECT "
             + "job_id, catalog_name, db_name, tbl_name, col_name, job_type, "
@@ -88,7 +91,8 @@ public class AnalysisManager {
         return statisticsCache;
     }
 
-    public void createAnalysisJob(AnalyzeStmt analyzeStmt) {
+    // Each analyze stmt corresponding to an analysis job.
+    public void createAnalysisJob(AnalyzeStmt analyzeStmt) throws DdlException {
         String catalogName = analyzeStmt.getCatalogName();
         String db = analyzeStmt.getDBName();
         TableName tbl = analyzeStmt.getTblName();
@@ -97,7 +101,6 @@ public class AnalysisManager {
         Set<String> partitionNames = analyzeStmt.getPartitionNames();
         Map<Long, AnalysisTaskInfo> analysisTaskInfos = new HashMap<>();
         long jobId = Env.getCurrentEnv().getNextId();
-
         // If the analysis is not incremental, need to delete existing statistics.
         // we cannot collect histograms incrementally and do not support it
         if (!analyzeStmt.isIncrement && !analyzeStmt.isHistogram) {
@@ -110,54 +113,87 @@ public class AnalysisManager {
             StatisticsRepository.dropStatistics(dbId, tblIds, colNames, partIds);
         }
 
-        if (colNames != null) {
-            for (String colName : colNames) {
+        createTaskForEachColumns(analyzeStmt, catalogName, db, tbl, colNames, partitionNames, analysisTaskInfos, jobId);
+        createTaskForMVIdx(analyzeStmt, catalogName, db, tbl, partitionNames, analysisTaskInfos, jobId);
+        persistAnalysisJob(catalogName, db, tbl, jobId);
+
+        if (analyzeStmt.isSync()) {
+            syncExecute(analysisTaskInfos.values());
+            return;
+        }
+
+        analysisJobIdToTaskMap.put(jobId, analysisTaskInfos);
+        analysisTaskInfos.values().forEach(taskScheduler::schedule);
+    }
+
+    private void persistAnalysisJob(String catalogName, String db, TableName tbl,
+            long jobId) throws DdlException {
+        try {
+            AnalysisTaskInfo analysisTaskInfo = new AnalysisTaskInfoBuilder().setJobId(
+                            jobId).setTaskId(-1)
+                    .setCatalogName(catalogName).setDbName(db)
+                    .setTblName(tbl.getTbl())
+                    .setJobType(JobType.MANUAL)
+                    .setAnalysisMethod(AnalysisMethod.FULL).setAnalysisType(AnalysisType.INDEX)
+                    .setScheduleType(ScheduleType.ONCE).build();
+            StatisticsRepository.persistAnalysisTask(analysisTaskInfo);
+        } catch (Throwable t) {
+            throw new DdlException(t.getMessage(), t);
+        }
+    }
+
+    private void createTaskForMVIdx(AnalyzeStmt analyzeStmt, String catalogName, String db, TableName tbl,
+            Set<String> partitionNames, Map<Long, AnalysisTaskInfo> analysisTaskInfos, long jobId) throws DdlException {
+        if (!(analyzeStmt.isWholeTbl && analyzeStmt.getTable().getType().equals(TableType.OLAP))) {
+            return;
+        }
+        OlapTable olapTable = (OlapTable) analyzeStmt.getTable();
+        try {
+            olapTable.readLock();
+            for (MaterializedIndexMeta meta : olapTable.getIndexIdToMeta().values()) {
+                if (meta.getDefineStmt() == null) {
+                    continue;
+                }
                 long taskId = Env.getCurrentEnv().getNextId();
-                AnalysisType analType = analyzeStmt.isHistogram ? AnalysisType.HISTOGRAM : AnalysisType.COLUMN;
-                AnalysisTaskInfo analysisTaskInfo = new AnalysisTaskInfoBuilder().setJobId(jobId)
-                        .setTaskId(taskId).setCatalogName(catalogName).setDbName(db)
-                        .setTblName(tbl.getTbl()).setColName(colName)
-                        .setPartitionNames(partitionNames).setJobType(JobType.MANUAL)
-                        .setAnalysisMethod(AnalysisMethod.FULL).setAnalysisType(analType)
-                        .setState(AnalysisState.PENDING)
+                AnalysisTaskInfo analysisTaskInfo = new AnalysisTaskInfoBuilder().setJobId(
+                                jobId).setTaskId(taskId)
+                        .setCatalogName(catalogName).setDbName(db)
+                        .setTblName(tbl.getTbl()).setPartitionNames(partitionNames)
+                        .setIndexId(meta.getIndexId()).setJobType(JobType.MANUAL)
+                        .setAnalysisMethod(AnalysisMethod.FULL).setAnalysisType(AnalysisType.INDEX)
                         .setScheduleType(ScheduleType.ONCE).build();
                 try {
-                    StatisticsRepository.createAnalysisTask(analysisTaskInfo);
+                    StatisticsRepository.persistAnalysisTask(analysisTaskInfo);
                 } catch (Exception e) {
-                    throw new RuntimeException("Failed to create analysis job", e);
+                    throw new DdlException("Failed to create analysis task", e);
                 }
                 analysisTaskInfos.put(taskId, analysisTaskInfo);
             }
+        } finally {
+            olapTable.readUnlock();
         }
-        if (analyzeStmt.isWholeTbl && analyzeStmt.getTable().getType().equals(TableType.OLAP)) {
-            OlapTable olapTable = (OlapTable) analyzeStmt.getTable();
+    }
+
+    private void createTaskForEachColumns(AnalyzeStmt analyzeStmt, String catalogName, String db, TableName tbl,
+            Set<String> colNames, Set<String> partitionNames, Map<Long, AnalysisTaskInfo> analysisTaskInfos,
+            long jobId) throws DdlException {
+        for (String colName : colNames) {
+            long taskId = Env.getCurrentEnv().getNextId();
+            AnalysisType analType = analyzeStmt.isHistogram ? AnalysisType.HISTOGRAM : AnalysisType.COLUMN;
+            AnalysisTaskInfo analysisTaskInfo = new AnalysisTaskInfoBuilder().setJobId(jobId)
+                    .setTaskId(taskId).setCatalogName(catalogName).setDbName(db)
+                    .setTblName(tbl.getTbl()).setColName(colName)
+                    .setPartitionNames(partitionNames).setJobType(JobType.MANUAL)
+                    .setAnalysisMethod(AnalysisMethod.FULL).setAnalysisType(analType)
+                    .setState(AnalysisState.PENDING)
+                    .setScheduleType(ScheduleType.ONCE).build();
             try {
-                olapTable.readLock();
-                for (MaterializedIndexMeta meta : olapTable.getIndexIdToMeta().values()) {
-                    if (meta.getDefineStmt() == null) {
-                        continue;
-                    }
-                    long taskId = Env.getCurrentEnv().getNextId();
-                    AnalysisTaskInfo analysisTaskInfo = new AnalysisTaskInfoBuilder().setJobId(
-                                    jobId).setTaskId(taskId)
-                            .setCatalogName(catalogName).setDbName(db)
-                            .setTblName(tbl.getTbl()).setPartitionNames(partitionNames)
-                            .setIndexId(meta.getIndexId()).setJobType(JobType.MANUAL)
-                            .setAnalysisMethod(AnalysisMethod.FULL).setAnalysisType(AnalysisType.INDEX)
-                            .setScheduleType(ScheduleType.ONCE).build();
-                    try {
-                        StatisticsRepository.createAnalysisTask(analysisTaskInfo);
-                    } catch (Exception e) {
-                        throw new RuntimeException("Failed to create analysis job", e);
-                    }
-                    analysisTaskInfos.put(taskId, analysisTaskInfo);
-                }
-            } finally {
-                olapTable.readUnlock();
+                StatisticsRepository.persistAnalysisTask(analysisTaskInfo);
+            } catch (Exception e) {
+                throw new DdlException("Failed to create analysis task", e);
             }
+            analysisTaskInfos.put(taskId, analysisTaskInfo);
         }
-        analysisJobIdToTaskMap.put(jobId, analysisTaskInfos);
-        analysisTaskInfos.values().forEach(taskScheduler::schedule);
     }
 
     public void updateTaskStatus(AnalysisTaskInfo info, AnalysisState jobState, String message, long time) {
@@ -166,16 +202,23 @@ public class AnalysisManager {
         params.put("message", StringUtils.isNotEmpty(message) ? String.format(", message = '%s'", message) : "");
         params.put("updateExecTime", time == -1 ? "" : ", last_exec_time_in_ms=" + time);
         params.put("jobId", String.valueOf(info.jobId));
+        params.put("taskId", String.valueOf(info.taskId));
         try {
             StatisticsUtil.execUpdate(new StringSubstitutor(params).replace(UPDATE_JOB_STATE_SQL_TEMPLATE));
         } catch (Exception e) {
-            LOG.warn(String.format("Failed to update state for job: %s", info.jobId), e);
+            LOG.warn(String.format("Failed to update state for task: %d, %d", info.jobId, info.taskId), e);
         } finally {
             info.state = jobState;
             if (analysisJobIdToTaskMap.get(info.jobId).values()
                     .stream().allMatch(i -> i.state != null
                             && i.state != AnalysisState.PENDING && i.state != AnalysisState.RUNNING)) {
                 analysisJobIdToTaskMap.remove(info.jobId);
+                params.put("taskId", String.valueOf(-1));
+                try {
+                    StatisticsUtil.execUpdate(new StringSubstitutor(params).replace(UPDATE_JOB_STATE_SQL_TEMPLATE));
+                } catch (Exception e) {
+                    LOG.warn(String.format("Failed to update state for job: %s", info.jobId), e);
+                }
             }
 
         }
@@ -208,6 +251,32 @@ public class AnalysisManager {
         }
 
         return results;
+    }
+
+    private void syncExecute(Collection<AnalysisTaskInfo> taskInfos) {
+        List<String> colNames = new ArrayList<>();
+        for (AnalysisTaskInfo info : taskInfos) {
+            try {
+                TableIf table = StatisticsUtil.findTable(info.catalogName,
+                        info.dbName, info.tblName);
+                BaseAnalysisTask analysisTask = table.createAnalysisTask(info);
+                analysisTask.execute();
+            } catch (Throwable t) {
+                colNames.add(info.colName);
+                LOG.info("Failed to analyze, info: {}", info);
+            }
+        }
+        if (!colNames.isEmpty()) {
+            throw new RuntimeException("Failed to analyze following columns: " + String.join(",", colNames));
+        }
+    }
+
+    public void dropStats(DropStatsStmt dropStatsStmt) {
+        if (dropStatsStmt.dropExpired) {
+            Env.getCurrentEnv().getStatisticsCleaner().clear();
+            return;
+        }
+        StatisticsRepository.dropTableStatistics(dropStatsStmt);
     }
 
 }

@@ -18,8 +18,11 @@
 #pragma once
 
 #include <curl/curl.h>
+#include <curl/system.h>
+#include <stdint.h>
 
 #include <cstdio>
+#include <functional>
 #include <string>
 
 #include "common/status.h"

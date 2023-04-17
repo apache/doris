@@ -392,6 +392,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("revoke", new Integer(SqlParserSymbols.KW_REVOKE));
         keywordMap.put("right", new Integer(SqlParserSymbols.KW_RIGHT));
         keywordMap.put("rlike", new Integer(SqlParserSymbols.KW_REGEXP));
+        keywordMap.put("repository", new Integer(SqlParserSymbols.KW_REPOSITORY));
         keywordMap.put("role", new Integer(SqlParserSymbols.KW_ROLE));
         keywordMap.put("roles", new Integer(SqlParserSymbols.KW_ROLES));
         keywordMap.put("rollback", new Integer(SqlParserSymbols.KW_ROLLBACK));
@@ -488,6 +489,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("execute", new Integer(SqlParserSymbols.KW_EXECUTE));
         keywordMap.put("lines", new Integer(SqlParserSymbols.KW_LINES));
         keywordMap.put("ignore", new Integer(SqlParserSymbols.KW_IGNORE));
+        keywordMap.put("expired", new Integer(SqlParserSymbols.KW_EXPIRED));
    }
     
   // map from token id to token description

@@ -216,6 +216,7 @@ import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.AnalysisTaskScheduler;
 import org.apache.doris.statistics.StatisticsCache;
+import org.apache.doris.statistics.StatisticsCleaner;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.FQDNManager;
 import org.apache.doris.system.Frontend;
@@ -450,6 +451,8 @@ public class Env {
 
     private ResourceGroupMgr resourceGroupMgr;
 
+    private StatisticsCleaner statisticsCleaner;
+
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
             // get all
@@ -650,6 +653,7 @@ public class Env {
         this.fqdnManager = new FQDNManager(systemInfo);
         if (!isCheckpointCatalog) {
             this.analysisManager = new AnalysisManager();
+            this.statisticsCleaner = new StatisticsCleaner();
         }
         this.globalFunctionMgr = new GlobalFunctionMgr();
         this.resourceGroupMgr = new ResourceGroupMgr();
@@ -873,6 +877,9 @@ public class Env {
         if (!Config.edit_log_type.equalsIgnoreCase("bdb")) {
             // If not using bdb, we need to notify the FE type transfer manually.
             notifyNewFETypeTransfer(FrontendNodeType.MASTER);
+        }
+        if (statisticsCleaner != null) {
+            statisticsCleaner.start();
         }
     }
 
@@ -1316,11 +1323,13 @@ public class Env {
 
         // MUST set master ip before starting checkpoint thread.
         // because checkpoint thread need this info to select non-master FE to push image
+
         this.masterInfo = new MasterInfo(Env.getCurrentEnv().getSelfNode().getIp(),
                 Env.getCurrentEnv().getSelfNode().getHostName(),
                 Config.http_port,
                 Config.rpc_port);
         editLog.logMasterInfo(masterInfo);
+        LOG.info("logMasterInfo:{}", masterInfo);
 
         this.resourceGroupMgr.init();
 
@@ -1345,6 +1354,9 @@ public class Env {
         LOG.info(msg);
         // for master, there are some new thread pools need to register metric
         ThreadPoolManager.registerAllThreadPoolMetric();
+        if (analysisManager != null) {
+            analysisManager.getStatisticsCache().preHeat();
+        }
     }
 
     /*
@@ -1795,6 +1807,10 @@ public class Env {
         newChecksum ^= size;
         for (int i = 0; i < size; i++) {
             AlterJobV2 alterJobV2 = AlterJobV2.read(dis);
+            if (alterJobV2.isExpire()) {
+                LOG.info("alter job {} is expired, type: {}, ignore it", alterJobV2.getJobId(), alterJobV2.getType());
+                continue;
+            }
             if (type == JobType.ROLLUP || type == JobType.SCHEMA_CHANGE) {
                 if (type == JobType.ROLLUP) {
                     this.getMaterializedViewHandler().addAlterJobV2(alterJobV2);
@@ -1939,10 +1955,8 @@ public class Env {
      * Load mtmv jobManager.
      **/
     public long loadMTMVJobManager(DataInputStream in, long checksum) throws IOException {
-        if (Config.enable_mtmv_scheduler_framework) {
-            this.mtmvJobManager = MTMVJobManager.read(in, checksum);
-            LOG.info("finished replay mtmv job and tasks from image");
-        }
+        this.mtmvJobManager = MTMVJobManager.read(in, checksum);
+        LOG.info("finished replay mtmv job and tasks from image");
         return checksum;
     }
 
@@ -2190,10 +2204,8 @@ public class Env {
     }
 
     public long saveMTMVJobManager(CountingDataOutputStream out, long checksum) throws IOException {
-        if (Config.enable_mtmv_scheduler_framework) {
-            Env.getCurrentEnv().getMTMVJobManager().write(out, checksum);
-            LOG.info("Save mtmv job and tasks to image");
-        }
+        Env.getCurrentEnv().getMTMVJobManager().write(out, checksum);
+        LOG.info("Save mtmv job and tasks to image");
         return checksum;
     }
 
@@ -3664,6 +3676,7 @@ public class Env {
 
     public void setMaster(MasterInfo info) {
         this.masterInfo = info;
+        LOG.info("setMaster MasterInfo:{}", info);
     }
 
     public boolean canRead() {
@@ -5343,7 +5356,7 @@ public class Env {
     //  1. handle partition level analysis statement properly
     //  2. support sample job
     //  3. support period job
-    public void createAnalysisJob(AnalyzeStmt analyzeStmt) {
+    public void createAnalysisJob(AnalyzeStmt analyzeStmt) throws DdlException {
         analysisManager.createAnalysisJob(analyzeStmt);
     }
 
@@ -5354,5 +5367,9 @@ public class Env {
 
     public GlobalFunctionMgr getGlobalFunctionMgr() {
         return globalFunctionMgr;
+    }
+
+    public StatisticsCleaner getStatisticsCleaner() {
+        return statisticsCleaner;
     }
 }
