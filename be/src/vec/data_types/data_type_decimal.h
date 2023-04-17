@@ -215,7 +215,7 @@ public:
 
     static T get_scale_multiplier(UInt32 scale);
 
-    T parse_from_string(const std::string& str) const;
+    bool parse_from_string(const std::string& str, T* res) const;
 
 private:
     const UInt32 precision;

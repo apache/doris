@@ -2074,9 +2074,9 @@ public class QueryPlanTest extends TestWithFeService {
                 + "PROPERTIES (\n"
                 + "\"replication_allocation\" = \"tag.location.default: 1\"\n"
                 + ")");
-        String sql = "explain insert into test.decimal_tb select 1, 10, 1, 1, 1;";
+        String sql = "explain insert into test.decimal_tb select 1, 1, 1, 1, 1;";
         String explainString = getSQLPlanOrErrorMsg(sql);
-        Assert.assertTrue(explainString.contains("1 | 10 | 1 | 1 | 1"));
+        Assert.assertTrue(explainString.contains("1 | 1 | 1 | 1 | 1"));
     }
 
     @Test
