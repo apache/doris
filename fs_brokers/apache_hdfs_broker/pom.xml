@@ -411,6 +411,7 @@ under the License.
                             <overWriteSnapshots>false</overWriteSnapshots>
                             <overWriteIfNewer>true</overWriteIfNewer>
                             <skip>${skip.plugin}</skip>
+                            <includeScope>runtime</includeScope>
                         </configuration>
                     </execution>
                 </executions>

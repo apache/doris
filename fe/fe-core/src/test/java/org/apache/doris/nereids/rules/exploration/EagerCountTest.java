@@ -48,15 +48,16 @@ class EagerCountTest implements MemoPatternMatchSupported {
                         ImmutableList.of(new Alias(new Sum(scan1.getOutput().get(1)), "sum")))
                 .build();
         PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
-                .applyExploration(EagerCount.INSTANCE.build())
+                .applyExploration(new EagerCount().buildRules())
+                .printlnExploration()
                 .matchesExploration(
                     logicalAggregate(
                         logicalJoin(
                           logicalOlapScan(),
-                          logicalAggregate().when(cntAgg -> cntAgg.getOutputExprsSql().equals("sid, count(1) AS `cnt`"))
+                          logicalAggregate().when(cntAgg -> cntAgg.getOutputExprsSql().equals("sid, count(*) AS `cnt`"))
                         )
                     ).when(newAgg -> newAgg.getGroupByExpressions().equals(((Aggregate) agg).getGroupByExpressions())
-                                        && newAgg.getOutputExprsSql().equals("(sum(gender) * cnt) AS `sum`"))
+                                        && newAgg.getOutputExprsSql().equals("sum((gender * cnt)) AS `sum`"))
                 );
     }
 
@@ -72,17 +73,17 @@ class EagerCountTest implements MemoPatternMatchSupported {
                         ))
                 .build();
         PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
-                .applyExploration(EagerCount.INSTANCE.build())
+                .applyExploration(new EagerCount().buildRules())
                 .printlnOrigin()
                 .matchesExploration(
                     logicalAggregate(
                         logicalJoin(
                             logicalOlapScan(),
-                            logicalAggregate().when(cntAgg -> cntAgg.getOutputExprsSql().equals("sid, count(1) AS `cnt`"))
+                            logicalAggregate().when(cntAgg -> cntAgg.getOutputExprsSql().equals("sid, count(*) AS `cnt`"))
                         )
                     ).when(newAgg ->
                         newAgg.getGroupByExpressions().equals(((Aggregate) agg).getGroupByExpressions())
-                            && newAgg.getOutputExprsSql().equals("(sum(gender) * cnt) AS `sum0`, (sum(name) * cnt) AS `sum1`, (sum(age) * cnt) AS `sum2`"))
+                            && newAgg.getOutputExprsSql().equals("sum((gender * cnt)) AS `sum0`, sum((name * cnt)) AS `sum1`, sum((age * cnt)) AS `sum2`"))
                 );
     }
 }

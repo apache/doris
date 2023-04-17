@@ -36,6 +36,9 @@ public:
     Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* roaring) const override;
 
+    Status evaluate(const Schema& schema, InvertedIndexIterator* iterator, uint32_t num_rows,
+                    roaring::Roaring* bitmap) const override;
+
     uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel,
                       uint16_t size) const override;
 

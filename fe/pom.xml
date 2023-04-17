@@ -163,7 +163,7 @@ under the License.
         <doris.home>${basedir}/../</doris.home>
         <revision>1.2-SNAPSHOT</revision>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <doris.hive.catalog.shade.version>1.0.2-SNAPSHOT</doris.hive.catalog.shade.version>
+        <doris.hive.catalog.shade.version>1.0.3-SNAPSHOT</doris.hive.catalog.shade.version>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
         <sonar.organization>apache</sonar.organization>
@@ -426,7 +426,6 @@ under the License.
                 <groupId>javax.servlet</groupId>
                 <artifactId>javax.servlet-api</artifactId>
                 <version>${javax.servlet-api.version}</version>
-                <scope>provided</scope>
             </dependency>
             <dependency>
                 <groupId>org.apache.doris</groupId>
@@ -757,7 +756,6 @@ under the License.
                 <groupId>org.apache.hadoop</groupId>
                 <artifactId>hadoop-hdfs</artifactId>
                 <version>${hadoop.version}</version>
-                <scope>provided</scope>
                 <exclusions>
                     <exclusion>
                         <artifactId>servlet-api</artifactId>
@@ -797,7 +795,6 @@ under the License.
                 <groupId>org.apache.hadoop</groupId>
                 <artifactId>hadoop-common</artifactId>
                 <version>${hadoop.version}</version>
-                <scope>provided</scope>
                 <exclusions>
                     <exclusion>
                         <groupId>jdk.tools</groupId>
@@ -820,14 +817,6 @@ under the License.
                 <artifactId>iceberg-core</artifactId>
                 <version>${iceberg.version}</version>
             </dependency>
-
-            <!-- https://mvnrepository.com/artifact/org.apache.iceberg/iceberg-hive-metastore -->
-            <dependency>
-                <groupId>org.apache.iceberg</groupId>
-                <artifactId>iceberg-hive-metastore</artifactId>
-                <version>${iceberg.version}</version>
-            </dependency>
-
             <!-- For Iceberg, must be consistent with Iceberg version -->
             <dependency>
                 <groupId>org.apache.avro</groupId>
@@ -848,24 +837,26 @@ under the License.
                 <artifactId>hudi-hadoop-mr</artifactId>
                 <version>${hudi.version}</version>
             </dependency>
+            <dependency>
+                <groupId>org.apache.parquet</groupId>
+                <artifactId>parquet-avro</artifactId>
+                <version>${parquet.version}</version>
+            </dependency>
 
             <dependency>
                 <groupId>org.apache.parquet</groupId>
                 <artifactId>parquet-column</artifactId>
                 <version>${parquet.version}</version>
-                <scope>provided</scope>
             </dependency>
             <dependency>
                 <groupId>org.apache.parquet</groupId>
                 <artifactId>parquet-hadoop</artifactId>
                 <version>${parquet.version}</version>
-                <scope>provided</scope>
             </dependency>
             <dependency>
                 <groupId>org.apache.parquet</groupId>
                 <artifactId>parquet-common</artifactId>
                 <version>${parquet.version}</version>
-                <scope>provided</scope>
             </dependency>
             <dependency>
                 <groupId>commons-collections</groupId>

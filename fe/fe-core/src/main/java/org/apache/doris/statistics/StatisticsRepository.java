@@ -18,7 +18,7 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.AlterColumnStatsStmt;
-import org.apache.doris.analysis.DropTableStatsStmt;
+import org.apache.doris.analysis.DropStatsStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -56,6 +56,9 @@ public class StatisticsRepository {
     private static final String FULL_QUALIFIED_COLUMN_STATISTICS_NAME = FULL_QUALIFIED_DB_NAME + "."
             + "`" + StatisticConstants.STATISTIC_TBL_NAME + "`";
 
+    private static final String FULL_QUALIFIED_COLUMN_HISTOGRAM_NAME = FULL_QUALIFIED_DB_NAME + "."
+            + "`" + StatisticConstants.HISTOGRAM_TBL_NAME + "`";
+
     private static final String FULL_QUALIFIED_ANALYSIS_JOB_TABLE_NAME = FULL_QUALIFIED_DB_NAME + "."
             + "`" + StatisticConstants.ANALYSIS_JOB_TABLE + "`";
 
@@ -66,6 +69,10 @@ public class StatisticsRepository {
     private static final String FETCH_PARTITIONS_STATISTIC_TEMPLATE = "SELECT * FROM "
             + FULL_QUALIFIED_COLUMN_STATISTICS_NAME
             + " WHERE `id` IN (${idList})";
+
+    private static final String FETCH_COLUMN_HISTOGRAM_TEMPLATE = "SELECT * FROM "
+            + FULL_QUALIFIED_COLUMN_HISTOGRAM_NAME
+            + " WHERE `id` = '${id}'";
 
     private static final String PERSIST_ANALYSIS_TASK_SQL_TEMPLATE = "INSERT INTO "
             + FULL_QUALIFIED_ANALYSIS_JOB_TABLE_NAME + " VALUES(${jobId}, ${taskId}, '${catalogName}', '${dbName}',"
@@ -89,6 +96,12 @@ public class StatisticsRepository {
                     + " WHERE part_id is NULL "
                     + " ORDER BY update_time DESC LIMIT "
                     + StatisticConstants.STATISTICS_RECORDS_CACHE_SIZE;
+
+    private static final String FETCH_STATS_FULL_NAME =
+            "SELECT id, catalog_id, db_id, tbl_id, idx_id, col_id, part_id FROM "
+                    + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.STATISTIC_TBL_NAME
+                    + " ORDER BY update_time "
+                    + "LIMIT ${limit} OFFSET ${offset}";
 
     public static ColumnStatistic queryColumnStatisticsByName(long tableId, String colName) {
         ResultRow resultRow = queryColumnStatisticById(tableId, colName);
@@ -115,10 +128,19 @@ public class StatisticsRepository {
     }
 
     public static ResultRow queryColumnStatisticById(long tblId, String colName) {
+        return queryColumnStatisticById(tblId, colName, false);
+    }
+
+    public static ResultRow queryColumnHistogramById(long tblId, String colName) {
+        return queryColumnStatisticById(tblId, colName, true);
+    }
+
+    private static ResultRow queryColumnStatisticById(long tblId, String colName, boolean isHistogram) {
         Map<String, String> map = new HashMap<>();
         String id = constructId(tblId, -1, colName);
         map.put("id", id);
-        List<ResultRow> rows = StatisticsUtil.executeQuery(FETCH_COLUMN_STATISTIC_TEMPLATE, map);
+        List<ResultRow> rows = isHistogram ? StatisticsUtil.executeQuery(FETCH_COLUMN_HISTOGRAM_TEMPLATE, map) :
+                StatisticsUtil.executeQuery(FETCH_COLUMN_STATISTIC_TEMPLATE, map);
         int size = rows.size();
         if (size > 1) {
             throw new IllegalStateException(String.format("id: %s should be unique, but return more than one row", id));
@@ -135,6 +157,14 @@ public class StatisticsRepository {
         params.put("idList", sj.toString());
         List<ResultRow> rows = StatisticsUtil.executeQuery(FETCH_PARTITIONS_STATISTIC_TEMPLATE, params);
         return rows == null ? Collections.emptyList() : rows;
+    }
+
+    public static Histogram queryColumnHistogramByName(long tableId, String colName) {
+        ResultRow resultRow = queryColumnHistogramById(tableId, colName);
+        if (resultRow == null) {
+            return Histogram.UNKNOWN;
+        }
+        return Histogram.fromResultRow(resultRow);
     }
 
     private static String constructId(Object... params) {
@@ -198,14 +228,14 @@ public class StatisticsRepository {
         predicate.append(partPredicate);
     }
 
-    public static void createAnalysisTask(AnalysisTaskInfo analysisTaskInfo) throws Exception {
+    public static void persistAnalysisTask(AnalysisTaskInfo analysisTaskInfo) throws Exception {
         Map<String, String> params = new HashMap<>();
         params.put("jobId", String.valueOf(analysisTaskInfo.jobId));
         params.put("taskId", String.valueOf(analysisTaskInfo.taskId));
         params.put("catalogName", analysisTaskInfo.catalogName);
         params.put("dbName", analysisTaskInfo.dbName);
         params.put("tblName", analysisTaskInfo.tblName);
-        params.put("colName", analysisTaskInfo.colName);
+        params.put("colName", analysisTaskInfo.colName == null ? "" : analysisTaskInfo.colName);
         params.put("indexId", analysisTaskInfo.indexId == null ? "-1" : String.valueOf(analysisTaskInfo.indexId));
         params.put("jobType", analysisTaskInfo.jobType.toString());
         params.put("analysisType", analysisTaskInfo.analysisMethod.toString());
@@ -233,7 +263,9 @@ public class StatisticsRepository {
             builder.setCount(Double.parseDouble(rowCount));
         }
         if (ndv != null) {
-            builder.setNdv(Double.parseDouble(ndv));
+            Double dNdv = Double.parseDouble(ndv);
+            builder.setNdv(dNdv);
+            builder.setOriginalNdv(dNdv);
         }
         if (nullCount != null) {
             builder.setNumNulls(Double.parseDouble(nullCount));
@@ -270,7 +302,7 @@ public class StatisticsRepository {
                 .updateColStatsCache(objects.table.getId(), -1, colName, builder.build());
     }
 
-    public static void dropTableStatistics(DropTableStatsStmt dropTableStatsStmt) {
+    public static void dropTableStatistics(DropStatsStmt dropTableStatsStmt) {
         Long dbId = dropTableStatsStmt.getDbId();
         Set<Long> tbIds = dropTableStatsStmt.getTbIds();
         Set<String> cols = dropTableStatsStmt.getColumnNames();
@@ -281,5 +313,12 @@ public class StatisticsRepository {
 
     public static List<ResultRow> fetchRecentStatsUpdatedCol() {
         return StatisticsUtil.execStatisticQuery(FETCH_RECENT_STATS_UPDATED_COL);
+    }
+
+    public static List<ResultRow> fetchStatsFullName(long limit, long offset) {
+        Map<String, String> params = new HashMap<>();
+        params.put("limit", String.valueOf(limit));
+        params.put("offset", String.valueOf(offset));
+        return StatisticsUtil.execStatisticQuery(new StringSubstitutor(params).replace(FETCH_STATS_FULL_NAME));
     }
 }

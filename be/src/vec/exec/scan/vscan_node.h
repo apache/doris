@@ -74,6 +74,23 @@ public:
 
     virtual void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {}
 
+    void set_shared_scan(RuntimeState* state, bool shared_scan) {
+        _shared_scan_opt = shared_scan;
+        if (_is_pipeline_scan) {
+            if (_shared_scan_opt) {
+                _shared_scanner_controller =
+                        state->get_query_fragments_ctx()->get_shared_scanner_controller();
+                auto [should_create_scanner, queue_id] =
+                        _shared_scanner_controller->should_build_scanner_and_queue_id(id());
+                _should_create_scanner = should_create_scanner;
+                _context_queue_id = queue_id;
+            } else {
+                _should_create_scanner = true;
+                _context_queue_id = 0;
+            }
+        }
+    }
+
     // Get next block.
     // If eos is true, no more data will be read and block should be empty.
     Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override;
@@ -312,6 +329,7 @@ protected:
     RuntimeProfile::HighWaterMarkCounter* _free_blocks_memory_usage;
 
     std::unordered_map<std::string, int> _colname_to_slot_id;
+    std::vector<int> _col_distribute_ids;
 
 private:
     // Register and get all runtime filters at Init phase.

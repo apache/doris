@@ -89,7 +89,10 @@ public:
     }
     int query_parallel_instance_num() const { return _query_options.parallel_instance; }
     int max_errors() const { return _query_options.max_errors; }
-    int execution_timeout() const { return _query_options.execution_timeout; }
+    int execution_timeout() const {
+        return _query_options.__isset.execution_timeout ? _query_options.execution_timeout
+                                                        : _query_options.query_timeout;
+    }
     int max_io_buffers() const { return _query_options.max_io_buffers; }
     int num_scanner_threads() const { return _query_options.num_scanner_threads; }
     TQueryType::type query_type() const { return _query_options.query_type; }
@@ -197,10 +200,6 @@ public:
     void set_load_job_id(int64_t job_id) { _load_job_id = job_id; }
 
     int64_t load_job_id() const { return _load_job_id; }
-
-    void set_shared_scan_opt(bool shared_scan_opt) { _shared_scan_opt = shared_scan_opt; }
-
-    bool shared_scan_opt() const { return _shared_scan_opt; }
 
     const std::string get_error_log_file_path() const { return _error_log_file_path; }
 
@@ -455,7 +454,6 @@ private:
     std::string _db_name;
     std::string _load_dir;
     int64_t _load_job_id;
-    bool _shared_scan_opt = false;
 
     // mini load
     int64_t _normal_row_number;

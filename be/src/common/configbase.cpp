@@ -15,20 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <stdint.h>
+
 #include <algorithm>
+#include <cctype>
 #include <cerrno>
+#include <cstdlib>
 #include <cstring>
-#include <fstream>
+#include <fstream> // IWYU pragma: keep
+#include <functional>
 #include <iostream>
-#include <list>
 #include <map>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "common/logging.h"
 
 #define __IN_CONFIGBASE_CPP__
-#include "common/config.h"
+#include "common/config.h" // IWYU pragma: keep
 #undef __IN_CONFIGBASE_CPP__
 
 #include "common/status.h"
-#include "gutil/strings/substitute.h"
+#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 
@@ -390,7 +401,7 @@ Status persist_config(const std::string& field, const std::string& value) {
     // lock to make sure only one thread can modify the be_custom.conf
     std::lock_guard<std::mutex> l(custom_conf_lock);
 
-    static const string conffile = string(getenv("DORIS_HOME")) + "/conf/be_custom.conf";
+    static const std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be_custom.conf";
 
     Properties tmp_props;
     if (!tmp_props.load(conffile.c_str(), false)) {

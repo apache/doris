@@ -23,6 +23,8 @@
 #include "olap/tablet.h"
 
 namespace doris {
+class HttpRequest;
+struct Version;
 
 class PadRowsetAction : public HttpHandler {
 public:

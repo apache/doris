@@ -617,6 +617,12 @@ _
 -- !sql_array_with_constant4 --
 [NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL]	[NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL]
 
+-- !sql_array_with_constant5 --
+[]	[]
+
+-- !sql_array_with_constant6 --
+[]	[]
+
 -- !sql --
 [1, 2, 3, NULL, 4]
 
@@ -661,9 +667,6 @@ _
 
 -- !sql --
 [24.99]
-
--- !sql --
-[111, 222]
 
 -- !sql --
 [1, 2, 3, 2, 3, 4, 8, 1, 2, 9]
@@ -823,3 +826,4 @@ _
 
 -- !sql --
 [333.333, 111.111, 222.222]
+

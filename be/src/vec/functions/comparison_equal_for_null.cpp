@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "common/compiler_util.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/data_types/get_least_supertype.h"
 #include "vec/functions/function_string.h"
@@ -22,7 +23,7 @@
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
-//TODO: add manual info to docs.
+// Operator <=>
 class FunctionEqForNull : public IFunction {
 public:
     static constexpr auto name = "eq_for_null";
@@ -38,17 +39,17 @@ public:
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
+    bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         ColumnWithTypeAndName& col_left = block.get_by_position(arguments[0]);
         ColumnWithTypeAndName& col_right = block.get_by_position(arguments[1]);
 
-        // TODO: opt for the const column in the future
-        col_left.column = col_left.column->convert_to_full_column_if_const();
-        col_right.column = col_right.column->convert_to_full_column_if_const();
-        const auto left_column = check_and_get_column<ColumnNullable>(col_left.column.get());
-        const auto right_column = check_and_get_column<ColumnNullable>(col_right.column.get());
+        const auto& [left_col, left_const] = unpack_if_const(col_left.column);
+        const auto& [right_col, right_const] = unpack_if_const(col_right.column);
+        const auto left_column = check_and_get_column<ColumnNullable>(left_col);
+        const auto right_column = check_and_get_column<ColumnNullable>(right_col);
 
         bool left_nullable = left_column != nullptr;
         bool right_nullable = right_column != nullptr;
@@ -89,13 +90,11 @@ public:
                 auto* __restrict l = left_null_map.data();
                 auto* __restrict r = right_null_map.data();
 
-                for (int i = 0; i < input_rows_count; ++i) {
-                    res[i] |= l[i] & (l[i] == r[i]);
-                }
+                _exec_nullable_equal(res, l, r, input_rows_count, left_const, right_const);
             }
 
             block.get_by_position(result).column = temporary_block.get_by_position(2).column;
-        } else {
+        } else { //left_nullable != right_nullable
             auto return_type = make_nullable(std::make_shared<DataTypeUInt8>());
 
             const ColumnsWithTypeAndName eq_columns {
@@ -118,13 +117,42 @@ public:
 
             auto* __restrict res = res_map.data();
             auto* __restrict l = null_map.data();
-            for (int i = 0; i < input_rows_count; ++i) {
-                res[i] &= (l[i] != 1);
-            }
+            _exec_nullable_inequal(res, l, input_rows_count, left_const);
 
             block.get_by_position(result).column = res_nullable_column->get_nested_column_ptr();
         }
         return Status::OK();
+    }
+
+private:
+    static void _exec_nullable_equal(unsigned char* result, const unsigned char* left,
+                                     const unsigned char* right, size_t rows, bool left_const,
+                                     bool right_const) {
+        if (left_const) {
+            for (int i = 0; i < rows; ++i) {
+                result[i] |= left[0] & (left[0] == right[i]);
+            }
+        } else if (right_const) {
+            for (int i = 0; i < rows; ++i) {
+                result[i] |= left[i] & (left[i] == right[0]);
+            }
+        } else {
+            for (int i = 0; i < rows; ++i) {
+                result[i] |= left[i] & (left[i] == right[i]);
+            }
+        }
+    }
+    static void _exec_nullable_inequal(unsigned char* result, const unsigned char* left,
+                                       size_t rows, bool left_const) {
+        if (left_const) {
+            for (int i = 0; i < rows; ++i) {
+                result[i] &= (left[0] != 1);
+            }
+        } else {
+            for (int i = 0; i < rows; ++i) {
+                result[i] &= (left[i] != 1);
+            }
+        }
     }
 };
 

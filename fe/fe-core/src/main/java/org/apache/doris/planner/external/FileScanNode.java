@@ -18,10 +18,9 @@
 package org.apache.doris.planner.external;
 
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.UserException;
-import org.apache.doris.load.BrokerFileGroup;
+import org.apache.doris.planner.FileLoadScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
@@ -32,10 +31,8 @@ import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TScanRangeLocations;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -43,7 +40,6 @@ import org.apache.logging.log4j.Logger;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Base class for External File Scan, including external query and load.
@@ -51,29 +47,11 @@ import java.util.Map;
 public class FileScanNode extends ExternalScanNode {
     private static final Logger LOG = LogManager.getLogger(FileScanNode.class);
 
-    public static class ParamCreateContext {
-        public BrokerFileGroup fileGroup;
-        public List<Expr> conjuncts;
-
-        public TupleDescriptor destTupleDescriptor;
-        public Map<String, SlotDescriptor> destSlotDescByName;
-        // === Set when init ===
-        public TupleDescriptor srcTupleDescriptor;
-        public Map<String, SlotDescriptor> srcSlotDescByName;
-        public Map<String, Expr> exprMap;
-        public String timezone;
-        // === Set when init ===
-
-        public TFileScanRangeParams params;
-
-        public void createDestSlotMap() {
-            Preconditions.checkNotNull(destTupleDescriptor);
-            destSlotDescByName = Maps.newHashMap();
-            for (SlotDescriptor slot : destTupleDescriptor.getSlots()) {
-                destSlotDescByName.put(slot.getColumn().getName(), slot);
-            }
-        }
-    }
+    // For explain
+    protected long inputSplitsNum = 0;
+    protected long totalFileSize = 0;
+    protected long totalPartitionNum = 0;
+    protected long readPartitionNum = 0;
 
     protected final FederationBackendPolicy backendPolicy = new FederationBackendPolicy();
 
@@ -166,8 +144,16 @@ public class FileScanNode extends ExternalScanNode {
         return output.toString();
     }
 
-    protected void createScanRangeLocations(ParamCreateContext context, FileScanProviderIf scanProvider)
+    // TODO: Keep 2 versions of createScanRangeLocations, will fix this while refactor split and assignment code.
+    protected void createScanRangeLocations(FileLoadScanNode.ParamCreateContext context,
+                                            FileScanProviderIf scanProvider)
             throws UserException {
         scanProvider.createScanRangeLocations(context, backendPolicy, scanRangeLocations);
+    }
+
+    protected void createScanRangeLocations(List<Expr> conjuncts, TFileScanRangeParams params,
+                                            FileScanProviderIf scanProvider)
+            throws UserException {
+        scanProvider.createScanRangeLocations(conjuncts, params, backendPolicy, scanRangeLocations);
     }
 }

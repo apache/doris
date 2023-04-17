@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.exploration.join;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.exploration.CBOUtils;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -60,7 +61,7 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                 .when(topJoin -> OuterJoinLAsscom.checkReorder(topJoin, topJoin.left().child()))
                 .whenNot(join -> join.hasJoinHint() || join.left().child().hasJoinHint())
                 .whenNot(join -> join.isMarkJoin() || join.left().child().isMarkJoin())
-                .when(join -> JoinReorderUtils.isAllSlotProject(join.left()))
+                .when(join -> join.left().isAllSlots())
                 .then(topJoin -> {
                     /* ********** init ********** */
                     List<NamedExpression> projects = topJoin.left().getProjects();
@@ -71,7 +72,7 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                     Set<ExprId> aOutputExprIds = a.getOutputExprIdSet();
 
                     /* ********** Split projects ********** */
-                    Map<Boolean, List<NamedExpression>> map = JoinReorderUtils.splitProject(projects, aOutputExprIds);
+                    Map<Boolean, List<NamedExpression>> map = CBOUtils.splitProject(projects, aOutputExprIds);
                     List<NamedExpression> aProjects = map.get(true);
                     if (aProjects.isEmpty()) {
                         return null;
@@ -93,8 +94,8 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                             .flatMap(onExpr -> onExpr.getInputSlots().stream())
                             .collect(Collectors.partitioningBy(
                                     slot -> aOutputExprIds.contains(slot.getExprId()), Collectors.toSet()));
-                    JoinReorderUtils.addSlotsUsedByOn(abOnUsedSlots.get(true), aProjects);
-                    JoinReorderUtils.addSlotsUsedByOn(abOnUsedSlots.get(false), bProjects);
+                    CBOUtils.addSlotsUsedByOn(abOnUsedSlots.get(true), aProjects);
+                    CBOUtils.addSlotsUsedByOn(abOnUsedSlots.get(false), bProjects);
 
                     aProjects.addAll(forceToNullable(c.getOutputSet()));
 
@@ -104,14 +105,14 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                     newBottomJoin.getJoinReorderContext().setHasLAsscom(false);
                     newBottomJoin.getJoinReorderContext().setHasCommute(false);
 
-                    Plan left = JoinReorderUtils.projectOrSelf(aProjects, newBottomJoin);
-                    Plan right = JoinReorderUtils.projectOrSelf(bProjects, b);
+                    Plan left = CBOUtils.projectOrSelf(aProjects, newBottomJoin);
+                    Plan right = CBOUtils.projectOrSelf(bProjects, b);
 
                     LogicalJoin newTopJoin = bottomJoin.withChildrenNoContext(left, right);
                     newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());
                     newTopJoin.getJoinReorderContext().setHasLAsscom(true);
 
-                    return JoinReorderUtils.projectOrSelf(new ArrayList<>(topJoin.getOutput()), newTopJoin);
+                    return CBOUtils.projectOrSelf(new ArrayList<>(topJoin.getOutput()), newTopJoin);
                 }).toRule(RuleType.LOGICAL_OUTER_JOIN_LASSCOM_PROJECT);
     }
 

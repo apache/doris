@@ -50,7 +50,7 @@ inline doris::StringRef ALWAYS_INLINE to_string_ref(const StringKey24& n) {
 }
 
 struct StringHashTableHash {
-#if defined(__SSE4_2__)
+#if defined(__SSE4_2__) || defined(__aarch64__)
     size_t ALWAYS_INLINE operator()(StringKey8 key) const {
         size_t res = -1ULL;
         res = _mm_crc32_u64(res, key);

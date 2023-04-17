@@ -45,8 +45,8 @@ public class IcebergAnalysisTask extends HMSAnalysisTask {
     private long dataSize = 0;
     private long numNulls = 0;
 
-    public IcebergAnalysisTask(AnalysisTaskScheduler analysisTaskScheduler, AnalysisTaskInfo info) {
-        super(analysisTaskScheduler, info);
+    public IcebergAnalysisTask(AnalysisTaskInfo info) {
+        super(info);
     }
 
     private static final String INSERT_TABLE_SQL_TEMPLATE = "INSERT INTO "

@@ -17,22 +17,53 @@
 
 #pragma once
 
+#include <assert.h>
+#include <butil/macros.h>
+#include <butil/time.h>
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <parallel_hashmap/phmap.h>
+#include <stdint.h>
+#include <string.h>
+
+#include <algorithm>
 #include <memory>
+#include <mutex>
+#include <optional>
+#include <ostream>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "butil/containers/doubly_buffered_data.h"
+#include "common/config.h"
+#include "common/logging.h"
 #include "common/status.h"
-#include "gen_cpp/internal_service.pb.h"
 #include "gutil/int128.h"
+#include "olap/lru_cache.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
 #include "olap/tablet.h"
+#include "olap/utils.h"
+#include "runtime/descriptors.h"
+#include "util/mysql_global.h"
 #include "util/runtime_profile.h"
+#include "util/slice.h"
 #include "vec/core/block.h"
 
 namespace doris {
 
 class RowCache;
 class Cache;
+class PTabletKeyLookupRequest;
+class PTabletKeyLookupResponse;
+class RuntimeState;
+class TDescriptorTable;
+class TExpr;
+
+namespace vectorized {
+class VExprContext;
+} // namespace vectorized
 
 // For caching point lookup pre allocted blocks and exprs
 class Reusable {

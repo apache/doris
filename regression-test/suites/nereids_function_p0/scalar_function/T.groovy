@@ -75,4 +75,10 @@ suite("nereids_scalar_fn_T") {
 	qt_sql_trim_String_notnull "select trim(kstr) from fn_test_not_nullable order by kstr"
 	qt_sql_truncate_Double_Integer "select truncate(kdbl, 2) from fn_test order by kdbl"
 	qt_sql_truncate_Double_Integer_notnull "select truncate(kdbl, 2) from fn_test_not_nullable order by kdbl"
+	qt_sql_truncate_DecimalV3S1_Int "select truncate(kdcmlv3s1, 1) from fn_test order by kdcmlv3s1"
+	qt_sql_truncate_DecimalV3S1_Int_notnull "select truncate(kdcmlv3s1, 1) from fn_test_not_nullable order by kdcmlv3s1"
+	qt_sql_truncate_DecimalV3S2_Int "select truncate(kdcmlv3s2, 1) from fn_test order by kdcmlv3s2"
+	qt_sql_truncate_DecimalV3S2_Int_notnull "select truncate(kdcmlv3s2, 1) from fn_test_not_nullable order by kdcmlv3s2"
+	qt_sql_truncate_DecimalV3S3_Int "select truncate(kdcmlv3s3, 1) from fn_test order by kdcmlv3s3"
+	qt_sql_truncate_DecimalV3S3_Int_notnull "select truncate(kdcmlv3s3, 1) from fn_test_not_nullable order by kdcmlv3s3"
 }

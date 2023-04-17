@@ -152,6 +152,8 @@ public class EsUtil {
         }
         // remove `dynamic_templates` field
         mappings.remove("dynamic_templates");
+        // remove `dynamic` field
+        mappings.remove("dynamic");
         // check explicit mapping
         if (mappings.isEmpty()) {
             throw new DorisEsException("Do not support index without explicit mapping.");

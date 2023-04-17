@@ -23,6 +23,7 @@
 #include "util/easy_json.h"
 
 namespace doris {
+class HttpRequest;
 
 // Get BE tablets info from http API.
 class TabletsInfoAction : public HttpHandler {

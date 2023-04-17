@@ -17,10 +17,26 @@
 
 #pragma once
 
+#include <gen_cpp/FrontendService_types.h>
+#include <stdint.h>
+
+#include <string>
+
 #include "common/status.h"
-#include "gen_cpp/FrontendService_types.h"
 
 namespace doris {
+class TDescribeTableParams;
+class TDescribeTableResult;
+class TDescribeTablesParams;
+class TDescribeTablesResult;
+class TGetDbsParams;
+class TGetDbsResult;
+class TGetTablesParams;
+class TGetTablesResult;
+class TListPrivilegesResult;
+class TListTableStatusResult;
+class TShowVariableRequest;
+class TShowVariableResult;
 
 // this class is a helper for getting schema info from FE
 class SchemaHelper {

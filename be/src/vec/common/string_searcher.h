@@ -27,16 +27,9 @@
 #include <limits>
 #include <vector>
 
+#include "util/sse_util.hpp"
 #include "vec/common/string_ref.h"
 #include "vec/common/string_utils/string_utils.h"
-
-#ifdef __SSE2__
-#include <emmintrin.h>
-#endif
-
-#ifdef __SSE4_1__
-#include <smmintrin.h>
-#endif
 
 namespace doris {
 
@@ -51,7 +44,7 @@ namespace doris {
 class StringSearcherBase {
 public:
     bool force_fallback = false;
-#ifdef __SSE2__
+#if defined(__SSE2__) || defined(__aarch64__)
 protected:
     static constexpr auto n = sizeof(__m128i);
     const int page_size = sysconf(_SC_PAGESIZE); //::getPageSize();
@@ -76,7 +69,7 @@ private:
     /// first character in `needle`
     uint8_t first {};
 
-#ifdef __SSE4_1__
+#if defined(__SSE4_1__) || defined(__aarch64__)
     uint8_t second {};
     /// vector filled `first` or `second` for determining leftmost position of the first and second symbols
     __m128i first_pattern;
@@ -96,7 +89,7 @@ public:
 
         first = *needle;
 
-#ifdef __SSE4_1__
+#if defined(__SSE4_1__) || defined(__aarch64__)
         first_pattern = _mm_set1_epi8(first);
         if (needle + 1 < needle_end) {
             second = *(needle + 1);
@@ -149,7 +142,7 @@ public:
 private:
     ALWAYS_INLINE bool _compare(uint8_t* /*haystack*/, uint8_t* /*haystack_end*/,
                                 uint8_t* pos) const {
-#ifdef __SSE4_1__
+#if defined(__SSE4_1__) || defined(__aarch64__)
         if (needle_end - needle > n && page_safe(pos)) {
             const auto v_haystack = _mm_loadu_si128(reinterpret_cast<const __m128i*>(pos));
             const auto v_against_cache = _mm_cmpeq_epi8(v_haystack, cache);
@@ -187,7 +180,7 @@ private:
         if (needle == needle_end) return haystack;
 
         const auto needle_size = needle_end - needle;
-#ifdef __SSE4_1__
+#if defined(__SSE4_1__) || defined(__aarch64__)
         /// Here is the quick path when needle_size is 1.
         if (needle_size == 1) {
             while (haystack < haystack_end) {
@@ -221,7 +214,7 @@ private:
 #endif
 
         while (haystack < haystack_end && haystack_end - haystack >= needle_size) {
-#ifdef __SSE4_1__
+#if defined(__SSE4_1__) || defined(__aarch64__)
             if ((haystack + 1 + n) <= haystack_end && page_safe(haystack)) {
                 /// find first and second characters
                 const auto v_haystack_block_first =
@@ -423,70 +416,4 @@ struct LibCASCIICaseInsensitiveStringSearcher : public StringSearcherBase {
         return search(haystack, haystack + haystack_size);
     }
 };
-
-template <typename StringSearcher>
-class MultiStringSearcherBase {
-private:
-    /// needles
-    const std::vector<StringRef>& needles;
-    /// searchers
-    std::vector<StringSearcher> searchers;
-    /// last index of needles that was not processed
-    size_t last;
-
-public:
-    explicit MultiStringSearcherBase(const std::vector<StringRef>& needles_)
-            : needles {needles_}, last {0} {
-        searchers.reserve(needles.size());
-
-        size_t size = needles.size();
-        for (int i = 0; i < size; ++i) {
-            const char* cur_needle_data = needles[i].data;
-            const size_t cur_needle_size = needles[i].size;
-
-            searchers.emplace_back(cur_needle_data, cur_needle_size);
-        }
-    }
-
-    /**
-     * while (hasMoreToSearch())
-     * {
-     *     search inside the haystack with the known needles
-     * }
-     */
-    bool hasMoreToSearch() {
-        if (last >= needles.size()) {
-            return false;
-        }
-
-        return true;
-    }
-
-    bool searchOne(const uint8_t* haystack, const uint8_t* haystack_end) {
-        const size_t size = needles.size();
-        if (last >= size) {
-            return false;
-        }
-
-        if (searchers[++last].search(haystack, haystack_end) != haystack_end) {
-            return true;
-        }
-        return false;
-    }
-
-    template <typename CountCharsCallback, typename AnsType>
-    void searchOneAll(const uint8_t* haystack, const uint8_t* haystack_end, AnsType* answer,
-                      const CountCharsCallback& count_chars) {
-        const size_t size = needles.size();
-        for (; last < size; ++last) {
-            const uint8_t* ptr = searchers[last].search(haystack, haystack_end);
-            if (ptr != haystack_end) {
-                answer[last] = count_chars(haystack, ptr);
-            }
-        }
-    }
-};
-
-using MultiStringSearcher = MultiStringSearcherBase<ASCIICaseSensitiveStringSearcher>;
-
 } // namespace doris

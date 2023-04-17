@@ -17,16 +17,28 @@
 
 #pragma once
 
+#include <gen_cpp/Status_types.h>
+#include <stdint.h>
+
+#include <deque>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <ostream>
 #include <string>
+#include <utility>
 
 #include "common/status.h"
-#include "gen_cpp/Status_types.h"
+#include "gutil/stringprintf.h"
+#include "gutil/strings/numbers.h"
 #include "http/http_handler.h"
 #include "olap/data_dir.h"
 #include "olap/tablet.h"
 #include "util/threadpool.h"
 
 namespace doris {
+class DataDir;
+class HttpRequest;
 
 // Migrate a tablet from a disk to another.
 class TabletMigrationAction : public HttpHandler {

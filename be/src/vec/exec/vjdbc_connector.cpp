@@ -33,6 +33,7 @@
 #include "vec/columns/column_string.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_string.h"
+#include "vec/exec/jni_connector.h"
 #include "vec/exec/scan/new_jdbc_scanner.h"
 #include "vec/functions/simple_function_factory.h"
 
@@ -41,6 +42,7 @@ namespace vectorized {
 const char* JDBC_EXECUTOR_CLASS = "org/apache/doris/udf/JdbcExecutor";
 const char* JDBC_EXECUTOR_CTOR_SIGNATURE = "([B)V";
 const char* JDBC_EXECUTOR_WRITE_SIGNATURE = "(Ljava/lang/String;)I";
+const char* JDBC_EXECUTOR_STMT_WRITE_SIGNATURE = "(Ljava/util/Map;)I";
 const char* JDBC_EXECUTOR_HAS_NEXT_SIGNATURE = "()Z";
 const char* JDBC_EXECUTOR_GET_BLOCK_SIGNATURE = "(I)Ljava/util/List;";
 const char* JDBC_EXECUTOR_GET_TYPES_SIGNATURE = "()Ljava/util/List;";
@@ -570,6 +572,8 @@ Status JdbcConnector::_register_func_id(JNIEnv* env) {
                                 _executor_ctor_id));
     RETURN_IF_ERROR(register_id(_executor_clazz, "write", JDBC_EXECUTOR_WRITE_SIGNATURE,
                                 _executor_write_id));
+    RETURN_IF_ERROR(register_id(_executor_clazz, "write", JDBC_EXECUTOR_STMT_WRITE_SIGNATURE,
+                                _executor_stmt_write_id));
     RETURN_IF_ERROR(register_id(_executor_clazz, "read", "()I", _executor_read_id));
     RETURN_IF_ERROR(register_id(_executor_clazz, "close", JDBC_EXECUTOR_CLOSE_SIGNATURE,
                                 _executor_close_id));
@@ -688,6 +692,61 @@ Status JdbcConnector::exec_write_sql(const std::u16string& insert_stmt,
     jstring query_sql = env->NewString((const jchar*)insert_stmt.c_str(), insert_stmt.size());
     env->CallNonvirtualIntMethod(_executor_obj, _executor_clazz, _executor_write_id, query_sql);
     env->DeleteLocalRef(query_sql);
+    RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
+    return Status::OK();
+}
+
+Status JdbcConnector::exec_stmt_write(
+        Block* block, const std::vector<vectorized::VExprContext*>& output_vexpr_ctxs) {
+    SCOPED_TIMER(_result_send_timer);
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+
+    // prepare table schema
+    std::ostringstream required_fields;
+    std::ostringstream columns_types;
+    for (int i = 0; i < block->columns(); ++i) {
+        // column name maybe empty or has special characters
+        // std::string field = block->get_by_position(i).name;
+        std::string type = JniConnector::get_hive_type(output_vexpr_ctxs[i]->root()->type());
+        if (i == 0) {
+            required_fields << "_col" << i;
+            columns_types << type;
+        } else {
+            required_fields << ","
+                            << "_col" << i;
+            columns_types << "#" << type;
+        }
+    }
+
+    // prepare table meta information
+    std::unique_ptr<long[]> meta_data;
+    RETURN_IF_ERROR(JniConnector::generate_meta_info(block, meta_data));
+    long meta_address = (long)meta_data.get();
+
+    // prepare constructor parameters
+    std::map<String, String> write_params = {{"meta_address", std::to_string(meta_address)},
+                                             {"required_fields", required_fields.str()},
+                                             {"columns_types", columns_types.str()},
+                                             {"write_sql", "/* todo */"}};
+    jclass hashmap_class = env->FindClass("java/util/HashMap");
+    jmethodID hashmap_constructor = env->GetMethodID(hashmap_class, "<init>", "(I)V");
+    jobject hashmap_object =
+            env->NewObject(hashmap_class, hashmap_constructor, write_params.size());
+    jmethodID hashmap_put = env->GetMethodID(
+            hashmap_class, "put", "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
+    RETURN_ERROR_IF_EXC(env);
+    for (const auto& it : write_params) {
+        jstring key = env->NewStringUTF(it.first.c_str());
+        jstring value = env->NewStringUTF(it.second.c_str());
+        env->CallObjectMethod(hashmap_object, hashmap_put, key, value);
+        env->DeleteLocalRef(key);
+        env->DeleteLocalRef(value);
+    }
+    env->DeleteLocalRef(hashmap_class);
+    env->CallNonvirtualIntMethod(_executor_obj, _executor_clazz, _executor_stmt_write_id,
+                                 hashmap_object);
+    env->DeleteLocalRef(hashmap_object);
     RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
     return Status::OK();
 }

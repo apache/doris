@@ -19,7 +19,10 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 
 suite("test_compaction_uniq_keys_row_store") {
-    def tableName = "compaction_uniq_keys_row_store_regression_test"
+    def realDb = "regression_test_serving_p0"
+    def tableName = realDb + ".compaction_uniq_keys_row_store_regression_test"
+    sql "CREATE DATABASE IF NOT EXISTS ${realDb}"
+
     def setPrepareStmtArgs = {stmt, user_id, date, datev2, datetimev2_1, datetimev2_2, city, age, sex ->
         java.text.SimpleDateFormat formater = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SS");
         stmt.setInt(1, user_id)
@@ -73,7 +76,20 @@ suite("test_compaction_uniq_keys_row_store") {
         def checkValue = { ->
             def user = context.config.jdbcUser
             def password = context.config.jdbcPassword
-            def url = context.config.jdbcUrl + "&useServerPrepStmts=true"
+            // Parse url
+            String jdbcUrl = context.config.jdbcUrl
+            String urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
+            def sql_ip = urlWithoutSchema.substring(0, urlWithoutSchema.indexOf(":"))
+            def sql_port
+            if (urlWithoutSchema.indexOf("/") >= 0) {
+                // e.g: jdbc:mysql://locahost:8080/?a=b
+                sql_port = urlWithoutSchema.substring(urlWithoutSchema.indexOf(":") + 1, urlWithoutSchema.indexOf("/"))
+            } else {
+                // e.g: jdbc:mysql://locahost:8080
+                sql_port = urlWithoutSchema.substring(urlWithoutSchema.indexOf(":") + 1)
+            }
+            // set server side prepared statment url
+            def url="jdbc:mysql://" + sql_ip + ":" + sql_port + "/" + realDb + "?&useServerPrepStmts=true"
             def result1 = connect(user=user, password=password, url=url) {
                 def stmt = prepareStatement """ SELECT * FROM ${tableName} t where user_id = ? and date = ? and datev2 = ? and datetimev2_1 = ? and datetimev2_2 = ? and city = ? and age = ? and sex = ?; """
                 setPrepareStmtArgs stmt, 1, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.21', '2017-10-01 11:11:11.11', 'Beijing', 10, 1
@@ -97,10 +113,7 @@ suite("test_compaction_uniq_keys_row_store") {
 
         def user = context.config.jdbcUser
         def password = context.config.jdbcPassword
-        def url = context.config.jdbcUrl + "&useServerPrepStmts=true"
         def tablets = null
-        def result1 = connect(user=user, password=password, url=url) {
-
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -157,10 +170,8 @@ suite("test_compaction_uniq_keys_row_store") {
             """
         //TabletId,ReplicaIdBackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
         tablets = sql """ show tablets from ${tableName}; """
-        }
 
         checkValue()
-
 
         // trigger compactions for all tablets in ${tableName}
         for (String[] tablet in tablets) {

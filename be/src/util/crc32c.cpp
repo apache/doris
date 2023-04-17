@@ -18,13 +18,8 @@
 // the following code are modified from RocksDB:
 // https://github.com/facebook/rocksdb/blob/master/util/crc32c.cc
 
-#include "util/crc32c.h"
-#if defined(__SSE4_2__)
-#include <nmmintrin.h>
-#elif defined(__aarch64__)
-#include <sse2neon.h>
-#endif
 #include "util/coding.h"
+#include "util/sse_util.hpp"
 
 namespace doris {
 namespace crc32c {

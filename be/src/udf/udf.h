@@ -26,6 +26,7 @@
 #include <functional>
 #include <iostream>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "runtime/types.h"
@@ -38,7 +39,6 @@ class BitmapValue;
 class DecimalV2Value;
 class CollectionValue;
 struct TypeDescriptor;
-
 class RuntimeState;
 // All input and output values will be one of the structs below. The struct is a simple
 // object containing a boolean to store if the value is nullptr and the value itself. The
@@ -86,8 +86,6 @@ public:
     void set_constant_cols(const std::vector<std::shared_ptr<doris::ColumnPtrWrapper>>& cols);
 
     RuntimeState* state() { return _state; }
-
-    std::string& string_result() { return _string_result; }
 
     bool check_overflow_for_decimal() const { return _check_overflow_for_decimal; }
 

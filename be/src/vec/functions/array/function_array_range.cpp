@@ -46,10 +46,6 @@ public:
 
     bool use_default_implementation_for_constants() const override { return true; }
 
-    ColumnNumbers get_arguments_that_are_always_constant() const override {
-        return {get_number_of_arguments()};
-    }
-
     size_t get_number_of_arguments() const override {
         return get_variadic_argument_types_impl().size();
     }

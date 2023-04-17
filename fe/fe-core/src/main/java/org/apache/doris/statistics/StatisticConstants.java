@@ -63,4 +63,8 @@ public class StatisticConstants {
 
     public static final long PRELOAD_RETRY_INTERVAL_IN_SECONDS = TimeUnit.SECONDS.toMillis(10);
 
+    public static final int ANALYSIS_JOB_INFO_EXPIRATION_TIME_IN_DAYS = 7;
+
+    public static final int FETCH_LIMIT = 10000;
+
 }

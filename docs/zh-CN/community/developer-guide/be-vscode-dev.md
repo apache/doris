@@ -59,6 +59,8 @@ sudo apt install -y openssl libssl-dev
 
 ```
 git clone https://github.com/apache/doris.git
+cd doris
+git submodule update --init --recursive
 ```
 
 2. 编译第三方依赖包

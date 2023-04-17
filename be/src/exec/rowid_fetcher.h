@@ -17,13 +17,25 @@
 
 #pragma once
 
-#include "gen_cpp/internal_service.pb.h"
+#include <gen_cpp/internal_service.pb.h>
+
+#include <memory>
+#include <vector>
+
+#include "common/status.h"
 #include "vec/core/block.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
 
 class DorisNodesInfo;
 class RuntimeState;
+class TupleDescriptor;
+
+namespace vectorized {
+class ColumnString;
+class MutableBlock;
+} // namespace vectorized
 
 // fetch rows by global rowid
 // tablet_id/rowset_name/segment_id/ordinal_id
