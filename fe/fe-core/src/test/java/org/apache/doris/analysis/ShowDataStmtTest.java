@@ -115,8 +115,6 @@ public class ShowDataStmtTest {
                 minTimes = 0;
                 result = "192.168.1.1";
             }
-
-            AccessTestUtil.fetchAdminAccess();
         };
 
         new Expectations() {
@@ -134,6 +132,8 @@ public class ShowDataStmtTest {
                 result = true;
             }
         };
+
+        AccessTestUtil.fetchAdminAccess();
     }
 
     @Test
