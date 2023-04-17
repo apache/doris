@@ -463,6 +463,16 @@ public:
         dummy.insert(*_bloom_filter, data);
     }
 
+    // This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
+    void insert_crc32_hash(const void* data) override {
+        if constexpr (std::is_same_v<typename BloomFilterTypeTraits<type>::FindOp, StringFindOp>) {
+            DCHECK(_bloom_filter != nullptr);
+            dummy.insert_crc32_hash(*_bloom_filter, data);
+        } else {
+            insert(data);
+        }
+    }
+
     void insert_fixed_len(const char* data, const int* offsets, int number) override {
         DCHECK(_bloom_filter != nullptr);
         dummy.insert_batch(*_bloom_filter, data, offsets, number);
@@ -487,6 +497,15 @@ public:
     bool find(const void* data) const override {
         DCHECK(_bloom_filter != nullptr);
         return dummy.find(*_bloom_filter, data);
+    }
+
+    // This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
+    bool find_crc32_hash(const void* data) const override {
+        if constexpr (std::is_same_v<typename BloomFilterTypeTraits<type>::FindOp, StringFindOp>) {
+            DCHECK(_bloom_filter != nullptr);
+            return dummy.find_crc32_hash(*_bloom_filter, data);
+        }
+        return find(data);
     }
 
     bool find_olap_engine(const void* data) const override {
