@@ -67,7 +67,6 @@ Status VScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
     _state = state;
     _is_pipeline_scan = state->enable_pipeline_exec();
-    _shared_scan_opt = state->shared_scan_opt();
 
     const TQueryOptions& query_options = state->query_options();
     if (query_options.__isset.max_scan_key_num) {

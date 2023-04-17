@@ -850,6 +850,10 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     public void setShouldColoScan() {}
 
+    public boolean getShouldColoScan() {
+        return false;
+    }
+
     public void setNumInstances(int numInstances) {
         this.numInstances = numInstances;
     }
