@@ -58,13 +58,13 @@ class EagerSplitTest implements MemoPatternMatchSupported {
                         logicalAggregate(
                                 logicalJoin(
                                         logicalAggregate().when(
-                                                a -> a.getOutputExprsSql().equals("id, sum(age) AS `left_sum0`, count(1) AS `left_cnt`")),
+                                                a -> a.getOutputExprsSql().equals("id, sum(age) AS `left_sum0`, count(*) AS `left_cnt`")),
                                         logicalAggregate().when(
-                                                a -> a.getOutputExprsSql().equals("sid, sum(grade) AS `right_sum0`, count(1) AS `right_cnt`"))
+                                                a -> a.getOutputExprsSql().equals("sid, sum(grade) AS `right_sum0`, count(*) AS `right_cnt`"))
                                 )
                         ).when(newAgg ->
                                 newAgg.getGroupByExpressions().equals(((Aggregate) agg).getGroupByExpressions())
-                                        && newAgg.getOutputExprsSql().equals("(sum(left_sum0) * right_cnt) AS `lsum0`, (sum(right_sum0) * left_cnt) AS `rsum0`"))
+                                        && newAgg.getOutputExprsSql().equals("sum((left_sum0 * right_cnt)) AS `lsum0`, sum((right_sum0 * left_cnt)) AS `rsum0`"))
                 );
     }
 
@@ -89,14 +89,14 @@ class EagerSplitTest implements MemoPatternMatchSupported {
                         logicalAggregate(
                                 logicalJoin(
                                         logicalAggregate().when(a -> a.getOutputExprsSql()
-                                                .equals("id, sum(gender) AS `left_sum0`, sum(name) AS `left_sum1`, sum(age) AS `left_sum2`, count(1) AS `left_cnt`")),
+                                                .equals("id, sum(gender) AS `left_sum0`, sum(name) AS `left_sum1`, sum(age) AS `left_sum2`, count(*) AS `left_cnt`")),
                                         logicalAggregate().when(a -> a.getOutputExprsSql()
-                                                .equals("sid, sum(cid) AS `right_sum0`, sum(grade) AS `right_sum1`, count(1) AS `right_cnt`"))
+                                                .equals("sid, sum(cid) AS `right_sum0`, sum(grade) AS `right_sum1`, count(*) AS `right_cnt`"))
                                 )
                         ).when(newAgg ->
                                 newAgg.getGroupByExpressions().equals(((Aggregate) agg).getGroupByExpressions())
                                         && newAgg.getOutputExprsSql()
-                                        .equals("(sum(left_sum0) * right_cnt) AS `lsum0`, (sum(left_sum1) * right_cnt) AS `lsum1`, (sum(left_sum2) * right_cnt) AS `lsum2`, (sum(right_sum0) * left_cnt) AS `rsum0`, (sum(right_sum1) * left_cnt) AS `rsum1`"))
+                                        .equals("sum((left_sum0 * right_cnt)) AS `lsum0`, sum((left_sum1 * right_cnt)) AS `lsum1`, sum((left_sum2 * right_cnt)) AS `lsum2`, sum((right_sum0 * left_cnt)) AS `rsum0`, sum((right_sum1 * left_cnt)) AS `rsum1`"))
                 );
     }
 }

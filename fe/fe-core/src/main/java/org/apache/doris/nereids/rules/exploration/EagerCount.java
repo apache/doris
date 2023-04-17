@@ -26,7 +26,6 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -50,7 +49,7 @@ import java.util.Set;
  * |    *
  * (x)
  * ->
- * aggregate: SUM(x) * cnt
+ * aggregate: SUM(x * cnt)
  * |
  * join
  * |   \
@@ -73,7 +72,7 @@ public class EagerCount implements ExplorationRuleFactory {
                         .then(agg -> eagerCount(agg, agg.child(), ImmutableList.of()))
                         .toRule(RuleType.EAGER_COUNT),
                 logicalAggregate(logicalProject(innerLogicalJoin()))
-                        .when(agg -> CBOUtils.isAllSlotProject(agg.child()))
+                        .when(agg -> agg.child().isAllSlots())
                         .when(agg -> agg.child().child().getOtherJoinConjuncts().size() == 0)
                         .when(agg -> agg.getGroupByExpressions().stream().allMatch(e -> e instanceof Slot))
                         .when(agg -> agg.getAggregateFunctions().stream()
@@ -98,7 +97,7 @@ public class EagerCount implements ExplorationRuleFactory {
                 cntAggGroupBy.add(slot);
             }
         }));
-        Alias cnt = new Alias(new Count(Literal.of(1)), "cnt");
+        Alias cnt = new Alias(new Count(), "cnt");
         List<NamedExpression> cntAggOutput = ImmutableList.<NamedExpression>builder()
                 .addAll(cntAggGroupBy).add(cnt).build();
         LogicalAggregate<GroupPlan> cntAgg = new LogicalAggregate<>(
@@ -116,7 +115,8 @@ public class EagerCount implements ExplorationRuleFactory {
         }
         for (Alias oldSum : sumOutputExprs) {
             Sum oldSumFunc = (Sum) oldSum.child();
-            newOutputExprs.add(new Alias(oldSum.getExprId(), new Multiply(oldSumFunc, cnt.toSlot()),
+            Slot slot = (Slot) oldSumFunc.child();
+            newOutputExprs.add(new Alias(oldSum.getExprId(), new Sum(new Multiply(slot, cnt.toSlot())),
                     oldSum.getName()));
         }
         Plan child = PlanUtils.projectOrSelf(projects, newJoin);

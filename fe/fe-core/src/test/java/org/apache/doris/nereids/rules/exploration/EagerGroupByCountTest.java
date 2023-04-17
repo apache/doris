@@ -58,12 +58,12 @@ class EagerGroupByCountTest implements MemoPatternMatchSupported {
                         logicalAggregate(
                                 logicalJoin(
                                         logicalAggregate().when(
-                                                bottomAgg -> bottomAgg.getOutputExprsSql().equals("id, sum(age) AS `sum0`, count(1) AS `cnt`")),
+                                                bottomAgg -> bottomAgg.getOutputExprsSql().equals("id, sum(age) AS `sum0`, count(*) AS `cnt`")),
                                         logicalOlapScan()
                                 )
                         ).when(newAgg ->
                                 newAgg.getGroupByExpressions().equals(((Aggregate) agg).getGroupByExpressions())
-                                        && newAgg.getOutputExprsSql().equals("sum(sum0) AS `lsum0`, (sum(grade) * cnt) AS `rsum0`"))
+                                        && newAgg.getOutputExprsSql().equals("sum(sum0) AS `lsum0`, sum((grade * cnt)) AS `rsum0`"))
                 );
     }
 
@@ -89,13 +89,13 @@ class EagerGroupByCountTest implements MemoPatternMatchSupported {
                         logicalAggregate(
                                 logicalJoin(
                                         logicalAggregate().when(cntAgg -> cntAgg.getOutputExprsSql()
-                                                .equals("id, sum(gender) AS `sum0`, sum(name) AS `sum1`, sum(age) AS `sum2`, count(1) AS `cnt`")),
+                                                .equals("id, sum(gender) AS `sum0`, sum(name) AS `sum1`, sum(age) AS `sum2`, count(*) AS `cnt`")),
                                         logicalOlapScan()
                                 )
                         ).when(newAgg ->
                                 newAgg.getGroupByExpressions().equals(((Aggregate) agg).getGroupByExpressions())
                                         && newAgg.getOutputExprsSql()
-                                        .equals("sum(sum0) AS `lsum0`, sum(sum1) AS `lsum1`, sum(sum2) AS `lsum2`, (sum(cid) * cnt) AS `rsum0`, (sum(grade) * cnt) AS `rsum1`"))
+                                        .equals("sum(sum0) AS `lsum0`, sum(sum1) AS `lsum1`, sum(sum2) AS `lsum2`, sum((cid * cnt)) AS `rsum0`, sum((grade * cnt)) AS `rsum1`"))
                 );
     }
 }

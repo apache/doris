@@ -54,7 +54,7 @@ public class JoinExchangeRightProject extends OneExplorationRuleFactory {
     public Rule build() {
         return innerLogicalJoin(innerLogicalJoin(), logicalProject(innerLogicalJoin()))
                 .when(JoinExchange::checkReorder)
-                .when(join -> CBOUtils.isAllSlotProject(join.right()))
+                .when(join -> join.right().isAllSlots())
                 .whenNot(join -> join.hasJoinHint()
                         || join.left().hasJoinHint() || join.right().child().hasJoinHint())
                 .whenNot(join -> join.isMarkJoin() || join.left().isMarkJoin() || join.right().child().isMarkJoin())
