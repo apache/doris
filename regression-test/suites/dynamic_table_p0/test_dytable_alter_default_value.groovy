@@ -21,25 +21,50 @@ suite("test_dytable_alter_default_value") {
         sql "DROP TABLE IF EXISTS ${table_name}"
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
-                id BIGINT,
-                `${column_name}` ${src_type} DEFAULT '${src_value}'
+                id BIGINT
             )
             DUPLICATE KEY(`id`)
             DISTRIBUTED BY HASH(`id`) BUCKETS 10
-            properties("replication_num" = "1");
+            properties(
+                "replication_num" = "1",
+                "disable_auto_compaction" = "true"
+            );
         """
+        // step1: insert data
         for (i = 0; i < 10; i++) {
-            sql "INSERT INTO ${table_name} VALUES (${i}, DEFAULT)"
+            sql "INSERT INTO ${table_name} VALUES (${i})"
         }
-        sql "ALTER TABLE ${table_name} MODIFY COLUMN ${column_name} ${dst_type} DEFAULT '${dst_value}'"
-        Thread.sleep(3000)
+        // step2: add column has default value == src_value
+        sql "ALTER TABLE ${table_name} ADD COLUMN ${column_name} ${src_type} DEFAULT '${src_value}'"
+        // step3: insert data
         for (i = 10; i < 20; i++) {
             sql "INSERT INTO ${table_name} VALUES (${i}, DEFAULT)"
         }
+        // step4: delete where column == src_value
+        sql "DELETE FROM ${table_name} WHERE ${column_name} = '${src_value}'"
         def result1 = sql "SELECT COUNT(*) FROM ${table_name} WHERE ${column_name} = '${src_value}'"
-        assertEquals(result1[0][0], 10)
-        def result2 = sql "SELECT COUNT(*) FROM ${table_name} WHERE ${column_name} = '${dst_value}'"
+        assertEquals(result1[0][0], 0)
+        // step5: insert data
+        for (i = 30; i < 40; i++) {
+            sql "INSERT INTO ${table_name} VALUES (${i}, DEFAULT)"
+        }
+        // step6: alter default value == dst_value
+        sql "ALTER TABLE ${table_name} MODIFY COLUMN ${column_name} ${dst_type} DEFAULT '${dst_value}'"
+        Thread.sleep(3000)
+        // step7: insert data
+        for (i = 40; i < 50; i++) {
+            sql "INSERT INTO ${table_name} VALUES (${i}, DEFAULT)"
+        }
+        def result2 = sql "SELECT COUNT(*) FROM ${table_name} WHERE ${column_name} = '${src_value}'"
         assertEquals(result2[0][0], 10)
+        def result3 = sql "SELECT COUNT(*) FROM ${table_name} WHERE ${column_name} = '${dst_value}'"
+        assertEquals(result3[0][0], 10)
+        // step8: delete where column == dst_value
+        sql "DELETE FROM ${table_name} WHERE ${column_name} = '${dst_value}'"
+        def result4 = sql "SELECT COUNT(*) FROM ${table_name} WHERE ${column_name} = '${src_value}'"
+        assertEquals(result4[0][0], 10)
+        def result5 = sql "SELECT COUNT(*) FROM ${table_name} WHERE ${column_name} = '${dst_value}'"
+        assertEquals(result5[0][0], 0)
         sql "DROP TABLE IF EXISTS ${table_name}"
     }
 
