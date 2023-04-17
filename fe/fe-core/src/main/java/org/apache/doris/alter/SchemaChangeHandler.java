@@ -73,6 +73,7 @@ import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.persist.AlterLSCOperationLog;
 import org.apache.doris.persist.RemoveAlterJobV2OperationLog;
 import org.apache.doris.persist.TableAddOrDropColumnsInfo;
 import org.apache.doris.persist.TableAddOrDropInvertedIndicesInfo;
@@ -1892,6 +1893,20 @@ public class SchemaChangeHandler extends AlterHandler {
     private void enableLightSchemaChange(Database db, OlapTable olapTable) throws DdlException {
         final AlterLSCHelper alterLSCHelper = new AlterLSCHelper(db, olapTable);
         alterLSCHelper.enableLightSchemaChange();
+    }
+
+    public void replayAlterLSC(AlterLSCOperationLog info) throws MetaNotFoundException {
+        Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrMetaException(info.getDbId());
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
+        olapTable.writeLock();
+        final AlterLSCHelper alterLSCHelper = new AlterLSCHelper(db, olapTable);
+        try {
+            alterLSCHelper.replayAlterLSC(info.getFetchColIdsResponse());
+        } catch (DdlException e) {
+            LOG.warn("failed to replay alter light schema change", e);
+        } finally {
+            olapTable.writeUnlock();
+        }
     }
 
     @Override

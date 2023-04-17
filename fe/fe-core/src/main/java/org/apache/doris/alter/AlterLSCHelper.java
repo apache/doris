@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.persist.AlterLSCOperationLog;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.proto.InternalService.PFetchColIdsRequest;
 import org.apache.doris.proto.InternalService.PFetchColIdsRequest.Builder;
@@ -79,7 +80,16 @@ public class AlterLSCHelper {
         final Map<Long, PFetchColIdsRequest> params = initParams();
         final PFetchColIdsResponse response = callForColumnIds(params);
         updateTableMeta(response);
-        modifyTableProperty();
+        writeEditLog(response);
+    }
+
+    /**
+     * replay logic for alter LSC
+     *
+     * @param response will be set in edit log
+     */
+    public void replayAlterLSC(PFetchColIdsResponse response) throws DdlException {
+        updateTableMeta(response);
     }
 
     /**
@@ -238,14 +248,14 @@ public class AlterLSCHelper {
         } catch (IOException e) {
             throw new DdlException("fail to reset index schema", e);
         }
-    }
-
-    private void modifyTableProperty() {
         // write table property
         olapTable.setEnableLightSchemaChange(true);
+    }
+
+    private void writeEditLog(PFetchColIdsResponse response) {
         //write edit log
-        ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), olapTable.getId(),
-                olapTable.getTableProperty().getProperties());
-        Env.getCurrentEnv().getEditLog().logAlterLightSchemaChange(info);
+        final AlterLSCOperationLog operationLog = new AlterLSCOperationLog(
+                db.getId(), olapTable.getId(), response);
+        Env.getCurrentEnv().getEditLog().logAlterLightSchemaChange(operationLog);
     }
 }
