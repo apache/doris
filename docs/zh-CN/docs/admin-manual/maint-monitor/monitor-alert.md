@@ -26,7 +26,7 @@ under the License.
 
 # 监控和报警
 
-本文档主要介绍 Doris 的监控项及如何采集、展示监控项。以及如何配置报警 (TODO)
+本文档主要介绍 Doris 的监控项及如何采集、展示监控项。以及如何配置报警（TODO）
 
 [Dashboard 模板点击下载](https://grafana.com/api/dashboards/9734/revisions/5/download)
 
