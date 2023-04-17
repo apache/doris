@@ -37,6 +37,8 @@ struct TColumn {
     13: optional bool has_ngram_bf_index = false
     14: optional i32 gram_size
     15: optional i32 gram_bf_size
+    16: optional bool has_token_bf_index = false
+    17: optional i32 token_bf_size
 }
 
 struct TSlotDescriptor {
@@ -129,7 +131,8 @@ enum TIndexType {
   BITMAP,
   INVERTED,
   BLOOMFILTER,
-  NGRAM_BF
+  NGRAM_BF,
+  TOKEN_BF
 }
 
 // Mapping from names defined by Avro to the enum.

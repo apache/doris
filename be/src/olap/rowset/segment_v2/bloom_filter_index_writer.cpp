@@ -231,6 +231,57 @@ uint64_t NGramBloomFilterIndexWriterImpl::size() {
     return total_size;
 }
 
+TokenBloomFilterIndexWriterImpl::TokenBloomFilterIndexWriterImpl(
+        const BloomFilterOptions& bf_options, uint16_t bf_size)
+        : _bf_options(bf_options),
+          _bf_size(bf_size),
+          _bf_buffer_size(0),
+          _token_extractor() {
+    BloomFilter::create(TOKEN_BLOOM_FILTER, &_bf, bf_size);
+}
+
+void TokenBloomFilterIndexWriterImpl::add_values(const void* values, size_t count) {
+    const Slice* src = reinterpret_cast<const Slice*>(values);
+    _token_extractor.string_to_bloom_filter(src->data, src->size, *_bf);
+}
+
+Status TokenBloomFilterIndexWriterImpl::flush() {
+    _bf_buffer_size += _bf->size();
+    _bfs.emplace_back(std::move(_bf));
+    // init new one
+    RETURN_IF_ERROR(BloomFilter::create(TOKEN_BLOOM_FILTER, &_bf, _bf_size));
+    return Status::OK();
+}
+
+Status TokenBloomFilterIndexWriterImpl::finish(io::FileWriter* file_writer,
+                                               ColumnIndexMetaPB* index_meta) {
+    index_meta->set_type(BLOOM_FILTER_INDEX);
+    BloomFilterIndexPB* meta = index_meta->mutable_bloom_filter_index();
+    meta->set_hash_strategy(CITY_HASH_64);
+    meta->set_algorithm(TOKEN_BLOOM_FILTER);
+
+    // write bloom filters
+    const TypeInfo* bf_typeinfo = get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_VARCHAR);
+    IndexedColumnWriterOptions options;
+    options.write_ordinal_index = true;
+    options.write_value_index = false;
+    options.encoding = PLAIN_ENCODING;
+    IndexedColumnWriter bf_writer(options, bf_typeinfo, file_writer);
+    RETURN_IF_ERROR(bf_writer.init());
+    for (auto& bf : _bfs) {
+        Slice data(bf->data(), bf->size());
+        bf_writer.add(&data);
+    }
+    RETURN_IF_ERROR(bf_writer.finish(meta->mutable_bloom_filter()));
+    return Status::OK();
+}
+
+uint64_t TokenBloomFilterIndexWriterImpl::size() {
+    uint64_t total_size = _bf_buffer_size;
+    total_size += _arena.size();
+    return total_size;
+}
+
 // TODO currently we don't support bloom filter index for tinyint/hll/float/double
 Status BloomFilterIndexWriter::create(const BloomFilterOptions& bf_options,
                                       const TypeInfo* type_info,
@@ -278,6 +329,23 @@ Status NGramBloomFilterIndexWriterImpl::create(const BloomFilterOptions& bf_opti
         break;
     default:
         return Status::NotSupported("unsupported type for ngram bloom filter index:{}",
+                                    std::to_string(int(type)));
+    }
+    return Status::OK();
+}
+
+Status TokenBloomFilterIndexWriterImpl::create(const BloomFilterOptions& bf_options,
+                                               const TypeInfo* typeinfo, uint16_t _bf_size,
+                                               std::unique_ptr<BloomFilterIndexWriter>* res) {
+    FieldType type = typeinfo->type();
+    switch (type) {
+    case FieldType::OLAP_FIELD_TYPE_CHAR:
+    case FieldType::OLAP_FIELD_TYPE_VARCHAR:
+    case FieldType::OLAP_FIELD_TYPE_STRING:
+        res->reset(new TokenBloomFilterIndexWriterImpl(bf_options, _bf_size));
+        break;
+    default:
+        return Status::NotSupported("unsupported type for token bloom filter index:{}",
                                     std::to_string(int(type)));
     }
     return Status::OK();

@@ -65,6 +65,8 @@ public:
 
     virtual bool is_ngram_bf() const { return false; }
 
+    virtual bool is_token_bf() const { return false; }
+
     // for write
     Status init(uint64_t n, double fpp, HashStrategyPB strategy) {
         return this->init(optimal_bit_num(n, fpp) / 8, strategy);

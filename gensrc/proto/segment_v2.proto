@@ -272,6 +272,7 @@ enum BloomFilterAlgorithmPB {
     BLOCK_BLOOM_FILTER = 0;
     CLASSIC_BLOOM_FILTER = 1;
     NGRAM_BLOOM_FILTER = 2;
+    TOKEN_BLOOM_FILTER = 3;
 }
 
 message BloomFilterIndexPB {

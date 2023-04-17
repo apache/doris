@@ -200,6 +200,11 @@ public:
     virtual void set_page_ng_bf(std::unique_ptr<segment_v2::BloomFilter>) {
         DCHECK(false) << "should not reach here";
     }
+
+    virtual void set_page_token_bf(std::unique_ptr<segment_v2::BloomFilter>) {
+        DCHECK(false) << "should not reach here";
+    }
+
     uint32_t column_id() const { return _column_id; }
 
     bool opposite() const { return _opposite; }

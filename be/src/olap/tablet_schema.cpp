@@ -538,6 +538,9 @@ void TabletIndex::init_from_thrift(const TOlapTableIndex& index,
     case TIndexType::NGRAM_BF:
         _index_type = IndexType::NGRAM_BF;
         break;
+    case TIndexType::TOKEN_BF:
+        _index_type = IndexType::TOKEN_BF;
+        break;
     }
     if (index.__isset.properties) {
         for (auto kv : index.properties) {
@@ -564,6 +567,9 @@ void TabletIndex::init_from_thrift(const TOlapTableIndex& index,
         break;
     case TIndexType::NGRAM_BF:
         _index_type = IndexType::NGRAM_BF;
+        break;
+    case TIndexType::TOKEN_BF:
+        _index_type = IndexType::TOKEN_BF;
         break;
     }
     if (index.__isset.properties) {
@@ -942,6 +948,36 @@ const TabletIndex* TabletSchema::get_ngram_bf_index(int32_t col_unique_id) const
     // TODO use more efficient impl
     for (size_t i = 0; i < _indexes.size(); i++) {
         if (_indexes[i].index_type() == IndexType::NGRAM_BF) {
+            for (int32_t id : _indexes[i].col_unique_ids()) {
+                if (id == col_unique_id) {
+                    return &(_indexes[i]);
+                }
+            }
+        }
+    }
+
+    return nullptr;
+}
+
+bool TabletSchema::has_token_bf_index(int32_t col_unique_id) const {
+    // TODO use more efficient impl
+    for (size_t i = 0; i < _indexes.size(); i++) {
+        if (_indexes[i].index_type() == IndexType::TOKEN_BF) {
+            for (int32_t id : _indexes[i].col_unique_ids()) {
+                if (id == col_unique_id) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    return false;
+}
+
+const TabletIndex* TabletSchema::get_token_bf_index(int32_t col_unique_id) const {
+    // TODO use more efficient impl
+    for (size_t i = 0; i < _indexes.size(); i++) {
+        if (_indexes[i].index_type() == IndexType::TOKEN_BF) {
             for (int32_t id : _indexes[i].col_unique_ids()) {
                 if (id == col_unique_id) {
                     return &(_indexes[i]);

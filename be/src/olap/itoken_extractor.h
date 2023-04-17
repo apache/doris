@@ -93,6 +93,20 @@ public:
 private:
     size_t n;
 };
+
+/// Parser extracting all splits from string.
+struct SplitTokenExtractor final : public ITokenExtractorHelper<SplitTokenExtractor> {
+public:
+    SplitTokenExtractor() {}
+
+    bool next_in_string(const char* data, size_t length, size_t* __restrict pos,
+                        size_t* __restrict token_start,
+                        size_t* __restrict token_length) const override;
+
+    bool next_in_string_like(const char* data, size_t length, size_t* pos,
+                             std::string& token) const override;
+
+};
 } // namespace doris
 
 #endif //DORIS_ITOKEN_EXTRACTOR_H

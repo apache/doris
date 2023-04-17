@@ -17,24 +17,17 @@
 
 #pragma once
 
-#include <stddef.h>
-#include <stdint.h>
-
-#include <vector>
-
-#include "common/status.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 
 namespace doris {
 namespace segment_v2 {
-enum HashStrategyPB : int;
 
-class NGramBloomFilter : public BloomFilter {
+class TokenBloomFilter : public BloomFilter {
 public:
     // Fixed hash function number
     static const size_t HASH_FUNCTIONS = 2;
     using UnderType = uint64_t;
-    NGramBloomFilter(size_t size);
+    TokenBloomFilter(size_t size);
     void add_bytes(const char* data, uint32_t len) override;
     bool contains(const BloomFilter& bf_) const override;
     Status init(const char* buf, uint32_t size, HashStrategyPB strategy) override;
@@ -45,8 +38,8 @@ public:
     void add_hash(uint64_t) override {}
     bool test_hash(uint64_t hash) const override { return true; }
     bool has_null() const override { return true; }
-    bool is_ngram_bf() const override { return true; }
-    bool is_token_bf() const override { return false; }
+    bool is_ngram_bf() const override { return false; }
+    bool is_token_bf() const override { return true; }
 
 private:
     size_t _size;
