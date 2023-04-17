@@ -120,46 +120,46 @@ bool DeleteHandler::is_condition_value_valid(const TabletColumn& column,
 
     FieldType field_type = column.type();
     switch (field_type) {
-    case OLAP_FIELD_TYPE_TINYINT:
+    case FieldType::OLAP_FIELD_TYPE_TINYINT:
         return valid_signed_number<int8_t>(value_str);
-    case OLAP_FIELD_TYPE_SMALLINT:
+    case FieldType::OLAP_FIELD_TYPE_SMALLINT:
         return valid_signed_number<int16_t>(value_str);
-    case OLAP_FIELD_TYPE_INT:
+    case FieldType::OLAP_FIELD_TYPE_INT:
         return valid_signed_number<int32_t>(value_str);
-    case OLAP_FIELD_TYPE_BIGINT:
+    case FieldType::OLAP_FIELD_TYPE_BIGINT:
         return valid_signed_number<int64_t>(value_str);
-    case OLAP_FIELD_TYPE_LARGEINT:
+    case FieldType::OLAP_FIELD_TYPE_LARGEINT:
         return valid_signed_number<int128_t>(value_str);
-    case OLAP_FIELD_TYPE_UNSIGNED_TINYINT:
+    case FieldType::OLAP_FIELD_TYPE_UNSIGNED_TINYINT:
         return valid_unsigned_number<uint8_t>(value_str);
-    case OLAP_FIELD_TYPE_UNSIGNED_SMALLINT:
+    case FieldType::OLAP_FIELD_TYPE_UNSIGNED_SMALLINT:
         return valid_unsigned_number<uint16_t>(value_str);
-    case OLAP_FIELD_TYPE_UNSIGNED_INT:
+    case FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT:
         return valid_unsigned_number<uint32_t>(value_str);
-    case OLAP_FIELD_TYPE_UNSIGNED_BIGINT:
+    case FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT:
         return valid_unsigned_number<uint64_t>(value_str);
-    case OLAP_FIELD_TYPE_DECIMAL:
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL:
         return valid_decimal(value_str, column.precision(), column.frac());
-    case OLAP_FIELD_TYPE_DECIMAL32:
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL32:
         return valid_decimal(value_str, column.precision(), column.frac());
-    case OLAP_FIELD_TYPE_DECIMAL64:
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL64:
         return valid_decimal(value_str, column.precision(), column.frac());
-    case OLAP_FIELD_TYPE_DECIMAL128I:
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL128I:
         return valid_decimal(value_str, column.precision(), column.frac());
-    case OLAP_FIELD_TYPE_CHAR:
-    case OLAP_FIELD_TYPE_VARCHAR:
+    case FieldType::OLAP_FIELD_TYPE_CHAR:
+    case FieldType::OLAP_FIELD_TYPE_VARCHAR:
         return value_str.size() <= column.length();
-    case OLAP_FIELD_TYPE_STRING:
+    case FieldType::OLAP_FIELD_TYPE_STRING:
         return value_str.size() <= config::string_type_length_soft_limit_bytes;
-    case OLAP_FIELD_TYPE_DATE:
-    case OLAP_FIELD_TYPE_DATETIME:
-    case OLAP_FIELD_TYPE_DATEV2:
-    case OLAP_FIELD_TYPE_DATETIMEV2:
+    case FieldType::OLAP_FIELD_TYPE_DATE:
+    case FieldType::OLAP_FIELD_TYPE_DATETIME:
+    case FieldType::OLAP_FIELD_TYPE_DATEV2:
+    case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
         return valid_datetime(value_str, column.frac());
-    case OLAP_FIELD_TYPE_BOOL:
+    case FieldType::OLAP_FIELD_TYPE_BOOL:
         return valid_bool(value_str);
     default:
-        LOG(WARNING) << "unknown field type. [type=" << field_type << "]";
+        LOG(WARNING) << "unknown field type. [type=" << int(field_type) << "]";
     }
     return false;
 }
@@ -177,7 +177,8 @@ Status DeleteHandler::check_condition_valid(const TabletSchema& schema, const TC
     const TabletColumn& column = schema.column(field_index);
 
     if ((!column.is_key() && schema.keys_type() != KeysType::DUP_KEYS) ||
-        column.type() == OLAP_FIELD_TYPE_DOUBLE || column.type() == OLAP_FIELD_TYPE_FLOAT) {
+        column.type() == FieldType::OLAP_FIELD_TYPE_DOUBLE ||
+        column.type() == FieldType::OLAP_FIELD_TYPE_FLOAT) {
         LOG(WARNING) << "field is not key column, or storage model is not duplicate, or data type "
                         "is float or double.";
         return Status::Error<DELETE_INVALID_CONDITION>();
@@ -242,7 +243,7 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
                            const std::vector<RowsetMetaSharedPtr>& delete_preds, int64_t version) {
     DCHECK(!_is_inited) << "reinitialize delete handler.";
     DCHECK(version >= 0) << "invalid parameters. version=" << version;
-    _predicate_mem_pool.reset(new MemPool());
+    _predicate_arena.reset(new vectorized::Arena());
 
     for (const auto& delete_pred : delete_preds) {
         // Skip the delete condition with large version
@@ -263,7 +264,7 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
             condition.__set_column_unique_id(
                     delete_pred_related_schema->column(condition.column_name).unique_id());
             auto predicate =
-                    parse_to_predicate(tablet_schema, condition, _predicate_mem_pool.get(), true);
+                    parse_to_predicate(tablet_schema, condition, _predicate_arena.get(), true);
             if (predicate != nullptr) {
                 temp.column_predicate_vec.push_back(predicate);
             }
@@ -283,7 +284,7 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
                 condition.condition_values.push_back(value);
             }
             temp.column_predicate_vec.push_back(
-                    parse_to_predicate(tablet_schema, condition, _predicate_mem_pool.get(), true));
+                    parse_to_predicate(tablet_schema, condition, _predicate_arena.get(), true));
         }
 
         _del_conds.emplace_back(std::move(temp));
@@ -311,8 +312,8 @@ void DeleteHandler::finalize() {
 
 void DeleteHandler::get_delete_conditions_after_version(
         int64_t version, AndBlockColumnPredicate* and_block_column_predicate_ptr,
-        std::unordered_map<int32_t, std::vector<const ColumnPredicate*>>* col_id_to_del_predicates)
-        const {
+        std::unordered_map<int32_t, std::vector<const ColumnPredicate*>>*
+                del_predicates_for_zone_map) const {
     for (auto& del_cond : _del_conds) {
         if (del_cond.filter_version > version) {
             // now, only query support delete column predicate operator
@@ -322,33 +323,28 @@ void DeleteHandler::get_delete_conditions_after_version(
                             new SingleColumnBlockPredicate(del_cond.column_predicate_vec[0]);
                     and_block_column_predicate_ptr->add_column_predicate(
                             single_column_block_predicate);
-                    if (col_id_to_del_predicates->count(
+                    if (del_predicates_for_zone_map->count(
                                 del_cond.column_predicate_vec[0]->column_id()) < 1) {
-                        col_id_to_del_predicates->insert(
+                        del_predicates_for_zone_map->insert(
                                 {del_cond.column_predicate_vec[0]->column_id(),
                                  std::vector<const ColumnPredicate*> {}});
                     }
-                    (*col_id_to_del_predicates)[del_cond.column_predicate_vec[0]->column_id()]
+                    (*del_predicates_for_zone_map)[del_cond.column_predicate_vec[0]->column_id()]
                             .push_back(del_cond.column_predicate_vec[0]);
                 } else {
                     auto or_column_predicate = new OrBlockColumnPredicate();
 
                     // build or_column_predicate
-                    std::for_each(
-                            del_cond.column_predicate_vec.cbegin(),
-                            del_cond.column_predicate_vec.cend(),
-                            [&or_column_predicate,
-                             col_id_to_del_predicates](const ColumnPredicate* predicate) {
-                                if (col_id_to_del_predicates->count(predicate->column_id()) < 1) {
-                                    col_id_to_del_predicates->insert(
-                                            {predicate->column_id(),
-                                             std::vector<const ColumnPredicate*> {}});
-                                }
-                                (*col_id_to_del_predicates)[predicate->column_id()].push_back(
-                                        predicate);
-                                or_column_predicate->add_column_predicate(
-                                        new SingleColumnBlockPredicate(predicate));
-                            });
+                    // when delete from where a = 1 and b = 2, we can not use del_predicates_for_zone_map to filter zone page,
+                    // so here do not put predicate to del_predicates_for_zone_map,
+                    // refer #17145 for more details.
+                    // // TODO: need refactor design and code to use more version delete and more column delete to filter zone page.
+                    std::for_each(del_cond.column_predicate_vec.cbegin(),
+                                  del_cond.column_predicate_vec.cend(),
+                                  [&or_column_predicate](const ColumnPredicate* predicate) {
+                                      or_column_predicate->add_column_predicate(
+                                              new SingleColumnBlockPredicate(predicate));
+                                  });
                     and_block_column_predicate_ptr->add_column_predicate(or_column_predicate);
                 }
             }

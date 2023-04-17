@@ -28,8 +28,9 @@
 namespace doris {
 using namespace ErrorCode;
 
-Status RowsetFactory::create_rowset(TabletSchemaSPtr schema, const std::string& tablet_path,
-                                    RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset) {
+Status RowsetFactory::create_rowset(const TabletSchemaSPtr& schema, const std::string& tablet_path,
+                                    const RowsetMetaSharedPtr& rowset_meta,
+                                    RowsetSharedPtr* rowset) {
     if (rowset_meta->rowset_type() == ALPHA_ROWSET) {
         return Status::Error<ROWSET_INVALID>();
     }

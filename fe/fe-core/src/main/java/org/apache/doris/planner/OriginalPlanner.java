@@ -65,6 +65,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * The planner is responsible for turning parse trees into plan fragments that can be shipped off to backends for
@@ -164,12 +165,8 @@ public class OriginalPlanner extends Planner {
             singleNodePlan.convertToVectorized();
         }
 
-        if (analyzer.getContext() != null
-                && analyzer.getContext().getSessionVariable().isEnableProjection()
-                && statement instanceof QueryStmt) {
-            ProjectPlanner projectPlanner = new ProjectPlanner(analyzer);
-            projectPlanner.projectSingleNodePlan(queryStmt.getResultExprs(), singleNodePlan);
-        }
+        ProjectPlanner projectPlanner = new ProjectPlanner(analyzer);
+        projectPlanner.projectSingleNodePlan(queryStmt.getResultExprs(), singleNodePlan);
 
         if (statement instanceof InsertStmt) {
             InsertStmt insertStmt = (InsertStmt) statement;
@@ -302,6 +299,7 @@ public class OriginalPlanner extends Planner {
                         && ((SortNode) singleNodePlan).getChild(0) instanceof OlapScanNode) {
                     // Double check this plan to ensure it's a general topn query
                     injectRowIdColumnSlot();
+                    ((SortNode) singleNodePlan).setUseTwoPhaseReadOpt(true);
                 } else {
                     // This is not a general topn query, rollback needMaterialize flag
                     for (SlotDescriptor slot : analyzer.getDescTbl().getSlotDescs().values()) {
@@ -539,7 +537,7 @@ public class OriginalPlanner extends Planner {
      *
     */
     private void pushOutColumnUniqueIdsToOlapScan(PlanFragment rootFragment, Analyzer analyzer) {
-        HashSet<Integer> outputColumnUniqueIds =  new HashSet<>();
+        Set<Integer> outputColumnUniqueIds =  new HashSet<>();
         ArrayList<Expr> outputExprs = rootFragment.getOutputExprs();
         for (Expr expr : outputExprs) {
             if (expr instanceof SlotRef) {
@@ -605,8 +603,8 @@ public class OriginalPlanner extends Planner {
             if (child instanceof OlapScanNode && sortNode.getLimit() > 0
                     && ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null
                     && sortNode.getLimit() <= ConnectContext.get().getSessionVariable().topnOptLimitThreshold
-                    && sortNode.getSortInfo().getMaterializedOrderingExprs().size() > 0) {
-                Expr firstSortExpr = sortNode.getSortInfo().getMaterializedOrderingExprs().get(0);
+                    && sortNode.getSortInfo().getOrigOrderingExprs().size() > 0) {
+                Expr firstSortExpr = sortNode.getSortInfo().getOrigOrderingExprs().get(0);
                 if (firstSortExpr instanceof SlotRef && !firstSortExpr.getType().isStringType()
                         && !firstSortExpr.getType().isFloatingPointType()) {
                     OlapScanNode scanNode = (OlapScanNode) child;

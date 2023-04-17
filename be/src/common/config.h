@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "configbase.h"
+#include "configbase.h" // IWYU pragma: export
 
 namespace doris {
 namespace config {
@@ -35,7 +35,8 @@ CONF_Int32(be_port, "9060");
 // port for brpc
 CONF_Int32(brpc_port, "8060");
 
-// the number of bthreads for brpc, the default value is set to -1, which means the number of bthreads is #cpu-cores
+// the number of bthreads for brpc, the default value is set to -1,
+// which means the number of bthreads is #cpu-cores
 CONF_Int32(brpc_num_threads, "-1");
 
 // port to brpc server for single replica load
@@ -59,10 +60,21 @@ CONF_String(memory_mode, "moderate");
 // defaults to bytes if no unit is given"
 // must larger than 0. and if larger than physical memory size,
 // it will be set to physical memory size.
-CONF_String(mem_limit, "80%");
+// `auto` means process mem limit is equal to max(physical_mem * 0.9, physical_mem - 6.4G).
+// 6.4G is the maximum memory reserved for the system by default.
+CONF_String(mem_limit, "auto");
 
 // Soft memory limit as a fraction of hard memory limit.
 CONF_Double(soft_mem_limit_frac, "0.9");
+
+// When hash table capacity is greater than 2^double_grow_degree(default 2G), grow when 75% of the capacity is satisfied.
+// Increase can reduce the number of hash table resize, but may waste more memory.
+CONF_mInt32(hash_table_double_grow_degree, "31");
+
+// Expand the hash table before inserting data, the maximum expansion size.
+// There are fewer duplicate keys, reducing the number of resize hash tables
+// There are many duplicate keys, and the hash table filled bucket is far less than the hash table build bucket.
+CONF_mInt64(hash_table_pre_expanse_max_rows, "65535");
 
 // The maximum low water mark of the system `/proc/meminfo/MemAvailable`, Unit byte, default 1.6G,
 // actual low water mark=min(1.6G, MemTotal * 10%), avoid wasting too much memory on machines
@@ -74,10 +86,6 @@ CONF_Int64(max_sys_mem_available_low_water_mark_bytes, "1717986918");
 // The size of the memory that gc wants to release each time, as a percentage of the mem limit.
 CONF_mString(process_minor_gc_size, "10%");
 CONF_mString(process_full_gc_size, "20%");
-// Some caches have their own gc threads, such as segment cache.
-// For caches that do not have a separate gc thread, perform regular gc in the memory maintenance thread.
-// Currently only storage page cache, chunk allocator, more in the future.
-CONF_mInt32(cache_gc_interval_s, "60");
 
 // If true, when the process does not exceed the soft mem limit, the query memory will not be limited;
 // when the process memory exceeds the soft mem limit, the query with the largest ratio between the currently
@@ -162,9 +170,6 @@ CONF_String(log_buffer_level, "");
 // number of threads available to serve backend execution requests
 CONF_Int32(be_service_threads, "64");
 
-// cgroups allocated for doris
-CONF_String(doris_cgroups, "");
-
 // Controls the number of threads to run work per core.  It's common to pick 2x
 // or 3x the number of cores.  This keeps the cores busy without causing excessive
 // thrashing.
@@ -178,8 +183,11 @@ CONF_mInt32(status_report_interval, "5");
 CONF_Bool(doris_enable_scanner_thread_pool_per_disk, "true");
 // the timeout of a work thread to wait the blocking priority queue to get a task
 CONF_mInt64(doris_blocking_priority_queue_wait_timeout_ms, "500");
-// number of olap scanner thread pool size
+// number of scanner thread pool size for olap table
+// and the min thread num of remote scanner thread pool
 CONF_Int32(doris_scanner_thread_pool_thread_num, "48");
+// max number of remote scanner thread pool size
+CONF_Int32(doris_max_remote_scanner_thread_pool_thread_num, "512");
 // number of olap scanner thread pool queue size
 CONF_Int32(doris_scanner_thread_pool_queue_size, "102400");
 // default thrift client connect timeout(in seconds)
@@ -216,7 +224,7 @@ CONF_mInt64(memory_limitation_per_thread_for_schema_change_bytes, "2147483648");
 CONF_mInt64(memory_limitation_per_thread_for_storage_migration_bytes, "100000000");
 
 // the clean interval of file descriptor cache and segment cache
-CONF_mInt32(cache_clean_interval, "1800");
+CONF_mInt32(cache_clean_interval, "60");
 // the clean interval of tablet lookup cache
 CONF_mInt32(tablet_lookup_cache_clean_interval, "30");
 CONF_mInt32(disk_stat_monitor_interval, "5");
@@ -242,8 +250,6 @@ CONF_mInt32(snapshot_expire_time_sec, "172800");
 // It is only a recommended value. When the disk space is insufficient,
 // the file storage period under trash dose not have to comply with this parameter.
 CONF_mInt32(trash_file_expire_time_sec, "259200");
-// check row nums for BE/CE and schema change. true is open, false is closed.
-CONF_mBool(row_nums_check, "true");
 // minimum file descriptor number
 // modify them upon necessity
 CONF_Int32(min_file_descriptor_number, "60000");
@@ -263,8 +269,6 @@ CONF_Bool(disable_storage_page_cache, "false");
 // whether to disable row cache feature in storage
 CONF_Bool(disable_storage_row_cache, "true");
 
-CONF_Bool(enable_storage_vectorization, "true");
-
 CONF_Bool(enable_low_cardinality_optimize, "true");
 
 // be policy
@@ -272,10 +276,6 @@ CONF_Bool(enable_low_cardinality_optimize, "true");
 CONF_mBool(enable_compaction_checksum, "false");
 // whether disable automatic compaction task
 CONF_mBool(disable_auto_compaction, "false");
-// whether enable vectorized compaction
-CONF_Bool(enable_vectorized_compaction, "true");
-// whether enable vectorized schema change/material-view/rollup task.
-CONF_Bool(enable_vectorized_alter_table, "true");
 // whether enable vertical compaction
 CONF_mBool(enable_vertical_compaction, "true");
 // whether enable ordered data compaction
@@ -369,6 +369,12 @@ CONF_mInt32(migration_task_timeout_secs, "20480");
 
 // Port to start debug webserver on
 CONF_Int32(webserver_port, "8040");
+// Https enable flag
+CONF_Bool(enable_https, "false");
+// Path of certificate
+CONF_String(ssl_certificate_path, "");
+// Path of private key
+CONF_String(ssl_private_key_path, "");
 // Number of webserver workers
 CONF_Int32(webserver_num_workers, "48");
 // Period to update rate counters and sampling counters in ms.
@@ -385,8 +391,15 @@ CONF_Int32(single_replica_load_download_num_workers, "64");
 CONF_Int64(load_data_reserve_hours, "4");
 // log error log will be removed after this time
 CONF_mInt64(load_error_log_reserve_hours, "48");
-CONF_Int32(number_tablet_writer_threads, "16");
-CONF_Int32(number_slave_replica_download_threads, "64");
+
+// be brpc interface is classified into two categories: light and heavy
+// each category has diffrent thread number
+// threads to handle heavy api interface, such as transmit_data/transmit_block etc
+CONF_Int32(brpc_heavy_work_pool_threads, "192");
+// threads to handle light api interface, such as exec_plan_fragment_prepare/exec_plan_fragment_start
+CONF_Int32(brpc_light_work_pool_threads, "32");
+CONF_Int32(brpc_heavy_work_pool_max_queue_size, "10240");
+CONF_Int32(brpc_light_work_pool_max_queue_size, "10240");
 
 // The maximum amount of data that can be processed by a stream load
 CONF_mInt64(streaming_load_max_mb, "10240");
@@ -489,7 +502,11 @@ CONF_Bool(madvise_huge_pages, "false");
 CONF_Bool(mmap_buffers, "false");
 
 // Sleep time in milliseconds between memory maintenance iterations
-CONF_mInt32(memory_maintenance_sleep_time_ms, "500");
+CONF_mInt32(memory_maintenance_sleep_time_ms, "100");
+
+// After full gc, no longer full gc and minor gc during sleep.
+// After minor gc, no minor gc during sleep, but full gc is possible.
+CONF_mInt32(memory_gc_sleep_time_s, "1");
 
 // Sleep time in milliseconds between load channel memory refresh iterations
 CONF_mInt64(load_channel_memory_refresh_sleep_time_ms, "100");
@@ -564,6 +581,7 @@ CONF_mInt32(path_gc_check_interval_second, "86400");
 CONF_mInt32(path_gc_check_step, "1000");
 CONF_mInt32(path_gc_check_step_interval_ms, "10");
 CONF_mInt32(path_scan_interval_second, "86400");
+CONF_mInt32(path_scan_step_interval_ms, "70");
 
 // The following 2 configs limit the max usage of disk capacity of a data dir.
 // If both of these 2 threshold reached, no more data can be writen into that data dir.
@@ -601,7 +619,7 @@ CONF_mInt64(max_runnings_transactions_per_txn_map, "100");
 
 // tablet_map_lock shard size, the value is 2^n, n=0,1,2,3,4
 // this is a an enhancement for better performance to manage tablet
-CONF_Int32(tablet_map_shard_size, "1");
+CONF_Int32(tablet_map_shard_size, "4");
 
 // txn_map_lock shard size, the value is 2^n, n=0,1,2,3,4
 // this is a an enhancement for better performance to manage txn
@@ -823,7 +841,8 @@ CONF_mInt64(file_cache_alive_time_sec, "604800");  // 1 week
 // "whole_file_cache": the whole file.
 CONF_mString(file_cache_type, "");
 CONF_Validator(file_cache_type, [](const std::string config) -> bool {
-    return config == "sub_file_cache" || config == "whole_file_cache" || config == "";
+    return config == "sub_file_cache" || config == "whole_file_cache" || config == "" ||
+           config == "file_block_cache";
 });
 CONF_mInt64(file_cache_max_size_per_disk, "0"); // zero for no limit
 
@@ -856,15 +875,13 @@ CONF_String(be_node_role, "mix");
 // Hide the be config page for webserver.
 CONF_Bool(hide_webserver_config_page, "false");
 
-CONF_Bool(enable_segcompaction, "false"); // currently only support vectorized storage
+CONF_Bool(enable_segcompaction, "true");
 
 // Trigger segcompaction if the num of segments in a rowset exceeds this threshold.
 CONF_Int32(segcompaction_threshold_segment_num, "10");
 
 // The segment whose row number above the threshold will be compacted during segcompaction
 CONF_Int32(segcompaction_small_threshold, "1048576");
-
-CONF_String(jvm_max_heap_size, "1024M");
 
 // enable java udf and jdbc scannode
 CONF_Bool(enable_java_support, "true");
@@ -873,6 +890,7 @@ CONF_Bool(enable_java_support, "true");
 CONF_Bool(enable_fuzzy_mode, "false");
 
 CONF_Int32(pipeline_executor_size, "0");
+CONF_mInt16(pipeline_short_query_timeout_s, "20");
 
 // Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
 // Will remove after fully test.
@@ -907,12 +925,23 @@ CONF_mDouble(inverted_index_ram_buffer_size, "512");
 CONF_Int32(query_bkd_inverted_index_limit_percent, "5"); // 5%
 // dict path for chinese analyzer
 CONF_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
+CONF_Int32(inverted_index_read_buffer_size, "4096");
 // tree depth for bkd index
 CONF_Int32(max_depth_in_bkd_tree, "32");
 // use num_broadcast_buffer blocks as buffer to do broadcast
 CONF_Int32(num_broadcast_buffer, "32");
 // semi-structure configs
 CONF_Bool(enable_parse_multi_dimession_array, "true");
+
+// max depth of expression tree allowed.
+CONF_Int32(max_depth_of_expr_tree, "600");
+
+// Report a tablet as bad when io errors occurs more than this value.
+CONF_mInt64(max_tablet_io_errors, "-1");
+
+// Page size of row column, default 4KB
+CONF_mInt64(row_column_page_size, "4096");
+
 #ifdef BE_TEST
 // test s3
 CONF_String(test_s3_resource, "resource");

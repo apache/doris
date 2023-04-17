@@ -55,7 +55,7 @@ public:
     //     queue exceeds this size, subsequent calls to Offer will block until there is
     //     capacity available.
     PriorityThreadPool(uint32_t num_threads, uint32_t queue_size, const std::string& name)
-            : _work_queue(queue_size), _shutdown(false), _name(name) {
+            : _work_queue(queue_size), _shutdown(false), _name(name), _active_threads(0) {
         for (int i = 0; i < num_threads; ++i) {
             _threads.create_thread(
                     std::bind<void>(std::mem_fn(&PriorityThreadPool::work_thread), this, i));
@@ -87,6 +87,11 @@ public:
         return _work_queue.blocking_put(task);
     }
 
+    virtual bool try_offer(WorkFunction func) {
+        PriorityThreadPool::Task task = {0, func, 0};
+        return _work_queue.try_put(task);
+    }
+
     // Shuts the thread pool down, causing the work queue to cease accepting offered work
     // and the worker threads to terminate once they have processed their current work item.
     // Returns once the shutdown flag has been set, does not wait for the threads to
@@ -101,6 +106,7 @@ public:
     virtual void join() { _threads.join_all(); }
 
     virtual uint32_t get_queue_size() const { return _work_queue.get_size(); }
+    virtual uint32_t get_active_threads() const { return _active_threads; }
 
     // Blocks until the work queue is empty, and then calls shutdown to stop the worker
     // threads and Join to wait until they are finished.
@@ -136,7 +142,9 @@ private:
         while (!is_shutdown()) {
             Task task;
             if (_work_queue.blocking_get(&task)) {
+                _active_threads++;
                 task.work_function();
+                _active_threads--;
             }
             if (_work_queue.get_size() == 0) {
                 _empty_cv.notify_all();
@@ -151,6 +159,7 @@ private:
     // Set to true when threads should stop doing work and terminate.
     std::atomic<bool> _shutdown;
     std::string _name;
+    std::atomic<int> _active_threads;
 };
 
 } // namespace doris

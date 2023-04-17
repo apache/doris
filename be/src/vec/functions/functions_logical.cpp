@@ -40,7 +40,7 @@ namespace {
 using namespace FunctionsLogicalDetail;
 
 template <class Op>
-static void vector_const(const IColumn* left, const ColumnConst* right, IColumn* res, size_t rows) {
+void vector_const(const IColumn* left, const ColumnConst* right, IColumn* res, size_t rows) {
     const auto* __restrict l_datas = assert_cast<const ColumnUInt8*>(left)->get_data().data();
     auto r_data = (uint8)right->get_uint(0);
     auto* __restrict res_datas = assert_cast<ColumnUInt8*>(res)->get_data().data();
@@ -51,7 +51,7 @@ static void vector_const(const IColumn* left, const ColumnConst* right, IColumn*
 }
 
 template <class Op>
-static void vector_vector(const IColumn* left, const IColumn* right, IColumn* res, size_t rows) {
+void vector_vector(const IColumn* left, const IColumn* right, IColumn* res, size_t rows) {
     const auto* __restrict l_datas = assert_cast<const ColumnUInt8*>(left)->get_data().data();
     const auto* __restrict r_datas = assert_cast<const ColumnUInt8*>(right)->get_data().data();
     auto* __restrict res_datas = assert_cast<ColumnUInt8*>(res)->get_data().data();
@@ -71,8 +71,8 @@ std::pair<const IColumn*, ColumnPtr> get_nested_and_null_column(const IColumn* c
 }
 
 template <class Op>
-static void vector_const_null(const IColumn* left, const ColumnConst* right, IColumn* res,
-                              IColumn* nulls, size_t rows) {
+void vector_const_null(const IColumn* left, const ColumnConst* right, IColumn* res, IColumn* nulls,
+                       size_t rows) {
     auto [data_column, null_column_ptr] = get_nested_and_null_column(left);
     const auto* __restrict l_datas =
             assert_cast<const ColumnUInt8*>(data_column)->get_data().data();
@@ -99,8 +99,8 @@ static void vector_const_null(const IColumn* left, const ColumnConst* right, ICo
 }
 
 template <class Op>
-static void vector_vector_null(const IColumn* left, const IColumn* right, IColumn* res,
-                               IColumn* nulls, size_t rows) {
+void vector_vector_null(const IColumn* left, const IColumn* right, IColumn* res, IColumn* nulls,
+                        size_t rows) {
     auto [l_datas_ptr, l_nulls_ptr] = get_nested_and_null_column(left);
     auto [r_datas_ptr, r_nulls_ptr] = get_nested_and_null_column(right);
 
@@ -123,8 +123,8 @@ static void vector_vector_null(const IColumn* left, const IColumn* right, IColum
 }
 
 template <class Op>
-static void basic_execute_impl(ColumnRawPtrs arguments, ColumnWithTypeAndName& result_info,
-                               size_t input_rows_count) {
+void basic_execute_impl(ColumnRawPtrs arguments, ColumnWithTypeAndName& result_info,
+                        size_t input_rows_count) {
     auto col_res = ColumnUInt8::create(input_rows_count);
     if (auto l = check_and_get_column<ColumnConst>(arguments[0])) {
         vector_const<Op>(arguments[1], l, col_res, input_rows_count);
@@ -137,8 +137,8 @@ static void basic_execute_impl(ColumnRawPtrs arguments, ColumnWithTypeAndName& r
 }
 
 template <class Op>
-static void null_execute_impl(ColumnRawPtrs arguments, ColumnWithTypeAndName& result_info,
-                              size_t input_rows_count) {
+void null_execute_impl(ColumnRawPtrs arguments, ColumnWithTypeAndName& result_info,
+                       size_t input_rows_count) {
     auto col_nulls = ColumnUInt8::create(input_rows_count);
     auto col_res = ColumnUInt8::create(input_rows_count);
     if (auto l = check_and_get_column<ColumnConst>(arguments[0])) {

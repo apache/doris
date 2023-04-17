@@ -79,6 +79,19 @@ public class ListPartitionPrunerV2 extends PartitionPrunerV2Base {
         this.rangeToId = rangeToId;
     }
 
+    // For hive partition table.
+    public ListPartitionPrunerV2(Map<Long, PartitionItem> idToPartitionItem,
+                                 List<Column> partitionColumns,
+                                 Map<String, ColumnRange> columnNameToRange,
+                                 Map<UniqueId, Range<PartitionKey>> uidToPartitionRange,
+                                 Map<Range<PartitionKey>, UniqueId> rangeToId,
+                                 RangeMap<ColumnBound, UniqueId> singleColumnRangeMap,
+                                 boolean isHive) {
+        super(idToPartitionItem, partitionColumns, columnNameToRange, singleColumnRangeMap, isHive);
+        this.uidToPartitionRange = uidToPartitionRange;
+        this.rangeToId = rangeToId;
+    }
+
     public static Map<UniqueId, Range<PartitionKey>> genUidToPartitionRange(
             Map<Long, PartitionItem> idToPartitionItem, Map<Long, List<UniqueId>> idToUniqueIdsMap) {
         Map<UniqueId, Range<PartitionKey>> uidToPartitionRange = Maps.newHashMap();
@@ -147,6 +160,11 @@ public class ListPartitionPrunerV2 extends PartitionPrunerV2Base {
 
         Optional<RangeSet<ColumnBound>> rangeSetOpt = columnRange.getRangeSet();
         if (columnRange.hasConjunctiveIsNull() || !rangeSetOpt.isPresent()) {
+            // For Hive external table, partition column could be null.
+            // In which case, the data will be put to a default partition __HIVE_DEFAULT_PARTITION__
+            if (isHive) {
+                return FinalFilters.noFilters();
+            }
             return FinalFilters.constantFalseFilters();
         } else {
             RangeSet<ColumnBound> rangeSet = rangeSetOpt.get();

@@ -52,7 +52,7 @@ excludeGroups = ""
 // this suites will not be executed
 excludeSuites = "test_broker_load"
 // this directories will not be executed
-excludeDirectories = ""
+excludeDirectories = "segcompaction_p1"
 
 customConf1 = "test_custom_conf_value"
 
@@ -76,6 +76,7 @@ mysql_57_port=3316
 pg_14_port=5442
 oracle_11_port=1521
 sqlserver_2022_port=1433
+clickhouse_22_port=8123
 
 // hive catalog test config
 // To enable jdbc test, you need first start hive container.

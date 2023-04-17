@@ -21,13 +21,7 @@
 #include <cstring>
 #include <vector>
 
-#ifdef __AVX2__
-#include <immintrin.h>
-#elif __SSE2__
-#include <emmintrin.h>
-#elif __aarch64__
-#include <sse2neon.h>
-#endif
+#include "util/sse_util.hpp"
 
 namespace doris {
 namespace simd {
@@ -101,7 +95,7 @@ inline size_t count_zero_num(const int8_t* __restrict data, const uint8_t* __res
 
 // TODO: compare with different SIMD implements
 template <class T>
-inline static size_t find_byte(const std::vector<T>& vec, size_t start, T byte) {
+static size_t find_byte(const std::vector<T>& vec, size_t start, T byte) {
     if (start >= vec.size()) {
         return start;
     }
@@ -113,7 +107,7 @@ inline static size_t find_byte(const std::vector<T>& vec, size_t start, T byte) 
 }
 
 template <typename T>
-inline bool contain_byte(const T* __restrict data, const size_t length, const signed char byte) {
+bool contain_byte(const T* __restrict data, const size_t length, const signed char byte) {
     return nullptr != std::memchr(reinterpret_cast<const void*>(data), byte, length);
 }
 

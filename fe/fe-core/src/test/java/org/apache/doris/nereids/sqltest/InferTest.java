@@ -69,7 +69,7 @@ public class InferTest extends SqlTestBase {
                                         logicalOlapScan()
                                 )
                         ).when(f -> f.getPredicate().toString()
-                                .equals("((id#0 = 4) OR ((id#0 > 4) AND score IS NULL))"))
+                                .equals("((id#0 = 4) OR ((id#0 > 4) AND score#3 IS NULL))"))
                 );
     }
 
@@ -82,10 +82,8 @@ public class InferTest extends SqlTestBase {
                 .analyze(sql)
                 .rewrite()
                 .matches(
-                        leftSemiLogicalJoin(
-                                logicalProject(
-                                        innerLogicalJoin()
-                                ),
+                        innerLogicalJoin(
+                                leftSemiLogicalJoin(),
                                 logicalProject()
                         )
                 );

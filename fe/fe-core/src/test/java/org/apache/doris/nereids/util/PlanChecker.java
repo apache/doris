@@ -26,10 +26,11 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.jobs.JobContext;
-import org.apache.doris.nereids.jobs.batch.NereidsRewriteJobExecutor;
-import org.apache.doris.nereids.jobs.batch.OptimizeRulesJob;
+import org.apache.doris.nereids.jobs.batch.CascadesOptimizer;
+import org.apache.doris.nereids.jobs.batch.NereidsRewriter;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
+import org.apache.doris.nereids.jobs.rewrite.CustomRewriteJob;
 import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -39,6 +40,7 @@ import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.pattern.PatternDescriptor;
 import org.apache.doris.nereids.pattern.PatternMatcher;
+import org.apache.doris.nereids.processor.post.Validator;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
@@ -55,6 +57,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
+import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -107,26 +110,35 @@ public class PlanChecker {
         return this;
     }
 
-    public PlanChecker analyze() {
-        MemoTestUtils.createCascadesContext(connectContext, parsedPlan);
-        return this;
-    }
-
     public PlanChecker analyze(String sql) {
         this.cascadesContext = MemoTestUtils.createCascadesContext(connectContext, sql);
         this.cascadesContext.newAnalyzer().analyze();
+        this.cascadesContext.toMemo();
         return this;
     }
 
     public PlanChecker analyze(Plan plan) {
         this.cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
         this.cascadesContext.newAnalyzer().analyze();
+        this.cascadesContext.toMemo();
         MemoValidator.validate(cascadesContext.getMemo());
+        return this;
+    }
+
+    public PlanChecker customRewrite(CustomRewriter customRewriter) {
+        new CustomRewriteJob(() -> customRewriter, RuleType.TEST_REWRITE).execute(cascadesContext.getCurrentJobContext());
+        cascadesContext.toMemo();
         return this;
     }
 
     public PlanChecker applyTopDown(RuleFactory ruleFactory) {
         return applyTopDown(ruleFactory.buildRules());
+    }
+
+    public PlanChecker applyTopDown(CustomRewriter customRewriter) {
+        cascadesContext.topDownRewrite(customRewriter);
+        MemoValidator.validate(cascadesContext.getMemo());
+        return this;
     }
 
     public PlanChecker applyTopDown(List<Rule> rule) {
@@ -176,13 +188,14 @@ public class PlanChecker {
     }
 
     public PlanChecker rewrite() {
-        new NereidsRewriteJobExecutor(cascadesContext).execute();
+        new NereidsRewriter(cascadesContext).execute();
+        cascadesContext.toMemo();
         return this;
     }
 
     public PlanChecker optimize() {
         double now = System.currentTimeMillis();
-        new OptimizeRulesJob(cascadesContext).execute();
+        new CascadesOptimizer(cascadesContext).execute();
         System.out.println("cascades:" + (System.currentTimeMillis() - now));
         return this;
     }
@@ -191,7 +204,7 @@ public class PlanChecker {
         double now = System.currentTimeMillis();
         Group root = cascadesContext.getMemo().getRoot();
         boolean changeRoot = false;
-        if (root.isJoinGroup()) {
+        if (root.isInnerJoinGroup()) {
             // If the root group is join group, DPHyp can change the root group.
             // To keep the root group is not changed, we add a dummy project operator above join
             List<Slot> outputs = root.getLogicalExpression().getPlan().getOutput();
@@ -255,7 +268,7 @@ public class PlanChecker {
         for (Plan child : plan.children()) {
             newChildren.add(flatGroupPlan(child));
         }
-        return (PhysicalPlan) plan.withChildren(newChildren);
+        return plan.withChildren(newChildren);
 
     }
 
@@ -295,6 +308,11 @@ public class PlanChecker {
     // Exploration Rule.
     public PlanChecker applyExploration(Rule rule) {
         return applyExploration(cascadesContext.getMemo().getRoot(), rule);
+    }
+
+    public PlanChecker applyExploration(List<Rule> rules) {
+        rules.forEach(rule -> applyExploration(cascadesContext.getMemo().getRoot(), rule));
+        return this;
     }
 
     private PlanChecker applyExploration(Group group, Rule rule) {
@@ -375,7 +393,7 @@ public class PlanChecker {
     public PlanChecker orderJoin() {
         Group root = cascadesContext.getMemo().getRoot();
         boolean changeRoot = false;
-        if (root.isJoinGroup()) {
+        if (root.isInnerJoinGroup()) {
             List<Slot> outputs = root.getLogicalExpression().getPlan().getOutput();
             // FIXME: can't match type, convert List<Slot> to List<NamedExpression>
             GroupExpression newExpr = new GroupExpression(
@@ -402,12 +420,21 @@ public class PlanChecker {
 
     public PlanChecker matches(PatternDescriptor<? extends Plan> patternDesc) {
         Memo memo = cascadesContext.getMemo();
+        checkSlotFromChildren(memo);
+        assertMatches(memo, () -> MatchingUtils.topDownFindMatching(memo.getRoot(), patternDesc.pattern));
+        return this;
+    }
+
+    // TODO: remove it.
+    public PlanChecker matchesNotCheck(PatternDescriptor<? extends Plan> patternDesc) {
+        Memo memo = cascadesContext.getMemo();
         assertMatches(memo, () -> MatchingUtils.topDownFindMatching(memo.getRoot(), patternDesc.pattern));
         return this;
     }
 
     public PlanChecker matchesExploration(PatternDescriptor<? extends Plan> patternDesc) {
         Memo memo = cascadesContext.getMemo();
+        checkSlotFromChildren(memo);
         Supplier<Boolean> asserter = () -> new GroupExpressionMatching(patternDesc.pattern,
                 memo.getRoot().getLogicalExpressions().get(1)).iterator().hasNext();
         Assertions.assertTrue(asserter.get(),
@@ -415,6 +442,11 @@ public class PlanChecker {
                         + memo.getRoot().getLogicalExpressions().get(1).getPlan().treeString()
                         + "\n");
         return this;
+    }
+
+    private void checkSlotFromChildren(Memo memo) {
+        Validator validator = new Validator();
+        memo.getGroupExpressions().forEach((key, value) -> validator.visit(value.getPlan(), null));
     }
 
     private PlanChecker assertMatches(Memo memo, Supplier<Boolean> asserter) {
@@ -528,6 +560,10 @@ public class PlanChecker {
         return chooseBestPlan(cascadesContext.getMemo().getRoot(), PhysicalProperties.ANY);
     }
 
+    public PhysicalPlan getBestPlanTree(PhysicalProperties properties) {
+        return chooseBestPlan(cascadesContext.getMemo().getRoot(), properties);
+    }
+
     public PlanChecker printlnBestPlanTree() {
         System.out.println(chooseBestPlan(cascadesContext.getMemo().getRoot(), PhysicalProperties.ANY).treeString());
         System.out.println("-----------------------------");
@@ -587,4 +623,18 @@ public class PlanChecker {
         return this;
     }
 
+    public static boolean isPlanEqualWithoutID(Plan plan1, Plan plan2) {
+        if (plan1.arity() != plan2.arity()
+                || !plan1.getOutput().equals(plan2.getOutput()) || plan1.getClass() != plan2.getClass()) {
+            System.out.println(plan1);
+            System.out.println(plan2);
+            return false;
+        }
+        for (int i = 0; i < plan1.arity(); i++) {
+            if (!isPlanEqualWithoutID(plan1.child(i), plan2.child(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
 }

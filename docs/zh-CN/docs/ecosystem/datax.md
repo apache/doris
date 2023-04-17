@@ -223,15 +223,15 @@ CREATE TABLE `t_test`(
 
 ```sql
 CREATE TABLE `ods_t_test` (
- `id`bigint(30) NOT NULL,
+ `id` bigint(30) NOT NULL,
  `order_code` varchar(30) DEFAULT NULL COMMENT '',
  `line_code` varchar(30) DEFAULT NULL COMMENT '',
  `remark` varchar(30) DEFAULT NULL COMMENT '',
  `unit_no` varchar(30) DEFAULT NULL COMMENT '',
  `unit_name` varchar(30) DEFAULT NULL COMMENT '',
  `price` decimal(12,2) DEFAULT NULL COMMENT ''
-）ENGINE=OLAP
-UNIQUE KEY(id`, `order_code`)
+) ENGINE=OLAP
+UNIQUE KEY(`id`, `order_code`)
 DISTRIBUTED BY HASH(`order_code`) BUCKETS 1
 PROPERTIES (
 "replication_allocation" = "tag.location.default: 3",

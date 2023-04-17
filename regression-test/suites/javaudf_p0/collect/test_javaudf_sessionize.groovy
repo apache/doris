@@ -53,8 +53,9 @@ suite("test_javaudf_sessionize") {
 
         qt_select """ SELECT sessionize(col_1, col_2, col_3) as a FROM ${tableName} ORDER BY a; """
 
-        sql """ DROP FUNCTION sessionize(string, bigint, int); """
+
     } finally {
+        try_sql("DROP FUNCTION IF EXISTS sessionize(string, bigint, int);")
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
 }

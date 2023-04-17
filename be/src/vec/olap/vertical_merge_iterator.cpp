@@ -137,7 +137,8 @@ Status RowSourcesBuffer::_create_buffer_file() {
     file_path_ss << _tablet_path << "/compaction_row_source_" << _tablet_id;
     if (_reader_type == READER_BASE_COMPACTION) {
         file_path_ss << "_base";
-    } else if (_reader_type == READER_CUMULATIVE_COMPACTION) {
+    } else if (_reader_type == READER_CUMULATIVE_COMPACTION ||
+               _reader_type == READER_SEGMENT_COMPACTION) {
         file_path_ss << "_cumu";
     } else if (_reader_type == READER_COLD_DATA_COMPACTION) {
         file_path_ss << "_cold";
@@ -541,6 +542,10 @@ Status VerticalMaskMergeIterator::unique_key_next_row(vectorized::IteratorRowRef
         auto& ctx = _origin_iter_ctx[order];
         RETURN_IF_ERROR(ctx->init(_opts));
         DCHECK(ctx->valid());
+        if (!ctx->valid()) {
+            LOG(INFO) << "VerticalMergeIteratorContext not valid";
+            return Status::InternalError("VerticalMergeIteratorContext not valid");
+        }
 
         if (UNLIKELY(ctx->is_first_row()) && !row_source.agg_flag()) {
             // first row in block, don't call ctx->advance
@@ -575,6 +580,10 @@ Status VerticalMaskMergeIterator::next_batch(Block* block) {
         auto& ctx = _origin_iter_ctx[order];
         RETURN_IF_ERROR(ctx->init(_opts));
         DCHECK(ctx->valid());
+        if (!ctx->valid()) {
+            LOG(INFO) << "VerticalMergeIteratorContext not valid";
+            return Status::InternalError("VerticalMergeIteratorContext not valid");
+        }
 
         // find max same source count in cur ctx
         size_t limit = std::min(ctx->remain_rows(), _block_row_max - rows);

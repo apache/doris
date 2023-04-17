@@ -17,11 +17,20 @@
 
 #include "exec/schema_scanner/schema_files_scanner.h"
 
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/FrontendService_types.h>
+#include <stdint.h>
+
 #include "exec/schema_scanner/schema_helper.h"
-#include "runtime/primitive_type.h"
+#include "runtime/define_primitive_type.h"
+#include "util/runtime_profile.h"
 #include "vec/common/string_ref.h"
 
 namespace doris {
+class RuntimeState;
+namespace vectorized {
+class Block;
+} // namespace vectorized
 
 std::vector<SchemaScanner::ColumnDesc> SchemaFilesScanner::_s_tbls_columns = {
         //   name,       type,          size,     is_null
@@ -76,6 +85,7 @@ Status SchemaFilesScanner::start(RuntimeState* state) {
     if (!_is_init) {
         return Status::InternalError("used before initialized.");
     }
+    SCOPED_TIMER(_get_db_timer);
     TGetDbsParams db_params;
     if (nullptr != _param->db) {
         db_params.__set_pattern(*(_param->db));

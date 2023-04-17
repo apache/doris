@@ -36,7 +36,7 @@ import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.loadv2.LoadTask;
-import org.apache.doris.planner.external.ExternalFileScanNode.ParamCreateContext;
+import org.apache.doris.planner.FileLoadScanNode;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileAttributes;
@@ -51,9 +51,7 @@ import org.apache.doris.thrift.TScanRangeLocations;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.hadoop.mapred.InputSplit;
 
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
@@ -78,11 +76,6 @@ public class LoadScanProvider implements FileScanProviderIf {
     }
 
     @Override
-    public List<InputSplit> getSplits(List<Expr> exprs) throws IOException, UserException {
-        return null;
-    }
-
-    @Override
     public Map<String, String> getLocationProperties() throws MetaNotFoundException, DdlException {
         return null;
     }
@@ -93,8 +86,8 @@ public class LoadScanProvider implements FileScanProviderIf {
     }
 
     @Override
-    public ParamCreateContext createContext(Analyzer analyzer) throws UserException {
-        ParamCreateContext ctx = new ParamCreateContext();
+    public FileLoadScanNode.ParamCreateContext createContext(Analyzer analyzer) throws UserException {
+        FileLoadScanNode.ParamCreateContext ctx = new FileLoadScanNode.ParamCreateContext();
         ctx.destTupleDescriptor = destTupleDesc;
         ctx.fileGroup = fileGroupInfo.getFileGroup();
         ctx.timezone = analyzer.getTimezone();
@@ -146,11 +139,18 @@ public class LoadScanProvider implements FileScanProviderIf {
     }
 
     @Override
-    public void createScanRangeLocations(ParamCreateContext context, BackendPolicy backendPolicy,
-            List<TScanRangeLocations> scanRangeLocations) throws UserException {
+    public void createScanRangeLocations(FileLoadScanNode.ParamCreateContext context,
+                                         FederationBackendPolicy backendPolicy,
+                                         List<TScanRangeLocations> scanRangeLocations) throws UserException {
         Preconditions.checkNotNull(fileGroupInfo);
         fileGroupInfo.getFileStatusAndCalcInstance(backendPolicy);
         fileGroupInfo.createScanRangeLocations(context, backendPolicy, scanRangeLocations);
+    }
+
+    @Override
+    public void createScanRangeLocations(List<Expr> conjuncts, TFileScanRangeParams params,
+                                         FederationBackendPolicy backendPolicy,
+                                         List<TScanRangeLocations> scanRangeLocations) throws UserException {
     }
 
     @Override
@@ -177,7 +177,7 @@ public class LoadScanProvider implements FileScanProviderIf {
      * @param context
      * @throws UserException
      */
-    private void initColumns(ParamCreateContext context, Analyzer analyzer) throws UserException {
+    private void initColumns(FileLoadScanNode.ParamCreateContext context, Analyzer analyzer) throws UserException {
         context.srcTupleDescriptor = analyzer.getDescTbl().createTupleDescriptor();
         context.srcSlotDescByName = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         context.exprMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
@@ -206,7 +206,8 @@ public class LoadScanProvider implements FileScanProviderIf {
         List<Integer> srcSlotIds = Lists.newArrayList();
         Load.initColumns(fileGroupInfo.getTargetTable(), columnDescs, context.fileGroup.getColumnToHadoopFunction(),
                 context.exprMap, analyzer, context.srcTupleDescriptor, context.srcSlotDescByName, srcSlotIds,
-                formatType(context.fileGroup.getFileFormat(), ""), null, VectorizedUtil.isVectorized());
+                formatType(context.fileGroup.getFileFormat(), ""), fileGroupInfo.getHiddenColumns(),
+                VectorizedUtil.isVectorized());
 
         int columnCountFromPath = 0;
         if (context.fileGroup.getColumnNamesFromPath() != null) {

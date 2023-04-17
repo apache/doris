@@ -23,7 +23,7 @@
 #include "common/status.h"
 #include "fmt/format.h"
 #include "fmt/ranges.h"
-#include "udf/udf_internal.h"
+#include "udf/udf.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/function_java_udf.h"
@@ -59,7 +59,14 @@ doris::Status VectorizedFnCall::prepare(doris::RuntimeState* state,
                                                                    argument_template, _data_type);
     }
     if (_function == nullptr) {
-        return Status::InternalError("Function {} is not implemented", _fn.name.function_name);
+        std::string type_str;
+        for (auto arg : argument_template) {
+            type_str = type_str + " " + arg.type->get_name();
+        }
+        return Status::InternalError(
+                "Function {} is not implemented, input param type is {}, "
+                "and return type is {}.",
+                _fn.name.function_name, type_str, _data_type->get_name());
     }
     VExpr::register_function_context(state, context);
     _expr_name = fmt::format("{}({})", _fn.name.function_name, child_expr_name);

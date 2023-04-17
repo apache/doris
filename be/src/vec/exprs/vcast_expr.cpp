@@ -38,9 +38,13 @@ doris::Status VCastExpr::prepare(doris::RuntimeState* state, const doris::RowDes
     // create a const string column
     _target_data_type = _data_type;
     // TODO(xy): support return struct type name
-    _target_data_type_name = DataTypeFactory::instance().get(_target_data_type);
-    _cast_param_data_type = std::make_shared<DataTypeString>();
-    _cast_param = _cast_param_data_type->create_column_const(1, _target_data_type_name);
+    _target_data_type_name = _target_data_type->get_name();
+    // Using typeindex to indicate the datatype, not using type name because
+    // type name is not stable, but type index is stable and immutable
+    _cast_param_data_type = _target_data_type;
+    // Has to cast to int16_t or there will be compile error because there is no
+    // TypeIndexField
+    _cast_param = _cast_param_data_type->create_column_const_with_default_value(1);
 
     ColumnsWithTypeAndName argument_template;
     argument_template.reserve(2);

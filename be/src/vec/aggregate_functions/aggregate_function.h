@@ -23,7 +23,6 @@
 #include <parallel_hashmap/phmap.h>
 
 #include "vec/columns/column_complex.h"
-#include "vec/common/exception.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/field.h"
@@ -317,13 +316,13 @@ public:
 
     void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
                                            const size_t num_rows, Arena* arena) const override {
-        VectorBufferWriter writter(static_cast<ColumnString&>(*dst));
+        VectorBufferWriter writter(assert_cast<ColumnString&>(*dst));
         streaming_agg_serialize(columns, writter, num_rows, arena);
     }
 
     void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
                                          MutableColumnPtr& dst) const override {
-        VectorBufferWriter writter(static_cast<ColumnString&>(*dst));
+        VectorBufferWriter writter(assert_cast<ColumnString&>(*dst));
         static_cast<const Derived*>(this)->serialize(place, writter);
         writter.commit();
     }

@@ -49,7 +49,7 @@ ERROR 1105 (HY000): errCode = 2, detailMessage = Memory limit exceeded:<consumin
 同时可以在 log/be.INFO 中找到如下日志，确认当前进程内存使用是否符合预期，日志同样分为三部分：
 1、`Process Memory Summary`：进程内存统计。
 2、`Alloc Stacktrace`：触发内存超限检测的栈，这不一定是大内存申请的位置。
-3、`Memory Tracker Summary`：进程 memory tracker 统计，参考 [Memory Tracker](./memory-tracker) 分析使用内存的位置。
+3、`Memory Tracker Summary`：进程 memory tracker 统计，参考 [Memory Tracker](./memory-tracker.md) 分析使用内存的位置。
 注意：
 1、进程内存超限日志的打印间隔是1s，进程内存超限后，BE大多数位置的内存申请都会感知，并尝试做出预定的回调方法，并打印进程内存超限日志，所以如果日志中 Try Alloc 的值很小，则无须关注`Alloc Stacktrace`，直接分析`Memory Tracker Summary`即可。
 2、当进程内存超限后，BE会触发内存GC。
@@ -130,7 +130,7 @@ ERROR 1105 (HY000): errCode = 2, detailMessage = Memory limit exceeded:<consumin
 同时可以在 log/be.INFO 中找到如下日志，确认当前查询内存使用是否符合预期，日志同样分为三部分：
 1、`Process Memory Summary`：进程内存统计。
 2、`Alloc Stacktrace`：触发内存超限检测的栈，这不一定是大内存申请的位置。
-3、`Memory Tracker Summary`：当前查询的 memory tracker 统计，可以看到查询每个算子当前使用的内存和峰值，具体可参考 [Memory Tracker](./memory-tracker)。
+3、`Memory Tracker Summary`：当前查询的 memory tracker 统计，可以看到查询每个算子当前使用的内存和峰值，具体可参考 [Memory Tracker](./memory-tracker.md)。
 注意：一个查询在内存超限后只会打印一次日志，此时查询的多个线程都会感知，并尝试等待内存释放，或者cancel当前查询，如果日志中 Try Alloc 的值很小，则无须关注`Alloc Stacktrace`，直接分析`Memory Tracker Summary`即可。
 
 ```

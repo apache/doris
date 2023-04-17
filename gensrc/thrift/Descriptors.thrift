@@ -111,7 +111,8 @@ enum TSchemaTableType {
     SCH_VIEWS,
     SCH_INVALID,
     SCH_ROWSETS,
-    SCH_BACKENDS
+    SCH_BACKENDS,
+    SCH_COLUMN_STATISTICS
 }
 
 enum THdfsCompression {
@@ -162,8 +163,9 @@ struct TOlapTablePartition {
     6: optional list<Exprs.TExprNode> start_keys
     7: optional list<Exprs.TExprNode> end_keys
     8: optional list<list<Exprs.TExprNode>> in_keys
-
     9: optional bool is_mutable = true
+    // only used in List Partition
+    10: optional bool is_default_partition;
 }
 
 struct TOlapTablePartitionParam {
@@ -190,6 +192,7 @@ struct TOlapTableIndexSchema {
     3: required i32 schema_hash
     4: optional list<TColumn> columns_desc
     5: optional list<TOlapTableIndex> indexes_desc
+    6: optional Exprs.TExpr where_clause
 }
 
 struct TOlapTableSchemaParam {

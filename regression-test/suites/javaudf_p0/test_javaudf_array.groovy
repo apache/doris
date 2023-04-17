@@ -117,6 +117,12 @@ suite("test_javaudf_array") {
         qt_select_13 """ SELECT java_udf_array_date_test(array(datev2_col)), tinyint_col as result FROM ${tableName} ORDER BY result; """
 
     } finally {
+        try_sql("DROP FUNCTION IF EXISTS java_udf_array_int_test(array<int>);")
+        try_sql("DROP FUNCTION IF EXISTS java_udf_array_return_int_test(array<int>);")
+        try_sql("DROP FUNCTION IF EXISTS java_udf_array_return_string_test(array<string>);")
+        try_sql("DROP FUNCTION IF EXISTS java_udf_array_string_test(array<string>);")
+        try_sql("DROP FUNCTION IF EXISTS java_udf_array_datatime_test(array<datetime>);")
+        try_sql("DROP FUNCTION IF EXISTS java_udf_array_date_test(array<date>);")
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
 }

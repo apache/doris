@@ -23,6 +23,7 @@ import java.util.MissingFormatArgumentException;
 public enum ErrorCode {
     // Try our best to compatible with MySQL's
     ERR_HASHCHK(1000, new byte[]{'H', 'Y', '0', '0', '0'}, "hashchk"),
+    ERR_CANT_CREATE_TABLE(1005, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't create table '%s' (errno: %d - %s)"),
     ERR_DB_CREATE_EXISTS(1007, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't create database '%s'; database exists"),
     ERR_DB_DROP_EXISTS(1008, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't drop database '%s'; database doesn't exist"),
     ERR_DBACCESS_DENIED_ERROR(1044, new byte[]{'4', '2', '0', '0', '0'}, "Access denied for user '%s' to "
@@ -1188,7 +1189,10 @@ public enum ErrorCode {
      + "the length of table name '%s' is %d which is greater than the configuration 'table_name_length_limit' (%d)."),
 
     ERR_NONSUPPORT_TIME_TRAVEL_TABLE(5090, new byte[]{'4', '2', '0', '0', '0'}, "Only iceberg external"
-     + " table supports time travel in current version");
+     + " table supports time travel in current version"),
+
+    ERR_NONSSL_HANDSHAKE_RESPONSE(5091, new byte[] {'4', '2', '0', '0'},
+            "SSL mode on but received non-ssl handshake response from client.");
 
     // This is error code
     private final int code;

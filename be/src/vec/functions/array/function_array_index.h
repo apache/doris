@@ -19,11 +19,10 @@
 // and modified by Doris
 #pragma once
 
-#include <string_view>
-
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_string.h"
+#include "vec/common/string_ref.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/function.h"
@@ -111,7 +110,9 @@ private:
                 if (right_nested_null_map && right_nested_null_map[row] && nested_null_map &&
                     nested_null_map[pos + off]) {
                     ConcreteAction::apply(res, pos);
-                    break;
+                    if constexpr (!ConcreteAction::resume_execution) {
+                        break;
+                    }
                 }
                 // some is null while another is not
                 if (right_nested_null_map && nested_null_map &&
@@ -125,10 +126,12 @@ private:
                 size_t str_len = str_offs[pos + off] - str_pos;
                 const char* left_raw_v = reinterpret_cast<const char*>(&str_chars[str_pos]);
                 const char* right_raw_v = reinterpret_cast<const char*>(&right_chars[right_off]);
-                if (std::string_view(left_raw_v, str_len) ==
-                    std::string_view(right_raw_v, right_len)) {
+                // StringRef operator == using vec impl
+                if (StringRef(left_raw_v, str_len) == StringRef(right_raw_v, right_len)) {
                     ConcreteAction::apply(res, pos);
-                    break;
+                    if constexpr (!ConcreteAction::resume_execution) {
+                        break;
+                    }
                 }
             }
             dst_data[row] = res;
@@ -168,7 +171,9 @@ private:
                 if (right_nested_null_map && right_nested_null_map[row] && nested_null_map &&
                     nested_null_map[pos + off]) {
                     ConcreteAction::apply(res, pos);
-                    break;
+                    if constexpr (!ConcreteAction::resume_execution) {
+                        break;
+                    }
                 }
                 // some is null while another is not
                 if (right_nested_null_map && nested_null_map &&
@@ -180,7 +185,9 @@ private:
                 }
                 if (nested_data[pos + off] == right_data[row]) {
                     ConcreteAction::apply(res, pos);
-                    break;
+                    if constexpr (!ConcreteAction::resume_execution) {
+                        break;
+                    }
                 }
             }
             dst_data[row] = res;
@@ -240,6 +247,18 @@ private:
                     outer_null_map);
         } else if (check_column<ColumnDateTimeV2>(right_column)) {
             return _execute_number<NestedColumnType, ColumnDateTimeV2>(
+                    offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
+                    outer_null_map);
+        } else if (check_column<ColumnDecimal32>(right_column)) {
+            return _execute_number<NestedColumnType, ColumnDecimal32>(
+                    offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
+                    outer_null_map);
+        } else if (check_column<ColumnDecimal64>(right_column)) {
+            return _execute_number<NestedColumnType, ColumnDecimal64>(
+                    offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
+                    outer_null_map);
+        } else if (check_column<ColumnDecimal128I>(right_column)) {
+            return _execute_number<NestedColumnType, ColumnDecimal128I>(
                     offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
                     outer_null_map);
         } else if (check_column<ColumnDecimal128>(right_column)) {
@@ -328,6 +347,18 @@ private:
                         right_nested_null_map, array_null_map);
             } else if (check_column<ColumnFloat64>(*nested_column)) {
                 return_column = _execute_number_expanded<ColumnFloat64>(
+                        offsets, nested_null_map, *nested_column, *right_column,
+                        right_nested_null_map, array_null_map);
+            } else if (check_column<ColumnDecimal32>(*nested_column)) {
+                return_column = _execute_number_expanded<ColumnDecimal32>(
+                        offsets, nested_null_map, *nested_column, *right_column,
+                        right_nested_null_map, array_null_map);
+            } else if (check_column<ColumnDecimal64>(*nested_column)) {
+                return_column = _execute_number_expanded<ColumnDecimal64>(
+                        offsets, nested_null_map, *nested_column, *right_column,
+                        right_nested_null_map, array_null_map);
+            } else if (check_column<ColumnDecimal128I>(*nested_column)) {
+                return_column = _execute_number_expanded<ColumnDecimal128I>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
             } else if (check_column<ColumnDecimal128>(*nested_column)) {

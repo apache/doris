@@ -1,7 +1,7 @@
 ---
 {
     "title": "Tablet Local Debug",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 

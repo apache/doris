@@ -52,7 +52,7 @@ suite("test_array_export", "export") {
     
     // define the table and out file path
     def tableName = "array_outfile_test"
-    def outFilePath = """${context.file.parent}/tmp"""
+    def outFilePath = """${context.file.parent}/test_array_export"""
     logger.warn("test_array_export the outFilePath=" + outFilePath)
     
     def create_test_table = {testTablex ->
@@ -70,7 +70,7 @@ suite("test_array_export", "export") {
               `k8` ARRAY<DATETIME> NOT NULL COMMENT "",
               `k9` ARRAY<FLOAT> NOT NULL COMMENT "",
               `k10` ARRAY<DOUBLE> NOT NULL COMMENT "",
-              `k11` ARRAY<DECIMAL(27, 9)> NULL COMMENT ""
+              `k11` ARRAY<DECIMALV3(27, 9)> NULL COMMENT ""
             ) ENGINE=OLAP
             DUPLICATE KEY(`k1`)
             DISTRIBUTED BY HASH(`k1`) BUCKETS 1

@@ -39,16 +39,16 @@ TEST_F(TCountsTest, TotalTest) {
     counts.increment(19, 1);
     counts.increment(7, 2);
 
-    doris_udf::DoubleVal result = counts.terminate(0.2);
-    EXPECT_EQ(1, result.val);
+    double result = counts.terminate(0.2);
+    EXPECT_EQ(1, result);
     uint8_t* writer = new uint8_t[counts.serialized_size()];
     uint8_t* type_reader = writer;
     counts.serialize(writer);
 
     Counts other;
     other.unserialize(type_reader);
-    doris_udf::DoubleVal result1 = other.terminate(0.2);
-    EXPECT_EQ(result.val, result1.val);
+    double result1 = other.terminate(0.2);
+    EXPECT_EQ(result, result1);
 
     Counts other1;
     other1.increment(1, 1);
@@ -59,7 +59,7 @@ TEST_F(TCountsTest, TotalTest) {
 
     counts.merge(&other1);
     // 1 1 1 1 2 5 7 7 9 9 10 19 50 50 50 99 99 100 100 100
-    EXPECT_EQ(counts.terminate(0.3).val, 6.4);
+    EXPECT_EQ(counts.terminate(0.3), 6.4);
     delete[] writer;
 }
 

@@ -31,10 +31,12 @@ public:
 
     ~BetaRowsetReader() override { _rowset->release(); }
 
-    Status init(RowsetReaderContext* read_context) override;
+    Status init(RowsetReaderContext* read_context,
+                const std::pair<int, int>& segment_offset) override;
 
     Status get_segment_iterators(RowsetReaderContext* read_context,
                                  std::vector<RowwiseIteratorUPtr>* out_iters,
+                                 const std::pair<int, int>& segment_offset,
                                  bool use_cache = false) override;
     void reset_read_options() override;
     Status next_block(vectorized::Block* block) override;
@@ -53,7 +55,7 @@ public:
     int64_t filtered_rows() override {
         return _stats->rows_del_filtered + _stats->rows_del_by_bitmap +
                _stats->rows_conditions_filtered + _stats->rows_vec_del_cond_filtered +
-               _stats->rows_vec_cond_filtered;
+               _stats->rows_vec_cond_filtered + _stats->rows_short_circuit_cond_filtered;
     }
 
     RowsetTypePB type() const override { return RowsetTypePB::BETA_ROWSET; }
@@ -65,6 +67,8 @@ public:
     Status get_segment_num_rows(std::vector<uint32_t>* segment_num_rows) override;
 
     bool update_profile(RuntimeProfile* profile) override;
+
+    RowsetReaderSharedPtr clone() override;
 
 private:
     bool _should_push_down_value_predicates() const;

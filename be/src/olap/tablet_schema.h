@@ -54,14 +54,17 @@ public:
     void set_type(FieldType type) { _type = type; }
     bool is_key() const { return _is_key; }
     bool is_nullable() const { return _is_nullable; }
-    bool is_variant_type() const { return _type == OLAP_FIELD_TYPE_VARIANT; }
+    bool is_variant_type() const { return _type == FieldType::OLAP_FIELD_TYPE_VARIANT; }
     bool is_bf_column() const { return _is_bf_column; }
     bool has_bitmap_index() const { return _has_bitmap_index; }
-    bool is_array_type() const { return _type == OLAP_FIELD_TYPE_ARRAY; }
+    bool is_array_type() const { return _type == FieldType::OLAP_FIELD_TYPE_ARRAY; }
     bool is_length_variable_type() const {
-        return _type == OLAP_FIELD_TYPE_CHAR || _type == OLAP_FIELD_TYPE_VARCHAR ||
-               _type == OLAP_FIELD_TYPE_STRING || _type == OLAP_FIELD_TYPE_HLL ||
-               _type == OLAP_FIELD_TYPE_OBJECT || _type == OLAP_FIELD_TYPE_QUANTILE_STATE;
+        return _type == FieldType::OLAP_FIELD_TYPE_CHAR ||
+               _type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
+               _type == FieldType::OLAP_FIELD_TYPE_STRING ||
+               _type == FieldType::OLAP_FIELD_TYPE_HLL ||
+               _type == FieldType::OLAP_FIELD_TYPE_OBJECT ||
+               _type == FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE;
     }
     bool has_default_value() const { return _has_default_value; }
     std::string default_value() const { return _default_value; }
@@ -186,6 +189,7 @@ public:
     int32_t field_index(int32_t col_unique_id) const;
     const TabletColumn& column(size_t ordinal) const;
     const TabletColumn& column(const std::string& field_name) const;
+    Status have_column(const std::string& field_name) const;
     const TabletColumn& column_by_uid(int32_t col_unique_id) const;
     const std::vector<TabletColumn>& columns() const;
     size_t num_columns() const { return _num_columns; }
@@ -213,6 +217,8 @@ public:
     void set_delete_sign_idx(int32_t delete_sign_idx) { _delete_sign_idx = delete_sign_idx; }
     bool has_sequence_col() const { return _sequence_col_idx != -1; }
     int32_t sequence_col_idx() const { return _sequence_col_idx; }
+    void set_version_col_idx(int32_t version_col_idx) { _version_col_idx = version_col_idx; }
+    int32_t version_col_idx() const { return _version_col_idx; }
     segment_v2::CompressionTypePB compression_type() const { return _compression_type; }
 
     const std::vector<TabletIndex>& indexes() const { return _indexes; }
@@ -291,6 +297,7 @@ private:
     bool _is_dynamic_schema = false;
     int32_t _delete_sign_idx = -1;
     int32_t _sequence_col_idx = -1;
+    int32_t _version_col_idx = -1;
     int32_t _schema_version = -1;
     int32_t _table_id = -1;
     bool _disable_auto_compaction = false;

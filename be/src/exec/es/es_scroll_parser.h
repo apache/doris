@@ -17,15 +17,21 @@
 
 #pragma once
 
+#include <rapidjson/rapidjson.h>
+
+#include <map>
 #include <string>
+#include <vector>
 
 #include "rapidjson/document.h"
 #include "runtime/descriptors.h"
 #include "vec/core/block.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
 
 class Status;
+class TupleDescriptor;
 
 class ScrollParser {
 public:
@@ -39,13 +45,6 @@ public:
 
     const std::string& get_scroll_id();
     int get_size() const;
-
-private:
-    // helper method for processing date/datetime cols with rapidjson::Value
-    // type is used for distinguish date and datetime
-    // is_date_str indicate parse datetime from string, otherwise from epoch_millis
-    Status fill_date_col(vectorized::IColumn* col_ptr, const rapidjson::Value& col,
-                         PrimitiveType type, bool is_date_str);
 
 private:
     std::string _scroll_id;

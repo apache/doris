@@ -44,6 +44,13 @@ public class ShowQueryProfileStmt extends ShowStmt {
                     .addColumn(new Column("EndTime", ScalarType.createVarchar(128)))
                     .addColumn(new Column("TotalTime", ScalarType.createVarchar(128)))
                     .addColumn(new Column("QueryState", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("TraceId", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("AnalysisTime", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("PlanTime", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("ScheduleTime", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("FetchResultTime", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("WriteResultTime", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("WaitAndFetchResultTime", ScalarType.createVarchar(128)))
                     .build();
 
     public static final ShowResultSetMetaData META_DATA_FRAGMENTS =
@@ -63,7 +70,7 @@ public class ShowQueryProfileStmt extends ShowStmt {
 
     public enum PathType {
         QUERY_IDS,
-        FRAGMETNS,
+        FRAGMENTS,
         INSTANCES,
         SINGLE_INSTANCE
     }
@@ -120,7 +127,7 @@ public class ShowQueryProfileStmt extends ShowStmt {
                     continue;
                 case 1:
                     queryId = parts[i];
-                    pathType = PathType.FRAGMETNS;
+                    pathType = PathType.FRAGMENTS;
                     break;
                 case 2:
                     fragmentId = parts[i];
@@ -152,7 +159,7 @@ public class ShowQueryProfileStmt extends ShowStmt {
         switch (pathType) {
             case QUERY_IDS:
                 return META_DATA_QUERY_IDS;
-            case FRAGMETNS:
+            case FRAGMENTS:
                 return META_DATA_FRAGMENTS;
             case INSTANCES:
                 return META_DATA_INSTANCES;
@@ -163,3 +170,4 @@ public class ShowQueryProfileStmt extends ShowStmt {
         }
     }
 }
+

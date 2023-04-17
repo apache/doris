@@ -22,6 +22,7 @@
 
 #include <condition_variable>
 #include <functional>
+#include <future>
 #include <vector>
 
 #include "common/object_pool.h"
@@ -135,7 +136,8 @@ private:
 
     // profile reporting-related
     report_status_callback _report_status_cb;
-    std::thread _report_thread;
+    std::promise<bool> _report_thread_promise;
+    std::future<bool> _report_thread_future;
     std::mutex _report_thread_lock;
 
     // Indicates that profile reporting thread should stop.
@@ -182,6 +184,9 @@ private:
 
     // Number of rows returned by this fragment
     RuntimeProfile::Counter* _rows_produced_counter;
+
+    // Number of blocks returned by this fragment
+    RuntimeProfile::Counter* _blocks_produced_counter;
 
     RuntimeProfile::Counter* _fragment_cpu_timer;
 

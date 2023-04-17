@@ -24,9 +24,9 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "env/env.h"
 #include "gutil/strings/split.h"
 #include "gutil/strings/substitute.h"
+#include "io/fs/local_file_system.h"
 #include "olap/utils.h"
 #include "util/path_util.h"
 
@@ -71,11 +71,7 @@ Status parse_root_path(const string& root_path, StorePath* path) {
     }
 
     string canonicalized_path;
-    Status status = Env::Default()->canonicalize(tmp_vec[0], &canonicalized_path);
-    if (!status.ok()) {
-        LOG(WARNING) << "path can not be canonicalized. may be not exist. path=" << tmp_vec[0];
-        return Status::Error<INVALID_ARGUMENT>();
-    }
+    RETURN_IF_ERROR(io::global_local_filesystem()->canonicalize(tmp_vec[0], &canonicalized_path));
     path->path = tmp_vec[0];
 
     // parse root path capacity and storage medium

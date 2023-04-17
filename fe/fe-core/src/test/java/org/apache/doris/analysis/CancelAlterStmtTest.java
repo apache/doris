@@ -45,7 +45,7 @@ public class CancelAlterStmtTest {
     @Before
     public void setUp() {
         env = AccessTestUtil.fetchAdminCatalog();
-        ctx = new ConnectContext(null);
+        ctx = new ConnectContext();
         ctx.setQualifiedUser("root");
         ctx.setRemoteIP("192.168.1.1");
 

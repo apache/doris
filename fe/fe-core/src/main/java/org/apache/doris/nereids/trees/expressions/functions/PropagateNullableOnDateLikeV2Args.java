@@ -28,7 +28,7 @@ import java.util.List;
 public interface PropagateNullableOnDateLikeV2Args extends PropagateNullable, AlwaysNullable {
     @Override
     default boolean nullable() {
-        if (children().stream().anyMatch(e -> e.getDataType().isDateLikeV2Type())) {
+        if (children().stream().anyMatch(e -> e.getDataType().isDateV2LikeType())) {
             return PropagateNullable.super.nullable();
         } else {
             return AlwaysNullable.super.nullable();

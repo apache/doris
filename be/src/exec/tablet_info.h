@@ -17,22 +17,39 @@
 
 #pragma once
 
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/descriptors.pb.h>
+
 #include <cstdint>
+#include <functional>
+#include <iterator>
 #include <map>
 #include <memory>
+#include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "gen_cpp/Descriptors_types.h"
-#include "gen_cpp/descriptors.pb.h"
 #include "olap/tablet_schema.h"
 #include "runtime/descriptors.h"
-#include "runtime/raw_value.h"
+#include "vec/columns/column.h"
 #include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
+class MemTracker;
+class SlotDescriptor;
+class TExprNode;
+class TabletColumn;
+class TabletIndex;
+class TupleDescriptor;
+
+namespace vectorized {
+class VExprContext;
+} // namespace vectorized
 
 struct OlapTableIndexSchema {
     int64_t index_id;
@@ -40,6 +57,7 @@ struct OlapTableIndexSchema {
     int32_t schema_hash;
     std::vector<TabletColumn*> columns;
     std::vector<TabletIndex*> indexes;
+    vectorized::VExprContext* where_clause = nullptr;
 
     void to_protobuf(POlapTableIndexSchema* pindex) const;
 };
@@ -171,7 +189,6 @@ private:
         return part->start_key.second == -1 || !comparator(key, &part->start_key);
     }
 
-private:
     // this partition only valid in this schema
     std::shared_ptr<OlapTableSchemaParam> _schema;
     TOlapTablePartitionParam _t_param;
@@ -189,6 +206,8 @@ private:
 
     bool _is_in_partition = false;
     uint32_t _mem_usage = 0;
+    // only works when using list partition, the resource is owned by _partitions
+    VOlapTablePartition* _default_partition = nullptr;
 };
 
 using TabletLocation = TTabletLocation;

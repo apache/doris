@@ -34,6 +34,7 @@ public class StatsDeriveResult {
     private final double rowCount;
     private double computeSize = -1D;
 
+
     private int width = 1;
     private double penalty = 0.0;
     // TODO: Should we use immutable type for this field?
@@ -202,5 +203,9 @@ public class StatsDeriveResult {
 
     public void setPenalty(double penalty) {
         this.penalty = penalty;
+    }
+
+    public int getBENumber() {
+        return 1;
     }
 }

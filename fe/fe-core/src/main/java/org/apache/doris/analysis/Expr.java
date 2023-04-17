@@ -21,6 +21,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
@@ -1223,6 +1224,19 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return true;
     }
 
+
+    /**
+     * Returns true if expr have child bound by tids, otherwise false.
+     */
+    public boolean isRelativedByTupleIds(List<TupleId> tids) {
+        for (Expr child : children) {
+            if (child.isRelativedByTupleIds(tids)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * Returns true if expr is fully bound by slotId, otherwise false.
      */
@@ -1330,18 +1344,6 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     }
 
     /**
-     * Returns true if expr is can use vectorized process, otherwise false.
-     */
-    public boolean isVectorized() {
-        for (Expr child : children) {
-            if (!child.isVectorized()) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    /**
      * Checks whether this expr returns a boolean type or NULL type.
      * If not, throws an AnalysisException with an appropriate error message using
      * 'name' as a prefix. For example, 'name' could be "WHERE clause".
@@ -1429,10 +1431,20 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             return this;
         }
 
-        if ((targetType.isStringType() || targetType.isHllType())
-                && (this.type.isStringType() || this.type.isHllType())) {
+        if (this.type.equals(targetType)) {
             return this;
         }
+
+        if (targetType.getPrimitiveType() == PrimitiveType.DECIMALV2
+                && this.type.getPrimitiveType() == PrimitiveType.DECIMALV2) {
+            this.type = targetType;
+            return this;
+        }
+
+        if (this.type.isStringType() && targetType.isStringType()) {
+            return this;
+        }
+
         // Preconditions.checkState(PrimitiveType.isImplicitCast(type, targetType),
         // "cast %s to %s", this.type, targetType);
         // TODO(zc): use implicit cast
@@ -1709,6 +1721,34 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return null;
     }
 
+    /*
+     * this function is used be lambda function to find lambda argument.
+     * and replace a new ColumnRefExpr
+     */
+    public void replaceExpr(String colName, ColumnRefExpr slotRefs, List<Expr> slotExpr) {
+        for (int i = 0; i < children.size(); ++i) {
+            children.get(i).replaceExpr(colName, slotRefs, slotExpr);
+            if (children.get(i).findSlotRefByName(colName)) {
+                slotExpr.add(slotRefs);
+                setChild(i, slotRefs);
+                break;
+            }
+        }
+    }
+
+    private boolean findSlotRefByName(String colName) {
+        if (this instanceof SlotRef) {
+            SlotRef slot = (SlotRef) this;
+            if (slot.getColumnName() != null && slot.getColumnName().equals(colName)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+
+
+
     /**
      * Looks up in the catalog the builtin for 'name' and 'argTypes'.
      * Returns null if the function is not found.
@@ -1957,10 +1997,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     }
 
 
-    protected void recursiveResetChildrenResult() throws AnalysisException {
+    protected void recursiveResetChildrenResult(boolean inView) throws AnalysisException {
         for (int i = 0; i < children.size(); i++) {
             final Expr child = children.get(i);
-            final Expr newChild = child.getResultValue();
+            final Expr newChild = child.getResultValue(inView);
             if (newChild != child) {
                 setChild(i, newChild);
             }
@@ -1972,8 +2012,8 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      * @return value returned can't be null, if this and it's children are't constant expr, return this.
      * @throws AnalysisException
      */
-    public Expr getResultValue() throws AnalysisException {
-        recursiveResetChildrenResult();
+    public Expr getResultValue(boolean forPushDownPredicatesToView) throws AnalysisException {
+        recursiveResetChildrenResult(forPushDownPredicatesToView);
         final Expr newExpr = ExpressionFunctions.INSTANCE.evalExpr(this);
         return newExpr != null ? newExpr : this;
     }
@@ -2036,6 +2076,15 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     protected boolean hasNullableChild() {
         for (Expr expr : children) {
             if (expr.isNullable()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public boolean hasAggregateSlot() {
+        for (Expr expr : children) {
+            if (expr.hasAggregateSlot()) {
                 return true;
             }
         }
@@ -2112,22 +2161,19 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 return hasNullableChild();
             }
         }
+        if (fn.functionName().equalsIgnoreCase("group_concat")) {
+            int size = Math.min(fn.getNumArgs(), children.size());
+            for (int i = 0; i < size; ++i) {
+                if (children.get(i).isNullable()) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        if (fn.functionName().equalsIgnoreCase("array_sortby")) {
+            return children.get(0).isNullable();
+        }
         return true;
-    }
-
-    public final void finalizeForNereids() throws AnalysisException {
-        if (isAnalyzed()) {
-            return;
-        }
-        for (Expr child : children) {
-            child.finalizeForNereids();
-        }
-        finalizeImplForNereids();
-        analysisDone();
-    }
-
-    public void finalizeImplForNereids() throws AnalysisException {
-        throw new AnalysisException("analyze for Nereids do not implementation.");
     }
 
     public void materializeSrcExpr() {
@@ -2154,17 +2200,23 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
     }
 
-    public boolean haveMvSlot() {
+    public boolean haveMvSlot(TupleId tid) {
         for (Expr expr : getChildren()) {
-            if (expr.haveMvSlot()) {
+            if (expr.haveMvSlot(tid)) {
                 return true;
             }
         }
         return false;
     }
 
-    public boolean matchExprs(List<Expr> exprs, SelectStmt stmt, boolean ignoreAlias, String tableName)
+    public boolean matchExprs(List<Expr> exprs, SelectStmt stmt, boolean ignoreAlias, TupleDescriptor tuple)
             throws AnalysisException {
+        List<SlotRef> slots = new ArrayList<>();
+        collect(SlotRef.class, slots);
+        if (slots.size() == 0) {
+            return true;
+        }
+
         String name = MaterializedIndexMeta.normalizeName(toSqlWithoutTbl());
         for (Expr expr : exprs) {
             if (CreateMaterializedViewStmt.isMVColumnNormal(name)
@@ -2183,30 +2235,65 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
 
         for (Expr expr : getChildren()) {
-            if (!expr.matchExprs(exprs, stmt, ignoreAlias, tableName)) {
+            if (!expr.matchExprs(exprs, stmt, ignoreAlias, tuple)) {
                 return false;
             }
         }
         return true;
     }
 
+    public boolean containsSubPredicate(Expr subExpr) throws AnalysisException {
+        if (toSqlWithoutTbl().equals(subExpr.toSqlWithoutTbl())) {
+            return true;
+        }
+        return false;
+    }
+
+    public Expr replaceSubPredicate(Expr subExpr) throws AnalysisException {
+        if (toSqlWithoutTbl().equals(subExpr.toSqlWithoutTbl())) {
+            return null;
+        }
+        return this;
+    }
+
+    protected Type getActualType(Type originType) {
+        if (originType == null) {
+            return null;
+        }
+        if (originType.isScalarType()) {
+            return getActualScalarType(originType);
+        } else if (originType.getPrimitiveType() == PrimitiveType.ARRAY) {
+            return getActualArrayType((ArrayType) originType);
+        } else {
+            return originType;
+        }
+    }
+
+    protected  Type getActualScalarType(Type originType) {
+        if (originType.getPrimitiveType() == PrimitiveType.DECIMAL32) {
+            return Type.DECIMAL32;
+        } else if (originType.getPrimitiveType() == PrimitiveType.DECIMAL64) {
+            return Type.DECIMAL64;
+        } else if (originType.getPrimitiveType() == PrimitiveType.DECIMAL128) {
+            return Type.DECIMAL128;
+        } else if (originType.getPrimitiveType() == PrimitiveType.DATETIMEV2) {
+            return Type.DATETIMEV2;
+        } else if (originType.getPrimitiveType() == PrimitiveType.VARCHAR) {
+            return Type.VARCHAR;
+        } else if (originType.getPrimitiveType() == PrimitiveType.CHAR) {
+            return Type.CHAR;
+        } else if (originType.getPrimitiveType() == PrimitiveType.DECIMALV2) {
+            return Type.MAX_DECIMALV2_TYPE;
+        }
+        return originType;
+    }
+
     protected Type[] getActualArgTypes(Type[] originType) {
-        return Arrays.stream(originType).map(
-                (Type type) -> {
-                    if (type == null) {
-                        return null;
-                    }
-                    if (type.getPrimitiveType() == PrimitiveType.DECIMAL32) {
-                        return Type.DECIMAL32;
-                    } else if (type.getPrimitiveType() == PrimitiveType.DECIMAL64) {
-                        return Type.DECIMAL64;
-                    } else if (type.getPrimitiveType() == PrimitiveType.DECIMAL128) {
-                        return Type.DECIMAL128;
-                    } else if (type.getPrimitiveType() == PrimitiveType.DATETIMEV2) {
-                        return Type.DATETIMEV2;
-                    }
-                    return type;
-                }).toArray(Type[]::new);
+        return Arrays.stream(originType).map(this::getActualType).toArray(Type[]::new);
+    }
+
+    private ArrayType getActualArrayType(ArrayType originArrayType) {
+        return new ArrayType(getActualType(originArrayType.getItemType()));
     }
 
     public boolean refToCountStar() {
@@ -2228,6 +2315,15 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
         for (Expr expr : children) {
             if (expr.refToCountStar()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public boolean haveFunction(String functionName) {
+        for (Expr expr : children) {
+            if (expr.haveFunction(functionName)) {
                 return true;
             }
         }

@@ -173,6 +173,13 @@ pushd "${TP_DIR}/installed"/
 ln -sf lib64 lib
 popd
 
+# Configure the search paths for pkg-config and cmake
+export PKG_CONFIG_PATH="${TP_DIR}/installed/lib64/pkgconfig"
+export CMAKE_PREFIX_PATH="${TP_DIR}/installed"
+
+echo "PKG_CONFIG_PATH: ${PKG_CONFIG_PATH}"
+echo "CMAKE_PREFIX_PATH: ${CMAKE_PREFIX_PATH}"
+
 check_prerequest() {
     local CMD="$1"
     local NAME="$2"
@@ -367,11 +374,11 @@ build_thrift() {
 
     if [[ "${KERNEL}" != 'Darwin' ]]; then
         cflags="-I${TP_INCLUDE_DIR}"
-        cxxflags="-I${TP_INCLUDE_DIR} ${warning_unused_but_set_variable}"
+        cxxflags="-I${TP_INCLUDE_DIR} ${warning_unused_but_set_variable} -Wno-inconsistent-missing-override"
         ldflags="-L${TP_LIB_DIR} --static"
     else
-        cflags="-I${TP_INCLUDE_DIR} -Wno-implicit-function-declaration"
-        cxxflags="-I${TP_INCLUDE_DIR} ${warning_unused_but_set_variable}"
+        cflags="-I${TP_INCLUDE_DIR} -Wno-implicit-function-declaration -Wno-inconsistent-missing-override"
+        cxxflags="-I${TP_INCLUDE_DIR} ${warning_unused_but_set_variable} -Wno-inconsistent-missing-override"
         ldflags="-L${TP_LIB_DIR}"
     fi
 
@@ -559,7 +566,7 @@ build_zlib() {
     check_if_source_exist "${ZLIB_SOURCE}"
     cd "${TP_SOURCE_DIR}/${ZLIB_SOURCE}"
 
-    CFLAGS="-fPIC" \
+    CFLAGS="-O3 -fPIC" \
         CPPFLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
         ./configure --prefix="${TP_INSTALL_DIR}" --static
@@ -683,8 +690,9 @@ build_hyperscan() {
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-        -DBOOST_ROOT="${BOOST_SOURCE}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DBUILD_EXAMPLES=OFF ..
+    CXXFLAGS="-D_HAS_AUTO_PTR_ETC=0" \
+        "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        -DBOOST_ROOT="${TP_INSTALL_DIR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DBUILD_EXAMPLES=OFF ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}" install
     strip_lib libhs.a
 }
@@ -703,7 +711,9 @@ build_boost() {
     CXXFLAGS="${cxxflags}" \
         ./bootstrap.sh --prefix="${TP_INSTALL_DIR}" --with-toolset="${boost_toolset}"
     # -q: Fail at first error
-    ./b2 -q link=static runtime-link=static -j "${PARALLEL}" --without-mpi --without-graph --without-graph_parallel --without-python cxxflags="-std=c++11 -g -I${TP_INCLUDE_DIR} -L${TP_LIB_DIR}" install
+    ./b2 -q link=static runtime-link=static -j "${PARALLEL}" \
+        --without-mpi --without-graph --without-graph_parallel --without-python \
+        cxxflags="-std=c++17 -g -I${TP_INCLUDE_DIR} -L${TP_LIB_DIR}" install
 }
 
 # mysql
@@ -858,7 +868,8 @@ build_librdkafka() {
     # PKG_CONFIG="pkg-config --static"
 
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
-        LDFLAGS="-L${TP_LIB_DIR} -lssl -lcrypto -lzstd -lz -lsasl2" \
+        LDFLAGS="-L${TP_LIB_DIR} -lssl -lcrypto -lzstd -lz -lsasl2 \
+        -lgssapi_krb5 -lkrb5 -lkrb5support -lk5crypto -lcom_err -lresolv" \
         ./configure --prefix="${TP_INSTALL_DIR}" --enable-static --enable-sasl --disable-c11threads
 
     make -j "${PARALLEL}"
@@ -875,13 +886,7 @@ build_libunixodbc() {
 
     cd "${TP_SOURCE_DIR}/${ODBC_SOURCE}"
 
-    if [[ "${KERNEL}" != 'Darwin' ]]; then
-        cflags="-I${TP_INCLUDE_DIR} -Wno-int-conversion"
-    else
-        cflags="-I${TP_INCLUDE_DIR} -Wno-int-conversion -Wno-implicit-function-declaration"
-    fi
-
-    CFLAGS="${cflags}" \
+    CFLAGS="-I${TP_INCLUDE_DIR} -Wno-int-conversion -Wno-implicit-function-declaration" \
         LDFLAGS="-L${TP_LIB_DIR}" \
         ./configure --prefix="${TP_INSTALL_DIR}" --with-included-ltdl --enable-static=yes --enable-shared=no
 
@@ -1339,14 +1344,8 @@ build_gsasl() {
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
-    if [[ "${KERNEL}" != 'Darwin' ]]; then
-        cflags=''
-    else
-        cflags='-Wno-implicit-function-declaration'
-    fi
-
     KRB5_CONFIG="${TP_INSTALL_DIR}/bin/krb5-config" \
-        CFLAGS="${cflags} -I${TP_INCLUDE_DIR}" \
+        CFLAGS="-I${TP_INCLUDE_DIR} -Wno-implicit-function-declaration" \
         ../configure --prefix="${TP_INSTALL_DIR}" --with-gssapi-impl=mit --enable-shared=no --with-pic --with-libidn-prefix="${TP_INSTALL_DIR}"
 
     make -j "${PARALLEL}"
@@ -1564,6 +1563,14 @@ build_clucene() {
     else
         USE_AVX2="${USE_AVX2:-0}"
     fi
+    if [[ -z "${USE_BTHREAD_SCANNER}" ]]; then
+        USE_BTHREAD_SCANNER='OFF'
+    fi
+    if [[ ${USE_BTHREAD_SCANNER} == "ON" ]]; then
+        USE_BTHREAD=1
+    else
+        USE_BTHREAD=0
+    fi
 
     check_if_source_exist "${CLUCENE_SOURCE}"
     cd "${TP_SOURCE_DIR}/${CLUCENE_SOURCE}"
@@ -1581,6 +1588,7 @@ build_clucene() {
         -DCMAKE_CXX_FLAGS="-fno-omit-frame-pointer ${warning_narrowing}" \
         -DUSE_STAT64=0 \
         -DUSE_AVX2="${USE_AVX2}" \
+        -DUSE_BTHREAD="${USE_BTHREAD}" \
         -DCMAKE_BUILD_TYPE=RelWithDebInfo \
         -DBUILD_CONTRIBS_LIB=ON ..
     ${BUILD_SYSTEM} -j "${PARALLEL}"
@@ -1591,6 +1599,16 @@ build_clucene() {
         mkdir -p "${TP_INSTALL_DIR}"/share
     fi
     cp -rf src/contribs-lib/CLucene/analysis/jieba/dict "${TP_INSTALL_DIR}"/share/
+}
+
+# hadoop_libs_x86
+build_hadoop_libs_x86() {
+    check_if_source_exist "${HADOOP_LIBS_X86_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${HADOOP_LIBS_X86_SOURCE}"
+    mkdir -p "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
+    mkdir -p "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
+    cp ./include/hdfs.h "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
+    cp -r ./* "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
 }
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then
@@ -1657,5 +1675,9 @@ build_xxhash
 build_concurrentqueue
 build_fast_float
 build_clucene
+
+if [[ "$(uname -m)" == 'x86_64' ]]; then
+    build_hadoop_libs_x86
+fi
 
 echo "Finished to build all thirdparties"

@@ -65,7 +65,7 @@ suite("test_javaudf_float") {
         qt_select """ SELECT user_id,java_udf_float_test(float_1, float_2) as sum FROM ${tableName} order by user_id; """
         
 
-        sql """ DROP FUNCTION java_udf_float_test(FLOAT,FLOAT); """
+
 
         sql """ CREATE FUNCTION java_udf_double_test(DOUBLE,DOUBLE) RETURNS DOUBLE PROPERTIES (
             "file"="file://${jarPath}",
@@ -80,8 +80,10 @@ suite("test_javaudf_float") {
         qt_select """ SELECT user_id,java_udf_double_test(double_1, double_1) as sum FROM ${tableName} order by user_id; """
         
 
-        sql """ DROP FUNCTION java_udf_double_test(DOUBLE,DOUBLE); """
+        
     } finally {
+        try_sql("DROP FUNCTION IF EXISTS java_udf_double_test(DOUBLE,DOUBLE);")
+        try_sql("DROP FUNCTION IF EXISTS java_udf_float_test(FLOAT,FLOAT);")
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
 }

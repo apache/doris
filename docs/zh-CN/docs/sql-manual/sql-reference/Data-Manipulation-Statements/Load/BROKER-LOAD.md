@@ -41,7 +41,8 @@ data_desc1[, data_desc2, ...]
 )
 WITH BROKER broker_name
 [broker_properties]
-[load_properties];
+[load_properties]
+[COMMENT "comments"];
 ```
 
 - `load_label`
@@ -83,7 +84,7 @@ WITH BROKER broker_name
 
     指定需要导入的文件路径。可以是多个。可以使用通配符。路径最终必须匹配到文件，如果只匹配到目录则导入会失败。
 
-  - `NEGTIVE`
+  - `NEGATIVE`
 
     该关键词用于表示本次导入为一批”负“导入。这种方式仅针对具有整型 SUM 聚合类型的聚合数据表。该方式会将导入数据中，SUM 聚合列对应的整型数值取反。主要用于冲抵之前导入错误的数据。
 
@@ -101,7 +102,7 @@ WITH BROKER broker_name
 
   - `column list`
 
-    用于指定原始文件中的列顺序。关于这部分详细介绍，可以参阅 [列的映射，转换与过滤](../../../../../data-operate/import/import-scenes/load-data-convert) 文档。
+    用于指定原始文件中的列顺序。关于这部分详细介绍，可以参阅 [列的映射，转换与过滤](../../../../data-operate/import/import-scenes/load-data-convert.md) 文档。
 
     `(k1, k2, tmpk1)`
 
@@ -115,11 +116,11 @@ WITH BROKER broker_name
 
   - `PRECEDING FILTER predicate`
 
-    前置过滤条件。数据首先根据 `column list` 和 `COLUMNS FROM PATH AS` 按顺序拼接成原始数据行。然后按照前置过滤条件进行过滤。关于这部分详细介绍，可以参阅 [列的映射，转换与过滤](../../../../../data-operate/import/import-scenes/load-data-convert) 文档。
+    前置过滤条件。数据首先根据 `column list` 和 `COLUMNS FROM PATH AS` 按顺序拼接成原始数据行。然后按照前置过滤条件进行过滤。关于这部分详细介绍，可以参阅 [列的映射，转换与过滤](../../../../data-operate/import/import-scenes/load-data-convert.md) 文档。
 
   - `WHERE predicate`
 
-    根据条件对导入的数据进行过滤。关于这部分详细介绍，可以参阅 [列的映射，转换与过滤](../../../../../data-operate/import/import-scenes/load-data-convert) 文档。
+    根据条件对导入的数据进行过滤。关于这部分详细介绍，可以参阅 [列的映射，转换与过滤](../../../../data-operate/import/import-scenes/load-data-convert.md) 文档。
 
   - `DELETE ON expr`
 
@@ -139,7 +140,7 @@ WITH BROKER broker_name
 
 - `broker_properties`
 
-  指定 broker 所需的信息。这些信息通常被用于 Broker 能够访问远端存储系统。如 BOS 或 HDFS。关于具体信息，可参阅 [Broker](../../../../../advanced/broker) 文档。
+  指定 broker 所需的信息。这些信息通常被用于 Broker 能够访问远端存储系统。如 BOS 或 HDFS。关于具体信息，可参阅 [Broker](../../../../advanced/broker.md) 文档。
 
   ```text
   (
@@ -171,7 +172,7 @@ WITH BROKER broker_name
 
     - `timezone`
 
-      指定某些受时区影响的函数的时区，如 `strftime/alignment_timestamp/from_unixtime` 等等，具体请查阅 [时区](../../../../../advanced/time-zone) 文档。如果不指定，则使用 "Asia/Shanghai" 时区
+      指定某些受时区影响的函数的时区，如 `strftime/alignment_timestamp/from_unixtime` 等等，具体请查阅 [时区](../../../../advanced/time-zone.md) 文档。如果不指定，则使用 "Asia/Shanghai" 时区
 
     - `load_parallelism`
 
@@ -185,6 +186,8 @@ WITH BROKER broker_name
       
       布尔类型，为true表示支持一个任务只导入数据到对应分区的一个tablet，默认值为false，作业的任务数取决于整体并发度。该参数只允许在对带有random分区的olap表导数的时候设置。
 
+-  <version since="1.2.3" type="inline"> comment </version>
+  - 指定导入任务的备注信息。可选参数。
 ### Example
 
 1. 从 HDFS 导入一批数据
@@ -501,29 +504,29 @@ WITH BROKER broker_name
 
 1. 查看导入任务状态
 
-   Broker Load 是一个异步导入过程，语句执行成功仅代表导入任务提交成功，并不代表数据导入成功。导入状态需要通过 [SHOW LOAD](../../Show-Statements/SHOW-LOAD) 命令查看。
+   Broker Load 是一个异步导入过程，语句执行成功仅代表导入任务提交成功，并不代表数据导入成功。导入状态需要通过 [SHOW LOAD](../../Show-Statements/SHOW-LOAD.md) 命令查看。
 
 2. 取消导入任务
 
-   已提交切尚未结束的导入任务可以通过 [CANCEL LOAD](./CANCEL-LOAD) 命令取消。取消后，已写入的数据也会回滚，不会生效。
+   已提交切尚未结束的导入任务可以通过 [CANCEL LOAD](./CANCEL-LOAD.md) 命令取消。取消后，已写入的数据也会回滚，不会生效。
 
 3. Label、导入事务、多表原子性
 
-   Doris 中所有导入任务都是原子生效的。并且在同一个导入任务中对多张表的导入也能够保证原子性。同时，Doris 还可以通过 Label 的机制来保证数据导入的不丢不重。具体说明可以参阅 [导入事务和原子性](../../../../../data-operate/import/import-scenes/load-atomicity) 文档。
+   Doris 中所有导入任务都是原子生效的。并且在同一个导入任务中对多张表的导入也能够保证原子性。同时，Doris 还可以通过 Label 的机制来保证数据导入的不丢不重。具体说明可以参阅 [导入事务和原子性](../../../../data-operate/import/import-scenes/load-atomicity.md) 文档。
 
 4. 列映射、衍生列和过滤
 
-   Doris 可以在导入语句中支持非常丰富的列转换和过滤操作。支持绝大多数内置函数和 UDF。关于如何正确的使用这个功能，可参阅 [列的映射，转换与过滤](../../../../../data-operate/import/import-scenes/load-data-convert) 文档。
+   Doris 可以在导入语句中支持非常丰富的列转换和过滤操作。支持绝大多数内置函数和 UDF。关于如何正确的使用这个功能，可参阅 [列的映射，转换与过滤](../../../../data-operate/import/import-scenes/load-data-convert.md) 文档。
 
 5. 错误数据过滤
 
    Doris 的导入任务可以容忍一部分格式错误的数据。容忍了通过 `max_filter_ratio` 设置。默认为0，即表示当有一条错误数据时，整个导入任务将会失败。如果用户希望忽略部分有问题的数据行，可以将次参数设置为 0~1 之间的数值，Doris 会自动跳过哪些数据格式不正确的行。
 
-   关于容忍率的一些计算方式，可以参阅 [列的映射，转换与过滤](../../../../../data-operate/import/import-scenes/load-data-convert) 文档。
+   关于容忍率的一些计算方式，可以参阅 [列的映射，转换与过滤](../../../../data-operate/import/import-scenes/load-data-convert.md) 文档。
 
 6. 严格模式
 
-   `strict_mode` 属性用于设置导入任务是否运行在严格模式下。该格式会对列映射、转换和过滤的结果产生影响。关于严格模式的具体说明，可参阅 [严格模式](../../../../../data-operate/import/import-scenes/load-strict-mode) 文档。
+   `strict_mode` 属性用于设置导入任务是否运行在严格模式下。该格式会对列映射、转换和过滤的结果产生影响。关于严格模式的具体说明，可参阅 [严格模式](../../../../data-operate/import/import-scenes/load-strict-mode.md) 文档。
 
 7. 超时时间
 

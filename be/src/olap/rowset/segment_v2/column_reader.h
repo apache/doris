@@ -26,6 +26,7 @@
 #include "common/status.h"         // for Status
 #include "gen_cpp/segment_v2.pb.h" // for ColumnMetaPB
 #include "io/fs/file_reader.h"
+#include "io/io_common.h"
 #include "olap/block_column_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/iterators.h"
@@ -38,7 +39,6 @@
 #include "olap/rowset/segment_v2/row_ranges.h"            // for RowRanges
 #include "olap/rowset/segment_v2/zone_map_index.h"
 #include "olap/tablet_schema.h"
-#include "util/file_cache.h"
 #include "util/once.h"
 #include "vec/columns/column_array.h" // ColumnArray
 
@@ -76,7 +76,7 @@ struct ColumnIteratorOptions {
     // page types are divided into DATA_PAGE & INDEX_PAGE
     // INDEX_PAGE including index_page, dict_page and short_key_page
     PageTypePB type;
-    IOContext io_ctx;
+    io::IOContext io_ctx;
 
     void sanity_check() const {
         CHECK_NOTNULL(file_reader);
@@ -380,10 +380,45 @@ public:
     ordinal_t get_current_ordinal() const override { return 0; }
 };
 
+// This iterator make offset operation write once for
+class OffsetFileColumnIterator final : public ColumnIterator {
+public:
+    explicit OffsetFileColumnIterator(FileColumnIterator* offset_reader) {
+        _offset_iterator.reset(offset_reader);
+    }
+
+    ~OffsetFileColumnIterator() override = default;
+
+    Status init(const ColumnIteratorOptions& opts) override;
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+    ordinal_t get_current_ordinal() const override {
+        return _offset_iterator->get_current_ordinal();
+    }
+    Status seek_to_ordinal(ordinal_t ord) override {
+        RETURN_IF_ERROR(_offset_iterator->seek_to_ordinal(ord));
+        return Status::OK();
+    }
+
+    Status seek_to_first() override {
+        RETURN_IF_ERROR(_offset_iterator->seek_to_first());
+        return Status::OK();
+    }
+
+    Status _peek_one_offset(ordinal_t* offset);
+
+    Status _calculate_offsets(ssize_t start,
+                              vectorized::ColumnArray::ColumnOffsets& column_offsets);
+
+private:
+    std::unique_ptr<FileColumnIterator> _offset_iterator;
+};
+
 // This iterator is used to read map value column
 class MapFileColumnIterator final : public ColumnIterator {
 public:
     explicit MapFileColumnIterator(ColumnReader* reader, ColumnIterator* null_iterator,
+                                   OffsetFileColumnIterator* offsets_iterator,
                                    ColumnIterator* key_iterator, ColumnIterator* val_iterator);
 
     ~MapFileColumnIterator() override = default;
@@ -394,23 +429,28 @@ public:
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           vectorized::MutableColumnPtr& dst) override;
-
     Status seek_to_first() override {
         RETURN_IF_ERROR(_key_iterator->seek_to_first());
         RETURN_IF_ERROR(_val_iterator->seek_to_first());
-        RETURN_IF_ERROR(_null_iterator->seek_to_first());
+        RETURN_IF_ERROR(_offsets_iterator->seek_to_first());
+        if (_map_reader->is_nullable()) {
+            RETURN_IF_ERROR(_null_iterator->seek_to_first());
+        }
         return Status::OK();
     }
 
     Status seek_to_ordinal(ordinal_t ord) override;
 
-    ordinal_t get_current_ordinal() const override { return _key_iterator->get_current_ordinal(); }
+    ordinal_t get_current_ordinal() const override {
+        return _offsets_iterator->get_current_ordinal();
+    }
 
 private:
     ColumnReader* _map_reader;
     std::unique_ptr<ColumnIterator> _null_iterator;
-    std::unique_ptr<ColumnIterator> _key_iterator; // ArrayFileColumnIterator
-    std::unique_ptr<ColumnIterator> _val_iterator; // ArrayFileColumnIterator
+    std::unique_ptr<OffsetFileColumnIterator> _offsets_iterator; //OffsetFileIterator
+    std::unique_ptr<ColumnIterator> _key_iterator;
+    std::unique_ptr<ColumnIterator> _val_iterator;
 };
 
 class StructFileColumnIterator final : public ColumnIterator {
@@ -451,7 +491,7 @@ private:
 
 class ArrayFileColumnIterator final : public ColumnIterator {
 public:
-    explicit ArrayFileColumnIterator(ColumnReader* reader, FileColumnIterator* offset_reader,
+    explicit ArrayFileColumnIterator(ColumnReader* reader, OffsetFileColumnIterator* offset_reader,
                                      ColumnIterator* item_iterator, ColumnIterator* null_iterator);
 
     ~ArrayFileColumnIterator() override = default;
@@ -480,14 +520,11 @@ public:
 
 private:
     ColumnReader* _array_reader;
-    std::unique_ptr<FileColumnIterator> _offset_iterator;
+    std::unique_ptr<OffsetFileColumnIterator> _offset_iterator;
     std::unique_ptr<ColumnIterator> _null_iterator;
     std::unique_ptr<ColumnIterator> _item_iterator;
 
-    Status _peek_one_offset(ordinal_t* offset);
     Status _seek_by_offsets(ordinal_t ord);
-    Status _calculate_offsets(ssize_t start,
-                              vectorized::ColumnArray::ColumnOffsets& column_offsets);
 };
 
 class RowIdColumnIterator : public ColumnIterator {

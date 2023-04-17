@@ -24,7 +24,7 @@ import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 
 import com.google.common.base.Preconditions;
@@ -45,7 +45,7 @@ public class CheckAndStandardizeWindowFunctionAndFrame extends OneRewriteRuleFac
         );
     }
 
-    private LogicalWindow checkAndStandardize(LogicalWindow<GroupPlan> logicalWindow) {
+    private LogicalWindow checkAndStandardize(LogicalWindow<Plan> logicalWindow) {
 
         List<NamedExpression> newOutputExpressions = logicalWindow.getWindowExpressions().stream()
                 .map(expr -> {

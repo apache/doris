@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-在 1.2.2 版本中，Doris 团队已经修复了自 1.2.1 版本发布以来超过 200 个问题或性能改进项。同时，1.2.2 版本也作为 1.2 LTS 的迭代版本，具备更高的稳定性，建议所有用户升级到这个版本。
+在 1.2.2 版本中，Doris 团队已经修复了自 1.2.1 版本发布以来超过 200 个问题或性能改进项。同时，1.2.2 版本也作为 1.2.1 的迭代版本，具备更高的稳定性，建议所有用户升级到这个版本。
 
 
 # New Feature
@@ -145,7 +145,7 @@ under the License.
 
 # 其他
 
-添加指标以查看 BE 上的 Rowset 和 Segment 总数字 `doris_be_all_rowset_nums` 和 `doris_be_all_segment_nums`
+添加指标以查看 BE 上的 Rowset 和 Segment 总数字 `doris_be_all_rowsets_num` 和 `doris_be_all_segments_num`
 
 # 致谢
 

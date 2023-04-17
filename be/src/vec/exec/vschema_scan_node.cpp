@@ -84,11 +84,6 @@ Status VSchemaScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
         _scanner_param.thread_id = tnode.schema_scan_node.thread_id;
     }
 
-    if (tnode.schema_scan_node.__isset.table_structure) {
-        _scanner_param.table_structure = _pool->add(
-                new std::vector<TSchemaTableStructure>(tnode.schema_scan_node.table_structure));
-    }
-
     if (tnode.schema_scan_node.__isset.catalog) {
         _scanner_param.catalog = _pool->add(new std::string(tnode.schema_scan_node.catalog));
     }
@@ -152,6 +147,10 @@ Status VSchemaScanNode::prepare(RuntimeState* state) {
     if (nullptr == schema_table) {
         return Status::InternalError("Failed to get schema table descriptor.");
     }
+
+    // init schema scanner profile
+    _scanner_param.profile.reset(new RuntimeProfile("SchemaScanner"));
+    _runtime_profile->add_child(_scanner_param.profile.get(), true, nullptr);
 
     // new one scanner
     _schema_scanner.reset(SchemaScanner::create(schema_table->schema_table_type()));
@@ -225,6 +224,7 @@ Status VSchemaScanNode::get_next(RuntimeState* state, vectorized::Block* block, 
                                                 dest_slot_desc->col_name()));
         }
 
+        // src block columns desc is filled by schema_scanner->get_column_desc.
         vectorized::Block src_block;
         for (int i = 0; i < columns_desc.size(); ++i) {
             TypeDescriptor descriptor(columns_desc[i].type);

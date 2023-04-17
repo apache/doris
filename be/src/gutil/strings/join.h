@@ -152,12 +152,12 @@ string JoinStringsInArray(string const* components, int num_components, const ch
 // Definitions of above JoinStrings* methods
 // ----------------------------------------------------------------------
 template <class CONTAINER>
-inline void JoinStrings(const CONTAINER& components, const StringPiece& delim, string* result) {
+void JoinStrings(const CONTAINER& components, const StringPiece& delim, string* result) {
     JoinStringsIterator(components.begin(), components.end(), delim, result);
 }
 
 template <class CONTAINER>
-inline string JoinStrings(const CONTAINER& components, const StringPiece& delim) {
+string JoinStrings(const CONTAINER& components, const StringPiece& delim) {
     string result;
     JoinStrings(components, delim, &result);
     return result;
@@ -202,8 +202,7 @@ void JoinStringsIterator(const ITERATOR& start, const ITERATOR& end, const Strin
 }
 
 template <class ITERATOR>
-inline string JoinStringsIterator(const ITERATOR& start, const ITERATOR& end,
-                                  const StringPiece& delim) {
+string JoinStringsIterator(const ITERATOR& start, const ITERATOR& end, const StringPiece& delim) {
     string result;
     JoinStringsIterator(start, end, delim, &result);
     return result;
@@ -300,12 +299,12 @@ string JoinElementsIterator(ITERATOR first, ITERATOR last, StringPiece delim) {
 }
 
 template <class CONTAINER>
-inline void JoinElements(const CONTAINER& components, StringPiece delim, string* result) {
+void JoinElements(const CONTAINER& components, StringPiece delim, string* result) {
     JoinElementsIterator(components.begin(), components.end(), delim, result);
 }
 
 template <class CONTAINER>
-inline string JoinElements(const CONTAINER& components, StringPiece delim) {
+string JoinElements(const CONTAINER& components, StringPiece delim) {
     string result;
     JoinElements(components, delim, &result);
     return result;
@@ -317,6 +316,6 @@ void JoinInts(const CONTAINER& components, const char* delim, string* result) {
 }
 
 template <class CONTAINER>
-inline string JoinInts(const CONTAINER& components, const char* delim) {
+string JoinInts(const CONTAINER& components, const char* delim) {
     return JoinElements(components, delim);
 }

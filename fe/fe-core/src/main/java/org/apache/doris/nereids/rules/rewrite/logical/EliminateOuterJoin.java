@@ -22,8 +22,8 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.TypeUtils;
 import org.apache.doris.nereids.util.Utils;
@@ -45,7 +45,7 @@ public class EliminateOuterJoin extends OneRewriteRuleFactory {
         return logicalFilter(
                 logicalJoin().when(join -> join.getJoinType().isOuterJoin())
         ).then(filter -> {
-            LogicalJoin<GroupPlan, GroupPlan> join = filter.child();
+            LogicalJoin<Plan, Plan> join = filter.child();
 
             Builder<Expression> conjunctsBuilder = ImmutableSet.builder();
             Set<Slot> notNullSlots = new HashSet<>();

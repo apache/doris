@@ -62,8 +62,9 @@ suite("test_javaudaf_mysum_decimal") {
         qt_select2 """ select user_id, udaf_my_sum_decimal(cost_1) from ${tableName} group by user_id order by user_id; """
         
 
-        sql """ DROP FUNCTION udaf_my_sum_decimal(decimal(27,9)); """
+
     } finally {
+        try_sql("DROP FUNCTION IF EXISTS udaf_my_sum_decimal(decimal(27,9));")
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
 }

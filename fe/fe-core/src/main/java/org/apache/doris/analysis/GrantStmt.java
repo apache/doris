@@ -33,18 +33,23 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
+import org.apache.commons.collections.CollectionUtils;
 
 import java.util.List;
 
 // GRANT STMT
-// GRANT privilege [, privilege] ON db.tbl TO user [ROLE 'role'];
-// GRANT privilege [, privilege] ON RESOURCE 'resource' TO user [ROLE 'role'];
+// GRANT privilege [, privilege] ON db.tbl TO user_identity [ROLE 'role'];
+// GRANT privilege [, privilege] ON RESOURCE 'resource' TO user_identity [ROLE 'role'];
+// GRANT role [, role] TO user_identity
 public class GrantStmt extends DdlStmt {
     private UserIdentity userIdent;
+    // Indicates which permissions are granted to this role
     private String role;
     private TablePattern tblPattern;
     private ResourcePattern resourcePattern;
     private List<Privilege> privileges;
+    // Indicates that these roles are granted to a user
+    private List<String> roles;
 
     public GrantStmt(UserIdentity userIdent, String role, TablePattern tblPattern, List<AccessPrivilege> privileges) {
         this.userIdent = userIdent;
@@ -71,6 +76,11 @@ public class GrantStmt extends DdlStmt {
         this.privileges = privs.toPrivilegeList();
     }
 
+    public GrantStmt(List<String> roles, UserIdentity userIdent) {
+        this.userIdent = userIdent;
+        this.roles = roles;
+    }
+
     public UserIdentity getUserIdent() {
         return userIdent;
     }
@@ -95,6 +105,10 @@ public class GrantStmt extends DdlStmt {
         return privileges;
     }
 
+    public List<String> getRoles() {
+        return roles;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
@@ -107,18 +121,26 @@ public class GrantStmt extends DdlStmt {
 
         if (tblPattern != null) {
             tblPattern.analyze(analyzer);
-        } else {
+        } else if (resourcePattern != null) {
             resourcePattern.analyze();
+        } else if (roles != null) {
+            for (int i = 0; i < roles.size(); i++) {
+                String originalRoleName = roles.get(i);
+                FeNameFormat.checkRoleName(originalRoleName, false /* can not be admin */, "Can not grant role");
+                roles.set(i, ClusterNamespace.getFullName(analyzer.getClusterName(), originalRoleName));
+            }
         }
 
-        if (privileges == null || privileges.isEmpty()) {
-            throw new AnalysisException("No privileges in grant statement.");
+        if (CollectionUtils.isEmpty(privileges) && CollectionUtils.isEmpty(roles)) {
+            throw new AnalysisException("No privileges or roles in grant statement.");
         }
 
         if (tblPattern != null) {
             checkTablePrivileges(privileges, role, tblPattern);
-        } else {
+        } else if (resourcePattern != null) {
             checkResourcePrivileges(privileges, role, resourcePattern);
+        } else if (roles != null) {
+            checkRolePrivileges();
         }
     }
 
@@ -223,14 +245,28 @@ public class GrantStmt extends DdlStmt {
         }
     }
 
+    public static void checkRolePrivileges() throws AnalysisException {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT/ROVOKE");
+        }
+    }
+
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("GRANT ").append(Joiner.on(", ").join(privileges));
+        sb.append("GRANT ");
+        if (privileges != null) {
+            sb.append(Joiner.on(", ").join(privileges));
+        } else {
+            sb.append(Joiner.on(", ").join(roles));
+        }
+
         if (tblPattern != null) {
             sb.append(" ON ").append(tblPattern).append(" TO ");
-        } else {
+        } else if (resourcePattern != null) {
             sb.append(" ON RESOURCE '").append(resourcePattern).append("' TO ");
+        } else {
+            sb.append(" TO ");
         }
         if (!Strings.isNullOrEmpty(role)) {
             sb.append(" ROLE '").append(role).append("'");

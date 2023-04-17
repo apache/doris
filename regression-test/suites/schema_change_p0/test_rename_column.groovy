@@ -40,7 +40,7 @@ suite ("test_rename_column") {
             `max_dwell_time` INT DEFAULT "0" COMMENT "用户最大停留时间",
             `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
         UNIQUE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-        PROPERTIES ( "replication_num" = "1" , "light_schema_change" = "true")
+        PROPERTIES ( "replication_num" = "1" , "light_schema_change" = "false")
         """
     qt_desc """ desc ${tableName} """
 
@@ -53,6 +53,9 @@ suite ("test_rename_column") {
                 (2, '2017-10-01', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2020-01-02', 1, 31, 21)
         """
     sql """ sync """
+
+    // alter and test light schema change
+    sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
 
     qt_select """ SELECT * FROM ${tableName} order by user_id ASC, last_visit_date """
 
@@ -152,6 +155,7 @@ suite ("test_rename_column") {
     while (max_try_time--){
         String result = getRollupJobState(tableName)
         if (result == "FINISHED") {
+            sleep(3000)
             break
         } else {
             sleep(100)
@@ -217,6 +221,7 @@ suite ("test_rename_column") {
     while (max_try_time--){
         String result = getMVJobState(tableName)
         if (result == "FINISHED") {
+            sleep(3000)
             break
         } else {
             sleep(100)
@@ -240,7 +245,10 @@ suite ("test_rename_column") {
 
     qt_select """ select user_id, sum(cost) from ${tableName} group by user_id order by user_id """
 
-    sql """ ALTER TABLE ${tableName} RENAME COLUMN user_id new_user_id """
+    test {
+        sql """ ALTER TABLE ${tableName} RENAME COLUMN user_id new_user_id """
+        exception "errCode = 2,"
+    }
 
     sql """ INSERT INTO ${tableName} VALUES
             (2, '2017-10-01', 'Beijing', 10, 1, 1, 31, 21, hll_hash(2), to_bitmap(2))
@@ -250,9 +258,9 @@ suite ("test_rename_column") {
         """
     qt_desc """ desc ${tableName} """
 
-    qt_select""" select * from ${tableName} order by new_user_id """
+    qt_select""" select * from ${tableName} order by user_id """
 
-    qt_select """ select new_user_id, sum(cost) from ${tableName} group by new_user_id order by new_user_id """
+    qt_select """ select user_id, sum(cost) from ${tableName} group by user_id order by user_id """
 
     sql """ DROP TABLE ${tableName} """
 

@@ -40,7 +40,7 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.SystemInfoService;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.junit.Assert;
 
 import java.io.IOException;
@@ -169,6 +169,7 @@ public class DorisAssert {
 
         public QueryAssert(ConnectContext connectContext, String sql) {
             this.connectContext = connectContext;
+            this.connectContext.getState().setIsQuery(true);
             this.sql = sql;
         }
 

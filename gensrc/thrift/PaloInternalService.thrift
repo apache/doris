@@ -151,9 +151,6 @@ struct TQueryOptions {
   // if the right table is greater than this value in the hash join,  we will ignore IN filter
   34: optional i32 runtime_filter_max_in_num = 1024;
 
-  // whether enable vectorized engine 
-  41: optional bool enable_vectorized_engine = false
-
   // the resource limitation of this query
   42: optional TResourceLimit resource_limit
 
@@ -184,20 +181,32 @@ struct TQueryOptions {
 
   54: optional bool enable_share_hash_table_for_broadcast_join
 
-  55: optional bool enable_pipeline_engine = false
+  55: optional bool check_overflow_for_decimal = false
 
-  56: optional i32 repeat_max_num = 0
-  57: optional bool check_overflow_for_decimal = false
+  // For debug purpose, skip delete bitmap when reading data
+  56: optional bool skip_delete_bitmap = false
 
-  58: optional i64 external_sort_bytes_threshold = 0
+  57: optional bool enable_pipeline_engine = false
 
-  59: optional i32 partitioned_hash_agg_rows_threshold = 0
+  58: optional i32 repeat_max_num = 0
 
-  60: optional bool enable_file_cache = true
+  59: optional i64 external_sort_bytes_threshold = 0
+
+  60: optional i32 partitioned_hash_agg_rows_threshold = 0
+
+  61: optional bool enable_file_cache = true
   
-  61: optional i32 insert_timeout = 14400
+  62: optional i32 insert_timeout = 14400
 
-  62: optional i32 execution_timeout = 3600
+  63: optional i32 execution_timeout = 3600
+
+  64: optional bool dry_run_query = false
+
+  65: optional bool enable_common_expr_pushdown = false;
+
+  66: optional i32 parallel_instance = 1
+  // Indicate where useServerPrepStmts enabled
+  67: optional bool mysql_row_binary_format = false;
 }
     
 
@@ -272,6 +281,7 @@ struct TPlanFragmentExecParams {
   11: optional bool send_query_statistics_with_every_batch
   // Used to merge and send runtime filter
   12: optional TRuntimeFilterParams runtime_filter_params
+
 }
 
 // Global query parameters assigned by the coordinator.
@@ -425,6 +435,8 @@ struct TFoldConstantParams {
   1: required map<string, map<string, Exprs.TExpr>> expr_map
   2: required TQueryGlobals query_globals
   3: optional bool vec_exec
+  4: optional TQueryOptions query_options
+  5: optional Types.TUniqueId query_id
 }
 
 // TransmitData
@@ -561,6 +573,14 @@ struct TPipelineInstanceParams {
   4: optional i32 sender_id
   5: optional TRuntimeFilterParams runtime_filter_params
   6: optional i32 backend_num
+  7: optional map<Types.TPlanNodeId, bool> per_node_shared_scans
+}
+
+struct TPipelineResourceGroup {
+  1: optional i64 id
+  2: optional string name
+  3: optional map<string, string> properties
+  4: optional i64 version
 }
 
 // ExecPlanFragment
@@ -590,6 +610,7 @@ struct TPipelineFragmentParams {
   22: optional TGlobalDict global_dict  // scan node could use the global dict to encode the string value to an integer
   23: optional Planner.TPlanFragment fragment
   24: list<TPipelineInstanceParams> local_params
+  26: optional list<TPipelineResourceGroup> resource_groups
 }
 
 struct TPipelineFragmentParamsList {

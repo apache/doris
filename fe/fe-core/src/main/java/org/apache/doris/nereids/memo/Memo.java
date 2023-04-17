@@ -18,9 +18,12 @@
 package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.CTEContext;
+import org.apache.doris.nereids.cost.Cost;
+import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.metrics.EventChannel;
 import org.apache.doris.nereids.metrics.EventProducer;
 import org.apache.doris.nereids.metrics.consumer.LogConsumer;
@@ -29,6 +32,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -36,7 +40,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -48,6 +52,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
+import java.util.PriorityQueue;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
@@ -102,6 +107,22 @@ public class Memo {
         return groupExpressions;
     }
 
+    private Plan skipProject(Plan plan, Group targetGroup) {
+        if (plan instanceof LogicalProject) {
+            LogicalProject<Plan> logicalProject = (LogicalProject<Plan>) plan;
+            if (targetGroup != root) {
+                if (logicalProject.getOutputSet().equals(logicalProject.child().getOutputSet())) {
+                    return skipProject(logicalProject.child(), targetGroup);
+                }
+            } else {
+                if (logicalProject.getOutput().equals(logicalProject.child().getOutput())) {
+                    return skipProject(logicalProject.child(), targetGroup);
+                }
+            }
+        }
+        return plan;
+    }
+
     /**
      * Add plan to Memo.
      *
@@ -117,7 +138,7 @@ public class Memo {
         if (rewrite) {
             result = doRewrite(plan, target);
         } else {
-            result = doCopyIn(plan, target);
+            result = doCopyIn(skipProject(plan, target), target);
         }
         maybeAddStateId(result);
         return result;
@@ -213,11 +234,11 @@ public class Memo {
      * Utility function to create a new {@link CascadesContext} with this Memo.
      */
     public CascadesContext newCascadesContext(StatementContext statementContext) {
-        return new CascadesContext(this, statementContext, PhysicalProperties.ANY);
+        return new CascadesContext(null, this, statementContext, PhysicalProperties.ANY);
     }
 
     public CascadesContext newCascadesContext(StatementContext statementContext, CTEContext cteContext) {
-        return new CascadesContext(this, statementContext, cteContext, PhysicalProperties.ANY);
+        return new CascadesContext(null, this, statementContext, cteContext, PhysicalProperties.ANY);
     }
 
     /**
@@ -311,6 +332,17 @@ public class Memo {
         }
     }
 
+    private Plan skipProjectGetChild(Plan plan) {
+        if (plan instanceof LogicalProject) {
+            LogicalProject<Plan> logicalProject = (LogicalProject<Plan>) plan;
+            Plan child = logicalProject.child();
+            if (logicalProject.getOutputSet().equals(child.getOutputSet())) {
+                return skipProjectGetChild(child);
+            }
+        }
+        return plan;
+    }
+
     /**
      * add the plan into the target group
      * @param plan the plan which want added
@@ -321,20 +353,7 @@ public class Memo {
      *         and the second element is a reference of node in Memo
      */
     private CopyInResult doCopyIn(Plan plan, @Nullable Group targetGroup) {
-        // TODO: this is same with EliminateUnnecessaryProject,
-        //   we need a infra to rewrite plan after every exploration job
-        if (plan instanceof LogicalProject) {
-            LogicalProject<Plan> logicalProject = (LogicalProject<Plan>) plan;
-            if (targetGroup != root) {
-                if (logicalProject.getOutputSet().equals(logicalProject.child().getOutputSet())) {
-                    return doCopyIn(logicalProject.child(), targetGroup);
-                }
-            } else {
-                if (logicalProject.getOutput().equals(logicalProject.child().getOutput())) {
-                    return doCopyIn(logicalProject.child(), targetGroup);
-                }
-            }
-        }
+        Preconditions.checkArgument(!(plan instanceof GroupPlan), "plan can not be GroupPlan");
         // check logicalproperties, must same output in a Group.
         if (targetGroup != null && !plan.getLogicalProperties().equals(targetGroup.getLogicalProperties())) {
             throw new IllegalStateException("Insert a plan into targetGroup but differ in logicalproperties");
@@ -345,13 +364,14 @@ public class Memo {
         }
         List<Group> childrenGroups = Lists.newArrayList();
         for (int i = 0; i < plan.children().size(); i++) {
-            Plan child = plan.children().get(i);
+            // skip useless project.
+            Plan child = skipProjectGetChild(plan.child(i));
             if (child instanceof GroupPlan) {
                 childrenGroups.add(((GroupPlan) child).getGroup());
             } else if (child.getGroupExpression().isPresent()) {
                 childrenGroups.add(child.getGroupExpression().get().getOwnerGroup());
             } else {
-                childrenGroups.add(copyIn(child, null, false).correspondingExpression.getOwnerGroup());
+                childrenGroups.add(doCopyIn(child, null).correspondingExpression.getOwnerGroup());
             }
         }
         plan = replaceChildrenToGroupPlan(plan, childrenGroups);
@@ -373,7 +393,7 @@ public class Memo {
                 validateRewriteChildGroup(childGroup, targetGroup);
                 childrenGroups.add(childGroup);
             } else {
-                childrenGroups.add(copyIn(child, null, true).correspondingExpression.getOwnerGroup());
+                childrenGroups.add(doRewrite(child, null).correspondingExpression.getOwnerGroup());
             }
         }
         return childrenGroups;
@@ -446,7 +466,6 @@ public class Memo {
         }
         GROUP_MERGE_TRACER.log(GroupMergeEvent.of(source, destination, needReplaceChild));
 
-        Map<Group, Group> needMergeGroupPairs = Maps.newHashMap();
         for (GroupExpression reinsertGroupExpr : needReplaceChild) {
             // After change GroupExpression children, hashcode will change, so need to reinsert into map.
             groupExpressions.remove(reinsertGroupExpr);
@@ -467,7 +486,7 @@ public class Memo {
                     reinsertGroupExpr.mergeTo(existGroupExpr);
                 } else {
                     // reinsertGroupExpr & existGroupExpr aren't in same group, need to merge their OwnerGroup.
-                    needMergeGroupPairs.put(reinsertGroupExpr.getOwnerGroup(), existGroupExpr.getOwnerGroup());
+                    mergeGroup(reinsertGroupExpr.getOwnerGroup(), existGroupExpr.getOwnerGroup());
                 }
             } else {
                 groupExpressions.put(reinsertGroupExpr, reinsertGroupExpr);
@@ -478,7 +497,6 @@ public class Memo {
             groups.remove(source.getGroupId());
         }
 
-        needMergeGroupPairs.forEach(this::mergeGroup);
         return destination;
     }
 
@@ -688,22 +706,216 @@ public class Memo {
         StringBuilder builder = new StringBuilder();
         builder.append("root:").append(getRoot()).append("\n");
         for (Group group : groups.values()) {
-            builder.append(group).append("\n");
+            builder.append("\n\n").append(group);
             builder.append("  stats=").append(group.getStatistics()).append("\n");
-            StatsDeriveResult stats = group.getStatistics();
+            Statistics stats = group.getStatistics();
             if (stats != null && !group.getLogicalExpressions().isEmpty()
                     && group.getLogicalExpressions().get(0).getPlan() instanceof LogicalOlapScan) {
-                for (Entry e : stats.getSlotIdToColumnStats().entrySet()) {
+                for (Entry e : stats.columnStatistics().entrySet()) {
                     builder.append("    ").append(e.getKey()).append(":").append(e.getValue()).append("\n");
                 }
             }
-            for (GroupExpression groupExpression : group.getLogicalExpressions()) {
-                builder.append("  ").append(groupExpression.toString()).append("\n");
-            }
-            for (GroupExpression groupExpression : group.getPhysicalExpressions()) {
-                builder.append("  ").append(groupExpression.toString()).append("\n");
-            }
+
+            builder.append("  lowest Plan(cost, properties, plan)");
+            group.getAllProperties().forEach(
+                    prop -> {
+                        Optional<Pair<Cost, GroupExpression>> costAndGroupExpression = group.getLowestCostPlan(prop);
+                        if (costAndGroupExpression.isPresent()) {
+                            builder.append("\n    " + costAndGroupExpression.get().first.getValue() + " " + prop)
+                                    .append("\n     ").append(costAndGroupExpression.get().second);
+                        }
+                    }
+            );
+            builder.append("\n");
         }
         return builder.toString();
+    }
+
+    /**
+     * rank all plan and select n-th plan, we write the algorithm according paper:
+     *      * Counting,Enumerating, and Sampling of Execution Plans in a Cost-Based Query Optimizer
+     * Specifically each physical plan in memo is assigned a unique ID in rank(). And then we sort the
+     * plan according their cost and choose the n-th plan. Note we don't generate any physical plan in rank
+     * function.
+     *
+     * In unrank() function, we will extract the actual physical function according the unique ID
+     */
+    public Pair<Long, Double> rank(long n) {
+        double threshold = 0.000000001;
+        Preconditions.checkArgument(n > 0, "the n %d must be greater than 0 in nthPlan", n);
+        List<Pair<Long, Double>> plans = rankGroup(root, PhysicalProperties.GATHER);
+        plans = plans.stream().filter(
+                p -> !p.second.equals(Double.NaN)
+                        && !p.second.equals(Double.POSITIVE_INFINITY)
+                        && !p.second.equals(Double.NEGATIVE_INFINITY))
+                .collect(Collectors.toList());
+        // This is big heap, it always pops the element with larger cost or larger id.
+        PriorityQueue<Pair<Long, Double>> pq = new PriorityQueue<>((l, r) -> Math.abs(l.second - r.second) < threshold
+                ? -Long.compare(l.first, r.first) : -Double.compare(l.second, r.second));
+        for (Pair<Long, Double> p : plans) {
+            pq.add(p);
+            if (pq.size() > n) {
+                pq.poll();
+            }
+        }
+        return pq.peek();
+    }
+
+    private List<Pair<Long, Double>> rankGroup(Group group, PhysicalProperties prop) {
+        List<Pair<Long, Double>> res = new ArrayList<>();
+        int prefix = res.size();
+        for (GroupExpression groupExpression : extractGroupExpressionContainsProp(group, prop)) {
+            for (Pair<Long, Double> idCostPair : rankGroupExpression(groupExpression, prop)) {
+                res.add(Pair.of(idCostPair.first + prefix, idCostPair.second));
+            }
+            prefix = res.size();
+        }
+        return res;
+    }
+
+    private List<Pair<Long, Double>> rankGroupExpression(GroupExpression groupExpression,
+            PhysicalProperties prop) {
+        if (!groupExpression.getLowestCostTable().containsKey(prop)) {
+            return new ArrayList<>();
+        }
+        List<Pair<Long, Double>> res = new ArrayList<>();
+
+        List<PhysicalProperties> inputProperties = groupExpression.getInputPropertiesList(prop);
+        if (groupExpression.getPlan() instanceof LeafPlan) {
+            res.add(Pair.of(0L, groupExpression.getCostByProperties(prop)));
+            return res;
+        }
+
+        List<List<Pair<Long, Double>>> children = new ArrayList<>();
+        for (int i = 0; i < inputProperties.size(); i++) {
+            // To avoid reach a circle, we don't allow ranking the same group with the same physical properties.
+            Preconditions.checkArgument(!groupExpression.child(i).equals(groupExpression.getOwnerGroup())
+                    || !prop.equals(inputProperties.get(i)));
+            List<Pair<Long, Double>> idCostPair
+                    = rankGroup(groupExpression.child(i), inputProperties.get(i));
+            children.add(idCostPair);
+        }
+        List<Pair<Long, List<Integer>>> childrenId = new ArrayList<>();
+        permute(children, 0, childrenId, new ArrayList<>());
+        Cost cost = CostCalculator.calculateCost(groupExpression, inputProperties);
+        for (Pair<Long, List<Integer>> c : childrenId) {
+            Cost totalCost = cost;
+            for (int i = 0; i < children.size(); i++) {
+                totalCost = CostCalculator.addChildCost(groupExpression.getPlan(),
+                        totalCost,
+                        groupExpression.child(i).getLowestCostPlan(inputProperties.get(i)).get().first,
+                        i);
+            }
+            res.add(Pair.of(c.first, totalCost.getValue()));
+        }
+        return res;
+    }
+
+    /** we permute all children, e.g.,
+     *      for children [1, 2] [1, 2, 3]
+     *      we can get: 0: [1,1] 1:[1, 2] 2:[1, 3] 3:[2, 1] 4:[2, 2] 5:[2, 3]
+     */
+    private void permute(List<List<Pair<Long, Double>>> children, int index,
+            List<Pair<Long, List<Integer>>> result, List<Integer> current) {
+        if (index == children.size()) {
+            result.add(Pair.of(getUniqueId(children, current), current));
+            return;
+        }
+        for (int i = 0; i < children.get(index).size(); i++) {
+            List<Integer> next = new ArrayList<>(current);
+            next.add(i);
+            permute(children, index + 1, result, next);
+        }
+    }
+
+    /**
+     * This method is used to calculate the unique ID for one combination,
+     * The current is used to represent the index of the child in lists e.g.,
+     *       for children [1], [1, 2], The possible indices and IDs are:
+     *       [0, 0]: 0*1 + 0*1*2
+     *       [0, 1]: 0*1 + 1*1*2
+     */
+    private static long getUniqueId(List<List<Pair<Long, Double>>> lists, List<Integer> current) {
+        long id = 0;
+        long factor = 1;
+        for (int i = 0; i < lists.size(); i++) {
+            id += factor * current.get(i);
+            factor *= lists.get(i).size();
+        }
+        return id;
+    }
+
+    private List<GroupExpression> extractGroupExpressionContainsProp(Group group, PhysicalProperties prop) {
+        List<GroupExpression> validExpressions = new ArrayList<>();
+        GroupExpression bestExpr = group.getLowestCostPlan(prop).get().second;
+        validExpressions.add(bestExpr);
+        for (GroupExpression groupExpression : group.getPhysicalExpressions()) {
+            if (!groupExpression.equals(bestExpr) && groupExpression.getLowestCostTable().containsKey(prop)) {
+                validExpressions.add(groupExpression);
+            }
+        }
+        return validExpressions;
+    }
+
+    private PhysicalPlan unrankGroup(Group group, PhysicalProperties prop, long rank) {
+        int prefix = 0;
+        for (GroupExpression groupExpression : extractGroupExpressionContainsProp(group, prop)) {
+            List<Pair<Long, Double>> possiblePlans = rankGroupExpression(groupExpression, prop);
+            if (possiblePlans.size() != 0 && rank - prefix <= possiblePlans.get(possiblePlans.size() - 1).first) {
+                return unrankGroupExpression(groupExpression, prop, rank - prefix);
+            }
+            prefix += possiblePlans.size();
+        }
+        Preconditions.checkArgument(false, "unrank Group error");
+        return null;
+    }
+
+    private PhysicalPlan unrankGroupExpression(GroupExpression groupExpression,
+            PhysicalProperties prop, long rank) {
+        if (groupExpression.getPlan() instanceof LeafPlan) {
+            Preconditions.checkArgument(rank == 0);
+            return ((PhysicalPlan) groupExpression.getPlan()).withPhysicalPropertiesAndStats(
+                    groupExpression.getOutputProperties(prop),
+                    groupExpression.getOwnerGroup().getStatistics());
+        }
+        List<List<Pair<Long, Double>>> children = new ArrayList<>();
+        List<PhysicalProperties> properties = groupExpression.getInputPropertiesList(prop);
+        for (int i = 0; i < properties.size(); i++) {
+            children.add(rankGroup(groupExpression.child(i), properties.get(i)));
+        }
+        List<Long> childrenRanks = extractChildRanks(rank, children);
+
+        List<Plan> childrenPlan = new ArrayList<>();
+        for (int i = 0; i < properties.size(); i++) {
+            childrenPlan.add(unrankGroup(groupExpression.child(i), properties.get(i), childrenRanks.get(i)));
+        }
+        Plan plan = groupExpression.getPlan().withChildren(childrenPlan);
+        PhysicalPlan physicalPlan = ((PhysicalPlan) plan).withPhysicalPropertiesAndStats(
+                groupExpression.getOutputProperties(prop),
+                groupExpression.getOwnerGroup().getStatistics());
+        return physicalPlan;
+    }
+
+    /**
+     * This method is used to decode ID for each child, which is the opposite of getUniqueID method, e.g.,
+     * 0: [0%1, 0%(1*2)]
+     * 1: [1%1, 1%(1*2)]
+     * 2: [2%1, 2%(1*2)]
+     */
+    private List<Long> extractChildRanks(long rank, List<List<Pair<Long, Double>>> children) {
+        Preconditions.checkArgument(children.size() > 0);
+        int factor = children.get(0).size();
+        List<Long> indices = new ArrayList<>();
+        for (int i = 0; i < children.size() - 1; i++) {
+            indices.add(rank % factor);
+            rank = rank / factor;
+            factor *= children.get(i + 1).size();
+        }
+        indices.add(rank % factor);
+        return indices;
+    }
+
+    public PhysicalPlan unrank(long id) {
+        return unrankGroup(getRoot(), PhysicalProperties.GATHER, id);
     }
 }

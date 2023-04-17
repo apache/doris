@@ -34,7 +34,7 @@ class VFileScanner : public VScanner {
 public:
     VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
                  const TFileScanRange& scan_range, RuntimeProfile* profile,
-                 KVCache<string>& kv_cache);
+                 ShardedKVCache* kv_cache);
 
     Status open(RuntimeState* state) override;
 
@@ -42,11 +42,8 @@ public:
 
 public:
     Status prepare(VExprContext** vconjunct_ctx_ptr,
-                   std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
-
-    doris::TabletStorageType get_storage_type() override {
-        return doris::TabletStorageType::STORAGE_TYPE_REMOTE;
-    }
+                   std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
+                   const std::unordered_map<std::string, int>* colname_to_slot_id);
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) override;
@@ -103,8 +100,8 @@ protected:
     std::unique_ptr<RowDescriptor> _src_row_desc;
     // row desc for default exprs
     std::unique_ptr<RowDescriptor> _default_val_row_desc;
-
-    KVCache<std::string>& _kv_cache;
+    // owned by scan node
+    ShardedKVCache* _kv_cache;
 
     bool _scanner_eof = false;
     int _rows = 0;
@@ -122,8 +119,8 @@ protected:
     // for tracing dynamic schema
     std::unique_ptr<vectorized::schema_util::FullBaseSchemaView> _full_base_schema_view;
 
-    std::unique_ptr<FileCacheStatistics> _file_cache_statistics;
-    std::unique_ptr<IOContext> _io_ctx;
+    std::unique_ptr<io::FileCacheStatistics> _file_cache_statistics;
+    std::unique_ptr<io::IOContext> _io_ctx;
 
 private:
     RuntimeProfile::Counter* _get_block_timer = nullptr;
@@ -132,6 +129,13 @@ private:
     RuntimeProfile::Counter* _fill_missing_columns_timer = nullptr;
     RuntimeProfile::Counter* _pre_filter_timer = nullptr;
     RuntimeProfile::Counter* _convert_to_output_block_timer = nullptr;
+    RuntimeProfile::Counter* _empty_file_counter = nullptr;
+
+    const std::unordered_map<std::string, int>* _col_name_to_slot_id;
+    // single slot filter conjuncts
+    std::unordered_map<int, std::vector<VExprContext*>> _slot_id_to_filter_conjuncts;
+    // not single(zero or multi) slot filter conjuncts
+    std::vector<VExprContext*> _not_single_slot_filter_conjuncts;
 
 private:
     Status _init_expr_ctxes();
@@ -143,6 +147,8 @@ private:
     Status _convert_to_output_block(Block* block);
     Status _generate_fill_columns();
     Status _handle_dynamic_block(Block* block);
+    Status _split_conjuncts(VExpr* conjunct_expr_root);
+    void _get_slot_ids(VExpr* expr, std::vector<int>* slot_ids);
 
     void _reset_counter() {
         _counter.num_rows_unselected = 0;

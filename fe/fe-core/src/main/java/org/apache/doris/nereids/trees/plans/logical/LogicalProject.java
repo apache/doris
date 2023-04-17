@@ -40,7 +40,8 @@ import java.util.Optional;
 /**
  * Logical project plan.
  */
-public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Project {
+public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE>
+        implements Project, OutputPrunable {
 
     private final List<NamedExpression> projects;
     private final List<NamedExpression> excepts;
@@ -77,12 +78,7 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
         this(projects, excepts, canEliminate, Optional.empty(), Optional.empty(), child, isDistinct);
     }
 
-    /**
-     * Constructor for LogicalProject.
-     *
-     * @param projects project list
-     */
-    public LogicalProject(List<NamedExpression> projects, List<NamedExpression> excepts, boolean canEliminate,
+    private LogicalProject(List<NamedExpression> projects, List<NamedExpression> excepts, boolean canEliminate,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             CHILD_TYPE child, boolean isDistinct) {
         super(PlanType.LOGICAL_PROJECT, groupExpression, logicalProperties, child);
@@ -106,6 +102,10 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
         return excepts;
     }
 
+    public boolean isAllSlots() {
+        return projects.stream().allMatch(NamedExpression::isSlot);
+    }
+
     @Override
     public List<Slot> computeOutput() {
         return projects.stream()
@@ -115,7 +115,8 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalProject",
+        return Utils.toSqlString("LogicalProject[" + id.asInt() + "]",
+                "distinct", isDistinct,
                 "projects", projects,
                 "excepts", excepts,
                 "canEliminate", canEliminate
@@ -158,15 +159,6 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
         return Objects.hash(projects, canEliminate);
     }
 
-    public LogicalProject<Plan> withEliminate(boolean isEliminate) {
-        return new LogicalProject<>(projects, excepts, isEliminate, child(), isDistinct);
-    }
-
-    public LogicalProject<Plan> withProjects(List<NamedExpression> projects) {
-        return new LogicalProject<>(projects, excepts, canEliminate,
-                Optional.empty(), Optional.of(getLogicalProperties()), child(), isDistinct);
-    }
-
     @Override
     public LogicalProject<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
@@ -185,11 +177,33 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
                 isDistinct);
     }
 
+    public LogicalProject<Plan> withEliminate(boolean isEliminate) {
+        return new LogicalProject<>(projects, excepts, isEliminate, child(), isDistinct);
+    }
+
+    public LogicalProject<Plan> withProjects(List<NamedExpression> projects) {
+        return new LogicalProject<>(projects, excepts, canEliminate, child(), isDistinct);
+    }
+
+    public LogicalProject<Plan> withProjectsAndChild(List<NamedExpression> projects, Plan child) {
+        return new LogicalProject<>(projects, excepts, canEliminate, child, isDistinct);
+    }
+
     public boolean canEliminate() {
         return canEliminate;
     }
 
     public boolean isDistinct() {
         return isDistinct;
+    }
+
+    @Override
+    public List<NamedExpression> getOutputs() {
+        return projects;
+    }
+
+    @Override
+    public Plan pruneOutputs(List<NamedExpression> prunedOutputs) {
+        return withProjects(prunedOutputs);
     }
 }

@@ -20,6 +20,7 @@
 
 #include "runtime/plan_fragment_executor.h"
 
+#include <gen_cpp/version.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <unordered_map>
@@ -64,7 +65,9 @@ PlanFragmentExecutor::PlanFragmentExecutor(ExecEnv* exec_env,
           _is_report_success(false),
           _is_report_on_cancel(true),
           _collect_query_statistics_with_every_batch(false),
-          _cancel_reason(PPlanFragmentCancelReason::INTERNAL_ERROR) {}
+          _cancel_reason(PPlanFragmentCancelReason::INTERNAL_ERROR) {
+    _report_thread_future = _report_thread_promise.get_future();
+}
 
 PlanFragmentExecutor::~PlanFragmentExecutor() {
     close();
@@ -202,7 +205,9 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 
     // set up profile counters
     profile()->add_child(_plan->runtime_profile(), true, nullptr);
+    profile()->add_info_string("DoriBeVersion", DORIS_BUILD_SHORT_HASH);
     _rows_produced_counter = ADD_COUNTER(profile(), "RowsProduced", TUnit::UNIT);
+    _blocks_produced_counter = ADD_COUNTER(profile(), "BlocksProduced", TUnit::UNIT);
     _fragment_cpu_timer = ADD_TIMER(profile(), "FragmentCpuTime");
 
     VLOG_NOTICE << "plan_root=\n" << _plan->debug_string();
@@ -228,7 +233,10 @@ Status PlanFragmentExecutor::open() {
     // at end, otherwise the coordinator hangs in case we finish w/ an error
     if (_is_report_success && config::status_report_interval > 0) {
         std::unique_lock<std::mutex> l(_report_thread_lock);
-        _report_thread = std::thread(&PlanFragmentExecutor::report_profile, this);
+        _exec_env->send_report_thread_pool()->submit_func([this] {
+            Defer defer {[&]() { this->_report_thread_promise.set_value(true); }};
+            this->report_profile();
+        });
         // make sure the thread started up, otherwise report_profile() might get into a race
         // with stop_report_thread()
         _report_thread_started_cv.wait(l);
@@ -269,35 +277,23 @@ Status PlanFragmentExecutor::open() {
 }
 
 Status PlanFragmentExecutor::open_vectorized_internal() {
+    SCOPED_TIMER(profile()->total_time_counter());
     {
         SCOPED_CPU_TIMER(_fragment_cpu_timer);
-        SCOPED_TIMER(profile()->total_time_counter());
         RETURN_IF_ERROR(_plan->open(_runtime_state.get()));
         RETURN_IF_CANCELLED(_runtime_state);
-    }
-    if (_sink == nullptr) {
-        return Status::OK();
-    }
-    {
-        SCOPED_CPU_TIMER(_fragment_cpu_timer);
+        if (_sink == nullptr) {
+            return Status::OK();
+        }
         RETURN_IF_ERROR(_sink->open(runtime_state()));
-    }
-
-    {
         auto sink_send_span_guard = Defer {[this]() { this->_sink->end_send_span(); }};
         doris::vectorized::Block block;
         bool eos = false;
 
         while (!eos) {
             RETURN_IF_CANCELLED(_runtime_state);
+            RETURN_IF_ERROR(get_vectorized_internal(&block, &eos));
 
-            {
-                SCOPED_CPU_TIMER(_fragment_cpu_timer);
-                RETURN_IF_ERROR(get_vectorized_internal(&block, &eos));
-            }
-
-            SCOPED_TIMER(profile()->total_time_counter());
-            SCOPED_CPU_TIMER(_fragment_cpu_timer);
             // Collect this plan and sub plan statistics, and send to parent plan.
             if (_collect_query_statistics_with_every_batch) {
                 _collect_query_statistics();
@@ -314,7 +310,6 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
     }
 
     {
-        SCOPED_TIMER(profile()->total_time_counter());
         _collect_query_statistics();
         Status status;
         {
@@ -334,7 +329,6 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
 Status PlanFragmentExecutor::get_vectorized_internal(::doris::vectorized::Block* block, bool* eos) {
     while (!_done) {
         block->clear_column_data(_plan->row_desc().num_materialized_slots());
-        SCOPED_TIMER(profile()->total_time_counter());
         RETURN_IF_ERROR_AND_CHECK_SPAN(
                 _plan->get_next_after_projects(
                         _runtime_state.get(), block, &_done,
@@ -346,6 +340,8 @@ Status PlanFragmentExecutor::get_vectorized_internal(::doris::vectorized::Block*
 
         if (block->rows() > 0) {
             COUNTER_UPDATE(_rows_produced_counter, block->rows());
+            // Not very sure, if should contain empty block
+            COUNTER_UPDATE(_blocks_produced_counter, block->rows());
             break;
         }
     }
@@ -456,7 +452,10 @@ void PlanFragmentExecutor::stop_report_thread() {
     _report_thread_active = false;
 
     _stop_report_thread_cv.notify_one();
-    _report_thread.join();
+    // Wait infinitly until the thread is stopped and the future is set.
+    // The reporting thread depends on the PlanFragmentExecutor object, if not wait infinitly here, the reporting
+    // thread may crashed because the PlanFragmentExecutor is destroyed.
+    _report_thread_future.wait();
 }
 
 void PlanFragmentExecutor::cancel(const PPlanFragmentCancelReason& reason, const std::string& msg) {

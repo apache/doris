@@ -30,6 +30,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.Privilege;
 import org.apache.doris.mysql.privilege.Role;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import mockit.Expectations;
 import mockit.Mocked;
@@ -54,6 +55,9 @@ public class LdapPrivsCheckerTest {
 
     @Mocked
     private ConnectContext context;
+
+    @Mocked
+    private SessionVariable sessionVariable;
 
     @Mocked
     private Env env;
@@ -128,8 +132,15 @@ public class LdapPrivsCheckerTest {
                 context.getCurrentUserIdentity();
                 minTimes = 0;
                 result = userIdentity;
+
+                context.getSessionVariable();
+                minTimes = 0;
+                result = sessionVariable;
             }
         };
+        // call the mocked method before replay
+        // for there is exception in tests: Missing 1 invocation to: org.apache.doris.qe.ConnectContext#get()
+        ConnectContext.get().getSessionVariable().isEnableUnicodeNameSupport();
     }
 
     @Test

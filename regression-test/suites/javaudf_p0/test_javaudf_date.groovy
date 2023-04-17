@@ -67,7 +67,7 @@ suite("test_javaudf_date") {
         qt_select """ SELECT java_udf_date_test1('2011-01-01', '2011-01-01') result FROM ${tableName} ORDER BY result; """
         qt_select """ SELECT java_udf_date_test1(null, '2011-01-01') result FROM ${tableName} ORDER BY result; """
 
-        sql """ DROP FUNCTION java_udf_date_test1(date, date); """
+
 
         sql """ CREATE FUNCTION java_udf_date_test2(date, date) RETURNS boolean PROPERTIES (
             "file"="file://${jarPath}",
@@ -79,7 +79,7 @@ suite("test_javaudf_date") {
         qt_select """ SELECT java_udf_date_test2('2011-01-01', '2011-01-01') result FROM ${tableName} ORDER BY result; """
         qt_select """ SELECT java_udf_date_test2(null, '2011-01-01') result FROM ${tableName} ORDER BY result; """
 
-        sql """ DROP FUNCTION java_udf_date_test2(date, date); """
+        
 
         sql """ CREATE FUNCTION java_udf_date_test3(date, date) RETURNS boolean PROPERTIES (
             "file"="file://${jarPath}",
@@ -91,7 +91,7 @@ suite("test_javaudf_date") {
         qt_select """ SELECT java_udf_date_test3('2011-01-01', '2011-01-01') result FROM ${tableName} ORDER BY result; """
         qt_select """ SELECT java_udf_date_test3(null, '2011-01-01') result FROM ${tableName} ORDER BY result; """
 
-        sql """ DROP FUNCTION java_udf_date_test3(date, date); """
+        
 
         sql """ CREATE FUNCTION java_udf_datetime_test1(datetime, datetime) RETURNS boolean PROPERTIES (
             "file"="file://${jarPath}",
@@ -103,7 +103,7 @@ suite("test_javaudf_date") {
         qt_select """ SELECT java_udf_datetime_test1('2011-01-01', '2011-01-01') result FROM ${tableName} ORDER BY result; """
         qt_select """ SELECT java_udf_datetime_test1(null, '2011-01-01') result FROM ${tableName} ORDER BY result; """
 
-        sql """ DROP FUNCTION java_udf_datetime_test1(datetime, datetime); """
+        
 
         sql """ CREATE FUNCTION java_udf_datetime_test2(datetime, datetime) RETURNS boolean PROPERTIES (
             "file"="file://${jarPath}",
@@ -115,7 +115,7 @@ suite("test_javaudf_date") {
         qt_select """ SELECT java_udf_datetime_test2('2011-01-01', '2011-01-01') result FROM ${tableName} ORDER BY result; """
         qt_select """ SELECT java_udf_datetime_test2(null, '2011-01-01') result FROM ${tableName} ORDER BY result; """
 
-        sql """ DROP FUNCTION java_udf_datetime_test2(datetime, datetime); """
+       
 
         sql """ CREATE FUNCTION java_udf_datetime_test3(datetime, datetime) RETURNS boolean PROPERTIES (
             "file"="file://${jarPath}",
@@ -127,7 +127,7 @@ suite("test_javaudf_date") {
         qt_select """ SELECT java_udf_datetime_test3('2011-01-01', '2011-01-01') result FROM ${tableName} ORDER BY result; """
         qt_select """ SELECT java_udf_datetime_test3(null, '2011-01-01') result FROM ${tableName} ORDER BY result; """
 
-        sql """ DROP FUNCTION java_udf_datetime_test3(datetime, datetime); """
+        
 
 
         sql """ CREATE FUNCTION java_udf_datev2_test1(datev2, datev2) RETURNS boolean PROPERTIES (
@@ -138,7 +138,7 @@ suite("test_javaudf_date") {
 
         qt_select """ SELECT java_udf_datev2_test1(datev2_col, '2011-01-01') result FROM ${tableName} ORDER BY result; """
 
-        sql """ DROP FUNCTION java_udf_datev2_test1(datev2, datev2); """
+        
 
         sql """ CREATE FUNCTION java_udf_datev2_test2(datev2, datev2) RETURNS boolean PROPERTIES (
             "file"="file://${jarPath}",
@@ -148,7 +148,7 @@ suite("test_javaudf_date") {
 
         qt_select """ SELECT java_udf_datev2_test2(datev2_col, '2011-01-01') result FROM ${tableName} ORDER BY result; """
 
-        sql """ DROP FUNCTION java_udf_datev2_test2(datev2, datev2); """
+        
 
         sql """ CREATE FUNCTION java_udf_datev2_test3(datev2, datev2) RETURNS boolean PROPERTIES (
             "file"="file://${jarPath}",
@@ -158,7 +158,7 @@ suite("test_javaudf_date") {
 
         qt_select """ SELECT java_udf_datev2_test3(datev2_col, '2011-01-01') result FROM ${tableName} ORDER BY result; """
 
-        sql """ DROP FUNCTION java_udf_datev2_test3(datev2, datev2); """
+        
 
         sql """ CREATE FUNCTION java_udf_datetimev2_test1(datetimev2, datetimev2) RETURNS boolean PROPERTIES (
             "file"="file://${jarPath}",
@@ -168,7 +168,7 @@ suite("test_javaudf_date") {
 
         qt_select """ SELECT java_udf_datetimev2_test1(datetimev2_col, '2011-01-01') result FROM ${tableName} ORDER BY result; """
 
-        sql """ DROP FUNCTION java_udf_datetimev2_test1(datetimev2, datetimev2); """
+        
 
         sql """ CREATE FUNCTION java_udf_datetimev2_test2(datetimev2, datetimev2) RETURNS boolean PROPERTIES (
             "file"="file://${jarPath}",
@@ -178,7 +178,7 @@ suite("test_javaudf_date") {
 
         qt_select """ SELECT java_udf_datetimev2_test2(datetimev2_col, '2011-01-01') result FROM ${tableName} ORDER BY result; """
 
-        sql """ DROP FUNCTION java_udf_datetimev2_test2(datetimev2, datetimev2); """
+       
 
         sql """ CREATE FUNCTION java_udf_datetimev2_test3(datetimev2, datetimev2) RETURNS boolean PROPERTIES (
             "file"="file://${jarPath}",
@@ -188,8 +188,20 @@ suite("test_javaudf_date") {
 
         qt_select """ SELECT java_udf_datetimev2_test3(datetimev2_col, '2011-01-01') result FROM ${tableName} ORDER BY result; """
 
-        sql """ DROP FUNCTION java_udf_datetimev2_test3(datetimev2, datetimev2); """
+        
     } finally {
+        try_sql("DROP FUNCTION IF EXISTS java_udf_date_test3(date, date);")
+        try_sql("DROP FUNCTION IF EXISTS java_udf_datetime_test1(datetime, datetime);")
+        try_sql("DROP FUNCTION IF EXISTS java_udf_datetime_test2(datetime, datetime);")
+        try_sql("DROP FUNCTION IF EXISTS java_udf_datetime_test3(datetime, datetime);")
+        try_sql("DROP FUNCTION IF EXISTS java_udf_datev2_test1(datev2, datev2);")
+        try_sql("DROP FUNCTION IF EXISTS java_udf_datev2_test2(datev2, datev2);")
+        try_sql("DROP FUNCTION IF EXISTS java_udf_datev2_test3(datev2, datev2);")
+        try_sql("DROP FUNCTION IF EXISTS java_udf_datetimev2_test1(datetimev2, datetimev2);")
+        try_sql("DROP FUNCTION IF EXISTS java_udf_datetimev2_test2(datetimev2, datetimev2);")
+        try_sql("DROP FUNCTION IF EXISTS java_udf_datetimev2_test3(datetimev2, datetimev2);")
+        try_sql("DROP FUNCTION IF EXISTS java_udf_date_test2(date, date);")
+        try_sql("DROP FUNCTION IF EXISTS java_udf_date_test1(date, date);")
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
 }

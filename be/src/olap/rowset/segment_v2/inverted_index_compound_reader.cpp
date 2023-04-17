@@ -21,7 +21,6 @@
 
 #define BUFFER_LENGTH 16384
 #define CL_MAX_PATH 4096
-#define CL_MAX_DIR CL_MAX_PATH
 
 #define STRDUP_WtoA(x) CL_NS(util)::Misc::_wideToChar(x)
 #define STRDUP_TtoA STRDUP_WtoA
@@ -86,7 +85,8 @@ void CSIndexInput::readInternal(uint8_t* b, const int32_t len) {
         _CLTHROWA(CL_ERR_IO, "read past EOF");
     }
     base->seek(fileOffset + start);
-    base->readBytes(b, len, false);
+    bool read_from_buffer = true;
+    base->readBytes(b, len, read_from_buffer);
 }
 
 CSIndexInput::~CSIndexInput() = default;
@@ -108,9 +108,9 @@ DorisCompoundReader::DorisCompoundReader(lucene::store::Directory* d, const char
         : readBufferSize(read_buffer_size),
           dir(d),
           ram_dir(new lucene::store::RAMDirectory()),
+          file_name(name),
           stream(nullptr),
           entries(_CLNEW EntriesType(true, true)) {
-    file_name = strdup(name);
     bool success = false;
     try {
         stream = dir->openInput(name, readBufferSize);

@@ -18,7 +18,6 @@
 #include "parquet_common.h"
 
 #include "util/coding.h"
-#include "vec/columns/column_dictionary.h"
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
@@ -115,11 +114,11 @@ void ColumnSelectVector::set_run_length_null_map(const std::vector<uint16_t>& ru
                 if (is_null) {
                     _num_nulls += run_length;
                     for (int i = 0; i < run_length; ++i) {
-                        map_data_column[null_map_index++] = (UInt8) true;
+                        map_data_column[null_map_index++] = 1;
                     }
                 } else {
                     for (int i = 0; i < run_length; ++i) {
-                        map_data_column[null_map_index++] = (UInt8) false;
+                        map_data_column[null_map_index++] = 0;
                     }
                 }
                 is_null = !is_null;

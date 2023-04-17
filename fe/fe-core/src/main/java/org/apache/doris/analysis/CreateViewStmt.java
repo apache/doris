@@ -78,6 +78,7 @@ public class CreateViewStmt extends BaseViewStmt {
 
             // Analyze view define statement
             Analyzer viewAnalyzer = new Analyzer(analyzer);
+            viewDefStmt.forbiddenMVRewrite();
             viewDefStmt.analyze(viewAnalyzer);
 
             createColumnAndViewDefs(analyzer);

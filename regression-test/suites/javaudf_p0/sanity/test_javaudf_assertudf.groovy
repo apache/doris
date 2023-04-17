@@ -43,8 +43,9 @@ suite("test_javaudf_assertudf") {
 
         qt_select """ SELECT assert(true, "not OK"); """
 
-        sql """ DROP FUNCTION assert(boolean, string); """
+
     } finally {
+        try_sql("DROP FUNCTION IF EXISTS assert(boolean, string);  ")
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
 }

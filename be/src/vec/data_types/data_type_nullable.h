@@ -35,6 +35,12 @@ public:
     }
     const char* get_family_name() const override { return "Nullable"; }
     TypeIndex get_type_id() const override { return TypeIndex::Nullable; }
+    PrimitiveType get_type_as_primitive_type() const override {
+        return nested_data_type->get_type_as_primitive_type();
+    }
+    TPrimitiveType::type get_type_as_tprimitive_type() const override {
+        return nested_data_type->get_type_as_tprimitive_type();
+    }
 
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int be_exec_version) const override;
@@ -48,6 +54,10 @@ public:
     Field get_default() const override;
 
     bool equals(const IDataType& rhs) const override;
+
+    bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {
+        return nested_data_type->is_value_unambiguously_represented_in_contiguous_memory_region();
+    }
 
     bool get_is_parametric() const override { return true; }
     bool have_subtypes() const override { return true; }
@@ -86,13 +96,16 @@ public:
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
     const DataTypePtr& get_nested_type() const { return nested_data_type; }
+    bool is_null_literal() const override { return nested_data_type->is_null_literal(); }
 
 private:
     DataTypePtr nested_data_type;
 };
 
 DataTypePtr make_nullable(const DataTypePtr& type);
+DataTypes make_nullable(const DataTypes& types);
 DataTypePtr remove_nullable(const DataTypePtr& type);
 DataTypes remove_nullable(const DataTypes& types);
+bool have_nullable(const DataTypes& types);
 
 } // namespace doris::vectorized

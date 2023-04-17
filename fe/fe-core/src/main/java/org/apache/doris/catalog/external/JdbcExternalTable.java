@@ -49,6 +49,7 @@ public class JdbcExternalTable extends ExternalTable {
 
     @Override
     protected synchronized void makeSureInitialized() {
+        super.makeSureInitialized();
         if (!objectCreated) {
             jdbcTable = toJdbcTable();
             objectCreated = true;
@@ -88,6 +89,7 @@ public class JdbcExternalTable extends ExternalTable {
         jdbcTable.setJdbcPasswd(jdbcCatalog.getJdbcPasswd());
         jdbcTable.setDriverClass(jdbcCatalog.getDriverClass());
         jdbcTable.setDriverUrl(jdbcCatalog.getDriverUrl());
+        jdbcTable.setResourceName(jdbcCatalog.getResource());
         jdbcTable.setCheckSum(jdbcCatalog.getCheckSum());
         return jdbcTable;
     }

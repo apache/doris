@@ -74,7 +74,7 @@ Dockerfile 脚本编写需要注意以下几点：
 
 ### 准备二进制包
 
-需要注意的是，如有定制化开发需求，则需要自己修改源码后进行[编译](../source-install/compilation)打包，然后放置至构建目录即可。
+需要注意的是，如有定制化开发需求，则需要自己修改源码后进行[编译](../source-install/compilation.md)打包，然后放置至构建目录即可。
 
 若无特殊需求，直接[下载](https://doris.apache.org/zh-CN/download)官网提供的二进制包即可。
 

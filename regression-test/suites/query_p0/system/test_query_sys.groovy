@@ -29,6 +29,7 @@ suite("test_query_sys", "query,p0") {
     sql "select random(20);"
     sql "SELECT CONNECTION_ID();"
     sql "SELECT CURRENT_USER();"
+    sql "SELECT CURRENT_CATALOG();"
     // sql "select now();"
     sql "select localtime();"
     sql "select localtimestamp();"

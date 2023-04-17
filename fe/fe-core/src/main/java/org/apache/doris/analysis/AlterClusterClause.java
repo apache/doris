@@ -23,7 +23,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 
-import org.apache.commons.lang.NotImplementedException;
+import org.apache.commons.lang3.NotImplementedException;
 
 import java.util.Map;
 
@@ -63,7 +63,7 @@ public class AlterClusterClause extends AlterClause {
     @Override
     public String toSql() {
         // TODO Auto-generated method stub
-        throw new NotImplementedException();
+        throw new NotImplementedException("toSql is not implemented");
     }
 
     public int getInstanceNum() {

@@ -39,6 +39,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.slf4j.Logger;
+import org.xnio.StreamConnection;
 
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
@@ -67,6 +68,8 @@ public class MysqlProtoTest {
     private LdapAuthenticate ldapAuthenticate;
     @Mocked
     private MysqlClearTextPacket clearTextPacket;
+    @Mocked
+    StreamConnection streamConnection;
 
     @Before
     public void setUp() throws DdlException, AuthenticationException {
@@ -242,7 +245,7 @@ public class MysqlProtoTest {
         mockChannel("user", true);
         mockPassword(true);
         mockAccess();
-        ConnectContext context = new ConnectContext(null);
+        ConnectContext context = new ConnectContext(streamConnection);
         context.setEnv(env);
         context.setThreadLocalInfo();
         Assert.assertTrue(MysqlProto.negotiate(context));
@@ -253,7 +256,7 @@ public class MysqlProtoTest {
         mockChannel("user", false);
         mockPassword(true);
         mockAccess();
-        ConnectContext context = new ConnectContext(null);
+        ConnectContext context = new ConnectContext(streamConnection);
         MysqlProto.negotiate(context);
         Assert.assertFalse(MysqlProto.negotiate(context));
     }
@@ -263,7 +266,7 @@ public class MysqlProtoTest {
         mockChannel("user", true);
         mockPassword(false);
         mockAccess();
-        ConnectContext context = new ConnectContext(null);
+        ConnectContext context = new ConnectContext(streamConnection);
         Assert.assertTrue(MysqlProto.negotiate(context));
     }
 
@@ -272,7 +275,7 @@ public class MysqlProtoTest {
         mockChannel("", true);
         mockPassword(true);
         mockAccess();
-        ConnectContext context = new ConnectContext(null);
+        ConnectContext context = new ConnectContext(streamConnection);
         Assert.assertFalse(MysqlProto.negotiate(context));
     }
 
@@ -283,7 +286,7 @@ public class MysqlProtoTest {
         mockAccess();
         mockMysqlClearTextPacket(PASSWORD_CLEAR_TEXT);
         mockLdap("user", true);
-        ConnectContext context = new ConnectContext(null);
+        ConnectContext context = new ConnectContext(streamConnection);
         context.setEnv(env);
         context.setThreadLocalInfo();
         Assert.assertTrue(MysqlProto.negotiate(context));
@@ -297,7 +300,7 @@ public class MysqlProtoTest {
         mockAccess();
         mockMysqlClearTextPacket("654321");
         mockLdap("user", true);
-        ConnectContext context = new ConnectContext(null);
+        ConnectContext context = new ConnectContext(streamConnection);
         context.setEnv(env);
         context.setThreadLocalInfo();
         Assert.assertFalse(MysqlProto.negotiate(context));
@@ -311,7 +314,7 @@ public class MysqlProtoTest {
         mockAccess();
         mockLdap("root", false);
         mockMysqlClearTextPacket("654321");
-        ConnectContext context = new ConnectContext(null);
+        ConnectContext context = new ConnectContext(streamConnection);
         context.setEnv(env);
         context.setThreadLocalInfo();
         Assert.assertTrue(MysqlProto.negotiate(context));

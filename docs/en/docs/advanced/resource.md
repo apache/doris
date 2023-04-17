@@ -132,7 +132,7 @@ PROPERTIES
 `driver`: Indicates the driver dynamic library used by the ODBC external table.
 The ODBC external table referring to the resource is required. The old MySQL external table referring to the resource is optional.
 
-For the usage of ODBC resource, please refer to [ODBC of Doris](../lakehouse/external-table/odbc)
+For the usage of ODBC resource, please refer to [ODBC of Doris](../lakehouse/external-table/odbc.md)
 
 
 #### Example

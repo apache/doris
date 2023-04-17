@@ -18,16 +18,13 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.load.Load;
+import org.apache.doris.load.loadv2.LoadManager;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
 import java.util.Iterator;
-import java.util.LinkedList;
 import java.util.List;
 
 public class LoadProcDir implements ProcDirInterface {
@@ -35,7 +32,7 @@ public class LoadProcDir implements ProcDirInterface {
             .add("JobId").add("Label").add("State").add("Progress")
             .add("Type").add("EtlInfo").add("TaskInfo").add("ErrorMsg").add("CreateTime")
             .add("EtlStartTime").add("EtlFinishTime").add("LoadStartTime").add("LoadFinishTime")
-            .add("URL").add("JobDetails").add("TransactionId").add("ErrorTablets")
+            .add("URL").add("JobDetails").add("TransactionId").add("ErrorTablets").add("User").add("Comment")
             .build();
 
     // label and state column index of result
@@ -47,30 +44,30 @@ public class LoadProcDir implements ProcDirInterface {
 
     private static final int LIMIT = 2000;
 
-    private Load load;
+    private LoadManager loadManager;
     private Database db;
 
-    public LoadProcDir(Load load, Database db) {
-        this.load = load;
+    public LoadProcDir(LoadManager loadManager, Database db) {
+        this.loadManager = loadManager;
         this.db = db;
     }
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
-        Preconditions.checkNotNull(db);
-        Preconditions.checkNotNull(load);
-
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
-        // merge load job from load and loadManager
-        LinkedList<List<Comparable>> loadJobInfos = load.getLoadJobInfosByDb(db.getId(), db.getFullName(),
-                null, false, null);
-        loadJobInfos.addAll(Env.getCurrentEnv().getLoadManager().getLoadJobInfosByDb(db.getId(), null,
-                false,
-                null));
+        List<List<Comparable>> loadJobInfos;
+
+        // db is null means need total result of all databases
+        if (db == null) {
+            loadJobInfos = loadManager.getAllLoadJobInfos();
+        } else {
+            loadJobInfos = loadManager.getLoadJobInfosByDb(db.getId(), null, false, null);
+        }
+
         int counter = 0;
-        Iterator<List<Comparable>> iterator = loadJobInfos.descendingIterator();
+        Iterator<List<Comparable>> iterator = loadJobInfos.iterator();
         while (iterator.hasNext()) {
             List<Comparable> infoStr = iterator.next();
             List<String> oneInfo = new ArrayList<String>(TITLE_NAMES.size());
@@ -99,7 +96,7 @@ public class LoadProcDir implements ProcDirInterface {
             throw new AnalysisException("Invalid job id format: " + jobIdStr);
         }
 
-        return new LoadJobProcNode(load, jobId);
+        return new LoadJobProcNode(loadManager, jobId);
     }
 
     public static int analyzeColumn(String columnName) throws AnalysisException {

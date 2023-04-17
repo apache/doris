@@ -20,27 +20,33 @@
 
 #pragma once
 
+#include "gen_cpp/data.pb.h"
+#include "util/stack_util.h"
+#include "vec/columns/column_array.h"
+#include "vec/columns/column_map.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
 /** Map data type.
-  *
-  * Map's key and value only have types.
-  * If only one type is set, then key's type is "String" in default.
   */
 class DataTypeMap final : public IDataType {
 private:
     DataTypePtr key_type;
     DataTypePtr value_type;
-    DataTypePtr keys;   // array
-    DataTypePtr values; // array
 
 public:
     static constexpr bool is_parametric = true;
 
-    DataTypeMap(const DataTypePtr& keys_, const DataTypePtr& values_);
+    DataTypeMap(const DataTypePtr& key_type_, const DataTypePtr& value_type_);
 
     TypeIndex get_type_id() const override { return TypeIndex::Map; }
+    PrimitiveType get_type_as_primitive_type() const override { return TYPE_MAP; }
+    TPrimitiveType::type get_type_as_tprimitive_type() const override {
+        return TPrimitiveType::MAP;
+    }
     std::string do_get_name() const override {
         return "Map(" + key_type->get_name() + ", " + value_type->get_name() + ")";
     }
@@ -48,7 +54,7 @@ public:
 
     bool can_be_inside_nullable() const override { return true; }
     MutableColumnPtr create_column() const override;
-    Field get_default() const override { return Map(); };
+    Field get_default() const override;
     bool equals(const IDataType& rhs) const override;
     bool get_is_parametric() const override { return true; }
     bool have_subtypes() const override { return true; }
@@ -59,9 +65,6 @@ public:
     bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {
         return true;
     }
-
-    const DataTypePtr& get_keys() const { return keys; }
-    const DataTypePtr& get_values() const { return values; }
 
     const DataTypePtr& get_key_type() const { return key_type; }
     const DataTypePtr& get_value_type() const { return value_type; }

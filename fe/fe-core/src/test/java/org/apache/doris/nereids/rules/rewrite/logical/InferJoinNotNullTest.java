@@ -22,17 +22,16 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
-import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import org.junit.jupiter.api.Test;
 
-class InferJoinNotNullTest implements PatternMatchSupported {
+class InferJoinNotNullTest implements MemoPatternMatchSupported {
     private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
     private final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
-    private final LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
 
     @Test
     void testInferIsNotNull() {
@@ -43,8 +42,8 @@ class InferJoinNotNullTest implements PatternMatchSupported {
                 .applyTopDown(new InferJoinNotNull())
                 .matches(
                         innerLogicalJoin(
-                                logicalFilter().when(f -> f.getPredicate().toString().equals("( not id IS NULL)")),
-                                logicalFilter().when(f -> f.getPredicate().toString().equals("( not id IS NULL)"))
+                                logicalFilter().when(f -> f.getPredicate().toString().equals("( not id#0 IS NULL)")),
+                                logicalFilter().when(f -> f.getPredicate().toString().equals("( not id#2 IS NULL)"))
                         )
                 );
 
@@ -55,7 +54,7 @@ class InferJoinNotNullTest implements PatternMatchSupported {
                 .applyTopDown(new InferJoinNotNull())
                 .matches(
                         leftSemiLogicalJoin(
-                                logicalFilter().when(f -> f.getPredicate().toString().equals("( not id IS NULL)")),
+                                logicalFilter().when(f -> f.getPredicate().toString().equals("( not id#0 IS NULL)")),
                                 logicalOlapScan()
                         )
                 );
@@ -68,7 +67,7 @@ class InferJoinNotNullTest implements PatternMatchSupported {
                 .matches(
                         rightSemiLogicalJoin(
                                 logicalOlapScan(),
-                                logicalFilter().when(f -> f.getPredicate().toString().equals("( not id IS NULL)"))
+                                logicalFilter().when(f -> f.getPredicate().toString().equals("( not id#2 IS NULL)"))
                         )
                 );
     }

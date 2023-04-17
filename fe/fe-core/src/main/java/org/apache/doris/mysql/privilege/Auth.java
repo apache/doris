@@ -84,7 +84,7 @@ public class Auth implements Writable {
     private static final Logger LOG = LogManager.getLogger(Auth.class);
 
     // root user's role is operator.
-    // each Palo system has only one root user.
+    // each Doris system has only one root user.
     public static final String ROOT_USER = "root";
     public static final String ADMIN_USER = "admin";
     // unknown user does not have any privilege, this is just to be compatible with old version.
@@ -183,8 +183,6 @@ public class Auth implements Writable {
         readLock();
         try {
             userManager.checkPassword(remoteUser, remoteHost, remotePasswd, randomString, currentUser);
-            Set<String> roles = userRoleManager.getRolesByUser(currentUser.get(0));
-            currentUser.get(0).setRoles(roles);
         } finally {
             readUnlock();
         }
@@ -198,6 +196,15 @@ public class Auth implements Writable {
             return true;
         } catch (AuthenticationException e) {
             return false;
+        }
+    }
+
+    public Set<String> getRolesByUser(UserIdentity user, boolean showUserDefaultRole) {
+        readLock();
+        try {
+            return userRoleManager.getRolesByUser(user, showUserDefaultRole);
+        } finally {
+            readUnlock();
         }
     }
 
@@ -216,10 +223,6 @@ public class Auth implements Writable {
             } finally {
                 readUnlock();
             }
-        }
-        if (currentUser != null) {
-            Set<String> roles = userRoleManager.getRolesByUser(currentUser.get(0));
-            currentUser.get(0).setRoles(roles);
         }
     }
 
@@ -317,6 +320,12 @@ public class Auth implements Writable {
     public void checkColsPriv(UserIdentity currentUser, String ctl, String db, String tbl, Set<String> cols,
             PrivPredicate wanted) throws AuthorizationException {
         // TODO: Support column priv
+        // we check if have tbl priv,until internal support col auth.
+        if (!checkTblPriv(currentUser, ctl, db, tbl, wanted)) {
+            throw new AuthorizationException(String.format(
+                    "Permission denied: user [%s] does not have privilege for [%s] command on [%s].[%s].[%s]",
+                    currentUser, wanted, ctl, db, tbl));
+        }
     }
 
 
@@ -508,13 +517,16 @@ public class Auth implements Writable {
 
     // grant
     public void grant(GrantStmt stmt) throws DdlException {
-        PrivBitSet privs = PrivBitSet.of(stmt.getPrivileges());
         if (stmt.getTblPattern() != null) {
+            PrivBitSet privs = PrivBitSet.of(stmt.getPrivileges());
             grantInternal(stmt.getUserIdent(), stmt.getQualifiedRole(), stmt.getTblPattern(), privs,
                     true /* err on non exist */, false /* not replay */);
-        } else {
+        } else if (stmt.getResourcePattern() != null) {
+            PrivBitSet privs = PrivBitSet.of(stmt.getPrivileges());
             grantInternal(stmt.getUserIdent(), stmt.getQualifiedRole(), stmt.getResourcePattern(), privs,
                     true /* err on non exist */, false /* not replay */);
+        } else {
+            grantInternal(stmt.getUserIdent(), stmt.getRoles(), false);
         }
     }
 
@@ -524,10 +536,12 @@ public class Auth implements Writable {
                 grantInternal(privInfo.getUserIdent(), privInfo.getRole(),
                         privInfo.getTblPattern(), privInfo.getPrivs(),
                         true /* err on non exist */, true /* is replay */);
-            } else {
+            } else if (privInfo.getResourcePattern() != null) {
                 grantInternal(privInfo.getUserIdent(), privInfo.getRole(),
                         privInfo.getResourcePattern(), privInfo.getPrivs(),
                         true /* err on non exist */, true /* is replay */);
+            } else {
+                grantInternal(privInfo.getUserIdent(), privInfo.getRoles(), true);
             }
         } catch (DdlException e) {
             LOG.error("should not happen", e);
@@ -568,7 +582,6 @@ public class Auth implements Writable {
                 role = roleManager.getUserDefaultRoleName(userIdent);
             }
 
-            // grant privs to role, role must exist
             Role newRole = new Role(role, resourcePattern, privs);
             roleManager.addOrMergeRole(newRole, false /* err on exist */);
 
@@ -577,6 +590,30 @@ public class Auth implements Writable {
                 Env.getCurrentEnv().getEditLog().logGrantPriv(info);
             }
             LOG.info("finished to grant resource privilege. is replay: {}", isReplay);
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    // grant for roles
+    private void grantInternal(UserIdentity userIdent, List<String> roles, boolean isReplay) throws DdlException {
+        writeLock();
+        try {
+            if (userManager.getUserByUserIdentity(userIdent) == null) {
+                throw new DdlException("user: " + userIdent + " does not exist");
+            }
+            //roles must exist
+            for (String roleName : roles) {
+                if (roleManager.getRole(roleName) == null) {
+                    throw new DdlException("role:" + roleName + " does not exist");
+                }
+            }
+            userRoleManager.addUserRoles(userIdent, roles);
+            if (!isReplay) {
+                PrivInfo info = new PrivInfo(userIdent, roles);
+                Env.getCurrentEnv().getEditLog().logGrantPriv(info);
+            }
+            LOG.info("finished to grant role privilege. is replay: {}", isReplay);
         } finally {
             writeUnlock();
         }
@@ -603,13 +640,16 @@ public class Auth implements Writable {
 
     // revoke
     public void revoke(RevokeStmt stmt) throws DdlException {
-        PrivBitSet privs = PrivBitSet.of(stmt.getPrivileges());
         if (stmt.getTblPattern() != null) {
+            PrivBitSet privs = PrivBitSet.of(stmt.getPrivileges());
             revokeInternal(stmt.getUserIdent(), stmt.getQualifiedRole(), stmt.getTblPattern(), privs,
                     true /* err on non exist */, false /* is replay */);
-        } else {
+        } else if (stmt.getResourcePattern() != null) {
+            PrivBitSet privs = PrivBitSet.of(stmt.getPrivileges());
             revokeInternal(stmt.getUserIdent(), stmt.getQualifiedRole(), stmt.getResourcePattern(), privs,
                     true /* err on non exist */, false /* is replay */);
+        } else {
+            revokeInternal(stmt.getUserIdent(), stmt.getRoles(), false);
         }
     }
 
@@ -618,9 +658,11 @@ public class Auth implements Writable {
             if (info.getTblPattern() != null) {
                 revokeInternal(info.getUserIdent(), info.getRole(), info.getTblPattern(), info.getPrivs(),
                         true /* err on non exist */, true /* is replay */);
-            } else {
+            } else if (info.getResourcePattern() != null) {
                 revokeInternal(info.getUserIdent(), info.getRole(), info.getResourcePattern(), info.getPrivs(),
                         true /* err on non exist */, true /* is replay */);
+            } else {
+                revokeInternal(info.getUserIdent(), info.getRoles(), false);
             }
         } catch (DdlException e) {
             LOG.error("should not happened", e);
@@ -663,6 +705,30 @@ public class Auth implements Writable {
                 Env.getCurrentEnv().getEditLog().logRevokePriv(info);
             }
             LOG.info("finished to revoke privilege. is replay: {}", isReplay);
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    // revoke for roles
+    private void revokeInternal(UserIdentity userIdent, List<String> roles, boolean isReplay) throws DdlException {
+        writeLock();
+        try {
+            if (userManager.getUserByUserIdentity(userIdent) == null) {
+                throw new DdlException("user: " + userIdent + " does not exist");
+            }
+            //roles must exist
+            for (String roleName : roles) {
+                if (roleManager.getRole(roleName) == null) {
+                    throw new DdlException("role:" + roleName + " does not exist");
+                }
+            }
+            userRoleManager.removeUserRoles(userIdent, roles);
+            if (!isReplay) {
+                PrivInfo info = new PrivInfo(userIdent, roles);
+                Env.getCurrentEnv().getEditLog().logRevokePriv(info);
+            }
+            LOG.info("finished to revoke role privilege. is replay: {}", isReplay);
         } finally {
             writeUnlock();
         }
@@ -739,9 +805,6 @@ public class Auth implements Writable {
         Role emptyPrivsRole = new Role(role);
         writeLock();
         try {
-            if (role.startsWith(RoleManager.DEFAULT_ROLE_PREFIX)) {
-                throw new DdlException("Can not create role starts with " + RoleManager.DEFAULT_ROLE_PREFIX);
-            }
             if (ignoreIfExists && roleManager.getRole(role) != null) {
                 LOG.info("role exists, ignored to create role: {}, is replay: {}", role, isReplay);
                 return;
@@ -775,9 +838,6 @@ public class Auth implements Writable {
     private void dropRoleInternal(String role, boolean ignoreIfNonExists, boolean isReplay) throws DdlException {
         writeLock();
         try {
-            if (role.startsWith(RoleManager.DEFAULT_ROLE_PREFIX)) {
-                throw new DdlException("Can not drop role starts with " + RoleManager.DEFAULT_ROLE_PREFIX);
-            }
             if (ignoreIfNonExists && roleManager.getRole(role) == null) {
                 LOG.info("role non exists, ignored to drop role: {}, is replay: {}", role, isReplay);
                 return;
@@ -838,10 +898,19 @@ public class Auth implements Writable {
         }
     }
 
-    public long getQueryTimeout(String qualifiedUser) {
+    public int getQueryTimeout(String qualifiedUser) {
         readLock();
         try {
             return propertyMgr.getQueryTimeout(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public int getInsertTimeout(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.getInsertTimeout(qualifiedUser);
         } finally {
             readUnlock();
         }
@@ -949,6 +1018,9 @@ public class Auth implements Writable {
         userAuthInfo.add(userIdent.toString());
         // ============== Password ==============
         userAuthInfo.add(user.hasPassword() ? "Yes" : "No");
+        // ============== Roles ==============
+        userAuthInfo.add(Joiner.on(",").join(userRoleManager
+                .getRolesByUser(userIdent, ConnectContext.get().getSessionVariable().showUserDefaultRole)));
         // ==============GlobalPrivs==============
         PrivBitSet ldapGlobalPrivs = LdapPrivsChecker.getGlobalPrivFromLdap(userIdent);
         PrivBitSet globalPrivs = ldapGlobalPrivs.copy();
@@ -1222,13 +1294,13 @@ public class Auth implements Writable {
                                             .getNameFromFullName(user.getUserIdentity().getQualifiedUser()))
                                     .concat("\'@\'").concat(user.getUserIdentity().getHost()).concat("\'");
                             String isGrantable = tablePrivEntry.getPrivSet().get(2) ? "YES" : "NO"; // GRANT_PRIV
-                            for (Privilege paloPriv : tablePrivEntry.getPrivSet().toPrivilegeList()) {
-                                if (!Privilege.privInDorisToMysql.containsKey(paloPriv)) {
+                            for (Privilege priv : tablePrivEntry.getPrivSet().toPrivilegeList()) {
+                                if (!Privilege.privInDorisToMysql.containsKey(priv)) {
                                     continue;
                                 }
                                 TPrivilegeStatus status = new TPrivilegeStatus();
                                 status.setTableName(tblName);
-                                status.setPrivilegeType(Privilege.privInDorisToMysql.get(paloPriv));
+                                status.setPrivilegeType(Privilege.privInDorisToMysql.get(priv));
                                 status.setGrantee(grantee);
                                 status.setSchema(dbName);
                                 status.setIsGrantable(isGrantable);
@@ -1273,12 +1345,12 @@ public class Auth implements Writable {
                                             .getNameFromFullName(user.getUserIdentity().getQualifiedUser()))
                                     .concat("\'@\'").concat(user.getUserIdentity().getHost()).concat("\'");
                             String isGrantable = dbPrivEntry.getPrivSet().get(2) ? "YES" : "NO"; // GRANT_PRIV
-                            for (Privilege paloPriv : dbPrivEntry.getPrivSet().toPrivilegeList()) {
-                                if (!Privilege.privInDorisToMysql.containsKey(paloPriv)) {
+                            for (Privilege priv : dbPrivEntry.getPrivSet().toPrivilegeList()) {
+                                if (!Privilege.privInDorisToMysql.containsKey(priv)) {
                                     continue;
                                 }
                                 TPrivilegeStatus status = new TPrivilegeStatus();
-                                status.setPrivilegeType(Privilege.privInDorisToMysql.get(paloPriv));
+                                status.setPrivilegeType(Privilege.privInDorisToMysql.get(priv));
                                 status.setGrantee(grantee);
                                 status.setSchema(dbName);
                                 status.setIsGrantable(isGrantable);
@@ -1318,8 +1390,8 @@ public class Auth implements Writable {
                                 .concat(ClusterNamespace.getNameFromFullName(user.getUserIdentity().getQualifiedUser()))
                                 .concat("\'@\'").concat(user.getUserIdentity().getHost()).concat("\'");
                         String isGrantable = privEntry.getPrivSet().get(2) ? "YES" : "NO"; // GRANT_PRIV
-                        for (Privilege paloPriv : privEntry.getPrivSet().toPrivilegeList()) {
-                            if (paloPriv == Privilege.ADMIN_PRIV) {
+                        for (Privilege globalPriv : privEntry.getPrivSet().toPrivilegeList()) {
+                            if (globalPriv == Privilege.ADMIN_PRIV) {
                                 // ADMIN_PRIV includes all privileges of table and resource.
                                 for (String priv : Privilege.privInDorisToMysql.values()) {
                                     TPrivilegeStatus status = new TPrivilegeStatus();
@@ -1330,11 +1402,11 @@ public class Auth implements Writable {
                                 }
                                 break;
                             }
-                            if (!Privilege.privInDorisToMysql.containsKey(paloPriv)) {
+                            if (!Privilege.privInDorisToMysql.containsKey(globalPriv)) {
                                 continue;
                             }
                             TPrivilegeStatus status = new TPrivilegeStatus();
-                            status.setPrivilegeType(Privilege.privInDorisToMysql.get(paloPriv));
+                            status.setPrivilegeType(Privilege.privInDorisToMysql.get(globalPriv));
                             status.setGrantee(grantee);
                             status.setIsGrantable(isGrantable);
                             userPrivResult.add(status);
@@ -1403,7 +1475,6 @@ public class Auth implements Writable {
         }
     }
 
-
     //tmp for current user can only has one role
     private void setRoleToUser(UserIdentity userIdent, String role) throws DdlException {
         // 1. check if role exist
@@ -1416,10 +1487,18 @@ public class Auth implements Writable {
         userRoleManager.addUserRole(userIdent, roleManager.getUserDefaultRoleName(userIdent));
     }
 
-    public static Auth read(DataInput in) throws IOException {
-        Auth auth = new Auth();
-        auth.readFields(in);
-        return auth;
+
+    /**
+     * This is a bug that if created a normal user and grant it with ADMIN_PRIV/RESOURCE_PRIV/NODE_PRIV
+     * before v1.2, and then upgrade to v1.2, these privileges will be set in catalog level, but it should be
+     * in global level.
+     * This method will rectify this bug. And it's logic is same with userPrivTable.degradeToInternalCatalogPriv(),
+     * but userPrivTable.degradeToInternalCatalogPriv() only handle the info in images, not in edit log.
+     * This rectifyPrivs() will be called after image and edit log replayed.
+     * So it will rectify the bug in both images and edit log.
+     */
+    public void rectifyPrivs() {
+        roleManager.rectifyPrivs();
     }
 
     @Override
@@ -1450,7 +1529,7 @@ public class Auth implements Writable {
                 catalogPrivTable = (CatalogPrivTable) PrivTable.read(in);
             } else {
                 catalogPrivTable = userPrivTable.degradeToInternalCatalogPriv();
-                LOG.info("Load PaloAuth from meta version < {}, degrade UserPrivTable to CatalogPrivTable",
+                LOG.info("Load auth from meta version < {}, degrade UserPrivTable to CatalogPrivTable",
                         FeMetaVersion.VERSION_111);
             }
             DbPrivTable dbPrivTable = (DbPrivTable) PrivTable.read(in);

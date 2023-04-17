@@ -30,7 +30,6 @@
 #include "common/status.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
-#include "runtime/mem_pool.h"
 #include "util/runtime_profile.h"
 
 namespace doris::vectorized {
@@ -48,8 +47,9 @@ public:
 
 protected:
     ArrowReaderWrap* _new_arrow_reader(const std::vector<SlotDescriptor*>& file_slot_descs,
-                                       FileReader* file_reader, int32_t num_of_columns_from_file,
-                                       int64_t range_start_offset, int64_t range_size) override;
+                                       io::FileReaderSPtr file_reader,
+                                       int32_t num_of_columns_from_file, int64_t range_start_offset,
+                                       int64_t range_size) override;
 };
 
 } // namespace doris::vectorized

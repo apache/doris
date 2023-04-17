@@ -35,6 +35,8 @@ public:
     Status init(Slice* slice, tparquet::Encoding::type encoding, level_t max_level,
                 uint32_t num_levels);
 
+    Status init_v2(const Slice& levels, level_t max_level, uint32_t num_levels);
+
     inline bool has_levels() const { return _num_levels > 0; }
 
     size_t get_levels(level_t* levels, size_t n);
@@ -42,6 +44,14 @@ public:
     inline size_t get_next_run(level_t* val, size_t max_run) {
         return _rle_decoder.GetNextRun(val, max_run);
     }
+
+    inline level_t get_next() {
+        level_t next = -1;
+        _rle_decoder.Get(&next);
+        return next;
+    }
+
+    inline void rewind_one() { _rle_decoder.RewindOne(); }
 
 private:
     tparquet::Encoding::type _encoding;

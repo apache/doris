@@ -608,6 +608,17 @@ suite("test_date_function") {
             DISTRIBUTED BY HASH (birth) BUCKETS 1 
             PROPERTIES( "replication_allocation" = "tag.location.default: 1");
         """
+
+    explain {
+        sql("select * from ${tableName} where date(birth) < timestamp(date '2022-01-01')")
+        contains "`birth` < '2022-01-01 00:00:00'"
+    }
+
+    explain {
+        sql("select * from ${tableName} where date(birth1) < timestamp(date '2022-01-01')")
+        contains "`birth1` < '2022-01-01'"
+    }
+
     sql """
         insert into ${tableName} values 
         ('2022-01-01', '2022-01-01', '2022-01-01 00:00:00', '2022-01-01 00:00:00'), 
@@ -647,6 +658,13 @@ suite("test_date_function") {
             where
               birth2 <= date_sub('2023-02-01 10:35:13', INTERVAL dayofmonth('2023-02-01 10:35:13')-1 DAY)
         """
+    test {
+        sql"""select current_timestamp(7);"""
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
     sql """ DROP TABLE IF EXISTS ${tableName}; """
 
 }

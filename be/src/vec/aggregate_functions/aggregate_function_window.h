@@ -274,6 +274,8 @@ public:
                 const auto* nullable_column = assert_cast<const ColumnNullable*>(column);
                 if (nullable_column->is_null_at(0)) {
                     _default_value.reset();
+                } else {
+                    _default_value.set_value(nullable_column->get_nested_column_ptr(), 0);
                 }
             } else {
                 _default_value.set_value(column, 0);
@@ -336,7 +338,7 @@ struct WindowFunctionFirstImpl : Data {
         if (this->has_set_value()) {
             return;
         }
-        if (frame_start < frame_end &&
+        if (frame_start <= frame_end &&
             frame_end <= partition_start) { //rewrite last_value when under partition
             this->set_is_null();            //so no need more judge
             return;
@@ -352,7 +354,7 @@ template <typename Data>
 struct WindowFunctionLastImpl : Data {
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, const IColumn** columns) {
-        if ((frame_start < frame_end) &&
+        if ((frame_start <= frame_end) &&
             ((frame_end <= partition_start) ||
              (frame_start >= partition_end))) { //beyond or under partition, set null
             this->set_is_null();

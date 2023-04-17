@@ -16,6 +16,8 @@
 // under the License.
 
 suite("test_mysql_jdbc_catalog", "p0") {
+    qt_sql """select current_catalog()"""
+
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String resource_name = "jdbc_resource_catalog_mysql"
@@ -73,7 +75,9 @@ suite("test_mysql_jdbc_catalog", "p0") {
                 PROPERTIES("replication_num" = "1");
         """
 
+        qt_sql """select current_catalog()"""
         sql """switch ${catalog_name}"""
+        qt_sql """select current_catalog()"""
         sql """ use ${ex_db_name}"""
 
         order_qt_ex_tb0  """ select id, name from ${ex_tb0} order by id; """
@@ -117,6 +121,45 @@ suite("test_mysql_jdbc_catalog", "p0") {
         sql """ INSERT INTO ${test_insert2} VALUES
                 ('${uuid3}', true, 'abcHa1.12345', '1.123450xkalowadawd', '2022-10-01', 3.14159, 1, 2, 0, 100000, 1.2345678, 24.000, '07:09:51', '2022', '2022-11-27 07:09:51', '2022-11-27 07:09:51'); """
         order_qt_test_insert4 """ select k1,k2,k3,k4,k5,k6,k7,k8,k9,k10,k11,k12,k13,k14,k15 from ${test_insert2} where id = '${uuid3}' """
+
+        sql """ drop catalog if exists ${catalog_name} """
+        sql """ drop resource if exists ${resource_name} """
+
+        // test only_specified_database argument
+        sql """create resource if not exists ${resource_name} properties(
+            "type"="jdbc",
+            "user"="root",
+            "password"="123456",
+            "jdbc_url" = "jdbc:mysql://127.0.0.1:${mysql_port}/doris_test?useSSL=false",
+            "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
+            "driver_class" = "com.mysql.cj.jdbc.Driver",
+            "only_specified_database" = "true"
+        );"""
+        
+        sql """CREATE CATALOG ${catalog_name} WITH RESOURCE ${resource_name}"""
+        sql """switch ${catalog_name}"""
+
+        qt_specified_database   """ show databases; """
+
+        sql """ drop catalog if exists ${catalog_name} """
+        sql """ drop resource if exists ${resource_name} """
+
+        // test only_specified_database and specified_database_list argument
+        sql """create resource if not exists ${resource_name} properties(
+            "type"="jdbc",
+            "user"="root",
+            "password"="123456",
+            "jdbc_url" = "jdbc:mysql://127.0.0.1:${mysql_port}/doris_test?useSSL=false",
+            "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
+            "driver_class" = "com.mysql.cj.jdbc.Driver",
+            "only_specified_database" = "true",
+            "specified_database_list" = "doris_test"
+        );"""
+        
+        sql """CREATE CATALOG ${catalog_name} WITH RESOURCE ${resource_name}"""
+        sql """switch ${catalog_name}"""
+
+        qt_specified_database   """ show databases; """
 
         sql """ drop catalog if exists ${catalog_name} """
         sql """ drop resource if exists ${resource_name} """

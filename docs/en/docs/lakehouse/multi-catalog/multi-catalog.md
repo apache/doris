@@ -86,7 +86,7 @@ Multi-Catalog works as an additional and enhanced external table connection meth
 
 The followings are the instruction on how to connect to a Hive catalog using the Catalog feature.
 
-For more information about Hive, please see [Hive](./hive).
+For more information about Hive, please see [Hive](./hive.md).
 
 1. Create Catalog
 
@@ -253,27 +253,27 @@ For more information about Hive, please see [Hive](./hive).
 
 ### Connect to Iceberg
 
-See [Iceberg](./iceberg)
+See [Iceberg](./iceberg.md)
 
 ### Connect to Hudi
 
-See [Hudi](./hudi)
+See [Hudi](./hudi.md)
 
 ### Connect to Elasticsearch
 
-See [Elasticsearch](./es)
+See [Elasticsearch](./es.md)
 
 ### Connect to JDBC
 
-See [JDBC](./jdbc)
+See [JDBC](./jdbc.md)
 
 ## Column Type Mapping
 
 After you create a Catalog, Doris will automatically synchronize the databases and tables from the corresponding external catalog to it. The following shows how Doris maps different types of catalogs and tables.
 
-<version since="dev">
+<version since="1.2.2">
 
-As for types that cannot be mapped to a Doris column type, such as `map` and `struct` , Doris will map them to an UNSUPPORTED type. Here are examples of queries in a table containing UNSUPPORTED types:
+As for types that cannot be mapped to a Doris column type, such as `UNION` and `INTERVAL` , Doris will map them to an UNSUPPORTED type. Here are examples of queries in a table containing UNSUPPORTED types:
 
 Suppose the table is of the following schema:
 
@@ -312,6 +312,8 @@ Users need to manually update the metadata using the  [REFRESH CATALOG](https://
 ### Automatic Update
 
 <version since="1.2.2"></version>
+
+#### Hive Metastore
 
 Currently, Doris only supports automatic update of metadata in Hive Metastore (HMS). It perceives changes in metadata by the FE node which regularly reads the notification events from HMS. The supported events are as follows:
 
@@ -356,3 +358,22 @@ To enable automatic update, you need to modify the hive-site.xml of HMS and then
 ```
 
 > Note: To enable automatic update, whether for existing Catalogs or newly created Catalogs, all you need is to set `enable_hms_events_incremental_sync` to `true`, and then restart the FE node. You don't need to manually update the metadata before or after the restart.
+
+#### Timing Refresh
+
+When creating a catalog, specify the refresh time parameter `metadata_refresh_interval_sec` in the properties, in seconds. If this parameter is set when creating a catalog, the master node of FE will refresh the catalog regularly according to the parameter value. Three types are currently supported
+
+- hms: Hive MetaStore
+-es: Elasticsearch
+- jdbc: Standard interface for database access (JDBC)
+
+##### Example
+
+```
+-- Set the catalog refresh interval to 20 seconds
+CREATE CATALOG es PROPERTIES (
+     "type"="es",
+     "hosts"="http://127.0.0.1:9200",
+     "metadata_refresh_interval_sec"="20"
+);
+```

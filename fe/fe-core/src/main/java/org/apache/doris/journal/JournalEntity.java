@@ -71,6 +71,7 @@ import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.BatchDropInfo;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
 import org.apache.doris.persist.BatchRemoveTransactionsOperation;
+import org.apache.doris.persist.BatchRemoveTransactionsOperationV2;
 import org.apache.doris.persist.CleanLabelOperationLog;
 import org.apache.doris.persist.ClusterInfo;
 import org.apache.doris.persist.ColocatePersistInfo;
@@ -112,6 +113,7 @@ import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
+import org.apache.doris.resource.resourcegroup.ResourceGroup;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -337,9 +339,9 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_ADD_FRONTEND:
             case OperationType.OP_ADD_FIRST_FRONTEND:
+            case OperationType.OP_MODIFY_FRONTEND:
             case OperationType.OP_REMOVE_FRONTEND: {
-                data = new Frontend();
-                ((Frontend) data).readFields(in);
+                data = Frontend.read(in);
                 isRead = true;
                 break;
             }
@@ -375,8 +377,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_MASTER_INFO_CHANGE: {
-                data = new MasterInfo();
-                ((MasterInfo) data).readFields(in);
+                data = MasterInfo.read(in);
                 isRead = true;
                 break;
             }
@@ -454,6 +455,11 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_BATCH_REMOVE_TXNS_V2: {
+                data = BatchRemoveTransactionsOperationV2.read(in);
+                isRead = true;
+                break;
+            }
             case OperationType.OP_CREATE_REPOSITORY: {
                 data = Repository.read(in);
                 isRead = true;
@@ -480,8 +486,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_MODIFY_TABLE_COLOCATE: {
-                data = new TablePropertyInfo();
-                ((TablePropertyInfo) data).readFields(in);
+                data = TablePropertyInfo.read(in);
                 isRead = true;
                 break;
             }
@@ -496,6 +501,16 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_DROP_FUNCTION: {
+                data = FunctionSearchDesc.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_ADD_GLOBAL_FUNCTION: {
+                data = Function.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_DROP_GLOBAL_FUNCTION: {
                 data = FunctionSearchDesc.read(in);
                 isRead = true;
                 break;
@@ -610,6 +625,7 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_DYNAMIC_PARTITION:
             case OperationType.OP_MODIFY_IN_MEMORY:
+            case OperationType.OP_ALTER_LIGHT_SCHEMA_CHANGE:
             case OperationType.OP_MODIFY_REPLICATION_NUM: {
                 data = ModifyTablePropertyOperationLog.read(in);
                 isRead = true;
@@ -732,7 +748,7 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
-            case OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_COLUMNS: {
+            case OperationType.OP_MODIFY_TABLE_LIGHT_SCHEMA_CHANGE: {
                 data = TableAddOrDropColumnsInfo.read(in);
                 isRead = true;
                 break;
@@ -784,6 +800,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_ALTER_USER: {
                 data = AlterUserOperationLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_CREATE_RESOURCE_GROUP: {
+                data = ResourceGroup.read(in);
                 isRead = true;
                 break;
             }

@@ -116,6 +116,8 @@ public:
 
     io::FileReaderSPtr file_reader() { return _file_reader; }
 
+    int64_t meta_mem_usage() const { return _meta_mem_usage; }
+
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
     Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema);

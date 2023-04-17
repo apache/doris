@@ -439,7 +439,7 @@ public class AccessTestUtil {
     public static Analyzer fetchAdminAnalyzer(boolean withCluster) {
         final String prefix = "testCluster:";
 
-        Analyzer analyzer = new Analyzer(fetchAdminCatalog(), new ConnectContext(null));
+        Analyzer analyzer = new Analyzer(fetchAdminCatalog(), new ConnectContext());
         new Expectations(analyzer) {
             {
                 analyzer.getDefaultCatalog();
@@ -475,7 +475,7 @@ public class AccessTestUtil {
     }
 
     public static Analyzer fetchBlockAnalyzer() throws AnalysisException {
-        Analyzer analyzer = new Analyzer(fetchBlockCatalog(), new ConnectContext(null));
+        Analyzer analyzer = new Analyzer(fetchBlockCatalog(), new ConnectContext());
         new Expectations(analyzer) {
             {
                 analyzer.getDefaultCatalog();
@@ -499,7 +499,7 @@ public class AccessTestUtil {
     }
 
     public static Analyzer fetchEmptyDbAnalyzer() {
-        Analyzer analyzer = new Analyzer(fetchBlockCatalog(), new ConnectContext(null));
+        Analyzer analyzer = new Analyzer(fetchBlockCatalog(), new ConnectContext());
         new Expectations(analyzer) {
             {
                 analyzer.getDefaultCatalog();
@@ -612,7 +612,7 @@ public class AccessTestUtil {
         };
 
         Env env = fetchBlockCatalog();
-        Analyzer analyzer = new Analyzer(env, new ConnectContext(null));
+        Analyzer analyzer = new Analyzer(env, new ConnectContext());
         new Expectations(analyzer) {
             {
                 analyzer.getDefaultCatalog();
@@ -649,7 +649,7 @@ public class AccessTestUtil {
 
                 analyzer.getContext();
                 minTimes = 0;
-                result = new ConnectContext(null);
+                result = new ConnectContext();
 
             }
         };

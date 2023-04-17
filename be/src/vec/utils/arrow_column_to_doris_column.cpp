@@ -140,8 +140,8 @@ static Status convert_column_with_fixed_size_data(const arrow::Array* array, siz
 
 /// Inserts numeric data right into internal column data to reduce an overhead
 template <typename NumericType, typename VectorType = ColumnVector<NumericType>>
-static Status convert_column_with_numeric_data(const arrow::Array* array, size_t array_idx,
-                                               MutableColumnPtr& data_column, size_t num_elements) {
+Status convert_column_with_numeric_data(const arrow::Array* array, size_t array_idx,
+                                        MutableColumnPtr& data_column, size_t num_elements) {
     auto& column_data = static_cast<VectorType&>(*data_column).get_data();
     /// buffers[0] is a null bitmap and buffers[1] are actual values
     std::shared_ptr<arrow::Buffer> buffer = array->data()->buffers[1];
@@ -181,9 +181,9 @@ static int64_t time_unit_divisor(arrow::TimeUnit::type unit) {
 }
 
 template <typename ArrowType>
-static Status convert_column_with_timestamp_data(const arrow::Array* array, size_t array_idx,
-                                                 MutableColumnPtr& data_column, size_t num_elements,
-                                                 const cctz::time_zone& ctz) {
+Status convert_column_with_timestamp_data(const arrow::Array* array, size_t array_idx,
+                                          MutableColumnPtr& data_column, size_t num_elements,
+                                          const cctz::time_zone& ctz) {
     auto& column_data = static_cast<ColumnVector<Int64>&>(*data_column).get_data();
     auto concrete_array = down_cast<const ArrowType*>(array);
     int64_t divisor = 1;
@@ -213,9 +213,9 @@ static Status convert_column_with_timestamp_data(const arrow::Array* array, size
 }
 
 template <typename ArrowType>
-static Status convert_column_with_date_v2_data(const arrow::Array* array, size_t array_idx,
-                                               MutableColumnPtr& data_column, size_t num_elements,
-                                               const cctz::time_zone& ctz) {
+Status convert_column_with_date_v2_data(const arrow::Array* array, size_t array_idx,
+                                        MutableColumnPtr& data_column, size_t num_elements,
+                                        const cctz::time_zone& ctz) {
     auto& column_data = static_cast<ColumnVector<UInt32>&>(*data_column).get_data();
     auto concrete_array = down_cast<const ArrowType*>(array);
     int64_t divisor = 1;
@@ -242,10 +242,9 @@ static Status convert_column_with_date_v2_data(const arrow::Array* array, size_t
 }
 
 template <typename ArrowType>
-static Status convert_column_with_datetime_v2_data(const arrow::Array* array, size_t array_idx,
-                                                   MutableColumnPtr& data_column,
-                                                   size_t num_elements,
-                                                   const cctz::time_zone& ctz) {
+Status convert_column_with_datetime_v2_data(const arrow::Array* array, size_t array_idx,
+                                            MutableColumnPtr& data_column, size_t num_elements,
+                                            const cctz::time_zone& ctz) {
     auto& column_data = static_cast<ColumnVector<UInt64>&>(*data_column).get_data();
     auto concrete_array = down_cast<const ArrowType*>(array);
     int64_t divisor = 1;
@@ -407,61 +406,6 @@ Status arrow_column_to_doris_column(const arrow::Array* arrow_column, size_t arr
     }
     return Status::NotSupported(
             fmt::format("Not support arrow type:{}", arrow_column->type()->name()));
-}
-
-Status arrow_type_to_doris_type(arrow::Type::type type, TypeDescriptor* return_type) {
-    switch (type) {
-    case arrow::Type::STRING:
-    case arrow::Type::BINARY:
-    case arrow::Type::FIXED_SIZE_BINARY:
-        return_type->type = TYPE_STRING;
-        break;
-    case arrow::Type::INT8:
-        return_type->type = TYPE_TINYINT;
-        break;
-    case arrow::Type::UINT8:
-    case arrow::Type::INT16:
-        return_type->type = TYPE_SMALLINT;
-        break;
-    case arrow::Type::UINT16:
-    case arrow::Type::INT32:
-        return_type->type = TYPE_INT;
-        break;
-    case arrow::Type::UINT32:
-    case arrow::Type::INT64:
-        return_type->type = TYPE_BIGINT;
-        break;
-    case arrow::Type::UINT64:
-        return_type->type = TYPE_LARGEINT;
-        break;
-    case arrow::Type::HALF_FLOAT:
-    case arrow::Type::FLOAT:
-        return_type->type = TYPE_FLOAT;
-        break;
-    case arrow::Type::DOUBLE:
-        return_type->type = TYPE_DOUBLE;
-        break;
-    case arrow::Type::BOOL:
-        return_type->type = TYPE_BOOLEAN;
-        break;
-    case arrow::Type::DATE32:
-        return_type->type = TYPE_DATEV2;
-        break;
-    case arrow::Type::DATE64:
-        return_type->type = TYPE_DATETIMEV2;
-        break;
-    case arrow::Type::TIMESTAMP:
-        return_type->type = TYPE_BIGINT;
-        break;
-    case arrow::Type::DECIMAL:
-        return_type->type = TYPE_DECIMALV2;
-        return_type->precision = 27;
-        return_type->scale = 9;
-        break;
-    default:
-        return Status::InternalError("unsupport type: {}", type);
-    }
-    return Status::OK();
 }
 
 } // namespace doris::vectorized

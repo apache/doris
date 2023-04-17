@@ -24,7 +24,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import java.util.List;
 import java.util.Optional;
@@ -49,10 +49,10 @@ public class PhysicalIntersect extends PhysicalSetOperation {
 
     public PhysicalIntersect(Qualifier qualifier,
                              Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-                             PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult,
+                             PhysicalProperties physicalProperties, Statistics statistics,
                              List<Plan> inputs) {
         super(PlanType.PHYSICAL_INTERSECT, qualifier,
-                groupExpression, logicalProperties, physicalProperties, statsDeriveResult, inputs);
+                groupExpression, logicalProperties, physicalProperties, statistics, inputs);
     }
 
     @Override
@@ -64,7 +64,7 @@ public class PhysicalIntersect extends PhysicalSetOperation {
     public String toString() {
         return Utils.toSqlString("PhysicalIntersect",
                 "qualifier", qualifier,
-                "stats", statsDeriveResult);
+                "stats", statistics);
     }
 
     @Override
@@ -86,8 +86,8 @@ public class PhysicalIntersect extends PhysicalSetOperation {
 
     @Override
     public PhysicalIntersect withPhysicalPropertiesAndStats(
-            PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult) {
+            PhysicalProperties physicalProperties, Statistics statistics) {
         return new PhysicalIntersect(qualifier,
-                Optional.empty(), getLogicalProperties(), physicalProperties, statsDeriveResult, children);
+                Optional.empty(), getLogicalProperties(), physicalProperties, statistics, children);
     }
 }

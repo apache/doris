@@ -68,6 +68,10 @@ public abstract class NullableAggregateFunction extends AggregateFunction implem
         return alwaysNullable ? AlwaysNullable.super.nullable() : PropagateNullable.super.nullable();
     }
 
+    public boolean isAlwaysNullable() {
+        return alwaysNullable;
+    }
+
     public abstract NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable);
 
     @Override

@@ -38,11 +38,12 @@ public:
 
 Schema create_schema() {
     std::vector<TabletColumn> col_schemas;
-    col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_SMALLINT, true);
+    col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, FieldType::OLAP_FIELD_TYPE_SMALLINT,
+                             true);
     // c2: int
-    col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_INT, true);
+    col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, FieldType::OLAP_FIELD_TYPE_INT, true);
     // c3: big int
-    col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_SUM, OLAP_FIELD_TYPE_BIGINT, true);
+    col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_SUM, FieldType::OLAP_FIELD_TYPE_BIGINT, true);
 
     Schema schema(col_schemas, 2);
     return schema;
@@ -115,17 +116,19 @@ TEST(VGenericIteratorsTest, Union) {
     auto c1 = block.get_by_position(1).column;
     auto c2 = block.get_by_position(2).column;
 
+    size_t row_count = 0;
     for (int i = 0; i < block.rows(); ++i) {
-        size_t base_value = i;
-        if (i >= 500) {
-            base_value -= 500;
-        } else if (i >= 300) {
+        size_t base_value = row_count;
+        if (row_count >= 300) {
             base_value -= 300;
+        } else if (i >= 100) {
+            base_value -= 100;
         }
 
         EXPECT_EQ(base_value, (*c0)[i].get<int>());
         EXPECT_EQ(base_value + 1, (*c1)[i].get<int>());
         EXPECT_EQ(base_value + 2, (*c2)[i].get<int>());
+        row_count++;
     }
 }
 
@@ -242,23 +245,23 @@ public:
                 size_t data_len = 0;
                 const auto* col_schema = _schema.column(j);
                 switch (col_schema->type()) {
-                case OLAP_FIELD_TYPE_SMALLINT:
+                case FieldType::OLAP_FIELD_TYPE_SMALLINT:
                     *(int16_t*)data = j == _seq_col_idx ? _seq_col_rows_returned : 1;
                     data_len = sizeof(int16_t);
                     break;
-                case OLAP_FIELD_TYPE_INT:
+                case FieldType::OLAP_FIELD_TYPE_INT:
                     *(int32_t*)data = j == _seq_col_idx ? _seq_col_rows_returned : 1;
                     data_len = sizeof(int32_t);
                     break;
-                case OLAP_FIELD_TYPE_BIGINT:
+                case FieldType::OLAP_FIELD_TYPE_BIGINT:
                     *(int64_t*)data = j == _seq_col_idx ? _seq_col_rows_returned : 1;
                     data_len = sizeof(int64_t);
                     break;
-                case OLAP_FIELD_TYPE_FLOAT:
+                case FieldType::OLAP_FIELD_TYPE_FLOAT:
                     *(float*)data = j == _seq_col_idx ? _seq_col_rows_returned : 1;
                     data_len = sizeof(float);
                     break;
-                case OLAP_FIELD_TYPE_DOUBLE:
+                case FieldType::OLAP_FIELD_TYPE_DOUBLE:
                     *(double*)data = j == _seq_col_idx ? _seq_col_rows_returned : 1;
                     data_len = sizeof(double);
                     break;

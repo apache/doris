@@ -277,4 +277,6 @@ suite("test_union") {
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set enable_nereids_planner=true'
     qt_union35 """select cast("2016-07-01" as date) union (select cast("2016-07-02 1:10:0" as date)) order by 1"""
+
+    qt_union36 """SELECT a,2 as a FROM (SELECT '1' as a) b where a=1;"""
 }

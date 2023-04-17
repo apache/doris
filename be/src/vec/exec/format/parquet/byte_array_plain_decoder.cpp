@@ -38,10 +38,12 @@ Status ByteArrayPlainDecoder::skip_values(size_t num_values) {
 }
 
 Status ByteArrayPlainDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                                            ColumnSelectVector& select_vector) {
+                                            ColumnSelectVector& select_vector,
+                                            bool is_dict_filter) {
     TypeIndex logical_type = remove_nullable(data_type)->get_type_id();
     switch (logical_type) {
     case TypeIndex::String:
+        [[fallthrough]];
     case TypeIndex::FixedString: {
         ColumnSelectVector::DataReadType read_type;
         while (size_t run_length = select_vector.get_next_run(&read_type)) {

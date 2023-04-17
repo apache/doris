@@ -22,63 +22,30 @@
 namespace doris {
 namespace io {
 
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(file_cache_num_io_total, MetricUnit::OPERATIONS);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(file_cache_num_io_hit_cache, MetricUnit::OPERATIONS);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(file_cache_num_io_bytes_read_total, MetricUnit::OPERATIONS);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(file_cache_num_io_bytes_read_from_file_cache,
-                                     MetricUnit::OPERATIONS);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(file_cache_num_io_bytes_read_from_write_cache,
-                                     MetricUnit::OPERATIONS);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(file_cache_num_io_written_in_file_cache,
-                                     MetricUnit::OPERATIONS);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(file_cache_num_io_bytes_written_in_file_cache,
-                                     MetricUnit::OPERATIONS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(num_io_bytes_read_total, MetricUnit::OPERATIONS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(num_io_bytes_read_from_cache, MetricUnit::OPERATIONS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(num_io_bytes_read_from_remote, MetricUnit::OPERATIONS);
 
-FileCacheStatistics FileCacheProfile::report(int64_t table_id, int64_t partition_id) {
-    FileCacheStatistics stats;
+std::shared_ptr<AtomicStatistics> FileCacheProfile::report(int64_t table_id, int64_t partition_id) {
+    std::shared_ptr<AtomicStatistics> stats = std::make_shared<AtomicStatistics>();
     if (_profile.count(table_id) == 1 && _profile[table_id].count(partition_id) == 1) {
-        std::shared_ptr<AtomicStatistics> count;
-        {
-            std::lock_guard lock(_mtx);
-            count = _profile[table_id][partition_id];
-        }
-        stats.num_io_total = count->num_io_total.load(std::memory_order_relaxed);
-        stats.num_io_hit_cache = count->num_io_hit_cache.load(std::memory_order_relaxed);
-        stats.num_io_bytes_read_total =
-                count->num_io_bytes_read_total.load(std::memory_order_relaxed);
-        stats.num_io_bytes_read_from_file_cache =
-                count->num_io_bytes_read_from_file_cache.load(std::memory_order_relaxed);
-        stats.num_io_bytes_read_from_write_cache =
-                count->num_io_bytes_read_from_write_cache.load(std::memory_order_relaxed);
-        stats.num_io_written_in_file_cache =
-                count->num_io_written_in_file_cache.load(std::memory_order_relaxed);
-        stats.num_io_bytes_written_in_file_cache =
-                count->num_io_bytes_written_in_file_cache.load(std::memory_order_relaxed);
+        std::lock_guard lock(_mtx);
+        stats->num_io_bytes_read_from_cache +=
+                (_profile[table_id][partition_id])->num_io_bytes_read_from_cache;
+        stats->num_io_bytes_read_from_cache +=
+                _profile[table_id][partition_id]->num_io_bytes_read_from_cache;
     }
     return stats;
 }
 
-FileCacheStatistics FileCacheProfile::report(int64_t table_id) {
-    FileCacheStatistics stats;
+std::shared_ptr<AtomicStatistics> FileCacheProfile::report(int64_t table_id) {
+    std::shared_ptr<AtomicStatistics> stats = std::make_shared<AtomicStatistics>();
     if (_profile.count(table_id) == 1) {
         std::lock_guard lock(_mtx);
         auto& partition_map = _profile[table_id];
-        for (auto& [partition_id, atomic_stats] : partition_map) {
-            stats.num_io_total += atomic_stats->num_io_total.load(std::memory_order_relaxed);
-            stats.num_io_hit_cache +=
-                    atomic_stats->num_io_hit_cache.load(std::memory_order_relaxed);
-            stats.num_io_bytes_read_total +=
-                    atomic_stats->num_io_bytes_read_total.load(std::memory_order_relaxed);
-            stats.num_io_bytes_read_from_file_cache +=
-                    atomic_stats->num_io_bytes_read_from_file_cache.load(std::memory_order_relaxed);
-            stats.num_io_bytes_read_from_write_cache +=
-                    atomic_stats->num_io_bytes_read_from_write_cache.load(
-                            std::memory_order_relaxed);
-            stats.num_io_written_in_file_cache +=
-                    atomic_stats->num_io_written_in_file_cache.load(std::memory_order_relaxed);
-            stats.num_io_bytes_written_in_file_cache +=
-                    atomic_stats->num_io_bytes_written_in_file_cache.load(
-                            std::memory_order_relaxed);
+        for (auto& [_, partition_stats] : partition_map) {
+            stats->num_io_bytes_read_from_cache += partition_stats->num_io_bytes_read_from_cache;
+            stats->num_io_bytes_read_from_remote += partition_stats->num_io_bytes_read_from_remote;
         }
     }
     return stats;
@@ -110,19 +77,8 @@ void FileCacheProfile::update(int64_t table_id, int64_t partition_id, OlapReader
     if (table_metric) {
         table_metric->register_entity();
     }
-    count->num_io_total.fetch_add(stats->file_cache_stats.num_io_total, std::memory_order_relaxed);
-    count->num_io_hit_cache.fetch_add(stats->file_cache_stats.num_io_hit_cache,
-                                      std::memory_order_relaxed);
-    count->num_io_bytes_read_total.fetch_add(stats->file_cache_stats.num_io_bytes_read_total,
-                                             std::memory_order_relaxed);
-    count->num_io_bytes_read_from_file_cache.fetch_add(
-            stats->file_cache_stats.num_io_bytes_read_from_file_cache, std::memory_order_relaxed);
-    count->num_io_bytes_read_from_write_cache.fetch_add(
-            stats->file_cache_stats.num_io_bytes_read_from_write_cache, std::memory_order_relaxed);
-    count->num_io_written_in_file_cache.fetch_add(
-            stats->file_cache_stats.num_io_written_in_file_cache, std::memory_order_relaxed);
-    count->num_io_bytes_written_in_file_cache.fetch_add(
-            stats->file_cache_stats.num_io_bytes_written_in_file_cache, std::memory_order_relaxed);
+    count->num_io_bytes_read_from_cache += stats->file_cache_stats.bytes_read_from_local;
+    count->num_io_bytes_read_from_remote += stats->file_cache_stats.bytes_read_from_remote;
 }
 
 void FileCacheProfile::deregister_metric(int64_t table_id, int64_t partition_id) {
@@ -152,48 +108,32 @@ void FileCacheProfile::deregister_metric(int64_t table_id, int64_t partition_id)
 }
 
 void FileCacheMetric::register_entity() {
-    std::string name = "table_" + std::to_string(table_id);
-    if (partition_id != -1) {
-        name += "_partition_" + std::to_string(partition_id);
-    }
+    std::string table_id_str = std::to_string(table_id);
+    std::string partition_id_str = partition_id != -1 ? std::to_string(partition_id) : "total";
     entity = DorisMetrics::instance()->metric_registry()->register_entity(
-            std::string("cloud_file_cache"), {{"name", name}});
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(entity, file_cache_num_io_total);
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(entity, file_cache_num_io_hit_cache);
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(entity, file_cache_num_io_bytes_read_total);
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(entity, file_cache_num_io_bytes_read_from_file_cache);
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(entity, file_cache_num_io_bytes_read_from_write_cache);
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(entity, file_cache_num_io_written_in_file_cache);
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(entity, file_cache_num_io_bytes_written_in_file_cache);
-    entity->register_hook(name, std::bind(&FileCacheMetric::update_table_metrics, this));
+            std::string("cloud_file_cache"),
+            {{"table_id", table_id_str}, {"partition_id", partition_id_str}});
+    INT_ATOMIC_COUNTER_METRIC_REGISTER(entity, num_io_bytes_read_total);
+    INT_ATOMIC_COUNTER_METRIC_REGISTER(entity, num_io_bytes_read_from_cache);
+    INT_ATOMIC_COUNTER_METRIC_REGISTER(entity, num_io_bytes_read_from_remote);
+    entity->register_hook("cloud_file_cache",
+                          std::bind(&FileCacheMetric::update_table_metrics, this));
 }
 
 void FileCacheMetric::update_table_metrics() const {
-    FileCacheStatistics stats = profile->report(table_id);
-    file_cache_num_io_total->set_value(stats.num_io_total);
-    file_cache_num_io_hit_cache->set_value(stats.num_io_hit_cache);
-    file_cache_num_io_bytes_read_total->set_value(stats.num_io_bytes_read_total);
-    file_cache_num_io_bytes_read_from_file_cache->set_value(
-            stats.num_io_bytes_read_from_file_cache);
-    file_cache_num_io_bytes_read_from_write_cache->set_value(
-            stats.num_io_bytes_read_from_write_cache);
-    file_cache_num_io_written_in_file_cache->set_value(stats.num_io_written_in_file_cache);
-    file_cache_num_io_bytes_written_in_file_cache->set_value(
-            stats.num_io_bytes_written_in_file_cache);
+    auto stats = profile->report(table_id);
+    num_io_bytes_read_from_cache->set_value(stats->num_io_bytes_read_from_cache);
+    num_io_bytes_read_from_remote->set_value(stats->num_io_bytes_read_from_remote);
+    num_io_bytes_read_total->set_value(stats->num_io_bytes_read_from_cache +
+                                       stats->num_io_bytes_read_from_remote);
 }
 
 void FileCacheMetric::update_partition_metrics() const {
-    FileCacheStatistics stats = profile->report(table_id, partition_id);
-    file_cache_num_io_total->set_value(stats.num_io_total);
-    file_cache_num_io_hit_cache->set_value(stats.num_io_hit_cache);
-    file_cache_num_io_bytes_read_total->set_value(stats.num_io_bytes_read_total);
-    file_cache_num_io_bytes_read_from_file_cache->set_value(
-            stats.num_io_bytes_read_from_file_cache);
-    file_cache_num_io_bytes_read_from_write_cache->set_value(
-            stats.num_io_bytes_read_from_write_cache);
-    file_cache_num_io_written_in_file_cache->set_value(stats.num_io_written_in_file_cache);
-    file_cache_num_io_bytes_written_in_file_cache->set_value(
-            stats.num_io_bytes_written_in_file_cache);
+    auto stats = profile->report(table_id, partition_id);
+    num_io_bytes_read_from_cache->set_value(stats->num_io_bytes_read_from_cache);
+    num_io_bytes_read_from_remote->set_value(stats->num_io_bytes_read_from_remote);
+    num_io_bytes_read_total->set_value(stats->num_io_bytes_read_from_cache +
+                                       stats->num_io_bytes_read_from_remote);
 }
 
 } // namespace io

@@ -107,6 +107,11 @@ public:
         }
     }
 
+    void register_function_both(const std::string& name, const Creator& creator) {
+        register_function(name, creator, false);
+        register_function(name, creator, true);
+    }
+
     void register_alias(const std::string& name, const std::string& alias) {
         function_alias[alias] = name;
     }

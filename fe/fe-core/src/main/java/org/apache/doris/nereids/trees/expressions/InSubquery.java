@@ -25,6 +25,7 @@ import com.google.common.base.Preconditions;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * In predicate expression.
@@ -43,8 +44,20 @@ public class InSubquery extends SubqueryExpr {
     }
 
     public InSubquery(Expression compareExpr, ListQuery listQuery, List<Slot> correlateSlots, boolean isNot) {
+        this(compareExpr, listQuery, correlateSlots, Optional.empty(), isNot);
+    }
+
+    /**
+     * InSubquery Constructor.
+     */
+    public InSubquery(Expression compareExpr,
+                      ListQuery listQuery,
+                      List<Slot> correlateSlots,
+                      Optional<Expression> typeCoercionExpr,
+                      boolean isNot) {
         super(Objects.requireNonNull(listQuery.getQueryPlan(), "subquery can not be null"),
-                Objects.requireNonNull(correlateSlots, "correlateSlots can not be null"));
+                Objects.requireNonNull(correlateSlots, "correlateSlots can not be null"),
+                typeCoercionExpr);
         this.compareExpr = Objects.requireNonNull(compareExpr, "compareExpr can not be null");
         this.listQuery = Objects.requireNonNull(listQuery, "listQuery can not be null");
         this.isNot = Objects.requireNonNull(isNot, "isNot can not be null");
@@ -95,20 +108,27 @@ public class InSubquery extends SubqueryExpr {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
+        if (!super.equals(o)) {
             return false;
         }
         InSubquery inSubquery = (InSubquery) o;
-        return Objects.equals(this.compareExpr, inSubquery.getCompareExpr())
-                && checkEquals(this.queryPlan, inSubquery.queryPlan)
-                && Objects.equals(this.isNot, inSubquery.isNot);
+        return super.equals(inSubquery)
+                && Objects.equals(this.compareExpr, inSubquery.getCompareExpr())
+                && Objects.equals(this.listQuery, inSubquery.listQuery)
+                && this.isNot == inSubquery.isNot;
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(this.compareExpr, this.listQuery, this.isNot);
+    }
+
+    @Override
+    public Expression withTypeCoercion(DataType dataType) {
+        return new InSubquery(compareExpr, listQuery, correlateSlots,
+            dataType == listQuery.queryPlan.getOutput().get(0).getDataType()
+                ? Optional.of(listQuery.queryPlan.getOutput().get(0))
+                : Optional.of(new Cast(listQuery.queryPlan.getOutput().get(0), dataType)),
+            isNot);
     }
 }

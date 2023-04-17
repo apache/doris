@@ -35,10 +35,9 @@ COLLECT_SET
 ### description
 #### Syntax
 
-`ARRAY<T> collect_set(expr)`
+`ARRAY<T> collect_set(expr[,max_size])`
 
-Returns an array consisting of all unique values in expr within the group.
-The order of elements in the array is non-deterministic. NULL values are excluded.
+Creates an array containing distinct elements from `expr`,with the optional `max_size` parameter limits the size of the resulting array to `max_size` elements. It has an alias `group_uniq_array`.
 
 ### notice
 
@@ -51,26 +50,37 @@ Only supported in vectorized engine
 ```
 mysql> set enable_vectorized_engine=true;
 
-mysql> select k1,k2,k3 from collect_test order by k1;
+mysql> select k1,k2,k3 from collect_set_test order by k1;
 +------+------------+-------+
 | k1   | k2         | k3    |
 +------+------------+-------+
-|    1 | 2022-07-05 | hello |
-|    2 | 2022-07-04 | NULL  |
-|    2 | 2022-07-04 | hello |
+|    1 | 2023-01-01 | hello |
+|    2 | 2023-01-01 | NULL  |
+|    2 | 2023-01-02 | hello |
 |    3 | NULL       | world |
-|    3 | NULL       | world |
+|    3 | 2023-01-02 | hello |
+|    4 | 2023-01-02 | doris |
+|    4 | 2023-01-03 | sql   |
 +------+------------+-------+
 
-mysql> select k1,collect_set(k2),collect_set(k3) from collect_test group by k1 order by k1;
-+------+-------------------+-------------------+
-| k1   | collect_set(`k2`) | collect_set(`k3`) |
-+------+-------------------+-------------------+
-|    1 | [2022-07-05]      | [hello]           |
-|    2 | [2022-07-04]      | [hello]           |
-|    3 | NULL              | [world]           |
-+------+-------------------+-------------------+
+mysql> select collect_set(k1),collect_set(k1,2) from collect_set_test;
++-------------------------+--------------------------+
+| collect_set(`k1`)       | collect_set(`k1`,2)      |
++-------------------------+--------------------------+
+| [4,3,2,1]               | [1,2]                    |
++----------------------------------------------------+
+
+mysql> select k1,collect_set(k2),collect_set(k3,1) from collect_set_test group by k1 order by k1;
++------+-------------------------+--------------------------+
+| k1   | collect_set(`k2`)       | collect_set(`k3`,1)      |
++------+-------------------------+--------------------------+
+|    1 | [2023-01-01]            | [hello]                  |
+|    2 | [2023-01-01,2023-01-02] | [hello]                  |
+|    3 | [2023-01-02]            | [world]                  |
+|    4 | [2023-01-02,2023-01-03] | [sql]                    |
++------+-------------------------+--------------------------+
+
 ```
 
 ### keywords
-COLLECT_SET,COLLECT_LIST,ARRAY
+COLLECT_SET,GROUP_UNIQ_ARRAY,COLLECT_LIST,ARRAY

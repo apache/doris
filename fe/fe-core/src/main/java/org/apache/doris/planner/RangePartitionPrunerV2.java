@@ -86,6 +86,11 @@ public class RangePartitionPrunerV2 extends PartitionPrunerV2Base {
         Optional<RangeSet<ColumnBound>> rangeSetOpt = columnRange.getRangeSet();
         if (columnRange.hasConjunctiveIsNull()) {
             if (!rangeSetOpt.isPresent()) {
+                // For Hive external table, partition column could be null.
+                // In which case, the data will be put to a default partition __HIVE_DEFAULT_PARTITION__
+                if (isHive) {
+                    return FinalFilters.noFilters();
+                }
                 // Only has conjunctive `is null` predicate.
                 return FinalFilters.create(Sets.newHashSet(getMinInfinityRange(column)));
             } else {

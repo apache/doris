@@ -32,7 +32,7 @@ under the License.
 
 [为 Doris 做贡献](./)
 
-[代码提交指南](./pull-request)
+[代码提交指南](./pull-request.md)
 
 历史版本的文档，直接在 [apache/doris-website](https://github.com/apache/doris-website) 上提交 PR 即可，如果是最新版本的，需要在 [apache/doris-website](https://github.com/apache/doris-website)  和 [apache/doris](https://github.com/apache/doris)  代码库上同时提交修改。
 

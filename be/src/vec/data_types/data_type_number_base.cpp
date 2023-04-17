@@ -24,6 +24,8 @@
 
 #include "gutil/strings/numbers.h"
 #include "util/mysql_global.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
 #include "vec/io/io_helper.h"
@@ -33,25 +35,22 @@ namespace doris::vectorized {
 template <typename T>
 void DataTypeNumberBase<T>::to_string(const IColumn& column, size_t row_num,
                                       BufferWritable& ostr) const {
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
+
     if constexpr (std::is_same<T, UInt128>::value) {
-        std::string hex = int128_to_string(
-                assert_cast<const ColumnVector<T>&>(*column.convert_to_full_column_if_const().get())
-                        .get_data()[row_num]);
+        std::string hex =
+                int128_to_string(assert_cast<const ColumnVector<T>&>(*ptr).get_element(row_num));
         ostr.write(hex.data(), hex.size());
     } else if constexpr (std::is_same_v<T, float>) {
         // fmt::format_to maybe get inaccurate results at float type, so we use gutil implement.
         char buf[MAX_FLOAT_STR_LENGTH + 2];
-
-        int len = FloatToBuffer(
-                assert_cast<const ColumnVector<T>&>(*column.convert_to_full_column_if_const().get())
-                        .get_data()[row_num],
-                MAX_FLOAT_STR_LENGTH + 2, buf);
-
+        int len = FloatToBuffer(assert_cast<const ColumnVector<T>&>(*ptr).get_element(row_num),
+                                MAX_FLOAT_STR_LENGTH + 2, buf);
         ostr.write(buf, len);
     } else if constexpr (std::is_integral<T>::value || std::numeric_limits<T>::is_iec559) {
-        ostr.write_number(
-                assert_cast<const ColumnVector<T>&>(*column.convert_to_full_column_if_const().get())
-                        .get_data()[row_num]);
+        ostr.write_number(assert_cast<const ColumnVector<T>&>(*ptr).get_element(row_num));
     }
 }
 
@@ -59,7 +58,7 @@ template <typename T>
 Status DataTypeNumberBase<T>::from_string(ReadBuffer& rb, IColumn* column) const {
     auto* column_data = static_cast<ColumnVector<T>*>(column);
     if constexpr (std::is_same<T, UInt128>::value) {
-        // TODO support for Uint128
+        // TODO: support for Uint128
         return Status::InvalidArgument("uint128 is not support");
     } else if constexpr (std::is_same_v<T, float> || std::is_same_v<T, double>) {
         T val = 0;
@@ -96,20 +95,18 @@ Field DataTypeNumberBase<T>::get_default() const {
 
 template <typename T>
 std::string DataTypeNumberBase<T>::to_string(const IColumn& column, size_t row_num) const {
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
+
     if constexpr (std::is_same<T, __int128_t>::value || std::is_same<T, UInt128>::value) {
-        return int128_to_string(
-                assert_cast<const ColumnVector<T>&>(*column.convert_to_full_column_if_const().get())
-                        .get_data()[row_num]);
+        return int128_to_string(assert_cast<const ColumnVector<T>&>(*ptr).get_element(row_num));
     } else if constexpr (std::is_integral<T>::value) {
-        return std::to_string(
-                assert_cast<const ColumnVector<T>&>(*column.convert_to_full_column_if_const().get())
-                        .get_data()[row_num]);
+        return std::to_string(assert_cast<const ColumnVector<T>&>(*ptr).get_element(row_num));
     } else if constexpr (std::numeric_limits<T>::is_iec559) {
-        fmt::memory_buffer buffer;
-        fmt::format_to(
-                buffer, "{}",
-                assert_cast<const ColumnVector<T>&>(*column.convert_to_full_column_if_const().get())
-                        .get_data()[row_num]);
+        fmt::memory_buffer buffer; // only use in size-predictable type.
+        fmt::format_to(buffer, "{}",
+                       assert_cast<const ColumnVector<T>&>(*ptr).get_element(row_num));
         return std::string(buffer.data(), buffer.size());
     }
 }

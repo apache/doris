@@ -17,13 +17,14 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.pattern.GeneratedPlanPatterns;
 import org.apache.doris.nereids.rules.PlanRuleFactory;
 import org.apache.doris.nereids.rules.RulePromise;
 
 /**
  * interface for all rewrite rule factories.
  */
-public interface RewriteRuleFactory extends PlanRuleFactory {
+public interface RewriteRuleFactory extends PlanRuleFactory, GeneratedPlanPatterns {
     @Override
     default RulePromise defaultPromise() {
         return RulePromise.REWRITE;

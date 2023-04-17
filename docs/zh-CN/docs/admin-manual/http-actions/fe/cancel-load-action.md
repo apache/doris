@@ -33,6 +33,11 @@ under the License.
 ## Description
 
 用于取消掉指定label的导入任务。
+执行完成后，会以Json格式返回这次导入的相关内容。当前包括以下字段
+    Status: 是否成功cancel
+        Success: 成功cancel事务
+        其他: cancel失败
+    Message: 具体的失败信息
     
 ## Path parameters
 

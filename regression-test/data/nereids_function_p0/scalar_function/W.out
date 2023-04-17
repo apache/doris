@@ -1784,18 +1784,18 @@
 1
 
 -- !sql_width_bucket_TinyInt_TinyInt_TinyInt_TinyInt_notnull --
-2
-2
-2
-2
-2
-2
-2
-2
-2
-2
-2
-2
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
 
 -- !sql_width_bucket_SmallInt_SmallInt_SmallInt_SmallInt --
 \N
@@ -1813,18 +1813,18 @@
 1
 
 -- !sql_width_bucket_SmallInt_SmallInt_SmallInt_SmallInt_notnull --
-2
-2
-2
-2
-2
-2
-2
-2
-2
-2
-2
-2
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
 
 -- !sql_width_bucket_Integer_Integer_Integer_Integer --
 \N
@@ -1842,18 +1842,18 @@
 1
 
 -- !sql_width_bucket_Integer_Integer_Integer_Integer_notnull --
-2
-2
-2
-2
-2
-2
-2
-2
-2
-2
-2
-2
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
 
 -- !sql_width_bucket_BigInt_BigInt_BigInt_BigInt --
 \N
@@ -1871,18 +1871,18 @@
 1
 
 -- !sql_width_bucket_BigInt_BigInt_BigInt_BigInt_notnull --
-2
-2
-2
-2
-2
-2
-2
-2
-2
-2
-2
-2
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
 
 -- !sql_width_bucket_Float_Float_Float_TinyInt --
 \N
@@ -1900,18 +1900,18 @@
 1
 
 -- !sql_width_bucket_Float_Float_Float_TinyInt_notnull --
-2
-2
-2
-2
-2
-2
-2
-2
-2
-2
-2
-2
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
 
 -- !sql_width_bucket_Double_Double_Double_TinyInt --
 \N
@@ -1929,18 +1929,18 @@
 1
 
 -- !sql_width_bucket_Double_Double_Double_TinyInt_notnull --
-2
-2
-2
-2
-2
-2
-2
-2
-2
-2
-2
-2
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
 
 -- !sql_width_bucket_DecimalV2_DecimalV2_DecimalV2_TinyInt --
 \N
@@ -1958,18 +1958,18 @@
 1
 
 -- !sql_width_bucket_DecimalV2_DecimalV2_DecimalV2_TinyInt_notnull --
-2
-2
-2
-2
-2
-2
-2
-2
-2
-2
-2
-2
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
 
 -- !sql_width_bucket_Date_Date_Date_TinyInt --
 \N
@@ -1987,18 +1987,18 @@
 1
 
 -- !sql_width_bucket_Date_Date_Date_TinyInt_notnull --
-2
-2
-2
-2
-2
-2
-2
-2
-2
-2
-2
-2
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
 
 -- !sql_width_bucket_DateV2_DateV2_DateV2_TinyInt --
 \N
@@ -2016,18 +2016,18 @@
 1
 
 -- !sql_width_bucket_DateV2_DateV2_DateV2_TinyInt_notnull --
-2
-2
-2
-2
-2
-2
-2
-2
-2
-2
-2
-2
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
 
 -- !sql_width_bucket_DateTime_DateTime_DateTime_TinyInt --
 \N
@@ -2045,18 +2045,18 @@
 1
 
 -- !sql_width_bucket_DateTime_DateTime_DateTime_TinyInt_notnull --
-2
-2
-2
-2
-2
-2
-2
-2
-2
-2
-2
-2
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
 
 -- !sql_width_bucket_DateTimeV2_DateTimeV2_DateTimeV2_TinyInt --
 \N
@@ -2074,16 +2074,16 @@
 1
 
 -- !sql_width_bucket_DateTimeV2_DateTimeV2_DateTimeV2_TinyInt_notnull --
-2
-2
-2
-2
-2
-2
-2
-2
-2
-2
-2
-2
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
 

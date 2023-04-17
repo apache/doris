@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <shared_mutex>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -110,6 +111,9 @@ private:
                      google::protobuf::RepeatedPtrField<PTabletError>* tablet_error,
                      PSlaveTabletNodes slave_tablet_nodes, const bool write_single_replica);
 
+    void _add_broken_tablet(int64_t tablet_id);
+    bool _is_broken_tablet(int64_t tablet_id);
+
     // id of this load channel
     TabletsChannelKey _key;
 
@@ -133,8 +137,6 @@ private:
     OlapTableSchemaParam* _schema = nullptr;
 
     TupleDescriptor* _tuple_desc = nullptr;
-    // row_desc used to construct
-    RowDescriptor* _row_desc = nullptr;
 
     // next sequence we expect
     int _num_remaining_senders = 0;
@@ -150,6 +152,8 @@ private:
     // If a tablet write fails, it's id will be added to this set.
     // So that following batch will not handle this tablet anymore.
     std::unordered_set<int64_t> _broken_tablets;
+
+    std::shared_mutex _broken_tablets_lock;
 
     std::unordered_set<int64_t> _reducing_tablets;
 

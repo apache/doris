@@ -17,8 +17,7 @@
 
 suite("test_nullif") {
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
-    sql "SET enable_fallback_to_original_planner=false" 
+    sql "SET enable_fallback_to_original_planner=false"
     qt_ifnull_const1 """select CONCAT('a', ifnull(split_part('A.B','.',1), 'x'));"""
     qt_ifnull_const2 """select CONCAT('a', ifnull(split_part('A.B','.',1), null));"""
 
@@ -130,8 +129,8 @@ suite("test_nullif") {
             logger.info(exception.message)
         }
     }
-    qt_if_nullif20 """select ifnull(123456789.5678901234567890,2),
-        ifnull("1234567890123456789012345678901234567890",2)"""
+    qt_if_nullif20 """select ifnull(123456789.123456789,2),
+        ifnull("123456789012345678",2)"""
     qt_if_nullif21 """select IFNULL("hello", "doris"), IFNULL(NULL,0)"""
     qt_if_nullif22 """select ifnull("null",2), ifnull("NULL",2), ifnull("null","2019-09-09 00:00:00"),
         ifnull(NULL, concat("NUL", "LL"))"""

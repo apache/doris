@@ -34,7 +34,7 @@ suite("runtime_filter") {
     """
 
     sql "insert into `date_v2_table` values (1, '2011-01-01'), (2, '2011-02-02');"
-    sql "insert into `datetime_table` values (1, '2011-01-01 13:00:00'), (2, '2011-02-02 13:00:00');"
+    sql "insert into `datetime_table` values (1, '2011-01-01 13:00:00'), (2, '2011-02-02 00:00:00');"
 
     sql "set enable_nereids_planner=true"
     sql "set enable_fallback_to_original_planner=false"
@@ -43,7 +43,7 @@ suite("runtime_filter") {
         sql "set runtime_filter_type=${i}"
         test {
             sql "SELECT count(1) FROM datetime_table a, date_v2_table b WHERE a.date = b.date;"
-            result([[2L]])
+            result([[1L]])
         }
     }
 }

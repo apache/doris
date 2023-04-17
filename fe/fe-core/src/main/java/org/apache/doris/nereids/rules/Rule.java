@@ -68,4 +68,9 @@ public abstract class Rule {
     }
 
     public abstract List<Plan> transform(Plan node, CascadesContext context) throws TransformException;
+
+    /** callback this function when the traverse framework accept a new plan which produce by this rule */
+    public void acceptPlan(Plan plan) {
+
+    }
 }

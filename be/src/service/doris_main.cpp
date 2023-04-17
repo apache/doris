@@ -15,18 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <bthread/errno.h>
+#include <butil/macros.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <libgen.h>
 #include <setjmp.h>
-#include <sys/file.h>
+#include <signal.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 
-#include <condition_variable>
+#include <algorithm>
 #include <cstring>
-#include <mutex>
-#include <thread>
-#include <unordered_map>
+#include <ostream>
+#include <string>
+#include <tuple>
+#include <vector>
 
+#include "olap/tablet_schema_cache.h"
+#include "olap/utils.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "util/jni-util.h"
 
 #if defined(LEAK_SANITIZER)
@@ -34,40 +44,35 @@
 #endif
 
 #include <curl/curl.h>
-#include <gperftools/profiler.h>
 #include <thrift/TOutput.h>
 
 #include "agent/heartbeat_server.h"
-#include "agent/topic_subscriber.h"
 #include "common/config.h"
 #include "common/daemon.h"
 #include "common/logging.h"
 #include "common/resource_tls.h"
 #include "common/signal_handler.h"
 #include "common/status.h"
-#include "common/utils.h"
-#include "env/env.h"
 #include "io/cache/block/block_file_cache_factory.h"
 #include "olap/options.h"
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
-#include "runtime/heartbeat_flags.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/brpc_service.h"
 #include "service/http_service.h"
 #include "service/single_replica_load_download_service.h"
 #include "util/debug_util.h"
-#include "util/doris_metrics.h"
-#include "util/perf_counters.h"
 #include "util/telemetry/telemetry.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/thrift_server.h"
 #include "util/uid_util.h"
 
-static void help(const char*);
+namespace doris {
+class TMasterInfo;
+} // namespace doris
 
-#include <dlfcn.h>
+static void help(const char*);
 
 extern "C" {
 void __lsan_do_leak_check();
@@ -385,10 +390,6 @@ int main(int argc, char** argv) {
         }
     }
 
-    doris::Daemon daemon;
-    daemon.init(argc, argv, paths);
-    daemon.start();
-
     if (doris::config::enable_file_cache) {
         std::vector<doris::CachePath> cache_paths;
         olap_res = doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
@@ -426,6 +427,11 @@ int main(int argc, char** argv) {
             }
         }
     }
+
+    // Load file cache before starting up daemon threads to make sure StorageEngine is read.
+    doris::Daemon daemon;
+    daemon.init(argc, argv, paths);
+    daemon.start();
 
     doris::ResourceTls::init();
     if (!doris::BackendOptions::init()) {

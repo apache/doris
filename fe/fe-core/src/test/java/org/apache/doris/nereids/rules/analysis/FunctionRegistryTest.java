@@ -31,8 +31,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
-import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.ConnectContext;
 
@@ -44,7 +44,7 @@ import java.util.List;
 import java.util.Map;
 
 // this ut will add more test case later
-public class FunctionRegistryTest implements PatternMatchSupported {
+public class FunctionRegistryTest implements MemoPatternMatchSupported {
     private ConnectContext connectContext = MemoTestUtils.createConnectContext();
 
     @Test

@@ -51,6 +51,14 @@ void filter_arrays_impl_only_data(const PaddedPODArray<T>& src_elems,
                                   PaddedPODArray<T>& res_elems, const IColumn::Filter& filt,
                                   ssize_t result_size_hint);
 
+template <typename T, typename OT>
+size_t filter_arrays_impl(PaddedPODArray<T>& data, PaddedPODArray<OT>& offsets,
+                          const IColumn::Filter& filter);
+
+template <typename T, typename OT>
+size_t filter_arrays_impl_only_data(PaddedPODArray<T>& data, PaddedPODArray<OT>& offsets,
+                                    const IColumn::Filter& filter);
+
 namespace detail {
 template <typename T>
 const PaddedPODArray<T>* get_indexes_data(const IColumn& indexes);

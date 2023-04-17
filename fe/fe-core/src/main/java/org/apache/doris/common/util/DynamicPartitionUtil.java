@@ -20,6 +20,7 @@ package org.apache.doris.common.util;
 import org.apache.doris.analysis.TimestampArithmeticExpr.TimeUnit;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -399,10 +400,12 @@ public class DynamicPartitionUtil {
     // Check if all requried properties has been set.
     // And also check all optional properties, if not set, set them to default value.
     public static boolean checkInputDynamicPartitionProperties(Map<String, String> properties,
-            PartitionInfo partitionInfo) throws DdlException {
+            OlapTable olapTable) throws DdlException {
         if (properties == null || properties.isEmpty()) {
             return false;
         }
+
+        PartitionInfo partitionInfo = olapTable.getPartitionInfo();
         if (partitionInfo.getType() != PartitionType.RANGE || partitionInfo.isMultiColumnPartition()) {
             throw new DdlException("Dynamic partition only support single-column range partition");
         }
@@ -443,7 +446,9 @@ public class DynamicPartitionUtil {
                 throw new DdlException("Must assign dynamic_partition.end properties");
             }
             if (Strings.isNullOrEmpty(buckets)) {
-                throw new DdlException("Must assign dynamic_partition.buckets properties");
+                DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
+                buckets = String.valueOf(distributionInfo.getBucketNum());
+                properties.put(DynamicPartitionProperty.BUCKETS, buckets);
             }
             if (Strings.isNullOrEmpty(timeZone)) {
                 properties.put(DynamicPartitionProperty.TIME_ZONE, TimeUtils.getSystemTimeZone().getID());
@@ -506,6 +511,7 @@ public class DynamicPartitionUtil {
             properties.remove(DynamicPartitionProperty.BUCKETS);
             analyzedProperties.put(DynamicPartitionProperty.BUCKETS, bucketsValue);
         }
+
         if (properties.containsKey(DynamicPartitionProperty.ENABLE)) {
             String enableValue = properties.get(DynamicPartitionProperty.ENABLE);
             checkEnable(enableValue);
@@ -675,7 +681,7 @@ public class DynamicPartitionUtil {
      */
     public static void checkAndSetDynamicPartitionProperty(OlapTable olapTable, Map<String, String> properties,
             Database db) throws UserException {
-        if (DynamicPartitionUtil.checkInputDynamicPartitionProperties(properties, olapTable.getPartitionInfo())) {
+        if (DynamicPartitionUtil.checkInputDynamicPartitionProperties(properties, olapTable)) {
             Map<String, String> dynamicPartitionProperties =
                     DynamicPartitionUtil.analyzeDynamicPartition(properties, olapTable, db);
             TableProperty tableProperty = olapTable.getTableProperty();

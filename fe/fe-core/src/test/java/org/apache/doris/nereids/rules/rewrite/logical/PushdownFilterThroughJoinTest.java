@@ -27,8 +27,8 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
-import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
@@ -44,7 +44,7 @@ import java.util.Set;
  * PushdownFilterThroughJoinTest UT.
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-public class PushdownFilterThroughJoinTest implements PatternMatchSupported {
+public class PushdownFilterThroughJoinTest implements MemoPatternMatchSupported {
 
     private LogicalPlan rStudent;
     private LogicalPlan rScore;

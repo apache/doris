@@ -21,6 +21,7 @@
 
 #include "common/status.h"         // for Status
 #include "gen_cpp/segment_v2.pb.h" // for EncodingTypePB
+#include "olap/field.h"            // for Field
 #include "olap/inverted_index_parser.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/page_pointer.h" // for PagePointer
@@ -374,7 +375,7 @@ private:
 class MapColumnWriter final : public ColumnWriter, public FlushPageCallback {
 public:
     explicit MapColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
-                             ScalarColumnWriter* null_writer,
+                             ScalarColumnWriter* null_writer, ScalarColumnWriter* offsets_writer,
                              std::vector<std::unique_ptr<ColumnWriter>>& _kv_writers);
 
     ~MapColumnWriter() override = default;
@@ -414,14 +415,15 @@ public:
     }
 
     // according key writer to get next rowid
-    ordinal_t get_next_rowid() const override { return _kv_writers[0]->get_next_rowid(); }
+    ordinal_t get_next_rowid() const override { return _offsets_writer->get_next_rowid(); }
 
 private:
-    Status write_null_column(size_t num_rows, bool is_null);
+    Status put_extra_info_in_page(DataPageFooterPB* header) override;
 
     std::vector<std::unique_ptr<ColumnWriter>> _kv_writers;
     // we need null writer to make sure a row is null or not
     std::unique_ptr<ScalarColumnWriter> _null_writer;
+    std::unique_ptr<ScalarColumnWriter> _offsets_writer;
     std::unique_ptr<InvertedIndexColumnWriter> _inverted_index_builder;
     ColumnWriterOptions _opts;
 };

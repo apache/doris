@@ -20,6 +20,11 @@
 
 #include "vec/columns/column_const.h"
 
+#include <algorithm>
+#include <cstddef>
+#include <utility>
+
+#include "gutil/port.h"
 #include "runtime/raw_value.h"
 #include "vec/columns/columns_common.h"
 #include "vec/common/pod_array.h"
@@ -56,6 +61,17 @@ ColumnPtr ColumnConst::filter(const Filter& filt, ssize_t /*result_size_hint*/) 
     }
 
     return ColumnConst::create(data, count_bytes_in_filter(filt));
+}
+
+size_t ColumnConst::filter(const Filter& filter) {
+    if (s != filter.size()) {
+        LOG(FATAL) << fmt::format("Size of filter ({}) doesn't match size of column ({})",
+                                  filter.size(), s);
+    }
+
+    const auto result_size = count_bytes_in_filter(filter);
+    resize(result_size);
+    return result_size;
 }
 
 ColumnPtr ColumnConst::replicate(const Offsets& offsets) const {
@@ -117,8 +133,7 @@ void ColumnConst::update_crcs_with_value(std::vector<uint64_t>& hashes, doris::P
         }
     } else {
         for (int i = 0; i < hashes.size(); ++i) {
-            hashes[i] = RawValue::zlib_crc32(real_data.data, real_data.size, TypeDescriptor {type},
-                                             hashes[i]);
+            hashes[i] = RawValue::zlib_crc32(real_data.data, real_data.size, type, hashes[i]);
         }
     }
 }
@@ -184,4 +199,49 @@ ColumnPtr ColumnConst::index(const IColumn& indexes, size_t limit) const {
     return ColumnConst::create(data, limit);
 }
 
+std::pair<ColumnPtr, size_t> check_column_const_set_readability(const IColumn& column,
+                                                                const size_t row_num) noexcept {
+    std::pair<ColumnPtr, size_t> result;
+    if (is_column_const(column)) {
+        result.first = static_cast<const ColumnConst&>(column).get_data_column_ptr();
+        result.second = 0;
+    } else {
+        result.first = column.get_ptr();
+        result.second = row_num;
+    }
+    return result;
+}
+
+std::pair<const ColumnPtr&, bool> unpack_if_const(const ColumnPtr& ptr) noexcept {
+    if (is_column_const(*ptr)) {
+        return std::make_pair(
+                std::cref(static_cast<const ColumnConst&>(*ptr).get_data_column_ptr()), true);
+    }
+    return std::make_pair(std::cref(ptr), false);
+}
+
+void default_preprocess_parameter_columns(ColumnPtr* columns, const bool* col_const,
+                                          const std::initializer_list<size_t>& parameters,
+                                          Block& block, const ColumnNumbers& arg_indexes) noexcept {
+    if (std::all_of(parameters.begin(), parameters.end(),
+                    [&](size_t const_index) -> bool { return col_const[const_index]; })) {
+        // only need to avoid expanding when all parameters are const
+        for (auto index : parameters) {
+            columns[index] = static_cast<const ColumnConst&>(
+                                     *block.get_by_position(arg_indexes[index]).column)
+                                     .get_data_column_ptr();
+        }
+    } else {
+        // no need to avoid expanding for this rare situation
+        for (auto index : parameters) {
+            if (col_const[index]) {
+                columns[index] = static_cast<const ColumnConst&>(
+                                         *block.get_by_position(arg_indexes[index]).column)
+                                         .convert_to_full_column();
+            } else {
+                columns[index] = block.get_by_position(arg_indexes[index]).column;
+            }
+        }
+    }
+}
 } // namespace doris::vectorized

@@ -56,6 +56,8 @@ class ColumnWriter;
 extern const char* k_segment_magic;
 extern const uint32_t k_segment_magic_length;
 
+using KeySetPtr = std::shared_ptr<std::unordered_set<std::string>>;
+
 struct SegmentWriterOptions {
     uint32_t num_rows_per_block = 1024;
     bool enable_unique_key_merge_on_write = false;
@@ -105,8 +107,12 @@ public:
     Slice min_encoded_key();
     Slice max_encoded_key();
 
+    KeySetPtr get_key_set() { return _key_set; }
+
     DataDir* get_data_dir() { return _data_dir; }
     bool is_unique_key() { return _tablet_schema->keys_type() == UNIQUE_KEYS; }
+
+    void clear();
 
 private:
     Status _create_writers_with_dynamic_block(
@@ -139,8 +145,6 @@ private:
     void set_max_key(const Slice& key);
     bool _should_create_writers_with_dynamic_block(size_t num_columns_in_block);
 
-    void clear();
-
 private:
     uint32_t _segment_id;
     TabletSchemaSPtr _tablet_schema;
@@ -165,6 +169,8 @@ private:
     const KeyCoder* _seq_coder = nullptr;
     std::vector<uint16_t> _key_index_size;
     size_t _short_key_row_pos = 0;
+    // used to check if there's duplicate key in aggregate key and unique key data model
+    KeySetPtr _key_set;
 
     std::vector<uint32_t> _column_ids;
     bool _has_key = true;

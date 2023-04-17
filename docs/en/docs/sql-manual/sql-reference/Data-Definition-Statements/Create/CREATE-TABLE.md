@@ -174,7 +174,7 @@ distribution_desc
 
     `ENGINE=olap`
 
-* `key_desc`
+* `keys_type`
 
     Data model.
 
@@ -202,7 +202,7 @@ distribution_desc
     COMMENT "This is my first DORIS table"
     ```
 
-* `partition_desc`
+* `partition_info`
 
     Partition information supports three writing methods:
 
@@ -248,12 +248,12 @@ distribution_desc
 
     1) Hash
        Syntax:
-       `DISTRIBUTED BY HASH (k1[,k2 ...]) [BUCKETS num]`
+       `DISTRIBUTED BY HASH (k1[,k2 ...]) [BUCKETS num|auto]`
        Explain:
        Hash bucketing using the specified key column.
     2) Random
        Syntax:
-       `DISTRIBUTED BY RANDOM [BUCKETS num]`
+       `DISTRIBUTED BY RANDOM [BUCKETS num|auto]`
        Explain:
        Use random numbers for bucketing.
 
@@ -377,12 +377,6 @@ distribution_desc
         * `dynamic_partition.history_partition_num`: Specify the number of historical partitions to be created.
         * `dynamic_partition.reserved_history_periods`: Used to specify the range of reserved history periods.
     
-    * Data Sort Info
-    
-        The relevant parameters of data sort info are as follows:
-    
-        * `data_sort.sort_type`: the method of data sorting, options: z-order/lexical, default is lexical
-        * `data_sort.col_num`:  the first few columns to sort, col_num muster less than total key counts
 ### Example
 
 1. Create a detailed model table

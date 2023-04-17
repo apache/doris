@@ -50,7 +50,7 @@ suite("test_jsonb_unique_load_and_function", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
-            assertEquals("[INTERNAL_ERROR]too many filtered rows", json.Message)
+            assertTrue(json.Message.contains("too many filtered rows"))
             assertEquals(75, json.NumberTotalRows)
             assertEquals(54, json.NumberLoadedRows)
             assertEquals(21, json.NumberFilteredRows)

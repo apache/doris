@@ -24,6 +24,7 @@
 
 #include "olap/hll.h"
 #include "util/bitmap_value.h"
+#include "util/quantile_state.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_impl.h"
 #include "vec/columns/column_string.h"
@@ -48,6 +49,7 @@ public:
 
     bool is_bitmap() const override { return std::is_same_v<T, BitmapValue>; }
     bool is_hll() const override { return std::is_same_v<T, HyperLogLog>; }
+    bool is_quantile_state() const override { return std::is_same_v<T, QuantileState<double>>; }
 
     size_t size() const override { return data.size(); }
 
@@ -74,6 +76,8 @@ public:
         if constexpr (std::is_same_v<T, BitmapValue>) {
             pvalue->deserialize(pos);
         } else if constexpr (std::is_same_v<T, HyperLogLog>) {
+            pvalue->deserialize(Slice(pos, length));
+        } else if constexpr (std::is_same_v<T, QuantileStateDouble>) {
             pvalue->deserialize(Slice(pos, length));
         } else {
             LOG(FATAL) << "Unexpected type in column complex";
@@ -142,15 +146,19 @@ public:
 
     MutableColumnPtr clone_resized(size_t size) const override;
 
-    [[noreturn]] void insert(const Field& x) override {
-        LOG(FATAL) << "insert field not implemented";
+    void insert(const Field& x) override {
+        const String& s = doris::vectorized::get<const String&>(x);
+        data.push_back(*reinterpret_cast<const T*>(s.c_str()));
     }
 
-    [[noreturn]] Field operator[](size_t n) const override {
-        LOG(FATAL) << "operator[] not implemented";
+    Field operator[](size_t n) const override {
+        assert(n < size());
+        return Field(reinterpret_cast<const char*>(&data[n]), sizeof(data[n]));
     }
-    [[noreturn]] void get(size_t n, Field& res) const override {
-        LOG(FATAL) << "get field not implemented";
+
+    void get(size_t n, Field& res) const override {
+        assert(n < size());
+        res.assign_string(reinterpret_cast<const char*>(&data[n]), sizeof(data[n]));
     }
 
     [[noreturn]] UInt64 get64(size_t n) const override {
@@ -248,6 +256,8 @@ public:
 
     ColumnPtr filter(const IColumn::Filter& filt, ssize_t result_size_hint) const override;
 
+    size_t filter(const IColumn::Filter& filter) override;
+
     ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
 
     Container& get_data() { return data; }
@@ -328,6 +338,38 @@ ColumnPtr ColumnComplexType<T>::filter(const IColumn::Filter& filt,
 }
 
 template <typename T>
+size_t ColumnComplexType<T>::filter(const IColumn::Filter& filter) {
+    size_t size = data.size();
+    if (size != filter.size()) {
+        LOG(FATAL) << "Size of filter doesn't match size of column.";
+    }
+
+    if (data.size() == 0) {
+        return 0;
+    }
+
+    T* res_data = data.data();
+
+    const UInt8* filter_pos = filter.data();
+    const UInt8* filter_end = filter_pos + size;
+    const T* data_pos = data.data();
+
+    while (filter_pos < filter_end) {
+        if (*filter_pos) {
+            *res_data = std::move(*data_pos);
+            ++res_data;
+        }
+
+        ++filter_pos;
+        ++data_pos;
+    }
+
+    data.resize(res_data - data.data());
+
+    return res_data - data.data();
+}
+
+template <typename T>
 ColumnPtr ColumnComplexType<T>::permute(const IColumn::Permutation& perm, size_t limit) const {
     size_t size = data.size();
 
@@ -395,6 +437,13 @@ using ColumnBitmap = ColumnComplexType<BitmapValue>;
 using ColumnHLL = ColumnComplexType<HyperLogLog>;
 
 template <typename T>
+using ColumnQuantileState = ColumnComplexType<QuantileState<T>>;
+
+using ColumnQuantileStateDouble = ColumnQuantileState<double>;
+
+//template class ColumnQuantileState<double>;
+
+template <typename T>
 struct is_complex : std::false_type {};
 
 template <>
@@ -404,6 +453,10 @@ struct is_complex<BitmapValue> : std::true_type {};
 template <>
 struct is_complex<HyperLogLog> : std::true_type {};
 //DataTypeHLL::FieldType = HyperLogLog
+
+template <>
+struct is_complex<QuantileState<double>> : std::true_type {};
+//DataTypeQuantileState::FieldType = QuantileState<double>
 
 template <class T>
 constexpr bool is_complex_v = is_complex<T>::value;

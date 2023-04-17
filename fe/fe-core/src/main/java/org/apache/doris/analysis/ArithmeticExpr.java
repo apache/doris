@@ -36,8 +36,6 @@ import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -46,7 +44,6 @@ import java.util.List;
 import java.util.Objects;
 
 public class ArithmeticExpr extends Expr {
-    private static final Logger LOG = LogManager.getLogger(ArithmeticExpr.class);
 
     enum OperatorPosition {
         BINARY_INFIX,
@@ -288,6 +285,21 @@ public class ArithmeticExpr extends Expr {
     }
 
     /**
+     * constructor only used for Nereids.
+     */
+    public ArithmeticExpr(Operator op, Expr e1, Expr e2, Type returnType, NullableMode nullableMode) {
+        this(op, e1, e2);
+        List<Type> argTypes;
+        if (e2 == null) {
+            argTypes = Lists.newArrayList(e1.getType());
+        } else {
+            argTypes = Lists.newArrayList(e1.getType(), e2.getType());
+        }
+        fn = new Function(new FunctionName(op.getName()), argTypes, returnType, false, true, nullableMode);
+        type = returnType;
+    }
+
+    /**
      * Copy c'tor used in clone().
      */
     protected ArithmeticExpr(ArithmeticExpr other) {
@@ -361,13 +373,14 @@ public class ArithmeticExpr extends Expr {
         if (pt1 == PrimitiveType.DOUBLE || pt2 == PrimitiveType.DOUBLE) {
             return Type.DOUBLE;
         } else if (pt1 == PrimitiveType.DECIMALV2 || pt2 == PrimitiveType.DECIMALV2) {
-            return Type.MAX_DECIMALV2_TYPE;
+            return pt1 == PrimitiveType.DECIMALV2 && pt2 == PrimitiveType.DECIMALV2
+                    ? Type.MAX_DECIMALV2_TYPE : Type.DOUBLE;
         } else if (pt1 == PrimitiveType.DECIMAL32 || pt2 == PrimitiveType.DECIMAL32) {
-            return Type.DECIMAL32;
+            return pt1 == PrimitiveType.DECIMAL32 && pt2 == PrimitiveType.DECIMAL32 ? Type.DECIMAL32 : Type.DOUBLE;
         } else if (pt1 == PrimitiveType.DECIMAL64 || pt2 == PrimitiveType.DECIMAL64) {
-            return Type.DECIMAL64;
+            return pt1 == PrimitiveType.DECIMAL64 && pt2 == PrimitiveType.DECIMAL64 ? Type.DECIMAL64 : Type.DOUBLE;
         } else if (pt1 == PrimitiveType.DECIMAL128 || pt2 == PrimitiveType.DECIMAL128) {
-            return Type.DECIMAL128;
+            return pt1 == PrimitiveType.DECIMAL128 && pt2 == PrimitiveType.DECIMAL128 ? Type.DECIMAL128 : Type.DOUBLE;
         } else if (pt1 == PrimitiveType.LARGEINT || pt2 == PrimitiveType.LARGEINT) {
             return Type.LARGEINT;
         } else {
@@ -426,7 +439,7 @@ public class ArithmeticExpr extends Expr {
                 }
                 break;
             case INT_DIVIDE:
-                if (!t1.isFixedPointType() || !t2.isFloatingPointType()) {
+                if (!t1.isFixedPointType() || !t2.isFixedPointType()) {
                     castBinaryOp(Type.BIGINT);
                 }
                 break;
@@ -532,7 +545,7 @@ public class ArithmeticExpr extends Expr {
                     // target type: DECIMALV3(max(widthOfIntPart1, widthOfIntPart2) + max(scale1, scale2) + 1,
                     // max(scale1, scale2))
                     scale = Math.max(t1Scale, t2Scale);
-                    precision = Math.max(widthOfIntPart1, widthOfIntPart2) + scale;
+                    precision = Math.max(widthOfIntPart1, widthOfIntPart2) + scale + 1;
                 } else {
                     scale = Math.max(t1Scale, t2Scale);
                     precision = widthOfIntPart2 + scale;
@@ -547,13 +560,13 @@ public class ArithmeticExpr extends Expr {
                 }
                 type = ScalarType.createDecimalV3Type(precision, scale);
                 if (op == Operator.ADD || op == Operator.SUBTRACT) {
-                    if (!Type.matchExactType(type, children.get(0).type)) {
+                    if (((ScalarType) type).getScalarScale() != ((ScalarType) children.get(0).type).getScalarScale()) {
                         castChild(type, 0);
                     }
-                    if (!Type.matchExactType(type, children.get(1).type)) {
+                    if (((ScalarType) type).getScalarScale() != ((ScalarType) children.get(1).type).getScalarScale()) {
                         castChild(type, 1);
                     }
-                } else if (op == Operator.DIVIDE && (t2Scale != 0) && t1.isDecimalV3()) {
+                } else if (op == Operator.DIVIDE && (t2Scale != 0) && t1TargetType.isDecimalV3()) {
                     int targetScale = t1Scale + t2Scale;
                     if (precision < targetScale) {
                         type = castBinaryOp(Type.DOUBLE);
@@ -566,10 +579,6 @@ public class ArithmeticExpr extends Expr {
                 }
                 break;
             case INT_DIVIDE:
-                if (!t1.isFixedPointType() || !t2.isFloatingPointType()) {
-                    type = castBinaryOp(Type.BIGINT);
-                }
-                break;
             case BITAND:
             case BITOR:
             case BITXOR:
@@ -580,7 +589,7 @@ public class ArithmeticExpr extends Expr {
                 break;
             default:
                 Preconditions.checkState(false,
-                        "Unknown arithmetic operation " + op.toString() + " in: " + this.toSql());
+                        "Unknown arithmetic operation " + op + " in: " + this.toSql());
                 break;
         }
     }
@@ -746,19 +755,6 @@ public class ArithmeticExpr extends Expr {
         if (t1.isDecimalV3() || t2.isDecimalV3()) {
             analyzeDecimalV3Op(t1, t2);
         }
-    }
-
-    @Override
-    public void finalizeImplForNereids() throws AnalysisException {
-        if (op == Operator.BITNOT) {
-            fn = getBuiltinFunction(op.getName(), collectChildReturnTypes(), Function.CompareMode.IS_SUPERTYPE_OF);
-        } else {
-            fn = getBuiltinFunction(op.name, collectChildReturnTypes(), Function.CompareMode.IS_IDENTICAL);
-        }
-        if (fn == null) {
-            Preconditions.checkState(false, String.format("No match for op with operand types. %s", toSql()));
-        }
-        type = fn.getReturnType();
     }
 
     @Override

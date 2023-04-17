@@ -16,32 +16,41 @@
 // under the License.
 #include "exec/arrow/parquet_reader.h"
 
-#include <arrow/array.h>
+#include <arrow/record_batch.h>
+#include <arrow/result.h>
 #include <arrow/status.h>
-#include <arrow/type_fwd.h>
-#include <time.h>
+#include <arrow/type.h>
+#include <opentelemetry/common/threadlocal.h>
+#include <parquet/exception.h>
+#include <parquet/file_reader.h>
+#include <parquet/metadata.h>
+#include <parquet/properties.h>
+#include <parquet/schema.h>
 
 #include <algorithm>
-#include <cinttypes>
+#include <atomic>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <condition_variable>
+#include <list>
+#include <map>
 #include <mutex>
+#include <ostream>
 #include <thread>
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "io/file_reader.h"
-#include "runtime/descriptors.h"
-#include "runtime/mem_pool.h"
 #include "util/string_util.h"
-#include "vec/common/string_ref.h"
 
 namespace doris {
+class TupleDescriptor;
 
 // Broker
 ParquetReaderWrap::ParquetReaderWrap(RuntimeState* state,
                                      const std::vector<SlotDescriptor*>& file_slot_descs,
-                                     FileReader* file_reader, int32_t num_of_columns_from_file,
-                                     int64_t range_start_offset, int64_t range_size,
-                                     bool case_sensitive)
+                                     io::FileReaderSPtr file_reader,
+                                     int32_t num_of_columns_from_file, int64_t range_start_offset,
+                                     int64_t range_size, bool case_sensitive)
         : ArrowReaderWrap(state, file_slot_descs, file_reader, num_of_columns_from_file,
                           case_sensitive),
           _rows_of_group(0),
@@ -144,45 +153,6 @@ Status ParquetReaderWrap::read_record_batch(bool* eof) {
         RETURN_IF_ERROR(read_next_batch());
         _current_line_of_batch = 0;
     }
-    return Status::OK();
-}
-
-Status ParquetReaderWrap::handle_timestamp(const std::shared_ptr<arrow::TimestampArray>& ts_array,
-                                           uint8_t* buf, int32_t* wbytes) {
-    const auto type = std::static_pointer_cast<arrow::TimestampType>(ts_array->type());
-    // Doris only supports seconds
-    int64_t timestamp = 0;
-    switch (type->unit()) {
-    case arrow::TimeUnit::type::NANO: {                                    // INT96
-        timestamp = ts_array->Value(_current_line_of_batch) / 1000000000L; // convert to Second
-        break;
-    }
-    case arrow::TimeUnit::type::SECOND: {
-        timestamp = ts_array->Value(_current_line_of_batch);
-        break;
-    }
-    case arrow::TimeUnit::type::MILLI: {
-        timestamp = ts_array->Value(_current_line_of_batch) / 1000; // convert to Second
-        break;
-    }
-    case arrow::TimeUnit::type::MICRO: {
-        timestamp = ts_array->Value(_current_line_of_batch) / 1000000; // convert to Second
-        break;
-    }
-    default:
-        return Status::InternalError("Invalid Time Type.");
-    }
-
-    DateTimeValue dtv;
-    if (!dtv.from_unixtime(timestamp, _timezone)) {
-        std::stringstream str_error;
-        str_error << "Parse timestamp (" + std::to_string(timestamp) + ") error";
-        LOG(WARNING) << str_error.str();
-        return Status::InternalError(str_error.str());
-    }
-    char* buf_end = (char*)buf;
-    buf_end = dtv.to_string((char*)buf_end);
-    *wbytes = buf_end - (char*)buf - 1;
     return Status::OK();
 }
 

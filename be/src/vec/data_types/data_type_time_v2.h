@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "runtime/define_primitive_type.h"
 #include "vec/data_types/data_type_number_base.h"
 
 namespace doris::vectorized {
@@ -28,6 +29,10 @@ namespace doris::vectorized {
 class DataTypeDateV2 final : public DataTypeNumberBase<UInt32> {
 public:
     TypeIndex get_type_id() const override { return TypeIndex::DateV2; }
+    PrimitiveType get_type_as_primitive_type() const override { return TYPE_DATEV2; }
+    TPrimitiveType::type get_type_as_tprimitive_type() const override {
+        return TPrimitiveType::DATEV2;
+    }
     const char* get_family_name() const override { return "DateV2"; }
     std::string do_get_name() const override { return "DateV2"; }
 
@@ -66,6 +71,10 @@ public:
 
     DataTypeDateTimeV2(const DataTypeDateTimeV2& rhs) : _scale(rhs._scale) {}
     TypeIndex get_type_id() const override { return TypeIndex::DateTimeV2; }
+    PrimitiveType get_type_as_primitive_type() const override { return TYPE_DATETIMEV2; }
+    TPrimitiveType::type get_type_as_tprimitive_type() const override {
+        return TPrimitiveType::DATETIMEV2;
+    }
     const char* get_family_name() const override { return "DateTimeV2"; }
     std::string do_get_name() const override { return "DateTimeV2"; }
 
@@ -81,6 +90,8 @@ public:
 
     UInt32 get_scale() const { return _scale; }
 
+    void to_pb_column_meta(PColumnMeta* col_meta) const override;
+
     static void cast_to_date(const UInt64 from, Int64& to);
     static void cast_to_date_time(const UInt64 from, Int64& to);
     static void cast_to_date_v2(const UInt64 from, UInt32& to);
@@ -90,6 +101,8 @@ public:
 private:
     UInt32 _scale;
 };
+
+DataTypePtr create_datetimev2(UInt64 scale);
 
 template <typename DataType>
 constexpr bool IsDataTypeDateTimeV2 = false;

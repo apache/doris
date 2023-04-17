@@ -53,8 +53,9 @@ suite("test_javaudf_assertequal") {
 
         qt_select """ SELECT asser_equal(col_1, col_2)  as a FROM ${tableName} ORDER BY a; """
 
-        sql """ DROP FUNCTION asser_equal(double, double); """
+
     } finally {
+        try_sql("DROP FUNCTION IF EXISTS asser_equal(double, double); ")
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
 }

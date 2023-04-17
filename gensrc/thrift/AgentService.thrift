@@ -39,8 +39,9 @@ struct TTabletSchema {
     11: optional Types.TSortType sort_type
     12: optional i32 sort_col_num
     13: optional bool disable_auto_compaction
-    14: optional bool store_row_column = false
+    14: optional i32 version_col_idx = -1
     15: optional bool is_dynamic_schema = false
+    16: optional bool store_row_column = false
 }
 
 // this enum stands for different storage format in src_backends
@@ -273,7 +274,7 @@ struct TUploadReq {
     3: required Types.TNetworkAddress broker_addr
     4: optional map<string, string> broker_prop
     5: optional Types.TStorageBackendType storage_backend = Types.TStorageBackendType.BROKER
-
+    6: optional string location // root path
 }
 
 struct TDownloadReq {
@@ -282,6 +283,7 @@ struct TDownloadReq {
     3: required Types.TNetworkAddress broker_addr
     4: optional map<string, string> broker_prop
     5: optional Types.TStorageBackendType storage_backend = Types.TStorageBackendType.BROKER
+    6: optional string location // root path
 }
 
 struct TSnapshotRequest {

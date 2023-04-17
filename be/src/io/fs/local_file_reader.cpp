@@ -19,6 +19,7 @@
 
 #include <atomic>
 
+#include "io/fs/err_utils.h"
 #include "util/async_io.h"
 #include "util/doris_metrics.h"
 
@@ -48,25 +49,17 @@ Status LocalFileReader::close() {
             AsyncIO::run_task(task, io::FileSystemType::LOCAL);
         }
         if (-1 == res) {
-            return Status::IOError("failed to close {}: {}", _path.native(), std::strerror(errno));
+            std::string err = errno_to_str();
+            LOG(WARNING) << fmt::format("failed to close {}: {}", _path.native(), err);
+            return Status::IOError("failed to close {}: {}", _path.native(), err);
         }
         _fd = -1;
     }
     return Status::OK();
 }
-Status LocalFileReader::read_at(size_t offset, Slice result, const IOContext& io_ctx,
-                                size_t* bytes_read) {
-    if (bthread_self() == 0) {
-        return read_at_impl(offset, result, io_ctx, bytes_read);
-    }
-    Status s;
-    auto task = [&] { s = read_at_impl(offset, result, io_ctx, bytes_read); };
-    AsyncIO::run_task(task, io::FileSystemType::LOCAL);
-    return s;
-}
 
-Status LocalFileReader::read_at_impl(size_t offset, Slice result, const IOContext& /*io_ctx*/,
-                                     size_t* bytes_read) {
+Status LocalFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                                     const IOContext* /*io_ctx*/) {
     DCHECK(!closed());
     if (offset > _file_size) {
         return Status::IOError("offset exceeds file size(offset: {}, file size: {}, path: {})",

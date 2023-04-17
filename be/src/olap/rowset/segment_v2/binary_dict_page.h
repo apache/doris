@@ -30,7 +30,7 @@
 #include "olap/rowset/segment_v2/bitshuffle_page.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/options.h"
-#include "runtime/mem_pool.h"
+#include "vec/common/arena.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -75,7 +75,7 @@ private:
 
     std::unique_ptr<PageBuilder> _data_page_builder;
 
-    std::unique_ptr<BinaryPlainPageBuilder<OLAP_FIELD_TYPE_VARCHAR>> _dict_builder;
+    std::unique_ptr<BinaryPlainPageBuilder<FieldType::OLAP_FIELD_TYPE_VARCHAR>> _dict_builder;
 
     EncodingTypePB _encoding_type;
     struct HashOfSlice {
@@ -87,8 +87,8 @@ private:
     phmap::flat_hash_map<Slice, uint32_t, HashOfSlice> _dictionary;
     // used to remember the insertion order of dict keys
     std::vector<Slice> _dict_items;
-    // TODO(zc): rethink about this mem pool
-    MemPool _pool;
+    // TODO(zc): rethink about this arena
+    vectorized::Arena _arena;
     faststring _buffer;
     faststring _first_value;
 
@@ -123,8 +123,8 @@ private:
     Slice _data;
     PageDecoderOptions _options;
     std::unique_ptr<PageDecoder> _data_page_decoder;
-    BinaryPlainPageDecoder<OLAP_FIELD_TYPE_VARCHAR>* _dict_decoder = nullptr;
-    BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>* _bit_shuffle_ptr = nullptr;
+    BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>* _dict_decoder = nullptr;
+    BitShufflePageDecoder<FieldType::OLAP_FIELD_TYPE_INT>* _bit_shuffle_ptr = nullptr;
     bool _parsed;
     EncodingTypePB _encoding_type;
 

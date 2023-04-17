@@ -28,7 +28,7 @@ Status VArrayLiteral::prepare(RuntimeState* state, const RowDescriptor& row_desc
     Field array = is_null ? Field() : Array();
     for (const auto child : _children) {
         Field item;
-        ColumnPtrWrapper* const_col_wrapper = nullptr;
+        std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
         RETURN_IF_ERROR(child->get_const_col(context, &const_col_wrapper));
         const_col_wrapper->column_ptr->get(0, item);
         array.get<Array>().push_back(item);

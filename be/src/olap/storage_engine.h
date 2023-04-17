@@ -89,9 +89,6 @@ public:
     template <bool include_unused = false>
     std::vector<DataDir*> get_stores();
 
-    // @brief 设置root_path是否可用
-    void set_store_used_flag(const std::string& root_path, bool is_used);
-
     // @brief 获取所有root_path信息
     Status get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_infos, bool need_update);
 

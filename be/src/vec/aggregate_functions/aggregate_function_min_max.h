@@ -447,12 +447,10 @@ struct AggregateFunctionMaxData : public Data {
     using Self = AggregateFunctionMaxData;
     using Data::IsFixedLength;
 
-    bool change_if_better(const IColumn& column, size_t row_num, Arena* arena) {
-        return this->change_if_greater(column, row_num, arena);
+    void change_if_better(const IColumn& column, size_t row_num, Arena* arena) {
+        this->change_if_greater(column, row_num, arena);
     }
-    bool change_if_better(const Self& to, Arena* arena) {
-        return this->change_if_greater(to, arena);
-    }
+    void change_if_better(const Self& to, Arena* arena) { this->change_if_greater(to, arena); }
 
     static const char* name() { return "max"; }
 };
@@ -462,10 +460,10 @@ struct AggregateFunctionMinData : Data {
     using Self = AggregateFunctionMinData;
     using Data::IsFixedLength;
 
-    bool change_if_better(const IColumn& column, size_t row_num, Arena* arena) {
-        return this->change_if_less(column, row_num, arena);
+    void change_if_better(const IColumn& column, size_t row_num, Arena* arena) {
+        this->change_if_less(column, row_num, arena);
     }
-    bool change_if_better(const Self& to, Arena* arena) { return this->change_if_less(to, arena); }
+    void change_if_better(const Self& to, Arena* arena) { this->change_if_less(to, arena); }
 
     static const char* name() { return "min"; }
 };
@@ -475,29 +473,24 @@ struct AggregateFunctionAnyData : Data {
     using Self = AggregateFunctionAnyData;
     using Data::IsFixedLength;
 
-    bool change_if_better(const IColumn& column, size_t row_num, Arena* arena) {
-        return this->change_first_time(column, row_num, arena);
+    void change_if_better(const IColumn& column, size_t row_num, Arena* arena) {
+        this->change_first_time(column, row_num, arena);
     }
-    bool change_if_better(const Self& to, Arena* arena) {
-        return this->change_first_time(to, arena);
-    }
+    void change_if_better(const Self& to, Arena* arena) { this->change_first_time(to, arena); }
 
     static const char* name() { return "any"; }
 };
 
-template <typename Data, bool AllocatesMemoryInArena>
+template <typename Data>
 class AggregateFunctionsSingleValue final
-        : public IAggregateFunctionDataHelper<
-                  Data, AggregateFunctionsSingleValue<Data, AllocatesMemoryInArena>> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionsSingleValue<Data>> {
 private:
     DataTypePtr& type;
-    using Base = IAggregateFunctionDataHelper<
-            Data, AggregateFunctionsSingleValue<Data, AllocatesMemoryInArena>>;
+    using Base = IAggregateFunctionDataHelper<Data, AggregateFunctionsSingleValue<Data>>;
 
 public:
-    AggregateFunctionsSingleValue(const DataTypePtr& type_)
-            : IAggregateFunctionDataHelper<
-                      Data, AggregateFunctionsSingleValue<Data, AllocatesMemoryInArena>>({type_}),
+    AggregateFunctionsSingleValue(const DataTypes& arguments)
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionsSingleValue<Data>>(arguments),
               type(this->argument_types[0]) {
         if (StringRef(Data::name()) == StringRef("min") ||
             StringRef(Data::name()) == StringRef("max")) {
@@ -534,8 +527,6 @@ public:
                      Arena*) const override {
         this->data(place).read(buf);
     }
-
-    bool allocates_memory_in_arena() const override { return AllocatesMemoryInArena; }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         this->data(place).insert_result_into(to);
@@ -625,16 +616,8 @@ public:
     }
 };
 
-AggregateFunctionPtr create_aggregate_function_max(const std::string& name,
-                                                   const DataTypes& argument_types,
-                                                   const bool result_is_nullable);
-
-AggregateFunctionPtr create_aggregate_function_min(const std::string& name,
-                                                   const DataTypes& argument_types,
-                                                   const bool result_is_nullable);
-
-AggregateFunctionPtr create_aggregate_function_any(const std::string& name,
-                                                   const DataTypes& argument_types,
-                                                   const bool result_is_nullable);
-
+template <template <typename> class Data>
+AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
+                                                            const DataTypes& argument_types,
+                                                            const bool result_is_nullable);
 } // namespace doris::vectorized

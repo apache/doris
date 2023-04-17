@@ -17,15 +17,9 @@
 
 package org.apache.doris.nereids.jobs.scheduler;
 
-import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.jobs.Job;
-
 /**
  * Scheduler to schedule jobs in Nereids.
  */
 public interface JobScheduler {
-    void executeJob(Job job, CascadesContext context);
-
-    void executeJobPool(CascadesContext cascadesContext) throws AnalysisException;
+    void executeJobPool(ScheduleContext scheduleContext);
 }

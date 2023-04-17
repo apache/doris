@@ -29,10 +29,12 @@
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/runtime_predicate.h"
+#include "task_group/task_group.h"
 #include "util/pretty_printer.h"
 #include "util/threadpool.h"
 #include "vec/exec/scan/scanner_scheduler.h"
 #include "vec/runtime/shared_hash_table_controller.h"
+#include "vec/runtime/shared_scanner_controller.h"
 
 namespace doris {
 
@@ -44,8 +46,9 @@ class QueryFragmentsCtx {
 public:
     QueryFragmentsCtx(int total_fragment_num, ExecEnv* exec_env)
             : fragment_num(total_fragment_num), timeout_second(-1), _exec_env(exec_env) {
-        _start_time = DateTimeValue::local_time();
+        _start_time = vectorized::VecDateTimeValue::local_time();
         _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
+        _shared_scanner_controller.reset(new vectorized::SharedScannerController());
     }
 
     ~QueryFragmentsCtx() {
@@ -67,7 +70,9 @@ public:
     // this may be a bug, bug <= 1 in theory it shouldn't cause any problems at this stage.
     bool countdown() { return fragment_num.fetch_sub(1) <= 1; }
 
-    bool is_timeout(const DateTimeValue& now) const {
+    ExecEnv* exec_env() { return _exec_env; }
+
+    bool is_timeout(const vectorized::VecDateTimeValue& now) const {
         if (timeout_second <= 0) {
             return false;
         }
@@ -120,7 +125,15 @@ public:
         return _shared_hash_table_controller;
     }
 
+    std::shared_ptr<vectorized::SharedScannerController> get_shared_scanner_controller() {
+        return _shared_scanner_controller;
+    }
+
     vectorized::RuntimePredicate& get_runtime_predicate() { return _runtime_predicate; }
+
+    void set_task_group(taskgroup::TaskGroupPtr& tg) { _task_group = tg; }
+
+    taskgroup::TaskGroup* get_task_group() const { return _task_group.get(); }
 
 public:
     TUniqueId query_id;
@@ -148,7 +161,7 @@ public:
 
 private:
     ExecEnv* _exec_env;
-    DateTimeValue _start_time;
+    vectorized::VecDateTimeValue _start_time;
 
     // A token used to submit olap scanner to the "_limited_scan_thread_pool",
     // This thread pool token is created from "_limited_scan_thread_pool" from exec env.
@@ -165,7 +178,10 @@ private:
     std::atomic<bool> _is_cancelled {false};
 
     std::shared_ptr<vectorized::SharedHashTableController> _shared_hash_table_controller;
+    std::shared_ptr<vectorized::SharedScannerController> _shared_scanner_controller;
     vectorized::RuntimePredicate _runtime_predicate;
+
+    taskgroup::TaskGroupPtr _task_group;
 };
 
 } // namespace doris

@@ -49,7 +49,7 @@ The error message is divided into three parts:
 At the same time, you can find the following log in log/be.INFO to confirm whether the memory usage of the current process meets expectations. The log is also divided into three parts:
 1. `Process Memory Summary`: process memory statistics.
 2. `Alloc Stacktrace`: The stack that triggers the memory overrun detection, which is not necessarily the location of the large memory application.
-3. `Memory Tracker Summary`: Process memory tracker statistics, refer to [Memory Tracker](./memory-tracker) to analyze the location of memory usage.
+3. `Memory Tracker Summary`: Process memory tracker statistics, refer to [Memory Tracker](./memory-tracker.md) to analyze the location of memory usage.
 Notice:
 1. The printing interval of the process memory overrun log is 1s. After the process memory exceeds the limit, the memory applications in most locations of BE will sense it, and try to make a predetermined callback method, and print the process memory overrun log, so if the log is If the value of Try Alloc is small, you don’t need to pay attention to `Alloc Stacktrace`, just analyze `Memory Tracker Summary` directly.
 2. When the process memory exceeds the limit, BE will trigger memory GC.

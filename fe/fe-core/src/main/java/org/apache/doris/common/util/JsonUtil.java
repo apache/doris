@@ -23,6 +23,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.MapperFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -60,6 +61,17 @@ public class JsonUtil {
             return (ArrayNode) objectMapper.readTree(text);
         } catch (Exception e) {
             throw new RuntimeException("parseArray exception.", e);
+        }
+    }
+
+    /**
+     * Parse json text to ObjectNode
+     **/
+    public static ObjectNode parseObject(String text) {
+        try {
+            return (ObjectNode) objectMapper.readTree(text);
+        } catch (Exception e) {
+            throw new RuntimeException("parseObject exception.", e);
         }
     }
 

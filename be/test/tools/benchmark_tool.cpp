@@ -50,10 +50,8 @@
 #include "olap/tablet_schema.h"
 #include "olap/tablet_schema_helper.h"
 #include "olap/types.h"
-#include "runtime/mem_pool.h"
 #include "testutil/test_util.h"
 #include "util/debug_util.h"
-#include "util/file_utils.h"
 
 DEFINE_string(operation, "Custom",
               "valid operation: Custom, BinaryDictPageEncode, BinaryDictPageDecode, SegmentScan, "
@@ -237,24 +235,15 @@ class SegmentBenchmark : public BaseBenchmark {
 public:
     SegmentBenchmark(const std::string& name, int iterations, const std::string& column_type)
             : BaseBenchmark(name, iterations), _pool() {
-        if (FileUtils::check_exist(kSegmentDir)) {
-            FileUtils::remove_all(kSegmentDir);
-        }
-        FileUtils::create_dir(kSegmentDir);
-
+        io::global_local_filesystem()->delete_and_create_directory(kSegmentDir);
         init_schema(column_type);
     }
     SegmentBenchmark(const std::string& name, int iterations)
             : BaseBenchmark(name, iterations), _pool() {
-        if (FileUtils::check_exist(kSegmentDir)) {
-            FileUtils::remove_all(kSegmentDir);
-        }
-        FileUtils::create_dir(kSegmentDir);
+        io::global_local_filesystem()->delete_and_create_directory(kSegmentDir);
     }
     virtual ~SegmentBenchmark() override {
-        if (FileUtils::check_exist(kSegmentDir)) {
-            FileUtils::remove_all(kSegmentDir);
-        }
+        io::global_local_filesystem()->delete_directory(kSegmentDir);
     }
 
     const Schema& get_schema() { return *_schema; }
@@ -370,7 +359,7 @@ private:
     }
 
 private:
-    MemPool _pool;
+    vectorized::Arena _pool;
     TabletSchema _tablet_schema;
     std::shared_ptr<Schema> _schema;
 }; // namespace doris

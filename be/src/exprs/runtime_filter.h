@@ -17,12 +17,31 @@
 
 #pragma once
 
+#include <fmt/format.h>
+#include <gen_cpp/Exprs_types.h>
+#include <stdint.h>
+
+#include <atomic>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
+#include "runtime/datetime_value.h"
+#include "runtime/decimalv2_value.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/large_int_value.h"
+#include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
+#include "runtime/types.h"
 #include "util/lock.h"
 #include "util/runtime_profile.h"
 #include "util/time.h"
 #include "util/uid_util.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace butil {
 class IOBufAsZeroCopyInputStream;
@@ -42,6 +61,8 @@ class HashJoinNode;
 class RuntimeProfile;
 class BloomFilterFuncBase;
 class BitmapFilterFuncBase;
+class TNetworkAddress;
+class TQueryOptions;
 
 namespace vectorized {
 class VExpr;
@@ -339,6 +360,7 @@ protected:
     std::vector<doris::vectorized::VExpr*> _push_down_vexprs;
 
     struct rpc_context;
+
     std::shared_ptr<rpc_context> _rpc_context;
 
     // parent profile
@@ -411,7 +433,7 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         (*node).__set_large_int_literal(large_int_literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_LARGEINT));
     } else if constexpr ((T == TYPE_DATE) || (T == TYPE_DATETIME) || (T == TYPE_TIME)) {
-        auto origin_value = reinterpret_cast<const doris::DateTimeValue*>(data);
+        auto origin_value = reinterpret_cast<const doris::vectorized::VecDateTimeValue*>(data);
         TDateLiteral date_literal;
         char convert_buffer[30];
         origin_value->to_string(convert_buffer);

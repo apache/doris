@@ -53,8 +53,9 @@ suite("test_javaudf_assertlessthan") {
 
         qt_select """ SELECT asser_lessthan(col_1, col_2)  as a FROM ${tableName} ORDER BY a; """
 
-        sql """ DROP FUNCTION asser_lessthan(double, double); """
+
     } finally {
+        try_sql("DROP FUNCTION IF EXISTS asser_lessthan(double, double);  ")
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
 }

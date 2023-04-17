@@ -21,11 +21,11 @@
 
 #include <iostream>
 
+#include "common/exception.h"
 #include "gen_cpp/data.pb.h"
 #include "util/binary_cast.hpp"
 #include "util/string_parser.hpp"
 #include "vec/common/arena.h"
-#include "vec/common/exception.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
 #include "vec/common/uint128.h"
@@ -94,17 +94,17 @@ void write_text(Decimal<T> value, UInt32 scale, std::ostream& ostr) {
 
 /// Write POD-type in native format. It's recommended to use only with packed (dense) data types.
 template <typename Type>
-inline void write_pod_binary(const Type& x, BufferWritable& buf) {
+void write_pod_binary(const Type& x, BufferWritable& buf) {
     buf.write(reinterpret_cast<const char*>(&x), sizeof(x));
 }
 
 template <typename Type>
-inline void write_int_binary(const Type& x, BufferWritable& buf) {
+void write_int_binary(const Type& x, BufferWritable& buf) {
     write_pod_binary(x, buf);
 }
 
 template <typename Type>
-inline void write_float_binary(const Type& x, BufferWritable& buf) {
+void write_float_binary(const Type& x, BufferWritable& buf) {
     write_pod_binary(x, buf);
 }
 
@@ -143,23 +143,23 @@ inline void write_binary(const StringRef& x, BufferWritable& buf) {
 }
 
 template <typename Type>
-inline void write_binary(const Type& x, BufferWritable& buf) {
+void write_binary(const Type& x, BufferWritable& buf) {
     write_pod_binary(x, buf);
 }
 
 /// Read POD-type in native format
 template <typename Type>
-inline void read_pod_binary(Type& x, BufferReadable& buf) {
+void read_pod_binary(Type& x, BufferReadable& buf) {
     buf.read(reinterpret_cast<char*>(&x), sizeof(x));
 }
 
 template <typename Type>
-inline void read_int_binary(Type& x, BufferReadable& buf) {
+void read_int_binary(Type& x, BufferReadable& buf) {
     read_pod_binary(x, buf);
 }
 
 template <typename Type>
-inline void read_float_binary(Type& x, BufferReadable& buf) {
+void read_float_binary(Type& x, BufferReadable& buf) {
     read_pod_binary(x, buf);
 }
 
@@ -169,7 +169,7 @@ inline void read_string_binary(std::string& s, BufferReadable& buf,
     read_var_uint(size, buf);
 
     if (size > MAX_STRING_SIZE) {
-        throw Exception("Too large string size.", TStatusCode::VEC_EXCEPTION);
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Too large string size.");
     }
 
     s.resize(size);
@@ -182,7 +182,7 @@ inline void read_string_binary(StringRef& s, BufferReadable& buf,
     read_var_uint(size, buf);
 
     if (size > MAX_STRING_SIZE) {
-        throw Exception("Too large string size.", TStatusCode::VEC_EXCEPTION);
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Too large string size.");
     }
 
     s = buf.read(size);
@@ -211,7 +211,7 @@ void read_vector_binary(std::vector<Type>& v, BufferReadable& buf,
     read_var_uint(size, buf);
 
     if (size > MAX_VECTOR_SIZE) {
-        throw Exception("Too large vector size.", TStatusCode::VEC_EXCEPTION);
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Too large vector size.");
     }
 
     v.resize(size);
@@ -227,7 +227,7 @@ inline void read_binary(StringRef& x, BufferReadable& buf) {
 }
 
 template <typename Type>
-inline void read_binary(Type& x, BufferReadable& buf) {
+void read_binary(Type& x, BufferReadable& buf) {
     read_pod_binary(x, buf);
 }
 
@@ -324,16 +324,18 @@ bool read_decimal_text_impl(T& x, ReadBuffer& buf, UInt32 precision, UInt32 scal
                 (const char*)buf.position(), buf.count(), precision, scale, &result);
         // only to match the is_all_read() check to prevent return null
         buf.position() = buf.end();
-        return result != StringParser::PARSE_FAILURE;
+        return result == StringParser::PARSE_SUCCESS || result == StringParser::PARSE_UNDERFLOW;
     } else {
-        auto dv = binary_cast<Int128, DecimalV2Value>(x.value);
-        auto ans = dv.parse_from_str((const char*)buf.position(), buf.count()) == 0;
+        StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
+
+        x.value = StringParser::string_to_decimal<__int128>(buf.position(), buf.count(),
+                                                            DecimalV2Value::PRECISION,
+                                                            DecimalV2Value::SCALE, &result);
 
         // only to match the is_all_read() check to prevent return null
         buf.position() = buf.end();
 
-        x.value = dv.value();
-        return ans;
+        return result == StringParser::PARSE_SUCCESS || result == StringParser::PARSE_UNDERFLOW;
     }
 }
 
@@ -360,7 +362,7 @@ bool try_read_int_text(T& x, ReadBuffer& buf) {
 }
 
 template <typename T>
-static inline const char* try_read_first_int_text(T& x, const char* pos, const char* end) {
+const char* try_read_first_int_text(T& x, const char* pos, const char* end) {
     const int len = end - pos;
     int i = 0;
     while (i < len) {

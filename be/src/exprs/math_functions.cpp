@@ -21,17 +21,14 @@
 #include "exprs/math_functions.h"
 
 #include <stdlib.h>
-
+#include <string.h>
+// IWYU pragma: no_include <bits/std_abs.h>
 #include <cmath>
-#include <iomanip>
-#include <random>
-#include <sstream>
+#include <limits>
 #include <string_view>
 
 #include "common/compiler_util.h"
-#include "runtime/decimalv2_value.h"
-#include "runtime/large_int_value.h"
-#include "util/simd/vstring_function.h"
+#include "udf/udf.h"
 #include "util/string_parser.hpp"
 
 namespace doris {
@@ -100,7 +97,7 @@ double MathFunctions::my_double_round(double value, int64_t dec, bool dec_unsign
     return tmp2;
 }
 
-StringVal MathFunctions::decimal_to_base(FunctionContext* ctx, int64_t src_num, int8_t dest_base) {
+StringRef MathFunctions::decimal_to_base(FunctionContext* ctx, int64_t src_num, int8_t dest_base) {
     // Max number of digits of any base (base 2 gives max digits), plus sign.
     const size_t max_digits = sizeof(uint64_t) * 8 + 1;
     char buf[max_digits];
@@ -127,8 +124,8 @@ StringVal MathFunctions::decimal_to_base(FunctionContext* ctx, int64_t src_num, 
         buf[buf_index] = '-';
         ++result_len;
     }
-    StringVal result = StringVal::create_temp_string_val(ctx, result_len);
-    memcpy(result.ptr, buf + max_digits - result_len, result_len);
+    StringRef result = ctx->create_temp_string_val(result_len);
+    memcpy(const_cast<char*>(result.data), buf + max_digits - result_len, result_len);
     return result;
 }
 

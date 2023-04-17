@@ -17,6 +17,8 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.common.ExperimentalUtil.ExperimentalType;
+
 public class Config extends ConfigBase {
 
     /**
@@ -339,10 +341,50 @@ public class Config extends ConfigBase {
     @ConfField public static long max_bdbje_clock_delta_ms = 5000; // 5s
 
     /**
+     * Whether to enable all http interface authentication
+     */
+    @ConfField public static boolean enable_all_http_auth = false;
+
+    /**
      * Fe http port
      * Currently, all FEs' http port must be same.
      */
     @ConfField public static int http_port = 8030;
+
+    /**
+     * Fe https port
+     * Currently, all FEs' https port must be same.
+     */
+    @ConfField public static int https_port = 8050;
+
+    /**
+     * ssl key store path.
+     * If you want to change the path, you need to create corresponding directory.
+     */
+    @ConfField public static String key_store_path = System.getenv("DORIS_HOME")
+        + "/conf/ssl/doris_ssl_certificate.keystore";
+
+    /**
+     * ssl key store password. Null by default.
+     */
+    @ConfField public static String key_store_password = "";
+
+    /**
+     * ssl key store type. "JKS" by default.
+     */
+    @ConfField public static String key_store_type = "JKS";
+
+    /**
+     * ssl key store alias. "doris_ssl_certificate" by default.
+     */
+    @ConfField public static String key_store_alias = "doris_ssl_certificate";
+
+    /**
+     * https enable flag. false by default.
+     * If the value is false, http is supported. Otherwise, https is supported.
+     * Currently doris uses many ports, so http and https are not supported at the same time.
+     */
+    @ConfField public static boolean enable_https = false;
 
     /**
      * Jetty container default configuration
@@ -821,13 +863,6 @@ public class Config extends ConfigBase {
      * If not set, this specifies the default medium when created.
      */
     @ConfField public static String default_storage_medium = "HDD";
-    /**
-     * When create a table(or partition), you can specify its storage medium(HDD or SSD).
-     * If set to SSD, this specifies the default duration that tablets will stay on SSD.
-     * After that, tablets will be moved to HDD automatically.
-     * You can set storage cooldown time in CREATE TABLE stmt.
-     */
-    @ConfField public static long storage_cooldown_second = 30 * 24 * 3600L; // 30 days
     /**
      * After dropping database(table/partition), you can recover it by using RECOVER stmt.
      * And this specifies the maximal data retention time. After time, the data will be deleted permanently.
@@ -1411,6 +1446,12 @@ public class Config extends ConfigBase {
     public static boolean enable_batch_delete_by_default = true;
 
     /**
+     * Whether to add a version column when create unique table
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_hidden_version_column_by_default = true;
+
+    /**
      * Used to set default db data quota bytes.
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1470,6 +1511,12 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static int grpc_max_message_size_bytes = 2147483647; // 2GB
+
+    /**
+     * num of thread to handle grpc events in grpc_threadmgr
+     */
+    @ConfField
+    public static int grpc_threadmgr_threads_nums = 4096;
 
     /**
      * Used to set minimal number of replication per tablet.
@@ -1686,22 +1733,16 @@ public class Config extends ConfigBase {
      * Default is false.
      * */
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_quantile_state_type = false;
-
-    @ConfField
-    public static boolean enable_vectorized_load = true;
+    public static boolean enable_quantile_state_type = true;
 
     @ConfField
     public static boolean enable_pipeline_load = false;
 
+    @ConfField
+    public static boolean enable_resource_group = false;
+
     @ConfField(mutable = false, masterOnly = true)
     public static int backend_rpc_timeout_ms = 60000; // 1 min
-
-    @ConfField(mutable = true, masterOnly = false)
-    public static long file_scan_node_split_size = 256 * 1024 * 1024; // 256mb
-
-    @ConfField(mutable = true, masterOnly = false)
-    public static long file_scan_node_split_num = 128;
 
     /**
      * If set to TRUE, FE will:
@@ -1762,12 +1803,6 @@ public class Config extends ConfigBase {
     public static long remote_fragment_exec_timeout_ms = 5000; // 5 sec
 
     /**
-     * Temp config, should be removed when new file scan node is ready.
-     */
-    @ConfField(mutable = true)
-    public static boolean enable_new_load_scan_node = true;
-
-    /**
      * Max data version of backends serialize block.
      */
     @ConfField(mutable = false)
@@ -1792,10 +1827,10 @@ public class Config extends ConfigBase {
     public static int statistic_task_scheduler_execution_interval_ms = 1000;
 
     /*
-     * mtmv scheduler framework is still under dev, remove this config when it is graduate.
+     * mtmv is still under dev, remove this config when it is graduate.
      */
-    @ConfField(mutable = true)
-    public static boolean enable_mtmv_scheduler_framework = false;
+    @ConfField(mutable = true, masterOnly = true, expType = ExperimentalType.EXPERIMENTAL)
+    public static boolean enable_mtmv = false;
 
     /* Max running task num at the same time, otherwise the submitted task will still be keep in pending poll*/
     @ConfField(mutable = true, masterOnly = true)
@@ -1817,12 +1852,20 @@ public class Config extends ConfigBase {
     public static boolean keep_scheduler_mtmv_task_when_job_deleted = false;
 
     /**
-     * The candidate of the backend node for federation query such as hive table and es table query.
-     * If the backend of computation role is less than this value, it will acquire some mix backend.
-     * If the computation backend is enough, federation query will only assign to computation backend.
+     * If set to true, query on external table will prefer to assign to compute node.
+     * And the max number of compute node is controlled by min_backend_num_for_external_table.
+     * If set to false, query on external table will assign to any node.
      */
     @ConfField(mutable = true, masterOnly = false)
-    public static int backend_num_for_federation = 3;
+    public static boolean prefer_compute_node_for_external_table = false;
+    /**
+     * Only take effect when prefer_compute_node_for_external_table is true.
+     * If the compute node number is less than this value, query on external table will try to get some mix node
+     * to assign, to let the total number of node reach this value.
+     * If the compute node number is larger than this value, query on external table will assign to compute node only.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static int min_backend_num_for_external_table = 3;
 
     /**
      * Max query profile num.
@@ -1890,6 +1933,13 @@ public class Config extends ConfigBase {
     public static long max_hive_partition_cache_num = 100000;
 
     /**
+     * Max cache loader thread-pool size.
+     * Max thread pool size for loading external meta cache
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static int max_external_cache_loader_thread_pool_size = 10;
+
+    /**
      * Max cache num of external catalog's file
      * Decrease this value if FE's memory is small
      */
@@ -1909,6 +1959,14 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = false, masterOnly = false)
     public static long external_cache_expire_time_minutes_after_access = 24 * 60; // 1 day
+
+    /**
+     * Github workflow test type, for setting some session variables
+     * only for certain test type. E.g. only settting batch_size to small
+     * value for p0.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static String fuzzy_test_type = "";
 
     /**
      * Set session variables randomly to check more issues in github workflow
@@ -1943,7 +2001,7 @@ public class Config extends ConfigBase {
      * When enable_fqdn_mode is true, the name of the pod where be is located will remain unchanged
      * after reconstruction, while the ip can be changed.
      */
-    @ConfField(mutable = false, masterOnly = true)
+    @ConfField(mutable = false, masterOnly = true, expType = ExperimentalType.EXPERIMENTAL)
     public static boolean enable_fqdn_mode = false;
 
     /**
@@ -1978,6 +2036,25 @@ public class Config extends ConfigBase {
     public static int max_error_tablet_of_broker_load = 3;
 
     /**
+     * If set to ture, doris will establish an encrypted channel based on the SSL protocol with mysql.
+     */
+    @ConfField(mutable = false, masterOnly = false, expType = ExperimentalType.EXPERIMENTAL)
+    public static boolean enable_ssl = true;
+
+    /**
+     * Default certificate file location for mysql ssl connection.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static String mysql_ssl_default_certificate = System.getenv("DORIS_HOME")
+            + "/mysql_ssl_default_certificate/certificate.p12";
+
+    /**
+     * Password for default certificate file.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static String mysql_ssl_default_certificate_password = "doris";
+
+    /**
      * Used to set session variables randomly to check more issues in github workflow
      */
     @ConfField(mutable = true)
@@ -2010,5 +2087,33 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = false, masterOnly = false)
     public static String mysql_load_server_secure_path = "";
+
+    @ConfField(mutable = false, masterOnly = false)
+    public static int mysql_load_in_memory_record = 20;
+
+    @ConfField(mutable = false, masterOnly = false)
+    public static int mysql_load_thread_pool = 4;
+
+    /**
+     * BDBJE file logging level
+     * OFF, SEVERE, WARNING, INFO, CONFIG, FINE, FINER, FINEST, ALL
+     */
+    @ConfField
+    public static String bdbje_file_logging_level = "ALL";
+
+    /**
+     * When holding lock time exceeds the threshold, need to report it.
+     */
+    @ConfField
+    public static long lock_reporting_threshold_ms = 500L;
+
+    /**
+     * If false, when select from tables in information_schema database,
+     * the result will not contain the information of the table in external catalog.
+     * This is to avoid query time when external catalog is not reachable.
+     * TODO: this is a temp solution, we should support external catalog in the future.
+     */
+    @ConfField(mutable = true)
+    public static boolean infodb_support_ext_catalog = false;
 }
 

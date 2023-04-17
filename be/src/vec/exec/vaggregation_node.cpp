@@ -20,7 +20,6 @@
 #include <memory>
 
 #include "exec/exec_node.h"
-#include "runtime/mem_pool.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_string.h"
@@ -117,9 +116,6 @@ AggregationNode::AggregationNode(ObjectPool* pool, const TPlanNode& tnode,
             tnode.agg_node.use_fixed_length_serialization_opt;
     _agg_data = std::make_unique<AggregatedDataVariants>();
     _agg_arena_pool = std::make_unique<Arena>();
-    if (_needs_finalize && id() == 27) {
-        LOG(INFO) << "Log for ISSUE-16517: " << _row_descriptor.debug_string();
-    }
 }
 
 AggregationNode::~AggregationNode() = default;
@@ -327,7 +323,7 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
     runtime_profile()->add_info_string("PartitionedHashTableEnabled",
                                        _partitioned_hash_table_enabled ? "true" : "false");
 
-    _mem_pool = std::make_unique<MemPool>();
+    _agg_profile_arena = std::make_unique<Arena>();
 
     int j = _probe_expr_ctxs.size();
     for (int i = 0; i < j; ++i) {
@@ -380,7 +376,7 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
         _agg_data->init(AggregatedDataVariants::Type::without_key);
 
         _agg_data->without_key = reinterpret_cast<AggregateDataPtr>(
-                _mem_pool->allocate(_total_size_of_aggregate_states));
+                _agg_profile_arena->alloc(_total_size_of_aggregate_states));
 
         if (_is_merge) {
             _executor.execute = std::bind<Status>(&AggregationNode::_merge_without_key, this,
@@ -1033,8 +1029,10 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
                         SCOPED_TIMER(_streaming_agg_timer);
                         ret_flag = true;
 
-                        // will serialize value data to string column
-                        bool mem_reuse = out_block->mem_reuse();
+                        // will serialize value data to string column.
+                        // non-nullable column(id in `_make_nullable_keys`)
+                        // will be converted to nullable.
+                        bool mem_reuse = _make_nullable_keys.empty() && out_block->mem_reuse();
 
                         std::vector<DataTypePtr> data_types;
                         MutableColumns value_columns;
@@ -1139,7 +1137,8 @@ Status AggregationNode::_execute_with_serialized_key(Block* block) {
 
 Status AggregationNode::_get_with_serialized_key_result(RuntimeState* state, Block* block,
                                                         bool* eos) {
-    bool mem_reuse = block->mem_reuse();
+    // non-nullable column(id in `_make_nullable_keys`) will be converted to nullable.
+    bool mem_reuse = _make_nullable_keys.empty() && block->mem_reuse();
     auto column_withschema = VectorizedUtils::create_columns_with_type_and_name(_row_descriptor);
     int key_size = _probe_expr_ctxs.size();
 
@@ -1244,7 +1243,8 @@ Status AggregationNode::_serialize_with_serialized_key_result(RuntimeState* stat
     MutableColumns value_columns(agg_size);
     DataTypes value_data_types(agg_size);
 
-    bool mem_reuse = block->mem_reuse();
+    // non-nullable column(id in `_make_nullable_keys`) will be converted to nullable.
+    bool mem_reuse = _make_nullable_keys.empty() && block->mem_reuse();
 
     MutableColumns key_columns;
     for (int i = 0; i < key_size; ++i) {
@@ -1412,7 +1412,7 @@ void AggregationNode::release_tracker() {
 void AggregationNode::_release_mem() {
     _agg_data = nullptr;
     _aggregate_data_container = nullptr;
-    _mem_pool = nullptr;
+    _agg_profile_arena = nullptr;
     _agg_arena_pool = nullptr;
     _preagg_block.clear();
 

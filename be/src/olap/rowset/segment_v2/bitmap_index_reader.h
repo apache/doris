@@ -40,7 +40,7 @@ public:
     explicit BitmapIndexReader(io::FileReaderSPtr file_reader,
                                const BitmapIndexPB* bitmap_index_meta)
             : _file_reader(std::move(file_reader)),
-              _type_info(get_scalar_type_info<OLAP_FIELD_TYPE_VARCHAR>()),
+              _type_info(get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_VARCHAR>()),
               _bitmap_index_meta(bitmap_index_meta) {}
 
     Status load(bool use_page_cache, bool kept_in_memory);

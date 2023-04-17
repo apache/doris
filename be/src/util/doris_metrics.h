@@ -139,8 +139,8 @@ public:
     IntGauge* tablet_cumulative_max_compaction_score;
     IntGauge* tablet_base_max_compaction_score;
 
-    IntGauge* all_rowset_nums;
-    IntGauge* all_segment_nums;
+    IntGauge* all_rowsets_num;
+    IntGauge* all_segments_num;
 
     // permits have been used for all compaction tasks
     IntGauge* compaction_used_permits;
@@ -208,6 +208,7 @@ public:
 
     IntCounter* tablet_schema_cache_count;
     UIntGauge* tablet_schema_cache_memory_bytes;
+    IntGauge* lru_cache_memory_bytes;
 
     UIntGauge* scanner_thread_pool_queue_size;
     UIntGauge* add_batch_task_queue_size;
@@ -221,6 +222,16 @@ public:
     UIntGauge* upload_total_byte;
     IntCounter* upload_rowset_count;
     IntCounter* upload_fail_count;
+
+    UIntGauge* light_work_pool_queue_size;
+    UIntGauge* heavy_work_pool_queue_size;
+    UIntGauge* heavy_work_active_threads;
+    UIntGauge* light_work_active_threads;
+
+    UIntGauge* heavy_work_pool_max_queue_size;
+    UIntGauge* light_work_pool_max_queue_size;
+    UIntGauge* heavy_work_max_threads;
+    UIntGauge* light_work_max_threads;
 
     static DorisMetrics* instance() {
         static DorisMetrics instance;

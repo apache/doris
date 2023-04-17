@@ -153,11 +153,4 @@ public class LikePredicate extends Predicate {
     public int hashCode() {
         return 31 * super.hashCode() + Objects.hashCode(op);
     }
-
-    @Override
-    public void finalizeImplForNereids() throws AnalysisException {
-        super.finalizeImplForNereids();
-        fn = getBuiltinFunction(op.toString(), collectChildReturnTypes(),
-                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-    }
 }

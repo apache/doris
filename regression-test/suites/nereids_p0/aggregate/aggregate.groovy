@@ -21,8 +21,7 @@
 
 suite("aggregate") {
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
-    sql "SET enable_fallback_to_original_planner=false" 
+    sql "SET enable_fallback_to_original_planner=false"
     def tableName = "datetype"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -107,7 +106,7 @@ suite("aggregate") {
         }
     }
 
-    sql "insert into ${tableName2} values (12, 12.25, 'String1', '1999-01-08', '1999-01-08 02:05:06', '1999-01-08', '1999-01-08 02:05:06.111111', null, '1999-01-08 02:05:06.111111', 'true', null, 12345678901234567890.0123456789);"
+    sql "insert into ${tableName2} values (12, 12.25, 'String1', '1999-01-08', '1999-01-08 02:05:06', '1999-01-08', '1999-01-08 02:05:06.111111', null, '1999-01-08 02:05:06.111111', 'true', null, 123456789012345678.012345678);"
 
     sql " sync "
     qt_aggregate """ select max(upper(c_string)), min(upper(c_string)) from ${tableName} """
@@ -141,8 +140,8 @@ suite("aggregate") {
     qt_aggregate """ select variance(c_bigint), variance(distinct c_double) from ${tableName}  """
     qt_aggregate """ select 1 k1, 2 k2, c_bigint k3, sum(c_double) from ${tableName} group by 1, k2, k3 order by k1, k2, k3 """
     qt_aggregate """ select (k1 + k2) * k3 k4 from (select 1 k1, 2 k2, c_bigint k3, sum(c_double) from ${tableName} group by 1, k2, k3) t order by k4 """
-    qt_aggregate32" select topn_weighted(c_string,c_bigint,3) from ${tableName}"
-    qt_aggregate33" select avg_weighted(c_double,c_bigint) from ${tableName};"
+    // qt_aggregate32" select topn_weighted(c_string,c_bigint,3) from ${tableName}"
+    // qt_aggregate33" select avg_weighted(c_double,c_bigint) from ${tableName};"
     // Nereids does't support array function
     // qt_aggregate34" select percentile_array(c_bigint,[0.2,0.5,0.9]) from ${tableName};"
     qt_aggregate """

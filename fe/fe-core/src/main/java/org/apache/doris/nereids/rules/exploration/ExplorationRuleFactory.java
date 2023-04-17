@@ -17,13 +17,14 @@
 
 package org.apache.doris.nereids.rules.exploration;
 
+import org.apache.doris.nereids.pattern.GeneratedMemoPatterns;
 import org.apache.doris.nereids.rules.PlanRuleFactory;
 import org.apache.doris.nereids.rules.RulePromise;
 
 /**
  * interface for all exploration rule factories.
  */
-public interface ExplorationRuleFactory extends PlanRuleFactory {
+public interface ExplorationRuleFactory extends PlanRuleFactory, GeneratedMemoPatterns {
     @Override
     default RulePromise defaultPromise() {
         return RulePromise.EXPLORE;

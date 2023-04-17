@@ -141,8 +141,8 @@ EXPORT TABLE test TO "s3://bucket/path/to/export/dir/" WITH S3  (
 ```
 
 - `AWS_ACCESS_KEY`/`AWS_SECRET_KEY`：是您访问对象存储的ACCESS_KEY/SECRET_KEY
-- `AWS_ENDPOINT`：表示对象存储数据中心所在的地域.
-- `AWS_REGION`：Endpoint表示对象存储对外服务的访问域名.
+- `AWS_ENDPOINT`：Endpoint表示对象存储对外服务的访问域名.
+- `AWS_REGION`：表示对象存储数据中心所在的地域.
 
 
 ### 查看导出状态
@@ -232,4 +232,4 @@ WHERE LABEL like "%example%";
 
 ## 更多帮助
 
-关于 Export 使用的更多详细语法及最佳实践，请参阅 [Export](../../sql-manual/sql-reference/Show-Statements/SHOW-EXPORT.md) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP EXPORT` 获取更多帮助信息。
+关于 Export 使用的更多详细语法及最佳实践，请参阅 [Export](../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/EXPORT.md) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP EXPORT` 获取更多帮助信息。

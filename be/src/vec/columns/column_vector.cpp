@@ -33,7 +33,6 @@
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/bit_cast.h"
-#include "vec/common/exception.h"
 #include "vec/common/nan_utils.h"
 #include "vec/common/sip_hash.h"
 #include "vec/common/unaligned.h"
@@ -177,7 +176,7 @@ void ColumnVector<T>::update_crcs_with_value(std::vector<uint64_t>& hashes, Prim
         if (type == TYPE_DATE || type == TYPE_DATETIME) {
             char buf[64];
             auto date_convert_do_crc = [&](size_t i) {
-                const DateTimeValue& date_val = (const DateTimeValue&)data[i];
+                const VecDateTimeValue& date_val = (const VecDateTimeValue&)data[i];
                 auto len = date_val.to_buffer(buf);
                 hashes[i] = HashUtil::zlib_crc_hash(buf, len, hashes[i]);
             };
@@ -188,7 +187,9 @@ void ColumnVector<T>::update_crcs_with_value(std::vector<uint64_t>& hashes, Prim
                 }
             } else {
                 for (size_t i = 0; i < s; i++) {
-                    if (null_data[i] == 0) date_convert_do_crc(i);
+                    if (null_data[i] == 0) {
+                        date_convert_do_crc(i);
+                    }
                 }
             }
         } else {
@@ -438,6 +439,62 @@ ColumnPtr ColumnVector<T>::filter(const IColumn::Filter& filt, ssize_t result_si
     }
 
     return res;
+}
+
+template <typename T>
+size_t ColumnVector<T>::filter(const IColumn::Filter& filter) {
+    size_t size = data.size();
+    if (size != filter.size()) {
+        LOG(FATAL) << "Size of filter doesn't match size of column. data size: " << size
+                   << ", filter size: " << filter.size() << get_stack_trace();
+    }
+
+    const UInt8* filter_pos = filter.data();
+    const UInt8* filter_end = filter_pos + size;
+    T* data_pos = data.data();
+    T* result_data = data_pos;
+
+    /** A slightly more optimized version.
+        * Based on the assumption that often pieces of consecutive values
+        *  completely pass or do not pass the filter.
+        * Therefore, we will optimistically check the parts of `SIMD_BYTES` values.
+        */
+    static constexpr size_t SIMD_BYTES = 32;
+    const UInt8* filter_end_sse = filter_pos + size / SIMD_BYTES * SIMD_BYTES;
+
+    while (filter_pos < filter_end_sse) {
+        uint32_t mask = simd::bytes32_mask_to_bits32_mask(filter_pos);
+
+        if (0xFFFFFFFF == mask) {
+            memmove(result_data, data_pos, sizeof(T) * SIMD_BYTES);
+            result_data += SIMD_BYTES;
+        } else {
+            while (mask) {
+                const size_t idx = __builtin_ctzll(mask);
+                *result_data = data_pos[idx];
+                ++result_data;
+                mask = mask & (mask - 1);
+            }
+        }
+
+        filter_pos += SIMD_BYTES;
+        data_pos += SIMD_BYTES;
+    }
+
+    while (filter_pos < filter_end) {
+        if (*filter_pos) {
+            *result_data = *data_pos;
+            ++result_data;
+        }
+
+        ++filter_pos;
+        ++data_pos;
+    }
+
+    const auto new_size = result_data - data.data();
+    resize(new_size);
+
+    return new_size;
 }
 
 template <typename T>

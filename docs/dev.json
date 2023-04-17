@@ -267,6 +267,10 @@
     "message": "用户权限及认证",
     "description": "The label for category User Privilege and Ldap in sidebar docs"
   },
+  "sidebar.docs.category.System Table": {
+    "message": "System Table",
+    "description": "The label for category System Table in sidebar docs"
+  },
   "sidebar.docs.category.HTTP API": {
     "message": "HTTP API",
     "description": "The label for category HTTP API in sidebar docs"
@@ -275,9 +279,9 @@
     "message": "FE",
     "description": "The label for category FE in sidebar docs"
   },
-  "sidebar.docs.category.MANAGER": {
-    "message": "MANAGER",
-    "description": "The label for category MANAGER in sidebar docs"
+  "sidebar.docs.category.BE": {
+    "message": "BE",
+    "description": "The label for category BE in sidebar docs"
   },
   "sidebar.docs.category.FAQ": {
     "message": "常见问题",

@@ -45,7 +45,7 @@ public class QueryProfileController extends BaseController {
 
     private static final String ID = "id";
     private static final String DETAIL_COL = "Detail";
-    private static final Set<String> QUERY_ID_TYPES = ImmutableSet.of("Query", "Insert");
+    private static final Set<String> QUERY_ID_TYPES = ImmutableSet.of("Query", "Load");
 
     @RequestMapping(path = "/query_profile/{" + ID + "}", method = RequestMethod.GET)
     public Object profile(@PathVariable(value = ID) String id) {
@@ -69,7 +69,9 @@ public class QueryProfileController extends BaseController {
 
     private void addFinishedQueryInfo(Map<String, Object> result) {
         List<List<String>> finishedQueries = ProfileManager.getInstance().getAllQueries();
-        List<String> columnHeaders = Lists.newLinkedList(ProfileManager.PROFILE_HEADERS);
+        List<String> columnHeaders = Lists.newLinkedList();
+        columnHeaders.addAll(ProfileManager.PROFILE_HEADERS);
+        columnHeaders.addAll(ProfileManager.EXECUTION_HEADERS);
         int jobIdIndex = -1;
         int queryIdIndex = -1;
         int queryTypeIndex = -1;

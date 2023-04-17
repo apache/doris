@@ -24,6 +24,7 @@
 #include <memory>
 
 #include "gen_cpp/data.pb.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/common/cow.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/core/types.h"
@@ -66,6 +67,9 @@ public:
 
     /// Data type id. It's used for runtime type checks.
     virtual TypeIndex get_type_id() const = 0;
+
+    virtual PrimitiveType get_type_as_primitive_type() const = 0;
+    virtual TPrimitiveType::type get_type_as_tprimitive_type() const = 0;
 
     virtual void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const;
     virtual std::string to_string(const IColumn& column, size_t row_num) const;
@@ -224,6 +228,9 @@ public:
       */
     virtual bool only_null() const { return false; }
 
+    /* the data type create from type_null, NULL literal*/
+    virtual bool is_null_literal() const { return false; }
+
     /** If this data type cannot be wrapped in Nullable data type.
       */
     virtual bool can_be_inside_nullable() const { return false; }
@@ -315,6 +322,7 @@ struct WhichDataType {
     bool is_uuid() const { return idx == TypeIndex::UUID; }
     bool is_array() const { return idx == TypeIndex::Array; }
     bool is_tuple() const { return idx == TypeIndex::Tuple; }
+    bool is_struct() const { return idx == TypeIndex::Struct; }
     bool is_map() const { return idx == TypeIndex::Map; }
     bool is_set() const { return idx == TypeIndex::Set; }
     bool is_interval() const { return idx == TypeIndex::Interval; }
@@ -367,58 +375,58 @@ inline bool is_nothing(const DataTypePtr& data_type) {
 }
 
 template <typename T>
-inline bool is_uint8(const T& data_type) {
+bool is_uint8(const T& data_type) {
     return WhichDataType(data_type).is_uint8();
 }
 
 template <typename T>
-inline bool is_unsigned_integer(const T& data_type) {
+bool is_unsigned_integer(const T& data_type) {
     return WhichDataType(data_type).is_uint();
 }
 
 template <typename T>
-inline bool is_integer(const T& data_type) {
+bool is_integer(const T& data_type) {
     WhichDataType which(data_type);
     return which.is_int() || which.is_uint();
 }
 
 template <typename T>
-inline bool is_float(const T& data_type) {
+bool is_float(const T& data_type) {
     WhichDataType which(data_type);
     return which.is_float();
 }
 
 template <typename T>
-inline bool is_native_number(const T& data_type) {
+bool is_native_number(const T& data_type) {
     WhichDataType which(data_type);
     return which.is_native_int() || which.is_native_uint() || which.is_float();
 }
 
 template <typename T>
-inline bool is_number(const T& data_type) {
+bool is_number(const T& data_type) {
     WhichDataType which(data_type);
     return which.is_int() || which.is_uint() || which.is_float() || which.is_decimal();
 }
 
 template <typename T>
-inline bool is_columned_as_number(const T& data_type) {
+bool is_columned_as_number(const T& data_type) {
     WhichDataType which(data_type);
     return which.is_int() || which.is_uint() || which.is_float() || which.is_date_or_datetime() ||
            which.is_uuid() || which.is_date_v2_or_datetime_v2();
 }
 
 template <typename T>
-inline bool is_string(const T& data_type) {
+bool is_string(const T& data_type) {
     return WhichDataType(data_type).is_string();
 }
 
 template <typename T>
-inline bool is_fixed_string(const T& data_type) {
+bool is_fixed_string(const T& data_type) {
     return WhichDataType(data_type).is_fixed_string();
 }
 
 template <typename T>
-inline bool is_string_or_fixed_string(const T& data_type) {
+bool is_string_or_fixed_string(const T& data_type) {
     return WhichDataType(data_type).is_string_or_fixed_string();
 }
 
@@ -429,6 +437,11 @@ inline bool is_not_decimal_but_comparable_to_decimal(const DataTypePtr& data_typ
 
 inline bool is_compilable_type(const DataTypePtr& data_type) {
     return data_type->is_value_represented_by_number() && !is_decimal(data_type);
+}
+
+inline bool is_complex_type(const DataTypePtr& data_type) {
+    WhichDataType which(data_type);
+    return which.is_array() || which.is_map() || which.is_struct();
 }
 
 } // namespace vectorized

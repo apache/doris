@@ -183,7 +183,19 @@ public:
                                                        dst_nested_col->get_data().data());
             }
         } else if (left_exec_data.nested_col->is_column_decimal()) {
-            if (check_column<ColumnDecimal128>(*left_exec_data.nested_col)) {
+            if (check_column<ColumnDecimal32>(*left_exec_data.nested_col)) {
+                ret = _execute_internal<ColumnDecimal32>(left_exec_data, right_exec_data,
+                                                         dst_null_map_data,
+                                                         dst_nested_col->get_data().data());
+            } else if (check_column<ColumnDecimal64>(*left_exec_data.nested_col)) {
+                ret = _execute_internal<ColumnDecimal64>(left_exec_data, right_exec_data,
+                                                         dst_null_map_data,
+                                                         dst_nested_col->get_data().data());
+            } else if (check_column<ColumnDecimal128I>(*left_exec_data.nested_col)) {
+                ret = _execute_internal<ColumnDecimal128I>(left_exec_data, right_exec_data,
+                                                           dst_null_map_data,
+                                                           dst_nested_col->get_data().data());
+            } else if (check_column<ColumnDecimal128>(*left_exec_data.nested_col)) {
                 ret = _execute_internal<ColumnDecimal128>(left_exec_data, right_exec_data,
                                                           dst_null_map_data,
                                                           dst_nested_col->get_data().data());

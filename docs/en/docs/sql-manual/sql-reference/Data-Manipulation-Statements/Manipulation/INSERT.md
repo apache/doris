@@ -126,12 +126,10 @@ Since the previous import methods of Doris are all asynchronous import methods, 
 
       If the result set of the insert corresponding to the select statement is empty, it will return as follows:
 
-      
-
       ```sql
       mysql> insert into tbl1 select * from empty_tbl;
       Query OK, 0 rows affected (0.02 sec)
-      ````
+      ```
 
       `Query OK` indicates successful execution. `0 rows affected` means that no data was imported.
 
@@ -140,8 +138,6 @@ Since the previous import methods of Doris are all asynchronous import methods, 
       In the case where the result set is not empty. The returned results are divided into the following situations:
 
       1. Insert executes successfully and is visible:
-
-         
 
          ```sql
          mysql> insert into tbl1 select * from tbl2;
@@ -165,8 +161,6 @@ Since the previous import methods of Doris are all asynchronous import methods, 
 
          Also returns a json string:
 
-         
-
          ````json
          {'label':'my_label1', 'status':'visible', 'txnId':'4005'}
          {'label':'insert_f0747f0e-7a35-46e2-affa-13a235f4020d', 'status':'committed', 'txnId':'4005'}
@@ -183,8 +177,6 @@ Since the previous import methods of Doris are all asynchronous import methods, 
 
          When you need to view the filtered rows, the user can pass the following statement
 
-         
-
          ```sql
          show load where label="xxx";
          ````
@@ -194,8 +186,6 @@ Since the previous import methods of Doris are all asynchronous import methods, 
          **Invisibility of data is a temporary state, this batch of data will eventually be visible**
 
          You can view the visible status of this batch of data with the following statement:
-
-         
 
          ```sql
          show transaction where id=4005;
@@ -207,16 +197,12 @@ Since the previous import methods of Doris are all asynchronous import methods, 
 
       Execution failure indicates that no data was successfully imported, and the following is returned:
 
-      
-
       ```sql
       mysql> insert into tbl1 select * from tbl2 where k1 = "a";
       ERROR 1064 (HY000): all partitions have no load data. url: http://10.74.167.16:8042/api/_load_error_log?file=__shard_2/error_log_insert_stmt_ba8bb9e158e4879-ae8de8507c0bf8a2_ba8bb9e158e4879_ae8de8507c0
-      ````
+      ```
 
       Where `ERROR 1064 (HY000): all partitions have no load data` shows the reason for the failure. The following url can be used to query the wrong data:
-
-      
 
       ```sql
       show load warnings on "url";
@@ -226,6 +212,7 @@ Since the previous import methods of Doris are all asynchronous import methods, 
 
 2. Timeout time
 
+   <version since="dev"></version>
    The timeout for INSERT operations is controlled by [session variable](../../../../advanced/variables.md) `insert_timeout`. The default is 4 hours. If it times out, the job will be canceled.
 
 3. Label and atomicity

@@ -163,4 +163,4 @@ ERROR 1064 (HY000): errCode = 2, detailMessage = Open broker writer failed ...
 
 ## More Help
 
-For more detailed syntax and best practices for using OUTFILE, please refer to the [OUTFILE](../../../sql-manual/sql-reference/Data-Manipulation-Statements/OUTFILE) command manual, you can also More help information can be obtained by typing `HELP OUTFILE` at the command line of the MySql client.
+For more detailed syntax and best practices for using OUTFILE, please refer to the [OUTFILE](../../sql-manual/sql-reference/Data-Manipulation-Statements/OUTFILE.md) command manual, you can also More help information can be obtained by typing `HELP OUTFILE` at the command line of the MySql client.

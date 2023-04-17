@@ -47,7 +47,7 @@ set (UDF_TEST_LINK_LIBS
   -lboost_date_time
   gtest)
   
-set_target_properties(DorisUdf PROPERTIES PUBLIC_HEADER "udf.h;uda_test_harness.h")
+set_target_properties(DorisUdf PROPERTIES PUBLIC_HEADER "udf.h")
 INSTALL(TARGETS DorisUdf
         ARCHIVE DESTINATION ${OUTPUT_DIR}/udf
         LIBRARY DESTINATION ${OUTPUT_DIR}/udf/lib

@@ -66,6 +66,11 @@ public class BackendsAction extends RestBaseController {
 
     @RequestMapping(path = "/api/backends", method = {RequestMethod.GET})
     public Object getBackends(HttpServletRequest request, HttpServletResponse response) {
+        /**
+         * As required, the interface should require user have GlobalAuth-PrivPredicate.ADMIN permission.
+         * However, a user who uses spark-doris-connector/flink-doris-connector does not have corresponding permission.
+         * To ensure that the connector works properly, we do not verify the permission of the interface.
+         */
         executeCheckPassword(request, response);
 
         boolean needAlive = false;

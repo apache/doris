@@ -17,8 +17,7 @@
 
 suite("test_query_sys_data_type", 'query,p0') {
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
-    sql "SET enable_fallback_to_original_planner=false" 
+    sql "SET enable_fallback_to_original_planner=false"
     def tbName = "test_data_type"
     def dbName = "test_query_db"
     sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
@@ -31,4 +30,21 @@ suite("test_query_sys_data_type", 'query,p0') {
     """
 
     qt_sql "select column_name, data_type from information_schema.columns where table_schema = '${dbName}' and table_name = '${tbName}'"
+
+    sql """ DROP TABLE IF EXISTS array_test """
+    sql """
+        CREATE TABLE `array_test` (
+        `id` int(11) NULL COMMENT "",
+        `c_array` ARRAY<int(11)> NULL COMMENT ""
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`)
+        COMMENT "OLAP"
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2"
+        )
+    """
+    qt_sql "select column_name, data_type from information_schema.columns where table_schema = '${dbName}' and table_name = 'array_test'"
 }

@@ -24,6 +24,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 
 import java.util.HashMap;
 import java.util.List;
@@ -34,6 +35,9 @@ public class IndexDef {
     private String indexName;
     private boolean ifNotExists;
     private List<String> columns;
+    // add the column name of olapTable column into caseSensitivityColumns
+    // instead of the column name which from sql_parser analyze
+    private List<String> caseSensitivityColumns = Lists.newArrayList();
     private IndexType indexType;
     private String comment;
     private Map<String, String> properties;
@@ -142,6 +146,9 @@ public class IndexDef {
     }
 
     public List<String> getColumns() {
+        if (caseSensitivityColumns.size() > 0) {
+            return caseSensitivityColumns;
+        }
         return columns;
     }
 
@@ -172,10 +179,12 @@ public class IndexDef {
         return (this.indexType == IndexType.INVERTED);
     }
 
-    public void checkColumn(Column column, KeysType keysType) throws AnalysisException {
+    public void checkColumn(Column column, KeysType keysType, boolean enableUniqueKeyMergeOnWrite)
+            throws AnalysisException {
         if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED || indexType == IndexType.BLOOMFILTER
                 || indexType == IndexType.NGRAM_BF) {
             String indexColName = column.getName();
+            caseSensitivityColumns.add(indexColName);
             PrimitiveType colType = column.getDataType();
             if (indexType == IndexType.INVERTED && colType.isArrayType()) {
                 colType = ((ArrayType) column.getType()).getItemType().getPrimitiveType();
@@ -184,10 +193,17 @@ public class IndexDef {
                     || colType.isFixedPointType() || colType.isStringType() || colType == PrimitiveType.BOOLEAN)) {
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString() + " index. "
                         + "invalid column: " + indexColName);
-            } else if ((keysType == KeysType.AGG_KEYS && !column.isKey())) {
+            } else if (indexType == IndexType.INVERTED
+                    && ((keysType == KeysType.AGG_KEYS && !column.isKey())
+                        || (keysType == KeysType.UNIQUE_KEYS && !enableUniqueKeyMergeOnWrite))) {
                 throw new AnalysisException(indexType.toString()
-                        + " index only used in columns of DUP_KEYS/UNIQUE_KEYS table or key columns of"
-                                + " AGG_KEYS table. invalid column: " + indexColName);
+                    + " index only used in columns of DUP_KEYS table"
+                    + " or UNIQUE_KEYS table with merge_on_write enabled"
+                    + " or key columns of AGG_KEYS table. invalid column: " + indexColName);
+            } else if (keysType == KeysType.AGG_KEYS && !column.isKey() && indexType != IndexType.INVERTED) {
+                throw new AnalysisException(indexType.toString()
+                    + " index only used in columns of DUP_KEYS/UNIQUE_KEYS table or key columns of"
+                    + " AGG_KEYS table. invalid column: " + indexColName);
             }
 
             if (indexType == IndexType.INVERTED) {
@@ -220,14 +236,6 @@ public class IndexDef {
             }
         } else {
             throw new AnalysisException("Unsupported index type: " + indexType);
-        }
-    }
-
-    public void checkColumns(List<Column> columns, KeysType keysType) throws AnalysisException {
-        if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED || indexType == IndexType.BLOOMFILTER) {
-            for (Column col : columns) {
-                checkColumn(col, keysType);
-            }
         }
     }
 }

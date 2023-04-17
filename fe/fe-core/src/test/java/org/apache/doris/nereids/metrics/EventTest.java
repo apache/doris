@@ -79,6 +79,11 @@ public class EventTest extends TestWithFeService {
     }
 
     @Override
+    protected void runBeforeEach() throws Exception {
+        CounterEvent.clearCounter();
+    }
+
+    @Override
     public void runAfterAll() {
         channel.stop();
         Assertions.assertEquals(

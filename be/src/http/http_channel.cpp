@@ -20,16 +20,19 @@
 #include <event2/buffer.h>
 #include <event2/http.h>
 
-#include <mutex>
+#include <algorithm>
 #include <sstream>
 #include <string>
+#include <vector>
 
 #include "common/logging.h"
+#include "common/status.h"
 #include "gutil/strings/split.h"
+#include "gutil/strings/strip.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
-#include "http/http_response.h"
 #include "http/http_status.h"
+#include "util/slice.h"
 #include "util/zlib.h"
 
 namespace doris {

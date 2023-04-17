@@ -1,7 +1,7 @@
 ---
 {
     "title": "to_monday",
-    "language": "en"
+    "language": "zh-CN"
 }
 ---
 

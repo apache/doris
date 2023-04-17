@@ -29,12 +29,12 @@
 
 namespace doris {
 
-static inline uint8_t bits_less_than_64(const uint64_t v) {
+inline uint8_t bits_less_than_64(const uint64_t v) {
     return v == 0 ? 0 : 64 - __builtin_clzll(v);
 }
 
 // See https://stackoverflow.com/questions/28423405/counting-the-number-of-leading-zeros-in-a-128-bit-integer
-static inline uint8_t bits_may_more_than_64(const uint128_t v) {
+inline uint8_t bits_may_more_than_64(const uint128_t v) {
     uint64_t hi = v >> 64;
     uint64_t lo = v;
     int z[3] = {__builtin_clzll(hi), __builtin_clzll(lo) + 64, 128};
@@ -43,7 +43,7 @@ static inline uint8_t bits_may_more_than_64(const uint128_t v) {
 }
 
 template <typename T>
-static inline uint8_t bits(const T v) {
+uint8_t bits(const T v) {
     if (sizeof(T) <= 8) {
         return bits_less_than_64(v);
     } else {

@@ -89,16 +89,23 @@ HeartbeatFailureCounter: 0
 ```
 
 ### 使用
-当查询时使用[MultiCatalog](../lakehouse/multi-catalog/multi-catalog)功能时, 查询会优先调度到计算节点, 为了均衡任务调度, FE有一个`backend_num_for_federation`配置项, 默认是3.
-当执行联邦查询时, 优化器会选取`backend_num_for_federation`给调度器备选, 由调取器决定具体在哪个节点执行, 防止查询任务倾斜.
-当计算节点个数小于`backend_num_for_federation`时, 会随机选择混合节点补齐个数;当计算节点大于`backend_num_for_federation`, 那么联邦查询任务只会在计算节点执行.
 
+在 fe.conf 中添加配置项
+
+```
+prefer_compute_node_for_external_table=true
+min_backend_num_for_external_table=3
+```
+
+> 参数说明请参阅：[FE 配置项](../admin-manual/config/fe-config.md)
+
+当查询时使用[MultiCatalog](../lakehouse/multi-catalog/multi-catalog.md)功能时, 查询会优先调度到计算节点。
 
 ### 一些限制
-- 计算节点目前只支持[MultiCatalog](../lakehouse/multi-catalog/multi-catalog)对应的Hive MetaStore表类型查询语法, 普通外表的计算依然在混合节点上.
+
 - 计算节点由配置项控制, 但不要将混合类型节点, 修改配置为计算节点.
 
-
 ## 未尽事项
+
 - 计算外溢: Doris内表查询, 当集群负载高的时候, 上层(TableScan之外)算子调度到计算节点中.
 - 优雅下线: 当节点下线的时候, 任务新任务自动调度到其他节点; 等待老任务后全部完成后节点再下线; 老任务无法按时结束时, 能够让任务能够自己结束.

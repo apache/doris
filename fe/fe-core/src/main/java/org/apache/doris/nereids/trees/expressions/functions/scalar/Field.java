@@ -27,6 +27,7 @@ import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -57,6 +58,7 @@ public class Field extends ScalarFunction
             FunctionSignature.ret(IntegerType.INSTANCE).varArgs(FloatType.INSTANCE),
             FunctionSignature.ret(IntegerType.INSTANCE).varArgs(DoubleType.INSTANCE),
             FunctionSignature.ret(IntegerType.INSTANCE).varArgs(DecimalV2Type.SYSTEM_DEFAULT),
+            FunctionSignature.ret(IntegerType.INSTANCE).varArgs(DecimalV3Type.WILDCARD),
             FunctionSignature.ret(IntegerType.INSTANCE).varArgs(DateV2Type.INSTANCE),
             FunctionSignature.ret(IntegerType.INSTANCE).varArgs(DateTimeV2Type.SYSTEM_DEFAULT),
             FunctionSignature.ret(IntegerType.INSTANCE).varArgs(VarcharType.SYSTEM_DEFAULT),

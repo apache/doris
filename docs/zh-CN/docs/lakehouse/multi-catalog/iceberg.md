@@ -31,13 +31,12 @@ under the License.
 
 1. 支持 Iceberg V1/V2 表格式。
 2. V2 格式仅支持 Position Delete 方式，不支持 Equality Delete。
-3. 目前仅支持 Hive Metastore 类型的 Catalog。所以使用方式和 Hive Catalog 基本一致。
 
 ## 创建 Catalog
 
 ### 基于Hive Metastore创建Catalog
 
-和 Hive Catalog 基本一致，这里仅给出简单示例。其他示例可参阅 [Hive Catalog](./hive)。
+和 Hive Catalog 基本一致，这里仅给出简单示例。其他示例可参阅 [Hive Catalog](./hive.md)。
 
 ```sql
 CREATE CATALOG iceberg PROPERTIES (
@@ -52,6 +51,11 @@ CREATE CATALOG iceberg PROPERTIES (
 );
 ```
 
+> `specified_database_list`:
+> 
+> 支持只同步指定的同步多个database，以','分隔。默认为''，同步所有database。db名称是大小写敏感的。
+> 
+
 ### 基于Iceberg API创建Catalog
 
 <version since="dev">
@@ -60,7 +64,7 @@ CREATE CATALOG iceberg PROPERTIES (
 
 </version>
 
-- Hive Metastore作为元数据服务
+#### Hive Metastore作为元数据服务
 
 ```sql
 CREATE CATALOG iceberg PROPERTIES (
@@ -75,6 +79,28 @@ CREATE CATALOG iceberg PROPERTIES (
     'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
 );
 ```
+
+#### Glue Catalog作为元数据服务
+
+```sql
+CREATE CATALOG glue PROPERTIES (
+"type"="iceberg",
+"iceberg.catalog.type" = "glue",
+"glue.endpoint" = "https://glue.us-east-1.amazonaws.com",
+"warehouse" = "s3://bucket/warehouse",
+"AWS_ENDPOINT" = "s3.us-east-1.amazonaws.com",
+"AWS_REGION" = "us-east-1",
+"AWS_ACCESS_KEY" = "ak",
+"AWS_SECRET_KEY" = "sk",
+"use_path_style" = "true"
+);
+```
+
+`glue.endpoint`: Glue Endpoint. 参阅：[AWS Glue endpoints and quotas](https://docs.aws.amazon.com/general/latest/gr/glue.html).
+
+`warehouse`: Glue Warehouse Location. Glue Catalog的根路径，用于指定数据存放位置。
+
+属性详情参见 [Iceberg Glue Catalog](https://iceberg.apache.org/docs/latest/aws/#glue-catalog)
 
 - REST Catalog作为元数据服务
 
@@ -100,11 +126,11 @@ CREATE CATALOG iceberg PROPERTIES (
 
 ## 列类型映射
 
-和 Hive Catalog 一致，可参阅 [Hive Catalog](./hive) 中 **列类型映射** 一节。
+和 Hive Catalog 一致，可参阅 [Hive Catalog](./hive.md) 中 **列类型映射** 一节。
 
 ## Time Travel
 
-<version since="dev">
+<version since="1.2.2">
 
 支持读取 Iceberg 表指定的 Snapshot。
 

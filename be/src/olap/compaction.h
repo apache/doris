@@ -64,7 +64,7 @@ protected:
     Status do_compaction(int64_t permits);
     Status do_compaction_impl(int64_t permits);
 
-    virtual Status modify_rowsets();
+    virtual Status modify_rowsets(const Merger::Statistics* stats = nullptr);
     void gc_output_rowset();
 
     Status construct_output_rowset_writer(bool is_vertical = false);

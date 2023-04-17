@@ -18,13 +18,13 @@
 package org.apache.doris.nereids.parser;
 
 import org.apache.doris.nereids.util.ExpressionParseChecker;
-import org.apache.doris.nereids.util.PatternMatchSupported;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanParseChecker;
 
 /**
  * Base class to check SQL parsing result.
  */
-public abstract class ParserTestBase implements PatternMatchSupported {
+public abstract class ParserTestBase implements MemoPatternMatchSupported {
     public PlanParseChecker parsePlan(String sql) {
         return new PlanParseChecker(sql);
     }

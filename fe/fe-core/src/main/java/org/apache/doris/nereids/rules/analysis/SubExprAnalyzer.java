@@ -20,7 +20,8 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.memo.Memo;
+import org.apache.doris.nereids.trees.expressions.BinaryOperator;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
@@ -38,6 +39,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -81,6 +83,7 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
         AnalyzedResult analyzedResult = analyzeSubquery(expr);
 
         checkOutputColumn(analyzedResult.getLogicalPlan());
+        checkHasNotAgg(analyzedResult);
         checkHasGroupBy(analyzedResult);
         checkRootIsLimit(analyzedResult);
 
@@ -99,6 +102,21 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
         checkHasGroupBy(analyzedResult);
 
         return new ScalarSubquery(analyzedResult.getLogicalPlan(), analyzedResult.getCorrelatedSlots());
+    }
+
+    @Override
+    public Expression visitBinaryOperator(BinaryOperator binaryOperator, CascadesContext context) {
+        if (childrenAtLeastOneInOrExistsSub(binaryOperator) && (binaryOperator instanceof ComparisonPredicate)) {
+            throw new AnalysisException("Not support binaryOperator children at least one is in or exists subquery");
+        }
+        return visit(binaryOperator, context);
+    }
+
+    private boolean childrenAtLeastOneInOrExistsSub(BinaryOperator binaryOperator) {
+        return binaryOperator.left().anyMatch(InSubquery.class::isInstance)
+                || binaryOperator.left().anyMatch(Exists.class::isInstance)
+                || binaryOperator.right().anyMatch(InSubquery.class::isInstance)
+                || binaryOperator.right().anyMatch(Exists.class::isInstance);
     }
 
     private void checkOutputColumn(LogicalPlan plan) {
@@ -129,6 +147,16 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
         }
     }
 
+    private void checkHasNotAgg(AnalyzedResult analyzedResult) {
+        if (!analyzedResult.isCorrelated()) {
+            return;
+        }
+        if (analyzedResult.hasAgg()) {
+            throw new AnalysisException("Unsupported correlated subquery with grouping and/or aggregation "
+                + analyzedResult.getLogicalPlan());
+        }
+    }
+
     private void checkRootIsLimit(AnalyzedResult analyzedResult) {
         if (!analyzedResult.isCorrelated()) {
             return;
@@ -140,13 +168,12 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
     }
 
     private AnalyzedResult analyzeSubquery(SubqueryExpr expr) {
-        CascadesContext subqueryContext = new Memo(expr.getQueryPlan())
-                .newCascadesContext((cascadesContext.getStatementContext()), cascadesContext.getCteContext());
+        CascadesContext subqueryContext = CascadesContext.newRewriteContext(
+                cascadesContext.getStatementContext(), expr.getQueryPlan(), cascadesContext.getCteContext());
         Scope subqueryScope = genScopeWithSubquery(expr);
-        subqueryContext
-                .newAnalyzer(Optional.of(subqueryScope))
-                .analyze();
-        return new AnalyzedResult((LogicalPlan) subqueryContext.getMemo().copyOut(false),
+        subqueryContext.setOuterScope(subqueryScope);
+        subqueryContext.newAnalyzer().analyze();
+        return new AnalyzedResult((LogicalPlan) subqueryContext.getRewritePlan(),
                 subqueryScope.getCorrelatedSlots());
     }
 
@@ -168,7 +195,7 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
         private final LogicalPlan logicalPlan;
         private final List<Slot> correlatedSlots;
 
-        public AnalyzedResult(LogicalPlan logicalPlan, List<Slot> correlatedSlots) {
+        public AnalyzedResult(LogicalPlan logicalPlan, Collection<Slot> correlatedSlots) {
             this.logicalPlan = Objects.requireNonNull(logicalPlan, "logicalPlan can not be null");
             this.correlatedSlots = correlatedSlots == null ? new ArrayList<>() : ImmutableList.copyOf(correlatedSlots);
         }

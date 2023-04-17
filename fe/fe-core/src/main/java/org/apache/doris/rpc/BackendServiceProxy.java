@@ -18,6 +18,7 @@
 package org.apache.doris.rpc;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentStartRequest;
@@ -38,6 +39,7 @@ import org.apache.thrift.protocol.TCompactProtocol;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
@@ -47,6 +49,9 @@ public class BackendServiceProxy {
     // use exclusive lock to make sure only one thread can add or remove client from serviceMap.
     // use concurrent map to allow access serviceMap in multi thread.
     private ReentrantLock lock = new ReentrantLock();
+
+    private Executor grpcThreadPool = ThreadPoolManager.newDaemonCacheThreadPool(Config.grpc_threadmgr_threads_nums,
+            "grpc_thread_pool", true);
     private final Map<TNetworkAddress, BackendServiceClient> serviceMap;
 
     public BackendServiceProxy() {
@@ -99,7 +104,7 @@ public class BackendServiceProxy {
         try {
             service = serviceMap.get(address);
             if (service == null) {
-                service = new BackendServiceClient(address);
+                service = new BackendServiceClient(address, grpcThreadPool);
                 serviceMap.put(address, service);
             }
             return service;
@@ -294,11 +299,13 @@ public class BackendServiceProxy {
     }
 
     public Future<InternalService.PSendDataResult> sendData(
-            TNetworkAddress address, Types.PUniqueId fragmentInstanceId, List<InternalService.PDataRow> data)
+            TNetworkAddress address, Types.PUniqueId fragmentInstanceId,
+            Types.PUniqueId loadId, List<InternalService.PDataRow> data)
             throws RpcException {
 
         final InternalService.PSendDataRequest.Builder pRequest = InternalService.PSendDataRequest.newBuilder();
         pRequest.setFragmentInstanceId(fragmentInstanceId);
+        pRequest.setLoadId(loadId);
         pRequest.addAllData(data);
         try {
             final BackendServiceClient client = getProxy(address);
@@ -309,10 +316,11 @@ public class BackendServiceProxy {
         }
     }
 
-    public Future<InternalService.PRollbackResult> rollback(TNetworkAddress address, Types.PUniqueId fragmentInstanceId)
+    public Future<InternalService.PRollbackResult> rollback(TNetworkAddress address,
+            Types.PUniqueId fragmentInstanceId, Types.PUniqueId loadId)
             throws RpcException {
         final InternalService.PRollbackRequest pRequest = InternalService.PRollbackRequest.newBuilder()
-                .setFragmentInstanceId(fragmentInstanceId).build();
+                .setFragmentInstanceId(fragmentInstanceId).setLoadId(loadId).build();
         try {
             final BackendServiceClient client = getProxy(address);
             return client.rollback(pRequest);
@@ -322,10 +330,11 @@ public class BackendServiceProxy {
         }
     }
 
-    public Future<InternalService.PCommitResult> commit(TNetworkAddress address, Types.PUniqueId fragmentInstanceId)
+    public Future<InternalService.PCommitResult> commit(TNetworkAddress address,
+            Types.PUniqueId fragmentInstanceId, Types.PUniqueId loadId)
             throws RpcException {
         final InternalService.PCommitRequest pRequest = InternalService.PCommitRequest.newBuilder()
-                .setFragmentInstanceId(fragmentInstanceId).build();
+                .setFragmentInstanceId(fragmentInstanceId).setLoadId(loadId).build();
         try {
             final BackendServiceClient client = getProxy(address);
             return client.commit(pRequest);
@@ -348,4 +357,16 @@ public class BackendServiceProxy {
             throw new RpcException(address.hostname, e.getMessage());
         }
     }
+
+    public Future<InternalService.PFetchColIdsResponse> getColumnIdsByTabletIds(TNetworkAddress address,
+            InternalService.PFetchColIdsRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.getColIdsByTabletIds(request);
+        } catch (Throwable e) {
+            LOG.warn("failed to fetch column id from address={}:{}", address.getHostname(), address.getPort());
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
 }

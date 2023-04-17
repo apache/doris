@@ -18,41 +18,82 @@
 package org.apache.doris.nereids.analyzer;
 
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.jobs.batch.AdjustAggregateNullableForEmptySetJob;
-import org.apache.doris.nereids.jobs.batch.AnalyzeRulesJob;
-import org.apache.doris.nereids.jobs.batch.AnalyzeSubqueryRulesJob;
-import org.apache.doris.nereids.jobs.batch.CheckAnalysisJob;
+import org.apache.doris.nereids.jobs.RewriteJob;
+import org.apache.doris.nereids.jobs.batch.BatchRewriteJob;
+import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
+import org.apache.doris.nereids.rules.analysis.BindExpression;
+import org.apache.doris.nereids.rules.analysis.BindRelation;
+import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
+import org.apache.doris.nereids.rules.analysis.CheckPolicy;
+import org.apache.doris.nereids.rules.analysis.FillUpMissingSlots;
+import org.apache.doris.nereids.rules.analysis.NormalizeRepeat;
+import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
+import org.apache.doris.nereids.rules.analysis.ProjectWithDistinctToAggregate;
+import org.apache.doris.nereids.rules.analysis.RegisterCTE;
+import org.apache.doris.nereids.rules.analysis.ReplaceExpressionByChildOutput;
+import org.apache.doris.nereids.rules.analysis.ResolveOrdinalInOrderByAndGroupBy;
+import org.apache.doris.nereids.rules.analysis.SubqueryToApply;
+import org.apache.doris.nereids.rules.analysis.UserAuthentication;
+import org.apache.doris.nereids.rules.rewrite.logical.HideOneRowRelationUnderUnion;
 
-import java.util.Objects;
-import java.util.Optional;
+import java.util.List;
 
 /**
  * Bind symbols according to metadata in the catalog, perform semantic analysis, etc.
  * TODO: revisit the interface after subquery analysis is supported.
  */
-public class NereidsAnalyzer {
+public class NereidsAnalyzer extends BatchRewriteJob {
+    public static final List<RewriteJob> ANALYZE_JOBS = jobs(
+            topDown(
+                new RegisterCTE()
+            ),
+            bottomUp(
+                new BindRelation(),
+                new CheckPolicy(),
+                new UserAuthentication(),
+                new BindExpression()
+            ),
+            bottomUp(
+                new ProjectToGlobalAggregate(),
+                // this rule check's the logicalProject node's isDisinct property
+                // and replace the logicalProject node with a LogicalAggregate node
+                // so any rule before this, if create a new logicalProject node
+                // should make sure isDistinct property is correctly passed around.
+                // please see rule BindSlotReference or BindFunction for example
+                new ProjectWithDistinctToAggregate(),
+                new ResolveOrdinalInOrderByAndGroupBy(),
+                new ReplaceExpressionByChildOutput(),
+                new HideOneRowRelationUnderUnion()
+            ),
+            topDown(
+                new FillUpMissingSlots(),
+                // We should use NormalizeRepeat to compute nullable properties for LogicalRepeat in the analysis
+                // stage. NormalizeRepeat will compute nullable property, add virtual slot, LogicalAggregate and
+                // LogicalProject for normalize. This rule depends on FillUpMissingSlots to fill up slots.
+                new NormalizeRepeat()
+            ),
+            bottomUp(new SubqueryToApply()),
+            bottomUp(new AdjustAggregateNullableForEmptySet()),
+            bottomUp(new CheckAnalysis())
+    );
 
-    private final CascadesContext cascadesContext;
-    private final Optional<Scope> outerScope;
-
+    /**
+     * Execute the analysis job with scope.
+     * @param cascadesContext planner context for execute job
+     */
     public NereidsAnalyzer(CascadesContext cascadesContext) {
-        this(cascadesContext, Optional.empty());
+        super(cascadesContext);
     }
 
-    public NereidsAnalyzer(CascadesContext cascadesContext, Optional<Scope> outerScope) {
-        this.cascadesContext = Objects.requireNonNull(cascadesContext, "cascadesContext cannot be null");
-        this.outerScope = Objects.requireNonNull(outerScope, "outerScope cannot be null");
+    @Override
+    public List<RewriteJob> getJobs() {
+        return ANALYZE_JOBS;
     }
 
     /**
      * nereids analyze sql.
      */
     public void analyze() {
-        new AnalyzeRulesJob(cascadesContext, outerScope).execute();
-        new AnalyzeSubqueryRulesJob(cascadesContext).execute();
-        new AdjustAggregateNullableForEmptySetJob(cascadesContext).execute();
-        // check whether analyze result is meaningful
-        new CheckAnalysisJob(cascadesContext).execute();
+        execute();
     }
-
 }

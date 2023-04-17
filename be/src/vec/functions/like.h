@@ -224,7 +224,7 @@ public:
 
     String get_name() const override { return name; }
 
-    Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
 
     friend struct LikeSearchState;
 
@@ -254,7 +254,7 @@ public:
 
     String get_name() const override { return name; }
 
-    Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
 };
 
 } // namespace doris::vectorized

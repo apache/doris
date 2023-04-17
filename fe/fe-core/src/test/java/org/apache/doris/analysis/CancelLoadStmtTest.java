@@ -41,6 +41,7 @@ public class CancelLoadStmtTest extends TestWithFeService {
     private Analyzer analyzer;
     private String dbName = "testDb";
     private String tblName = "table1";
+    private UserIdentity userInfo = new UserIdentity("root", "localhost");
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -110,11 +111,11 @@ public class CancelLoadStmtTest extends TestWithFeService {
         long dbId = db.getId();
         Table tbl = db.getTableNullable(tblName);
         long tblId = tbl.getId();
-        InsertLoadJob insertLoadJob1 = new InsertLoadJob("doris_test_label", 1L, dbId, tblId, 0, "", "");
+        InsertLoadJob insertLoadJob1 = new InsertLoadJob("doris_test_label", 1L, dbId, tblId, 0, "", "", userInfo);
         loadJobs.add(insertLoadJob1);
-        InsertLoadJob insertLoadJob2 = new InsertLoadJob("doris_test_label_1", 2L, dbId, tblId, 0, "", "");
+        InsertLoadJob insertLoadJob2 = new InsertLoadJob("doris_test_label_1", 2L, dbId, tblId, 0, "", "", userInfo);
         loadJobs.add(insertLoadJob2);
-        InsertLoadJob insertLoadJob3 = new InsertLoadJob("doris_test_label_2", 3L, dbId, tblId, 0, "", "");
+        InsertLoadJob insertLoadJob3 = new InsertLoadJob("doris_test_label_2", 3L, dbId, tblId, 0, "", "", userInfo);
         loadJobs.add(insertLoadJob3);
         // label
         stmt = new CancelLoadStmt(null, labelBinaryPredicate);

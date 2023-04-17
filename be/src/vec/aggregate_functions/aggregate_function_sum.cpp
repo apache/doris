@@ -20,79 +20,13 @@
 
 #include "vec/aggregate_functions/aggregate_function_sum.h"
 
-#include <fmt/format.h>
-
-#include "common/logging.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/helpers.h"
-#include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
 
-template <typename T>
-struct SumSimple {
-    /// @note It uses slow Decimal128 (cause we need such a variant). sumWithOverflow is faster for Decimal32/64
-    using ResultType = DisposeDecimal<T, NearestFieldType<T>>;
-    // using ResultType = NearestFieldType<T>;
-    using AggregateDataType = AggregateFunctionSumData<ResultType>;
-    using Function = AggregateFunctionSum<T, ResultType, AggregateDataType>;
-};
-
-template <typename T>
-using AggregateFunctionSumSimple = typename SumSimple<T>::Function;
-
-template <template <typename> class Function>
-AggregateFunctionPtr create_aggregate_function_sum(const std::string& name,
-                                                   const DataTypes& argument_types,
-                                                   const bool result_is_nullable) {
-    AggregateFunctionPtr res;
-    DataTypePtr data_type = argument_types[0];
-    if (data_type->is_nullable()) {
-        auto no_null_argument_types = remove_nullable(argument_types);
-        if (is_decimal(no_null_argument_types[0])) {
-            res.reset(create_with_decimal_type_null<Function>(
-                    no_null_argument_types, *no_null_argument_types[0], no_null_argument_types));
-        } else {
-            res.reset(create_with_numeric_type_null<Function>(no_null_argument_types,
-                                                              no_null_argument_types));
-        }
-    } else {
-        if (is_decimal(data_type)) {
-            res.reset(create_with_decimal_type<Function>(*data_type, *data_type, argument_types));
-        } else {
-            res.reset(create_with_numeric_type<Function>(*data_type, argument_types));
-        }
-    }
-
-    if (!res) {
-        LOG(WARNING) << fmt::format("Illegal type {} of argument for aggregate function {}",
-                                    argument_types[0]->get_name(), name);
-    }
-    return res;
-}
-
-// do not level up return type for agg reader
-template <typename T>
-struct SumSimpleReader {
-    using ResultType = T;
-    using AggregateDataType = AggregateFunctionSumData<ResultType>;
-    using Function = AggregateFunctionSum<T, ResultType, AggregateDataType>;
-};
-
-template <typename T>
-using AggregateFunctionSumSimpleReader = typename SumSimpleReader<T>::Function;
-
-AggregateFunctionPtr create_aggregate_function_sum_reader(const std::string& name,
-                                                          const DataTypes& argument_types,
-                                                          const bool result_is_nullable) {
-    return create_aggregate_function_sum<AggregateFunctionSumSimpleReader>(name, argument_types,
-                                                                           result_is_nullable);
-}
-
 void register_aggregate_function_sum(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function("sum", create_aggregate_function_sum<AggregateFunctionSumSimple>);
-    factory.register_function("sum", create_aggregate_function_sum<AggregateFunctionSumSimple>,
-                              true);
+    factory.register_function_both("sum", creator_with_type::creator<AggregateFunctionSumSimple>);
 }
 
 } // namespace doris::vectorized

@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "io/file_writer.h"
+#include "io/fs/file_writer.h"
 #include "vec/runtime/vparquet_writer.h"
 #include "vec/sink/vresult_sink.h"
 
@@ -65,8 +65,7 @@ private:
     Status _get_file_url(std::string* file_url);
     std::string _file_format_to_name();
     // close file writer, and if !done, it will create new writer for next file.
-    // if only_close is true, this method will just close the file writer and return.
-    Status _close_file_writer(bool done, bool only_close = false);
+    Status _close_file_writer(bool done);
     // create a new file if current file size exceed limit
     Status _create_new_file_if_exceed_size();
     // send the final statistic result
@@ -82,7 +81,7 @@ private:
 
     // If the result file format is plain text, like CSV, this _file_writer is owned by this FileResultWriter.
     // If the result file format is Parquet, this _file_writer is owned by _parquet_writer.
-    std::unique_ptr<doris::FileWriter> _file_writer_impl;
+    std::unique_ptr<doris::io::FileWriter> _file_writer_impl;
     // Used to buffer the export data of plain text
     // TODO(cmy): I simply use a stringstrteam to buffer the data, to avoid calling
     // file writer's write() for every single row.

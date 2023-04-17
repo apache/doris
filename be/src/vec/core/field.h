@@ -26,7 +26,6 @@
 #include <type_traits>
 #include <vector>
 
-#include "vec/common/exception.h"
 #include "vec/common/int_exp.h"
 #include "vec/common/strong_typedef.h"
 #include "vec/common/uint128.h"
@@ -162,6 +161,9 @@ public:
     }
 
     JsonbField& operator=(JsonbField&& x) {
+        if (data) {
+            delete[] data;
+        }
         data = x.data;
         size = x.size;
         x.data = nullptr;
@@ -641,8 +643,8 @@ public:
 
 private:
     std::aligned_union_t<DBMS_MIN_FIELD_SIZE - sizeof(Types::Which), Null, UInt64, UInt128, Int64,
-                         Int128, Float64, String, JsonbField, Array, Tuple, DecimalField<Decimal32>,
-                         DecimalField<Decimal64>, DecimalField<Decimal128>,
+                         Int128, Float64, String, JsonbField, Array, Tuple, Map, VariantMap,
+                         DecimalField<Decimal32>, DecimalField<Decimal64>, DecimalField<Decimal128>,
                          DecimalField<Decimal128I>, AggregateFunctionStateData>
             storage;
 

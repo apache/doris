@@ -48,7 +48,7 @@ namespace doris::pipeline {
  * transfer 8 (RUNNABLE -> FINISHED): this pipeline task completed and no resource need to be released
  * transfer 9 (RUNNABLE -> RUNNABLE): this pipeline task yields CPU and re-enters the runnable queue if it is runnable and has occupied CPU for a max time slice
  */
-enum PipelineTaskState : uint8_t {
+enum class PipelineTaskState : uint8_t {
     NOT_READY = 0, // do not prepare
     BLOCKED_FOR_DEPENDENCY = 1,
     BLOCKED_FOR_SOURCE = 2,
@@ -85,6 +85,8 @@ inline const char* get_state_name(PipelineTaskState idx) {
     __builtin_unreachable();
 }
 
+class TaskQueue;
+
 // The class do the pipeline task. Minest schdule union by task scheduler
 class PipelineTask {
 public:
@@ -101,7 +103,7 @@ public:
               _opened(false),
               _can_steal(pipeline->_can_steal),
               _state(state),
-              _cur_state(NOT_READY),
+              _cur_state(PipelineTaskState::NOT_READY),
               _data_state(SourceState::DEPEND_ON_SOURCE),
               _fragment_context(fragment_context),
               _parent_profile(parent_profile) {}
@@ -124,9 +126,6 @@ public:
     void pop_out_runnable_queue() { _wait_worker_watcher.stop(); }
     void start_schedule_watcher() { _wait_schedule_watcher.start(); }
     void stop_schedule_watcher() { _wait_schedule_watcher.stop(); }
-
-    int pipeline_id() const { return _pipeline->_pipeline_id; }
-
     PipelineTaskState get_state() { return _cur_state; }
     void set_state(PipelineTaskState state);
 
@@ -171,18 +170,32 @@ public:
 
     bool has_dependency();
 
-    uint32_t index() const { return _index; }
-
     OperatorPtr get_root() { return _root; }
 
     std::string debug_string() const;
 
-    uint32_t total_schedule_time() const { return _schedule_time; }
+    taskgroup::TaskGroup* get_task_group() const;
+
+    void set_task_queue(TaskQueue* task_queue);
 
     static constexpr auto THREAD_TIME_SLICE = 100'000'000L;
 
+    // 1 used for update priority queue
+    // note(wb) an ugly implementation, need refactor later
+    // 1.1 pipeline task
+    void inc_runtime_ns(uint64_t delta_time) { this->_runtime += delta_time; }
+    uint64_t get_runtime_ns() const { return this->_runtime; }
+
+    // 1.2 priority queue's queue level
+    void update_queue_level(int queue_level) { this->_queue_level = queue_level; }
+    int get_queue_level() const { return this->_queue_level; }
+
+    // 1.3 priority queue's core id
+    void set_core_id(int core_id) { this->_core_id = core_id; }
+    int get_core_id() const { return this->_core_id; }
+
 private:
-    Status open();
+    Status _open();
     void _init_profile();
 
     uint32_t _index;
@@ -203,6 +216,18 @@ private:
     SourceState _data_state;
     std::unique_ptr<doris::vectorized::Block> _block;
     PipelineFragmentContext* _fragment_context;
+    TaskQueue* _task_queue = nullptr;
+
+    // used for priority queue
+    // it may be visited by different thread but there is no race condition
+    // so no need to add lock
+    uint64_t _runtime = 0;
+    // it's visited in one thread, so no need to thread synchronization
+    // 1 get task, (set _queue_level/_core_id)
+    // 2 exe task
+    // 3 update task statistics(update _queue_level/_core_id)
+    int _queue_level = 0;
+    int _core_id = 0;
 
     RuntimeProfile* _parent_profile;
     std::unique_ptr<RuntimeProfile> _task_profile;

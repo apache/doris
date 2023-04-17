@@ -40,7 +40,7 @@ public class RuntimeFilterTest extends SSBTestBase {
     @Override
     public void runBeforeAll() throws Exception {
         super.runBeforeAll();
-        connectContext.getSessionVariable().setEnableNereidsRuntimeFilter(true);
+        connectContext.getSessionVariable().setRuntimeFilterMode("Global");
         connectContext.getSessionVariable().setRuntimeFilterType(8);
     }
 
@@ -233,7 +233,8 @@ public class RuntimeFilterTest extends SSBTestBase {
     }
 
     private Optional<List<RuntimeFilter>> getRuntimeFilters(String sql) {
-        PlanChecker checker = PlanChecker.from(connectContext).analyze(sql)
+        PlanChecker checker = PlanChecker.from(connectContext)
+                .analyze(sql)
                 .rewrite()
                 .implement();
         PhysicalPlan plan = checker.getPhysicalPlan();

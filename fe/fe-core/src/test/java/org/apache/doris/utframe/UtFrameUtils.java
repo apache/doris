@@ -68,7 +68,6 @@ import java.io.StringReader;
 import java.net.DatagramSocket;
 import java.net.ServerSocket;
 import java.net.SocketException;
-import java.nio.channels.SocketChannel;
 import java.nio.file.Files;
 import java.util.ConcurrentModificationException;
 import java.util.List;
@@ -84,8 +83,7 @@ public class UtFrameUtils {
 
     // Help to create a mocked ConnectContext.
     public static ConnectContext createDefaultCtx(UserIdentity userIdentity, String remoteIp) throws IOException {
-        SocketChannel channel = SocketChannel.open();
-        ConnectContext ctx = new ConnectContext(channel);
+        ConnectContext ctx = new ConnectContext();
         ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
         ctx.setCurrentUserIdentity(userIdentity);
         ctx.setQualifiedUser(userIdentity.getQualifiedUser());

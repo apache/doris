@@ -34,7 +34,7 @@ EXPORT
 
 This statement is used to export the data of the specified table to the specified location.
 
-This is an asynchronous operation that returns if the task is submitted successfully. After execution, you can use the [SHOW EXPORT](../../Show-Statements/SHOW-EXPORT) command to view the progress.
+This is an asynchronous operation that returns if the task is submitted successfully. After execution, you can use the [SHOW EXPORT](../../Show-Statements/SHOW-EXPORT.md) command to view the progress.
 
 ```sql
 EXPORT TABLE table_name
@@ -72,7 +72,7 @@ illustrate:
   - `column_separator`: Specifies the exported column separator, default is \t. Only single byte is supported.
   - `line_delimiter`: Specifies the line delimiter for export, the default is \n. Only single byte is supported.
   - `exec_mem_limit`: Export the upper limit of the memory usage of a single BE node, the default is 2GB, and the unit is bytes.
-  - `timeout`: The timeout period of the import job, the default is 2 hours, the unit is seconds.
+  - `timeout`: The timeout period of the export job, the default is 2 hours, the unit is seconds.
   - `tablet_num_per_task`: The maximum number of tablets each subtask can allocate to scan.
 
 - `WITH BROKER`

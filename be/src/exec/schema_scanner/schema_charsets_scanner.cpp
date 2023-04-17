@@ -17,10 +17,18 @@
 
 #include "exec/schema_scanner/schema_charsets_scanner.h"
 
+#include <gen_cpp/Descriptors_types.h>
+#include <string.h>
+
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
+#include "util/runtime_profile.h"
 #include "vec/common/string_ref.h"
 
 namespace doris {
+namespace vectorized {
+class Block;
+} // namespace vectorized
 
 std::vector<SchemaScanner::ColumnDesc> SchemaCharsetsScanner::_s_css_columns = {
         //   name,       type,          size
@@ -52,31 +60,49 @@ Status SchemaCharsetsScanner::get_next_block(vectorized::Block* block, bool* eos
 }
 
 Status SchemaCharsetsScanner::_fill_block_impl(vectorized::Block* block) {
+    SCOPED_TIMER(_fill_block_timer);
     auto row_num = 0;
     while (nullptr != _s_charsets[row_num].charset) {
         ++row_num;
     }
+    std::vector<void*> datas(row_num);
 
     // variables names
-    for (int i = 0; i < row_num; ++i) {
-        StringRef str = StringRef(_s_charsets[i].charset, strlen(_s_charsets[i].charset));
-        fill_dest_column(block, &str, _s_css_columns[0]);
+    {
+        StringRef strs[row_num];
+        for (int i = 0; i < row_num; ++i) {
+            strs[i] = StringRef(_s_charsets[i].charset, strlen(_s_charsets[i].charset));
+            datas[i] = strs + i;
+        }
+        fill_dest_column_for_range(block, 0, datas);
     }
     // DEFAULT_COLLATE_NAME
-    for (int i = 0; i < row_num; ++i) {
-        StringRef str = StringRef(_s_charsets[i].default_collation,
-                                  strlen(_s_charsets[i].default_collation));
-        fill_dest_column(block, &str, _s_css_columns[1]);
+    {
+        StringRef strs[row_num];
+        for (int i = 0; i < row_num; ++i) {
+            strs[i] = StringRef(_s_charsets[i].default_collation,
+                                strlen(_s_charsets[i].default_collation));
+            datas[i] = strs + i;
+        }
+        fill_dest_column_for_range(block, 1, datas);
     }
     // DESCRIPTION
-    for (int i = 0; i < row_num; ++i) {
-        StringRef str = StringRef(_s_charsets[i].description, strlen(_s_charsets[i].description));
-        fill_dest_column(block, &str, _s_css_columns[2]);
+    {
+        StringRef strs[row_num];
+        for (int i = 0; i < row_num; ++i) {
+            strs[i] = StringRef(_s_charsets[i].description, strlen(_s_charsets[i].description));
+            datas[i] = strs + i;
+        }
+        fill_dest_column_for_range(block, 2, datas);
     }
     // maxlen
-    for (int i = 0; i < row_num; ++i) {
-        int64_t src = _s_charsets[i].maxlen;
-        fill_dest_column(block, &src, _s_css_columns[3]);
+    {
+        int64_t srcs[row_num];
+        for (int i = 0; i < row_num; ++i) {
+            srcs[i] = _s_charsets[i].maxlen;
+            datas[i] = srcs + i;
+        }
+        fill_dest_column_for_range(block, 3, datas);
     }
     return Status::OK();
 }

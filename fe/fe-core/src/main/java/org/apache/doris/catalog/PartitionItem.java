@@ -30,4 +30,8 @@ public abstract class PartitionItem implements Comparable<PartitionItem>, Writab
 
     public abstract PartitionItem getIntersect(PartitionItem newItem);
 
+    public boolean isDefaultPartition() {
+        return false;
+    }
+
 }

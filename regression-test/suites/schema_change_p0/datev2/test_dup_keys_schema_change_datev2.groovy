@@ -31,7 +31,7 @@ suite("test_dup_keys_schema_change_datev2") {
     def backendId_to_backendHttpPort = [:]
     for (String[] backend in backends) {
         backendId_to_backendIP.put(backend[0], backend[2])
-        backendId_to_backendHttpPort.put(backend[0], backend[5])
+        backendId_to_backendHttpPort.put(backend[0], backend[6])
     }
 
     backend_id = backendId_to_backendIP.keySet()[0]
@@ -131,6 +131,7 @@ suite("test_dup_keys_schema_change_datev2") {
     while (max_try_time--){
         String result = getJobState(tbName)
         if (result == "FINISHED") {
+            sleep(3000)
             break
         } else {
             sleep(100)
@@ -158,6 +159,7 @@ suite("test_dup_keys_schema_change_datev2") {
     while (max_try_time--){
         String result = getJobState(tbName)
         if (result == "FINISHED") {
+            sleep(3000)
             break
         } else {
             sleep(100)
@@ -185,6 +187,7 @@ suite("test_dup_keys_schema_change_datev2") {
     while (max_try_time--){
         String result = getJobState(tbName)
         if (result == "FINISHED") {
+            sleep(3000)
             break
         } else {
             sleep(100)

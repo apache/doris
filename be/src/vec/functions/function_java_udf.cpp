@@ -49,8 +49,7 @@ JavaFunctionCall::JavaFunctionCall(const TFunction& fn, const DataTypes& argumen
                                    const DataTypePtr& return_type)
         : fn_(fn), _argument_types(argument_types), _return_type(return_type) {}
 
-Status JavaFunctionCall::prepare(FunctionContext* context,
-                                 FunctionContext::FunctionStateScope scope) {
+Status JavaFunctionCall::open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     if (env == nullptr) {
@@ -64,7 +63,8 @@ Status JavaFunctionCall::prepare(FunctionContext* context,
     executor_close_id_ = env->GetMethodID(executor_cl_, "close", EXECUTOR_CLOSE_SIGNATURE);
     RETURN_ERROR_IF_EXC(env);
 
-    JniContext* jni_ctx = new JniContext(_argument_types.size(), this);
+    std::shared_ptr<JniContext> jni_ctx =
+            std::make_shared<JniContext>(_argument_types.size(), this);
     context->set_function_state(FunctionContext::THREAD_LOCAL, jni_ctx);
 
     // Add a scoped cleanup jni reference object. This cleans up local refs made below.
@@ -200,7 +200,7 @@ Status JavaFunctionCall::execute(FunctionContext* context, Block& block,
         ColumnString::Offsets& offsets =                                                           \
                 const_cast<ColumnString::Offsets&>(str_col->get_offsets());                        \
         int increase_buffer_size = 0;                                                              \
-        int32_t buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);           \
+        int64_t buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);           \
         chars.resize(buffer_size);                                                                 \
         offsets.resize(num_rows);                                                                  \
         *(jni_ctx->output_value_buffer) = reinterpret_cast<int64_t>(chars.data());                 \
@@ -211,7 +211,7 @@ Status JavaFunctionCall::execute(FunctionContext* context, Block& block,
                                        nullptr);                                                   \
         while (jni_ctx->output_intermediate_state_ptr->row_idx < num_rows) {                       \
             increase_buffer_size++;                                                                \
-            int32_t buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);       \
+            buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);               \
             chars.resize(buffer_size);                                                             \
             *(jni_ctx->output_value_buffer) = reinterpret_cast<int64_t>(chars.data());             \
             jni_ctx->output_intermediate_state_ptr->buffer_size = buffer_size;                     \
@@ -232,7 +232,7 @@ Status JavaFunctionCall::execute(FunctionContext* context, Block& block,
         auto data_column = array_nested_nullable.get_nested_column_ptr();                          \
         auto& offset_column = array_col->get_offsets_column();                                     \
         int increase_buffer_size = 0;                                                              \
-        int32_t buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);           \
+        int64_t buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);           \
         offset_column.resize(num_rows);                                                            \
         *(jni_ctx->output_offsets_ptr) =                                                           \
                 reinterpret_cast<int64_t>(offset_column.get_raw_data().data);                      \
@@ -263,6 +263,8 @@ Status JavaFunctionCall::execute(FunctionContext* context, Block& block,
                 *(jni_ctx->output_array_null_ptr) =                                                \
                         reinterpret_cast<int64_t>(null_map_data.data());                           \
                 *(jni_ctx->output_value_buffer) = reinterpret_cast<int64_t>(chars.data());         \
+                *(jni_ctx->output_array_string_offsets_ptr) =                                      \
+                        reinterpret_cast<int64_t>(offsets.data());                                 \
                 jni_ctx->output_intermediate_state_ptr->buffer_size = buffer_size;                 \
                 env->CallNonvirtualVoidMethodA(jni_ctx->executor, executor_cl_,                    \
                                                executor_evaluate_id_, nullptr);                    \
@@ -308,9 +310,10 @@ Status JavaFunctionCall::close(FunctionContext* context,
                                FunctionContext::FunctionStateScope scope) {
     JniContext* jni_ctx = reinterpret_cast<JniContext*>(
             context->get_function_state(FunctionContext::THREAD_LOCAL));
-    if (jni_ctx != nullptr) {
-        delete jni_ctx;
-        context->set_function_state(FunctionContext::THREAD_LOCAL, nullptr);
+    // JNIContext own some resource and its release method depend on JavaFunctionCall
+    // has to release the resource before JavaFunctionCall is deconstructed.
+    if (jni_ctx) {
+        jni_ctx->close();
     }
     return Status::OK();
 }

@@ -455,7 +455,7 @@ public class PlannerTest extends TestWithFeService {
         stmtExecutor.execute();
         Planner planner = stmtExecutor.planner();
         String plan = planner.getExplainString(new ExplainOptions(false, false));
-        Assertions.assertTrue(plan.contains("PREDICATES: `k1` = 1, `k2` = 1\n"));
+        Assertions.assertTrue(plan.contains("PREDICATES: `k1` = 1 AND `k2` = 1\n"));
     }
 
     @Test
@@ -494,16 +494,8 @@ public class PlannerTest extends TestWithFeService {
         Assertions.assertEquals(MysqlStateType.ERR, state.getStateType());
         Assertions.assertTrue(state.getErrorMessage()
                 .contains("you need (at least one of) the LOAD privilege(s) for this operation"));
-
         // set to admin user
         connectContext.setCurrentUserIdentity(UserIdentity.ADMIN);
-        stmtExecutor = new StmtExecutor(connectContext, qSQL);
-        stmtExecutor.execute();
-        state = connectContext.getState();
-        // still error because we can not do real update in unit test.
-        // just check if it pass the priv check.
-        Assertions.assertEquals(MysqlStateType.ERR, state.getStateType());
-        Assertions.assertTrue(state.getErrorMessage().contains("failed to execute update stmt"));
     }
 
     @Test

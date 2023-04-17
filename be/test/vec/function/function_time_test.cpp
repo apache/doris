@@ -853,51 +853,6 @@ TEST(VTimestampFunctionsTest, timediff_v2_test) {
     }
 
     {
-        InputTypeSet input_types = {TypeIndex::DateV2, TypeIndex::Date};
-
-        DataSet data_set = {{{std::string("2019-07-18"), std::string("2019-07-18")}, 0.0},
-                            {{std::string("2019-07-18"), std::string("2019-07-18")}, -0.0},
-                            {{std::string("2019-00-18"), std::string("2019-07-18")}, Null()},
-                            {{std::string("2019-07-18"), std::string("2019-07-00")}, Null()}};
-
-        check_function<DataTypeTime, true>(func_name, input_types, data_set);
-    }
-
-    {
-        InputTypeSet input_types = {TypeIndex::Date, TypeIndex::DateV2};
-
-        DataSet data_set = {{{std::string("2019-07-18"), std::string("2019-07-18")}, 0.0},
-                            {{std::string("2019-07-18"), std::string("2019-07-18")}, -0.0},
-                            {{std::string("2019-00-18"), std::string("2019-07-18")}, Null()},
-                            {{std::string("2019-07-18"), std::string("2019-07-00")}, Null()}};
-
-        check_function<DataTypeTime, true>(func_name, input_types, data_set);
-    }
-
-    {
-        InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::DateV2};
-
-        DataSet data_set = {
-                {{std::string("2019-07-18 00:00:00"), std::string("2019-07-18")}, 0.0},
-                {{std::string("2019-07-18 00:00:00"), std::string("2019-07-18")}, -0.0},
-                {{std::string("2019-00-18 00:00:00"), std::string("2019-07-18")}, Null()},
-                {{std::string("2019-07-18 00:00:00"), std::string("2019-07-00")}, Null()}};
-
-        check_function<DataTypeTime, true>(func_name, input_types, data_set);
-    }
-
-    {
-        InputTypeSet input_types = {TypeIndex::DateV2, TypeIndex::DateTime};
-
-        DataSet data_set = {
-                {{std::string("2019-07-18"), std::string("2019-07-18 00:00:00")}, 0.0},
-                {{std::string("2019-07-18"), std::string("2019-07-18 00:00:00")}, -0.0},
-                {{std::string("2019-00-18"), std::string("2019-07-18 00:00:00")}, Null()},
-                {{std::string("2019-07-18"), std::string("2019-07-00 00:00:00")}, Null()}};
-
-        check_function<DataTypeTime, true>(func_name, input_types, data_set);
-    }
-    {
         InputTypeSet input_types = {TypeIndex::DateTimeV2, TypeIndex::DateTimeV2};
 
         DataSet data_set = {
@@ -905,57 +860,6 @@ TEST(VTimestampFunctionsTest, timediff_v2_test) {
                 {{std::string("2019-07-18 00:00:10"), std::string("2019-07-18 00:00:00")}, 10.0},
                 {{std::string("2019-00-18 00:00:00"), std::string("2019-07-18 00:00:00")}, Null()},
                 {{std::string("2019-07-18 00:00:00"), std::string("2019-07-00 00:00:00")}, Null()}};
-
-        check_function<DataTypeTime, true>(func_name, input_types, data_set);
-    }
-
-    {
-        InputTypeSet input_types = {TypeIndex::DateTimeV2, TypeIndex::Date};
-
-        DataSet data_set = {
-                {{std::string("2019-07-18 00:00:00"), std::string("2019-07-18")}, 0.0},
-                {{std::string("2019-07-18 00:00:10"), std::string("2019-07-18")}, 10.0},
-                {{std::string("2019-00-18 00:00:00"), std::string("2019-07-18")}, Null()},
-                {{std::string("2019-07-18 00:00:00"), std::string("2019-07-00")}, Null()}};
-
-        check_function<DataTypeTime, true>(func_name, input_types, data_set);
-    }
-
-    {
-        InputTypeSet input_types = {TypeIndex::Date, TypeIndex::DateTimeV2};
-
-        DataSet data_set = {
-                {{std::string("2019-07-18"), std::string("2019-07-18 00:00:00")}, 0.0},
-                {{std::string("2019-07-18"), std::string("2019-07-18 00:00:10")}, -10.0},
-                {{std::string("2019-00-18"), std::string("2019-07-18 00:00:00")}, Null()},
-                {{std::string("2019-07-18"), std::string("2019-07-00 00:00:00")}, Null()}};
-
-        check_function<DataTypeTime, true>(func_name, input_types, data_set);
-    }
-
-    {
-        InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::DateTimeV2};
-
-        DataSet data_set = {
-                {{std::string("2019-07-18 00:00:00"), std::string("2019-07-18 00:00:00")}, 0.0},
-                {{std::string("2019-07-18 00:00:00"), std::string("2019-07-18 00:00:10")}, -10.0},
-                {{std::string("2019-00-18 00:00:00"), std::string("2019-07-18 00:00:00")}, Null()},
-                {{std::string("2019-07-18 00:00:00"), std::string("2019-07-00 00:00:00")}, Null()}};
-
-        check_function<DataTypeTime, true>(func_name, input_types, data_set);
-    }
-
-    {
-        InputTypeSet input_types = {TypeIndex::DateTimeV2, TypeIndex::DateTime};
-
-        DataSet data_set = {
-                {{std::string("2019-07-18 00:00:00.123"), std::string("2019-07-18 00:00:00")}, 0.0},
-                {{std::string("2019-07-18 00:00:00.123"), std::string("2019-07-18 00:00:00")},
-                 -0.0},
-                {{std::string("2019-00-18 00:00:00.123"), std::string("2019-07-18 00:00:00")},
-                 Null()},
-                {{std::string("2019-07-18 00:00:00.123"), std::string("2019-07-00 00:00:00")},
-                 Null()}};
 
         check_function<DataTypeTime, true>(func_name, input_types, data_set);
     }
@@ -976,52 +880,6 @@ TEST(VTimestampFunctionsTest, datediff_v2_test) {
     }
 
     {
-        InputTypeSet input_types = {TypeIndex::DateV2, TypeIndex::Date};
-
-        DataSet data_set = {{{std::string("2019-07-18"), std::string("2019-07-19")}, -1},
-                            {{std::string("2019-07-18"), std::string("2019-07-17")}, 1},
-                            {{std::string("2019-00-18"), std::string("2019-07-18")}, Null()},
-                            {{std::string("2019-07-18"), std::string("2019-07-00")}, Null()}};
-
-        check_function<DataTypeInt32, true>(func_name, input_types, data_set);
-    }
-
-    {
-        InputTypeSet input_types = {TypeIndex::Date, TypeIndex::DateV2};
-
-        DataSet data_set = {{{std::string("2019-07-18"), std::string("2019-07-19")}, -1},
-                            {{std::string("2019-07-18"), std::string("2019-07-17")}, 1},
-                            {{std::string("2019-00-18"), std::string("2019-07-18")}, Null()},
-                            {{std::string("2019-07-18"), std::string("2019-07-00")}, Null()}};
-
-        check_function<DataTypeInt32, true>(func_name, input_types, data_set);
-    }
-
-    {
-        InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::DateV2};
-
-        DataSet data_set = {
-                {{std::string("2019-07-18 00:00:00"), std::string("2019-07-19")}, -1},
-                {{std::string("2019-07-18 00:00:00"), std::string("2019-07-17")}, 1},
-                {{std::string("2019-00-18 00:00:00"), std::string("2019-07-18")}, Null()},
-                {{std::string("2019-07-18 00:00:00"), std::string("2019-07-00")}, Null()}};
-
-        check_function<DataTypeInt32, true>(func_name, input_types, data_set);
-    }
-
-    {
-        InputTypeSet input_types = {TypeIndex::DateV2, TypeIndex::DateTime};
-
-        DataSet data_set = {
-                {{std::string("2019-07-18"), std::string("2019-07-19 00:00:00")}, -1},
-                {{std::string("2019-07-18"), std::string("2019-07-17 00:00:00")}, 1},
-                {{std::string("2019-00-18"), std::string("2019-07-18 00:00:00")}, Null()},
-                {{std::string("2019-07-18"), std::string("2019-07-00 00:00:00")}, Null()}};
-
-        check_function<DataTypeInt32, true>(func_name, input_types, data_set);
-    }
-
-    {
         InputTypeSet input_types = {TypeIndex::DateTimeV2, TypeIndex::DateV2};
 
         DataSet data_set = {
@@ -1029,58 +887,6 @@ TEST(VTimestampFunctionsTest, datediff_v2_test) {
                 {{std::string("2019-07-18 00:00:00.123"), std::string("2019-07-17")}, 1},
                 {{std::string("2019-00-18 00:00:00.123"), std::string("2019-07-18")}, Null()},
                 {{std::string("2019-07-18 00:00:00.123"), std::string("2019-07-00")}, Null()}};
-
-        check_function<DataTypeInt32, true>(func_name, input_types, data_set);
-    }
-
-    {
-        InputTypeSet input_types = {TypeIndex::DateTimeV2, TypeIndex::Date};
-
-        DataSet data_set = {
-                {{std::string("2019-07-18 00:00:00.123"), std::string("2019-07-19")}, -1},
-                {{std::string("2019-07-18 00:00:00.123"), std::string("2019-07-17")}, 1},
-                {{std::string("2019-00-18 00:00:00.123"), std::string("2019-07-18")}, Null()},
-                {{std::string("2019-07-18 00:00:00.123"), std::string("2019-07-00")}, Null()}};
-
-        check_function<DataTypeInt32, true>(func_name, input_types, data_set);
-    }
-
-    {
-        InputTypeSet input_types = {TypeIndex::Date, TypeIndex::DateTimeV2};
-
-        DataSet data_set = {
-                {{std::string("2019-07-18"), std::string("2019-07-19 00:00:00.123")}, -1},
-                {{std::string("2019-07-18"), std::string("2019-07-17 00:00:00.123")}, 1},
-                {{std::string("2019-00-18"), std::string("2019-07-18 00:00:00.123")}, Null()},
-                {{std::string("2019-07-18"), std::string("2019-07-00 00:00:00.123")}, Null()}};
-
-        check_function<DataTypeInt32, true>(func_name, input_types, data_set);
-    }
-
-    {
-        InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::DateTimeV2};
-
-        DataSet data_set = {
-                {{std::string("2019-07-18 00:00:00"), std::string("2019-07-19 00:00:00.123")}, -1},
-                {{std::string("2019-07-18 00:00:00"), std::string("2019-07-17 00:00:00.123")}, 1},
-                {{std::string("2019-00-18 00:00:00"), std::string("2019-07-18 00:00:00.123")},
-                 Null()},
-                {{std::string("2019-07-18 00:00:00"), std::string("2019-07-00 00:00:00.123")},
-                 Null()}};
-
-        check_function<DataTypeInt32, true>(func_name, input_types, data_set);
-    }
-
-    {
-        InputTypeSet input_types = {TypeIndex::DateTimeV2, TypeIndex::DateTime};
-
-        DataSet data_set = {
-                {{std::string("2019-07-18 00:00:00.123"), std::string("2019-07-19 00:00:00")}, -1},
-                {{std::string("2019-07-18 00:00:00.123"), std::string("2019-07-17 00:00:00")}, 1},
-                {{std::string("2019-00-18 00:00:00.123"), std::string("2019-07-18 00:00:00")},
-                 Null()},
-                {{std::string("2019-07-18 00:00:00.123"), std::string("2019-07-00 00:00:00")},
-                 Null()}};
 
         check_function<DataTypeInt32, true>(func_name, input_types, data_set);
     }

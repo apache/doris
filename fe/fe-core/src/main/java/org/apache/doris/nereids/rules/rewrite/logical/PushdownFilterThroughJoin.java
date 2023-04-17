@@ -24,8 +24,8 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.PlanUtils;
 
@@ -94,7 +94,7 @@ public class PushdownFilterThroughJoin extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalFilter(logicalJoin()).then(filter -> {
 
-            LogicalJoin<GroupPlan, GroupPlan> join = filter.child();
+            LogicalJoin<Plan, Plan> join = filter.child();
 
             Set<Expression> predicates = filter.getConjuncts();
 
@@ -113,9 +113,9 @@ public class PushdownFilterThroughJoin extends OneRewriteRuleFactory {
                 }
             }
 
-            Set<Expression> leftPredicates = Sets.newHashSet();
-            Set<Expression> rightPredicates = Sets.newHashSet();
-            Set<Expression> remainingPredicates = Sets.newHashSet();
+            Set<Expression> leftPredicates = Sets.newLinkedHashSet();
+            Set<Expression> rightPredicates = Sets.newLinkedHashSet();
+            Set<Expression> remainingPredicates = Sets.newLinkedHashSet();
             for (Expression p : filterPredicates) {
                 Set<Slot> slots = p.collect(SlotReference.class::isInstance);
                 if (slots.isEmpty()) {
@@ -139,6 +139,7 @@ public class PushdownFilterThroughJoin extends OneRewriteRuleFactory {
                             join.getHashJoinConjuncts(),
                             joinConditions,
                             join.getHint(),
+                            join.getMarkJoinSlotReference(),
                             PlanUtils.filterOrSelf(leftPredicates, join.left()),
                             PlanUtils.filterOrSelf(rightPredicates, join.right())));
         }).toRule(RuleType.PUSHDOWN_FILTER_THROUGH_JOIN);

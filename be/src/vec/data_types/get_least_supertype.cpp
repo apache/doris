@@ -335,7 +335,7 @@ Status get_least_supertype(const DataTypes& types, DataTypePtr* type, bool compa
 
             UInt32 max_scale = 0;
             for (const auto& type : types) {
-                UInt32 scale = get_decimal_scale(*type, 0);
+                UInt32 scale = get_decimal_scale(*type);
                 if (scale > max_scale) max_scale = scale;
             }
 

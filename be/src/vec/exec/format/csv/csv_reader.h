@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "io/file_factory.h"
 #include "io/fs/file_reader.h"
 #include "olap/iterators.h"
 #include "vec/exec/format/generic_reader.h"
@@ -35,11 +36,11 @@ class CsvReader : public GenericReader {
 public:
     CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
               const TFileScanRangeParams& params, const TFileRangeDesc& range,
-              const std::vector<SlotDescriptor*>& file_slot_descs, IOContext* io_ctx);
+              const std::vector<SlotDescriptor*>& file_slot_descs, io::IOContext* io_ctx);
 
     CsvReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
               const TFileRangeDesc& range, const std::vector<SlotDescriptor*>& file_slot_descs,
-              IOContext* io_ctx);
+              io::IOContext* io_ctx);
     ~CsvReader() override;
 
     Status init_reader(bool is_query);
@@ -62,9 +63,13 @@ private:
                               std::vector<MutableColumnPtr>& columns, size_t* rows);
     Status _line_split_to_values(const Slice& line, bool* success);
     void _split_line(const Slice& line);
+    void _split_line_for_single_char_delimiter(const Slice& line);
+    void _split_line_for_proto_format(const Slice& line);
     Status _check_array_format(std::vector<Slice>& split_values, bool* is_success);
     bool _is_null(const Slice& slice);
     bool _is_array(const Slice& slice);
+    void _init_system_properties();
+    void _init_file_description();
 
     // used for parse table schema of csv file.
     // Currently, this feature is for table valued function.
@@ -79,6 +84,8 @@ private:
     ScannerCounter* _counter;
     const TFileScanRangeParams& _params;
     const TFileRangeDesc& _range;
+    FileSystemProperties _system_properties;
+    FileDescription _file_description;
     const std::vector<SlotDescriptor*>& _file_slot_descs;
     // Only for query task, save the file slot to columns in block map.
     // eg, there are 3 cols in "_file_slot_descs" named: k1, k2, k3
@@ -115,7 +122,7 @@ private:
     int _line_delimiter_length;
     bool _trim_double_quotes = false;
 
-    IOContext* _io_ctx;
+    io::IOContext* _io_ctx;
 
     // save source text which have been splitted.
     std::vector<Slice> _split_values;

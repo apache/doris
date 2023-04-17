@@ -93,4 +93,16 @@ suite("join_order") {
                 ON dcii.b = dcssm.e1
                     AND dcbc.d3 = dcssm.e2;
         """
+
+    sql 'set disable_join_reorder=true;'
+    explain {
+        sql("select * from outerjoin_A_order, outerjoin_B_order, outerjoin_C_order where outerjoin_A_order.a1 = outerjoin_C_order.c and outerjoin_B_order.b = outerjoin_C_order.c;")
+        contains "CROSS JOIN"
+    }
+
+    sql 'set disable_join_reorder=false;'
+    explain {
+        sql("select * from outerjoin_A_order, outerjoin_B_order, outerjoin_C_order where outerjoin_A_order.a1 = outerjoin_C_order.c and outerjoin_B_order.b = outerjoin_C_order.c;")
+        notContains "CROSS JOIN"
+    }
 }

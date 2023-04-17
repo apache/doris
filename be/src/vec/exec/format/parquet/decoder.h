@@ -76,12 +76,25 @@ public:
 
     // Write the decoded values batch to doris's column
     virtual Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                                 ColumnSelectVector& select_vector) = 0;
+                                 ColumnSelectVector& select_vector, bool is_dict_filter) = 0;
 
     virtual Status skip_values(size_t num_values) = 0;
 
     virtual Status set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t length, size_t num_values) {
         return Status::NotSupported("set_dict is not supported");
+    }
+
+    virtual Status read_dict_values_to_column(MutableColumnPtr& doris_column) {
+        return Status::NotSupported("read_dict_values_to_column is not supported");
+    }
+
+    virtual Status get_dict_codes(const ColumnString* column_string,
+                                  std::vector<int32_t>* dict_codes) {
+        return Status::NotSupported("get_dict_codes is not supported");
+    }
+
+    virtual MutableColumnPtr convert_dict_column_to_string_column(const ColumnInt32* dict_column) {
+        LOG(FATAL) << "Method convert_dict_column_to_string_column is not supported";
     }
 
 protected:
@@ -91,6 +104,30 @@ protected:
     FieldSchema* _field_schema = nullptr;
     std::unique_ptr<DecodeParams> _decode_params = nullptr;
 };
+
+template <typename DecimalPrimitiveType>
+void Decoder::init_decimal_converter(DataTypePtr& data_type) {
+    if (_decode_params == nullptr || _field_schema == nullptr ||
+        _decode_params->decimal_scale.scale_type != DecimalScaleParams::NOT_INIT) {
+        return;
+    }
+    auto scale = _field_schema->parquet_schema.scale;
+    auto* decimal_type = reinterpret_cast<DataTypeDecimal<Decimal<DecimalPrimitiveType>>*>(
+            const_cast<IDataType*>(remove_nullable(data_type).get()));
+    auto dest_scale = decimal_type->get_scale();
+    if (dest_scale > scale) {
+        _decode_params->decimal_scale.scale_type = DecimalScaleParams::SCALE_UP;
+        _decode_params->decimal_scale.scale_factor =
+                DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(dest_scale - scale);
+    } else if (dest_scale < scale) {
+        _decode_params->decimal_scale.scale_type = DecimalScaleParams::SCALE_DOWN;
+        _decode_params->decimal_scale.scale_factor =
+                DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(scale - dest_scale);
+    } else {
+        _decode_params->decimal_scale.scale_type = DecimalScaleParams::NO_SCALE;
+        _decode_params->decimal_scale.scale_factor = 1;
+    }
+}
 
 class BaseDictDecoder : public Decoder {
 public:
@@ -112,11 +149,15 @@ protected:
      * Decode dictionary-coded values into doris_column, ensure that doris_column is ColumnDictI32 type,
      * and the coded values must be read into _indexes previously.
      */
-    Status _decode_dict_values(MutableColumnPtr& doris_column, ColumnSelectVector& select_vector) {
-        DCHECK(doris_column->is_column_dictionary());
+    Status _decode_dict_values(MutableColumnPtr& doris_column, ColumnSelectVector& select_vector,
+                               bool is_dict_filter) {
+        DCHECK(doris_column->is_column_dictionary() || is_dict_filter);
         size_t dict_index = 0;
         ColumnSelectVector::DataReadType read_type;
-        auto& column_data = assert_cast<ColumnDictI32&>(*doris_column).get_data();
+        PaddedPODArray<Int32>& column_data =
+                doris_column->is_column_dictionary()
+                        ? assert_cast<ColumnDictI32&>(*doris_column).get_data()
+                        : assert_cast<ColumnInt32&>(*doris_column).get_data();
         while (size_t run_length = select_vector.get_next_run(&read_type)) {
             switch (read_type) {
             case ColumnSelectVector::CONTENT: {
@@ -147,7 +188,6 @@ protected:
         return Status::OK();
     }
 
-protected:
     // For dictionary encoding
     std::unique_ptr<uint8_t[]> _dict = nullptr;
     std::unique_ptr<RleBatchDecoder<uint32_t>> _index_batch_decoder = nullptr;

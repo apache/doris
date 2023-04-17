@@ -19,6 +19,7 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.external.EsExternalDatabase;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.ExternalTable;
@@ -26,18 +27,21 @@ import org.apache.doris.catalog.external.HMSExternalDatabase;
 import org.apache.doris.catalog.external.IcebergExternalDatabase;
 import org.apache.doris.catalog.external.JdbcExternalDatabase;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterCatalogExecutor;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
-import org.apache.commons.lang.NotImplementedException;
+import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -112,7 +116,7 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
      * @return true if table exists, false otherwise
      */
     public boolean tableExistInLocal(String dbName, String tblName) {
-        throw new NotImplementedException();
+        throw new NotImplementedException("tableExistInLocal not implemented");
     }
 
     /**
@@ -124,7 +128,8 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
         if (!initialized) {
             if (!Env.getCurrentEnv().isMaster()) {
                 // Forward to master and wait the journal to replay.
-                MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor();
+                int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeout();
+                MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor(waitTimeOut * 1000);
                 try {
                     remoteExecutor.forward(id, -1);
                 } catch (Exception e) {
@@ -141,25 +146,40 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     protected final void initLocalObjects() {
         if (!objectCreated) {
             initLocalObjectsImpl();
-            initAccessController();
             objectCreated = true;
         }
+    }
+
+    public boolean isInitialized() {
+        return this.initialized;
     }
 
     // init some local objects such as:
     // hms client, read properties from hive-site.xml, es client
     protected abstract void initLocalObjectsImpl();
 
+    // check if all required properties are set when creating catalog
+    public void checkProperties() throws DdlException {
+        // check refresh parameter of catalog
+        Map<String, String> properties = getCatalogProperty().getProperties();
+        if (properties.containsKey(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC)) {
+            try {
+                Integer.valueOf(properties.get(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC));
+            } catch (NumberFormatException e) {
+                throw new DdlException("Invalid properties: " + CatalogMgr.METADATA_REFRESH_INTERVAL_SEC);
+            }
+        }
+    }
 
     /**
      * eg:
      * (
-     * ""access_controller.class" = "org.apache.doris.mysql.privilege.RangerAccessControllerFactory",
+     * ""access_controller.class" = "org.apache.doris.mysql.privilege.RangerHiveAccessControllerFactory",
      * "access_controller.properties.prop1" = "xxx",
      * "access_controller.properties.prop2" = "yyy",
      * )
      */
-    private void initAccessController() {
+    public void initAccessController() {
         Map<String, String> properties = getCatalogProperty().getProperties();
         // 1. get access controller class name
         String className = properties.getOrDefault(CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, "");
@@ -237,6 +257,20 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     }
 
     @Override
+    public List<String> getDbNamesOrEmpty() {
+        if (initialized) {
+            try {
+                return getDbNames();
+            } catch (Exception e) {
+                LOG.warn("failed to get db names in catalog {}", getName(), e);
+                return Lists.newArrayList();
+            }
+        } else {
+            return Lists.newArrayList();
+        }
+    }
+
+    @Override
     public String getResource() {
         return catalogProperty.getResource();
     }
@@ -277,7 +311,7 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
 
     @Override
     public Map<String, String> getProperties() {
-        return catalogProperty.getProperties();
+        return PropertyConverter.convertToMetaProperties(catalogProperty.getProperties());
     }
 
     @Override
@@ -288,7 +322,7 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     @Override
     public void modifyCatalogProps(Map<String, String> props) {
         catalogProperty.modifyCatalogProps(props);
-        notifyPropertiesUpdated();
+        notifyPropertiesUpdated(props);
     }
 
     @Override
@@ -392,10 +426,27 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     }
 
     public void dropDatabase(String dbName) {
-        throw new NotImplementedException();
+        throw new NotImplementedException("dropDatabase not implemented");
     }
 
     public void createDatabase(long dbId, String dbName) {
-        throw new NotImplementedException();
+        throw new NotImplementedException("createDatabase not implemented");
+    }
+
+    public Map getSpecifiedDatabaseMap() {
+        String specifiedDatabaseList = catalogProperty.getOrDefault(Resource.SPECIFIED_DATABASE_LIST, "");
+        Map<String, Boolean> specifiedDatabaseMap = Maps.newHashMap();
+        specifiedDatabaseList = specifiedDatabaseList.trim();
+        if (specifiedDatabaseList.isEmpty()) {
+            return specifiedDatabaseMap;
+        }
+        String[] databaseList = specifiedDatabaseList.split(",");
+        for (int i = 0; i < databaseList.length; i++) {
+            String dbname = databaseList[i].trim();
+            if (!dbname.isEmpty()) {
+                specifiedDatabaseMap.put(dbname, true);
+            }
+        }
+        return specifiedDatabaseMap;
     }
 }

@@ -111,7 +111,7 @@ public:
     virtual void convert_dict_codes_if_necessary() {}
 
     /// If column is ColumnDictionary, and is a bloom filter predicate, generate_hash_values
-    virtual void generate_hash_values_for_runtime_filter() {}
+    virtual void initialize_hash_values_for_runtime_filter() {}
 
     /// Creates empty column with the same type.
     virtual MutablePtr clone_empty() const { return clone_resized(0); }
@@ -215,6 +215,7 @@ public:
 
     /// Appends range of elements from other column with the same type.
     /// Could be used to concatenate columns.
+    /// TODO: we need `insert_range_from_const` for every column type.
     virtual void insert_range_from(const IColumn& src, size_t start, size_t length) = 0;
 
     /// Appends one element from other column with the same type multiple times.
@@ -385,6 +386,10 @@ public:
       */
     using Filter = PaddedPODArray<UInt8>;
     virtual Ptr filter(const Filter& filt, ssize_t result_size_hint) const = 0;
+
+    /// This function will modify the original table.
+    /// Return rows number after filtered.
+    virtual size_t filter(const Filter& filter) = 0;
 
     /**
      *  used by lazy materialization to filter column by selected rowids
@@ -574,6 +579,8 @@ public:
 
     virtual bool is_hll() const { return false; }
 
+    virtual bool is_quantile_state() const { return false; }
+
     // true if column has null element
     virtual bool has_null() const { return false; }
 
@@ -582,6 +589,8 @@ public:
 
     /// It's a special kind of column, that contain single value, but is not a ColumnConst.
     virtual bool is_dummy() const { return false; }
+
+    virtual bool is_exclusive() const { return use_count() == 1; }
 
     /// Clear data of column, just like vector clear
     virtual void clear() {}

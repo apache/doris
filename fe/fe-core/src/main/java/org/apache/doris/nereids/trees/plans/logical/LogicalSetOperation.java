@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -51,7 +52,7 @@ import java.util.Optional;
  *
  * eg: select k1, k2 from t1 union select 1, 2 union select d1, d2 from t2;
  */
-public abstract class LogicalSetOperation extends AbstractLogicalPlan implements SetOperation {
+public abstract class LogicalSetOperation extends AbstractLogicalPlan implements SetOperation, OutputSavePoint {
 
     // eg value: qualifier:DISTINCT
     protected final Qualifier qualifier;
@@ -83,6 +84,19 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
     }
 
     @Override
+    public boolean hasUnboundExpression() {
+        return outputs.isEmpty() || super.hasUnboundExpression();
+    }
+
+    @Override
+    public LogicalProperties computeLogicalProperties() {
+        if (outputs.isEmpty()) {
+            return UnboundLogicalProperties.INSTANCE;
+        }
+        return super.computeLogicalProperties();
+    }
+
+    @Override
     public List<Slot> computeOutput() {
         return outputs.stream()
                 .map(NamedExpression::toSlot)
@@ -100,12 +114,13 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
         ImmutableList.Builder<NamedExpression> newOutputs = new Builder<>();
         for (Expression expression : leftCastExpressions) {
             if (expression instanceof Cast) {
+                Cast cast = ((Cast) expression);
                 newOutputs.add(new SlotReference(
-                        ((Cast) expression).child().toSql(), expression.getDataType(),
-                        ((Cast) expression).child().nullable()));
+                        cast.child().toSql(), expression.getDataType(),
+                        cast.child().nullable()));
             } else if (expression instanceof Slot) {
-                newOutputs.add(new SlotReference(
-                        expression.toSql(), expression.getDataType(), expression.nullable()));
+                Slot slot = ((Slot) expression);
+                newOutputs.add(new SlotReference(slot.toSql(), slot.getDataType(), slot.nullable()));
             }
         }
         return newOutputs.build();
@@ -127,24 +142,24 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
 
     private List<List<Expression>> castCommonDataTypeOutputs(List<Slot> resetNullableForLeftOutputs) {
         List<Expression> newLeftOutputs = new ArrayList<>();
-        List<Expression> newRightOutpus = new ArrayList<>();
+        List<Expression> newRightOutputs = new ArrayList<>();
         // Ensure that the output types of the left and right children are consistent and expand upward.
         for (int i = 0; i < resetNullableForLeftOutputs.size(); ++i) {
             Slot left = resetNullableForLeftOutputs.get(i);
             Slot right = child(1).getOutput().get(i);
-            DataType compatibleType = DataType.convertFromCatalogDataType(Type.getAssignmentCompatibleType(
+            DataType compatibleType = DataType.fromCatalogType(Type.getAssignmentCompatibleType(
                     left.getDataType().toCatalogDataType(),
                     right.getDataType().toCatalogDataType(),
                     false));
             Expression newLeft = TypeCoercionUtils.castIfNotSameType(left, compatibleType);
             Expression newRight = TypeCoercionUtils.castIfNotSameType(right, compatibleType);
             newLeftOutputs.add(newLeft);
-            newRightOutpus.add(newRight);
+            newRightOutputs.add(newRight);
         }
 
         List<List<Expression>> resultExpressions = new ArrayList<>();
         resultExpressions.add(newLeftOutputs);
-        resultExpressions.add(newRightOutpus);
+        resultExpressions.add(newRightOutputs);
         return ImmutableList.copyOf(resultExpressions);
     }
 

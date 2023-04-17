@@ -48,7 +48,7 @@ Vertical compaction中将按行合并的方式改变为按列组合并，每次�
 
 ## Segment compaction
 Segment compaction 主要应对单批次大数据量的导入场景。和 Vertical compaction 的触发机制不同，Segment compaction 是在导入过程中，针对一批次数据内，多个 Segment 进行的合并操作。这种机制可以有效减少最终生成的 Segment 数量，避免 -238 （OLAP_ERR_TOO_MANY_SEGMENTS）错误的出现。
-Segmetn compaction 有以下特点：
+Segment compaction 有以下特点：
 
 - 可以减少导入产生的 segment 数量
 - 合并过程与导入过程并行，不会额外增加导入时间

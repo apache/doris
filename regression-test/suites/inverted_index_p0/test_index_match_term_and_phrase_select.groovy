@@ -37,7 +37,9 @@ suite("test_index_match_term_and_phrase_select", "inverted_index_select"){
             alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
             alter_res = alter_res.toString()
             if(alter_res.contains("FINISHED")) {
-                 break
+                sleep(3000) // wait change table state to normal
+                logger.info(table_name + " latest alter job finished, detail: " + alter_res)
+                break
             }
             useTime = t
             sleep(delta_time)
@@ -178,6 +180,10 @@ suite("test_index_match_term_and_phrase_select", "inverted_index_select"){
             qt_sql """ select * from ${indexTbName1} where ${varchar_colume2}='grade 5' order by name """
             qt_sql """ select * from ${indexTbName1} where ${varchar_colume2}="grade 5" order by name """
             qt_sql """ select * from ${indexTbName1} where ${varchar_colume2}='grade none' order by name """
+            qt_sql """ select * from ${indexTbName1} where ${varchar_colume2} match 'grade 5' order by name """
+            qt_sql """ select * from ${indexTbName1} where ${varchar_colume2} match "grade 5" order by name """
+            qt_sql """ select * from ${indexTbName1} where ${varchar_colume2} match 'grade none' order by name """
+            qt_sql """ select * from ${indexTbName1} where ${varchar_colume2} match 'grade' order by name """
         }
 
         // cas2.2 test varchar standard match same term with different way and repeate 5 times

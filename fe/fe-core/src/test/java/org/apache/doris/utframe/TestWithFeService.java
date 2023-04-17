@@ -22,18 +22,22 @@ import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateDbStmt;
+import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateViewStmt;
+import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.DropSqlBlockRuleStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.RecoverTableStmt;
+import org.apache.doris.analysis.ShowCreateFunctionStmt;
 import org.apache.doris.analysis.ShowCreateTableStmt;
+import org.apache.doris.analysis.ShowFunctionsStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
@@ -53,12 +57,10 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -92,7 +94,6 @@ import java.io.StringReader;
 import java.net.DatagramSocket;
 import java.net.ServerSocket;
 import java.net.SocketException;
-import java.nio.channels.SocketChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -138,7 +139,7 @@ public abstract class TestWithFeService {
     public final void afterAll() throws Exception {
         runAfterAll();
         Env.getCurrentEnv().clear();
-        NamedExpressionUtil.clear();
+        StatementScopeIdGenerator.clear();
         cleanDorisFeDir();
     }
 
@@ -178,20 +179,18 @@ public abstract class TestWithFeService {
 
     protected CascadesContext createCascadesContext(String sql) {
         StatementContext statementCtx = createStatementCtx(sql);
-        LogicalPlan initPlan = new NereidsParser().parseSingle(sql);
-        PhysicalProperties requestProperties = NereidsPlanner.buildInitRequireProperties(initPlan);
-        return CascadesContext.newContext(statementCtx, initPlan, requestProperties);
+        return MemoTestUtils.createCascadesContext(statementCtx, sql);
     }
 
     public LogicalPlan analyze(String sql) {
         CascadesContext cascadesContext = createCascadesContext(sql);
         cascadesContext.newAnalyzer().analyze();
-        return (LogicalPlan) cascadesContext.getMemo().copyOut();
+        cascadesContext.toMemo();
+        return (LogicalPlan) cascadesContext.getRewritePlan();
     }
 
     protected ConnectContext createCtx(UserIdentity user, String host) throws IOException {
-        SocketChannel channel = SocketChannel.open();
-        ConnectContext ctx = new ConnectContext(channel);
+        ConnectContext ctx = new ConnectContext();
         ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
         ctx.setCurrentUserIdentity(user);
         ctx.setQualifiedUser(user.getQualifiedUser());
@@ -487,12 +486,30 @@ public abstract class TestWithFeService {
         Env.getCurrentEnv().createDb(createDbStmt);
     }
 
+    public void dropDatabase(String db) throws Exception {
+        String createDbStmtStr = "DROP DATABASE " + db;
+        DropDbStmt createDbStmt = (DropDbStmt) parseAndAnalyzeStmt(createDbStmtStr);
+        Env.getCurrentEnv().dropDb(createDbStmt);
+    }
+
     public void useDatabase(String dbName) {
         connectContext.setDatabase(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName));
     }
 
     protected ShowResultSet showCreateTable(String sql) throws Exception {
         ShowCreateTableStmt stmt = (ShowCreateTableStmt) parseAndAnalyzeStmt(sql);
+        ShowExecutor executor = new ShowExecutor(connectContext, stmt);
+        return executor.execute();
+    }
+
+    protected ShowResultSet showCreateFunction(String sql) throws Exception {
+        ShowCreateFunctionStmt stmt = (ShowCreateFunctionStmt) parseAndAnalyzeStmt(sql);
+        ShowExecutor executor = new ShowExecutor(connectContext, stmt);
+        return executor.execute();
+    }
+
+    protected ShowResultSet showFunctions(String sql) throws Exception {
+        ShowFunctionsStmt stmt = (ShowFunctionsStmt) parseAndAnalyzeStmt(sql);
         ShowExecutor executor = new ShowExecutor(connectContext, stmt);
         return executor.execute();
     }
@@ -547,6 +564,11 @@ public abstract class TestWithFeService {
         Env.getCurrentEnv().getPolicyMgr().createPolicy(createPolicyStmt);
     }
 
+    public void createFunction(String sql) throws Exception {
+        CreateFunctionStmt createFunctionStmt = (CreateFunctionStmt) parseAndAnalyzeStmt(sql);
+        Env.getCurrentEnv().createFunction(createFunctionStmt);
+    }
+
     protected void dropPolicy(String sql) throws Exception {
         DropPolicyStmt stmt = (DropPolicyStmt) parseAndAnalyzeStmt(sql);
         Env.getCurrentEnv().getPolicyMgr().dropPolicy(stmt);
@@ -595,6 +617,12 @@ public abstract class TestWithFeService {
         Thread.sleep(100);
     }
 
+    protected void alterTableSync(String sql) throws Exception {
+        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        Env.getCurrentEnv().alterTable(alterTableStmt);
+        Thread.sleep(100);
+    }
+
     protected void createMv(String sql) throws Exception {
         CreateMaterializedViewStmt createMaterializedViewStmt =
                 (CreateMaterializedViewStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
@@ -605,7 +633,8 @@ public abstract class TestWithFeService {
     }
 
     private void updateReplicaPathHash() {
-        com.google.common.collect.Table<Long, Long, Replica> replicaMetaTable = Env.getCurrentInvertedIndex().getReplicaMetaTable();
+        com.google.common.collect.Table<Long, Long, Replica> replicaMetaTable = Env.getCurrentInvertedIndex()
+                .getReplicaMetaTable();
         for (com.google.common.collect.Table.Cell<Long, Long, Replica> cell : replicaMetaTable.cellSet()) {
             long beId = cell.getColumnKey();
             Backend be = Env.getCurrentSystemInfo().getBackend(beId);

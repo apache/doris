@@ -51,8 +51,9 @@ suite("test_javaudf_murmurhash3") {
 
         qt_select """ SELECT murmurhash3(col_1) as a FROM ${tableName} ORDER BY a; """
 
-        sql """ DROP FUNCTION murmurhash3(string); """
+
     } finally {
+        try_sql("DROP FUNCTION IF EXISTS murmurhash3(string);")
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
 }

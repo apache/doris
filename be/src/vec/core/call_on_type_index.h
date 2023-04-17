@@ -92,7 +92,7 @@ bool call_on_basic_type(TypeIndex number, F&& f) {
 
 /// Unroll template using TypeIndex
 template <bool _int, bool _float, bool _decimal, bool _datetime, typename F>
-inline bool call_on_basic_types(TypeIndex type_num1, TypeIndex type_num2, F&& f) {
+bool call_on_basic_types(TypeIndex type_num1, TypeIndex type_num2, F&& f) {
     if constexpr (_int) {
         switch (type_num1) {
         case TypeIndex::UInt8:

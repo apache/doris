@@ -22,72 +22,74 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
-import com.google.common.collect.Lists;
-import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
-
-import java.util.List;
+import com.google.gson.JsonParser;
 
 public class Bucket {
-    public LiteralExpr lower;
-    public LiteralExpr upper;
-    public int count;
-    public int preSum;
-    public int ndv;
+    public double lower;
+    public double upper;
+    public double count;
+    public double preSum;
+    public double ndv;
 
-    public LiteralExpr getLower() {
-        return lower;
+    // For display only.
+    public LiteralExpr lowerExpr;
+    public LiteralExpr upperExpr;
+
+    public Bucket() {
     }
 
-    public void setLower(LiteralExpr lower) {
+    public Bucket(double lower, double upper, double count, double preSum, double ndv) {
         this.lower = lower;
-    }
-
-    public LiteralExpr getUpper() {
-        return upper;
-    }
-
-    public void setUpper(LiteralExpr upper) {
         this.upper = upper;
-    }
-
-    public int getCount() {
-        return count;
-    }
-
-    public void setCount(int count) {
         this.count = count;
-    }
-
-    public int getPreSum() {
-        return preSum;
-    }
-
-    public void setPreSum(int preSum) {
         this.preSum = preSum;
-    }
-
-    public int getNdv() {
-        return ndv;
-    }
-
-    public void setNdv(int ndv) {
         this.ndv = ndv;
     }
 
-    public static List<Bucket> deserializeFromjson(Type datatype, JsonArray jsonArray)
-            throws AnalysisException {
-        List<Bucket> buckets = Lists.newArrayList();
-        for (int i = 0; i < jsonArray.size(); i++) {
-            JsonObject bucketJson = jsonArray.get(i).getAsJsonObject();
-            Bucket bucket = new Bucket();
-            bucket.lower = StatisticsUtil.readableValue(datatype, bucketJson.get("lower").getAsString());
-            bucket.upper = StatisticsUtil.readableValue(datatype, bucketJson.get("upper").getAsString());
-            bucket.count = bucketJson.get("count").getAsInt();
-            bucket.preSum = bucketJson.get("pre_sum").getAsInt();
-            bucket.ndv = bucketJson.get("ndv").getAsInt();
-            buckets.add(bucket);
+    public Bucket(double lower, double upper, double count, double preSum, double ndv,
+            LiteralExpr lowerExpr, LiteralExpr upperExpr) {
+        this.lower = lower;
+        this.upper = upper;
+        this.count = count;
+        this.preSum = preSum;
+        this.ndv = ndv;
+        this.lowerExpr = lowerExpr;
+        this.upperExpr = upperExpr;
+    }
+
+    public static Bucket deserializeFromJson(Type datatype, String json) throws AnalysisException {
+        Bucket bucket = new Bucket();
+        JsonObject bucketJson = JsonParser.parseString(json).getAsJsonObject();
+        bucket.lower = StatisticsUtil.convertToDouble(datatype, bucketJson.get("lower").getAsString());
+        bucket.upper = StatisticsUtil.convertToDouble(datatype, bucketJson.get("upper").getAsString());
+        bucket.count = bucketJson.get("count").getAsInt();
+        bucket.preSum = bucketJson.get("pre_sum").getAsInt();
+        bucket.ndv = bucketJson.get("ndv").getAsInt();
+
+        // LowerExpr and upperExpr for display only.
+        bucket.lowerExpr = StatisticsUtil.readableValue(datatype, bucketJson.get("lower").getAsString());
+        bucket.upperExpr = StatisticsUtil.readableValue(datatype, bucketJson.get("upper").getAsString());
+
+        return bucket;
+    }
+
+    public static JsonObject serializeToJsonObj(Bucket bucket) {
+        if (bucket == null) {
+            return null;
         }
-        return buckets;
+
+        JsonObject bucketJson = new JsonObject();
+        bucketJson.addProperty("lower_expr", bucket.lowerExpr.getStringValue());
+        bucketJson.addProperty("upper_expr", bucket.upperExpr.getStringValue());
+        bucketJson.addProperty("count", bucket.count);
+        bucketJson.addProperty("pre_sum", bucket.preSum);
+        bucketJson.addProperty("ndv", bucket.ndv);
+
+        return bucketJson;
+    }
+
+    public static String serializeToJson(Bucket bucket) {
+        return bucket == null ? "" : serializeToJsonObj(bucket).toString();
     }
 }

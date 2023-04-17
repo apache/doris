@@ -51,6 +51,7 @@ public class HdfsResource extends Resource {
     public static String HADOOP_KERBEROS_KEYTAB = "hadoop.kerberos.keytab";
     public static String HADOOP_SHORT_CIRCUIT = "dfs.client.read.shortcircuit";
     public static String HADOOP_SOCKET_PATH = "dfs.domain.socket.path";
+    public static String DSF_NAMESERVICES = "dfs.nameservices";
 
     @SerializedName(value = "properties")
     private Map<String, String> properties;

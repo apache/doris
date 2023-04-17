@@ -116,7 +116,7 @@ public class SysVariableDesc extends Expr {
     }
 
     @Override
-    public Expr getResultValue() throws AnalysisException {
+    public Expr getResultValue(boolean inView) throws AnalysisException {
         if (!Strings.isNullOrEmpty(name) && VariableVarConverters.hasConverter(name)) {
             // Return the string type here so that it can correctly match the subsequent function signature.
             // And we also set `beConverted` to session variable name in StringLiteral, so that it can be cast back
@@ -129,7 +129,7 @@ public class SysVariableDesc extends Expr {
                 throw new AnalysisException(e.getMessage());
             }
         }
-        return super.getResultValue();
+        return super.getResultValue(false);
     }
 
     @Override

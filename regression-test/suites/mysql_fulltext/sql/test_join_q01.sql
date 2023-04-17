@@ -1,4 +1,4 @@
-SET enable_vectorized_engine=true;
+
 
 -- not support: because column 'name' in join_t2_dk
 -- select * from join_t1_uk left join join_t2_uk on venue_id = entity_id 

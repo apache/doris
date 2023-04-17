@@ -46,7 +46,7 @@ import javax.servlet.http.HttpServletResponse;
  * }
  */
 @RestController
-public class BootstrapFinishAction {
+public class BootstrapFinishAction extends RestBaseController {
 
     private static final String CLUSTER_ID = "cluster_id";
     private static final String TOKEN = "token";
@@ -58,6 +58,10 @@ public class BootstrapFinishAction {
 
     @RequestMapping(path = "/api/bootstrap", method = RequestMethod.GET)
     public ResponseEntity execute(HttpServletRequest request, HttpServletResponse response) {
+        if (Config.enable_all_http_auth) {
+            executeCheckPassword(request, response);
+        }
+
         boolean isReady = Env.getCurrentEnv().isReady();
 
         // to json response

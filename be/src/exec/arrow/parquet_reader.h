@@ -23,6 +23,10 @@
 #include <arrow/io/file.h>
 #include <arrow/io/interfaces.h>
 #include <arrow/status.h>
+#include <arrow/type_fwd.h>
+#include <gen_cpp/PaloBrokerService_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
 #include <parquet/api/reader.h>
 #include <parquet/api/writer.h>
 #include <parquet/arrow/reader.h>
@@ -34,16 +38,23 @@
 #include <condition_variable>
 #include <list>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "common/config.h"
 #include "common/status.h"
 #include "exec/arrow/arrow_reader.h"
-#include "gen_cpp/PaloBrokerService_types.h"
-#include "gen_cpp/PlanNodes_types.h"
-#include "gen_cpp/Types_types.h"
+#include "io/fs/file_reader_writer_fwd.h"
+
+namespace arrow {
+class RecordBatch;
+} // namespace arrow
+namespace parquet {
+class FileMetaData;
+} // namespace parquet
 
 namespace doris {
 
@@ -54,13 +65,14 @@ class RuntimeState;
 class SlotDescriptor;
 class FileReader;
 class RowGroupReader;
+class TupleDescriptor;
 
 // Reader of parquet file
 class ParquetReaderWrap final : public ArrowReaderWrap {
 public:
     // batch_size is not use here
     ParquetReaderWrap(RuntimeState* state, const std::vector<SlotDescriptor*>& file_slot_descs,
-                      FileReader* file_reader, int32_t num_of_columns_from_file,
+                      io::FileReaderSPtr file_reader, int32_t num_of_columns_from_file,
                       int64_t range_start_offset, int64_t range_size, bool case_sensitive = true);
     ~ParquetReaderWrap() override = default;
 
@@ -70,8 +82,6 @@ public:
 
 private:
     Status read_record_batch(bool* eof);
-    Status handle_timestamp(const std::shared_ptr<arrow::TimestampArray>& ts_array, uint8_t* buf,
-                            int32_t* wbtyes);
 
 private:
     Status read_next_batch();

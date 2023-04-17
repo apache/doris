@@ -26,7 +26,13 @@ under the License.
 -->
 
 # 导入本地数据
+本文档主要介绍如何从客户端导入本地的数据。
 
+目前Doris支持两种从本地导入数据的模式:
+1. [Stream Load](../import-way/stream-load-manual.md)
+2. [MySql Load](../import-way/mysql-load-manual.md)
+
+## Stream Load
 Stream Load 用于将本地文件导入到 Doris 中。
 
 不同于其他命令的提交方式，Stream Load 是通过 HTTP 协议与 Doris 进行连接交互的。
@@ -40,7 +46,7 @@ Stream Load 用于将本地文件导入到 Doris 中。
 
 文档最后，我们给出一个使用 Java 导入数据的代码示例
 
-## 导入数据
+### 导入数据
 
 Stream Load 的请求体如下：
 
@@ -105,12 +111,12 @@ PUT /api/{db}/{table}/_stream_load
    - `Status` 字段状态为 `Success` 即表示导入成功。
    - 其他字段的详细介绍，请参阅 [Stream Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD.md) 命令文档。
 
-## 导入建议
+### 导入建议
 
 - Stream Load 只能导入本地文件。
 - 建议一个导入请求的数据量控制在 1 - 2 GB 以内。如果有大量本地文件，可以分批并发提交。
 
-## Java 代码示例
+### Java 代码示例
 
 这里通过一个简单的 JAVA 示例来执行 Stream Load：
 
@@ -219,3 +225,52 @@ public class DorisStreamLoader {
 >    <version>4.5.13</version>
 ></dependency>
 > ```
+
+## MySql LOAD
+<version since="dev">
+    MySql LOAD样例
+</version>
+
+### 导入数据
+1. 创建一张表
+
+   通过 `CREATE TABLE` 命令在`demo`创建一张表用于存储待导入的数据
+
+   ```sql
+   CREATE TABLE IF NOT EXISTS load_local_file_test
+   (
+   id INT,
+   age TINYINT,
+   name VARCHAR(50)
+   )
+   unique key(id)
+   DISTRIBUTED BY HASH(id) BUCKETS 3;
+   ```
+
+2. 导入数据
+   在MySql客户端下执行以下 SQL 命令导入本地文件：
+
+   ```sql
+   LOAD DATA
+   LOCAL
+   INFILE '/path/to/local/demo.txt'
+   INTO TABLE demo.load_local_file_test
+   ```
+
+   关于 MySQL Load 命令的更多高级操作，请参阅 [MySQL Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/MYSQL-LOAD.md) 命令文档。
+
+3. 等待导入结果
+
+   MySql Load 命令是同步命令，返回成功即表示导入成功。如果导入数据较大，可能需要较长的等待时间。示例如下:
+
+   ```text
+   Query OK, 1 row affected (0.17 sec)
+   Records: 1  Deleted: 0  Skipped: 0  Warnings: 0
+   ```
+
+   - 如果出现上述结果, 则表示导入成功。导入失败, 会抛出错误,并在客户端显示错误原因
+   - 其他字段的详细介绍，请参阅 [MySQL Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/MYSQL-LOAD.md) 命令文档。
+
+### 导入建议
+- MySql Load 只能导入本地文件(可以是客户端本地或者连接的FE节点本地), 而且支持CSV格式。
+- 建议一个导入请求的数据量控制在 1 - 2 GB 以内。如果有大量本地文件，可以分批并发提交。

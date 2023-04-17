@@ -17,6 +17,7 @@
 #include "olap/olap_common.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/thread_context.h"
+#include "util/doris_metrics.h"
 #include "util/lock.h"
 #include "util/metrics.h"
 #include "util/slice.h"
@@ -175,7 +176,7 @@ public:
     // value will be passed to "deleter".
     virtual Handle* insert(const CacheKey& key, void* value, size_t charge,
                            void (*deleter)(const CacheKey& key, void* value),
-                           CachePriority priority = CachePriority::NORMAL) = 0;
+                           CachePriority priority = CachePriority::NORMAL, size_t bytes = -1) = 0;
 
     // If the cache has no mapping for "key", returns nullptr.
     //
@@ -221,9 +222,13 @@ public:
     // Same as prune(), but the entry will only be pruned if the predicate matched.
     // NOTICE: the predicate should be simple enough, or the prune_if() function
     // may hold lock for a long time to execute predicate.
-    virtual int64_t prune_if(CacheValuePredicate pred) { return 0; }
+    virtual int64_t prune_if(CacheValuePredicate pred, bool lazy_mode = false) { return 0; }
 
     virtual int64_t mem_consumption() = 0;
+
+    virtual int64_t get_usage() = 0;
+
+    virtual size_t get_total_capacity() = 0;
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Cache);
@@ -240,12 +245,14 @@ typedef struct LRUHandle {
     size_t charge;
     size_t key_length;
     size_t total_size; // including key length
+    size_t bytes;      // Used by LRUCacheType::NUMBER, LRUCacheType::SIZE equal to total_size.
     bool in_cache;     // Whether entry is in the cache.
     uint32_t refs;
     uint32_t hash; // Hash of key(); used for fast sharding and comparisons
     CachePriority priority = CachePriority::NORMAL;
     MemTrackerLimiter* mem_tracker;
     char key_data[1]; // Beginning of key
+    LRUCacheType type;
 
     CacheKey key() const {
         // For cheaper lookups, we allow a temporary Handle object
@@ -259,7 +266,8 @@ typedef struct LRUHandle {
 
     void free() {
         (*deleter)(key(), value);
-        THREAD_MEM_TRACKER_TRANSFER_FROM(total_size, mem_tracker);
+        THREAD_MEM_TRACKER_TRANSFER_FROM(bytes, mem_tracker);
+        DorisMetrics::instance()->lru_cache_memory_bytes->increment(-bytes);
         ::free(this);
     }
 
@@ -308,13 +316,10 @@ private:
     void _resize();
 };
 
-// pair first is timestatmp, put <timestatmp, LRUHandle*> into asc priority_queue,
-// when need to free space, can first evict the top of the LRUHandleHeap,
-// because the top element's timestamp is the oldest.
-typedef std::priority_queue<std::pair<int64_t, LRUHandle*>,
-                            std::vector<std::pair<int64_t, LRUHandle*>>,
-                            std::greater<std::pair<int64_t, LRUHandle*>>>
-        LRUHandleHeap;
+// pair first is timestatmp, put <timestatmp, LRUHandle*> into asc set,
+// when need to free space, can first evict the begin of the set,
+// because the begin element's timestamp is the oldest.
+using LRUHandleSortedSet = std::set<std::pair<int64_t, LRUHandle*>>;
 
 // A single shard of sharded cache.
 class LRUCache {
@@ -332,12 +337,12 @@ public:
     Cache::Handle* insert(const CacheKey& key, uint32_t hash, void* value, size_t charge,
                           void (*deleter)(const CacheKey& key, void* value),
                           MemTrackerLimiter* tracker,
-                          CachePriority priority = CachePriority::NORMAL);
+                          CachePriority priority = CachePriority::NORMAL, size_t bytes = -1);
     Cache::Handle* lookup(const CacheKey& key, uint32_t hash);
     void release(Cache::Handle* handle);
     void erase(const CacheKey& key, uint32_t hash);
     int64_t prune();
-    int64_t prune_if(CacheValuePredicate pred);
+    int64_t prune_if(CacheValuePredicate pred, bool lazy_mode = false);
 
     void set_cache_value_time_extractor(CacheValueTimeExtractor cache_value_time_extractor);
     void set_cache_value_check_timestamp(bool cache_value_check_timestamp);
@@ -380,8 +385,8 @@ private:
 
     CacheValueTimeExtractor _cache_value_time_extractor;
     bool _cache_value_check_timestamp = false;
-    LRUHandleHeap _sorted_normal_entries_with_timestamp;
-    LRUHandleHeap _sorted_durable_entries_with_timestamp;
+    LRUHandleSortedSet _sorted_normal_entries_with_timestamp;
+    LRUHandleSortedSet _sorted_durable_entries_with_timestamp;
 
     uint32_t _element_count_capacity = 0;
 };
@@ -398,7 +403,8 @@ public:
     virtual ~ShardedLRUCache();
     virtual Handle* insert(const CacheKey& key, void* value, size_t charge,
                            void (*deleter)(const CacheKey& key, void* value),
-                           CachePriority priority = CachePriority::NORMAL) override;
+                           CachePriority priority = CachePriority::NORMAL,
+                           size_t bytes = -1) override;
     virtual Handle* lookup(const CacheKey& key) override;
     virtual void release(Handle* handle) override;
     virtual void erase(const CacheKey& key) override;
@@ -406,8 +412,10 @@ public:
     Slice value_slice(Handle* handle) override;
     virtual uint64_t new_id() override;
     virtual int64_t prune() override;
-    virtual int64_t prune_if(CacheValuePredicate pred) override;
+    int64_t prune_if(CacheValuePredicate pred, bool lazy_mode = false) override;
     int64_t mem_consumption() override;
+    int64_t get_usage() override;
+    size_t get_total_capacity() override { return _total_capacity; };
 
 private:
     void update_cache_metrics() const;
@@ -423,6 +431,7 @@ private:
     const uint32_t _num_shards;
     LRUCache** _shards;
     std::atomic<uint64_t> _last_id;
+    size_t _total_capacity;
 
     std::unique_ptr<MemTrackerLimiter> _mem_tracker;
     std::shared_ptr<MetricEntity> _entity = nullptr;

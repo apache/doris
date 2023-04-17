@@ -436,6 +436,14 @@ public class CreateTableStmt extends DdlStmt {
         if (enableStoreRowColumn) {
             columnDefs.add(ColumnDef.newRowStoreColumnDef());
         }
+        if (Config.enable_hidden_version_column_by_default && keysDesc != null
+                && keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
+            if (enableUniqueKeyMergeOnWrite) {
+                columnDefs.add(ColumnDef.newVersionColumnDef(AggregateType.NONE));
+            } else {
+                columnDefs.add(ColumnDef.newVersionColumnDef(AggregateType.REPLACE));
+            }
+        }
         boolean hasObjectStored = false;
         String objectStoredColumn = "";
         Set<String> columnSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
@@ -451,7 +459,13 @@ public class CreateTableStmt extends DdlStmt {
                     throw new AnalysisException("Please open enable_struct_type config before use Struct.");
                 }
 
-                if (columnDef.getAggregateType() != null && columnDef.getAggregateType() != AggregateType.NONE) {
+                if (columnDef.getAggregateType() == AggregateType.REPLACE
+                        && keysDesc.getKeysType() == KeysType.AGG_KEYS) {
+                    throw new AnalysisException("Aggregate table can't support replace array/map/struct value now");
+                }
+                if (columnDef.getAggregateType() != null
+                        && columnDef.getAggregateType() != AggregateType.NONE
+                        && columnDef.getAggregateType() != AggregateType.REPLACE) {
                     throw new AnalysisException(columnDef.getType().getPrimitiveType()
                             + " column can't support aggregation " + columnDef.getAggregateType());
                 }
@@ -544,7 +558,7 @@ public class CreateTableStmt extends DdlStmt {
                     boolean found = false;
                     for (Column column : columns) {
                         if (column.getName().equalsIgnoreCase(indexColName)) {
-                            indexDef.checkColumn(column, getKeysDesc().getKeysType());
+                            indexDef.checkColumn(column, getKeysDesc().getKeysType(), enableUniqueKeyMergeOnWrite);
                             found = true;
                             break;
                         }

@@ -17,8 +17,7 @@
 
 suite("test_round") {
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
-    sql "SET enable_fallback_to_original_planner=false" 
+    sql "SET enable_fallback_to_original_planner=false"
     // Nereids does't support decimalV3 function
     // qt_select "SELECT round(10.12345)"
     // Nereids does't support decimalV3 function

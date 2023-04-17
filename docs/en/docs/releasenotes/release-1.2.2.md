@@ -132,7 +132,7 @@ Reference: [https://doris.apache.org/docs/dev/advanced/variables](https://doris.
 
 Add metrics to view the total rowset and segment numbers on BE
 
-- doris_be_all_rowset_nums and doris_be_all_segment_nums
+- doris_be_all_rowsets_num and doris_be_all_segments_num
 
 
 # Big Thanks

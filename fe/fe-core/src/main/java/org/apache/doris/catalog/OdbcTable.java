@@ -76,29 +76,15 @@ public class OdbcTable extends Table {
     private static String mysqlProperName(String name) {
         // In JdbcExternalTable, the name contains databaseName, like: db.table
         // So, we should split db and table, then switch to `db`.`table`.
-        String[] fields = name.split("\\.");
-        String result = "";
-        for (int i = 0; i < fields.length; ++i) {
-            if (i != 0) {
-                result += ".";
-            }
-            result += ("`" + fields[i] + "`");
-        }
-        return result;
+        List<String> list = Arrays.asList(name.split("\\."));
+        return list.stream().map(s -> "`" + s + "`").collect(Collectors.joining("."));
     }
 
     private static String mssqlProperName(String name) {
         // In JdbcExternalTable, the name contains databaseName, like: db.table
         // So, we should split db and table, then switch to [db].[table].
-        String[] fields = name.split("\\.");
-        String result = "";
-        for (int i = 0; i < fields.length; ++i) {
-            if (i != 0) {
-                result += ".";
-            }
-            result += ("[" + fields[i] + "]");
-        }
-        return result;
+        List<String> list = Arrays.asList(name.split("\\."));
+        return list.stream().map(s -> "[" + s + "]").collect(Collectors.joining("."));
     }
 
     private static String psqlProperName(String name) {
@@ -111,6 +97,21 @@ public class OdbcTable extends Table {
         return list.stream().map(s -> "\"" + s.toUpperCase() + "\"").collect(Collectors.joining("."));
     }
 
+    private static String clickhouseProperName(String name) {
+        List<String> list = Arrays.asList(name.split("\\."));
+        return list.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining("."));
+    }
+
+    private static String saphanaProperName(String name) {
+        List<String> list = Arrays.asList(name.split("\\."));
+        return list.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining("."));
+    }
+
+    private static String trinoProperName(String name) {
+        List<String> list = Arrays.asList(name.split("\\."));
+        return list.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining("."));
+    }
+
     public static String databaseProperName(TOdbcTableType tableType, String name) {
         switch (tableType) {
             case MYSQL:
@@ -121,6 +122,12 @@ public class OdbcTable extends Table {
                 return psqlProperName(name);
             case ORACLE:
                 return oracleProperName(name);
+            case CLICKHOUSE:
+                return clickhouseProperName(name);
+            case SAP_HANA:
+                return saphanaProperName(name);
+            case TRINO:
+                return trinoProperName(name);
             default:
                 return name;
         }

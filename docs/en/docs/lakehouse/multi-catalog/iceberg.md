@@ -33,13 +33,12 @@ When connecting to Iceberg, Doris:
 
 1. Supports Iceberg V1/V2 table formats;
 2. Supports Position Delete but not Equality Delete for V2 format;
-3. Only supports Hive Metastore Catalogs. The usage is the same as that of Hive Catalogs.
 
 ## Create Catalog
 
 ### Hive Metastore Catalog
 
-Same as creating Hive Catalogs. A simple example is provided here. See [Hive](./hive) for more information.
+Same as creating Hive Catalogs. A simple example is provided here. See [Hive](./hive.md) for more information.
 
 ```sql
 CREATE CATALOG iceberg PROPERTIES (
@@ -54,6 +53,11 @@ CREATE CATALOG iceberg PROPERTIES (
 );
 ```
 
+> `specified_database_list`:
+> 
+> only synchronize the specified databases, split with ','. Default values is '' will synchronize all databases. db name is case sensitive.
+> 
+
 ### Iceberg Native Catalog
 
 <version since="dev">
@@ -62,7 +66,7 @@ Access metadata with the iceberg API. The Hive, REST, Glue and other services ca
 
 </version>
 
-- Using Iceberg Hive Catalog
+#### Using Iceberg Hive Catalog
 
 ```sql
 CREATE CATALOG iceberg PROPERTIES (
@@ -77,6 +81,28 @@ CREATE CATALOG iceberg PROPERTIES (
     'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
 );
 ```
+
+#### Using Iceberg Glue Catalog
+
+```sql
+CREATE CATALOG glue PROPERTIES (
+"type"="iceberg",
+"iceberg.catalog.type" = "glue",
+"glue.endpoint" = "https://glue.us-east-1.amazonaws.com",
+"warehouse" = "s3://bucket/warehouse",
+"AWS_ENDPOINT" = "s3.us-east-1.amazonaws.com",
+"AWS_REGION" = "us-east-1",
+"AWS_ACCESS_KEY" = "ak",
+"AWS_SECRET_KEY" = "sk",
+"use_path_style" = "true"
+);
+```
+
+`glue.endpoint`: Glue Endpoint. See [AWS Glue endpoints and quotas](https://docs.aws.amazon.com/general/latest/gr/glue.html).
+
+`warehouse`: Glue Warehouse Location.  To determine the root path of the data warehouse in storage.
+
+The other properties can refer to [Iceberg Glue Catalog](https://iceberg.apache.org/docs/latest/aws/#glue-catalog)
 
 - Using Iceberg REST Catalog
 
@@ -102,11 +128,11 @@ If you want to use S3 storage, the following properties need to be set.
 
 ## Column Type Mapping
 
-Same as that in Hive Catalogs. See the relevant section in [Hive](./hive).
+Same as that in Hive Catalogs. See the relevant section in [Hive](./hive.md).
 
 ## Time Travel
 
-<version since="dev">
+<version since="1.2.2">
 
 Doris supports reading the specified Snapshot of Iceberg tables.
 

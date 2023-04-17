@@ -50,6 +50,7 @@ suite("test_schema_change") {
      while (max_try_time--){
           String result = getJobState(tbName)
           if (result == "FINISHED") {
+               sleep(3000)
                qt_desc_uniq_table """ desc ${tbName} """
                qt_sql """ SELECT * FROM ${tbName} order by event_day,citycode  """
                sql """ DROP TABLE  ${tbName} """

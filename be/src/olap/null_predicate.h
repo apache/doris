@@ -36,6 +36,9 @@ public:
     Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* roaring) const override;
 
+    Status evaluate(const Schema& schema, InvertedIndexIterator* iterator, uint32_t num_rows,
+                    roaring::Roaring* bitmap) const override;
+
     uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel,
                       uint16_t size) const override;
 
@@ -54,10 +57,13 @@ public:
     }
 
     bool evaluate_del(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
+        // evaluate_del only use for delete condition to filter page, need use delete condition origin value,
+        // when opposite==true, origin value 'is null'->'is not null' and 'is not null'->'is null',
+        // so when _is_null==true, need check 'is not null' and _is_null==false, need check 'is null'
         if (_is_null) {
-            return statistic.first->is_null() && statistic.second->is_null();
-        } else {
             return !statistic.first->is_null() && !statistic.second->is_null();
+        } else {
+            return statistic.first->is_null() && statistic.second->is_null();
         }
     }
 

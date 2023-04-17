@@ -36,20 +36,20 @@ public class MatchingUtils {
         Memo memo = new Memo(plan);
         if (plan instanceof PhysicalPlan) {
             assertMatches(memo, () -> new GroupExpressionMatching(patternDesc.pattern,
-                    memo.getRoot().getPhysicalExpressions().get(0)).iterator().hasNext());
+                    memo.getRoot().getPhysicalExpressions().get(0)).iterator().hasNext(),
+                    () -> plan.treeString());
         } else if (plan instanceof LogicalPlan) {
             assertMatches(memo, () -> new GroupExpressionMatching(patternDesc.pattern,
-                    memo.getRoot().getLogicalExpression()).iterator().hasNext());
+                    memo.getRoot().getLogicalExpression()).iterator().hasNext(),
+                    () -> plan.treeString());
         } else {
             throw new IllegalStateException("Input plan should be LogicalPlan or PhysicalPlan, but meet " + plan);
         }
     }
 
-    private static void assertMatches(Memo memo, Supplier<Boolean> asserter) {
+    private static void assertMatches(Memo memo, Supplier<Boolean> asserter, Supplier<String> planString) {
         Assertions.assertTrue(asserter.get(),
-                () -> "pattern not match, plan :\n"
-                        + memo.getRoot().getLogicalExpression().getPlan().treeString()
-                        + "\n"
+                () -> "pattern not match, plan:\n" + planString.get() + "\n"
         );
     }
 

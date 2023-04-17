@@ -23,8 +23,8 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
-import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
@@ -33,7 +33,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-class ReorderJoinTest implements PatternMatchSupported {
+class ReorderJoinTest implements MemoPatternMatchSupported {
 
     private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
     private final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
@@ -83,15 +83,24 @@ class ReorderJoinTest implements PatternMatchSupported {
                         .join(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0))
                         .joinEmptyOn(scan3, JoinType.CROSS_JOIN)
                         .filter(new EqualTo(scan3.getOutput().get(0), scan1.getOutput().get(0)))
-                        .build(),
-                new LogicalPlanBuilder(scan1)
-                        .joinEmptyOn(scan3, JoinType.CROSS_JOIN)
-                        .join(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0))
-                        .filter(new EqualTo(scan3.getOutput().get(0), scan1.getOutput().get(0)))
                         .build()
         );
-
         check(plans);
+
+        LogicalPlan plan2 = new LogicalPlanBuilder(scan1)
+                .joinEmptyOn(scan3, JoinType.CROSS_JOIN)
+                .join(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0))
+                .filter(new EqualTo(scan3.getOutput().get(0), scan1.getOutput().get(0)))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan2)
+                .rewrite()
+                .matchesFromRoot(
+                        logicalJoin(
+                                logicalJoin().whenNot(join -> join.getJoinType().isCrossJoin()),
+                                logicalOlapScan()
+                        ).whenNot(join -> join.getJoinType().isCrossJoin())
+                );
     }
 
     @Test
@@ -115,9 +124,9 @@ class ReorderJoinTest implements PatternMatchSupported {
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan2)
                 .rewrite()
                 .matchesFromRoot(
-                        rightSemiLogicalJoin(
-                                leafPlan(),
-                                innerLogicalJoin()
+                        innerLogicalJoin(
+                                leftSemiLogicalJoin(),
+                                logicalOlapScan()
                         )
                 );
 

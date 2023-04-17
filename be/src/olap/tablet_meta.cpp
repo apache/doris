@@ -20,7 +20,8 @@
 #include <sstream>
 
 #include "common/consts.h"
-#include "olap/file_helper.h"
+#include "io/fs/file_writer.h"
+#include "olap/file_header.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/tablet_meta_manager.h"
@@ -261,6 +262,7 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _in_restore_mode(b._in_restore_mode),
           _preferred_rowset_type(b._preferred_rowset_type),
           _storage_policy_id(b._storage_policy_id),
+          _cooldown_meta_id(b._cooldown_meta_id),
           _enable_unique_key_merge_on_write(b._enable_unique_key_merge_on_write),
           _delete_bitmap(b._delete_bitmap) {};
 
@@ -320,20 +322,9 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
 }
 
 Status TabletMeta::create_from_file(const string& file_path) {
-    FileHeader<TabletMetaPB> file_header;
-    FileHandler file_handler;
-
-    if (file_handler.open(file_path, O_RDONLY) != Status::OK()) {
-        LOG(WARNING) << "fail to open ordinal file. file=" << file_path;
-        return Status::Error<IO_ERROR>();
-    }
-
-    // In file_header.unserialize(), it validates file length, signature, checksum of protobuf.
-    if (file_header.unserialize(&file_handler) != Status::OK()) {
-        LOG(WARNING) << "fail to unserialize tablet_meta. file='" << file_path;
-        return Status::Error<PARSE_PROTOBUF_ERROR>();
-    }
-
+    FileHeader<TabletMetaPB> file_header(file_path);
+    // In file_header.deserialize(), it validates file length, signature, checksum of protobuf.
+    RETURN_IF_ERROR(file_header.deserialize());
     TabletMetaPB tablet_meta_pb;
     try {
         tablet_meta_pb.CopyFrom(file_header.message());
@@ -395,28 +386,15 @@ Status TabletMeta::save(const string& file_path) {
 
 Status TabletMeta::save(const string& file_path, const TabletMetaPB& tablet_meta_pb) {
     DCHECK(!file_path.empty());
-
-    FileHeader<TabletMetaPB> file_header;
-    FileHandler file_handler;
-
-    if (!file_handler.open_with_mode(file_path, O_CREAT | O_WRONLY | O_TRUNC, S_IRUSR | S_IWUSR)) {
-        LOG(WARNING) << "fail to open header file. file='" << file_path;
-        return Status::Error<IO_ERROR>();
-    }
-
+    FileHeader<TabletMetaPB> file_header(file_path);
     try {
         file_header.mutable_message()->CopyFrom(tablet_meta_pb);
     } catch (...) {
         LOG(WARNING) << "fail to copy protocol buffer object. file='" << file_path;
         return Status::Error<ErrorCode::INTERNAL_ERROR>();
     }
-
-    if (file_header.prepare(&file_handler) != Status::OK() ||
-        file_header.serialize(&file_handler) != Status::OK()) {
-        LOG(WARNING) << "fail to serialize to file header. file='" << file_path;
-        return Status::Error<SERIALIZE_PROTOBUF_ERROR>();
-    }
-
+    RETURN_IF_ERROR(file_header.prepare());
+    RETURN_IF_ERROR(file_header.serialize());
     return Status::OK();
 }
 
@@ -721,6 +699,11 @@ void TabletMeta::modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
                 ++it;
             }
         }
+        // delete delete_bitmap of to_delete's rowsets if not added to _stale_rs_metas.
+        if (same_version && _enable_unique_key_merge_on_write) {
+            delete_bitmap().remove({rs_to_del->rowset_id(), 0, 0},
+                                   {rs_to_del->rowset_id(), UINT32_MAX, 0});
+        }
     }
     if (!same_version) {
         // put to_delete rowsets in _stale_rs_metas.
@@ -975,12 +958,28 @@ void DeleteBitmap::subset(const BitmapKey& start, const BitmapKey& end,
     }
 }
 
+void DeleteBitmap::merge(const BitmapKey& bmk, const roaring::Roaring& segment_delete_bitmap) {
+    std::lock_guard l(lock);
+    auto [iter, succ] = delete_bitmap.emplace(bmk, segment_delete_bitmap);
+    if (!succ) {
+        iter->second |= segment_delete_bitmap;
+    }
+}
+
 void DeleteBitmap::merge(const DeleteBitmap& other) {
     std::lock_guard l(lock);
     for (auto& i : other.delete_bitmap) {
         auto [j, succ] = this->delete_bitmap.insert(i);
         if (!succ) j->second |= i.second;
     }
+}
+
+uint64_t DeleteBitmap::cardinality() {
+    uint64_t cardinality = 0;
+    for (auto entry : delete_bitmap) {
+        cardinality += entry.second.cardinality();
+    }
+    return cardinality;
 }
 
 // We cannot just copy the underlying memory to construct a string

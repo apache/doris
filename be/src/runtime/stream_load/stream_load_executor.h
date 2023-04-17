@@ -44,7 +44,7 @@ public:
 
     void rollback_txn(StreamLoadContext* ctx);
 
-    Status execute_plan_fragment(StreamLoadContext* ctx);
+    Status execute_plan_fragment(std::shared_ptr<StreamLoadContext> ctx);
 
 private:
     // collect the load statistics from context and set them to stat

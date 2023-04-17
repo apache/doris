@@ -1,7 +1,7 @@
 ---
 {
     "title": "SHOW-PROPERTY",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 

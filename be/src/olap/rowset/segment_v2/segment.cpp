@@ -50,14 +50,14 @@ Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t se
                      std::shared_ptr<Segment>* output) {
     io::FileReaderSPtr file_reader;
 #ifndef BE_TEST
-    RETURN_IF_ERROR(fs->open_file(path, reader_options, &file_reader, nullptr));
+    RETURN_IF_ERROR(fs->open_file(path, reader_options, &file_reader));
 #else
     // be ut use local file reader instead of remote file reader while use remote cache
     if (!config::file_cache_type.empty()) {
-        RETURN_IF_ERROR(io::global_local_filesystem()->open_file(path, reader_options, &file_reader,
-                                                                 nullptr));
+        RETURN_IF_ERROR(
+                io::global_local_filesystem()->open_file(path, reader_options, &file_reader));
     } else {
-        RETURN_IF_ERROR(fs->open_file(path, reader_options, &file_reader, nullptr));
+        RETURN_IF_ERROR(fs->open_file(path, reader_options, &file_reader));
     }
 #endif
 
@@ -129,7 +129,7 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
     }
 
     RETURN_IF_ERROR(load_index());
-    if (read_options.col_id_to_del_predicates.empty() &&
+    if (read_options.delete_condition_predicates->num_of_column_predicate() == 0 &&
         read_options.push_down_agg_type_opt != TPushAggOp::NONE) {
         iter->reset(vectorized::new_vstatistics_iterator(this->shared_from_this(), schema));
     } else {
@@ -148,9 +148,10 @@ Status Segment::_parse_footer() {
 
     uint8_t fixed_buf[12];
     size_t bytes_read = 0;
-    IOContext io_ctx;
+    // Block / Whole / Sub file cache will use it while read segment footer
+    io::IOContext io_ctx;
     RETURN_IF_ERROR(
-            _file_reader->read_at(file_size - 12, Slice(fixed_buf, 12), io_ctx, &bytes_read));
+            _file_reader->read_at(file_size - 12, Slice(fixed_buf, 12), &bytes_read, &io_ctx));
     DCHECK_EQ(bytes_read, 12);
 
     // validate magic number
@@ -170,8 +171,8 @@ Status Segment::_parse_footer() {
 
     std::string footer_buf;
     footer_buf.resize(footer_length);
-    RETURN_IF_ERROR(
-            _file_reader->read_at(file_size - 12 - footer_length, footer_buf, io_ctx, &bytes_read));
+    RETURN_IF_ERROR(_file_reader->read_at(file_size - 12 - footer_length, footer_buf, &bytes_read,
+                                          &io_ctx));
     DCHECK_EQ(bytes_read, footer_length);
 
     // validate footer PB's checksum
@@ -198,6 +199,7 @@ Status Segment::_load_pk_bloom_filter() {
     return _load_pk_bf_once.call([this] {
         RETURN_IF_ERROR(_pk_index_reader->parse_bf(_file_reader, _footer.primary_key_index_meta()));
         _meta_mem_usage += _pk_index_reader->get_bf_memory_size();
+        _segment_meta_mem_tracker->consume(_pk_index_reader->get_bf_memory_size());
         return Status::OK();
     });
 }
@@ -214,6 +216,7 @@ Status Segment::load_index() {
             RETURN_IF_ERROR(
                     _pk_index_reader->parse_index(_file_reader, _footer.primary_key_index_meta()));
             _meta_mem_usage += _pk_index_reader->get_memory_size();
+            _segment_meta_mem_tracker->consume(_pk_index_reader->get_memory_size());
             return Status::OK();
         } else {
             // read and parse short key index page

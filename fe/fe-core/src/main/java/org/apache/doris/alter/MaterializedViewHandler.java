@@ -65,6 +65,7 @@ import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -93,8 +94,10 @@ public class MaterializedViewHandler extends AlterHandler {
     private static final Logger LOG = LogManager.getLogger(MaterializedViewHandler.class);
     public static final String NEW_STORAGE_FORMAT_INDEX_NAME_PREFIX = "__v2_";
 
+    public static int scheduler_interval_millisecond = 333;
+
     public MaterializedViewHandler() {
-        super("materialized view");
+        super("materialized view", scheduler_interval_millisecond);
     }
 
     // for batch submit rollup job, tableId -> jobId
@@ -205,6 +208,7 @@ public class MaterializedViewHandler extends AlterHandler {
 
             // Step2: create mv job
             RollupJobV2 rollupJobV2 = createMaterializedViewJob(mvIndexName, baseIndexName, mvColumns,
+                    addMVClause.getWhereClauseItemExpr(olapTable),
                     addMVClause.getProperties(), olapTable, db, baseIndexId,
                     addMVClause.getMVKeysType(), addMVClause.getOrigStmt());
 
@@ -279,7 +283,7 @@ public class MaterializedViewHandler extends AlterHandler {
                         addRollupClause, olapTable, baseIndexId, changeStorageFormat);
 
                 // step 3 create rollup job
-                RollupJobV2 alterJobV2 = createMaterializedViewJob(rollupIndexName, baseIndexName, rollupSchema,
+                RollupJobV2 alterJobV2 = createMaterializedViewJob(rollupIndexName, baseIndexName, rollupSchema, null,
                         addRollupClause.getProperties(), olapTable, db, baseIndexId, olapTable.getKeysType(), null);
 
                 rollupNameJobMap.put(addRollupClause.getRollupName(), alterJobV2);
@@ -330,7 +334,7 @@ public class MaterializedViewHandler extends AlterHandler {
      * @throws AnalysisException
      */
     private RollupJobV2 createMaterializedViewJob(String mvName, String baseIndexName,
-            List<Column> mvColumns, Map<String, String> properties,
+            List<Column> mvColumns, Column whereColumn, Map<String, String> properties,
             OlapTable olapTable, Database db, long baseIndexId, KeysType mvKeysType,
             OriginStatement origStmt) throws DdlException, AnalysisException {
         if (mvKeysType == null) {
@@ -355,7 +359,7 @@ public class MaterializedViewHandler extends AlterHandler {
         long mvIndexId = idGeneratorBuffer.getNextId();
         RollupJobV2 mvJob = new RollupJobV2(jobId, dbId, tableId, olapTable.getName(), timeoutMs,
                 baseIndexId, mvIndexId, baseIndexName, mvName,
-                mvColumns, baseSchemaHash, mvSchemaHash,
+                mvColumns, whereColumn, baseSchemaHash, mvSchemaHash,
                 mvKeysType, mvShortKeyColumnCount, origStmt);
         String newStorageFormatIndexName = NEW_STORAGE_FORMAT_INDEX_NAME_PREFIX + olapTable.getName();
         if (mvName.equals(newStorageFormatIndexName)) {
@@ -557,7 +561,7 @@ public class MaterializedViewHandler extends AlterHandler {
         }
         // if the column is complex type, we forbid to create materialized view
         for (Column column : newMVColumns) {
-            if (column.getDataType().isComplexType()) {
+            if (column.getDataType().isComplexType() || column.getDataType().isJsonbType()) {
                 throw new DdlException("The " + column.getDataType() + " column[" + column + "] not support "
                         + "to create materialized view");
             }
@@ -1124,9 +1128,6 @@ public class MaterializedViewHandler extends AlterHandler {
             changeTableStatus(alterJob.getDbId(), alterJob.getTableId(), OlapTableState.NORMAL);
             LOG.info("set table's state to NORMAL, table id: {}, job id: {}", alterJob.getTableId(),
                     alterJob.getJobId());
-        } else {
-            LOG.debug("not set table's state, table id: {}, is job done: {}, job id: {}", alterJob.getTableId(),
-                    alterJob.isDone(), alterJob.getJobId());
         }
     }
 
@@ -1140,6 +1141,18 @@ public class MaterializedViewHandler extends AlterHandler {
         // "JobId", "TableName", "CreateTime", "FinishedTime", "BaseIndexName", "RollupIndexName"
         ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0, 1, 2, 3, 4, 5);
         Collections.sort(rollupJobInfos, comparator);
+
+        return rollupJobInfos;
+    }
+
+    public List<List<Comparable>> getAllAlterJobInfos() {
+        List<List<Comparable>> rollupJobInfos = new LinkedList<List<Comparable>>();
+
+        for (AlterJobV2 alterJob : ImmutableList.copyOf(alterJobsV2.values())) {
+            // no need to check priv here. This method is only called in show proc stmt,
+            // which already check the ADMIN priv.
+            alterJob.getInfo(rollupJobInfos);
+        }
 
         return rollupJobInfos;
     }
@@ -1240,12 +1253,12 @@ public class MaterializedViewHandler extends AlterHandler {
 
     public void processCreateMultiTablesMaterializedView(CreateMultiTableMaterializedViewStmt addMVClause)
             throws UserException {
-        Map<String, OlapTable> olapTables = addMVClause.getOlapTables();
+        Map<String, Table> olapTables = addMVClause.getTables();
         try {
-            olapTables.values().forEach(Table::writeLock);
+            olapTables.values().forEach(Table::readLock);
             Env.getCurrentEnv().createTable(addMVClause);
         } finally {
-            olapTables.values().forEach(Table::writeUnlock);
+            olapTables.values().forEach(Table::readUnlock);
         }
     }
 }

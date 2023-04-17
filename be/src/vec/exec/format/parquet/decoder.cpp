@@ -20,8 +20,10 @@
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/exec/format/parquet/bool_plain_decoder.h"
+#include "vec/exec/format/parquet/bool_rle_decoder.h"
 #include "vec/exec/format/parquet/byte_array_dict_decoder.h"
 #include "vec/exec/format/parquet/byte_array_plain_decoder.h"
+#include "vec/exec/format/parquet/delta_bit_pack_decoder.h"
 #include "vec/exec/format/parquet/fix_length_dict_decoder.hpp"
 #include "vec/exec/format/parquet/fix_length_plain_decoder.h"
 
@@ -41,10 +43,15 @@ Status Decoder::get_decoder(tparquet::Type::type type, tparquet::Encoding::type 
             decoder.reset(new ByteArrayPlainDecoder());
             break;
         case tparquet::Type::INT32:
+            [[fallthrough]];
         case tparquet::Type::INT64:
+            [[fallthrough]];
         case tparquet::Type::INT96:
+            [[fallthrough]];
         case tparquet::Type::FLOAT:
+            [[fallthrough]];
         case tparquet::Type::DOUBLE:
+            [[fallthrough]];
         case tparquet::Type::FIXED_LEN_BYTE_ARRAY:
             decoder.reset(new FixLengthPlainDecoder(type));
             break;
@@ -56,9 +63,7 @@ Status Decoder::get_decoder(tparquet::Type::type type, tparquet::Encoding::type 
     case tparquet::Encoding::RLE_DICTIONARY:
         switch (type) {
         case tparquet::Type::BOOLEAN:
-            if (encoding != tparquet::Encoding::PLAIN) {
-                return Status::InternalError("Bool type can't has dictionary page");
-            }
+            return Status::InternalError("Bool type can't has dictionary page");
         case tparquet::Type::BYTE_ARRAY:
             decoder.reset(new ByteArrayDictDecoder());
             break;
@@ -83,6 +88,48 @@ Status Decoder::get_decoder(tparquet::Type::type type, tparquet::Encoding::type 
         default:
             return Status::InternalError("Unsupported type {}(encoding={}) in parquet decoder",
                                          tparquet::to_string(type), tparquet::to_string(encoding));
+        }
+        break;
+    case tparquet::Encoding::RLE:
+        switch (type) {
+        case tparquet::Type::BOOLEAN:
+            decoder.reset(new BoolRLEDecoder());
+            break;
+        default:
+            return Status::InternalError("Unsupported type {}(encoding={}) in parquet decoder",
+                                         tparquet::to_string(type), tparquet::to_string(encoding));
+        }
+        break;
+    case tparquet::Encoding::DELTA_BINARY_PACKED:
+        // Supports only INT32 and INT64.
+        switch (type) {
+        case tparquet::Type::INT32:
+            decoder.reset(new DeltaBitPackDecoder<Int32>(type));
+            break;
+        case tparquet::Type::INT64:
+            decoder.reset(new DeltaBitPackDecoder<Int64>(type));
+            break;
+        default:
+            return Status::InternalError("DELTA_BINARY_PACKED only supports INT32 and INT64");
+        }
+        break;
+    case tparquet::Encoding::DELTA_BYTE_ARRAY:
+        switch (type) {
+        case tparquet::Type::BYTE_ARRAY:
+            decoder.reset(new DeltaByteArrayDecoder(type));
+            break;
+        default:
+            return Status::InternalError("DELTA_BYTE_ARRAY only supports BYTE_ARRAY.");
+        }
+        break;
+    case tparquet::Encoding::DELTA_LENGTH_BYTE_ARRAY:
+        switch (type) {
+        case tparquet::Type::FIXED_LEN_BYTE_ARRAY:
+            decoder.reset(new DeltaLengthByteArrayDecoder(type));
+            break;
+        default:
+            return Status::InternalError(
+                    "DELTA_LENGTH_BYTE_ARRAY only supports FIXED_LEN_BYTE_ARRAY.");
         }
         break;
     default:
@@ -127,29 +174,6 @@ void Decoder::init(FieldSchema* field_schema, cctz::time_zone* ctz) {
             _decode_params->second_mask = 1000000;
             _decode_params->scale_to_nano_factor = 1000;
         }
-    }
-}
-template <typename DecimalPrimitiveType>
-void Decoder::init_decimal_converter(DataTypePtr& data_type) {
-    if (_decode_params == nullptr || _field_schema == nullptr ||
-        _decode_params->decimal_scale.scale_type != DecimalScaleParams::NOT_INIT) {
-        return;
-    }
-    auto scale = _field_schema->parquet_schema.scale;
-    auto* decimal_type = reinterpret_cast<DataTypeDecimal<Decimal<DecimalPrimitiveType>>*>(
-            const_cast<IDataType*>(remove_nullable(data_type).get()));
-    auto dest_scale = decimal_type->get_scale();
-    if (dest_scale > scale) {
-        _decode_params->decimal_scale.scale_type = DecimalScaleParams::SCALE_UP;
-        _decode_params->decimal_scale.scale_factor =
-                DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(dest_scale - scale);
-    } else if (dest_scale < scale) {
-        _decode_params->decimal_scale.scale_type = DecimalScaleParams::SCALE_DOWN;
-        _decode_params->decimal_scale.scale_factor =
-                DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(scale - dest_scale);
-    } else {
-        _decode_params->decimal_scale.scale_type = DecimalScaleParams::NO_SCALE;
-        _decode_params->decimal_scale.scale_factor = 1;
     }
 }
 } // namespace doris::vectorized

@@ -40,6 +40,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.DataStreamSink;
@@ -85,6 +86,7 @@ import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TPipelineFragmentParamsList;
 import org.apache.doris.thrift.TPipelineInstanceParams;
+import org.apache.doris.thrift.TPipelineResourceGroup;
 import org.apache.doris.thrift.TPlanFragmentDestination;
 import org.apache.doris.thrift.TPlanFragmentExecParams;
 import org.apache.doris.thrift.TQueryGlobals;
@@ -137,6 +139,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
@@ -248,8 +251,6 @@ public class Coordinator {
 
     private boolean enablePipelineEngine = false;
 
-    private boolean enableRpcOptForPipeline = false;
-
     // Runtime filter merge instance address and ID
     public TNetworkAddress runtimeFilterMergeAddr;
     public TUniqueId runtimeFilterMergeInstanceId;
@@ -264,11 +265,14 @@ public class Coordinator {
     private boolean isPointQuery = false;
     private PointQueryExec pointExec = null;
 
+    private StatsErrorEstimator statsErrorEstimator;
+
+    private List<TPipelineResourceGroup> tResourceGroups = Lists.newArrayList();
+
     private static class BackendHash implements Funnel<Backend> {
         @Override
         public void funnel(Backend backend, PrimitiveSink primitiveSink) {
-            primitiveSink.putBytes(backend.getIp().getBytes(StandardCharsets.UTF_8));
-            primitiveSink.putInt(backend.getBePort());
+            primitiveSink.putLong(backend.getId());
         }
     }
 
@@ -282,6 +286,12 @@ public class Coordinator {
                 primitiveSink.putLong(desc.size);
             }
         }
+    }
+
+    public Coordinator(ConnectContext context, Analyzer analyzer, Planner planner,
+            StatsErrorEstimator statsErrorEstimator) {
+        this(context, analyzer, planner);
+        this.statsErrorEstimator = statsErrorEstimator;
     }
 
     // Used for query/insert
@@ -303,7 +313,7 @@ public class Coordinator {
                                                 planRoot.getDescTable(), fragment.getOutputExprs());
             }
         }
-        PrepareStmt prepareStmt = analyzer.getPrepareStmt();
+        PrepareStmt prepareStmt = analyzer == null ? null : analyzer.getPrepareStmt();
         if (prepareStmt != null) {
             // Used cached or better performance
             this.descTable = prepareStmt.getDescTable();
@@ -317,20 +327,12 @@ public class Coordinator {
             this.descTable = planner.getDescTable().toThrift();
         }
 
-        for (PlanFragment fragment : fragments) {
-            if (fragment.hasTargetNode()) {
-                LOG.info("Log for ISSUE-16517: " + this.descTable.toString());
-            }
-        }
-
         this.returnedAllResults = false;
         this.enableShareHashTableForBroadcastJoin = context.getSessionVariable().enableShareHashTableForBroadcastJoin;
         this.enablePipelineEngine = context.getSessionVariable().enablePipelineEngine;
-        this.enableRpcOptForPipeline = context.getSessionVariable().enablePipelineEngine
-                && context.getSessionVariable().enableRpcOptForPipeline;
         initQueryOptions(context);
 
-        setFromUserProperty(analyzer);
+        setFromUserProperty(context);
 
         this.queryGlobals.setNowString(DATE_FORMAT.format(new Date()));
         this.queryGlobals.setTimestampMs(System.currentTimeMillis());
@@ -348,6 +350,7 @@ public class Coordinator {
         nextInstanceId.setHi(queryId.hi);
         nextInstanceId.setLo(queryId.lo + 1);
         this.assignedRuntimeFilters = planner.getRuntimeFilters();
+        this.tResourceGroups = analyzer == null ? null : analyzer.getResourceGroups();
     }
 
     // Used for broker load task/export task/update coordinator
@@ -373,8 +376,8 @@ public class Coordinator {
         nextInstanceId.setLo(queryId.lo + 1);
     }
 
-    private void setFromUserProperty(Analyzer analyzer) {
-        String qualifiedUser = analyzer.getQualifiedUser();
+    private void setFromUserProperty(ConnectContext connectContext) {
+        String qualifiedUser = connectContext.getQualifiedUser();
         // set cpu resource limit
         int cpuLimit = Env.getCurrentEnv().getAuth().getCpuResourceLimit(qualifiedUser);
         if (cpuLimit > 0) {
@@ -396,9 +399,9 @@ public class Coordinator {
 
     private void initQueryOptions(ConnectContext context) {
         this.queryOptions = context.getSessionVariable().toThrift();
-        this.queryOptions.setEnableVectorizedEngine(VectorizedUtil.isVectorized());
         this.queryOptions.setEnablePipelineEngine(VectorizedUtil.isPipeline());
         this.queryOptions.setBeExecVersion(Config.be_exec_version);
+        this.queryOptions.setQueryTimeout(context.getExecTimeout());
         this.queryOptions.setExecutionTimeout(context.getExecTimeout());
     }
 
@@ -416,10 +419,6 @@ public class Coordinator {
 
     public void setQueryType(TQueryType type) {
         this.queryOptions.setQueryType(type);
-    }
-
-    public void setExecVecEngine(boolean vec) {
-        this.queryOptions.setEnableVectorizedEngine(vec);
     }
 
     public void setExecPipEngine(boolean vec) {
@@ -464,6 +463,7 @@ public class Coordinator {
 
     public void setTimeout(int timeout) {
         this.queryOptions.setQueryTimeout(timeout);
+        this.queryOptions.setExecutionTimeout(timeout);
     }
 
     public void setLoadZeroTolerance(boolean loadZeroTolerance) {
@@ -497,7 +497,7 @@ public class Coordinator {
 
     public Map<String, Integer> getBeToInstancesNum() {
         Map<String, Integer> result = Maps.newTreeMap();
-        if (enableRpcOptForPipeline) {
+        if (enablePipelineEngine) {
             for (PipelineExecContexts ctxs : beToPipelineExecCtxs.values()) {
                 result.put(ctxs.brpcAddr.hostname.concat(":").concat("" + ctxs.brpcAddr.port), ctxs.ctxs.size());
             }
@@ -642,7 +642,7 @@ public class Coordinator {
             profileDoneSignal.addMark(instanceId, -1L /* value is meaningless */);
         }
         if (!isPointQuery) {
-            if (enableRpcOptForPipeline) {
+            if (enablePipelineEngine) {
                 sendPipelineCtx();
             } else {
                 sendFragment();
@@ -838,7 +838,6 @@ public class Coordinator {
                 }
 
                 // 3. group BackendExecState by BE. So that we can use one RPC to send all fragment instances of a BE.
-
                 for (Map.Entry<TNetworkAddress, TPipelineFragmentParams> entry : tParams.entrySet()) {
                     PipelineExecContext pipelineExecContext =
                             new PipelineExecContext(fragment.getFragmentId(),
@@ -1125,7 +1124,10 @@ public class Coordinator {
     private void updateErrorTabletInfos(List<TErrorTabletInfo> errorTabletInfos) {
         lock.lock();
         try {
-            this.errorTabletInfos.addAll(errorTabletInfos);
+            if (this.errorTabletInfos.size() <= Config.max_error_tablet_of_broker_load) {
+                this.errorTabletInfos.addAll(errorTabletInfos.stream().limit(Config.max_error_tablet_of_broker_load
+                        - this.errorTabletInfos.size()).collect(Collectors.toList()));
+            }
         } finally {
             lock.unlock();
         }
@@ -1216,6 +1218,10 @@ public class Coordinator {
                 LOG.debug("no block query, return num >= limit rows, need cancel");
                 cancelInternal(Types.PPlanFragmentCancelReason.LIMIT_REACH);
             }
+            if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().dryRunQuery) {
+                numReceivedRows = 0;
+                numReceivedRows += resultBatch.getQueryStatistics().getReturnedRows();
+            }
         } else if (resultBatch.getBatch() != null) {
             numReceivedRows += resultBatch.getBatch().getRowsSize();
         }
@@ -1264,7 +1270,7 @@ public class Coordinator {
     }
 
     private void cancelRemoteFragmentsAsync(Types.PPlanFragmentCancelReason cancelReason) {
-        if (enableRpcOptForPipeline) {
+        if (enablePipelineEngine) {
             for (PipelineExecContext ctx : pipelineExecContexts.values()) {
                 ctx.cancelFragmentInstance(cancelReason);
             }
@@ -1577,6 +1583,10 @@ public class Coordinator {
                 if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null) {
                     exchangeInstances = ConnectContext.get().getSessionVariable().getExchangeInstanceParallel();
                 }
+                // when we use nested loop join do right outer / semi / anti join, the instance must be 1.
+                if (leftMostNode.getNumInstances() == 1) {
+                    exchangeInstances = 1;
+                }
                 if (exchangeInstances > 0 && fragmentExecParamsMap.get(inputFragmentId)
                         .instanceExecParams.size() > exchangeInstances) {
                     // random select some instance
@@ -1630,19 +1640,40 @@ public class Coordinator {
 
                     for (Integer planNodeId : value.keySet()) {
                         List<TScanRangeParams> perNodeScanRanges = value.get(planNodeId);
-                        int expectedInstanceNum = 1;
-                        if (parallelExecInstanceNum > 1) {
-                            //the scan instance num should not larger than the tablets num
-                            expectedInstanceNum = Math.min(perNodeScanRanges.size(), parallelExecInstanceNum);
+                        List<List<TScanRangeParams>> perInstanceScanRanges = Lists.newArrayList();
+                        List<Boolean> sharedScanOpts = Lists.newArrayList();
+
+                        Optional<ScanNode> node = scanNodes.stream().filter(scanNode -> {
+                            return scanNode.getId().asInt() == planNodeId;
+                        }).findFirst();
+
+                        if (!enablePipelineEngine || perNodeScanRanges.size() > parallelExecInstanceNum
+                                || (node.isPresent() && node.get().getShouldColoScan())) {
+                            int expectedInstanceNum = 1;
+                            if (parallelExecInstanceNum > 1) {
+                                //the scan instance num should not larger than the tablets num
+                                expectedInstanceNum = Math.min(perNodeScanRanges.size(), parallelExecInstanceNum);
+                            }
+                            perInstanceScanRanges = ListUtil.splitBySize(perNodeScanRanges,
+                                    expectedInstanceNum);
+                            sharedScanOpts = Collections.nCopies(perInstanceScanRanges.size(), false);
+                        } else {
+                            int expectedInstanceNum = Math.min(parallelExecInstanceNum,
+                                    leftMostNode.getNumInstances());
+                            expectedInstanceNum = Math.max(expectedInstanceNum, 1);
+                            perInstanceScanRanges = Collections.nCopies(expectedInstanceNum, perNodeScanRanges);
+                            sharedScanOpts = Collections.nCopies(perInstanceScanRanges.size(), true);
                         }
-                        List<List<TScanRangeParams>> perInstanceScanRanges = ListUtil.splitBySize(perNodeScanRanges,
-                                expectedInstanceNum);
 
                         LOG.debug("scan range number per instance is: {}", perInstanceScanRanges.size());
 
-                        for (List<TScanRangeParams> scanRangeParams : perInstanceScanRanges) {
+                        for (int j = 0; j < perInstanceScanRanges.size(); j++) {
+                            List<TScanRangeParams> scanRangeParams = perInstanceScanRanges.get(j);
+                            boolean sharedScan = sharedScanOpts.get(j);
+
                             FInstanceExecParam instanceParam = new FInstanceExecParam(null, key, 0, params);
                             instanceParam.perNodeScanRanges.put(planNodeId, scanRangeParams);
+                            instanceParam.perNodeSharedScans.put(planNodeId, sharedScan);
                             params.instanceExecParams.add(instanceParam);
                         }
                     }
@@ -2075,7 +2106,7 @@ public class Coordinator {
     }
 
     public void updateFragmentExecStatus(TReportExecStatusParams params) {
-        if (enableRpcOptForPipeline) {
+        if (enablePipelineEngine) {
             PipelineExecContext ctx = pipelineExecContexts.get(params.getFragmentId());
             if (!ctx.updateProfile(params)) {
                 return;
@@ -2194,7 +2225,7 @@ public class Coordinator {
     }
 
     public void endProfile(boolean waitProfileDone) {
-        if (enableRpcOptForPipeline) {
+        if (enablePipelineEngine) {
             if (pipelineExecContexts.isEmpty()) {
                 return;
             }
@@ -2262,7 +2293,7 @@ public class Coordinator {
      * return true if all of them are OK. Otherwise, return false.
      */
     private boolean checkBackendState() {
-        if (enableRpcOptForPipeline) {
+        if (enablePipelineEngine) {
             for (PipelineExecContext ctx : needCheckPipelineExecContexts) {
                 if (!ctx.isBackendStateHealthy()) {
                     queryStatus = new Status(TStatusCode.INTERNAL_ERROR, "backend "
@@ -2584,6 +2615,9 @@ public class Coordinator {
                 profile.update(params.profile);
             }
             this.done = params.done;
+            if (statsErrorEstimator != null) {
+                statsErrorEstimator.updateExactReturnedRows(params);
+            }
             return true;
         }
 
@@ -2673,9 +2707,10 @@ public class Coordinator {
         volatile Map<TUniqueId, Boolean> doneFlags = new HashMap<TUniqueId, Boolean>();
         boolean hasCanceled;
         volatile Map<TUniqueId, Boolean> cancelFlags = new HashMap<TUniqueId, Boolean>();
+
+        volatile Map<TUniqueId, RuntimeProfile> profiles = new HashMap<TUniqueId, RuntimeProfile>();
         int cancelProgress = 0;
         int profileFragmentId;
-        RuntimeProfile profile;
         TNetworkAddress brpcAddress;
         TNetworkAddress address;
         Backend backend;
@@ -2692,6 +2727,11 @@ public class Coordinator {
             this.numInstances = rpcParams.local_params.size();
             for (int i = 0; i < this.numInstances; i++) {
                 this.doneFlags.put(rpcParams.local_params.get(i).fragment_instance_id, false);
+                this.cancelFlags.put(rpcParams.local_params.get(i).fragment_instance_id, false);
+
+                String name = "Instance " + DebugUtil.printId(rpcParams.local_params.get(i).fragment_instance_id)
+                        + " (host=" + addr + ")";
+                this.profiles.put(rpcParams.local_params.get(i).fragment_instance_id, new RuntimeProfile(name));
             }
             this.initiated = false;
             this.done = false;
@@ -2700,12 +2740,7 @@ public class Coordinator {
             this.backend = idToBackend.get(addressToBackendID.get(address));
             this.brpcAddress = new TNetworkAddress(backend.getIp(), backend.getBrpcPort());
 
-            String name = "Fragment " + profileFragmentId + " (host=" + address + ")";
-            this.profile = new RuntimeProfile(name);
             this.hasCanceled = false;
-            for (int i = 0; i < this.numInstances; i++) {
-                this.cancelFlags.put(rpcParams.local_params.get(i).fragment_instance_id, false);
-            }
             this.lastMissingHeartbeatTime = backend.getLastMissingHeartbeatTime();
         }
 
@@ -2731,7 +2766,7 @@ public class Coordinator {
                 return false;
             }
             if (params.isSetProfile()) {
-                profile.update(params.profile);
+                this.profiles.get(params.fragment_instance_id).update(params.profile);
             }
             if (params.done) {
                 this.doneFlags.replace(params.fragment_instance_id, true);
@@ -2744,8 +2779,10 @@ public class Coordinator {
         }
 
         public synchronized void printProfile(StringBuilder builder) {
-            this.profile.computeTimeInProfile();
-            this.profile.prettyPrint(builder, "");
+            this.profiles.values().stream().forEach(p -> {
+                p.computeTimeInProfile();
+                p.prettyPrint(builder, "");
+            });
         }
 
         // cancel all fragment instances.
@@ -2805,7 +2842,7 @@ public class Coordinator {
                 LOG.warn("profileFragmentId {} should be in [0, {})", profileFragmentId, maxFragmentId);
                 return false;
             }
-            profile.computeTimeInProfile();
+            // profile.computeTimeInProfile();
             return true;
         }
 
@@ -3125,6 +3162,9 @@ public class Coordinator {
                             fragment.isTransferQueryStatisticsWithEveryBatch());
                     params.setFragment(fragment.toThrift());
                     params.setLocalParams(Lists.newArrayList());
+                    if (tResourceGroups != null) {
+                        params.setResourceGroups(tResourceGroups);
+                    }
                     res.put(instanceExecParam.host, params);
                 }
                 TPipelineFragmentParams params = res.get(instanceExecParam.host);
@@ -3133,10 +3173,13 @@ public class Coordinator {
                 localParams.setBuildHashTableForBroadcastJoin(instanceExecParam.buildHashTableForBroadcastJoin);
                 localParams.setFragmentInstanceId(instanceExecParam.instanceId);
                 Map<Integer, List<TScanRangeParams>> scanRanges = instanceExecParam.perNodeScanRanges;
+                Map<Integer, Boolean> perNodeSharedScans = instanceExecParam.perNodeSharedScans;
                 if (scanRanges == null) {
                     scanRanges = Maps.newHashMap();
+                    perNodeSharedScans = Maps.newHashMap();
                 }
                 localParams.setPerNodeScanRanges(scanRanges);
+                localParams.setPerNodeSharedScans(perNodeSharedScans);
                 localParams.setSenderId(i);
                 localParams.setBackendNum(backendNum++);
                 localParams.setRuntimeFilterParams(new TRuntimeFilterParams());
@@ -3234,6 +3277,7 @@ public class Coordinator {
         TUniqueId instanceId;
         TNetworkAddress host;
         Map<Integer, List<TScanRangeParams>> perNodeScanRanges = Maps.newHashMap();
+        Map<Integer, Boolean> perNodeSharedScans = Maps.newHashMap();
 
         int perFragmentInstanceIdx;
 
@@ -3268,7 +3312,7 @@ public class Coordinator {
                 Lists.newArrayList();
         lock();
         try {
-            if (enableRpcOptForPipeline) {
+            if (enablePipelineEngine) {
                 for (int index = 0; index < fragments.size(); index++) {
                     for (PipelineExecContext ctx : pipelineExecContexts.values()) {
                         if (fragments.get(index).getFragmentId() != ctx.fragmentId) {
@@ -3297,12 +3341,13 @@ public class Coordinator {
     }
 
     private void attachInstanceProfileToFragmentProfile() {
-        if (enableRpcOptForPipeline) {
+        if (enablePipelineEngine) {
             for (PipelineExecContext ctx : pipelineExecContexts.values()) {
                 if (!ctx.computeTimeInProfile(fragmentProfile.size())) {
                     return;
                 }
-                fragmentProfile.get(ctx.profileFragmentId).addChild(ctx.profile);
+                ctx.profiles.values().stream().forEach(p ->
+                        fragmentProfile.get(ctx.profileFragmentId).addChild(p));
             }
         } else {
             for (BackendExecState backendExecState : backendExecStates) {
@@ -3326,4 +3371,5 @@ public class Coordinator {
         }
     }
 }
+
 

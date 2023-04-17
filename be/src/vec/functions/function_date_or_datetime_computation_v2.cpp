@@ -44,6 +44,8 @@ using FunctionToYearWeekTwoArgsV2 =
 using FunctionToWeekTwoArgsV2 =
         FunctionDateOrDateTimeComputation<ToWeekTwoArgsImpl<DataTypeDateV2>>;
 
+using FunctionDatetimeV2AddMicroseconds =
+        FunctionDateOrDateTimeComputation<AddMicrosecondsImpl<DataTypeDateTimeV2>>;
 using FunctionDatetimeV2AddSeconds =
         FunctionDateOrDateTimeComputation<AddSecondsImpl<DataTypeDateTimeV2>>;
 using FunctionDatetimeV2AddMinutes =
@@ -61,6 +63,8 @@ using FunctionDatetimeV2AddQuarters =
 using FunctionDatetimeV2AddYears =
         FunctionDateOrDateTimeComputation<AddYearsImpl<DataTypeDateTimeV2>>;
 
+using FunctionDatetimeV2SubMicroseconds =
+        FunctionDateOrDateTimeComputation<SubtractMicrosecondsImpl<DataTypeDateTimeV2>>;
 using FunctionDatetimeV2SubSeconds =
         FunctionDateOrDateTimeComputation<SubtractSecondsImpl<DataTypeDateTimeV2>>;
 using FunctionDatetimeV2SubMinutes =
@@ -85,10 +89,6 @@ using FunctionDatetimeV2SubYears =
     FUNCTION_DATEV2_WITH_TWO_ARGS(NAME, IMPL, DataTypeDateTimeV2, DataTypeDateTimeV2) \
     FUNCTION_DATEV2_WITH_TWO_ARGS(NAME, IMPL, DataTypeDateTimeV2, DataTypeDateV2)     \
     FUNCTION_DATEV2_WITH_TWO_ARGS(NAME, IMPL, DataTypeDateV2, DataTypeDateTimeV2)     \
-    FUNCTION_DATEV2_WITH_TWO_ARGS(NAME, IMPL, DataTypeDateTimeV2, DataTypeDateTime)   \
-    FUNCTION_DATEV2_WITH_TWO_ARGS(NAME, IMPL, DataTypeDateTime, DataTypeDateTimeV2)   \
-    FUNCTION_DATEV2_WITH_TWO_ARGS(NAME, IMPL, DataTypeDateTime, DataTypeDateV2)       \
-    FUNCTION_DATEV2_WITH_TWO_ARGS(NAME, IMPL, DataTypeDateV2, DataTypeDateTime)       \
     FUNCTION_DATEV2_WITH_TWO_ARGS(NAME, IMPL, DataTypeDateV2, DataTypeDateV2)
 
 ALL_FUNCTION_DATEV2_WITH_TWO_ARGS(FunctionDatetimeV2DateDiff, DateDiffImpl)
@@ -116,6 +116,7 @@ void register_function_date_time_computation_v2(SimpleFunctionFactory& factory) 
     factory.register_function<FunctionAddYearsV2>();
     factory.register_function<FunctionAddQuartersV2>();
 
+    factory.register_function<FunctionDatetimeV2AddMicroseconds>();
     factory.register_function<FunctionDatetimeV2AddSeconds>();
     factory.register_function<FunctionDatetimeV2AddMinutes>();
     factory.register_function<FunctionDatetimeV2AddHours>();
@@ -134,6 +135,7 @@ void register_function_date_time_computation_v2(SimpleFunctionFactory& factory) 
     factory.register_function<FunctionSubQuartersV2>();
     factory.register_function<FunctionSubWeeksV2>();
 
+    factory.register_function<FunctionDatetimeV2SubMicroseconds>();
     factory.register_function<FunctionDatetimeV2SubSeconds>();
     factory.register_function<FunctionDatetimeV2SubMinutes>();
     factory.register_function<FunctionDatetimeV2SubHours>();
@@ -150,11 +152,7 @@ void register_function_date_time_computation_v2(SimpleFunctionFactory& factory) 
     REGISTER_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME, DataTypeDateTimeV2, DataTypeDateTimeV2) \
     REGISTER_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME, DataTypeDateTimeV2, DataTypeDateV2)     \
     REGISTER_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME, DataTypeDateV2, DataTypeDateTimeV2)     \
-    REGISTER_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME, DataTypeDateTimeV2, DataTypeDateTime)   \
-    REGISTER_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME, DataTypeDateV2, DataTypeDateTime)       \
-    REGISTER_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME, DataTypeDateV2, DataTypeDateV2)         \
-    REGISTER_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME, DataTypeDateTime, DataTypeDateV2)       \
-    REGISTER_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME, DataTypeDateTime, DataTypeDateTimeV2)
+    REGISTER_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME, DataTypeDateV2, DataTypeDateV2)
 
     REGISTER_ALL_DATEV2_FUNCTIONS_WITH_TWO_ARGS(FunctionDatetimeV2DateDiff)
     REGISTER_ALL_DATEV2_FUNCTIONS_WITH_TWO_ARGS(FunctionDatetimeV2TimeDiff)

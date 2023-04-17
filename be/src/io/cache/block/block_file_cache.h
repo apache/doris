@@ -43,8 +43,11 @@ class IFileCache {
     friend struct FileBlocksHolder;
 
 public:
-    static const std::string FILE_CACHE_VERSION;
-    static const int KEY_PREFIX_LENGTH;
+    /// use version 2 when USE_CACHE_VERSION2 = true, while use version 1 if false
+    /// version 1.0: cache_base_path / key / offset
+    /// version 2.0: cache_base_path / key_prefix / key / offset
+    static constexpr bool USE_CACHE_VERSION2 = true;
+    static constexpr int KEY_PREFIX_LENGTH = 3;
 
     struct Key {
         uint128_t key;

@@ -239,5 +239,5 @@ Usually, a query plan for an Export job has only two parts `scan`- `export`, and
 
 ## More Help
 
-For more detailed syntax and best practices used by Export, please refer to the [Export](../../sql-manual/sql-reference/Show-Statements/SHOW-EXPORT.md) command manual, you can also You can enter `HELP EXPORT` at the command line of the MySql client for more help.
+For more detailed syntax and best practices used by Export, please refer to the [Export](../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/EXPORT.md) command manual, you can also You can enter `HELP EXPORT` at the command line of the MySql client for more help.
 

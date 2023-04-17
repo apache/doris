@@ -1,7 +1,7 @@
 ---
 {
     "title": "SHOW-CREATE-CATALOG",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 

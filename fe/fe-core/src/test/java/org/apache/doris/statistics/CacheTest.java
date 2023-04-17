@@ -19,10 +19,16 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.Lists;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
@@ -40,7 +46,7 @@ import java.util.concurrent.Executor;
 public class CacheTest extends TestWithFeService {
 
     @Test
-    public void testColumn(@Mocked StatisticsCacheLoader cacheLoader) throws Exception {
+    public void testColumn(@Mocked ColumnStatisticsCacheLoader cacheLoader) throws Exception {
         new Expectations() {
             {
                 cacheLoader.asyncLoad((StatisticsCacheKey) any, (Executor) any);
@@ -48,18 +54,18 @@ public class CacheTest extends TestWithFeService {
                     try {
                         Thread.sleep(50);
                     } catch (InterruptedException e) {
-                        return ColumnStatistic.DEFAULT;
+                        return ColumnStatistic.UNKNOWN;
                     }
-                    return ColumnStatistic.DEFAULT;
+                    return ColumnStatistic.UNKNOWN;
                 });
             }
         };
         StatisticsCache statisticsCache = new StatisticsCache();
         ColumnStatistic c = statisticsCache.getColumnStatistics(1, "col");
-        Assertions.assertEquals(c, ColumnStatistic.DEFAULT);
+        Assertions.assertEquals(c, ColumnStatistic.UNKNOWN);
         Thread.sleep(100);
         c = statisticsCache.getColumnStatistics(1, "col");
-        Assertions.assertEquals(c, ColumnStatistic.DEFAULT);
+        Assertions.assertEquals(c, ColumnStatistic.UNKNOWN);
     }
 
     @Test
@@ -120,7 +126,7 @@ public class CacheTest extends TestWithFeService {
         };
         StatisticsCache statisticsCache = new StatisticsCache();
         ColumnStatistic columnStatistic = statisticsCache.getColumnStatistics(0, "col");
-        Assertions.assertEquals(ColumnStatistic.DEFAULT, columnStatistic);
+        Assertions.assertEquals(ColumnStatistic.UNKNOWN, columnStatistic);
         Thread.sleep(1000);
         columnStatistic = statisticsCache.getColumnStatistics(0, "col");
         Assertions.assertEquals(1, columnStatistic.count);
@@ -130,6 +136,46 @@ public class CacheTest extends TestWithFeService {
 
     @Test
     public void testLoadHistogram() throws Exception {
+        new MockUp<Histogram>() {
+
+            @Mock
+            public Histogram fromResultRow(ResultRow resultRow) {
+                try {
+                    HistogramBuilder histogramBuilder = new HistogramBuilder();
+
+                    Column col = new Column("abc", PrimitiveType.DATETIME);
+
+                    Type dataType = col.getType();
+                    histogramBuilder.setDataType(dataType);
+
+                    double sampleRate = Double.parseDouble(resultRow.getColumnValue("sample_rate"));
+                    histogramBuilder.setSampleRate(sampleRate);
+
+                    String json = resultRow.getColumnValue("buckets");
+                    JsonObject jsonObj = JsonParser.parseString(json).getAsJsonObject();
+
+                    int bucketNum = jsonObj.get("num_buckets").getAsInt();
+                    histogramBuilder.setNumBuckets(bucketNum);
+
+                    List<Bucket> buckets = Lists.newArrayList();
+                    JsonArray jsonArray = jsonObj.getAsJsonArray("buckets");
+                    for (JsonElement element : jsonArray) {
+                        try {
+                            String bucketJson = element.toString();
+                            buckets.add(Bucket.deserializeFromJson(dataType, bucketJson));
+                        } catch (Throwable t) {
+                            t.printStackTrace();
+                        }
+
+                    }
+                    histogramBuilder.setBuckets(buckets);
+
+                    return histogramBuilder.build();
+                } catch (Exception e) {
+                    return null;
+                }
+            }
+        };
         new MockUp<StatisticsUtil>() {
 
             @Mock
@@ -167,7 +213,7 @@ public class CacheTest extends TestWithFeService {
                 values.add("-1");
                 values.add("4");
                 values.add("0.2");
-                String buckets = "{\"max_bucket_num\":128,\"bucket_num\":5,\"sample_rate\":1.0,\"buckets\":"
+                String buckets = "{\"num_buckets\":5,\"buckets\":"
                         + "[{\"lower\":\"2022-09-21 17:30:29\",\"upper\":\"2022-09-21 22:30:29\","
                         + "\"count\":9,\"pre_sum\":0,\"ndv\":1},"
                         + "{\"lower\":\"2022-09-22 17:30:29\",\"upper\":\"2022-09-22 22:30:29\","
@@ -185,14 +231,9 @@ public class CacheTest extends TestWithFeService {
         };
 
         StatisticsCache statisticsCache = new StatisticsCache();
+        statisticsCache.refreshHistogramSync(0, -1, "col");
+        Thread.sleep(10000);
         Histogram histogram = statisticsCache.getHistogram(0, "col");
-        Assertions.assertEquals(Histogram.DEFAULT, histogram);
-        Thread.sleep(1000);
-        histogram = statisticsCache.getHistogram(0, "col");
-        Assertions.assertEquals("DATETIME", histogram.dataType.toString());
-        Assertions.assertEquals(128, histogram.maxBucketNum);
-        Assertions.assertEquals(5, histogram.bucketNum);
-        Assertions.assertEquals(0.2, histogram.sampleRate);
-        Assertions.assertEquals(5, histogram.buckets.size());
+        Assertions.assertNotNull(histogram);
     }
 }

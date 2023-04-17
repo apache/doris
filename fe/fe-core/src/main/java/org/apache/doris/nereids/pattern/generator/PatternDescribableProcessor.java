@@ -86,27 +86,35 @@ public class PatternDescribableProcessor extends AbstractProcessor {
                 List<TypeDeclaration> asts = parseJavaFile(file);
                 patternGeneratorAnalyzer.addAsts(asts);
             }
-            String generatePatternCode = patternGeneratorAnalyzer.generatePatterns();
-            File generatePatternFile = new File(processingEnv.getFiler()
-                    .getResource(StandardLocation.SOURCE_OUTPUT, "org.apache.doris.nereids.pattern",
-                            "GeneratedPatterns.java").toUri());
-            if (generatePatternFile.exists()) {
-                generatePatternFile.delete();
-            }
-            if (!generatePatternFile.getParentFile().exists()) {
-                generatePatternFile.getParentFile().mkdirs();
-            }
 
-            // bypass create file for processingEnv.getFiler(), compile GeneratePatterns in next compile term
-            try (BufferedWriter bufferedWriter = new BufferedWriter(new FileWriter(generatePatternFile))) {
-                bufferedWriter.write(generatePatternCode);
-            }
+            doGenerate("GeneratedMemoPatterns", "MemoPatterns", true, patternGeneratorAnalyzer);
+            doGenerate("GeneratedPlanPatterns", "PlanPatterns", false, patternGeneratorAnalyzer);
         } catch (Throwable t) {
             String exceptionMsg = Throwables.getStackTraceAsString(t);
             processingEnv.getMessager().printMessage(Kind.ERROR,
                     "Analyze and generate patterns failed:\n" + exceptionMsg);
         }
         return false;
+    }
+
+    private void doGenerate(String className, String parentClassName, boolean isMemoPattern,
+            PatternGeneratorAnalyzer patternGeneratorAnalyzer) throws IOException {
+        String generatePatternCode = patternGeneratorAnalyzer.generatePatterns(
+                className, parentClassName, isMemoPattern);
+        File generatePatternFile = new File(processingEnv.getFiler()
+                .getResource(StandardLocation.SOURCE_OUTPUT, "org.apache.doris.nereids.pattern",
+                        className + ".java").toUri());
+        if (generatePatternFile.exists()) {
+            generatePatternFile.delete();
+        }
+        if (!generatePatternFile.getParentFile().exists()) {
+            generatePatternFile.getParentFile().mkdirs();
+        }
+
+        // bypass create file for processingEnv.getFiler(), compile GeneratePatterns in next compile term
+        try (BufferedWriter bufferedWriter = new BufferedWriter(new FileWriter(generatePatternFile))) {
+            bufferedWriter.write(generatePatternCode);
+        }
     }
 
     private List<File> findJavaFiles(List<File> dirs) {

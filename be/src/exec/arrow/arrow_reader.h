@@ -22,21 +22,39 @@
 #include <arrow/io/api.h>
 #include <arrow/io/file.h>
 #include <arrow/io/interfaces.h>
+#include <arrow/result.h>
+#include <gen_cpp/PaloBrokerService_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
 #include <parquet/api/reader.h>
 #include <parquet/api/writer.h>
 #include <parquet/arrow/reader.h>
 #include <parquet/arrow/writer.h>
 #include <parquet/exception.h>
+#include <parquet/platform.h>
+#include <stddef.h>
 #include <stdint.h>
 
+#include <atomic>
+#include <condition_variable>
+#include <list>
 #include <map>
+#include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
+#include <vector>
 
+#include "common/config.h"
 #include "common/status.h"
-#include "gen_cpp/PaloBrokerService_types.h"
-#include "gen_cpp/PlanNodes_types.h"
-#include "gen_cpp/Types_types.h"
+#include "io/fs/file_reader.h"
+#include "io/fs/file_reader_writer_fwd.h"
 #include "vec/exec/format/generic_reader.h"
+
+namespace arrow {
+class RecordBatch;
+class RecordBatchReader;
+} // namespace arrow
 
 namespace doris {
 
@@ -46,6 +64,11 @@ class TNetworkAddress;
 class RuntimeState;
 class SlotDescriptor;
 class FileReader;
+class TupleDescriptor;
+
+namespace vectorized {
+class Block;
+} // namespace vectorized
 
 struct Statistics {
     int32_t filtered_row_groups = 0;
@@ -58,7 +81,7 @@ struct Statistics {
 
 class ArrowFile : public arrow::io::RandomAccessFile {
 public:
-    ArrowFile(FileReader* file);
+    ArrowFile(io::FileReaderSPtr file_reader);
     virtual ~ArrowFile();
     arrow::Result<int64_t> Read(int64_t nbytes, void* buffer) override;
     arrow::Result<int64_t> ReadAt(int64_t position, int64_t nbytes, void* out) override;
@@ -70,15 +93,16 @@ public:
     bool closed() const override;
 
 private:
-    FileReader* _file;
-    int64_t _pos = 0;
+    io::FileReaderSPtr _file_reader;
+    size_t _pos = 0;
 };
 
 // base of arrow reader
 class ArrowReaderWrap : public vectorized::GenericReader {
 public:
     ArrowReaderWrap(RuntimeState* state, const std::vector<SlotDescriptor*>& file_slot_descs,
-                    FileReader* file_reader, int32_t num_of_columns_from_file, bool caseSensitive);
+                    io::FileReaderSPtr file_reader, int32_t num_of_columns_from_file,
+                    bool caseSensitive);
     virtual ~ArrowReaderWrap();
 
     virtual Status init_reader(const TupleDescriptor* tuple_desc, const std::string& timezone) = 0;

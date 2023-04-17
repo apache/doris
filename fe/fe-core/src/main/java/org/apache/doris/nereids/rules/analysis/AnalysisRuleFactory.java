@@ -17,13 +17,14 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.nereids.pattern.GeneratedPlanPatterns;
 import org.apache.doris.nereids.rules.PlanRuleFactory;
 import org.apache.doris.nereids.rules.RulePromise;
 
 /**
  * interface for all rule factories used in analysis stage.
  */
-public interface AnalysisRuleFactory extends PlanRuleFactory {
+public interface AnalysisRuleFactory extends PlanRuleFactory, GeneratedPlanPatterns {
     @Override
     default RulePromise defaultPromise() {
         return RulePromise.ANALYSIS;

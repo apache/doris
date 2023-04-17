@@ -176,13 +176,18 @@ public class SchemaChangeProcDir implements ProcDirInterface {
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
-        Preconditions.checkNotNull(db);
         Preconditions.checkNotNull(schemaChangeHandler);
 
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
-        List<List<Comparable>> schemaChangeJobInfos = schemaChangeHandler.getAlterJobInfosByDb(db);
+        List<List<Comparable>> schemaChangeJobInfos;
+        // db is null means need total result of all databases
+        if (db == null) {
+            schemaChangeJobInfos = schemaChangeHandler.getAllAlterJobInfos();
+        } else {
+            schemaChangeJobInfos = schemaChangeHandler.getAlterJobInfosByDb(db);
+        }
         for (List<Comparable> infoStr : schemaChangeJobInfos) {
             List<String> oneInfo = new ArrayList<String>(TITLE_NAMES.size());
             for (Comparable element : infoStr) {

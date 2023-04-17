@@ -49,7 +49,7 @@ public class AddPartitionEvent extends MetastoreTableEvent {
                 .checkNotNull(event.getMessage(), debugString("Event message is null"));
         try {
             AddPartitionMessage addPartitionMessage =
-                    MetastoreEventsProcessor.getMessageDeserializer()
+                    MetastoreEventsProcessor.getMessageDeserializer(event.getMessageFormat())
                             .getAddPartitionMessage(event.getMessage());
             hmsTbl = Preconditions.checkNotNull(addPartitionMessage.getTableObj());
             Iterable<Partition> addedPartitions = addPartitionMessage.getPartitionObjs();

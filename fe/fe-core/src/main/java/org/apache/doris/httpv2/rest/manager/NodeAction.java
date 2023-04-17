@@ -18,14 +18,11 @@
 package org.apache.doris.httpv2.rest.manager;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.ProcService;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -108,7 +105,7 @@ public class NodeAction extends RestBaseController {
 
     // Returns all fe information, similar to 'show frontends'.
     @RequestMapping(path = "/frontends", method = RequestMethod.GET)
-    public Object frontends_info(HttpServletRequest request, HttpServletResponse response) throws AnalysisException {
+    public Object frontends_info(HttpServletRequest request, HttpServletResponse response) throws Exception {
         executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
@@ -117,7 +114,7 @@ public class NodeAction extends RestBaseController {
 
     // Returns all be information, similar to 'show backends'.
     @RequestMapping(path = "/backends", method = RequestMethod.GET)
-    public Object backends_info(HttpServletRequest request, HttpServletResponse response) throws AnalysisException {
+    public Object backends_info(HttpServletRequest request, HttpServletResponse response) throws Exception {
         executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
@@ -126,7 +123,7 @@ public class NodeAction extends RestBaseController {
 
     // Returns all broker information, similar to 'show broker'.
     @RequestMapping(path = "/brokers", method = RequestMethod.GET)
-    public Object brokers_info(HttpServletRequest request, HttpServletResponse response) throws AnalysisException {
+    public Object brokers_info(HttpServletRequest request, HttpServletResponse response) throws Exception {
         executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
@@ -144,12 +141,12 @@ public class NodeAction extends RestBaseController {
     //   ]
     // }
     private Object fetchNodeInfo(HttpServletRequest request, HttpServletResponse response, String procPath)
-            throws AnalysisException {
-        if (!Env.getCurrentEnv().isMaster()) {
-            return redirectToMaster(request, response);
-        }
-
+            throws Exception {
         try {
+            if (!Env.getCurrentEnv().isMaster()) {
+                return redirectToMasterOrException(request, response);
+            }
+
             ProcResult procResult = ProcService.getInstance().open(procPath).fetchResult();
             List<String> columnNames = Lists.newArrayList(procResult.getColumnNames());
             return ResponseEntityBuilder.ok(new NodeInfo(columnNames, procResult.getRows()));
@@ -230,7 +227,7 @@ public class NodeAction extends RestBaseController {
     }
 
     private static List<String> getFeList() {
-        return Env.getCurrentEnv().getFrontends(null).stream().map(fe -> fe.getHost() + ":" + Config.http_port)
+        return Env.getCurrentEnv().getFrontends(null).stream().map(fe -> fe.getIp() + ":" + Config.http_port)
                 .collect(Collectors.toList());
     }
 
@@ -483,7 +480,7 @@ public class NodeAction extends RestBaseController {
         List<Map<String, String>> failedTotal = Lists.newArrayList();
         List<NodeConfigs> nodeConfigList = parseSetConfigNodes(requestBody, failedTotal);
         List<Pair<String, Integer>> aliveFe = Env.getCurrentEnv().getFrontends(null).stream().filter(Frontend::isAlive)
-                .map(fe -> Pair.of(fe.getHost(), Config.http_port)).collect(Collectors.toList());
+                .map(fe -> Pair.of(fe.getIp(), Config.http_port)).collect(Collectors.toList());
         checkNodeIsAlive(nodeConfigList, aliveFe, failedTotal);
 
         Map<String, String> header = Maps.newHashMap();
@@ -598,10 +595,11 @@ public class NodeAction extends RestBaseController {
     @PostMapping("/{action}/be")
     public Object operateBackend(HttpServletRequest request, HttpServletResponse response, @PathVariable String action,
             @RequestBody BackendReqInfo reqInfo) {
-        if (!Env.getCurrentEnv().isMaster()) {
-            return redirectToMaster(request, response);
-        }
         try {
+            if (!Env.getCurrentEnv().isMaster()) {
+                return redirectToMasterOrException(request, response);
+            }
+
             List<String> hostPorts = reqInfo.getHostPorts();
             List<HostInfo> hostInfos = new ArrayList<>();
             for (String hostPort : hostPorts) {
@@ -632,8 +630,8 @@ public class NodeAction extends RestBaseController {
                             });
                 });
             }
-        } catch (UserException userException) {
-            return ResponseEntityBuilder.okWithCommonError(userException.getMessage());
+        } catch (Exception e) {
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
         return ResponseEntityBuilder.ok();
     }
@@ -641,14 +639,12 @@ public class NodeAction extends RestBaseController {
     @PostMapping("/{action}/fe")
     public Object operateFrontends(HttpServletRequest request, HttpServletResponse response,
             @PathVariable String action, @RequestBody FrontendReqInfo reqInfo) {
-        if (!Env.getCurrentEnv().isMaster()) {
-            return redirectToMaster(request, response);
-        }
         try {
+            if (!Env.getCurrentEnv().isMaster()) {
+                return redirectToMasterOrException(request, response);
+            }
+
             String role = reqInfo.getRole();
-            String[] split = reqInfo.getHostPort().split(":");
-            String host = split[0];
-            int port = Integer.parseInt(split[1]);
             Env currentEnv = Env.getCurrentEnv();
             FrontendNodeType frontendNodeType;
             if (FrontendNodeType.FOLLOWER.name().equals(role)) {
@@ -656,13 +652,14 @@ public class NodeAction extends RestBaseController {
             } else {
                 frontendNodeType = FrontendNodeType.OBSERVER;
             }
+            HostInfo info = SystemInfoService.getIpHostAndPort(reqInfo.getHostPort(), true);
             if ("ADD".equals(action)) {
-                currentEnv.addFrontend(frontendNodeType, host, port);
+                currentEnv.addFrontend(frontendNodeType, info.getIp(), info.getHostName(), info.getPort());
             } else if ("DROP".equals(action)) {
-                currentEnv.dropFrontend(frontendNodeType, host, port);
+                currentEnv.dropFrontend(frontendNodeType, info.getIp(), info.getHostName(), info.getPort());
             }
-        } catch (DdlException ddlException) {
-            return ResponseEntityBuilder.okWithCommonError(ddlException.getMessage());
+        } catch (Exception e) {
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
         return ResponseEntityBuilder.ok();
     }

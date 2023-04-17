@@ -19,6 +19,7 @@
 
 #include <gen_cpp/AgentService_types.h>
 
+#include "common/status.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
@@ -219,7 +220,7 @@ Status VUnionNode::get_next_const(RuntimeState* state, Block* block) {
         }
         tmp_block.erase_not_in(result_list);
         if (tmp_block.rows() > 0) {
-            mblock.merge(tmp_block);
+            RETURN_IF_ERROR(mblock.merge(tmp_block));
             tmp_block.clear();
         }
     }

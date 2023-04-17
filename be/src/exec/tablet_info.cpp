@@ -17,8 +17,28 @@
 
 #include "exec/tablet_info.h"
 
+#include <butil/fast_rand.h>
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/descriptors.pb.h>
+#include <glog/logging.h>
+#include <stddef.h>
+
+#include <algorithm>
+#include <ostream>
+
+#include "olap/tablet_schema.h"
+#include "runtime/descriptors.h"
 #include "runtime/large_int_value.h"
+#include "runtime/memory/mem_tracker.h"
+#include "runtime/raw_value.h"
+#include "runtime/types.h"
+#include "util/hash_util.hpp"
 #include "util/string_parser.hpp"
+#include "vec/common/string_ref.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 
@@ -124,6 +144,10 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
                 ti->init_from_thrift(tindex_desc, column_unique_ids);
                 index->indexes.emplace_back(ti);
             }
+        }
+        if (t_index.__isset.where_clause) {
+            RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(&_obj_pool, t_index.where_clause,
+                                                                &index->where_clause));
         }
         _indexes.emplace_back(index);
     }
@@ -246,6 +270,9 @@ Status VOlapTablePartitionParam::init() {
                 RETURN_IF_ERROR(_create_partition_keys(
                         keys, &part->in_keys.emplace_back(&_partition_block, -1)));
             }
+            if (t_part.__isset.is_default_partition && t_part.is_default_partition) {
+                _default_partition = part;
+            }
         }
 
         part->num_buckets = t_part.num_buckets;
@@ -293,14 +320,15 @@ bool VOlapTablePartitionParam::find_partition(BlockRow* block_row,
                                               const VOlapTablePartition** partition) const {
     auto it = _is_in_partition ? _partitions_map->find(block_row)
                                : _partitions_map->upper_bound(block_row);
-    if (it == _partitions_map->end()) {
-        return false;
+    // for list partition it might result in default partition
+    if (_is_in_partition) {
+        *partition = (it != _partitions_map->end()) ? it->second : _default_partition;
+        it = _partitions_map->end();
     }
-    if (_is_in_partition || _part_contains(it->second, block_row)) {
+    if (it != _partitions_map->end() && _part_contains(it->second, block_row)) {
         *partition = it->second;
-        return true;
     }
-    return false;
+    return (*partition != nullptr);
 }
 
 uint32_t VOlapTablePartitionParam::find_tablet(BlockRow* block_row,

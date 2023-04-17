@@ -55,7 +55,6 @@ public class JdbcExternalDatabase extends ExternalDatabase<JdbcExternalTable> im
         super(extCatalog, id, name);
     }
 
-    // TODO(ftw): drew out the public multiple parts
     @Override
     protected void init() {
         InitDatabaseLog initDatabaseLog = new InitDatabaseLog();
@@ -72,6 +71,7 @@ public class JdbcExternalDatabase extends ExternalDatabase<JdbcExternalTable> im
                     tblId = tableNameToId.get(tableName);
                     tmpTableNameToId.put(tableName, tblId);
                     JdbcExternalTable table = idToTbl.get(tblId);
+                    table.unsetObjectCreated();
                     tmpIdToTbl.put(tblId, table);
                     initDatabaseLog.addRefreshTable(tblId);
                 } else {

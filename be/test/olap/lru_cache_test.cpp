@@ -224,7 +224,7 @@ static void insert_LRUCache(LRUCache& cache, const CacheKey& key, int value,
     static std::unique_ptr<MemTrackerLimiter> lru_cache_tracker =
             std::make_unique<MemTrackerLimiter>(MemTrackerLimiter::Type::GLOBAL, "TestLruCache");
     cache.release(cache.insert(key, hash, EncodeValue(value), value, &deleter,
-                               lru_cache_tracker.get(), priority));
+                               lru_cache_tracker.get(), priority, value));
 }
 
 TEST_F(CacheTest, Usage) {
@@ -232,34 +232,34 @@ TEST_F(CacheTest, Usage) {
     cache.set_capacity(1040);
 
     // The lru usage is handle_size + charge.
-    // handle_size = sizeof(handle) - 1 + key size = 96 - 1 + 3 = 98
+    // handle_size = sizeof(handle) - 1 + key size = 104 - 1 + 3 = 106
     CacheKey key1("100");
     insert_LRUCache(cache, key1, 100, CachePriority::NORMAL);
-    ASSERT_EQ(198, cache.get_usage()); // 100 + 98
+    ASSERT_EQ(206, cache.get_usage()); // 100 + 106
 
     CacheKey key2("200");
     insert_LRUCache(cache, key2, 200, CachePriority::DURABLE);
-    ASSERT_EQ(496, cache.get_usage()); // 198 + 298(d), d = DURABLE
+    ASSERT_EQ(512, cache.get_usage()); // 206 + 306(d), d = DURABLE
 
     CacheKey key3("300");
     insert_LRUCache(cache, key3, 300, CachePriority::NORMAL);
-    ASSERT_EQ(894, cache.get_usage()); // 198 + 298(d) + 398
+    ASSERT_EQ(918, cache.get_usage()); // 206 + 306(d) + 406
 
     CacheKey key4("400");
     insert_LRUCache(cache, key4, 400, CachePriority::NORMAL);
-    ASSERT_EQ(796, cache.get_usage()); // 298(d) + 498, evict 198 398
+    ASSERT_EQ(812, cache.get_usage()); // 306(d) + 506, evict 206 406
 
     CacheKey key5("500");
     insert_LRUCache(cache, key5, 500, CachePriority::NORMAL);
-    ASSERT_EQ(896, cache.get_usage()); // 298(d) + 598, evict 498
+    ASSERT_EQ(912, cache.get_usage()); // 306(d) + 606, evict 506
 
     CacheKey key6("600");
     insert_LRUCache(cache, key6, 600, CachePriority::NORMAL);
-    ASSERT_EQ(996, cache.get_usage()); // 298(d) + 698, evict 498
+    ASSERT_EQ(1012, cache.get_usage()); // 306(d) + 706, evict 506
 
     CacheKey key7("950");
     insert_LRUCache(cache, key7, 950, CachePriority::DURABLE);
-    ASSERT_EQ(0, cache.get_usage()); // evict 298 698, because 950 + 98 > 1040, so insert failed
+    ASSERT_EQ(0, cache.get_usage()); // evict 306 706, because 950 + 106 > 1040, so insert failed
 }
 
 TEST_F(CacheTest, Prune) {
@@ -312,6 +312,56 @@ TEST_F(CacheTest, Prune) {
     }
     cache.prune_if([](const void*) { return true; });
     EXPECT_EQ(0, cache.get_usage());
+}
+
+TEST_F(CacheTest, PruneIfLazyMode) {
+    LRUCache cache(LRUCacheType::NUMBER);
+    cache.set_capacity(10);
+
+    // The lru usage is 1, add one entry
+    CacheKey key1("100");
+    insert_LRUCache(cache, key1, 100, CachePriority::NORMAL);
+    EXPECT_EQ(1, cache.get_usage());
+
+    CacheKey key2("200");
+    insert_LRUCache(cache, key2, 200, CachePriority::DURABLE);
+    EXPECT_EQ(2, cache.get_usage());
+
+    CacheKey key3("300");
+    insert_LRUCache(cache, key3, 300, CachePriority::NORMAL);
+    EXPECT_EQ(3, cache.get_usage());
+
+    CacheKey key4("666");
+    insert_LRUCache(cache, key4, 666, CachePriority::NORMAL);
+    EXPECT_EQ(4, cache.get_usage());
+
+    CacheKey key5("500");
+    insert_LRUCache(cache, key5, 500, CachePriority::NORMAL);
+    EXPECT_EQ(5, cache.get_usage());
+
+    CacheKey key6("600");
+    insert_LRUCache(cache, key6, 600, CachePriority::NORMAL);
+    EXPECT_EQ(6, cache.get_usage());
+
+    CacheKey key7("700");
+    insert_LRUCache(cache, key7, 700, CachePriority::DURABLE);
+    EXPECT_EQ(7, cache.get_usage());
+
+    auto pred = [](const void* value) -> bool { return false; };
+    cache.prune_if(pred, true);
+    EXPECT_EQ(7, cache.get_usage());
+
+    // in lazy mode, the first item not satisfied the pred2, `prune_if` then stopped
+    // and no item's removed.
+    auto pred2 = [](const void* value) -> bool { return DecodeValue((void*)value) > 400; };
+    cache.prune_if(pred2, true);
+    EXPECT_EQ(7, cache.get_usage());
+
+    // in normal priority, 100, 300 are removed
+    // in durable priority, 200 is removed
+    auto pred3 = [](const void* value) -> bool { return DecodeValue((void*)value) <= 600; };
+    EXPECT_EQ(3, cache.prune_if(pred3, true));
+    EXPECT_EQ(4, cache.get_usage());
 }
 
 TEST_F(CacheTest, HeavyEntries) {

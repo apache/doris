@@ -43,6 +43,50 @@ public:
         int64_t peak_consumption = 0;
     };
 
+    // A counter that keeps track of the current and peak value seen.
+    // Relaxed ordering, not accurate in real time.
+    class MemCounter {
+    public:
+        MemCounter() : _current_value(0), _peak_value(0) {}
+
+        void add(int64_t delta) {
+            _current_value.fetch_add(delta, std::memory_order_relaxed);
+            update_peak();
+        }
+
+        void add_no_update_peak(int64_t delta) {
+            _current_value.fetch_add(delta, std::memory_order_relaxed);
+        }
+
+        bool try_add(int64_t delta, int64_t max) {
+            if (UNLIKELY(_current_value.load(std::memory_order_relaxed) + delta > max))
+                return false;
+            _current_value.fetch_add(delta, std::memory_order_relaxed);
+            update_peak();
+            return true;
+        }
+
+        void set(int64_t v) {
+            _current_value.store(v, std::memory_order_relaxed);
+            update_peak();
+        }
+
+        void update_peak() {
+            if (_current_value.load(std::memory_order_relaxed) >
+                _peak_value.load(std::memory_order_relaxed)) {
+                _peak_value.store(_current_value.load(std::memory_order_relaxed),
+                                  std::memory_order_relaxed);
+            }
+        }
+
+        int64_t current_value() const { return _current_value.load(std::memory_order_relaxed); }
+        int64_t peak_value() const { return _peak_value.load(std::memory_order_relaxed); }
+
+    private:
+        std::atomic<int64_t> _current_value;
+        std::atomic<int64_t> _peak_value;
+    };
+
     // Creates and adds the tracker to the mem_tracker_pool.
     MemTracker(const std::string& label, RuntimeProfile* profile, MemTrackerLimiter* parent,
                const std::string& profile_counter_name);
@@ -63,14 +107,24 @@ public:
     const std::string& set_parent_label() const { return _parent_label; }
     // Returns the memory consumed in bytes.
     int64_t consumption() const { return _consumption->current_value(); }
-    int64_t peak_consumption() const { return _consumption->value(); }
+    int64_t peak_consumption() const { return _consumption->peak_value(); }
 
     void consume(int64_t bytes) {
         if (bytes == 0) return;
         _consumption->add(bytes);
     }
+    void consume_no_update_peak(int64_t bytes) { // need extreme fast
+        _consumption->add_no_update_peak(bytes);
+    }
     void release(int64_t bytes) { consume(-bytes); }
     void set_consumption(int64_t bytes) { _consumption->set(bytes); }
+
+    void refresh_profile_counter() {
+        if (_profile_counter) {
+            _profile_counter->set(_consumption->current_value());
+        }
+    }
+    static void refresh_all_tracker_profile();
 
 public:
     Snapshot make_snapshot() const;
@@ -93,7 +147,8 @@ protected:
     // label used in the make snapshot, not guaranteed unique.
     std::string _label;
 
-    std::shared_ptr<RuntimeProfile::HighWaterMarkCounter> _consumption; // in bytes
+    std::shared_ptr<MemCounter> _consumption;
+    std::shared_ptr<RuntimeProfile::HighWaterMarkCounter> _profile_counter;
 
     // Tracker is located in group num in mem_tracker_pool
     int64_t _parent_group_num = 0;

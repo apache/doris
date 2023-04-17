@@ -353,7 +353,7 @@ int DecimalV2Value::parse_from_str(const char* decimal_str, int32_t length) {
 
     _value = StringParser::string_to_decimal<__int128>(decimal_str, length, PRECISION, SCALE,
                                                        &result);
-    if (result == StringParser::PARSE_FAILURE) {
+    if (result != StringParser::PARSE_SUCCESS) {
         error = E_DEC_BAD_NUM;
     }
     return error;
@@ -373,7 +373,18 @@ std::string DecimalV2Value::to_string(int scale) const {
             }
         }
     } else {
-        frac_val = frac_val / SCALE_TRIM_ARRAY[scale];
+        // roundup to FIX 17191
+        if (scale < SCALE) {
+            int32_t frac_val_tmp = frac_val / SCALE_TRIM_ARRAY[scale];
+            if (frac_val / SCALE_TRIM_ARRAY[scale + 1] % 10 >= 5) {
+                frac_val_tmp++;
+                if (frac_val_tmp >= SCALE_TRIM_ARRAY[9 - scale]) {
+                    frac_val_tmp = 0;
+                    _value >= 0 ? int_val++ : int_val--;
+                }
+            }
+            frac_val = frac_val_tmp;
+        }
     }
     auto f_int = fmt::format_int(int_val);
     if (scale == 0) {
@@ -414,7 +425,18 @@ int32_t DecimalV2Value::to_buffer(char* buffer, int scale) const {
             }
         }
     } else {
-        frac_val = frac_val / SCALE_TRIM_ARRAY[scale];
+        // roundup to FIX 17191
+        if (scale < SCALE) {
+            int32_t frac_val_tmp = frac_val / SCALE_TRIM_ARRAY[scale];
+            if (frac_val / SCALE_TRIM_ARRAY[scale + 1] % 10 >= 5) {
+                frac_val_tmp++;
+                if (frac_val_tmp >= SCALE_TRIM_ARRAY[9 - scale]) {
+                    frac_val_tmp = 0;
+                    _value >= 0 ? int_val++ : int_val--;
+                }
+            }
+            frac_val = frac_val_tmp;
+        }
     }
     int extra_sign_size = 0;
     if (_value < 0 && int_val == 0 && frac_val != 0) {
@@ -447,7 +469,6 @@ std::string DecimalV2Value::to_string() const {
 
 // NOTE: only change abstract value, do not change sign
 void DecimalV2Value::to_max_decimal(int32_t precision, int32_t scale) {
-    bool is_negative = (_value < 0);
     static const int64_t INT_MAX_VALUE[PRECISION] = {9ll,
                                                      99ll,
                                                      999ll,
@@ -486,7 +507,6 @@ void DecimalV2Value::to_max_decimal(int32_t precision, int32_t scale) {
     int64_t int_value = INT_MAX_VALUE[precision - scale - 1];
     int64_t frac_value = scale == 0 ? 0 : FRAC_MAX_VALUE[scale - 1];
     _value = static_cast<int128_t>(int_value) * DecimalV2Value::ONE_BILLION + frac_value;
-    if (is_negative) _value = -_value;
 }
 
 std::size_t hash_value(DecimalV2Value const& value) {

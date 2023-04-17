@@ -18,9 +18,12 @@
 package org.apache.doris.mysql;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Type;
 
 import com.google.common.base.Strings;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.ByteArrayOutputStream;
 import java.io.UnsupportedEncodingException;
@@ -28,24 +31,21 @@ import java.nio.ByteBuffer;
 
 // used for serialize memory data to byte stream of MySQL protocol
 public class MysqlSerializer {
+    private static final Logger LOG = LogManager.getLogger(MysqlSerializer.class);
     private ByteArrayOutputStream out;
     private MysqlCapability capability;
 
-    public MysqlSerializer(ByteArrayOutputStream out) {
-        this(out, MysqlCapability.DEFAULT_CAPABILITY);
-    }
-
-    public MysqlSerializer(ByteArrayOutputStream out, MysqlCapability capability) {
-        this.out = out;
-        this.capability = capability;
-    }
-
     public static MysqlSerializer newInstance() {
-        return new MysqlSerializer(new ByteArrayOutputStream());
+        return new MysqlSerializer(new ByteArrayOutputStream(), MysqlCapability.DEFAULT_CAPABILITY);
     }
 
     public static MysqlSerializer newInstance(MysqlCapability capability) {
         return new MysqlSerializer(new ByteArrayOutputStream(), capability);
+    }
+
+    private MysqlSerializer(ByteArrayOutputStream out, MysqlCapability capability) {
+        this.out = out;
+        this.capability = capability;
     }
 
     // used after success handshake
@@ -138,7 +138,7 @@ public class MysqlSerializer {
             writeVInt(buf.length);
             writeBytes(buf);
         } catch (UnsupportedEncodingException e) {
-            e.printStackTrace();
+            LOG.warn("", e);
         }
     }
 
@@ -147,7 +147,7 @@ public class MysqlSerializer {
             byte[] buf = value.getBytes("UTF-8");
             writeBytes(buf);
         } catch (UnsupportedEncodingException e) {
-            e.printStackTrace();
+            LOG.warn("", e);
         }
     }
 
@@ -157,7 +157,7 @@ public class MysqlSerializer {
             writeBytes(buf);
             writeByte((byte) 0);
         } catch (UnsupportedEncodingException e) {
-            e.printStackTrace();
+            LOG.warn("", e);
         }
     }
 
@@ -179,13 +179,13 @@ public class MysqlSerializer {
         // Character set: two byte integer
         writeInt2(33);
         // TODO(zhaochun): fix Column length: four byte integer
-        writeInt4(255);
+        writeInt4(getMysqlTypeLength(column.getType()));
         // Column type: one byte integer
         writeInt1(column.getDataType().toMysqlType().getCode());
         // Flags: two byte integer
         writeInt2(0);
         // Decimals: one byte integer
-        writeInt1(0);
+        writeInt1(getMysqlDecimals(column.getType()));
         // filler: two byte integer
         writeInt2(0);
 
@@ -196,7 +196,7 @@ public class MysqlSerializer {
     }
 
     // Format field with name and type.
-    public void writeField(String colName, PrimitiveType type) {
+    public void writeField(String colName, Type type) {
         // Catalog Name: length encoded string
         writeLenEncodedString("def");
         // Schema: length encoded string
@@ -216,23 +216,25 @@ public class MysqlSerializer {
         // Column length: four byte integer
         writeInt4(getMysqlTypeLength(type));
         // Column type: one byte integer
-        writeInt1(type.toMysqlType().getCode());
+        writeInt1(type.getPrimitiveType().toMysqlType().getCode());
         // Flags: two byte integer
         writeInt2(0);
         // Decimals: one byte integer
-        writeInt1(0);
+        writeInt1(getMysqlDecimals(type));
         // filler: two byte integer
         writeInt2(0);
     }
 
     /**
      * Specify the display width of the returned data according to the MySQL type
-     * todo:The driver determines the number of bytes per character according to different character sets index
+     * todo:The driver determines the number of bytes per character according to
+     * different character sets index
+     *
      * @param type
      * @return
      */
-    private int getMysqlTypeLength(PrimitiveType type) {
-        switch (type) {
+    private int getMysqlTypeLength(Type type) {
+        switch (type.getPrimitiveType()) {
             // MySQL use Tinyint(1) to represent boolean
             case BOOLEAN:
                 return 1;
@@ -254,17 +256,52 @@ public class MysqlSerializer {
                 return 10;
             case DATETIME:
             case DATETIMEV2: {
-                if (type.isTimeType()) {
+                if (type.getPrimitiveType().isTimeType()) {
                     return 10;
-                }  else {
+                } else {
                     return 19;
                 }
             }
+            case DECIMALV2:
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMAL128: {
+                // https://github.com/mysql/mysql-connector-j/blob/release/5.1/src/com/mysql/jdbc/ResultSetMetaData.java
+                // in function: int getPrecision(int column)
+                // f.getDecimals() > 0 ? clampedGetLength(f) - 1 + f.getPrecisionAdjustFactor()
+                // :clampedGetLength(f) + f.getPrecisionAdjustFactor();
+                // f.getDecimals() is return the value of scale, and precisionAdjustFactor = -1
+                ScalarType decimalType = (ScalarType) type;
+                int precision = decimalType.decimalPrecision();
+                int scale = decimalType.decimalScale();
+                if (scale > 0) {
+                    precision += 2;
+                } else {
+                    precision += 1;
+                }
+                return precision;
+            }
             // todo:It needs to be obtained according to the field length set during the actual creation,
             // todo:which is not supported for the time being.default is 255
-            //  DECIMAL,DECIMALV2,CHAR,VARCHAR:
+            // CHAR,VARCHAR:
             default:
                 return 255;
+        }
+    }
+
+    // this is used for decimal scale
+    public int getMysqlDecimals(Type type) {
+        switch (type.getPrimitiveType()) {
+            case DECIMALV2:
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMAL128:
+                return ((ScalarType) type).decimalScale();
+            case FLOAT:
+            case DOUBLE:
+                return 31;
+            default:
+                return 0;
         }
     }
 }

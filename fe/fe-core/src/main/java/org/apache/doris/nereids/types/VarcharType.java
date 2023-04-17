@@ -35,6 +35,11 @@ public class VarcharType extends CharacterType {
         super(len);
     }
 
+    @Override
+    public int width() {
+        return len;
+    }
+
     public static VarcharType createVarcharType(int len) {
         if (len == SYSTEM_DEFAULT.len) {
             return SYSTEM_DEFAULT;
@@ -44,12 +49,14 @@ public class VarcharType extends CharacterType {
 
     @Override
     public Type toCatalogDataType() {
-        return ScalarType.createVarcharType(len);
+        ScalarType catalogDataType = ScalarType.createVarcharType(len);
+        catalogDataType.setByteSize(len);
+        return catalogDataType;
     }
 
     @Override
     public boolean acceptsType(AbstractDataType other) {
-        return other instanceof VarcharType;
+        return other instanceof VarcharType || other instanceof StringType;
     }
 
     @Override

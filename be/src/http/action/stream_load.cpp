@@ -17,49 +17,55 @@
 
 #include "http/action/stream_load.h"
 
-#include <deque>
-#include <future>
-#include <sstream>
-
 // use string iequal
 #include <event2/buffer.h>
-#include <event2/bufferevent.h>
 #include <event2/http.h>
-#include <rapidjson/prettywriter.h>
+#include <gen_cpp/FrontendService.h>
+#include <gen_cpp/FrontendService_types.h>
+#include <gen_cpp/HeartbeatService_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <sys/time.h>
 #include <thrift/protocol/TDebugProtocol.h>
+#include <time.h>
 
+#include <future>
+#include <map>
+#include <sstream>
+#include <stdexcept>
+#include <utility>
+
+#include "common/config.h"
 #include "common/consts.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "common/utils.h"
-#include "gen_cpp/FrontendService.h"
-#include "gen_cpp/FrontendService_types.h"
-#include "gen_cpp/HeartbeatService_types.h"
 #include "http/http_channel.h"
 #include "http/http_common.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
-#include "http/http_response.h"
 #include "http/utils.h"
 #include "io/fs/stream_load_pipe.h"
 #include "olap/storage_engine.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
-#include "runtime/fragment_mgr.h"
 #include "runtime/load_path_mgr.h"
-#include "runtime/plan_fragment_executor.h"
+#include "runtime/message_body_sink.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
 #include "runtime/stream_load/stream_load_executor.h"
 #include "runtime/stream_load/stream_load_recorder.h"
 #include "util/byte_buffer.h"
-#include "util/debug_util.h"
 #include "util/doris_metrics.h"
-#include "util/json_util.h"
 #include "util/metrics.h"
 #include "util/string_util.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/time.h"
 #include "util/uid_util.h"
+#include "util/url_coding.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -144,7 +150,8 @@ StreamLoadAction::~StreamLoadAction() {
 }
 
 void StreamLoadAction::handle(HttpRequest* req) {
-    StreamLoadContext* ctx = (StreamLoadContext*)req->handler_ctx();
+    std::shared_ptr<StreamLoadContext> ctx =
+            std::static_pointer_cast<StreamLoadContext>(req->handler_ctx());
     if (ctx == nullptr) {
         return;
     }
@@ -161,7 +168,7 @@ void StreamLoadAction::handle(HttpRequest* req) {
 
     if (!ctx->status.ok() && !ctx->status.is<PUBLISH_TIMEOUT>()) {
         if (ctx->need_rollback) {
-            _exec_env->stream_load_executor()->rollback_txn(ctx);
+            _exec_env->stream_load_executor()->rollback_txn(ctx.get());
             ctx->need_rollback = false;
         }
         if (ctx->body_sink.get() != nullptr) {
@@ -185,7 +192,7 @@ void StreamLoadAction::handle(HttpRequest* req) {
     streaming_load_current_processing->increment(-1);
 }
 
-Status StreamLoadAction::_handle(StreamLoadContext* ctx) {
+Status StreamLoadAction::_handle(std::shared_ptr<StreamLoadContext> ctx) {
     if (ctx->body_bytes > 0 && ctx->receive_bytes != ctx->body_bytes) {
         LOG(WARNING) << "recevie body don't equal with body bytes, body_bytes=" << ctx->body_bytes
                      << ", receive_bytes=" << ctx->receive_bytes << ", id=" << ctx->id;
@@ -206,12 +213,12 @@ Status StreamLoadAction::_handle(StreamLoadContext* ctx) {
 
     if (ctx->two_phase_commit) {
         int64_t pre_commit_start_time = MonotonicNanos();
-        RETURN_IF_ERROR(_exec_env->stream_load_executor()->pre_commit_txn(ctx));
+        RETURN_IF_ERROR(_exec_env->stream_load_executor()->pre_commit_txn(ctx.get()));
         ctx->pre_commit_txn_cost_nanos = MonotonicNanos() - pre_commit_start_time;
     } else {
         // If put file success we need commit this load
         int64_t commit_and_publish_start_time = MonotonicNanos();
-        RETURN_IF_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx));
+        RETURN_IF_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx.get()));
         ctx->commit_and_publish_txn_cost_nanos = MonotonicNanos() - commit_and_publish_start_time;
     }
     return Status::OK();
@@ -220,15 +227,14 @@ Status StreamLoadAction::_handle(StreamLoadContext* ctx) {
 int StreamLoadAction::on_header(HttpRequest* req) {
     streaming_load_current_processing->increment(1);
 
-    StreamLoadContext* ctx = new StreamLoadContext(_exec_env);
-    ctx->ref();
+    std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
     req->set_handler_ctx(ctx);
 
     ctx->load_type = TLoadType::MANUL_LOAD;
     ctx->load_src_type = TLoadSourceType::RAW;
 
-    ctx->db = req->param(HTTP_DB_KEY);
-    ctx->table = req->param(HTTP_TABLE_KEY);
+    url_decode(req->param(HTTP_DB_KEY), &ctx->db);
+    url_decode(req->param(HTTP_TABLE_KEY), &ctx->table);
     ctx->label = req->header(HTTP_LABEL_KEY);
     if (ctx->label.empty()) {
         ctx->label = generate_uuid_string();
@@ -243,7 +249,7 @@ int StreamLoadAction::on_header(HttpRequest* req) {
     if (!st.ok()) {
         ctx->status = std::move(st);
         if (ctx->need_rollback) {
-            _exec_env->stream_load_executor()->rollback_txn(ctx);
+            _exec_env->stream_load_executor()->rollback_txn(ctx.get());
             ctx->need_rollback = false;
         }
         if (ctx->body_sink.get() != nullptr) {
@@ -265,7 +271,7 @@ int StreamLoadAction::on_header(HttpRequest* req) {
     return 0;
 }
 
-Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ctx) {
+Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<StreamLoadContext> ctx) {
     // auth information
     if (!parse_basic_auth(*http_req, &ctx->auth)) {
         LOG(WARNING) << "parse basic authorization failed." << ctx->brief();
@@ -331,10 +337,12 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
             return Status::InvalidArgument("Invalid timeout format");
         }
     }
-
+    if (!http_req->header(HTTP_COMMENT).empty()) {
+        ctx->load_comment = http_req->header(HTTP_COMMENT);
+    }
     // begin transaction
     int64_t begin_txn_start_time = MonotonicNanos();
-    RETURN_IF_ERROR(_exec_env->stream_load_executor()->begin_txn(ctx));
+    RETURN_IF_ERROR(_exec_env->stream_load_executor()->begin_txn(ctx.get()));
     ctx->begin_txn_cost_nanos = MonotonicNanos() - begin_txn_start_time;
 
     // process put file
@@ -342,7 +350,8 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
 }
 
 void StreamLoadAction::on_chunk_data(HttpRequest* req) {
-    StreamLoadContext* ctx = (StreamLoadContext*)req->handler_ctx();
+    std::shared_ptr<StreamLoadContext> ctx =
+            std::static_pointer_cast<StreamLoadContext>(req->handler_ctx());
     if (ctx == nullptr || !ctx->status.ok()) {
         return;
     }
@@ -367,8 +376,8 @@ void StreamLoadAction::on_chunk_data(HttpRequest* req) {
     ctx->read_data_cost_nanos += (MonotonicNanos() - start_read_data_time);
 }
 
-void StreamLoadAction::free_handler_ctx(void* param) {
-    StreamLoadContext* ctx = (StreamLoadContext*)param;
+void StreamLoadAction::free_handler_ctx(std::shared_ptr<void> param) {
+    std::shared_ptr<StreamLoadContext> ctx = std::static_pointer_cast<StreamLoadContext>(param);
     if (ctx == nullptr) {
         return;
     }
@@ -376,12 +385,12 @@ void StreamLoadAction::free_handler_ctx(void* param) {
     if (ctx->body_sink != nullptr) {
         ctx->body_sink->cancel("sender is gone");
     }
-    if (ctx->unref()) {
-        delete ctx;
-    }
+    // remove stream load context from stream load manager and the resource will be released
+    ctx->exec_env()->new_load_stream_mgr()->remove(ctx->id);
 }
 
-Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* ctx) {
+Status StreamLoadAction::_process_put(HttpRequest* http_req,
+                                      std::shared_ptr<StreamLoadContext> ctx) {
     // Now we use stream
     ctx->use_streaming = is_format_support_streaming(ctx->format);
 
@@ -399,10 +408,10 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
         auto pipe = std::make_shared<io::StreamLoadPipe>(
                 io::kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,
                 ctx->body_bytes /* total_length */);
-        RETURN_IF_ERROR(_exec_env->new_load_stream_mgr()->put(ctx->id, pipe));
-
         request.fileType = TFileType::FILE_STREAM;
         ctx->body_sink = pipe;
+        ctx->pipe = pipe;
+        RETURN_IF_ERROR(_exec_env->new_load_stream_mgr()->put(ctx->id, ctx));
     } else {
         RETURN_IF_ERROR(_data_saved_path(http_req, &request.path));
         auto file_sink = std::make_shared<MessageBodyFileSink>(request.path);
@@ -576,6 +585,13 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     if (!http_req->header(HTTP_SKIP_LINES).empty()) {
         request.__set_skip_lines(std::stoi(http_req->header(HTTP_SKIP_LINES)));
     }
+    if (!http_req->header(HTTP_ENABLE_PROFILE).empty()) {
+        if (iequal(http_req->header(HTTP_ENABLE_PROFILE), "true")) {
+            request.__set_enable_profile(true);
+        } else {
+            request.__set_enable_profile(false);
+        }
+    }
 
 #ifndef BE_TEST
     // plan this load
@@ -595,6 +611,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
         LOG(WARNING) << "plan streaming load failed. errmsg=" << plan_status << ctx->brief();
         return plan_status;
     }
+
     VLOG_NOTICE << "params is " << apache::thrift::ThriftDebugString(ctx->put_result.params);
     // if we not use streaming, we must download total content before we begin
     // to process this load
@@ -621,7 +638,8 @@ Status StreamLoadAction::_data_saved_path(HttpRequest* req, std::string* file_pa
     return Status::OK();
 }
 
-void StreamLoadAction::_save_stream_load_record(StreamLoadContext* ctx, const std::string& str) {
+void StreamLoadAction::_save_stream_load_record(std::shared_ptr<StreamLoadContext> ctx,
+                                                const std::string& str) {
     auto stream_load_recorder = StorageEngine::instance()->get_stream_load_recorder();
     if (stream_load_recorder != nullptr) {
         std::string key =

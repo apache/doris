@@ -29,28 +29,13 @@
 
 #include "gutil/hash/city.h"
 #include "gutil/hash/hash128to64.h"
-#include "udf/udf.h"
 #include "util/cpu_info.h"
 #include "util/hash_util.hpp"
 #include "util/slice.h"
+#include "util/sse_util.hpp"
 #include "vec/common/string_ref.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/types.h"
-
-#if defined(__SSE2__)
-#include <emmintrin.h>
-#endif
-
-#if defined(__SSE4_2__)
-#include <nmmintrin.h>
-#include <smmintrin.h>
-
-#include "util/sse_util.hpp"
-#endif
-
-#if defined(__aarch64__)
-#include <sse2neon.h>
-#endif
 
 namespace doris {
 
@@ -162,7 +147,7 @@ inline bool memequalSSE2Wide(const char* p1, const char* p2, size_t size) {
 //   - len: min(n1, n2) - this can be more cheaply passed in by the caller
 inline int string_compare(const char* s1, int64_t n1, const char* s2, int64_t n2, int64_t len) {
     DCHECK_EQ(len, std::min(n1, n2));
-#ifdef __SSE4_2__
+#if defined(__SSE4_2__) || defined(__aarch64__)
     while (len >= sse_util::CHARS_PER_128_BIT_REGISTER) {
         __m128i xmm0 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(s1));
         __m128i xmm1 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(s2));
@@ -183,9 +168,6 @@ inline int string_compare(const char* s1, int64_t n1, const char* s2, int64_t n2
         if (u1 != u2) {
             return u1 - u2;
         }
-        if (u1 == '\0') {
-            return n1 - n2;
-        }
     }
 
     return n1 - n2;
@@ -193,12 +175,11 @@ inline int string_compare(const char* s1, int64_t n1, const char* s2, int64_t n2
 
 } // unnamed namespace
 
-using namespace doris_udf;
 /// The thing to avoid creating strings to find substrings in the hash table.
 /// User should make sure data source is const.
 /// maybe considering rewrite it with std::span / std::basic_string_view is meaningful.
 struct StringRef {
-    // TODO: opening member accessing really damages.
+    // FIXME: opening member accessing really damages.
     const char* data = nullptr;
     size_t size = 0;
 
@@ -208,10 +189,7 @@ struct StringRef {
             : StringRef(reinterpret_cast<const char*>(data_), size_) {}
 
     StringRef(const std::string& s) : data(s.data()), size(s.size()) {}
-    StringRef(const StringVal& src) : StringRef(src.ptr, src.len) {}
     explicit StringRef(const char* str) : data(str), size(strlen(str)) {}
-
-    static StringRef from_string_val(const StringVal& src) { return StringRef(src); }
 
     std::string to_string() const { return std::string(data, size); }
     std::string debug_string() const { return to_string(); }
@@ -221,15 +199,6 @@ struct StringRef {
     // this is just for show, e.g. print data to error log, to avoid print large string.
     std::string to_prefix(size_t length) const { return std::string(data, std::min(length, size)); }
 
-    // TODO: this function is dangerous!
-    StringVal to_string_val() const {
-        return StringVal(reinterpret_cast<uint8_t*>(const_cast<char*>(data)), size);
-    }
-
-    void to_string_val(StringVal* sv) const {
-        *sv = StringVal(reinterpret_cast<uint8_t*>(const_cast<char*>(data)), size);
-    }
-
     explicit operator std::string() const { return to_string(); }
     operator std::string_view() const { return std::string_view {data, size}; }
 
@@ -238,6 +207,12 @@ struct StringRef {
     }
 
     StringRef substring(int start_pos) const { return substring(start_pos, size - start_pos); }
+
+    const char* begin() const { return data; }
+    const char* end() const { return data + size; }
+    // there's no border check in functions below. That's same with STL.
+    char front() const { return *data; }
+    char back() const { return *(data + size - 1); }
 
     // Trims leading and trailing spaces.
     StringRef trim() const;
@@ -251,6 +226,8 @@ struct StringRef {
     static StringRef min_string_val();
     static StringRef max_string_val();
 
+    bool start_with(char) const;
+    bool end_with(char) const;
     bool start_with(const StringRef& search_string) const;
     bool end_with(const StringRef& search_string) const;
 
@@ -288,7 +265,7 @@ struct StringRef {
         if (this->size != other.size) {
             return false;
         }
-#if defined(__SSE2__)
+#if defined(__SSE2__) || defined(__aarch64__)
         return memequalSSE2Wide(this->data, other.data, this->size);
 #endif
         return string_compare(this->data, this->size, other.data, other.size, this->size) == 0;

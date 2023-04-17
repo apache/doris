@@ -27,6 +27,7 @@ import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.RoleManager;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TUserIdentity;
@@ -40,7 +41,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.Set;
 
 // https://dev.mysql.com/doc/refman/8.0/en/account-names.html
 // user name must be literally matched.
@@ -57,10 +57,6 @@ public class UserIdentity implements Writable, GsonPostProcessable {
     private String host;
     @SerializedName(value = "isDomain")
     private boolean isDomain;
-    // The roles which this user belongs to.
-    // Used for authorization in Access Controller
-    // This field is only set when getting current user from auth and not need to persist
-    private Set<String> roles;
 
     private boolean isAnalyzed = false;
 
@@ -126,14 +122,6 @@ public class UserIdentity implements Writable, GsonPostProcessable {
 
     public void setIsAnalyzed() {
         this.isAnalyzed = true;
-    }
-
-    public void setRoles(Set<String> roles) {
-        this.roles = roles;
-    }
-
-    public Set<String> getRoles() {
-        return roles;
     }
 
     public void analyze(String clusterName) throws AnalysisException {
@@ -208,6 +196,20 @@ public class UserIdentity implements Writable, GsonPostProcessable {
         tUserIdent.setUsername(user);
         tUserIdent.setIsDomain(isDomain);
         return tUserIdent;
+    }
+
+    // return default_role_rbac_username@host or default_role_rbac_username@[domain]
+    public String toDefaultRoleName() {
+        StringBuilder sb = new StringBuilder(
+                RoleManager.DEFAULT_ROLE_PREFIX + ClusterNamespace.getNameFromFullName(user) + "@");
+        if (isDomain) {
+            sb.append("[");
+        }
+        sb.append(host);
+        if (isDomain) {
+            sb.append("]");
+        }
+        return sb.toString();
     }
 
     public static UserIdentity read(DataInput in) throws IOException {

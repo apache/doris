@@ -23,9 +23,6 @@
 #include "vec/aggregate_functions/aggregate_function_combinator.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/helpers.h"
-#include "vec/common/typeid_cast.h"
-#include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
 
@@ -49,30 +46,29 @@ public:
             return nullptr;
         }
 
-        AggregateFunctionPtr res;
         if (arguments.size() == 1) {
-            res.reset(create_with_numeric_type<AggregateFunctionDistinct,
-                                               AggregateFunctionDistinctSingleNumericData>(
-                    *arguments[0], nested_function, arguments));
-
+            AggregateFunctionPtr res(
+                    creator_with_numeric_type::create<AggregateFunctionDistinct,
+                                                      AggregateFunctionDistinctSingleNumericData>(
+                            arguments, result_is_nullable, nested_function));
             if (res) {
                 return res;
             }
 
             if (arguments[0]->is_value_unambiguously_represented_in_contiguous_memory_region()) {
-                return std::make_shared<AggregateFunctionDistinct<
-                        AggregateFunctionDistinctSingleGenericData<true>>>(nested_function,
-                                                                           arguments);
+                res = creator_without_type::create<AggregateFunctionDistinct<
+                        AggregateFunctionDistinctSingleGenericData<true>>>(
+                        arguments, result_is_nullable, nested_function);
             } else {
-                return std::make_shared<AggregateFunctionDistinct<
-                        AggregateFunctionDistinctSingleGenericData<false>>>(nested_function,
-                                                                            arguments);
+                res = creator_without_type::create<AggregateFunctionDistinct<
+                        AggregateFunctionDistinctSingleGenericData<false>>>(
+                        arguments, result_is_nullable, nested_function);
             }
+            return res;
         }
-
-        return std::make_shared<
+        return creator_without_type::create<
                 AggregateFunctionDistinct<AggregateFunctionDistinctMultipleGenericData>>(
-                nested_function, arguments);
+                arguments, result_is_nullable, nested_function);
     }
 };
 
@@ -93,5 +89,6 @@ void register_aggregate_function_combinator_distinct(AggregateFunctionSimpleFact
                                                                  result_is_nullable);
     };
     factory.register_distinct_function_combinator(creator, DISTINCT_FUNCTION_PREFIX);
+    factory.register_distinct_function_combinator(creator, DISTINCT_FUNCTION_PREFIX, true);
 }
 } // namespace doris::vectorized

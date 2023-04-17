@@ -71,7 +71,7 @@ SET GLOBAL exec_mem_limit = 137438953472
 - `sql_mode`
 - `enable_profile`
 - `query_timeout`
-- `insert_timeout`
+- `insert_timeout`<version since="dev"></version>
 - `exec_mem_limit`
 - `batch_size`
 - `allow_partition_column_nullable`
@@ -359,7 +359,7 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
   用于设置查询超时。该变量会作用于当前连接中所有的查询语句，对于 INSERT 语句推荐使用insert_timeout。默认为 5 分钟，单位为秒。
 
 - `insert_timeout`
-  用于设置针对 INSERT 语句的超时。该变量仅作用于 INSERT 语句，建议在 INSERT 行为易持续较长时间的场景下设置。默认为 4 小时，单位为秒。由于旧版本用户会通过延长 query_timeout 来防止 INSERT 语句超时，insert_timeout 在 query_timeout 大于自身的情况下将会失效, 以兼容旧版本用户的习惯。
+  <version since="dev"></version>用于设置针对 INSERT 语句的超时。该变量仅作用于 INSERT 语句，建议在 INSERT 行为易持续较长时间的场景下设置。默认为 4 小时，单位为秒。由于旧版本用户会通过延长 query_timeout 来防止 INSERT 语句超时，insert_timeout 在 query_timeout 大于自身的情况下将会失效, 以兼容旧版本用户的习惯。
 
 - `resource_group`
 
@@ -527,6 +527,10 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 
 	用于调试目的。在向量化执行引擎中，当发现读取表的数据结果有误的时候，把此变量的值设置为`true`，将会把被删除的数据当成正常数据读取。
 
+* `skip_delete_bitmap`
+
+    用于调试目的。在Unique Key MoW表中，当发现读取表的数据结果有误的时候，把此变量的值设置为`true`，将会把被delete bitmap标记删除的数据当成正常数据读取。
+
 * `default_password_lifetime`
 
  	默认的密码过期时间。默认值为 0，即表示不过期。单位为天。该参数只有当用户的密码过期属性为 DEFAULT 值时，才启用。如：
@@ -571,3 +575,57 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 * `drop_table_if_ctas_failed`
 
     控制create table as select在写入发生错误时是否删除已创建的表，默认为true。
+
+* `show_user_default_role`
+
+    <version since="dev"></version>
+
+    控制是否在 `show roles` 的结果里显示每个用户隐式对应的角色。默认为 false。
+
+* `use_fix_replica`
+
+    使用固定的replica进行查询，该值表示固定使用第几小的replica，默认为-1表示不启用。
+
+* `dry_run_query`
+
+    <version since="dev"></version>
+
+    如果设置为true，对于查询请求，将不再返回实际结果集，而仅返回行数。默认为 false。
+
+    该参数可以用于测试返回大量数据集时，规避结果集传输的耗时，重点关注底层查询执行的耗时。
+
+    ```
+    mysql> select * from bigtable;
+    +--------------+
+    | ReturnedRows |
+    +--------------+
+    | 10000000     |
+    +--------------+
+    ```
+***
+
+#### 关于语句执行超时控制的补充说明
+
+* 控制手段
+
+    目前doris支持通过`variable`和`user property`两种体系来进行超时控制。其中均包含`qeury_timeout`和`insert_timeout`。
+
+* 优先次序
+
+    超时生效的优先级次序是：`session variable` > `user property` > `global variable` > `default value`
+
+    较高优先级的变量未设置时，会自动采用下一个优先级的数值。
+
+* 相关语义
+
+    `query_timeout`用于控制所有语句的超时，`insert_timeout`特定用于控制 INSERT 语句的超时，在执行 INSERT 语句时，超时时间会取
+    
+    `query_timeout`和`insert_timeout`中的最大值。
+
+    `user property`中的`query_timeout`和`insert_timeout`只能由 ADMIN 用户对目标用户予以指定，其语义在于改变被指定用户的默认超时时间，
+    
+    并且不具备`quota`语义。
+
+* 注意事项
+
+    `user property`设置的超时时间需要客户端重连后触发。

@@ -17,24 +17,39 @@
 
 #pragma once
 
+#include <butil/macros.h>
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/HeartbeatService_types.h>
+#include <gen_cpp/Types_types.h>
+#include <stdint.h>
+
 #include <atomic>
+#include <condition_variable>
 #include <deque>
+#include <map>
 #include <memory>
+#include <mutex>
+#include <set>
+#include <string>
 #include <utility>
 #include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/AgentService_types.h"
-#include "gen_cpp/HeartbeatService_types.h"
 #include "olap/data_dir.h"
 #include "olap/tablet.h"
 #include "util/countdown_latch.h"
+#include "util/metrics.h"
 
 namespace doris {
 
 class ExecEnv;
 class ThreadPool;
 class AgentUtils;
+class DataDir;
+class TFinishTaskRequest;
+class TMasterInfo;
+class TReportRequest;
+class TTabletInfo;
 
 class TaskWorkerPool {
 public:
@@ -203,7 +218,7 @@ private:
 
     void _alter_tablet(const TAgentTaskRequest& alter_tablet_request, int64_t signature,
                        const TTaskType::type task_type, TFinishTaskRequest* finish_task_request);
-    void _handle_report(TReportRequest& request, ReportType type);
+    void _handle_report(const TReportRequest& request, ReportType type);
 
     Status _get_tablet_info(const TTabletId tablet_id, const TSchemaHash schema_hash,
                             int64_t signature, TTabletInfo* tablet_info);

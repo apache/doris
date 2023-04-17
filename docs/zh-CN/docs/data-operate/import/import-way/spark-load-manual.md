@@ -107,7 +107,7 @@ Spark load 任务的执行主要分为以下5个阶段。
 
 ## Hive Bitmap UDF
 
-Spark 支持将 hive 生成的 bitmap 数据直接导入到 Doris。详见 [hive-bitmap-udf 文档](../../../ecosystem/hive-bitmap-udf)
+Spark 支持将 hive 生成的 bitmap 数据直接导入到 Doris。详见 [hive-bitmap-udf 文档](../../../ecosystem/hive-bitmap-udf.md)
 
 ## 基本操作
 
@@ -559,7 +559,7 @@ WITH RESOURCE 'spark0'
 
 **hive binary（bitmap）类型列的导入**
 
-适用于 doris 表聚合列的数据类型为 bitmap 类型，且数据源 hive 表中对应列的数据类型为 binary（通过 FE 中 spark-dpp 中的 `org.apache.doris.load.loadv2.dpp.BitmapValue` 类序列化）类型。 无需构建全局字典，在 load 命令中指定相应字段即可，格式为：`doris 字段名称= binary_bitmap( hive 表字段名称)` 同样，目前只有在上游数据源为hive表时才支持 binary（ bitmap ）类型的数据导入hive bitmap使用可参考 [hive-bitmap-udf](../../../ecosystem/hive-bitmap-udf) 。
+适用于 doris 表聚合列的数据类型为 bitmap 类型，且数据源 hive 表中对应列的数据类型为 binary（通过 FE 中 spark-dpp 中的 `org.apache.doris.load.loadv2.dpp.BitmapValue` 类序列化）类型。 无需构建全局字典，在 load 命令中指定相应字段即可，格式为：`doris 字段名称= binary_bitmap( hive 表字段名称)` 同样，目前只有在上游数据源为hive表时才支持 binary（ bitmap ）类型的数据导入hive bitmap使用可参考 [hive-bitmap-udf](../../../ecosystem/hive-bitmap-udf.md) 。
 
 ### 查看导入
 
@@ -587,7 +587,7 @@ LoadFinishTime: 2019-07-27 11:50:16
     JobDetails: {"ScannedRows":28133395,"TaskNumber":1,"FileNumber":1,"FileSize":200000}
 ```
 
-返回结果集中参数意义可以参考 [Broker Load](broker-load-manual.md)。不同点如下：
+返回结果集中参数意义可以参考 [Broker Load](./broker-load-manual.md)。不同点如下：
 
 - State
 
@@ -671,7 +671,7 @@ LoadFinishTime: 2019-07-27 11:50:16
 
 ### 应用场景
 
-使用 Spark Load 最适合的场景就是原始数据在文件系统（HDFS）中，数据量在 几十 GB 到 TB 级别。小数据量还是建议使用  [Stream Load](stream-load-manual.md) 或者 [Broker Load](broker-load-manual.md)。
+使用 Spark Load 最适合的场景就是原始数据在文件系统（HDFS）中，数据量在 几十 GB 到 TB 级别。小数据量还是建议使用  [Stream Load](./stream-load-manual.md) 或者 [Broker Load](./broker-load-manual.md)。
 
 ## 常见问题
 

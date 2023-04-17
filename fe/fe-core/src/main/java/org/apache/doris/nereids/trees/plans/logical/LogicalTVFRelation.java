@@ -20,8 +20,8 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
+import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.TVFRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -36,14 +36,14 @@ public class LogicalTVFRelation extends LogicalRelation implements TVFRelation {
 
     private final TableValuedFunction function;
 
-    public LogicalTVFRelation(RelationId id, TableValuedFunction function) {
+    public LogicalTVFRelation(ObjectId id, TableValuedFunction function) {
         super(id, PlanType.LOGICAL_TVF_RELATION,
                 Objects.requireNonNull(function, "table valued function can not be null").getTable(),
                 ImmutableList.of());
         this.function = function;
     }
 
-    public LogicalTVFRelation(RelationId id, TableValuedFunction function, Optional<GroupExpression> groupExpression,
+    public LogicalTVFRelation(ObjectId id, TableValuedFunction function, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties) {
         super(id, PlanType.LOGICAL_TVF_RELATION,
                 Objects.requireNonNull(function, "table valued function can not be null").getTable(),

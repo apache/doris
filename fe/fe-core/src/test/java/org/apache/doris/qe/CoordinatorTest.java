@@ -73,7 +73,7 @@ public class CoordinatorTest extends Coordinator {
     @Mocked
     static FrontendOptions frontendOptions;
 
-    static ConnectContext context = new ConnectContext(null);
+    static ConnectContext context = new ConnectContext();
     static Analyzer analyzer = new Analyzer(env, context);
     static OriginalPlanner originalPlanner = new OriginalPlanner(analyzer);
 

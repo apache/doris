@@ -44,8 +44,7 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        ColumnPtr argument_column =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        ColumnPtr& argument_column = block.get_by_position(arguments[0]).column;
 
         auto res_column = ColumnUInt8::create();
 
@@ -110,7 +109,7 @@ public:
     }
 };
 
-const std::string FunctionVersion::version = "5.1.0";
+const std::string FunctionVersion::version = "5.7.99";
 
 void register_function_utility(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSleep>();

@@ -110,12 +110,31 @@ struct PredicateTypeTraits {
         return (type == PredicateType::IN_LIST || type == PredicateType::NOT_IN_LIST);
     }
 
+    static constexpr bool is_equal_or_list(PredicateType type) {
+        return (type == PredicateType::EQ || type == PredicateType::IN_LIST);
+    }
+
     static constexpr bool is_comparison(PredicateType type) {
         return (type == PredicateType::EQ || type == PredicateType::NE ||
                 type == PredicateType::LT || type == PredicateType::LE ||
                 type == PredicateType::GT || type == PredicateType::GE);
     }
 };
+
+#define EVALUATE_BY_SELECTOR(EVALUATE_IMPL_WITH_NULL_MAP, EVALUATE_IMPL_WITHOUT_NULL_MAP) \
+    const bool is_dense_column = pred_col.size() == size;                                 \
+    for (uint16_t i = 0; i < size; i++) {                                                 \
+        uint16_t idx = is_dense_column ? i : sel[i];                                      \
+        if constexpr (is_nullable) {                                                      \
+            if (EVALUATE_IMPL_WITH_NULL_MAP(idx)) {                                       \
+                sel[new_size++] = idx;                                                    \
+            }                                                                             \
+        } else {                                                                          \
+            if (EVALUATE_IMPL_WITHOUT_NULL_MAP(idx)) {                                    \
+                sel[new_size++] = idx;                                                    \
+            }                                                                             \
+        }                                                                                 \
+    }
 
 class ColumnPredicate {
 public:
@@ -183,10 +202,17 @@ public:
     }
     uint32_t column_id() const { return _column_id; }
 
+    bool opposite() const { return _opposite; }
+
     virtual std::string debug_string() const {
         return _debug_string() + ", column_id=" + std::to_string(_column_id) +
                ", opposite=" + (_opposite ? "true" : "false");
     }
+
+    /// Some predicates need to be cloned for each segment.
+    virtual bool need_to_clone() const { return false; }
+
+    virtual void clone(ColumnPredicate** to) const { LOG(FATAL) << "clone not supported"; }
 
     std::shared_ptr<PredicateParams> predicate_params() { return _predicate_params; }
 

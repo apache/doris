@@ -18,12 +18,12 @@
 package org.apache.doris.nereids.rules.rewrite.logical;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.annotation.DependsRules;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinHint.JoinHintType;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -45,6 +45,7 @@ import com.google.common.collect.Maps;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -68,19 +69,29 @@ import java.util.stream.Collectors;
  * <li> MultiJoin to {Join cluster}</li>
  * </ul>
  */
+@DependsRules({
+    MergeFilters.class
+})
 public class ReorderJoin extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalFilter(subTree(LogicalJoin.class, LogicalFilter.class)).thenApply(ctx -> {
-            LogicalFilter<Plan> filter = ctx.root;
+        return logicalFilter(subTree(LogicalJoin.class, LogicalFilter.class))
+            .whenNot(filter -> filter.child() instanceof LogicalJoin
+                    && ((LogicalJoin<?, ?>) filter.child()).isMarkJoin())
+            .thenApply(ctx -> {
+                if (ctx.statementContext.getConnectContext().getSessionVariable().isDisableJoinReorder()) {
+                    return null;
+                }
+                LogicalFilter<Plan> filter = ctx.root;
 
-            Map<Plan, JoinHintType> planToHintType = Maps.newHashMap();
-            Plan plan = joinToMultiJoin(filter, planToHintType);
-            Preconditions.checkState(plan instanceof MultiJoin);
-            MultiJoin multiJoin = (MultiJoin) plan;
-            Plan after = multiJoinToJoin(multiJoin, planToHintType);
-            return after;
-        }).toRule(RuleType.REORDER_JOIN);
+                Map<Plan, JoinHintType> planToHintType = Maps.newHashMap();
+                Plan plan = joinToMultiJoin(filter, planToHintType);
+                Preconditions.checkState(plan instanceof MultiJoin);
+                MultiJoin multiJoin = (MultiJoin) plan;
+                ctx.statementContext.setMaxNArayInnerJoin(multiJoin.children().size());
+                Plan after = multiJoinToJoin(multiJoin, planToHintType);
+                return after;
+            }).toRule(RuleType.REORDER_JOIN);
     }
 
     /**
@@ -90,8 +101,8 @@ public class ReorderJoin extends OneRewriteRuleFactory {
      */
     public Plan joinToMultiJoin(Plan plan, Map<Plan, JoinHintType> planToHintType) {
         // subtree can't specify the end of Pattern. so end can be GroupPlan or Filter
-        if (plan instanceof GroupPlan
-                || (plan instanceof LogicalFilter && plan.child(0) instanceof GroupPlan)) {
+        if (nonJoinAndNonFilter(plan)
+                || (plan instanceof LogicalFilter && nonJoinAndNonFilter(plan.child(0)))) {
             return plan;
         }
 
@@ -272,6 +283,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
                     multiJoinHandleChildren.getJoinType(),
                     ExpressionUtils.EMPTY_CONDITION, multiJoinHandleChildren.getNotInnerJoinConditions(),
                     JoinHint.fromRightPlanHintType(planToHintType.getOrDefault(right, JoinHintType.NONE)),
+                    Optional.empty(),
                     left, right));
         }
 
@@ -344,6 +356,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
                 return new LogicalJoin<>(JoinType.INNER_JOIN,
                         hashJoinConditions, otherJoinConditions,
                         JoinHint.fromRightPlanHintType(planToHintType.getOrDefault(candidate, JoinHintType.NONE)),
+                        Optional.empty(),
                         left, candidate);
             }
         }
@@ -359,9 +372,14 @@ public class ReorderJoin extends OneRewriteRuleFactory {
                     ExpressionUtils.EMPTY_CONDITION,
                     otherJoinConditions,
                     JoinHint.fromRightPlanHintType(planToHintType.getOrDefault(right, JoinHintType.NONE)),
+                    Optional.empty(),
                     left, right);
         }
 
         throw new RuntimeException("findInnerJoin: can't reach here");
+    }
+
+    private boolean nonJoinAndNonFilter(Plan plan) {
+        return !(plan instanceof LogicalJoin) && !(plan instanceof LogicalFilter);
     }
 }

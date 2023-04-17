@@ -108,6 +108,8 @@ public:
     void cancel_query(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason,
                       const std::string& msg = "");
 
+    bool query_is_canceled(const TUniqueId& query_id);
+
     void cancel_worker();
 
     void debug(std::stringstream& ss) override;
@@ -125,11 +127,6 @@ public:
     Status merge_filter(const PMergeFilterRequest* request,
                         butil::IOBufAsZeroCopyInputStream* attach_data);
 
-    void set_pipe(const TUniqueId& fragment_instance_id, std::shared_ptr<io::StreamLoadPipe> pipe,
-                  bool enable_pipeline_engine);
-
-    std::shared_ptr<io::StreamLoadPipe> get_pipe(const TUniqueId& fragment_instance_id);
-
     std::string to_http_path(const std::string& file_name);
 
     void coordinator_callback(const ReportStatusRequest& req);
@@ -137,13 +134,8 @@ public:
 private:
     void _exec_actual(std::shared_ptr<FragmentExecState> exec_state, const FinishCallback& cb);
 
-    void _set_scan_concurrency(const TExecPlanFragmentParams& params,
-                               QueryFragmentsCtx* fragments_ctx);
-
-    void _set_scan_concurrency(const TPipelineFragmentParams& params,
-                               QueryFragmentsCtx* fragments_ctx);
-
-    bool _is_scan_node(const TPlanNodeType::type& type);
+    template <typename Param>
+    void _set_scan_concurrency(const Param& params, QueryFragmentsCtx* fragments_ctx);
 
     void _setup_shared_hashtable_for_broadcast_join(const TExecPlanFragmentParams& params,
                                                     RuntimeState* state,
@@ -153,6 +145,10 @@ private:
                                                     const TPipelineInstanceParams& local_params,
                                                     RuntimeState* state,
                                                     QueryFragmentsCtx* fragments_ctx);
+
+    template <typename Params>
+    Status _get_query_ctx(const Params& params, TUniqueId query_id, bool pipeline,
+                          std::shared_ptr<QueryFragmentsCtx>& fragments_ctx);
 
     // This is input params
     ExecEnv* _exec_env;

@@ -24,7 +24,7 @@ import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -104,7 +104,6 @@ public class LogController {
             content.put("LogConfiguration", map);
         } catch (IOException e) {
             LOG.error(e);
-            e.printStackTrace();
         }
     }
 

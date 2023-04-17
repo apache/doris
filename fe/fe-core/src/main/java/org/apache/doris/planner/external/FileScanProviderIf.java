@@ -23,14 +23,12 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.planner.external.ExternalFileScanNode.ParamCreateContext;
+import org.apache.doris.planner.FileLoadScanNode;
 import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TScanRangeLocations;
 
-import org.apache.hadoop.mapred.InputSplit;
-
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
@@ -41,18 +39,19 @@ public interface FileScanProviderIf {
     // Return S3/HDSF, etc.
     TFileType getLocationType() throws DdlException, MetaNotFoundException;
 
-    // Return file list
-    List<InputSplit> getSplits(List<Expr> exprs) throws IOException, UserException;
-
     // return properties for S3/HDFS, etc.
     Map<String, String> getLocationProperties() throws MetaNotFoundException, DdlException;
 
     List<String> getPathPartitionKeys() throws DdlException, MetaNotFoundException;
 
-    ParamCreateContext createContext(Analyzer analyzer) throws UserException;
+    FileLoadScanNode.ParamCreateContext createContext(Analyzer analyzer) throws UserException;
 
-    void createScanRangeLocations(ParamCreateContext context, BackendPolicy backendPolicy,
-            List<TScanRangeLocations> scanRangeLocations) throws UserException;
+    void createScanRangeLocations(FileLoadScanNode.ParamCreateContext context, FederationBackendPolicy backendPolicy,
+                                  List<TScanRangeLocations> scanRangeLocations) throws UserException;
+
+    void createScanRangeLocations(List<Expr> conjuncts, TFileScanRangeParams params,
+                                  FederationBackendPolicy backendPolicy,
+                                  List<TScanRangeLocations> scanRangeLocations) throws UserException;
 
     int getInputSplitNum();
 

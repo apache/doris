@@ -74,7 +74,6 @@ import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsTable;
-import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.HiveTable;
 import org.apache.doris.catalog.IcebergTable;
@@ -138,6 +137,7 @@ import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
+import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.external.elasticsearch.EsRepository;
 import org.apache.doris.external.hudi.HudiProperty;
 import org.apache.doris.external.hudi.HudiTable;
@@ -311,7 +311,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                         // to see which thread held this lock for long time.
                         Thread owner = lock.getOwner();
                         if (owner != null) {
-                            LOG.debug("catalog lock is held by: {}", Util.dumpThread(owner, 10));
+                            // There are many catalog timeout during regression test
+                            // And this timeout should not happen very often, so it could be info log
+                            LOG.info("catalog lock is held by: {}", Util.dumpThread(owner, 10));
                         }
                     }
 
@@ -972,7 +974,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
 
-        if (table instanceof MaterializedView && Config.enable_mtmv_scheduler_framework) {
+        if (table instanceof MaterializedView) {
             List<Long> dropIds = Env.getCurrentEnv().getMTMVJobManager().showJobs(db.getFullName(), table.getName())
                     .stream().map(MTMVJob::getId).collect(Collectors.toList());
             Env.getCurrentEnv().getMTMVJobManager().dropJobs(dropIds, isReplay);
@@ -1105,6 +1107,11 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         // check if db exists
         Database db = (Database) getDbOrDdlException(dbName);
+        // InfoSchemaDb can not create table
+        if (db instanceof InfoSchemaDb) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName,
+                    ErrorCode.ERR_CANT_CREATE_TABLE.getCode(), "not supported create table in this database");
+        }
 
         // only internal table should check quota and cluster capacity
         if (!stmt.isExternal()) {
@@ -1402,6 +1409,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                 properties.put(PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA,
                         olapTable.isDynamicSchema().toString());
             }
+            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)) {
+                properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, olapTable.getStoragePolicy());
+            }
 
             singlePartitionDesc.analyze(partitionInfo.getPartitionColumns().size(), properties);
             partitionInfo.createAndCheckPartitionItem(singlePartitionDesc, isTempPartition);
@@ -1438,7 +1448,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
             // check colocation
             if (Env.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
-                String fullGroupName = db.getId() + "_" + olapTable.getColocateGroup();
+                String fullGroupName = GroupId.getFullGroupName(db.getId(), olapTable.getColocateGroup());
                 ColocateGroupSchema groupSchema = Env.getCurrentColocateIndex().getGroupSchema(fullGroupName);
                 Preconditions.checkNotNull(groupSchema);
                 groupSchema.checkDistribution(distributionInfo);
@@ -1472,6 +1482,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         Set<Long> tabletIdSet = new HashSet<>();
         long bufferSize = 1 + totalReplicaNum + indexNum * bucketNum;
         IdGeneratorBuffer idGeneratorBuffer = Env.getCurrentEnv().getIdGeneratorBuffer(bufferSize);
+        String storagePolicy = olapTable.getStoragePolicy();
+        if (!Strings.isNullOrEmpty(dataProperty.getStoragePolicy())) {
+            storagePolicy = dataProperty.getStoragePolicy();
+        }
         try {
             long partitionId = idGeneratorBuffer.getNextId();
             Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(), olapTable.getId(),
@@ -1480,7 +1494,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     singlePartitionDesc.getVersionInfo(), bfColumns, olapTable.getBfFpp(), tabletIdSet,
                     olapTable.getCopiedIndexes(), singlePartitionDesc.isInMemory(), olapTable.getStorageFormat(),
                     singlePartitionDesc.getTabletType(), olapTable.getCompressionType(), olapTable.getDataSortInfo(),
-                    olapTable.getEnableUniqueKeyMergeOnWrite(), olapTable.getStoragePolicy(), idGeneratorBuffer,
+                    olapTable.getEnableUniqueKeyMergeOnWrite(), storagePolicy, idGeneratorBuffer,
                     olapTable.disableAutoCompaction(), olapTable.storeRowColumn(), olapTable.isDynamicSchema());
 
             // check again
@@ -2013,6 +2027,12 @@ public class InternalCatalog implements CatalogIf<Database> {
         // set storage policy
         String storagePolicy = PropertyAnalyzer.analyzeStoragePolicy(properties);
         Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(storagePolicy);
+        if (olapTable.getEnableUniqueKeyMergeOnWrite()
+                && !Strings.isNullOrEmpty(storagePolicy)) {
+            throw new AnalysisException(
+                    "Can not create UNIQUE KEY table that enables Merge-On-write"
+                    + " with storage policy(" + storagePolicy + ")");
+        }
         olapTable.setStoragePolicy(storagePolicy);
 
         TTabletType tabletType;
@@ -2051,7 +2071,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 if (defaultDistributionInfo.getType() == DistributionInfoType.RANDOM) {
                     throw new AnalysisException("Random distribution for colocate table is unsupported");
                 }
-                String fullGroupName = db.getId() + "_" + colocateGroup;
+                String fullGroupName = GroupId.getFullGroupName(db.getId(), colocateGroup);
                 ColocateGroupSchema groupSchema = Env.getCurrentColocateIndex().getGroupSchema(fullGroupName);
                 if (groupSchema != null) {
                     // group already exist, check if this table can be added to this group
@@ -2060,7 +2080,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
                 // add table to this group, if group does not exist, create a new one
                 Env.getCurrentColocateIndex()
-                        .addTableToGroup(db.getId(), olapTable, colocateGroup, null /* generate group id inside */);
+                        .addTableToGroup(db.getId(), olapTable, fullGroupName, null /* generate group id inside */);
                 olapTable.setColocateGroup(colocateGroup);
             }
         } catch (AnalysisException e) {
@@ -2160,6 +2180,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         // create partition
         try {
             if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
+                if (storagePolicy.equals("") && properties != null && !properties.isEmpty()) {
+                    // here, all properties should be checked
+                    throw new DdlException("Unknown properties: " + properties);
+                }
                 // this is a 1-level partitioned table
                 // use table name as partition name
                 DistributionInfo partitionDistributionInfo = distributionDesc.toDistributionInfo(baseSchema);
@@ -2231,6 +2255,12 @@ public class InternalCatalog implements CatalogIf<Database> {
                     DistributionInfo partitionDistributionInfo = distributionDesc.toDistributionInfo(baseSchema);
                     // use partition storage policy if it exist.
                     String partionStoragePolicy = partitionInfo.getStoragePolicy(entry.getValue());
+                    if (olapTable.getEnableUniqueKeyMergeOnWrite()
+                            && !Strings.isNullOrEmpty(partionStoragePolicy)) {
+                        throw new AnalysisException(
+                                "Can not create UNIQUE KEY table that enables Merge-On-write"
+                                + " with storage policy(" + partionStoragePolicy + ")");
+                    }
                     if (!partionStoragePolicy.equals("")) {
                         storagePolicy = partionStoragePolicy;
                     }
@@ -2256,7 +2286,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
             if (result.second) {
                 if (Env.getCurrentColocateIndex().isColocateTable(tableId)) {
-                    // if this is a colocate join table, its table id is already added to colocate group
+                    // if this is a colocate table, its table id is already added to colocate group
                     // so we should remove the tableId here
                     Env.getCurrentColocateIndex().removeTable(tableId);
                 }
@@ -2293,8 +2323,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw e;
         }
 
-        if (olapTable instanceof MaterializedView && Config.enable_mtmv_scheduler_framework
-                && MTMVJobFactory.isGenerateJob((MaterializedView) olapTable)) {
+        if (olapTable instanceof MaterializedView && MTMVJobFactory.isGenerateJob((MaterializedView) olapTable)) {
             List<MTMVJob> jobs = MTMVJobFactory.buildJob((MaterializedView) olapTable, db.getFullName());
             for (MTMVJob job : jobs) {
                 Env.getCurrentEnv().getMTMVJobManager().createJob(job, false);
@@ -2394,8 +2423,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         hiveTable.setComment(stmt.getComment());
         // check hive table whether exists in hive database
         HiveConf hiveConf = new HiveConf();
-        hiveConf.set(HMSResource.HIVE_METASTORE_URIS,
-                hiveTable.getHiveProperties().get(HMSResource.HIVE_METASTORE_URIS));
+        hiveConf.set(HMSProperties.HIVE_METASTORE_URIS,
+                hiveTable.getHiveProperties().get(HMSProperties.HIVE_METASTORE_URIS));
         PooledHiveMetaStoreClient client = new PooledHiveMetaStoreClient(hiveConf, 1);
         if (!client.tableExists(hiveTable.getHiveDb(), hiveTable.getHiveTable())) {
             throw new DdlException(String.format("Table [%s] dose not exist in Hive.", hiveTable.getHiveDbTable()));
@@ -2417,7 +2446,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         HudiUtils.validateCreateTable(hudiTable);
         // check hudi table whether exists in hive database
         HiveConf hiveConf = new HiveConf();
-        hiveConf.set(HMSResource.HIVE_METASTORE_URIS,
+        hiveConf.set(HMSProperties.HIVE_METASTORE_URIS,
                 hudiTable.getTableProperties().get(HudiProperty.HUDI_HIVE_METASTORE_URIS));
         PooledHiveMetaStoreClient client = new PooledHiveMetaStoreClient(hiveConf, 1);
         if (!client.tableExists(hudiTable.getHmsDatabaseName(), hudiTable.getHmsTableName())) {
@@ -2646,7 +2675,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                         copiedTbl.isInMemory(), copiedTbl.getStorageFormat(),
                         copiedTbl.getPartitionInfo().getTabletType(oldPartitionId), copiedTbl.getCompressionType(),
                         copiedTbl.getDataSortInfo(), copiedTbl.getEnableUniqueKeyMergeOnWrite(),
-                        olapTable.getStoragePolicy(), idGeneratorBuffer, olapTable.disableAutoCompaction(),
+                        olapTable.getPartitionInfo().getDataProperty(oldPartitionId).getStoragePolicy(),
+                        idGeneratorBuffer, olapTable.disableAutoCompaction(),
                         olapTable.storeRowColumn(), olapTable.isDynamicSchema());
                 newPartitions.add(newPartition);
             }
@@ -3485,5 +3515,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         getEsRepository().loadTableFromCatalog();
         LOG.info("finished replay databases from image");
         return newChecksum;
+    }
+
+    public ConcurrentHashMap<Long, Database> getIdToDb() {
+        return new ConcurrentHashMap<>(idToDb);
     }
 }

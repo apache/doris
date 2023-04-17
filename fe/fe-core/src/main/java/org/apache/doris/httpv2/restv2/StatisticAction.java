@@ -18,6 +18,7 @@
 package org.apache.doris.httpv2.restv2;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.RestBaseController;
@@ -45,9 +46,18 @@ public class StatisticAction extends RestBaseController {
 
     @RequestMapping(path = "/api/cluster_overview", method = RequestMethod.GET)
     public Object clusterOverview(HttpServletRequest request, HttpServletResponse response) {
-        if (!Env.getCurrentEnv().isMaster()) {
-            return redirectToMaster(request, response);
+        if (Config.enable_all_http_auth) {
+            executeCheckPassword(request, response);
         }
+
+        try {
+            if (!Env.getCurrentEnv().isMaster()) {
+                return redirectToMasterOrException(request, response);
+            }
+        } catch (Exception e) {
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+        }
+
         Map<String, Object> resultMap = Maps.newHashMap();
         Env env = Env.getCurrentEnv();
         SystemInfoService infoService = Env.getCurrentSystemInfo();

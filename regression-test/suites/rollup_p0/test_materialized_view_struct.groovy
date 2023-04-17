@@ -16,7 +16,7 @@
 // under the License.
 suite("test_materialized_view_struct", "rollup") {
     def tableName = "tbl_test_materialized_view_struct"
-
+    sql "ADMIN SET FRONTEND CONFIG ('enable_struct_type' = 'true');"
     def create_test_table = {testTable ->
 
         def result1 = sql """

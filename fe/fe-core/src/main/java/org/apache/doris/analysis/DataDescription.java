@@ -973,7 +973,7 @@ public class DataDescription {
 
     // Change all the columns name to lower case, because Doris column is case-insensitive.
     private void columnsNameToLowerCase(List<String> columns) {
-        if (columns == null || columns.isEmpty()) {
+        if (columns == null || columns.isEmpty() || "json".equals(this.fileFormat)) {
             return;
         }
         for (int i = 0; i < columns.size(); i++) {
@@ -1081,7 +1081,11 @@ public class DataDescription {
             if (!mappingColNames.contains(column.getName())) {
                 parsedColumnExprList.add(new ImportColumnDesc(column.getName(), null));
             }
-            fileFieldNames.add(column.getName().toLowerCase());
+            if ("json".equals(this.fileFormat)) {
+                fileFieldNames.add(column.getName());
+            } else {
+                fileFieldNames.add(column.getName().toLowerCase());
+            }
         }
 
         LOG.debug("after fill column info. columns: {}, parsed column exprs: {}", fileFieldNames, parsedColumnExprList);

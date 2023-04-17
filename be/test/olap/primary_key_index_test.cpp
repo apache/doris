@@ -20,31 +20,20 @@
 #include <gtest/gtest.h>
 
 #include "io/fs/file_writer.h"
+#include "io/fs/fs_utils.h"
 #include "io/fs/local_file_system.h"
-#include "olap/row_cursor.h"
-#include "olap/tablet_schema_helper.h"
-#include "util/debug_util.h"
-#include "util/file_utils.h"
-#include "util/key_util.h"
+#include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
 using namespace ErrorCode;
 
 class PrimaryKeyIndexTest : public testing::Test {
 public:
-    PrimaryKeyIndexTest() {}
-    virtual ~PrimaryKeyIndexTest() {}
-
     void SetUp() override {
-        if (FileUtils::check_exist(kTestDir)) {
-            EXPECT_TRUE(FileUtils::remove_all(kTestDir).ok());
-        }
-        EXPECT_TRUE(FileUtils::create_dir(kTestDir).ok());
+        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(kTestDir).ok());
     }
     void TearDown() override {
-        if (FileUtils::check_exist(kTestDir)) {
-            EXPECT_TRUE(FileUtils::remove_all(kTestDir).ok());
-        }
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
     }
 
 private:
@@ -73,10 +62,10 @@ TEST_F(PrimaryKeyIndexTest, builder) {
     EXPECT_TRUE(file_writer->close().ok());
     EXPECT_EQ(num_rows, builder.num_rows());
 
-    FilePathDesc path_desc(filename);
+    io::FilePathDesc path_desc(filename);
     PrimaryKeyIndexReader index_reader;
     io::FileReaderSPtr file_reader;
-    EXPECT_TRUE(fs->open_file(filename, &file_reader, nullptr).ok());
+    EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
     EXPECT_TRUE(index_reader.parse_index(file_reader, index_meta).ok());
     EXPECT_TRUE(index_reader.parse_bf(file_reader, index_meta).ok());
     EXPECT_EQ(num_rows, index_reader.num_rows());
@@ -137,32 +126,29 @@ TEST_F(PrimaryKeyIndexTest, builder) {
         std::string last_key;
         int num_batch = 0;
         int batch_size = 1024;
-        MemPool pool;
         while (remaining > 0) {
             std::unique_ptr<segment_v2::IndexedColumnIterator> iter;
-            DCHECK(index_reader.new_iterator(&iter).ok());
+            EXPECT_TRUE(index_reader.new_iterator(&iter).ok());
 
             size_t num_to_read = std::min(batch_size, remaining);
-            std::unique_ptr<ColumnVectorBatch> cvb;
-            DCHECK(ColumnVectorBatch::create(num_to_read, false, index_reader.type_info(), nullptr,
-                                             &cvb)
-                           .ok());
-            ColumnBlock block(cvb.get(), &pool);
-            ColumnBlockView column_block_view(&block);
+            auto index_type = vectorized::DataTypeFactory::instance().create_data_type(
+                    index_reader.type_info()->type(), 1, 0);
+            auto index_column = index_type->create_column();
             Slice last_key_slice(last_key);
-            DCHECK(iter->seek_at_or_after(&last_key_slice, &exact_match).ok());
+            EXPECT_TRUE(iter->seek_at_or_after(&last_key_slice, &exact_match).ok());
 
             size_t num_read = num_to_read;
-            DCHECK(iter->next_batch(&num_read, &column_block_view).ok());
-            DCHECK(num_to_read == num_read);
-            last_key = (reinterpret_cast<const Slice*>(cvb->cell_ptr(num_read - 1)))->to_string();
+            EXPECT_TRUE(iter->next_batch(&num_read, index_column).ok());
+            EXPECT_EQ(num_to_read, num_read);
+            last_key = index_column->get_data_at(num_read - 1).to_string();
             // exclude last_key, last_key will be read in next batch.
             if (num_read == batch_size && num_read != remaining) {
                 num_read -= 1;
             }
             for (size_t i = 0; i < num_read; i++) {
-                const Slice* key = reinterpret_cast<const Slice*>(cvb->cell_ptr(i));
-                DCHECK_EQ(keys[i + (batch_size - 1) * num_batch], key->to_string());
+                Slice key =
+                        Slice(index_column->get_data_at(i).data, index_column->get_data_at(i).size);
+                DCHECK_EQ(keys[i + (batch_size - 1) * num_batch], key.to_string());
             }
             num_batch++;
             remaining -= num_read;

@@ -75,7 +75,7 @@ public class Pattern<TYPE extends Plan>
      * @param predicates custom matching predicate
      * @param children sub pattern
      */
-    private Pattern(PatternType patternType, PlanType planType,
+    protected Pattern(PatternType patternType, PlanType planType,
                    List<Predicate<TYPE>> predicates, Pattern... children) {
         super(children);
         this.patternType = patternType;
@@ -134,6 +134,35 @@ public class Pattern<TYPE extends Plan>
         return patternType == PatternType.MULTI;
     }
 
+    /** matchPlan */
+    public boolean matchPlanTree(Plan plan) {
+        if (!matchRoot(plan)) {
+            return false;
+        }
+        int childPatternNum = arity();
+        if (childPatternNum != plan.arity() && childPatternNum > 0 && child(childPatternNum - 1) != MULTI) {
+            return false;
+        }
+        switch (patternType) {
+            case ANY:
+            case MULTI:
+                return matchPredicates((TYPE) plan);
+            default:
+        }
+        if (this instanceof SubTreePattern) {
+            return matchPredicates((TYPE) plan);
+        }
+        List<Plan> childrenPlan = plan.children();
+        for (int i = 0; i < childrenPlan.size(); i++) {
+            Plan child = childrenPlan.get(i);
+            Pattern childPattern = child(Math.min(i, childPatternNum - 1));
+            if (!childPattern.matchPlanTree(child)) {
+                return false;
+            }
+        }
+        return matchPredicates((TYPE) plan);
+    }
+
     /**
      * Return ture if current Pattern match Plan in params.
      *
@@ -161,7 +190,13 @@ public class Pattern<TYPE extends Plan>
      * @return true if all predicates matched
      */
     public boolean matchPredicates(TYPE root) {
-        return predicates.stream().allMatch(predicate -> predicate.test(root));
+        // use loop to speed up
+        for (Predicate<TYPE> predicate : predicates) {
+            if (!predicate.test(root)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     @Override

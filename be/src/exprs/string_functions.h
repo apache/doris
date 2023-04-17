@@ -24,7 +24,9 @@
 
 #include <iomanip>
 #include <locale>
+#include <memory>
 #include <sstream>
+#include <string>
 #include <string_view>
 
 #include "gutil/strings/numbers.h"
@@ -34,11 +36,11 @@ namespace doris {
 
 class StringFunctions {
 public:
-    static bool set_re2_options(const doris_udf::StringVal& match_parameter, std::string* error_str,
+    static bool set_re2_options(const doris::StringRef& match_parameter, std::string* error_str,
                                 re2::RE2::Options* opts);
 
     // The caller owns the returned regex. Returns nullptr if the pattern could not be compiled.
-    static re2::RE2* compile_regex(const StringVal& pattern, std::string* error_str,
-                                   const StringVal& match_parameter);
+    static bool compile_regex(const StringRef& pattern, std::string* error_str,
+                              const StringRef& match_parameter, std::unique_ptr<re2::RE2>& re);
 };
 } // namespace doris

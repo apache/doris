@@ -39,7 +39,9 @@
 #include "util/spinlock.h"
 #include "util/thread.h"
 #include "vec/columns/column.h"
+#include "vec/columns/columns_number.h"
 #include "vec/core/block.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 
@@ -157,6 +159,9 @@ private:
 class IndexChannel;
 class VOlapTableSink;
 
+// pair<row_id,tablet_id>
+using Payload = std::pair<std::unique_ptr<vectorized::IColumn::Selector>, std::vector<int64_t>>;
+
 class VNodeChannel {
 public:
     VNodeChannel(VOlapTableSink* parent, IndexChannel* index_channel, int64_t node_id);
@@ -176,9 +181,7 @@ public:
 
     Status open_wait();
 
-    Status add_block(vectorized::Block* block,
-                     const std::pair<std::unique_ptr<vectorized::IColumn::Selector>,
-                                     std::vector<int64_t>>& payload);
+    Status add_block(vectorized::Block* block, const Payload* payload, bool is_append = false);
 
     int try_send_and_fetch_status(RuntimeState* state,
                                   std::unique_ptr<ThreadPoolToken>& thread_pool_token);
@@ -313,11 +316,12 @@ protected:
 
 class IndexChannel {
 public:
-    IndexChannel(VOlapTableSink* parent, int64_t index_id) : _parent(parent), _index_id(index_id) {
+    IndexChannel(VOlapTableSink* parent, int64_t index_id, vectorized::VExprContext* where_clause)
+            : _parent(parent), _index_id(index_id), _where_clause(where_clause) {
         _index_channel_tracker =
                 std::make_unique<MemTracker>("IndexChannel:indexID=" + std::to_string(_index_id));
     }
-    ~IndexChannel() = default;
+    ~IndexChannel();
 
     Status init(RuntimeState* state, const std::vector<TTabletWithPartition>& tablets);
 
@@ -351,12 +355,15 @@ public:
     // check whether the rows num written by different replicas is consistent
     Status check_tablet_received_rows_consistency();
 
+    vectorized::VExprContext* get_where_clause() { return _where_clause; }
+
 private:
     friend class VNodeChannel;
     friend class VOlapTableSink;
 
     VOlapTableSink* _parent;
     int64_t _index_id;
+    vectorized::VExprContext* _where_clause;
 
     // from backend channel to tablet_id
     // ATTN: must be placed before `_node_channels` and `_channels_by_tablet`.
@@ -421,12 +428,26 @@ private:
     friend class VNodeChannel;
     friend class IndexChannel;
 
+    using ChannelDistributionPayload = std::vector<std::unordered_map<VNodeChannel*, Payload>>;
+
+    // payload for each row
+    void _generate_row_distribution_payload(ChannelDistributionPayload& payload,
+                                            const VOlapTablePartition* partition,
+                                            uint32_t tablet_index, int row_idx, size_t row_cnt);
+
     // make input data valid for OLAP table
     // return number of invalid/filtered rows.
     // invalid row number is set in Bitmap
     // set stop_processing if we want to stop the whole process now.
     Status _validate_data(RuntimeState* state, vectorized::Block* block, Bitmap* filter_bitmap,
                           int* filtered_rows, bool* stop_processing);
+
+    template <bool is_min>
+    DecimalV2Value _get_decimalv2_min_or_max(const TypeDescriptor& type);
+
+    template <typename DecimalType, bool IsMin>
+    DecimalType _get_decimalv3_min_or_max(const TypeDescriptor& type);
+
     Status _validate_column(RuntimeState* state, const TypeDescriptor& type, bool is_nullable,
                             vectorized::ColumnPtr column, size_t slot_index, Bitmap* filter_bitmap,
                             bool* stop_processing, fmt::memory_buffer& error_prefix,
@@ -454,8 +475,6 @@ private:
     // this is tuple descriptor of destination OLAP table
     TupleDescriptor* _output_tuple_desc = nullptr;
     RowDescriptor* _output_row_desc = nullptr;
-
-    bool _need_validate_data = false;
 
     // number of senders used to insert into OlapTable, if we only support single node insert,
     // all data from select should collectted and then send to OlapTable.
@@ -486,8 +505,15 @@ private:
     scoped_refptr<Thread> _sender_thread;
     std::unique_ptr<ThreadPoolToken> _send_batch_thread_pool_token;
 
-    std::vector<DecimalV2Value> _max_decimalv2_val;
-    std::vector<DecimalV2Value> _min_decimalv2_val;
+    std::map<std::pair<int, int>, DecimalV2Value> _max_decimalv2_val;
+    std::map<std::pair<int, int>, DecimalV2Value> _min_decimalv2_val;
+
+    std::map<int, int32_t> _max_decimal32_val;
+    std::map<int, int32_t> _min_decimal32_val;
+    std::map<int, int64_t> _max_decimal64_val;
+    std::map<int, int64_t> _min_decimal64_val;
+    std::map<int, int128_t> _max_decimal128_val;
+    std::map<int, int128_t> _min_decimal128_val;
 
     // Stats for this
     int64_t _validate_data_ns = 0;
@@ -537,6 +563,8 @@ private:
 
     VOlapTablePartitionParam* _vpartition = nullptr;
     std::vector<vectorized::VExprContext*> _output_vexpr_ctxs;
+
+    RuntimeState* _state = nullptr;
 };
 
 } // namespace stream_load

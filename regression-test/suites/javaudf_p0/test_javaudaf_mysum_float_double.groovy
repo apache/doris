@@ -68,7 +68,7 @@ suite("test_javaudaf_mysum_float_double") {
 
         qt_select2 """ select user_id, udaf_my_sum_double(double_col,double_col) from ${tableName} group by user_id order by user_id; """
         
-        sql """ DROP FUNCTION udaf_my_sum_double(double,double); """
+
 
         sql """ CREATE AGGREGATE FUNCTION udaf_my_sum_float(float) RETURNS float PROPERTIES (
             "file"="file://${jarPath}",
@@ -81,9 +81,10 @@ suite("test_javaudaf_mysum_float_double") {
 
         qt_select4 """ select user_id, udaf_my_sum_float(float_col) from ${tableName} group by user_id order by user_id; """
         
-        sql """ DROP FUNCTION udaf_my_sum_float(float); """
 
     } finally {
+        try_sql("DROP FUNCTION IF EXISTS udaf_my_sum_float(float);")
+        try_sql("DROP FUNCTION IF EXISTS udaf_my_sum_double(double,double);")
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
 }

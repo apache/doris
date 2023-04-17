@@ -51,8 +51,9 @@ suite("test_javaudf_md5") {
 
         qt_select """ SELECT md5(col_1) as a FROM ${tableName} ORDER BY a; """
 
-        sql """ DROP FUNCTION md5(string); """
+
     } finally {
+        try_sql("DROP FUNCTION IF EXISTS md5(string);   ")
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
 }

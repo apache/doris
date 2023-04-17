@@ -66,6 +66,7 @@ static bool ignore_cast(SlotDescriptor* slot, VExpr* expr) {
 Status VScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
     _state = state;
+    _is_pipeline_scan = state->enable_pipeline_exec();
 
     const TQueryOptions& query_options = state->query_options();
     if (query_options.__isset.max_scan_key_num) {
@@ -80,7 +81,6 @@ Status VScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     }
 
     RETURN_IF_ERROR(_register_runtime_filter());
-    RETURN_IF_ERROR(_init_profile());
 
     return Status::OK();
 }
@@ -92,6 +92,32 @@ Status VScanNode::prepare(RuntimeState* state) {
     for (auto& rf_ctx : _runtime_filter_ctxs) {
         rf_ctx.runtime_filter->init_profile(_runtime_profile.get());
     }
+
+    if (_is_pipeline_scan) {
+        if (_shared_scan_opt) {
+            _shared_scanner_controller =
+                    state->get_query_fragments_ctx()->get_shared_scanner_controller();
+            auto [should_create_scanner, queue_id] =
+                    _shared_scanner_controller->should_build_scanner_and_queue_id(id());
+            _should_create_scanner = should_create_scanner;
+            _context_queue_id = queue_id;
+        } else {
+            _should_create_scanner = true;
+            _context_queue_id = 0;
+        }
+    }
+
+    // 1: running at not pipeline mode will init profile.
+    // 2: the scan node should create scanner at pipeline mode will init profile.
+    // during pipeline mode with more instances, olap scan node maybe not new VScanner object,
+    // so the profile of VScanner and SegmentIterator infos are always empty, could not init those.
+    if (!_is_pipeline_scan || _should_create_scanner) {
+        RETURN_IF_ERROR(_init_profile());
+    }
+    // if you want to add some profile in scan node, even it have not new VScanner object
+    // could add here, not in the _init_profile() function
+    _get_next_timer = ADD_TIMER(_runtime_profile, "GetNextTime");
+    _acquire_runtime_filter_timer = ADD_TIMER(_runtime_profile, "AcuireRuntimeFilterTime");
     return Status::OK();
 }
 
@@ -113,18 +139,37 @@ Status VScanNode::alloc_resource(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::alloc_resource(state));
     RETURN_IF_ERROR(_acquire_runtime_filter());
     RETURN_IF_ERROR(_process_conjuncts());
-    if (_eos) {
-        return Status::OK();
+
+    if (_is_pipeline_scan) {
+        if (_should_create_scanner) {
+            auto status = !_eos ? _prepare_scanners() : Status::OK();
+            if (_scanner_ctx) {
+                DCHECK(!_eos && _num_scanners->value() > 0);
+                _scanner_ctx->set_max_queue_size(
+                        _shared_scan_opt ? std::max(state->query_parallel_instance_num(), 1) : 1);
+                RETURN_IF_ERROR(
+                        _state->exec_env()->scanner_scheduler()->submit(_scanner_ctx.get()));
+            }
+            if (_shared_scan_opt) {
+                _shared_scanner_controller->set_scanner_context(id(),
+                                                                _eos ? nullptr : _scanner_ctx);
+            }
+            RETURN_IF_ERROR(status);
+        } else if (_shared_scanner_controller->scanner_context_is_ready(id())) {
+            _scanner_ctx = _shared_scanner_controller->get_scanner_context(id());
+            if (!_scanner_ctx) {
+                _eos = true;
+            }
+        } else {
+            return Status::WaitForScannerContext("Need wait for scanner context create");
+        }
+    } else {
+        RETURN_IF_ERROR(!_eos ? _prepare_scanners() : Status::OK());
+        if (_scanner_ctx) {
+            RETURN_IF_ERROR(_state->exec_env()->scanner_scheduler()->submit(_scanner_ctx.get()));
+        }
     }
 
-    std::list<VScanner*> scanners;
-    RETURN_IF_ERROR(_init_scanners(&scanners));
-    if (scanners.empty()) {
-        _eos = true;
-    } else {
-        COUNTER_SET(_num_scanners, static_cast<int64_t>(scanners.size()));
-        RETURN_IF_ERROR(_start_scanners(scanners));
-    }
     RETURN_IF_CANCELLED(state);
     _opened = true;
     return Status::OK();
@@ -163,7 +208,7 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
     }
 
     vectorized::BlockUPtr scan_block = nullptr;
-    RETURN_IF_ERROR(_scanner_ctx->get_block_from_queue(&scan_block, eos));
+    RETURN_IF_ERROR(_scanner_ctx->get_block_from_queue(state, &scan_block, eos, _context_queue_id));
     if (*eos) {
         DCHECK(scan_block == nullptr);
         return Status::OK();
@@ -184,22 +229,26 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
 
 Status VScanNode::_init_profile() {
     // 1. counters for scan node
-    auto* memory_usage = _runtime_profile->create_child("MemoryUsage", true, true);
-    _runtime_profile->add_child(memory_usage, false, nullptr);
-    _queued_blocks_memory_usage =
-            memory_usage->AddHighWaterMarkCounter("QueuedBlocks", TUnit::BYTES);
-    _free_blocks_memory_usage = memory_usage->AddHighWaterMarkCounter("FreeBlocks", TUnit::BYTES);
-
     _rows_read_counter = ADD_COUNTER(_runtime_profile, "RowsRead", TUnit::UNIT);
     _total_throughput_counter =
             runtime_profile()->add_rate_counter("TotalReadThroughput", _rows_read_counter);
     _num_scanners = ADD_COUNTER(_runtime_profile, "NumScanners", TUnit::UNIT);
-    _get_next_timer = ADD_TIMER(_runtime_profile, "GetNextTime");
-    _acquire_runtime_filter_timer = ADD_TIMER(_runtime_profile, "AcuireRuntimeFilterTime");
 
     // 2. counters for scanners
     _scanner_profile.reset(new RuntimeProfile("VScanner"));
     runtime_profile()->add_child(_scanner_profile.get(), true, nullptr);
+
+    auto* memory_usage = _scanner_profile->create_child("MemoryUsage", true, true);
+    _runtime_profile->add_child(memory_usage, false, nullptr);
+    _queued_blocks_memory_usage =
+            memory_usage->AddHighWaterMarkCounter("QueuedBlocks", TUnit::BYTES);
+    _free_blocks_memory_usage = memory_usage->AddHighWaterMarkCounter("FreeBlocks", TUnit::BYTES);
+    _newly_create_free_blocks_num =
+            ADD_COUNTER(_scanner_profile, "NewlyCreateFreeBlocksNum", TUnit::UNIT);
+    // time of transfer thread to wait for block from scan thread
+    _scanner_wait_batch_timer = ADD_TIMER(_scanner_profile, "ScannerBatchWaitTime");
+    _scanner_sched_counter = ADD_COUNTER(_scanner_profile, "ScannerSchedCount", TUnit::UNIT);
+    _scanner_ctx_sched_counter = ADD_COUNTER(_scanner_profile, "ScannerCtxSchedCount", TUnit::UNIT);
 
     _scan_timer = ADD_TIMER(_scanner_profile, "ScannerGetBlockTime");
     _scan_cpu_timer = ADD_TIMER(_scanner_profile, "ScannerCpuTime");
@@ -207,34 +256,27 @@ Status VScanNode::_init_profile() {
     _convert_block_timer = ADD_TIMER(_scanner_profile, "ScannerConvertBlockTime");
     _filter_timer = ADD_TIMER(_scanner_profile, "ScannerFilterTime");
 
-    _scanner_sched_counter = ADD_COUNTER(_runtime_profile, "ScannerSchedCount", TUnit::UNIT);
-    _scanner_ctx_sched_counter = ADD_COUNTER(_runtime_profile, "ScannerCtxSchedCount", TUnit::UNIT);
-    // time of transfer thread to wait for block from scan thread
-    _scanner_wait_batch_timer = ADD_TIMER(_runtime_profile, "ScannerBatchWaitTime");
     // time of scan thread to wait for worker thread of the thread pool
     _scanner_wait_worker_timer = ADD_TIMER(_runtime_profile, "ScannerWorkerWaitTime");
 
     _pre_alloc_free_blocks_num =
             ADD_COUNTER(_runtime_profile, "PreAllocFreeBlocksNum", TUnit::UNIT);
-    _newly_create_free_blocks_num =
-            ADD_COUNTER(_runtime_profile, "NewlyCreateFreeBlocksNum", TUnit::UNIT);
     _max_scanner_thread_num = ADD_COUNTER(_runtime_profile, "MaxScannerThreadNum", TUnit::UNIT);
 
     return Status::OK();
 }
 
 Status VScanNode::_start_scanners(const std::list<VScanner*>& scanners) {
-    if (_state->enable_pipeline_exec()) {
-        _scanner_ctx.reset(new pipeline::PipScannerContext(_state, this, _input_tuple_desc,
-                                                           _output_tuple_desc, scanners, limit(),
-                                                           _state->query_options().mem_limit / 20));
+    if (_is_pipeline_scan) {
+        _scanner_ctx.reset(new pipeline::PipScannerContext(
+                _state, this, _input_tuple_desc, _output_tuple_desc, scanners, limit(),
+                _state->query_options().mem_limit / 20, _col_distribute_ids));
     } else {
         _scanner_ctx.reset(new ScannerContext(_state, this, _input_tuple_desc, _output_tuple_desc,
                                               scanners, limit(),
                                               _state->query_options().mem_limit / 20));
     }
     RETURN_IF_ERROR(_scanner_ctx->init());
-    RETURN_IF_ERROR(_state->exec_env()->scanner_scheduler()->submit(_scanner_ctx.get()));
     return Status::OK();
 }
 
@@ -355,7 +397,6 @@ Status VScanNode::_append_rf_into_conjuncts(std::vector<VExpr*>& vexprs) {
     RETURN_IF_ERROR(new_vconjunct_ctx_ptr->prepare(_state, _row_descriptor));
     RETURN_IF_ERROR(new_vconjunct_ctx_ptr->open(_state));
     if (_vconjunct_ctx_ptr) {
-        (*_vconjunct_ctx_ptr)->mark_as_stale();
         _stale_vexpr_ctxs.push_back(std::move(_vconjunct_ctx_ptr));
     }
     _vconjunct_ctx_ptr.reset(new doris::vectorized::VExprContext*);
@@ -375,10 +416,12 @@ Status VScanNode::close(RuntimeState* state) {
 void VScanNode::release_resource(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VScanNode::release_resource");
     if (_scanner_ctx.get()) {
-        // stop and wait the scanner scheduler to be done
-        // _scanner_ctx may not be created for some short circuit case.
-        _scanner_ctx->set_should_stop();
-        _scanner_ctx->clear_and_join();
+        if (!state->enable_pipeline_exec() || _should_create_scanner) {
+            // stop and wait the scanner scheduler to be done
+            // _scanner_ctx may not be created for some short circuit case.
+            _scanner_ctx->set_should_stop();
+            _scanner_ctx->clear_and_join(this, state);
+        }
     }
 
     for (auto& ctx : _runtime_filter_ctxs) {
@@ -388,6 +431,9 @@ void VScanNode::release_resource(RuntimeState* state) {
 
     for (auto& ctx : _stale_vexpr_ctxs) {
         (*ctx)->close(state);
+    }
+    if (_common_vexpr_ctxs_pushdown) {
+        (*_common_vexpr_ctxs_pushdown)->close(state);
     }
     _scanner_pool.clear();
 
@@ -408,6 +454,8 @@ Status VScanNode::_normalize_conjuncts() {
     std::vector<SlotDescriptor*> slots = _output_tuple_desc->slots();
 
     for (int slot_idx = 0; slot_idx < slots.size(); ++slot_idx) {
+        _colname_to_slot_id[slots[slot_idx]->col_name()] = slots[slot_idx]->id();
+
         auto type = slots[slot_idx]->type().type;
         if (slots[slot_idx]->type().type == TYPE_ARRAY) {
             type = slots[slot_idx]->type().children[0].type;
@@ -418,9 +466,9 @@ Status VScanNode::_normalize_conjuncts() {
         switch (type) {
 #define M(NAME)                                                                              \
     case TYPE_##NAME: {                                                                      \
-        ColumnValueRange<TYPE_##NAME> range(slots[slot_idx]->col_name(),                     \
-                                            slots[slot_idx]->type().precision,               \
-                                            slots[slot_idx]->type().scale);                  \
+        ColumnValueRange<TYPE_##NAME> range(                                                 \
+                slots[slot_idx]->col_name(), slots[slot_idx]->is_nullable(),                 \
+                slots[slot_idx]->type().precision, slots[slot_idx]->type().scale);           \
         _slot_id_to_value_range[slots[slot_idx]->id()] = std::pair {slots[slot_idx], range}; \
         break;                                                                               \
     }
@@ -458,8 +506,11 @@ Status VScanNode::_normalize_conjuncts() {
             RETURN_IF_ERROR(_normalize_predicate((*_vconjunct_ctx_ptr)->root(), &new_root));
             if (new_root) {
                 (*_vconjunct_ctx_ptr)->set_root(new_root);
-            } else {
-                (*_vconjunct_ctx_ptr)->mark_as_stale();
+                if (_should_push_down_common_expr()) {
+                    _common_vexpr_ctxs_pushdown = std::move(_vconjunct_ctx_ptr);
+                    _vconjunct_ctx_ptr.reset(nullptr);
+                }
+            } else { // All conjucts are pushed down as predicate column
                 _stale_vexpr_ctxs.push_back(std::move(_vconjunct_ctx_ptr));
                 _vconjunct_ctx_ptr.reset(nullptr);
             }
@@ -640,8 +691,8 @@ Status VScanNode::_normalize_function_filters(VExpr* expr, VExprContext* expr_ct
     }
 
     if (TExprNodeType::FUNCTION_CALL == fn_expr->node_type()) {
-        doris_udf::FunctionContext* fn_ctx = nullptr;
-        StringVal val;
+        doris::FunctionContext* fn_ctx = nullptr;
+        StringRef val;
         PushDownType temp_pdt;
         RETURN_IF_ERROR(_should_push_down_function_filter(
                 reinterpret_cast<VectorizedFnCall*>(fn_expr), expr_ctx, &val, &fn_ctx, temp_pdt));
@@ -691,7 +742,7 @@ bool VScanNode::_is_predicate_acting_on_slot(
 Status VScanNode::_eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, PushDownType* pdt) {
     char* constant_val = nullptr;
     if (vexpr->is_constant()) {
-        ColumnPtrWrapper* const_col_wrapper = nullptr;
+        std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
         RETURN_IF_ERROR(vexpr->get_const_col(expr_ctx, &const_col_wrapper));
         if (const ColumnConst* const_column =
                     check_and_get_column<ColumnConst>(const_col_wrapper->column_ptr)) {
@@ -735,8 +786,8 @@ template <PrimitiveType T>
 Status VScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* expr_ctx,
                                                  SlotDescriptor* slot, ColumnValueRange<T>& range,
                                                  PushDownType* pdt) {
-    auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(slot->type().precision,
-                                                                           slot->type().scale);
+    auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
+            slot->is_nullable(), slot->type().precision, slot->type().scale);
     // 1. Normalize in conjuncts like 'where col in (v1, v2, v3)'
     if (TExprNodeType::IN_PRED == expr->node_type()) {
         HybridSetBase::IteratorBase* iter = nullptr;
@@ -824,7 +875,7 @@ Status VScanNode::_normalize_not_in_and_not_eq_predicate(VExpr* expr, VExprConte
                                                          PushDownType* pdt) {
     bool is_fixed_range = range.is_fixed_value_range();
     auto not_in_range = ColumnValueRange<T>::create_empty_column_value_range(
-            range.column_name(), slot->type().precision, slot->type().scale);
+            range.column_name(), slot->is_nullable(), slot->type().precision, slot->type().scale);
     PushDownType temp_pdt = PushDownType::UNACCEPTABLE;
     // 1. Normalize in conjuncts like 'where col in (v1, v2, v3)'
     if (TExprNodeType::IN_PRED == expr->node_type()) {
@@ -925,14 +976,14 @@ Status VScanNode::_normalize_is_null_predicate(VExpr* expr, VExprContext* expr_c
     if (TExprNodeType::FUNCTION_CALL == expr->node_type()) {
         if (reinterpret_cast<VectorizedFnCall*>(expr)->fn().name.function_name == "is_null_pred") {
             auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
-                    slot->type().precision, slot->type().scale);
+                    slot->is_nullable(), slot->type().precision, slot->type().scale);
             temp_range.set_contain_null(true);
             range.intersection(temp_range);
             *pdt = temp_pdt;
         } else if (reinterpret_cast<VectorizedFnCall*>(expr)->fn().name.function_name ==
                    "is_not_null_pred") {
             auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
-                    slot->type().precision, slot->type().scale);
+                    slot->is_nullable(), slot->type().precision, slot->type().scale);
             temp_range.set_contain_null(false);
             range.intersection(temp_range);
             *pdt = temp_pdt;
@@ -1130,7 +1181,7 @@ Status VScanNode::_normalize_match_predicate(VExpr* expr, VExprContext* expr_ctx
 
         // create empty range as temp range, temp range should do intersection on range
         auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
-                slot->type().precision, slot->type().scale);
+                slot->is_nullable(), slot->type().precision, slot->type().scale);
         // Normalize match conjuncts like 'where col match value'
 
         auto match_checker = [](const std::string& fn_name) { return is_match_condition(fn_name); };
@@ -1168,35 +1219,32 @@ Status VScanNode::_change_value_range(ColumnValueRange<PrimitiveType>& temp_rang
                                       const ChangeFixedValueRangeFunc& func,
                                       const std::string& fn_name, int slot_ref_child) {
     if constexpr (PrimitiveType == TYPE_DATE) {
-        DateTimeValue date_value;
-        reinterpret_cast<VecDateTimeValue*>(value)->convert_vec_dt_to_dt(&date_value);
+        VecDateTimeValue tmp_value;
+        memcpy(&tmp_value, value, sizeof(VecDateTimeValue));
         if constexpr (IsFixed) {
-            if (!date_value.check_loss_accuracy_cast_to_date()) {
+            if (!tmp_value.check_loss_accuracy_cast_to_date()) {
                 func(temp_range,
                      reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
-                             &date_value));
+                             &tmp_value));
             }
         } else {
-            if (date_value.check_loss_accuracy_cast_to_date()) {
+            if (tmp_value.check_loss_accuracy_cast_to_date()) {
                 if (fn_name == "lt" || fn_name == "ge") {
-                    ++date_value;
+                    ++tmp_value;
                 }
             }
             func(temp_range, to_olap_filter_type(fn_name, slot_ref_child),
                  reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
-                         &date_value));
+                         &tmp_value));
         }
     } else if constexpr (PrimitiveType == TYPE_DATETIME) {
-        DateTimeValue date_value;
-        reinterpret_cast<VecDateTimeValue*>(value)->convert_vec_dt_to_dt(&date_value);
         if constexpr (IsFixed) {
             func(temp_range,
-                 reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
-                         &date_value));
+                 reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(value));
         } else {
             func(temp_range, to_olap_filter_type(fn_name, slot_ref_child),
                  reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
-                         reinterpret_cast<char*>(&date_value)));
+                         reinterpret_cast<char*>(value)));
         }
     } else if constexpr ((PrimitiveType == TYPE_DECIMALV2) || (PrimitiveType == TYPE_CHAR) ||
                          (PrimitiveType == TYPE_VARCHAR) || (PrimitiveType == TYPE_HLL) ||
@@ -1288,7 +1336,7 @@ Status VScanNode::_should_push_down_binary_predicate(
             pdt = PushDownType::UNACCEPTABLE;
             return Status::OK();
         } else {
-            ColumnPtrWrapper* const_col_wrapper = nullptr;
+            std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
             RETURN_IF_ERROR(children[1 - i]->get_const_col(expr_ctx, &const_col_wrapper));
             if (const ColumnConst* const_column =
                         check_and_get_column<ColumnConst>(const_col_wrapper->column_ptr)) {
@@ -1313,4 +1361,15 @@ VScanNode::PushDownType VScanNode::_should_push_down_in_predicate(VInPredicate* 
     return PushDownType::ACCEPTABLE;
 }
 
+Status VScanNode::_prepare_scanners() {
+    std::list<VScanner*> scanners;
+    RETURN_IF_ERROR(_init_scanners(&scanners));
+    if (scanners.empty()) {
+        _eos = true;
+    } else {
+        COUNTER_SET(_num_scanners, static_cast<int64_t>(scanners.size()));
+        RETURN_IF_ERROR(_start_scanners(scanners));
+    }
+    return Status::OK();
+}
 } // namespace doris::vectorized

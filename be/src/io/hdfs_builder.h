@@ -17,10 +17,9 @@
 
 #pragma once
 
-#include <hdfs/hdfs.h>
-
+#include "common/status.h"
 #include "gen_cpp/PlanNodes_types.h"
-#include "io/file_reader.h"
+#include "io/fs/hdfs.h"
 
 namespace doris {
 
@@ -31,20 +30,30 @@ const std::string KERBEROS_KEYTAB = "hadoop.kerberos.keytab";
 const std::string TICKET_CACHE_PATH = "/tmp/krb5cc_doris_";
 
 class HDFSCommonBuilder {
-    friend HDFSCommonBuilder createHDFSBuilder(const THdfsParams& hdfsParams);
-    friend HDFSCommonBuilder createHDFSBuilder(
-            const std::map<std::string, std::string>& properties);
+    friend Status createHDFSBuilder(const THdfsParams& hdfsParams, HDFSCommonBuilder* builder);
+    friend Status createHDFSBuilder(const std::map<std::string, std::string>& properties,
+                                    HDFSCommonBuilder* builder);
 
 public:
-    HDFSCommonBuilder() : hdfs_builder(hdfsNewBuilder()) {}
-    ~HDFSCommonBuilder() { hdfsFreeBuilder(hdfs_builder); }
+    HDFSCommonBuilder() {}
+    ~HDFSCommonBuilder() {
+#ifdef USE_LIBHDFS3
+        // for hadoop hdfs, the hdfs_builder will be freed in hdfsConnect
+        if (hdfs_builder != nullptr) {
+            hdfsFreeBuilder(hdfs_builder);
+        }
+#endif
+    }
+
+    // Must call this to init hdfs_builder first.
+    Status init_hdfs_builder();
 
     hdfsBuilder* get() { return hdfs_builder; }
     bool is_need_kinit() const { return need_kinit; }
     Status run_kinit();
 
 private:
-    hdfsBuilder* hdfs_builder;
+    hdfsBuilder* hdfs_builder = nullptr;
     bool need_kinit {false};
     std::string hdfs_kerberos_keytab;
     std::string hdfs_kerberos_principal;
@@ -52,7 +61,8 @@ private:
 
 THdfsParams parse_properties(const std::map<std::string, std::string>& properties);
 
-HDFSCommonBuilder createHDFSBuilder(const THdfsParams& hdfsParams);
-HDFSCommonBuilder createHDFSBuilder(const std::map<std::string, std::string>& properties);
+Status createHDFSBuilder(const THdfsParams& hdfsParams, HDFSCommonBuilder* builder);
+Status createHDFSBuilder(const std::map<std::string, std::string>& properties,
+                         HDFSCommonBuilder* builder);
 
 } // namespace doris

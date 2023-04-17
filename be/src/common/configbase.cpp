@@ -15,21 +15,33 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <stdint.h>
+
 #include <algorithm>
+#include <cctype>
 #include <cerrno>
+#include <cstdlib>
 #include <cstring>
-#include <fstream>
+#include <fstream> // IWYU pragma: keep
+#include <functional>
 #include <iostream>
-#include <list>
 #include <map>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "common/logging.h"
 
 #define __IN_CONFIGBASE_CPP__
-#include "common/config.h"
+#include "common/config.h" // IWYU pragma: keep
 #undef __IN_CONFIGBASE_CPP__
 
 #include "common/status.h"
-#include "gutil/strings/substitute.h"
-#include "util/filesystem_util.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "io/fs/file_writer.h"
+#include "io/fs/local_file_system.h"
 
 namespace doris {
 namespace config {
@@ -260,28 +272,23 @@ void Properties::set_force(const std::string& key, const std::string& val) {
     file_conf_map[key] = val;
 }
 
-bool Properties::dump(const std::string& conffile) {
-    std::vector<std::string> files = {conffile};
-    Status st = FileSystemUtil::remove_paths(files);
-    if (!st.ok()) {
-        return false;
-    }
-    st = FileSystemUtil::create_file(conffile);
-    if (!st.ok()) {
-        return false;
-    }
-
-    std::ofstream out(conffile);
-    out << "# THIS IS AN AUTO GENERATED CONFIG FILE.\n";
-    out << "# You can modify this file manually, and the configurations in this file\n";
-    out << "# will overwrite the configurations in be.conf\n";
-    out << "\n";
+Status Properties::dump(const std::string& conffile) {
+    RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(conffile));
+    io::FileWriterPtr file_writer;
+    RETURN_IF_ERROR(io::global_local_filesystem()->create_file(conffile, &file_writer));
+    RETURN_IF_ERROR(file_writer->append("# THIS IS AN AUTO GENERATED CONFIG FILE.\n"));
+    RETURN_IF_ERROR(file_writer->append(
+            "# You can modify this file manually, and the configurations in this file\n"));
+    RETURN_IF_ERROR(file_writer->append("# will overwrite the configurations in be.conf\n\n"));
 
     for (auto const& iter : file_conf_map) {
-        out << iter.first << " = " << iter.second << "\n";
+        RETURN_IF_ERROR(file_writer->append(iter.first));
+        RETURN_IF_ERROR(file_writer->append(" = "));
+        RETURN_IF_ERROR(file_writer->append(iter.second));
+        RETURN_IF_ERROR(file_writer->append("\n"));
     }
-    out.close();
-    return true;
+
+    return file_writer->close();
 }
 
 template <typename T>
@@ -383,23 +390,23 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
             (*full_conf_map)[(FIELD).name] = oss.str();                                           \
         }                                                                                         \
         if (PERSIST) {                                                                            \
-            persist_config(std::string((FIELD).name), VALUE);                                     \
+            RETURN_IF_ERROR(persist_config(std::string((FIELD).name), VALUE));                    \
         }                                                                                         \
         return Status::OK();                                                                      \
     }
 
 // write config to be_custom.conf
 // the caller need to make sure that the given config is valid
-bool persist_config(const std::string& field, const std::string& value) {
+Status persist_config(const std::string& field, const std::string& value) {
     // lock to make sure only one thread can modify the be_custom.conf
     std::lock_guard<std::mutex> l(custom_conf_lock);
 
-    static const string conffile = string(getenv("DORIS_HOME")) + "/conf/be_custom.conf";
+    static const std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be_custom.conf";
 
     Properties tmp_props;
     if (!tmp_props.load(conffile.c_str(), false)) {
         LOG(WARNING) << "failed to load " << conffile;
-        return false;
+        return Status::InternalError("failed to load conf file: {}", conffile);
     }
 
     tmp_props.set_force(field, value);
@@ -441,6 +448,7 @@ void set_fuzzy_configs() {
     // random value true or false
     set_fuzzy_config("disable_storage_page_cache", ((rand() % 2) == 0) ? "true" : "false");
     set_fuzzy_config("enable_system_metrics", ((rand() % 2) == 0) ? "true" : "false");
+    set_fuzzy_config("enable_simdjson_reader", ((rand() % 2) == 0) ? "true" : "false");
     // random value from 8 to 48
     // s = set_fuzzy_config("doris_scanner_thread_pool_thread_num", std::to_string((rand() % 41) + 8));
     // LOG(INFO) << s.to_string();

@@ -197,53 +197,91 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         return Status::OK();
     }
 
-#define DO_RPC(QUEUE, BLOCK, HOLDER)                                                               \
-    auto& request = QUEUE.front();                                                                 \
-    if (!_instance_to_request[id]) {                                                               \
-        _construct_request(id);                                                                    \
-    }                                                                                              \
-    auto brpc_request = _instance_to_request[id];                                                  \
-    brpc_request->set_eos(request.eos);                                                            \
-    brpc_request->set_packet_seq(_instance_to_seq[id]++);                                          \
-    if (request.BLOCK) {                                                                           \
-        brpc_request->set_allocated_block(request.BLOCK);                                          \
-    }                                                                                              \
-    auto* _closure = new SelfDeleteClosure<PTransmitDataResult>(id, request.eos, HOLDER);          \
-    _closure->cntl.set_timeout_ms(request.channel->_brpc_timeout_ms);                              \
-    _closure->addFailedHandler(                                                                    \
-            [&](const InstanceLoId& id, const std::string& err) { _failed(id, err); });            \
-    _closure->addSuccessHandler([&](const InstanceLoId& id, const bool& eos,                       \
-                                    const PTransmitDataResult& result) {                           \
-        Status s = Status(result.status());                                                        \
-        if (!s.ok()) {                                                                             \
-            _failed(id,                                                                            \
-                    fmt::format("exchange req success but status isn't ok: {}", s.to_string()));   \
-        } else if (eos) {                                                                          \
-            _ended(id);                                                                            \
-        } else {                                                                                   \
-            _send_rpc(id);                                                                         \
-        }                                                                                          \
-    });                                                                                            \
-    {                                                                                              \
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());    \
-        if (enable_http_send_block(*brpc_request)) {                                               \
-            RETURN_IF_ERROR(transmit_block_http(_context->get_runtime_state(), _closure,           \
-                                                *brpc_request, request.channel->_brpc_dest_addr)); \
-        } else {                                                                                   \
-            transmit_block(*request.channel->_brpc_stub, _closure, *brpc_request);                 \
-        }                                                                                          \
-    }                                                                                              \
-    if (request.BLOCK) {                                                                           \
-        brpc_request->release_block();                                                             \
-    }                                                                                              \
-    QUEUE.pop();
-
     if (!q.empty()) {
         // If we have data to shuffle which is not broadcasted
-        DO_RPC(q, block.get(), nullptr)
+        auto& request = q.front();
+        if (!_instance_to_request[id]) {
+            _construct_request(id);
+        }
+        auto brpc_request = _instance_to_request[id];
+        brpc_request->set_eos(request.eos);
+        brpc_request->set_packet_seq(_instance_to_seq[id]++);
+        if (request.block) {
+            brpc_request->set_allocated_block(request.block.get());
+        }
+        auto* _closure = new SelfDeleteClosure<PTransmitDataResult>(id, request.eos, nullptr);
+        _closure->cntl.set_timeout_ms(request.channel->_brpc_timeout_ms);
+        _closure->addFailedHandler(
+                [&](const InstanceLoId& id, const std::string& err) { _failed(id, err); });
+        _closure->addSuccessHandler([&](const InstanceLoId& id, const bool& eos,
+                                        const PTransmitDataResult& result) {
+            Status s = Status(result.status());
+            if (!s.ok()) {
+                _failed(id,
+                        fmt::format("exchange req success but status isn't ok: {}", s.to_string()));
+            } else if (eos) {
+                _ended(id);
+            } else {
+                _send_rpc(id);
+            }
+        });
+        {
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
+            if (enable_http_send_block(*brpc_request)) {
+                RETURN_IF_ERROR(transmit_block_http(_context->get_runtime_state(), _closure,
+                                                    *brpc_request,
+                                                    request.channel->_brpc_dest_addr));
+            } else {
+                transmit_block(*request.channel->_brpc_stub, _closure, *brpc_request);
+            }
+        }
+        if (request.block) {
+            brpc_request->release_block();
+        }
+        q.pop();
     } else if (!broadcast_q.empty()) {
         // If we have data to shuffle which is broadcasted
-        DO_RPC(broadcast_q, block_holder->get_block(), request.block_holder)
+        auto& request = broadcast_q.front();
+        if (!_instance_to_request[id]) {
+            _construct_request(id);
+        }
+        auto brpc_request = _instance_to_request[id];
+        brpc_request->set_eos(request.eos);
+        brpc_request->set_packet_seq(_instance_to_seq[id]++);
+        if (request.block_holder->get_block()) {
+            brpc_request->set_allocated_block(request.block_holder->get_block());
+        }
+        auto* _closure =
+                new SelfDeleteClosure<PTransmitDataResult>(id, request.eos, request.block_holder);
+        _closure->cntl.set_timeout_ms(request.channel->_brpc_timeout_ms);
+        _closure->addFailedHandler(
+                [&](const InstanceLoId& id, const std::string& err) { _failed(id, err); });
+        _closure->addSuccessHandler([&](const InstanceLoId& id, const bool& eos,
+                                        const PTransmitDataResult& result) {
+            Status s = Status(result.status());
+            if (!s.ok()) {
+                _failed(id,
+                        fmt::format("exchange req success but status isn't ok: {}", s.to_string()));
+            } else if (eos) {
+                _ended(id);
+            } else {
+                _send_rpc(id);
+            }
+        });
+        {
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
+            if (enable_http_send_block(*brpc_request)) {
+                RETURN_IF_ERROR(transmit_block_http(_context->get_runtime_state(), _closure,
+                                                    *brpc_request,
+                                                    request.channel->_brpc_dest_addr));
+            } else {
+                transmit_block(*request.channel->_brpc_stub, _closure, *brpc_request);
+            }
+        }
+        if (request.block_holder->get_block()) {
+            brpc_request->release_block();
+        }
+        broadcast_q.pop();
     } else {
         _instance_to_sending_by_pipeline[id] = true;
         return Status::OK();

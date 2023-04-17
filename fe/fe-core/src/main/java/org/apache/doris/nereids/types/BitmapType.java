@@ -19,11 +19,12 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.nereids.types.coercion.PrimitiveType;
 
 /**
  * Bitmap type in Nereids.
  */
-public class BitmapType extends DataType {
+public class BitmapType extends PrimitiveType {
 
     public static final BitmapType INSTANCE = new BitmapType();
 

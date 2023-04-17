@@ -57,8 +57,11 @@ public class MetastoreEventsProcessor extends MasterDaemon {
             "hive.metastore.notifications.add.thrift.objects";
 
     // for deserializing from JSON strings from metastore event
-    private static final MessageDeserializer MESSAGE_DESERIALIZER = new JSONMessageDeserializer();
-
+    private static final MessageDeserializer JSON_MESSAGE_DESERIALIZER = new JSONMessageDeserializer();
+    // for deserializing from GZIP JSON strings from metastore event
+    // (some HDP Hive and CDH Hive versions use this format)
+    private static final MessageDeserializer GZIP_JSON_MESSAGE_DESERIALIZER = new GzipJSONMessageDeserializer();
+    private static final String GZIP_JSON_FORMAT_PREFIX = "gzip";
 
     // event factory which is used to get or create MetastoreEvents
     private final MetastoreEventFactory metastoreEventFactory;
@@ -145,7 +148,10 @@ public class MetastoreEventsProcessor extends MasterDaemon {
         }
     }
 
-    public static MessageDeserializer getMessageDeserializer() {
-        return MESSAGE_DESERIALIZER;
+    public static MessageDeserializer getMessageDeserializer(String messageFormat) {
+        if (messageFormat != null && messageFormat.startsWith(GZIP_JSON_FORMAT_PREFIX)) {
+            return GZIP_JSON_MESSAGE_DESERIALIZER;
+        }
+        return JSON_MESSAGE_DESERIALIZER;
     }
 }

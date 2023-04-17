@@ -72,4 +72,50 @@ suite("test_delete") {
     sql """ delete from delete_regression_test where k1 = 'abcdef' """
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
+
+    sql """ DROP TABLE IF EXISTS tb_test1 """
+    sql """  CREATE TABLE `tb_test1` (
+  	    `dt` date NULL,
+  	    `code` int(11) NULL
+	) ENGINE=OLAP
+    DUPLICATE KEY(`dt`, `code`)
+    COMMENT 'OLAP'
+    PARTITION BY RANGE(`dt`)
+    (PARTITION m202206 VALUES [('2022-06-01'), ('2022-07-01')),
+    PARTITION m202207 VALUES [('2022-07-01'), ('2022-08-01')),
+    PARTITION m202208 VALUES [('2022-08-01'), ('2022-09-01')),
+    PARTITION m202209 VALUES [('2022-09-01'), ('2022-10-01')),
+    PARTITION m202210 VALUES [('2022-10-01'), ('2022-11-01')),
+    PARTITION m202211 VALUES [('2022-11-01'), ('2022-12-01')),
+    PARTITION m202212 VALUES [('2022-12-01'), ('2023-01-01')),
+    PARTITION m202301 VALUES [('2023-01-01'), ('2023-02-01')),
+    PARTITION m202302 VALUES [('2023-02-01'), ('2023-03-01')),
+    PARTITION m202303 VALUES [('2023-03-01'), ('2023-04-01')),
+    PARTITION m202304 VALUES [('2023-04-01'), ('2023-05-01')))
+    DISTRIBUTED BY HASH(`dt`, `code`) BUCKETS 10
+    PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "dynamic_partition.enable" = "true",
+        "dynamic_partition.time_unit" = "MONTH",
+        "dynamic_partition.time_zone" = "Asia/Shanghai",
+        "dynamic_partition.start" = "-2147483648",
+        "dynamic_partition.end" = "1",
+        "dynamic_partition.prefix" = "m",
+        "dynamic_partition.replication_allocation" = "tag.location.default: 1",
+        "dynamic_partition.buckets" = "10",
+        "dynamic_partition.create_history_partition" = "false",
+        "dynamic_partition.history_partition_num" = "-1",
+        "dynamic_partition.hot_partition_num" = "0",
+        "dynamic_partition.reserved_history_periods" = "NULL",
+        "dynamic_partition.storage_policy" = "",
+        "dynamic_partition.start_day_of_month" = "1",
+        "in_memory" = "false",
+        "storage_format" = "V2",
+        "disable_auto_compaction" = "false"
+    );
+	"""
+    sql """ insert into tb_test1 values ('2022-10-01', 123); """
+    qt_sql9 """select * from tb_test1;"""
+    sql """ delete from tb_test1 where dt = '20221001'; """
+    qt_sql10 """select * from tb_test1;"""
 }

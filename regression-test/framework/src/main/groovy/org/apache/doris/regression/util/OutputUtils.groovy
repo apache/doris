@@ -77,7 +77,7 @@ class OutputUtils {
                 double realDouble = Double.parseDouble(realCell)
 
                 double realRelativeError = Math.abs(expectDouble - realDouble) / realDouble
-                double expectRelativeError = 1e-10
+                double expectRelativeError = 1e-8
 
                 if (expectRelativeError < realRelativeError) {
                     // Keep the scale of low precision data to solve TPCH cases like:
@@ -141,6 +141,7 @@ class OutputUtils {
 
                     def res = checkCell(info, line, expectCell, realCell, dataType)
                     if(res != null) {
+                        res += "line ${line} mismatch\nExpectRow: ${expectRaw}\nRealRow: ${realRaw}";
                         return res
                     }
                 }

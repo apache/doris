@@ -25,7 +25,7 @@
 #include "exprs/hybrid_set.h"
 #include "gen_cpp/Exprs_types.h"
 #include "runtime/types.h"
-#include "udf/udf_internal.h"
+#include "udf/udf.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/functions/function.h"
@@ -103,6 +103,8 @@ public:
     TExprOpcode::type op() const { return _opcode; }
 
     void add_child(VExpr* expr) { _children.push_back(expr); }
+    VExpr* get_child(int i) const { return _children[i]; }
+    int get_num_children() const { return _children.size(); }
 
     static Status create_expr_tree(ObjectPool* pool, const TExpr& texpr, VExprContext** ctx);
 
@@ -125,10 +127,10 @@ public:
 
     static Status create_expr(ObjectPool* pool, const TExprNode& texpr_node, VExpr** expr);
 
-    static Status create_tree_from_thrift(ObjectPool* pool, const std::vector<TExprNode>& nodes,
-                                          VExpr* parent, int* node_idx, VExpr** root_expr,
-                                          VExprContext** ctx);
-    const std::vector<VExpr*>& children() const { return _children; }
+    static Status create_tree_from_thrift(doris::ObjectPool* pool,
+                                          const std::vector<doris::TExprNode>& nodes, int* node_idx,
+                                          VExpr** root_expr, VExprContext** ctx);
+    virtual const std::vector<VExpr*>& children() const { return _children; }
     void set_children(std::vector<VExpr*> children) { _children = children; }
     virtual std::string debug_string() const;
     static std::string debug_string(const std::vector<VExpr*>& exprs);
@@ -149,7 +151,7 @@ public:
     /// the output. Returns nullptr if the argument is not constant. The returned ColumnPtr is
     /// owned by this expr. This should only be called after Open() has been called on this
     /// expr.
-    Status get_const_col(VExprContext* context, ColumnPtrWrapper** output);
+    Status get_const_col(VExprContext* context, std::shared_ptr<ColumnPtrWrapper>* column_wrapper);
 
     int fn_context_index() const { return _fn_context_index; }
 
@@ -180,7 +182,6 @@ public:
     }
 
 protected:
-    static FunctionContext::TypeDesc column_type_to_type_desc(const TypeDescriptor& type);
     /// Simple debug string that provides no expr subclass-specific information
     std::string debug_string(const std::string& expr_name) const {
         std::stringstream out;

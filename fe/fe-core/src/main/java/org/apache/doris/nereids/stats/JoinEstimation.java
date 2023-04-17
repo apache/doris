@@ -17,131 +17,226 @@
 
 package org.apache.doris.nereids.stats;
 
-import org.apache.doris.common.CheckedMath;
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.StatisticsBuilder;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Maps;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import com.google.common.collect.Lists;
+
+import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Estimate hash join stats.
  * TODO: Update other props in the ColumnStats properly.
  */
 public class JoinEstimation {
-    private static final Logger LOG = LogManager.getLogger(JoinEstimation.class);
 
-    private static double estimateInnerJoin(StatsDeriveResult leftStats, StatsDeriveResult rightStats, Join join) {
-        Preconditions.checkArgument(join.getJoinType() == JoinType.INNER_JOIN);
-        double rowCount = Double.MAX_VALUE;
-        if (join.getHashJoinConjuncts().isEmpty()) {
-            rowCount = leftStats.getRowCount() * rightStats.getRowCount();
+    private static EqualTo normalizeHashJoinCondition(EqualTo equalTo, Statistics leftStats, Statistics rightStats) {
+        boolean changeOrder = equalTo.left().getInputSlots().stream().anyMatch(
+                slot -> rightStats.findColumnStatistics(slot) != null
+        );
+        if (changeOrder) {
+            return new EqualTo(equalTo.right(), equalTo.left());
         } else {
-            for (Expression equalTo : join.getHashJoinConjuncts()) {
-                double tmpRowCount = estimateEqualJoinCondition((EqualTo) equalTo, leftStats, rightStats);
-                rowCount = Math.min(rowCount, tmpRowCount);
+            return equalTo;
+        }
+    }
+
+    private static Statistics estimateInnerJoin(Statistics leftStats, Statistics rightStats, Join join) {
+        /*
+         * When we estimate filter A=B,
+         * if any side of equation, A or B, is almost unique, the confidence level of estimation is high.
+         * But is both sides are not unique, the confidence level is very low.
+         * The equations, whose confidence level is low, are called unTrustEquation.
+         * In order to avoid error propagation, for unTrustEquations, we only use the biggest selectivity.
+         */
+        List<Double> unTrustEqualRatio = Lists.newArrayList();
+        boolean leftBigger = leftStats.getRowCount() > rightStats.getRowCount();
+        List<EqualTo> trustableConditions = join.getHashJoinConjuncts().stream()
+                .map(expression -> (EqualTo) expression)
+                .filter(
+                    expression -> {
+                        // since ndv is not accurate, if ndv/rowcount < almostUniqueThreshold,
+                        // this column is regarded as unique.
+                        double almostUniqueThreshold = 0.9;
+                        EqualTo equal = normalizeHashJoinCondition(expression, leftStats, rightStats);
+                        ColumnStatistic eqLeftColStats = ExpressionEstimation.estimate(equal.left(), leftStats);
+                        ColumnStatistic eqRightColStats = ExpressionEstimation.estimate(equal.right(), rightStats);
+                        boolean trustable = eqRightColStats.ndv / rightStats.getRowCount() > almostUniqueThreshold
+                                || eqLeftColStats.ndv / leftStats.getRowCount() > almostUniqueThreshold;
+                        if (!trustable) {
+                            if (leftBigger) {
+                                unTrustEqualRatio.add((rightStats.getRowCount() / eqRightColStats.ndv)
+                                        * Math.min(eqLeftColStats.ndv, eqRightColStats.ndv) / eqLeftColStats.ndv);
+                            } else {
+                                unTrustEqualRatio.add((leftStats.getRowCount() / eqLeftColStats.ndv)
+                                        * Math.min(eqLeftColStats.ndv, eqRightColStats.ndv) / eqRightColStats.ndv);
+                            }
+                        }
+                        return trustable;
+                    }
+                ).collect(Collectors.toList());
+
+        Statistics innerJoinStats;
+        Statistics crossJoinStats = new StatisticsBuilder()
+                .setRowCount(leftStats.getRowCount() * rightStats.getRowCount())
+                .putColumnStatistics(leftStats.columnStatistics())
+                .putColumnStatistics(rightStats.columnStatistics())
+                .build();
+        if (!trustableConditions.isEmpty()) {
+            List<Pair<Expression, Double>> sortedJoinConditions = join.getHashJoinConjuncts().stream()
+                    .map(expression -> Pair.of(expression, estimateJoinConditionSel(crossJoinStats, expression)))
+                    .sorted((a, b) -> {
+                        double sub = a.second - b.second;
+                        if (sub > 0) {
+                            return 1;
+                        } else if (sub < 0) {
+                            return -1;
+                        } else {
+                            return 0;
+                        }
+                    }).collect(Collectors.toList());
+
+            double sel = 1.0;
+            for (int i = 0; i < sortedJoinConditions.size(); i++) {
+                sel *= Math.pow(sortedJoinConditions.get(i).second, 1 / Math.pow(2, i));
+            }
+            innerJoinStats = crossJoinStats.updateRowCountOnly(crossJoinStats.getRowCount() * sel);
+        } else {
+            double outputRowCount = Math.max(leftStats.getRowCount(), rightStats.getRowCount());
+            Optional<Double> ratio = unTrustEqualRatio.stream().max(Double::compareTo);
+            if (ratio.isPresent()) {
+                outputRowCount = outputRowCount * ratio.get();
+            }
+            innerJoinStats = crossJoinStats.updateRowCountOnly(outputRowCount);
+        }
+
+        if (!join.getOtherJoinConjuncts().isEmpty()) {
+            FilterEstimation filterEstimation = new FilterEstimation();
+            innerJoinStats = filterEstimation.estimate(
+                    ExpressionUtils.and(join.getOtherJoinConjuncts()), innerJoinStats);
+        }
+        innerJoinStats.setWidth(leftStats.getWidth() + rightStats.getWidth());
+        innerJoinStats.setPenalty(0);
+        return innerJoinStats;
+    }
+
+    private static double estimateJoinConditionSel(Statistics crossJoinStats, Expression joinCond) {
+        Statistics statistics = new FilterEstimation().estimate(joinCond, crossJoinStats);
+        return statistics.getRowCount() / crossJoinStats.getRowCount();
+    }
+
+    private static double estimateSemiOrAntiRowCountBySlotsEqual(Statistics leftStats,
+            Statistics rightStats, Join join, EqualTo equalTo) {
+        Expression eqLeft = equalTo.left();
+        Expression eqRight = equalTo.right();
+        ColumnStatistic probColStats = leftStats.findColumnStatistics(eqLeft);
+        ColumnStatistic buildColStats;
+        if (probColStats == null) {
+            probColStats = leftStats.findColumnStatistics(eqRight);
+            buildColStats = rightStats.findColumnStatistics(eqLeft);
+        } else {
+            buildColStats = rightStats.findColumnStatistics(eqRight);
+        }
+        if (probColStats == null || buildColStats == null) {
+            return Double.POSITIVE_INFINITY;
+        }
+
+        double rowCount;
+        if (join.getJoinType().isLeftSemiOrAntiJoin()) {
+            double semiRowCount = StatsMathUtil.divide(leftStats.getRowCount() * buildColStats.ndv,
+                    buildColStats.originalNdv);
+            if (join.getJoinType().isSemiJoin()) {
+                rowCount = semiRowCount;
+            } else {
+                rowCount = leftStats.getRowCount() - semiRowCount;
+            }
+        } else {
+            //right semi or anti
+            double semiRowCount = StatsMathUtil.divide(rightStats.getRowCount() * probColStats.ndv,
+                    probColStats.originalNdv);
+            if (join.getJoinType().isSemiJoin()) {
+                rowCount = semiRowCount;
+            } else {
+                rowCount = rightStats.getRowCount() - semiRowCount;
             }
         }
         return rowCount;
     }
 
-    private static double estimateEqualJoinCondition(EqualTo equalto,
-            StatsDeriveResult leftStats, StatsDeriveResult rightStats) {
-        SlotReference eqRight = (SlotReference) equalto.child(1).getInputSlots().toArray()[0];
-
-        ColumnStatistic rColumnStats = rightStats.getSlotIdToColumnStats().get(eqRight.getExprId());
-        SlotReference eqLeft = (SlotReference) equalto.child(0).getInputSlots().toArray()[0];
-
-        if (rColumnStats == null) {
-            rColumnStats = rightStats.getSlotIdToColumnStats().get(eqLeft.getExprId());
+    private static Statistics estimateSemiOrAnti(Statistics leftStats, Statistics rightStats, Join join) {
+        double rowCount = Double.POSITIVE_INFINITY;
+        for (Expression conjunct : join.getHashJoinConjuncts()) {
+            double eqRowCount = estimateSemiOrAntiRowCountBySlotsEqual(leftStats, rightStats,
+                    join, (EqualTo) conjunct);
+            if (rowCount > eqRowCount) {
+                rowCount = eqRowCount;
+            }
         }
-        if (rColumnStats == null) {
-            LOG.info("estimate inner join failed, column stats not found: %s", eqRight);
-            throw new RuntimeException("estimateInnerJoin cannot find columnStats: " + eqRight);
-        }
-
-        double rowCount = 0;
-
-        if (rColumnStats.isUnKnown || rColumnStats.ndv == 0) {
-            rowCount = Math.max(leftStats.getRowCount(), rightStats.getRowCount());
+        if (Double.isInfinite(rowCount)) {
+            //slotsEqual estimation failed, fall back to original algorithm
+            Statistics innerJoinStats = estimateInnerJoin(leftStats, rightStats, join);
+            double baseRowCount =
+                    join.getJoinType().isLeftSemiOrAntiJoin() ? leftStats.getRowCount() : rightStats.getRowCount();
+            rowCount = Math.min(innerJoinStats.getRowCount(), baseRowCount);
+            return innerJoinStats.withRowCount(rowCount);
         } else {
-            //TODO range is not considered
-            rowCount = (leftStats.getRowCount()
-                    * rightStats.getRowCount()
-                    * rColumnStats.selectivity
-                    / rColumnStats.ndv);
+            StatisticsBuilder builder;
+            double originalRowCount = leftStats.getRowCount();
+            if (join.getJoinType().isLeftSemiOrAntiJoin()) {
+                builder = new StatisticsBuilder(leftStats);
+                builder.setRowCount(rowCount);
+            } else {
+                //right semi or anti
+                builder = new StatisticsBuilder(rightStats);
+                builder.setRowCount(rowCount);
+                originalRowCount = rightStats.getRowCount();
+            }
+            Statistics outputStats = builder.build();
+            outputStats.fix(rowCount, originalRowCount);
+            return outputStats;
         }
-        rowCount = Math.max(1, Math.ceil(rowCount));
-        return rowCount;
-    }
-
-    private static double estimateLeftSemiJoin(double leftCount, double rightCount) {
-        //TODO the estimation of semi and anti join is not proper, just for tpch q21
-        return leftCount - leftCount / Math.max(2, rightCount);
-    }
-
-    private static double estimateFullOuterJoin(StatsDeriveResult leftStats, StatsDeriveResult rightStats, Join join) {
-        //TODO: after we have histogram, re-design this logical
-        return leftStats.getRowCount() + rightStats.getRowCount();
     }
 
     /**
      * estimate join
      */
-    public static StatsDeriveResult estimate(StatsDeriveResult leftStats, StatsDeriveResult rightStats, Join join) {
+    public static Statistics estimate(Statistics leftStats, Statistics rightStats, Join join) {
         JoinType joinType = join.getJoinType();
-        double rowCount = Double.MAX_VALUE;
-        if (joinType == JoinType.LEFT_SEMI_JOIN
-                || joinType == JoinType.LEFT_ANTI_JOIN
-                || joinType == JoinType.NULL_AWARE_LEFT_ANTI_JOIN) {
-            double rightCount = rightStats.getRowCount();
-            double leftCount = leftStats.getRowCount();
-            if (join.getHashJoinConjuncts().isEmpty()) {
-                rowCount = joinType == JoinType.LEFT_SEMI_JOIN ? leftCount : 0;
-            } else {
-                rowCount = estimateLeftSemiJoin(leftCount, rightCount);
-            }
-        } else if (joinType == JoinType.RIGHT_SEMI_JOIN || joinType == JoinType.RIGHT_ANTI_JOIN) {
-            double rightCount = rightStats.getRowCount();
-            double leftCount = leftStats.getRowCount();
-            if (join.getHashJoinConjuncts().isEmpty()) {
-                rowCount = joinType == JoinType.RIGHT_SEMI_JOIN ? rightCount : 0;
-            } else {
-                rowCount = estimateLeftSemiJoin(rightCount, leftCount);
-            }
+        if (joinType.isSemiOrAntiJoin()) {
+            return estimateSemiOrAnti(leftStats, rightStats, join);
         } else if (joinType == JoinType.INNER_JOIN) {
-            rowCount = estimateInnerJoin(leftStats, rightStats, join);
+            Statistics innerJoinStats = estimateInnerJoin(leftStats, rightStats, join);
+            return innerJoinStats;
         } else if (joinType == JoinType.LEFT_OUTER_JOIN) {
-            rowCount = leftStats.getRowCount();
+            Statistics innerJoinStats = estimateInnerJoin(leftStats, rightStats, join);
+            double rowCount = Math.max(leftStats.getRowCount(), innerJoinStats.getRowCount());
+            return innerJoinStats.withRowCount(rowCount);
         } else if (joinType == JoinType.RIGHT_OUTER_JOIN) {
-            rowCount = rightStats.getRowCount();
-        } else if (joinType == JoinType.CROSS_JOIN) {
-            rowCount = CheckedMath.checkedMultiply(leftStats.getRowCount(),
-                    rightStats.getRowCount());
+            Statistics innerJoinStats = estimateInnerJoin(leftStats, rightStats, join);
+            double rowCount = Math.max(rightStats.getRowCount(), innerJoinStats.getRowCount());
+            return innerJoinStats.withRowCount(rowCount);
         } else if (joinType == JoinType.FULL_OUTER_JOIN) {
-            rowCount = estimateFullOuterJoin(leftStats, rightStats, join);
-        } else {
-            LOG.warn("join type is not supported: " + joinType);
-            throw new RuntimeException("joinType is not supported");
+            Statistics innerJoinStats = estimateInnerJoin(leftStats, rightStats, join);
+            return innerJoinStats.withRowCount(leftStats.getRowCount()
+                    + rightStats.getRowCount() + innerJoinStats.getRowCount());
+        } else if (joinType == JoinType.CROSS_JOIN) {
+            return new StatisticsBuilder()
+                    .setRowCount(leftStats.getRowCount() * rightStats.getRowCount())
+                    .putColumnStatistics(leftStats.columnStatistics())
+                    .putColumnStatistics(rightStats.columnStatistics())
+                    .build();
         }
-
-        StatsDeriveResult statsDeriveResult = new StatsDeriveResult(rowCount,
-                rightStats.getWidth() + leftStats.getWidth(), 0, Maps.newHashMap());
-        if (joinType.isRemainLeftJoin()) {
-            statsDeriveResult.merge(leftStats);
-        }
-        if (joinType.isRemainRightJoin()) {
-            statsDeriveResult.merge(rightStats);
-        }
-        //TODO: consider other join conjuncts
-        return statsDeriveResult;
+        throw new AnalysisException("join type not supported: " + join.getJoinType());
     }
 
 }

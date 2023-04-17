@@ -18,20 +18,26 @@
 package org.apache.doris.nereids.rules.mv;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Set;
@@ -110,49 +116,65 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
      * @param predicatesSupplier Supplier to get pushdown predicates.
      * @return Result scan node.
      */
-    private LogicalOlapScan select(
+    private LogicalPlan select(
             LogicalOlapScan scan,
             Supplier<Set<Slot>> requiredScanOutputSupplier,
             Supplier<Set<Expression>> predicatesSupplier) {
-        switch (scan.getTable().getKeysType()) {
+        OlapTable table = scan.getTable();
+        long baseIndexId = table.getBaseIndexId();
+        KeysType keysType = scan.getTable().getKeysType();
+        switch (keysType) {
             case AGG_KEYS:
             case UNIQUE_KEYS:
-                OlapTable table = scan.getTable();
-                long baseIndexId = table.getBaseIndexId();
-                int baseIndexKeySize = table.getKeyColumnsByIndexId(table.getBaseIndexId()).size();
-                // No aggregate on scan.
-                // So only base index and indexes that have all the keys could be used.
-                List<MaterializedIndex> candidates = table.getVisibleIndex().stream()
-                        .filter(index -> index.getId() == baseIndexId
-                                || table.getKeyColumnsByIndexId(index.getId()).size() == baseIndexKeySize)
-                        .filter(index -> containAllRequiredColumns(index, scan, requiredScanOutputSupplier.get()))
-                        .collect(Collectors.toList());
-
-                final PreAggStatus preAggStatus;
-                if (preAggEnabledByHint(scan)) {
-                    // PreAggStatus could be enabled by pre-aggregation hint for agg-keys and unique-keys.
-                    preAggStatus = PreAggStatus.on();
-                } else {
-                    preAggStatus = PreAggStatus.off("No aggregate on scan.");
-                }
-                if (candidates.size() == 1) {
-                    // `candidates` only have base index.
-                    return scan.withMaterializedIndexSelected(preAggStatus, baseIndexId);
-                } else {
-                    return scan.withMaterializedIndexSelected(preAggStatus,
-                            selectBestIndex(candidates, scan, predicatesSupplier.get()));
-                }
+                break;
             case DUP_KEYS:
-                // Set pre-aggregation to `on` to keep consistency with legacy logic.
-                List<MaterializedIndex> candidate = scan.getTable().getVisibleIndex().stream()
-                        .filter(index -> !indexHasAggregate(index, scan))
-                        .filter(index -> containAllRequiredColumns(index, scan,
-                                requiredScanOutputSupplier.get()))
-                        .collect(Collectors.toList());
-                return scan.withMaterializedIndexSelected(PreAggStatus.on(),
-                        selectBestIndex(candidate, scan, predicatesSupplier.get()));
+                if (table.getIndexIdToMeta().size() == 1) {
+                    return scan.withMaterializedIndexSelected(PreAggStatus.on(), baseIndexId);
+                }
+                break;
             default:
-                throw new RuntimeException("Not supported keys type: " + scan.getTable().getKeysType());
+                throw new RuntimeException("Not supported keys type: " + keysType);
+        }
+        if (scan.getTable().isDupKeysOrMergeOnWrite()) {
+            // Set pre-aggregation to `on` to keep consistency with legacy logic.
+            List<MaterializedIndex> candidates = scan.getTable().getVisibleIndex().stream()
+                    .filter(index -> !indexHasAggregate(index, scan))
+                    .filter(index -> containAllRequiredColumns(index, scan,
+                            requiredScanOutputSupplier.get()))
+                    .collect(Collectors.toList());
+            long bestIndex = selectBestIndex(candidates, scan, predicatesSupplier.get());
+            if (bestIndex == baseIndexId) {
+                return scan.withMaterializedIndexSelected(PreAggStatus.on(), bestIndex);
+            } else {
+                return createProjectForMv(scan.withMaterializedIndexSelected(PreAggStatus.on(), bestIndex));
+            }
+        } else {
+            final PreAggStatus preAggStatus;
+            if (preAggEnabledByHint(scan)) {
+                // PreAggStatus could be enabled by pre-aggregation hint for agg-keys and unique-keys.
+                preAggStatus = PreAggStatus.on();
+            } else {
+                preAggStatus = PreAggStatus.off("No aggregate on scan.");
+            }
+            if (table.getIndexIdToMeta().size() == 1) {
+                return scan.withMaterializedIndexSelected(preAggStatus, baseIndexId);
+            }
+            int baseIndexKeySize = table.getKeyColumnsByIndexId(table.getBaseIndexId()).size();
+            // No aggregate on scan.
+            // So only base index and indexes that have all the keys could be used.
+            List<MaterializedIndex> candidates = table.getVisibleIndex().stream()
+                    .filter(index -> index.getId() == baseIndexId
+                            || table.getKeyColumnsByIndexId(index.getId()).size() == baseIndexKeySize)
+                    .filter(index -> containAllRequiredColumns(index, scan, requiredScanOutputSupplier.get()))
+                    .collect(Collectors.toList());
+
+            if (candidates.size() == 1) {
+                // `candidates` only have base index.
+                return scan.withMaterializedIndexSelected(preAggStatus, baseIndexId);
+            } else {
+                return createProjectForMv(scan.withMaterializedIndexSelected(preAggStatus,
+                        selectBestIndex(candidates, scan, predicatesSupplier.get())));
+            }
         }
     }
 
@@ -160,5 +182,29 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
         return scan.getTable().getSchemaByIndexId(index.getId())
                 .stream()
                 .anyMatch(Column::isAggregated);
+    }
+
+    private LogicalProject createProjectForMv(LogicalOlapScan scan) {
+        Preconditions.checkArgument(scan.getSelectedIndexId() != scan.getTable().getBaseIndexId());
+        List<Slot> mvSlots = scan.getOutputByMvIndex(scan.getSelectedIndexId());
+        List<Slot> baseSlots = scan.getOutputByMvIndex(scan.getTable().getBaseIndexId());
+        List<Alias> aliases = Lists.newArrayList();
+        List<String> baseColumnNames = mvSlots.stream()
+                .map(slot -> org.apache.doris.analysis.CreateMaterializedViewStmt.mvColumnBreaker(slot.getName()))
+                .collect(Collectors.toList());
+        boolean isMvName = org.apache.doris.analysis.CreateMaterializedViewStmt.isMVColumn(mvSlots.get(0).getName());
+        for (int i = 0; i < baseColumnNames.size(); ++i) {
+            for (Slot slot : baseSlots) {
+                if (((SlotReference) slot).getColumn().get().getName()
+                        .equals(baseColumnNames.get(i))) {
+                    aliases.add(
+                            new Alias(slot.getExprId(), isMvName ? mvSlots.get(i) : slot, baseColumnNames.get(i)));
+                    break;
+                }
+            }
+        }
+        return new LogicalProject(aliases,
+                isMvName ? scan.withOutput(scan.getOutputByMvIndex(scan.getSelectedIndexId()))
+                        : scan);
     }
 }

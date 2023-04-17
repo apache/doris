@@ -78,7 +78,8 @@ contributor([suiteContext]) {
         if (enclosingCall("check") ||
                 (!enclosingCall("test") &&
                         !enclosingCall("explain") &&
-                        !enclosingCall("streamLoad"))) {
+                        !enclosingCall("streamLoad") &&
+                        !enclosingCall("httpTest"))) {
             // bind other suite method and field
             def suiteClass = findClass(suiteClassName)
             delegatesTo(suiteClass)

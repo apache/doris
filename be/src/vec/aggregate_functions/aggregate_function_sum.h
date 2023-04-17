@@ -59,12 +59,7 @@ public:
     AggregateFunctionSum(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionSum<T, TResult, Data>>(
                       argument_types_),
-              scale(0) {}
-
-    AggregateFunctionSum(const IDataType& data_type, const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<Data, AggregateFunctionSum<T, TResult, Data>>(
-                      argument_types_),
-              scale(get_decimal_scale(data_type)) {}
+              scale(get_decimal_scale(*argument_types_[0])) {}
 
     DataTypePtr get_return_type() const override {
         if constexpr (IsDecimalNumber<T>) {
@@ -158,8 +153,19 @@ private:
     UInt32 scale;
 };
 
-AggregateFunctionPtr create_aggregate_function_sum_reader(const std::string& name,
-                                                          const DataTypes& argument_types,
-                                                          const bool result_is_nullable);
+template <typename T, bool level_up>
+struct SumSimple {
+    /// @note It uses slow Decimal128 (cause we need such a variant). sumWithOverflow is faster for Decimal32/64
+    using ResultType = std::conditional_t<level_up, DisposeDecimal<T, NearestFieldType<T>>, T>;
+    using AggregateDataType = AggregateFunctionSumData<ResultType>;
+    using Function = AggregateFunctionSum<T, ResultType, AggregateDataType>;
+};
+
+template <typename T>
+using AggregateFunctionSumSimple = typename SumSimple<T, true>::Function;
+
+// do not level up return type for agg reader
+template <typename T>
+using AggregateFunctionSumSimpleReader = typename SumSimple<T, false>::Function;
 
 } // namespace doris::vectorized

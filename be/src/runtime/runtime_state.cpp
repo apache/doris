@@ -34,7 +34,6 @@
 #include "runtime/load_path_mgr.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_filter_mgr.h"
-#include "util/file_utils.h"
 #include "util/pretty_printer.h"
 #include "util/timezone_utils.h"
 #include "util/uid_util.h"
@@ -140,7 +139,7 @@ RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
         _nano_seconds = 0;
     } else if (!query_globals.now_string.empty()) {
         _timezone = TimezoneUtils::default_time_zone;
-        DateTimeValue dt;
+        vectorized::VecDateTimeValue dt;
         dt.from_date_str(query_globals.now_string.c_str(), query_globals.now_string.size());
         int64_t timestamp;
         dt.unix_timestamp(&timestamp, _timezone);
@@ -196,7 +195,7 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
         _nano_seconds = 0;
     } else if (!query_globals.now_string.empty()) {
         _timezone = TimezoneUtils::default_time_zone;
-        DateTimeValue dt;
+        vectorized::VecDateTimeValue dt;
         dt.from_date_str(query_globals.now_string.c_str(), query_globals.now_string.size());
         int64_t timestamp;
         dt.unix_timestamp(&timestamp, _timezone);
@@ -272,9 +271,17 @@ Status RuntimeState::set_mem_limit_exceeded(const std::string& msg) {
 Status RuntimeState::check_query_state(const std::string& msg) {
     // TODO: it would be nice if this also checked for cancellation, but doing so breaks
     // cases where we use Status::Cancelled("Cancelled") to indicate that the limit was reached.
+    //
+    // If the thread MemTrackerLimiter exceeds the limit, an error status is returned.
+    // Usually used after SCOPED_ATTACH_TASK, during query execution.
     if (thread_context()->thread_mem_tracker()->limit_exceeded() &&
         !config::enable_query_memroy_overcommit) {
-        RETURN_LIMIT_EXCEEDED(this, msg);
+        auto failed_msg = thread_context()->thread_mem_tracker()->query_tracker_limit_exceeded_str(
+                thread_context()->thread_mem_tracker()->tracker_limit_exceeded_str(),
+                thread_context()->thread_mem_tracker_mgr->last_consumer_tracker(), msg);
+        thread_context()->thread_mem_tracker()->print_log_usage(failed_msg);
+        log_error(failed_msg);
+        return Status::MemoryLimitExceeded(failed_msg);
     }
     return query_status();
 }

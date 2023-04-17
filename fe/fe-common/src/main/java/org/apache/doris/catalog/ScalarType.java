@@ -80,6 +80,20 @@ public class ScalarType extends Type {
     public static final int DEFAULT_MIN_AVG_DECIMAL128_SCALE = 4;
     public static final int MAX_DATETIMEV2_SCALE = 6;
 
+    private long byteSize = -1;
+
+
+    /**
+     * Set byte size of expression
+     */
+    public void setByteSize(long byteSize) {
+        this.byteSize = byteSize;
+    }
+
+    public long getByteSize() {
+        return byteSize;
+    }
+
     private static final Logger LOG = LogManager.getLogger(ScalarType.class);
     @SerializedName(value = "type")
     private final PrimitiveType type;
@@ -166,6 +180,8 @@ public class ScalarType extends Type {
                 return BITMAP;
             case QUANTILE_STATE:
                 return QUANTILE_STATE;
+            case LAMBDA_FUNCTION:
+                return LAMBDA_FUNCTION;
             case DATE:
                 return DATE;
             case DATETIME:
@@ -232,6 +248,8 @@ public class ScalarType extends Type {
                 return BITMAP;
             case "QUANTILE_STATE":
                 return QUANTILE_STATE;
+            case "LAMBDA_FUNCTION":
+                return LAMBDA_FUNCTION;
             case "DATE":
                 return DATE;
             case "DATETIME":
@@ -507,14 +525,14 @@ public class ScalarType extends Type {
             return "CHAR(" + len + ")";
         } else  if (type == PrimitiveType.DECIMALV2) {
             if (isWildcardDecimal()) {
-                return "DECIMAL(*,*)";
+                return "DECIMAL(*, *)";
             }
-            return "DECIMAL(" + precision + "," + scale + ")";
+            return "DECIMAL(" + precision + ", " + scale + ")";
         } else  if (type.isDecimalV3Type()) {
             if (isWildcardDecimal()) {
-                return "DECIMALV3(*,*)";
+                return "DECIMALV3(*, *)";
             }
-            return "DECIMALV3(" + precision + "," + scale + ")";
+            return "DECIMALV3(" + precision + ", " + scale + ")";
         } else  if (type == PrimitiveType.DATETIMEV2) {
             return "DATETIMEV2(" + scale + ")";
         } else  if (type == PrimitiveType.TIMEV2) {
@@ -605,6 +623,7 @@ public class ScalarType extends Type {
             case BITMAP:
             case VARIANT:
             case QUANTILE_STATE:
+            case LAMBDA_FUNCTION:
                 stringBuilder.append(type.toString().toLowerCase());
                 break;
             case STRING:
@@ -638,6 +657,7 @@ public class ScalarType extends Type {
         node.setType(TTypeNodeType.SCALAR);
         TScalarType scalarType = new TScalarType();
         scalarType.setType(type.toThrift());
+        container.setByteSize(byteSize);
 
         switch (type) {
             case VARCHAR:
@@ -812,11 +832,11 @@ public class ScalarType extends Type {
         if (type == PrimitiveType.VARCHAR && scalarType.isStringType()) {
             return true;
         }
-        if (isDecimalV2() && scalarType.isWildcardDecimal()) {
+        if (isDecimalV2() && scalarType.isWildcardDecimal() && scalarType.isDecimalV2()) {
             Preconditions.checkState(!isWildcardDecimal());
             return true;
         }
-        if (isDecimalV3() && scalarType.isWildcardDecimal()) {
+        if (isDecimalV3() && scalarType.isWildcardDecimal() && scalarType.isDecimalV3()) {
             Preconditions.checkState(!isWildcardDecimal());
             return true;
         }
@@ -1072,15 +1092,17 @@ public class ScalarType extends Type {
     }
 
     public static ScalarType getAssignmentCompatibleDecimalV2Type(ScalarType t1, ScalarType t2) {
-        int targetPrecision = Math.max(t1.decimalPrecision(), t2.decimalPrecision());
         int targetScale = Math.max(t1.decimalScale(), t2.decimalScale());
+        int targetPrecision = Math.max(t1.decimalPrecision() - t1.decimalScale(), t2.decimalPrecision()
+                - t2.decimalScale()) + targetScale;
         return ScalarType.createDecimalType(PrimitiveType.DECIMALV2,
                 targetPrecision, targetScale);
     }
 
     public static ScalarType getAssignmentCompatibleDecimalV3Type(ScalarType t1, ScalarType t2) {
-        int targetPrecision = Math.max(t1.decimalPrecision(), t2.decimalPrecision());
         int targetScale = Math.max(t1.decimalScale(), t2.decimalScale());
+        int targetPrecision = Math.max(t1.decimalPrecision() - t1.decimalScale(), t2.decimalPrecision()
+                - t2.decimalScale()) + targetScale;
         return ScalarType.createDecimalV3Type(targetPrecision, targetScale);
     }
 

@@ -17,6 +17,7 @@
 
 #include "vec/exec/scan/new_olap_scanner.h"
 
+#include "io/cache/block/block_file_cache_profile.h"
 #include "olap/storage_engine.h"
 #include "vec/exec/scan/new_olap_scan_node.h"
 #include "vec/olap/block_reader.h"
@@ -24,16 +25,29 @@
 namespace doris::vectorized {
 
 NewOlapScanner::NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int64_t limit,
-                               bool aggregation, bool need_agg_finalize, RuntimeProfile* profile)
+                               bool aggregation, const TPaloScanRange& scan_range,
+                               const std::vector<OlapScanRange*>& key_ranges,
+                               const std::vector<RowsetReaderSharedPtr>& rs_readers,
+                               const std::vector<std::pair<int, int>>& rs_reader_seg_offsets,
+                               bool need_agg_finalize, RuntimeProfile* profile)
         : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
           _aggregation(aggregation),
           _need_agg_finalize(need_agg_finalize),
-          _version(-1) {
+          _version(-1),
+          _scan_range(scan_range),
+          _key_ranges(key_ranges) {
+    _tablet_reader_params.rs_readers = rs_readers;
+    _tablet_reader_params.rs_readers_segment_offsets = rs_reader_seg_offsets;
     _tablet_schema = std::make_shared<TabletSchema>();
+    _is_init = false;
 }
 
 static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
                                           const std::vector<uint32_t>& read_columns) {
+    // avoid too long for one line,
+    // it is hard to display in `show profile` stmt if one line is too long.
+    const int col_per_line = 10;
+    int i = 0;
     std::string read_columns_string;
     read_columns_string += "[";
     for (auto it = read_columns.cbegin(); it != read_columns.cend(); it++) {
@@ -41,20 +55,25 @@ static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
             read_columns_string += ", ";
         }
         read_columns_string += tablet_schema->columns().at(*it).name();
+        if (i >= col_per_line) {
+            read_columns_string += "\n";
+            i = 0;
+        } else {
+            ++i;
+        }
     }
     read_columns_string += "]";
     return read_columns_string;
 }
 
-Status NewOlapScanner::prepare(const TPaloScanRange& scan_range,
-                               const std::vector<OlapScanRange*>& key_ranges,
-                               VExprContext** vconjunct_ctx_ptr,
-                               const std::vector<TCondition>& filters,
-                               const FilterPredicates& filter_predicates,
-                               const std::vector<FunctionFilter>& function_filters) {
-    if (vconjunct_ctx_ptr != nullptr) {
-        // Copy vconjunct_ctx_ptr from scan node to this scanner's _vconjunct_ctx.
-        RETURN_IF_ERROR((*vconjunct_ctx_ptr)->clone(_state, &_vconjunct_ctx));
+Status NewOlapScanner::init() {
+    _is_init = true;
+    auto parent = static_cast<NewOlapScanNode*>(_parent);
+    RETURN_IF_ERROR(VScanner::prepare(_state, parent->_vconjunct_ctx_ptr.get()));
+    if (parent->_common_vexpr_ctxs_pushdown != nullptr) {
+        // Copy common_vexpr_ctxs_pushdown from scan node to this scanner's _common_vexpr_ctxs_pushdown, just necessary.
+        RETURN_IF_ERROR((*parent->_common_vexpr_ctxs_pushdown)
+                                ->clone(_state, &_common_vexpr_ctxs_pushdown));
     }
 
     // set limit to reduce end of rowset and segment mem use
@@ -65,17 +84,13 @@ Status NewOlapScanner::prepare(const TPaloScanRange& scan_range,
                     : std::min(static_cast<int64_t>(_state->batch_size()), _parent->limit()));
 
     // Get olap table
-    TTabletId tablet_id = scan_range.tablet_id;
-    _version = strtoul(scan_range.version.c_str(), nullptr, 10);
+    TTabletId tablet_id = _scan_range.tablet_id;
+    _version = strtoul(_scan_range.version.c_str(), nullptr, 10);
     {
-        std::string err;
-        _tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, true, &err);
-        if (_tablet.get() == nullptr) {
-            std::stringstream ss;
-            ss << "failed to get tablet. tablet_id=" << tablet_id << ", reason=" << err;
-            LOG(WARNING) << ss.str();
-            return Status::InternalError(ss.str());
-        }
+        auto [tablet, status] =
+                StorageEngine::instance()->tablet_manager()->get_tablet_and_status(tablet_id, true);
+        RETURN_IF_ERROR(status);
+        _tablet = std::move(tablet);
         _tablet_schema->copy_from(*_tablet->tablet_schema());
 
         TOlapScanNode& olap_scan_node = ((NewOlapScanNode*)_parent)->_olap_scan_node;
@@ -91,8 +106,7 @@ Status NewOlapScanner::prepare(const TPaloScanRange& scan_range,
             }
         }
 
-        if (olap_scan_node.__isset.indexes_desc && !olap_scan_node.indexes_desc.empty() &&
-            olap_scan_node.indexes_desc[0].index_id >= 0) {
+        if (olap_scan_node.__isset.indexes_desc) {
             _tablet_schema->update_indexes_from_thrift(olap_scan_node.indexes_desc);
         }
 
@@ -115,32 +129,35 @@ Status NewOlapScanner::prepare(const TPaloScanRange& scan_range,
 
         {
             std::shared_lock rdlock(_tablet->get_header_lock());
-            const RowsetSharedPtr rowset = _tablet->rowset_with_max_version();
-            if (rowset == nullptr) {
-                std::stringstream ss;
-                ss << "fail to get latest version of tablet: " << tablet_id;
-                LOG(WARNING) << ss.str();
-                return Status::InternalError(ss.str());
-            }
+            if (_tablet_reader_params.rs_readers.empty()) {
+                const RowsetSharedPtr rowset = _tablet->rowset_with_max_version();
+                if (rowset == nullptr) {
+                    std::stringstream ss;
+                    ss << "fail to get latest version of tablet: " << tablet_id;
+                    LOG(WARNING) << ss.str();
+                    return Status::InternalError(ss.str());
+                }
 
-            // acquire tablet rowset readers at the beginning of the scan node
-            // to prevent this case: when there are lots of olap scanners to run for example 10000
-            // the rowsets maybe compacted when the last olap scanner starts
-            Version rd_version(0, _version);
-            Status acquire_reader_st =
-                    _tablet->capture_rs_readers(rd_version, &_tablet_reader_params.rs_readers);
-            if (!acquire_reader_st.ok()) {
-                LOG(WARNING) << "fail to init reader.res=" << acquire_reader_st;
-                std::stringstream ss;
-                ss << "failed to initialize storage reader. tablet=" << _tablet->full_name()
-                   << ", res=" << acquire_reader_st
-                   << ", backend=" << BackendOptions::get_localhost();
-                return Status::InternalError(ss.str());
+                // acquire tablet rowset readers at the beginning of the scan node
+                // to prevent this case: when there are lots of olap scanners to run for example 10000
+                // the rowsets maybe compacted when the last olap scanner starts
+                Version rd_version(0, _version);
+                Status acquire_reader_st =
+                        _tablet->capture_rs_readers(rd_version, &_tablet_reader_params.rs_readers);
+                if (!acquire_reader_st.ok()) {
+                    LOG(WARNING) << "fail to init reader.res=" << acquire_reader_st;
+                    std::stringstream ss;
+                    ss << "failed to initialize storage reader. tablet=" << _tablet->full_name()
+                       << ", res=" << acquire_reader_st
+                       << ", backend=" << BackendOptions::get_localhost();
+                    return Status::InternalError(ss.str());
+                }
             }
 
             // Initialize tablet_reader_params
-            RETURN_IF_ERROR(_init_tablet_reader_params(key_ranges, filters, filter_predicates,
-                                                       function_filters));
+            RETURN_IF_ERROR(_init_tablet_reader_params(_key_ranges, parent->_olap_filters,
+                                                       parent->_filter_predicates,
+                                                       parent->_push_down_functions));
         }
     }
 
@@ -213,8 +230,14 @@ Status NewOlapScanner::_init_tablet_reader_params(
                 real_parent->_olap_scan_node.push_down_agg_type_opt;
     }
     _tablet_reader_params.version = Version(0, _version);
+    // TODO: If a new runtime filter arrives after `_vconjunct_ctx` move to `_common_vexpr_ctxs_pushdown`,
+    // `_vconjunct_ctx` and `_common_vexpr_ctxs_pushdown` will have values at the same time,
+    // and the root() of `_vconjunct_ctx` and `_common_vexpr_ctxs_pushdown` should be merged as `remaining_vconjunct_root`
     _tablet_reader_params.remaining_vconjunct_root =
-            (_vconjunct_ctx == nullptr) ? nullptr : _vconjunct_ctx->root();
+            (_common_vexpr_ctxs_pushdown == nullptr)
+                    ? (_vconjunct_ctx == nullptr ? nullptr : _vconjunct_ctx->root())
+                    : _common_vexpr_ctxs_pushdown->root();
+    _tablet_reader_params.common_vexpr_ctxs_pushdown = _common_vexpr_ctxs_pushdown;
     _tablet_reader_params.output_columns = ((NewOlapScanNode*)_parent)->_maybe_read_column_ids;
 
     // Condition
@@ -329,12 +352,14 @@ Status NewOlapScanner::_init_tablet_reader_params(
         _tablet_reader_params.use_page_cache = true;
     }
 
-    if (_tablet->enable_unique_key_merge_on_write()) {
+    if (_tablet->enable_unique_key_merge_on_write() && !_state->skip_delete_bitmap()) {
         _tablet_reader_params.delete_bitmap = &_tablet->tablet_meta()->delete_bitmap();
     }
 
     if (!_state->skip_storage_engine_merge()) {
         TOlapScanNode& olap_scan_node = ((NewOlapScanNode*)_parent)->_olap_scan_node;
+        // order by table keys optimization for topn
+        // will only read head/tail of data file since it's already sorted by keys
         if (olap_scan_node.__isset.sort_info && olap_scan_node.sort_info.is_asc_order.size() > 0) {
             _limit = _parent->_limit_per_scanner;
             _tablet_reader_params.read_orderby_key = true;
@@ -383,6 +408,21 @@ Status NewOlapScanner::_init_return_columns() {
         return Status::InternalError("failed to build storage scanner, no materialized slot!");
     }
     return Status::OK();
+}
+
+doris::TabletStorageType NewOlapScanner::get_storage_type() {
+    int local_reader = 0;
+    for (const auto& reader : _tablet_reader_params.rs_readers) {
+        local_reader += reader->rowset()->is_local();
+    }
+    int total_reader = _tablet_reader_params.rs_readers.size();
+
+    if (local_reader == total_reader) {
+        return doris::TabletStorageType::STORAGE_TYPE_LOCAL;
+    } else if (local_reader == 0) {
+        return doris::TabletStorageType::STORAGE_TYPE_REMOTE;
+    }
+    return doris::TabletStorageType::STORAGE_TYPE_REMOTE_AND_LOCAL;
 }
 
 Status NewOlapScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
@@ -460,19 +500,26 @@ void NewOlapScanner::_update_counters_before_close() {
     _raw_rows_read += _tablet_reader->mutable_stats()->raw_rows_read;
     COUNTER_UPDATE(olap_parent->_vec_cond_timer, stats.vec_cond_ns);
     COUNTER_UPDATE(olap_parent->_short_cond_timer, stats.short_cond_ns);
+    COUNTER_UPDATE(olap_parent->_expr_filter_timer, stats.expr_filter_ns);
     COUNTER_UPDATE(olap_parent->_block_init_timer, stats.block_init_ns);
     COUNTER_UPDATE(olap_parent->_block_init_seek_timer, stats.block_init_seek_ns);
     COUNTER_UPDATE(olap_parent->_block_init_seek_counter, stats.block_init_seek_num);
     COUNTER_UPDATE(olap_parent->_block_conditions_filtered_timer,
                    stats.block_conditions_filtered_ns);
     COUNTER_UPDATE(olap_parent->_first_read_timer, stats.first_read_ns);
+    COUNTER_UPDATE(olap_parent->_second_read_timer, stats.second_read_ns);
     COUNTER_UPDATE(olap_parent->_first_read_seek_timer, stats.block_first_read_seek_ns);
     COUNTER_UPDATE(olap_parent->_first_read_seek_counter, stats.block_first_read_seek_num);
     COUNTER_UPDATE(olap_parent->_lazy_read_timer, stats.lazy_read_ns);
     COUNTER_UPDATE(olap_parent->_lazy_read_seek_timer, stats.block_lazy_read_seek_ns);
     COUNTER_UPDATE(olap_parent->_lazy_read_seek_counter, stats.block_lazy_read_seek_num);
     COUNTER_UPDATE(olap_parent->_output_col_timer, stats.output_col_ns);
-    COUNTER_UPDATE(olap_parent->_rows_vec_cond_counter, stats.rows_vec_cond_filtered);
+    COUNTER_UPDATE(olap_parent->_rows_vec_cond_filtered_counter, stats.rows_vec_cond_filtered);
+    COUNTER_UPDATE(olap_parent->_rows_short_circuit_cond_filtered_counter,
+                   stats.rows_short_circuit_cond_filtered);
+    COUNTER_UPDATE(olap_parent->_rows_vec_cond_input_counter, stats.vec_cond_input_rows);
+    COUNTER_UPDATE(olap_parent->_rows_short_circuit_cond_input_counter,
+                   stats.short_circuit_cond_input_rows);
 
     COUNTER_UPDATE(olap_parent->_stats_filtered_counter, stats.rows_stats_filtered);
     COUNTER_UPDATE(olap_parent->_bf_filtered_counter, stats.rows_bf_filtered);
@@ -504,8 +551,11 @@ void NewOlapScanner::_update_counters_before_close() {
                    stats.inverted_index_searcher_open_timer);
     COUNTER_UPDATE(olap_parent->_inverted_index_searcher_search_timer,
                    stats.inverted_index_searcher_search_timer);
-    COUNTER_UPDATE(olap_parent->_inverted_index_searcher_bitmap_timer,
-                   stats.inverted_index_searcher_bitmap_timer);
+
+    if (config::enable_file_cache) {
+        io::FileCacheProfileReporter cache_profile(olap_parent->_segment_profile.get());
+        cache_profile.update(&stats.file_cache_stats);
+    }
 
     COUNTER_UPDATE(olap_parent->_output_index_result_column_timer,
                    stats.output_index_result_column_timer);

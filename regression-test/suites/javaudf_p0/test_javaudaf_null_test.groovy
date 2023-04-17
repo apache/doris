@@ -69,8 +69,9 @@ suite("test_javaudaf_null_test") {
         qt_select2 """ select user_id, udaf_null_test_int(user_id) from ${tableName} group by user_id order by user_id; """
 
         qt_select3 """ SELECT udaf_null_test_int(1) result FROM ${tableName}; """
-        sql """ DROP FUNCTION udaf_null_test_int(int); """
+
     } finally {
+        try_sql("DROP FUNCTION IF EXISTS udaf_null_test_int(int);")
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
 }

@@ -53,7 +53,7 @@ tar zxf apache-doris-x.x.x.tar.gz
 cd apache-doris-x.x.x/fe
 ```
 
-修改 FE 配置文件 `conf/fe.conf` ，这里我们主要修改两个参数：`priority_networks` 及 `meta_dir` ，如果你需要更多优化配置，请参考 [FE 参数配置](../admin-manual/config/fe-config)说明，进行调整。
+修改 FE 配置文件 `conf/fe.conf` ，这里我们主要修改两个参数：`priority_networks` 及 `meta_dir` ，如果你需要更多优化配置，请参考 [FE 参数配置](../admin-manual/config/fe-config.md)说明，进行调整。
 
 1. 添加 priority_networks 参数
 
@@ -126,7 +126,7 @@ mysql -uroot -P9030 -h127.0.0.1
 
 >注意：
 >
->1. 这里使用的 root 用户是 doris 内置的默认用户，也是超级管理员用户，具体的用户权限查看 [权限管理](../admin-manual/privilege-ldap/user-privilege)
+>1. 这里使用的 root 用户是 doris 内置的默认用户，也是超级管理员用户，具体的用户权限查看 [权限管理](../admin-manual/privilege-ldap/user-privilege.md)
 >2. -P ：这里是我们连接 Doris 的查询端口，默认端口是 9030，对应的是fe.conf里的 `query_port`
 >3. -h ： 这里是我们连接的 FE IP地址，如果你的客户端和 FE 安装在同一个节点可以使用127.0.0.1，这种也是 Doris 提供的如果你忘记 root 密码，可以通过这种方式不需要密码直接连接登录，进行对 root 密码进行重置
 
@@ -163,6 +163,26 @@ ReplayedJournalId: 49292
 
 1. 如果 IsMaster、Join 和 Alive 三列均为true，则表示节点正常。
 
+#### 加密连接 FE
+
+Doris支持基于SSL的加密连接，当前支持TLS1.2，TLS1.3协议，可以通过以下配置开启Doris的SSL模式：
+修改FE配置文件`conf/fe.conf`，添加`enable_ssl = true`即可。
+
+接下来通过`mysql`客户端连接Doris，mysql支持三种SSL模式：
+
+1.`mysql -uroot -P9030 -h127.0.0.1`与`mysql --ssl-mode=PREFERRED -uroot -P9030 -h127.0.0.1`一样，都是一开始试图建立SSL加密连接，如果失败，则尝试使用普通连接。
+
+2.`mysql --ssl-mode=DISABLE -uroot -P9030 -h127.0.0.1`，不使用SSL加密连接，直接使用普通连接。
+
+3.`mysql --ssl-mode=REQUIRED -uroot -P9030 -h127.0.0.1`，强制使用SSL加密连接。
+
+>注意：
+>`--ssl-mode`参数是mysql5.7.11版本引入的，低于此版本的mysql客户端请参考[这里](https://dev.mysql.com/doc/connector-j/8.0/en/connector-j-connp-props-security.html)。
+
+Doris开启SSL加密连接需要密钥证书文件验证，默认的密钥证书文件位于`Doris/fe/mysql_ssl_default_certificate/certificate.p12`，默认密码为`doris`，您可以通过修改FE配置文件`conf/fe.conf`，添加`mysql_ssl_default_certificate = /path/to/your/certificate`修改密钥证书文件，同时也可以通过`mysql_ssl_default_certificate_password = your_password`添加对应您自定义密钥书文件的密码。
+
+密钥证书文件的生成请参考[密钥证书配置](../admin-manual/certificate.md)。
+
 #### 停止 FE 节点
 
 Doris FE 的停止可以通过下面的命令完成
@@ -179,7 +199,7 @@ Doris FE 的停止可以通过下面的命令完成
 cd apache-doris-x.x.x/be
 ```
 
-修改 BE 配置文件 `conf/be.conf` ，这里我们主要修改两个参数：`priority_networks` 及 `storage_root` ，如果你需要更多优化配置，请参考 [BE 参数配置](../admin-manual/config/be-config)说明，进行调整。
+修改 BE 配置文件 `conf/be.conf` ，这里我们主要修改两个参数：`priority_networks` 及 `storage_root` ，如果你需要更多优化配置，请参考 [BE 参数配置](../admin-manual/config/be-config.md)说明，进行调整。
 
 1. 添加 priority_networks 参数
 

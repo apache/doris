@@ -50,8 +50,8 @@ import org.apache.doris.nereids.trees.expressions.IntegralDivide;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
-import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.ListQuery;
+import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Mod;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -59,11 +59,9 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
-import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.StringRegexPredicate;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.TVFProperties;
@@ -88,7 +86,10 @@ import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -152,7 +153,7 @@ public abstract class ExpressionVisitor<R, C>
         return visit(binaryOperator, context);
     }
 
-    public R visitUinaryOperator(UnaryOperator unaryOperator, C context) {
+    public R visitUnaryOperator(UnaryOperator unaryOperator, C context) {
         return visit(unaryOperator, context);
     }
 
@@ -198,6 +199,10 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitSlotReference(SlotReference slotReference, C context) {
         return visitSlot(slotReference, context);
+    }
+
+    public R visitMarkJoinReference(MarkJoinSlotReference markJoinSlotReference, C context) {
+        return visitSlotReference(markJoinSlotReference, context);
     }
 
     public R visitLiteral(Literal literal, C context) {
@@ -248,6 +253,10 @@ public abstract class ExpressionVisitor<R, C>
         return visitLiteral(decimalLiteral, context);
     }
 
+    public R visitDecimalV3Literal(DecimalV3Literal decimalV3Literal, C context) {
+        return visitLiteral(decimalV3Literal, context);
+    }
+
     public R visitFloatLiteral(FloatLiteral floatLiteral, C context) {
         return visitLiteral(floatLiteral, context);
     }
@@ -260,8 +269,16 @@ public abstract class ExpressionVisitor<R, C>
         return visitLiteral(dateLiteral, context);
     }
 
+    public R visitDateV2Literal(DateV2Literal dateV2Literal, C context) {
+        return visitLiteral(dateV2Literal, context);
+    }
+
     public R visitDateTimeLiteral(DateTimeLiteral dateTimeLiteral, C context) {
         return visitLiteral(dateTimeLiteral, context);
+    }
+
+    public R visitDateTimeV2Literal(DateTimeV2Literal dateTimeV2Literal, C context) {
+        return visitLiteral(dateTimeV2Literal, context);
     }
 
     public R visitArrayLiteral(ArrayLiteral arrayLiteral, C context) {
@@ -284,24 +301,12 @@ public abstract class ExpressionVisitor<R, C>
         return visitCompoundPredicate(or, context);
     }
 
-    public R visitStringRegexPredicate(StringRegexPredicate stringRegexPredicate, C context) {
-        return visit(stringRegexPredicate, context);
-    }
-
-    public R visitLike(Like like, C context) {
-        return visitStringRegexPredicate(like, context);
-    }
-
-    public R visitRegexp(Regexp regexp, C context) {
-        return visitStringRegexPredicate(regexp, context);
-    }
-
     public R visitCast(Cast cast, C context) {
         return visit(cast, context);
     }
 
     public R visitUnaryArithmetic(UnaryArithmetic unaryArithmetic, C context) {
-        return visitUinaryOperator(unaryArithmetic, context);
+        return visitUnaryOperator(unaryArithmetic, context);
     }
 
     public R visitBinaryArithmetic(BinaryArithmetic binaryArithmetic, C context) {

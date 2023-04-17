@@ -17,14 +17,14 @@
 
 package org.apache.doris.nereids.rules;
 
-import org.apache.doris.nereids.pattern.GeneratedPatterns;
+import org.apache.doris.nereids.pattern.Patterns;
 
 import java.util.List;
 
 /**
  * interface for all rule factories for build some rules.
  */
-public interface RuleFactory extends GeneratedPatterns {
+public interface RuleFactory extends Patterns {
     // need implement
     List<Rule> buildRules();
 

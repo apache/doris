@@ -136,6 +136,7 @@ message PTabletWriterAddBlockRequest {
     optional bool is_high_priority = 11 [default = false];
     optional bool write_single_replica = 12 [default = false];
     map<int64, PSlaveTabletNodes> slave_tablet_nodes = 13;
+    optional bool is_single_tablet_block = 14 [default = false];
 };
 
 message PSlaveTabletNodes {
@@ -276,6 +277,7 @@ enum PCacheStatus {
     INVALID_KEY_RANGE = 6;
     DATA_OVERDUE = 7;
     EMPTY_DATA = 8;
+    CANCELED = 9;
 };
 
 enum CacheType {
@@ -384,6 +386,7 @@ message PDataRow {
 message PSendDataRequest {
     required PUniqueId fragment_instance_id = 1;
     repeated PDataRow data = 2;
+    optional PUniqueId load_id = 3; // load_id == query_id in fragment exec
 }
 
 message PSendDataResult {
@@ -392,6 +395,7 @@ message PSendDataResult {
 
 message PCommitRequest {
     required PUniqueId fragment_instance_id = 1;
+    optional PUniqueId load_id = 2;
 }
 
 message PCommitResult {
@@ -400,6 +404,7 @@ message PCommitResult {
 
 message PRollbackRequest {
     required PUniqueId fragment_instance_id = 1;
+    optional PUniqueId load_id = 2;
 }
 
 message PRollbackResult {
@@ -592,6 +597,23 @@ message PMultiGetResponse {
     optional PStatus status = 2;
 };
 
+message PFetchColIdsRequest {
+    message PFetchColIdParam {
+        required int64 indexId = 1;
+        repeated int64 tablet_ids = 2;
+    };
+    repeated PFetchColIdParam params = 1;
+};
+
+message PFetchColIdsResponse {
+    message PFetchColIdsResultEntry {
+        required int64 index_id = 1;
+        map<string, int32> col_name_to_id = 2;
+    };
+    optional PStatus status = 1;
+    repeated PFetchColIdsResultEntry entries = 2;
+};
+
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
     rpc transmit_data_by_http(PEmptyRequest) returns (PTransmitDataResult);
@@ -626,5 +648,6 @@ service PBackendService {
     rpc fetch_table_schema(PFetchTableSchemaRequest) returns (PFetchTableSchemaResult);
     rpc multiget_data(PMultiGetRequest) returns (PMultiGetResponse);
     rpc tablet_fetch_data(PTabletKeyLookupRequest) returns (PTabletKeyLookupResponse);
+    rpc get_column_ids_by_tablet_ids(PFetchColIdsRequest) returns (PFetchColIdsResponse);
 };
 

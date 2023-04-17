@@ -25,7 +25,9 @@
 
 #include "runtime/string_search.hpp"
 #include "util/url_coding.h"
+#include "vec/columns/column_string.h"
 #include "vec/common/pod_array_fwd.h"
+#include "vec/common/string_ref.h"
 #include "vec/functions/function_reverse.h"
 #include "vec/functions/function_string_to_string.h"
 #include "vec/functions/function_totype.h"
@@ -212,10 +214,10 @@ struct StringFunctionImpl {
     using ResultDataType = typename OP::ResultDataType;
     using ResultPaddedPODArray = typename OP::ResultPaddedPODArray;
 
-    static Status vector_vector(const ColumnString::Chars& ldata,
-                                const ColumnString::Offsets& loffsets,
-                                const ColumnString::Chars& rdata,
-                                const ColumnString::Offsets& roffsets, ResultPaddedPODArray& res) {
+    static void vector_vector(const ColumnString::Chars& ldata,
+                              const ColumnString::Offsets& loffsets,
+                              const ColumnString::Chars& rdata,
+                              const ColumnString::Offsets& roffsets, ResultPaddedPODArray& res) {
         DCHECK_EQ(loffsets.size(), roffsets.size());
 
         auto size = loffsets.size();
@@ -232,8 +234,33 @@ struct StringFunctionImpl {
 
             OP::execute(lview, rview, res[i]);
         }
+    }
+    static void vector_scalar(const ColumnString::Chars& ldata,
+                              const ColumnString::Offsets& loffsets, const StringRef& rdata,
+                              ResultPaddedPODArray& res) {
+        auto size = loffsets.size();
+        res.resize(size);
+        std::string_view rview(rdata.data, rdata.size);
+        for (int i = 0; i < size; ++i) {
+            const char* l_raw_str = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
+            int l_str_size = loffsets[i] - loffsets[i - 1];
+            std::string_view lview(l_raw_str, l_str_size);
 
-        return Status::OK();
+            OP::execute(lview, rview, res[i]);
+        }
+    }
+    static void scalar_vector(const StringRef& ldata, const ColumnString::Chars& rdata,
+                              const ColumnString::Offsets& roffsets, ResultPaddedPODArray& res) {
+        auto size = roffsets.size();
+        res.resize(size);
+        std::string_view lview(ldata.data, ldata.size);
+        for (int i = 0; i < size; ++i) {
+            const char* r_raw_str = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
+            int r_str_size = roffsets[i] - roffsets[i - 1];
+            std::string_view rview(r_raw_str, r_str_size);
+
+            OP::execute(lview, rview, res[i]);
+        }
     }
 };
 
@@ -255,8 +282,9 @@ struct TransferImpl {
         }
 
         res_offsets.resize(offset_size);
-        memcpy(res_offsets.data(), offsets.data(),
-               offset_size * sizeof(ColumnString::Offsets::value_type));
+        memcpy_small_allow_read_write_overflow15(
+                res_offsets.data(), offsets.data(),
+                offset_size * sizeof(ColumnString::Offsets::value_type));
 
         size_t data_length = data.size();
         res_data.resize(data_length);
@@ -279,8 +307,9 @@ struct InitcapImpl {
                          ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
         size_t offset_size = offsets.size();
         res_offsets.resize(offsets.size());
-        memcpy(res_offsets.data(), offsets.data(),
-               offset_size * sizeof(ColumnString::Offsets::value_type));
+        memcpy_small_allow_read_write_overflow15(
+                res_offsets.data(), offsets.data(),
+                offset_size * sizeof(ColumnString::Offsets::value_type));
 
         size_t data_length = data.size();
         res_data.resize(data_length);
@@ -328,14 +357,14 @@ struct TrimImpl {
         for (size_t i = 0; i < offset_size; ++i) {
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             ColumnString::Offset size = offsets[i] - offsets[i - 1];
-            StringVal str(raw_str, size);
+            StringRef str(raw_str, size);
             if constexpr (is_ltrim) {
                 str = simd::VStringFunctions::ltrim(str);
             }
             if constexpr (is_rtrim) {
                 str = simd::VStringFunctions::rtrim(str);
             }
-            StringOP::push_value_string(std::string_view((char*)str.ptr, str.len), i, res_data,
+            StringOP::push_value_string(std::string_view((char*)str.data, str.size), i, res_data,
                                         res_offsets);
         }
         return Status::OK();
@@ -580,6 +609,66 @@ struct StringAppendTrailingCharIfAbsent {
                                         res_offsets);
         }
     }
+    static void vector_scalar(FunctionContext* context, const Chars& ldata, const Offsets& loffsets,
+                              const StringRef& rdata, Chars& res_data, Offsets& res_offsets,
+                              NullMap& null_map_data) {
+        size_t input_rows_count = loffsets.size();
+        res_offsets.resize(input_rows_count);
+        fmt::memory_buffer buffer;
+
+        if (rdata.size != 1) {
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                StringOP::push_null_string(i, res_data, res_offsets, null_map_data);
+            }
+            return;
+        }
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            buffer.clear();
+
+            int l_size = loffsets[i] - loffsets[i - 1];
+            const auto l_raw = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
+
+            if (l_raw[l_size - 1] == rdata.data[0]) {
+                StringOP::push_value_string(std::string_view(l_raw, l_size), i, res_data,
+                                            res_offsets);
+                continue;
+            }
+
+            buffer.append(l_raw, l_raw + l_size);
+            buffer.append(rdata.begin(), rdata.end());
+            StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i, res_data,
+                                        res_offsets);
+        }
+    }
+    static void scalar_vector(FunctionContext* context, const StringRef& ldata, const Chars& rdata,
+                              const Offsets& roffsets, Chars& res_data, Offsets& res_offsets,
+                              NullMap& null_map_data) {
+        size_t input_rows_count = roffsets.size();
+        res_offsets.resize(input_rows_count);
+        fmt::memory_buffer buffer;
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            buffer.clear();
+
+            int r_size = roffsets[i] - roffsets[i - 1];
+            const auto r_raw = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
+
+            if (r_size != 1) {
+                StringOP::push_null_string(i, res_data, res_offsets, null_map_data);
+                continue;
+            }
+            if (ldata.size == 0 || ldata.back() == r_raw[0]) {
+                StringOP::push_value_string(ldata.to_string_view(), i, res_data, res_offsets);
+                continue;
+            }
+
+            buffer.append(ldata.begin(), ldata.end());
+            buffer.append(r_raw, r_raw + 1);
+            StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i, res_data,
+                                        res_offsets);
+        }
+    }
 };
 
 struct StringLPad {
@@ -623,8 +712,6 @@ using FunctionStringLocate =
 using FunctionStringFindInSet =
         FunctionBinaryToType<DataTypeString, DataTypeString, StringFindInSetImpl, NameFindInSet>;
 
-using FunctionUnHex = FunctionStringOperateToNullType<UnHexImpl>;
-
 using FunctionToLower = FunctionStringToString<TransferImpl<NameToLower>, NameToLower>;
 
 using FunctionToUpper = FunctionStringToString<TransferImpl<NameToUpper>, NameToUpper>;
@@ -637,8 +724,8 @@ using FunctionRTrim = FunctionStringToString<TrimImpl<false, true>, NameRTrim>;
 
 using FunctionTrim = FunctionStringToString<TrimImpl<true, true>, NameTrim>;
 
+using FunctionUnHex = FunctionStringOperateToNullType<UnHexImpl>;
 using FunctionToBase64 = FunctionStringOperateToNullType<ToBase64Impl>;
-
 using FunctionFromBase64 = FunctionStringOperateToNullType<FromBase64Impl>;
 
 using FunctionStringAppendTrailingCharIfAbsent =

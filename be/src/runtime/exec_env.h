@@ -40,7 +40,6 @@ class BrokerMgr;
 template <class T>
 class BrpcClientCache;
 
-class CgroupsMgr;
 class DataStreamMgr;
 class EvHttpServer;
 class ExternalScanContextMgr;
@@ -57,7 +56,6 @@ class ResultBufferMgr;
 class ResultQueueMgr;
 class TMasterInfo;
 class LoadChannelMgr;
-class TmpFileMgr;
 class WebPageHandler;
 class StreamLoadExecutor;
 class RoutineLoadTaskExecutor;
@@ -111,10 +109,13 @@ public:
     ClientCache<TPaloBrokerServiceClient>* broker_client_cache() { return _broker_client_cache; }
 
     pipeline::TaskScheduler* pipeline_task_scheduler() { return _pipeline_task_scheduler; }
+    pipeline::TaskScheduler* pipeline_task_group_scheduler() {
+        return _pipeline_task_group_scheduler;
+    }
 
     // using template to simplify client cache management
     template <typename T>
-    ClientCache<T>* get_client_cache() {
+    inline ClientCache<T>* get_client_cache() {
         return nullptr;
     }
 
@@ -122,8 +123,16 @@ public:
     std::shared_ptr<MemTrackerLimiter> orphan_mem_tracker() { return _orphan_mem_tracker; }
     MemTrackerLimiter* orphan_mem_tracker_raw() { return _orphan_mem_tracker_raw; }
     MemTrackerLimiter* experimental_mem_tracker() { return _experimental_mem_tracker.get(); }
+    MemTracker* page_no_cache_mem_tracker() { return _page_no_cache_mem_tracker.get(); }
+
     ThreadPool* send_batch_thread_pool() { return _send_batch_thread_pool.get(); }
     ThreadPool* download_cache_thread_pool() { return _download_cache_thread_pool.get(); }
+    ThreadPool* buffered_reader_prefetch_thread_pool() {
+        return _buffered_reader_prefetch_thread_pool.get();
+    }
+    ThreadPool* send_report_thread_pool() { return _send_report_thread_pool.get(); }
+    ThreadPool* join_node_thread_pool() { return _join_node_thread_pool.get(); }
+
     void set_serial_download_cache_thread_token() {
         _serial_download_cache_thread_token =
                 download_cache_thread_pool()->new_token(ThreadPool::ExecutionMode::SERIAL, 1);
@@ -140,12 +149,10 @@ public:
         }
         return _download_cache_buf_map[token].get();
     }
-    CgroupsMgr* cgroups_mgr() { return _cgroups_mgr; }
     FragmentMgr* fragment_mgr() { return _fragment_mgr; }
     ResultCache* result_cache() { return _result_cache; }
     TMasterInfo* master_info() { return _master_info; }
     LoadPathMgr* load_path_mgr() { return _load_path_mgr; }
-    TmpFileMgr* tmp_file_mgr() { return _tmp_file_mgr; }
     BfdParser* bfd_parser() const { return _bfd_parser; }
     BrokerMgr* broker_mgr() const { return _broker_mgr; }
     BrpcClientCache<PBackendService_Stub>* brpc_internal_client_cache() const {
@@ -208,22 +215,30 @@ private:
     std::shared_ptr<MemTrackerLimiter> _orphan_mem_tracker;
     MemTrackerLimiter* _orphan_mem_tracker_raw;
     std::shared_ptr<MemTrackerLimiter> _experimental_mem_tracker;
+    // page size not in cache, data page/index page/etc.
+    std::shared_ptr<MemTracker> _page_no_cache_mem_tracker;
 
     std::unique_ptr<ThreadPool> _send_batch_thread_pool;
 
     // Threadpool used to download cache from remote storage
     std::unique_ptr<ThreadPool> _download_cache_thread_pool;
+    // Threadpool used to prefetch remote file for buffered reader
+    std::unique_ptr<ThreadPool> _buffered_reader_prefetch_thread_pool;
     // A token used to submit download cache task serially
     std::unique_ptr<ThreadPoolToken> _serial_download_cache_thread_token;
+    // Pool used by fragment manager to send profile or status to FE coordinator
+    std::unique_ptr<ThreadPool> _send_report_thread_pool;
+    // Pool used by join node to build hash table
+    std::unique_ptr<ThreadPool> _join_node_thread_pool;
     // ThreadPoolToken -> buffer
     std::unordered_map<ThreadPoolToken*, std::unique_ptr<char[]>> _download_cache_buf_map;
-    CgroupsMgr* _cgroups_mgr = nullptr;
     FragmentMgr* _fragment_mgr = nullptr;
     pipeline::TaskScheduler* _pipeline_task_scheduler = nullptr;
+    pipeline::TaskScheduler* _pipeline_task_group_scheduler = nullptr;
+
     ResultCache* _result_cache = nullptr;
     TMasterInfo* _master_info = nullptr;
     LoadPathMgr* _load_path_mgr = nullptr;
-    TmpFileMgr* _tmp_file_mgr = nullptr;
 
     BfdParser* _bfd_parser = nullptr;
     BrokerMgr* _broker_mgr = nullptr;

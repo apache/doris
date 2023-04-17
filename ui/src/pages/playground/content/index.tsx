@@ -59,7 +59,7 @@ export function AdHocContent(props: any) {
         () =>
             AdHocAPI.doQuery({
                 db_name:getDbName().db_name,
-                body:{stmt:code},
+                body:{stmt:getCodeSql()},
             }),
         {
             manual: true,
@@ -67,12 +67,12 @@ export function AdHocContent(props: any) {
                 // const endTime = getTimeNow();
                 const {db_name, tbl_name} = getDbName();
                 if (isSuccess(res)) {
-                    res.sqlCode = code;
+                    res.sqlCode = getCodeSql();
                     res = {...res, db_name, tbl_name}
                     props.history.push({pathname:`/Playground/result/${db_name}-${tbl_name}`,state: res});
                     runSQLSuccessSubject.next(true);
                 } else {
-                    res.sqlCode = code;
+                    res.sqlCode = getCodeSql();
                     res = {...res, db_name, tbl_name}
                     props.history.push({pathname:`/Playground/result/${db_name}-${tbl_name}`,state: res});
                     runSQLSuccessSubject.next(false);
@@ -92,6 +92,14 @@ export function AdHocContent(props: any) {
         });
         return () => subscription.unsubscribe();
     }, []);
+
+    const getCodeSql = () => {
+        const sqlCodeSelection = editorInstance.getSelection();
+        if (sqlCodeSelection != "") {
+            return sqlCodeSelection;
+        }
+        return code;
+    };
 
     const handleChange = (_editor, _data, value) => {
         setCode(value);

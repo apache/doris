@@ -24,7 +24,7 @@
 
 namespace doris {
 
-Status KafkaDataConsumerGroup::assign_topic_partitions(StreamLoadContext* ctx) {
+Status KafkaDataConsumerGroup::assign_topic_partitions(std::shared_ptr<StreamLoadContext> ctx) {
     DCHECK(ctx->kafka_info);
     DCHECK(_consumers.size() >= 1);
 
@@ -63,7 +63,7 @@ KafkaDataConsumerGroup::~KafkaDataConsumerGroup() {
     DCHECK(_queue.get_size() == 0);
 }
 
-Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
+Status KafkaDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx) {
     Status result_st = Status::OK();
     // start all consumers
     for (auto& consumer : _consumers) {

@@ -53,6 +53,7 @@ Doris provides a variety of data import solutions, and you can choose different 
 | Binlog Load        | [collect Mysql Binlog import data](./import-way/binlog-load-manual.md) |
 | Insert Into        | [External table imports data through INSERT](./import-way/insert-into-manual.md) |
 | S3 Load            | [Object storage data import of S3 protocol](./import-way/s3-load-manual.md) |
+| MySql Load         | [Local data import of MySql protocol](./import-way/mysql-load-manual.md) |
 
 ## Supported data formats
 
@@ -63,6 +64,7 @@ Different import methods support slightly different data formats.
 | Broker Load    | parquet, orc, csv, gzip |
 | Stream Load    | csv, json, parquet, orc |
 | Routine Load   | csv, json               |
+| MySql Load     | csv                     |
 
 ## import instructions
 

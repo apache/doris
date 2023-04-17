@@ -18,6 +18,7 @@
 #include "service/backend_options.h"
 
 #include <algorithm>
+#include <ostream>
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -86,7 +87,7 @@ bool BackendOptions::init() {
     return true;
 }
 
-std::string BackendOptions::get_localhost() {
+const std::string& BackendOptions::get_localhost() {
     return _s_localhost;
 }
 

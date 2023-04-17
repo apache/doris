@@ -24,7 +24,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import java.util.List;
 import java.util.Optional;
@@ -49,10 +49,10 @@ public class PhysicalExcept extends PhysicalSetOperation {
 
     public PhysicalExcept(Qualifier qualifier, Optional<GroupExpression> groupExpression,
                           LogicalProperties logicalProperties,
-                          PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult,
+                          PhysicalProperties physicalProperties, Statistics statistics,
                           List<Plan> inputs) {
         super(PlanType.PHYSICAL_EXCEPT, qualifier,
-                groupExpression, logicalProperties, physicalProperties, statsDeriveResult, inputs);
+                groupExpression, logicalProperties, physicalProperties, statistics, inputs);
     }
 
     @Override
@@ -64,7 +64,7 @@ public class PhysicalExcept extends PhysicalSetOperation {
     public String toString() {
         return Utils.toSqlString("PhysicalExcept",
                 "qualifier", qualifier,
-                "stats", statsDeriveResult);
+                "stats", statistics);
     }
 
     @Override
@@ -86,8 +86,8 @@ public class PhysicalExcept extends PhysicalSetOperation {
 
     @Override
     public PhysicalExcept withPhysicalPropertiesAndStats(
-            PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult) {
+            PhysicalProperties physicalProperties, Statistics statistics) {
         return new PhysicalExcept(qualifier, Optional.empty(),
-                getLogicalProperties(), physicalProperties, statsDeriveResult, children);
+                getLogicalProperties(), physicalProperties, statistics, children);
     }
 }

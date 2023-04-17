@@ -55,6 +55,7 @@ public class GroupConcat extends NullableAggregateFunction
     public GroupConcat(boolean distinct, boolean alwaysNullable, Expression arg, OrderExpression... orders) {
         super("group_concat", distinct, alwaysNullable, ExpressionUtils.mergeArguments(arg, orders));
         this.nonOrderArguments = 1;
+        checkArguments();
     }
 
     /**
@@ -78,6 +79,7 @@ public class GroupConcat extends NullableAggregateFunction
             Expression arg0, Expression arg1, OrderExpression... orders) {
         super("group_concat", distinct, alwaysNullable, ExpressionUtils.mergeArguments(arg0, arg1, orders));
         this.nonOrderArguments = 2;
+        checkArguments();
     }
 
     /**
@@ -100,6 +102,13 @@ public class GroupConcat extends NullableAggregateFunction
     public GroupConcat(boolean distinct, boolean alwaysNullable, int nonOrderArguments, List<Expression> args) {
         super("group_concat", distinct, alwaysNullable, args);
         this.nonOrderArguments = nonOrderArguments;
+        checkArguments();
+    }
+
+    @Override
+    public boolean nullable() {
+        return alwaysNullable || children().stream()
+                .anyMatch(expression -> !(expression instanceof OrderExpression) && expression.nullable());
     }
 
     @Override
@@ -163,5 +172,20 @@ public class GroupConcat extends NullableAggregateFunction
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
+    }
+
+    public MultiDistinctGroupConcat convertToMultiDistinct() {
+        Preconditions.checkArgument(distinct,
+                "can't convert to multi_distinct_group_concat because there is no distinct args");
+        return new MultiDistinctGroupConcat(alwaysNullable, nonOrderArguments, children);
+    }
+
+    // TODO: because of current be's limitation, we have to thow exception for now
+    // remove this after be support new method of multi distinct functions
+    private void checkArguments() {
+        if (isDistinct() && children().stream().anyMatch(expression -> expression instanceof OrderExpression)) {
+            throw new AnalysisException(
+                    "group_concat don't support using distinct with order by together");
+        }
     }
 }

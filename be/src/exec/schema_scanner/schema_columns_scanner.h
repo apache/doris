@@ -17,12 +17,19 @@
 
 #pragma once
 
-#include <string>
+#include <gen_cpp/FrontendService_types.h>
 
+#include <string>
+#include <vector>
+
+#include "common/status.h"
 #include "exec/schema_scanner.h"
-#include "gen_cpp/FrontendService_types.h"
 
 namespace doris {
+class RuntimeState;
+namespace vectorized {
+class Block;
+} // namespace vectorized
 
 class SchemaColumnsScanner : public SchemaScanner {
 public:
@@ -43,7 +50,7 @@ private:
     int _table_index;
     TGetDbsResult _db_result;
     TGetTablesResult _table_result;
-    TDescribeTableResult _desc_result;
+    TDescribeTablesResult _desc_result;
     static std::vector<SchemaScanner::ColumnDesc> _s_col_columns;
 };
 

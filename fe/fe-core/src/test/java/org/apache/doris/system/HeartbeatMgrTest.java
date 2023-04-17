@@ -20,11 +20,11 @@ package org.apache.doris.system;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.GenericPool;
-import org.apache.doris.common.Pair;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.system.HeartbeatMgr.BrokerHeartbeatHandler;
 import org.apache.doris.system.HeartbeatMgr.FrontendHeartbeatHandler;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
+import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TBrokerOperationStatus;
 import org.apache.doris.thrift.TBrokerOperationStatusCode;
@@ -55,7 +55,7 @@ public class HeartbeatMgrTest {
             {
                 env.getSelfNode();
                 minTimes = 0;
-                result = Pair.of("192.168.1.3", 9010); // not self
+                result = new HostInfo("192.168.1.3", null, 9010); // not self
 
                 env.isReady();
                 minTimes = 0;

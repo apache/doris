@@ -47,6 +47,8 @@ import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.BetweenToCompoundRule;
 import org.apache.doris.rewrite.CompoundPredicateWriteRule;
+import org.apache.doris.rewrite.EliminateUnnecessaryFunctions;
+import org.apache.doris.rewrite.EraseRedundantCastExpr;
 import org.apache.doris.rewrite.ExprRewriteRule;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.ExtractCommonFactorsRule;
@@ -68,6 +70,7 @@ import org.apache.doris.rewrite.mvrewrite.ExprToSlotRefRule;
 import org.apache.doris.rewrite.mvrewrite.HLLHashToSlotRefRule;
 import org.apache.doris.rewrite.mvrewrite.NDVToHll;
 import org.apache.doris.rewrite.mvrewrite.ToBitmapToSlotRefRule;
+import org.apache.doris.thrift.TPipelineResourceGroup;
 import org.apache.doris.thrift.TQueryGlobals;
 
 import com.google.common.base.Joiner;
@@ -154,6 +157,7 @@ public class Analyzer {
 
     // Flag indicating if this analyzer instance belongs to a subquery.
     private boolean isSubquery = false;
+    private boolean isFirstScopeInSubquery = false;
     // Flag indicating if this analyzer instance belongs to an inlineview.
     private boolean isInlineView = false;
 
@@ -178,6 +182,7 @@ public class Analyzer {
 
     public void setIsSubquery() {
         isSubquery = true;
+        isFirstScopeInSubquery = true;
         globalState.containsSubquery = true;
     }
 
@@ -397,6 +402,10 @@ public class Analyzer {
 
         private final Set<TupleId> markTupleIdsNotProcessed = Sets.newHashSet();
 
+        private final Map<InlineViewRef, Set<Expr>> migrateFailedConjuncts = Maps.newHashMap();
+
+        public List<TPipelineResourceGroup> tResourceGroups;
+
         public GlobalState(Env env, ConnectContext context) {
             this.env = env;
             this.context = context;
@@ -413,6 +422,7 @@ public class Analyzer {
             rules.add(RewriteImplicitCastRule.INSTANCE);
             rules.add(RoundLiteralInBinaryPredicatesRule.INSTANCE);
             rules.add(FoldConstantsRule.INSTANCE);
+            rules.add(EraseRedundantCastExpr.INSTANCE);
             rules.add(RewriteFromUnixTimeRule.INSTANCE);
             rules.add(CompoundPredicateWriteRule.INSTANCE);
             rules.add(RewriteDateLiteralRule.INSTANCE);
@@ -420,6 +430,7 @@ public class Analyzer {
             rules.add(RewriteInPredicateRule.INSTANCE);
             rules.add(RewriteAliasFunctionRule.INSTANCE);
             rules.add(MatchPredicateRule.INSTANCE);
+            rules.add(EliminateUnnecessaryFunctions.INSTANCE);
             List<ExprRewriteRule> onceRules = Lists.newArrayList();
             onceRules.add(ExtractCommonFactorsRule.INSTANCE);
             onceRules.add(InferFiltersRule.INSTANCE);
@@ -572,6 +583,14 @@ public class Analyzer {
 
     public String getExplicitViewAlias() {
         return explicitViewAlias;
+    }
+
+    public void setResourceGroups(List<TPipelineResourceGroup> tResourceGroups) {
+        globalState.tResourceGroups = tResourceGroups;
+    }
+
+    public List<TPipelineResourceGroup> getResourceGroups() {
+        return globalState.tResourceGroups;
     }
 
     /**
@@ -889,7 +908,7 @@ public class Analyzer {
          * This column could not be resolved because doris can only resolved the parent column instead of grandpa.
          * The exception to this query like that: Unknown column 'k1' in 'a'
          */
-        if (d == null && hasAncestors() && isSubquery) {
+        if (d == null && hasAncestors() && isSubquery && isFirstScopeInSubquery) {
             // analyzer father for subquery
             if (newTblName == null) {
                 d = getParentAnalyzer().resolveColumnRef(colName);
@@ -1189,7 +1208,7 @@ public class Analyzer {
                     registerConstantConjunct(id, conjunct);
                 }
             }
-            markConstantConjunct(conjunct, fromHavingClause);
+            markConstantConjunct(conjunct, fromHavingClause, false);
         }
     }
 
@@ -1202,6 +1221,16 @@ public class Analyzer {
             }
             set.add(e);
         }
+    }
+
+    public void registerMigrateFailedConjuncts(InlineViewRef ref, Expr e) throws AnalysisException {
+        markConstantConjunct(e, false, false);
+        Set<Expr> exprSet = globalState.migrateFailedConjuncts.computeIfAbsent(ref, (k) -> new HashSet<>());
+        exprSet.add(e);
+    }
+
+    public Set<Expr> findMigrateFailedConjuncts(InlineViewRef inlineViewRef) {
+        return globalState.migrateFailedConjuncts.get(inlineViewRef);
     }
 
     /**
@@ -1360,7 +1389,8 @@ public class Analyzer {
                     && !e.isAuxExpr()
                     && !globalState.assignedConjuncts.contains(e.getId())
                     && ((inclOjConjuncts && !e.isConstant())
-                    || !globalState.ojClauseByConjunct.containsKey(e.getId()))) {
+                    || (!globalState.ojClauseByConjunct.containsKey(e.getId())
+                    && !globalState.sjClauseByConjunct.containsKey(e.getId())))) {
                 result.add(e);
             }
         }
@@ -1807,7 +1837,7 @@ public class Analyzer {
             if (rhsRef.getJoinOp().isInnerJoin()) {
                 globalState.ijClauseByConjunct.put(conjunct.getId(), rhsRef);
             }
-            markConstantConjunct(conjunct, false);
+            markConstantConjunct(conjunct, false, true);
         }
     }
 
@@ -1819,9 +1849,9 @@ public class Analyzer {
      * No-op if the conjunct is not constant or is outer joined.
      * Throws an AnalysisException if there is an error evaluating `conjunct`
      */
-    private void markConstantConjunct(Expr conjunct, boolean fromHavingClause)
+    private void markConstantConjunct(Expr conjunct, boolean fromHavingClause, boolean join)
             throws AnalysisException {
-        if (!conjunct.isConstant() || isOjConjunct(conjunct)) {
+        if (!conjunct.isConstant() || isOjConjunct(conjunct) || join) {
             return;
         }
         if ((!fromHavingClause && !hasEmptySpjResultSet)
@@ -1837,7 +1867,8 @@ public class Analyzer {
                     // aliases and having it analyzed is needed for the following EvalPredicate() call
                     conjunct.analyze(this);
                 }
-                final Expr newConjunct = conjunct.getResultValue();
+                Expr newConjunct = conjunct.getResultValue(true);
+                newConjunct = FoldConstantsRule.INSTANCE.apply(newConjunct, this, null);
                 if (newConjunct instanceof BoolLiteral || newConjunct instanceof NullLiteral) {
                     boolean evalResult = true;
                     if (newConjunct instanceof BoolLiteral) {
@@ -2403,7 +2434,7 @@ public class Analyzer {
 
         if (tids.size() > 1 || globalState.ojClauseByConjunct.containsKey(e.getId())
                 || globalState.outerJoinedTupleIds.containsKey(e.getId()) && whereClauseConjuncts.contains(e.getId())
-                ||  globalState.conjunctsByOjClause.containsKey(e.getId())) {
+                || globalState.conjunctsByOjClause.containsKey(e.getId())) {
             return true;
         }
 

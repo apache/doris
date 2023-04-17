@@ -17,12 +17,16 @@
 
 #include "olap/delta_writer.h"
 
+#include "common/status.h"
 #include "exec/tablet_info.h"
 #include "olap/data_dir.h"
 #include "olap/memtable.h"
 #include "olap/memtable_flush_executor.h"
+#include "olap/rowset/beta_rowset.h"
+#include "olap/rowset/beta_rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/schema.h"
+#include "olap/schema_change.h"
 #include "olap/storage_engine.h"
 #include "runtime/load_channel_mgr.h"
 #include "service/backend_options.h"
@@ -156,8 +160,13 @@ Status DeltaWriter::init() {
     return Status::OK();
 }
 
-Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>& row_idxs) {
-    if (UNLIKELY(row_idxs.empty())) {
+Status DeltaWriter::append(const vectorized::Block* block) {
+    return write(block, {}, true);
+}
+
+Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>& row_idxs,
+                          bool is_append) {
+    if (UNLIKELY(row_idxs.empty() && !is_append)) {
         return Status::OK();
     }
     std::lock_guard<std::mutex> l(_lock);
@@ -175,8 +184,12 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
         return Status::Error<ALREADY_CLOSED>();
     }
 
-    _total_received_rows += row_idxs.size();
-    _mem_table->insert(block, row_idxs);
+    if (is_append) {
+        _total_received_rows += block->rows();
+    } else {
+        _total_received_rows += row_idxs.size();
+    }
+    _mem_table->insert(block, row_idxs, is_append);
 
     if (UNLIKELY(_mem_table->need_agg())) {
         _mem_table->shrink_memtable_by_agg();
@@ -315,12 +328,16 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
     if (_is_cancelled) {
         return _cancel_status;
     }
+
+    MonotonicStopWatch timer;
+    timer.start();
     // return error if previous flush failed
     auto st = _flush_token->wait();
     if (UNLIKELY(!st.ok())) {
         LOG(WARNING) << "previous flush failed tablet " << _tablet->tablet_id();
         return st;
     }
+    uint64_t wait_time_ns = timer.elapsed_time();
 
     _mem_table.reset();
 
@@ -344,16 +361,31 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
         return res;
     }
     if (_tablet->enable_unique_key_merge_on_write()) {
+        auto beta_rowset = reinterpret_cast<BetaRowset*>(_cur_rowset.get());
+        std::vector<segment_v2::SegmentSharedPtr> segments;
+        RETURN_IF_ERROR(beta_rowset->load_segments(&segments));
+        // tablet is under alter process. The delete bitmap will be calculated after conversion.
+        if (_tablet->tablet_state() == TABLET_NOTREADY &&
+            SchemaChangeHandler::tablet_in_converting(_tablet->tablet_id())) {
+            return Status::OK();
+        }
+        RETURN_IF_ERROR(_tablet->calc_delete_bitmap(beta_rowset->rowset_id(), segments, nullptr,
+                                                    _delete_bitmap, _cur_max_version, true));
         _storage_engine->txn_manager()->set_txn_related_delete_bitmap(
                 _req.partition_id, _req.txn_id, _tablet->tablet_id(), _tablet->schema_hash(),
-                _tablet->tablet_uid(), true, _delete_bitmap, _rowset_ids);
+                _tablet->tablet_uid(), true, _delete_bitmap, _rowset_ids,
+                dynamic_cast<BetaRowsetWriter*>(_rowset_writer.get())->get_num_mow_keys());
     }
 
     _delta_written_success = true;
 
     const FlushStatistic& stat = _flush_token->get_stats();
-    VLOG_CRITICAL << "close delta writer for tablet: " << _tablet->tablet_id()
-                  << ", load id: " << print_id(_req.load_id) << ", stats: " << stat;
+    // print slow log if wait more than 1s
+    if (wait_time_ns > 1000UL * 1000 * 1000) {
+        LOG(INFO) << "close delta writer for tablet: " << _tablet->tablet_id()
+                  << ", load id: " << print_id(_req.load_id) << ", wait close for " << wait_time_ns
+                  << "(ns), stats: " << stat;
+    }
 
     if (write_single_replica) {
         for (auto node_info : slave_tablet_nodes.slave_nodes()) {
@@ -387,6 +419,9 @@ Status DeltaWriter::cancel_with_status(const Status& st) {
     std::lock_guard<std::mutex> l(_lock);
     if (_is_cancelled) {
         return Status::OK();
+    }
+    if (_rowset_writer && _rowset_writer->is_doing_segcompaction()) {
+        _rowset_writer->wait_flying_segcompaction(); /* already cancel, ignore the return status */
     }
     _mem_table.reset();
     if (_flush_token != nullptr) {

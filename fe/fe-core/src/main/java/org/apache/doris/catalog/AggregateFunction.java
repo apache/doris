@@ -50,6 +50,7 @@ public class AggregateFunction extends Function {
             "dense_rank", "multi_distinct_count", "multi_distinct_sum", FunctionSet.HLL_UNION_AGG,
             FunctionSet.HLL_UNION, FunctionSet.BITMAP_UNION, FunctionSet.BITMAP_INTERSECT,
             FunctionSet.ORTHOGONAL_BITMAP_INTERSECT, FunctionSet.ORTHOGONAL_BITMAP_INTERSECT_COUNT,
+            FunctionSet.ORTHOGONAL_BITMAP_EXPR_CALCULATE_COUNT, FunctionSet.ORTHOGONAL_BITMAP_EXPR_CALCULATE,
             FunctionSet.INTERSECT_COUNT, FunctionSet.ORTHOGONAL_BITMAP_UNION_COUNT,
             FunctionSet.COUNT, "approx_count_distinct", "ndv", FunctionSet.BITMAP_UNION_INT,
             FunctionSet.BITMAP_UNION_COUNT, "ndv_no_finalize", FunctionSet.WINDOW_FUNNEL, FunctionSet.RETENTION,
@@ -57,6 +58,9 @@ public class AggregateFunction extends Function {
 
     public static ImmutableSet<String> ALWAYS_NULLABLE_AGGREGATE_FUNCTION_NAME_SET =
             ImmutableSet.of("stddev_samp", "variance_samp", "var_samp", "percentile_approx");
+
+    public static ImmutableSet<String> CUSTOM_AGGREGATE_FUNCTION_NAME_SET =
+            ImmutableSet.of("group_concat");
 
     public static ImmutableSet<String> SUPPORT_ORDER_BY_AGGREGATE_FUNCTION_NAME_SET = ImmutableSet.of("group_concat");
 
@@ -98,7 +102,7 @@ public class AggregateFunction extends Function {
     // empty input in BE).
     private boolean returnsNonNullOnEmpty;
 
-    //use for java-udaf to point the class of user define
+    // use for java-udaf to point the class of user define
     private String symbolName;
 
     // only used for serialization
@@ -150,26 +154,28 @@ public class AggregateFunction extends Function {
     }
 
     public AggregateFunction(FunctionName fnName, List<Type> argTypes,
-                             Type retType, Type intermediateType,
-                             URI location, String updateFnSymbol, String initFnSymbol,
-                             String serializeFnSymbol, String mergeFnSymbol, String getValueFnSymbol,
-                             String removeFnSymbol, String finalizeFnSymbol, boolean vectorized) {
+            Type retType, Type intermediateType,
+            URI location, String updateFnSymbol, String initFnSymbol,
+            String serializeFnSymbol, String mergeFnSymbol, String getValueFnSymbol,
+            String removeFnSymbol, String finalizeFnSymbol, boolean vectorized) {
         this(fnName, argTypes, retType, intermediateType, false, location,
                 updateFnSymbol, initFnSymbol, serializeFnSymbol,
                 mergeFnSymbol, getValueFnSymbol, removeFnSymbol, finalizeFnSymbol, vectorized);
     }
 
     public AggregateFunction(FunctionName fnName, List<Type> argTypes,
-                             Type retType, Type intermediateType, boolean hasVarArgs,
-                             URI location, String updateFnSymbol, String initFnSymbol,
-                             String serializeFnSymbol, String mergeFnSymbol, String getValueFnSymbol,
-                             String removeFnSymbol, String finalizeFnSymbol, boolean vectorized) {
+            Type retType, Type intermediateType, boolean hasVarArgs,
+            URI location, String updateFnSymbol, String initFnSymbol,
+            String serializeFnSymbol, String mergeFnSymbol, String getValueFnSymbol,
+            String removeFnSymbol, String finalizeFnSymbol, boolean vectorized) {
         // only `count` is always not nullable, other aggregate function is always nullable
         super(fnName, argTypes, retType, hasVarArgs, vectorized,
                 AggregateFunction.NOT_NULLABLE_AGGREGATE_FUNCTION_NAME_SET.contains(fnName.getFunction())
                         ? NullableMode.ALWAYS_NOT_NULLABLE :
-                AggregateFunction.ALWAYS_NULLABLE_AGGREGATE_FUNCTION_NAME_SET.contains(fnName.getFunction())
-                        ? NullableMode.ALWAYS_NULLABLE : NullableMode.DEPEND_ON_ARGUMENT);
+                        AggregateFunction.ALWAYS_NULLABLE_AGGREGATE_FUNCTION_NAME_SET.contains(fnName.getFunction())
+                                ? NullableMode.ALWAYS_NULLABLE :
+                                AggregateFunction.CUSTOM_AGGREGATE_FUNCTION_NAME_SET.contains(fnName.getFunction())
+                                        ? NullableMode.CUSTOM : NullableMode.DEPEND_ON_ARGUMENT);
         setLocation(location);
         this.intermediateType = (intermediateType.equals(retType)) ? null : intermediateType;
         this.updateFnSymbol = updateFnSymbol;
@@ -324,10 +330,10 @@ public class AggregateFunction extends Function {
 
     // Used to create UDAF
     public AggregateFunction(FunctionName fnName, Type[] argTypes,
-                             Type retType, boolean hasVarArgs, Type intermediateType, URI location,
-                             String initFnSymbol, String updateFnSymbol, String mergeFnSymbol,
-                             String serializeFnSymbol, String finalizeFnSymbol,
-                             String getValueFnSymbol, String removeFnSymbol) {
+            Type retType, boolean hasVarArgs, Type intermediateType, URI location,
+            String initFnSymbol, String updateFnSymbol, String mergeFnSymbol,
+            String serializeFnSymbol, String finalizeFnSymbol,
+            String getValueFnSymbol, String removeFnSymbol) {
         super(fnName, Arrays.asList(argTypes), retType, hasVarArgs);
         this.setLocation(location);
         this.intermediateType = (intermediateType.equals(retType)) ? null : intermediateType;
@@ -366,7 +372,7 @@ public class AggregateFunction extends Function {
         }
 
         public static AggregateFunctionBuilder createUdfBuilder() {
-            return new AggregateFunctionBuilder(TFunctionBinaryType.NATIVE);
+            return new AggregateFunctionBuilder(TFunctionBinaryType.JAVA_UDF);
         }
 
         public AggregateFunctionBuilder name(FunctionName name) {
@@ -553,7 +559,13 @@ public class AggregateFunction extends Function {
 
     @Override
     public String toSql(boolean ifNotExists) {
-        StringBuilder sb = new StringBuilder("CREATE AGGREGATE FUNCTION ");
+        StringBuilder sb = new StringBuilder("CREATE ");
+
+        if (this.isGlobal) {
+            sb.append("GLOBAL ");
+        }
+        sb.append("AGGREGATE FUNCTION ");
+
         if (ifNotExists) {
             sb.append("IF NOT EXISTS ");
         }
@@ -604,13 +616,13 @@ public class AggregateFunction extends Function {
             aggFn.setSerializeFnSymbol(serializeFnSymbol);
         }
         aggFn.setMergeFnSymbol(mergeFnSymbol);
-        if (getValueFnSymbol  != null) {
+        if (getValueFnSymbol != null) {
             aggFn.setGetValueFnSymbol(getValueFnSymbol);
         }
-        if (removeFnSymbol  != null) {
+        if (removeFnSymbol != null) {
             aggFn.setRemoveFnSymbol(removeFnSymbol);
         }
-        if (finalizeFnSymbol  != null) {
+        if (finalizeFnSymbol != null) {
             aggFn.setFinalizeFnSymbol(finalizeFnSymbol);
         }
         if (symbolName != null) {
@@ -685,7 +697,7 @@ public class AggregateFunction extends Function {
         properties.put(CreateFunctionStmt.SERIALIZE_KEY, serializeFnSymbol);
         properties.put(CreateFunctionStmt.FINALIZE_KEY, finalizeFnSymbol);
 
-        //getValueFn and removeFn may be null if not analytic agg
+        // getValueFn and removeFn may be null if not analytic agg
         if (getValueFnSymbol != null) {
             properties.put(CreateFunctionStmt.GET_VALUE_KEY, getValueFnSymbol);
         }

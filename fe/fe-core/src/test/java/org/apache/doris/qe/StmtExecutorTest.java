@@ -57,7 +57,6 @@ import org.junit.Test;
 import java.io.IOException;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
-import java.nio.channels.SocketChannel;
 import java.util.List;
 import java.util.SortedMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -66,10 +65,8 @@ public class StmtExecutorTest {
     private ConnectContext ctx;
     private QueryState state;
     private ConnectScheduler scheduler;
-    private MysqlChannel channel = null;
-
     @Mocked
-    SocketChannel socketChannel;
+    private MysqlChannel channel = null;
 
     @BeforeClass
     public static void start() {
@@ -86,13 +83,12 @@ public class StmtExecutorTest {
     public void setUp() throws IOException {
         state = new QueryState();
         scheduler = new ConnectScheduler(10);
-        ctx = new ConnectContext(socketChannel);
+        ctx = new ConnectContext();
 
         SessionVariable sessionVariable = new SessionVariable();
         MysqlSerializer serializer = MysqlSerializer.newInstance();
         Env env = AccessTestUtil.fetchAdminCatalog();
 
-        channel = new MysqlChannel(socketChannel);
         new Expectations(channel) {
             {
                 channel.sendOnePacket((ByteBuffer) any);
@@ -100,6 +96,10 @@ public class StmtExecutorTest {
 
                 channel.reset();
                 minTimes = 0;
+
+                channel.getSerializer();
+                minTimes = 0;
+                result = serializer;
             }
         };
 
@@ -108,10 +108,6 @@ public class StmtExecutorTest {
                 ctx.getMysqlChannel();
                 minTimes = 0;
                 result = channel;
-
-                ctx.getSerializer();
-                minTimes = 0;
-                result = serializer;
 
                 ctx.getEnv();
                 minTimes = 0;

@@ -31,8 +31,6 @@ set(EXEC_FILES
     text_converter.cpp
     olap_common.cpp
     tablet_info.cpp
-    plain_binary_line_reader.cpp
-    plain_text_line_reader.cpp
     es/es_scan_reader.cpp
     es/es_scroll_query.cpp
     es/es_scroll_parser.cpp
@@ -53,7 +51,6 @@ set(EXEC_FILES
     schema_scanner/schema_files_scanner.cpp
     schema_scanner/schema_partitions_scanner.cpp
     schema_scanner/schema_rowsets_scanner.cpp
-    schema_scanner/schema_backends_scanner.cpp
     scan_node.cpp
     odbc_connector.cpp
     table_connector.cpp

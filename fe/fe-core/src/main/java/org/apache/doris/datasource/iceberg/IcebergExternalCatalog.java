@@ -48,6 +48,8 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     public static final String ICEBERG_CATALOG_TYPE = "iceberg.catalog.type";
     public static final String ICEBERG_REST = "rest";
     public static final String ICEBERG_HMS = "hms";
+    public static final String ICEBERG_GLUE = "glue";
+    public static final String ICEBERG_DLF = "dlf";
     protected String icebergCatalogType;
     protected Catalog catalog;
     protected SupportsNamespaces nsCatalog;
@@ -65,7 +67,11 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         initCatalogLog.setCatalogId(id);
         initCatalogLog.setType(InitCatalogLog.Type.ICEBERG);
         List<String> allDatabaseNames = listDatabaseNames();
+        Map<String, Boolean> specifiedDatabaseMap = getSpecifiedDatabaseMap();
         for (String dbName : allDatabaseNames) {
+            if (!specifiedDatabaseMap.isEmpty() && specifiedDatabaseMap.get(dbName) == null) {
+                continue;
+            }
             long dbId;
             if (dbNameToId != null && dbNameToId.containsKey(dbName)) {
                 dbId = dbNameToId.get(dbName);

@@ -249,7 +249,10 @@ public:
     Cache* cache() const { return _cache; }
     Slice data() const { return _cache->value_slice(_handle); }
 
-    InvertedIndexQueryCache::CacheValue* match_bitmap() const {
+    InvertedIndexQueryCache::CacheValue* get_bitmap() const {
+        if (!_cache) {
+            return nullptr;
+        }
         return ((InvertedIndexQueryCache::CacheValue*)_cache->value(_handle));
     }
 

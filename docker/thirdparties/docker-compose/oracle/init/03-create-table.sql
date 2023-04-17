@@ -84,3 +84,25 @@ id varchar2(128),
 name varchar2(128),
 age number(5)
 );
+
+create table doris_test.test_number(
+    id number(11) not null primary key,
+    num1 NUMBER(5,2),
+    num2 NUMBER(5, -2),
+    num4 NUMBER(5,7)
+);
+
+create table doris_test.test_number2(
+    id number(11) not null primary key,
+    num1 NUMBER(38, -5)
+);
+
+create table doris_test.test_number3 (
+  id number(11) not null primary key,
+  num1 NUMBER(38, -84)
+);
+
+create table doris_test.test_number4 (
+  id number(11) not null primary key,
+  num1 NUMBER(5,-7)
+);

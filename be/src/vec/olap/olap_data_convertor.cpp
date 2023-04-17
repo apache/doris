@@ -54,6 +54,9 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
     case FieldType::OLAP_FIELD_TYPE_OBJECT: {
         return std::make_unique<OlapColumnDataConvertorBitMap>();
     }
+    case FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE: {
+        return std::make_unique<OlapColumnDataConvertorQuantileState>();
+    }
     case FieldType::OLAP_FIELD_TYPE_HLL: {
         return std::make_unique<OlapColumnDataConvertorHLL>();
     }
@@ -136,13 +139,11 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
         const auto& key_column = column.get_sub_column(0);
         const auto& value_column = column.get_sub_column(1);
         return std::make_unique<OlapColumnDataConvertorMap>(
-                std::make_unique<OlapColumnDataConvertorArray>(
-                        create_olap_column_data_convertor(key_column)),
-                std::make_unique<OlapColumnDataConvertorArray>(
-                        create_olap_column_data_convertor(value_column)));
+                create_olap_column_data_convertor(key_column),
+                create_olap_column_data_convertor(value_column));
     }
     default: {
-        DCHECK(false) << "Invalid type in RowBlockV2:" << column.type();
+        DCHECK(false) << "Invalid type in olap data convertor:" << int(column.type());
         return nullptr;
     }
     }
@@ -194,8 +195,9 @@ void OlapBlockDataConvertor::OlapColumnDataConvertorBase::clear_source_column() 
     _nullmap = nullptr;
 }
 
-// This should be called only in SegmentWriter. If you want to access nullmap in Convertor,
-// use `_nullmap` directly.
+// Obtain the converted nullmap with an offset of _row_pos.
+// This should be called only in SegmentWriter and `get_data_at` in Convertor.
+// If you want to access origin nullmap without offset, use `_nullmap` directly.
 const UInt8* OlapBlockDataConvertor::OlapColumnDataConvertorBase::get_nullmap() const {
     assert(_typed_column.column);
     return _nullmap ? _nullmap + _row_pos : nullptr;
@@ -217,8 +219,8 @@ const void* OlapBlockDataConvertor::OlapColumnDataConvertorObject::get_data() co
 const void* OlapBlockDataConvertor::OlapColumnDataConvertorObject::get_data_at(
         size_t offset) const {
     UInt8 null_flag = 0;
-    if (_nullmap) {
-        null_flag = _nullmap[offset];
+    if (get_nullmap()) {
+        null_flag = get_nullmap()[offset];
     }
     return null_flag ? nullptr : _slice.data() + offset;
 }
@@ -268,7 +270,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorBitMap::convert_to_olap() 
         while (bitmap_value_cur != bitmap_value_end) {
             if (!*nullmap_cur) {
                 slice_size = bitmap_value_cur->getSizeInBytes();
-                bitmap_value_cur->write(raw_data);
+                bitmap_value_cur->write_to(raw_data);
 
                 slice->data = raw_data;
                 slice->size = slice_size;
@@ -286,7 +288,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorBitMap::convert_to_olap() 
     } else {
         while (bitmap_value_cur != bitmap_value_end) {
             slice_size = bitmap_value_cur->getSizeInBytes();
-            bitmap_value_cur->write(raw_data);
+            bitmap_value_cur->write_to(raw_data);
 
             slice->data = raw_data;
             slice->size = slice_size;
@@ -294,6 +296,85 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorBitMap::convert_to_olap() 
 
             ++slice;
             ++bitmap_value_cur;
+        }
+        assert(slice == _slice.get_end_ptr());
+    }
+    return Status::OK();
+}
+
+Status OlapBlockDataConvertor::OlapColumnDataConvertorQuantileState::convert_to_olap() {
+    assert(_typed_column.column);
+
+    const vectorized::ColumnQuantileStateDouble* column_quantile_state = nullptr;
+    if (_nullmap) {
+        auto nullable_column =
+                assert_cast<const vectorized::ColumnNullable*>(_typed_column.column.get());
+        column_quantile_state = assert_cast<const vectorized::ColumnQuantileStateDouble*>(
+                nullable_column->get_nested_column_ptr().get());
+    } else {
+        column_quantile_state = assert_cast<const vectorized::ColumnQuantileStateDouble*>(
+                _typed_column.column.get());
+    }
+
+    assert(column_quantile_state);
+    QuantileStateDouble* quantile_state =
+            const_cast<QuantileStateDouble*>(column_quantile_state->get_data().data() + _row_pos);
+    QuantileStateDouble* quantile_state_cur = quantile_state;
+    QuantileStateDouble* quantile_state_end = quantile_state_cur + _num_rows;
+
+    size_t total_size = 0;
+    if (_nullmap) {
+        const UInt8* nullmap_cur = _nullmap + _row_pos;
+        while (quantile_state_cur != quantile_state_end) {
+            if (!*nullmap_cur) {
+                total_size += quantile_state_cur->get_serialized_size();
+            }
+            ++nullmap_cur;
+            ++quantile_state_cur;
+        }
+    } else {
+        while (quantile_state_cur != quantile_state_end) {
+            total_size += quantile_state_cur->get_serialized_size();
+            ++quantile_state_cur;
+        }
+    }
+    _raw_data.resize(total_size);
+
+    quantile_state_cur = quantile_state;
+    size_t slice_size;
+    char* raw_data = _raw_data.data();
+    Slice* slice = _slice.data();
+    if (_nullmap) {
+        const UInt8* nullmap_cur = _nullmap + _row_pos;
+        while (quantile_state_cur != quantile_state_end) {
+            if (!*nullmap_cur) {
+                slice_size = quantile_state_cur->get_serialized_size();
+                quantile_state_cur->serialize((uint8_t*)raw_data);
+
+                slice->data = raw_data;
+                slice->size = slice_size;
+                raw_data += slice_size;
+            } else {
+                // TODO: this may not be necessary, check and remove later
+                slice->data = nullptr;
+                slice->size = 0;
+            }
+            ++slice;
+            ++nullmap_cur;
+            ++quantile_state_cur;
+        }
+        assert(nullmap_cur == _nullmap + _row_pos + _num_rows && slice == _slice.get_end_ptr());
+    } else {
+        while (quantile_state_cur != quantile_state_end) {
+            slice_size = quantile_state_cur->get_serialized_size();
+            quantile_state_cur->serialize((uint8_t*)raw_data);
+
+            slice->data = raw_data;
+            slice->size = slice_size;
+            raw_data += slice_size;
+
+            ++slice;
+            ++quantile_state_cur;
         }
         assert(slice == _slice.get_end_ptr());
     }
@@ -394,8 +475,8 @@ const void* OlapBlockDataConvertor::OlapColumnDataConvertorChar::get_data() cons
 
 const void* OlapBlockDataConvertor::OlapColumnDataConvertorChar::get_data_at(size_t offset) const {
     UInt8 null_flag = 0;
-    if (_nullmap) {
-        null_flag = _nullmap[offset];
+    if (get_nullmap()) {
+        null_flag = get_nullmap()[offset];
     }
     return null_flag ? nullptr : _slice.data() + offset;
 }
@@ -450,8 +531,8 @@ const void* OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::get_data_at(
         size_t offset) const {
     assert(offset < _slice.size());
     UInt8 null_flag = 0;
-    if (_nullmap) {
-        null_flag = _nullmap[offset];
+    if (get_nullmap()) {
+        null_flag = get_nullmap()[offset];
     }
     return null_flag ? nullptr : _slice.data() + offset;
 }
@@ -810,30 +891,52 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap(
         const ColumnMap* column_map, const DataTypeMap* data_type_map) {
     ColumnPtr key_data = column_map->get_keys_ptr();
     ColumnPtr value_data = column_map->get_values_ptr();
-    if (column_map->get_keys().is_nullable()) {
-        const auto& key_nullable_column =
-                assert_cast<const ColumnNullable&>(column_map->get_keys());
-        key_data = key_nullable_column.get_nested_column_ptr();
-    }
 
-    if (column_map->get_values().is_nullable()) {
-        const auto& val_nullable_column =
-                assert_cast<const ColumnNullable&>(column_map->get_values());
-        value_data = val_nullable_column.get_nested_column_ptr();
-    }
+    // NOTICE here are two situation:
+    // 1. Multi-SegmentWriter with different olap_convertor to convert same column_map(in memory which is from same block)
+    //   eg: Block(6 row): column_map offsets in memory: [10, 21, 33, 43, 54, 66]
+    //   After SegmentWriter1 with olap_convertor1 deal with first 3 rows:  _offsets(pre-disk)=[0, 10, 21], _base_offset=33
+    //   then SegmentWriter may flush data (see BetaRowsetWriter::_add_block(max_row_add < 1))
+    //   ColumnWriter will flush offset array to disk [0, 10, 21, 33]
+    //                                                 ---------  ----
+    //                                                 |--_offsets  |--set_next_array_item_ordinal(_kv_writers[0]->get_next_rowid())
+    //   new SegmentWriter2 with olap_convertor2 deal with next map offsets [43, 54, 66]
+    //   but in disk here is new segment file offset should start with 0, so after convert:
+    //      _offsets(pre-disk)=[0, 10, 21], _base_row=33, After flush data finally in disk: [0, 10, 21, 33]
+    //2. One-SegmentWriter with olap_convertor to convertor different blocks into one page
+    //    eg: Two blocks -> block1 [10, 21, 33] and block2 [1, 3, 6]
+    //      After first convert: _offsets_1(pre-disk)=[0, 10, 21], _base_row=33, without flush, just append to page,
+    //      then deal with coming block2, after current convert:
+    //      _offsets_2=[33, 34, 36], _base_offset=39
+    //      if we flush here, finally in disk offsets:[0, 10, 21, 33, 34, 36,        39]
+    //                                                ----------  ----------         ---
+    //                                                 |--_offsets_1  |--_offsets_2   |--set_next_array_item_ordinal(_kv_writers[0]->get_next_rowid())
+    auto start_offset = column_map->offset_at(_row_pos);
+    auto end_offset = column_map->offset_at(_row_pos + _num_rows);
+    auto elem_size = end_offset - start_offset;
 
-    ColumnWithTypeAndName key_typed_column = {key_data, remove_nullable(data_type_map->get_keys()),
-                                              "map.key"};
-    _key_convertor->set_source_column(key_typed_column, _row_pos, _num_rows);
+    _offsets.clear();
+    _offsets.reserve(_num_rows);
+    for (int i = 0; i < _num_rows; ++i) {
+        _offsets.push_back(column_map->offset_at(i + _row_pos) - start_offset + _base_offset);
+    }
+    _base_offset += elem_size;
+    ColumnWithTypeAndName key_typed_column = {key_data, data_type_map->get_key_type(), "map.key"};
+    _key_convertor->set_source_column(key_typed_column, start_offset, elem_size);
     _key_convertor->convert_to_olap();
 
-    ColumnWithTypeAndName value_typed_column = {
-            value_data, remove_nullable(data_type_map->get_values()), "map.value"};
-    _value_convertor->set_source_column(value_typed_column, _row_pos, _num_rows);
+    ColumnWithTypeAndName value_typed_column = {value_data, data_type_map->get_value_type(),
+                                                "map.value"};
+    _value_convertor->set_source_column(value_typed_column, start_offset, elem_size);
     _value_convertor->convert_to_olap();
 
-    _results[0] = _key_convertor->get_data();
-    _results[1] = _value_convertor->get_data();
+    // todo (Amory). put this value into MapValue
+    _results[0] = (void*)elem_size;
+    _results[1] = _offsets.data();
+    _results[2] = _key_convertor->get_data();
+    _results[3] = _value_convertor->get_data();
+    _results[4] = _key_convertor->get_nullmap();
+    _results[5] = _value_convertor->get_nullmap();
 
     return Status::OK();
 }

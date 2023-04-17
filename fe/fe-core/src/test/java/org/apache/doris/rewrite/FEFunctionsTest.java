@@ -215,6 +215,24 @@ public class FEFunctionsTest {
     }
 
     @Test
+    public void dayOfWeekTest() throws AnalysisException {
+        Assert.assertEquals(FEFunctions.dayOfWeek(new DateLiteral("2019-06-23", Type.DATE)).getStringValue(), "1");
+        Assert.assertEquals(FEFunctions.dayOfWeek(new DateLiteral("2019-06-24", Type.DATE)).getStringValue(), "2");
+        Assert.assertEquals(FEFunctions.dayOfWeek(new DateLiteral("2019-06-25", Type.DATE)).getStringValue(), "3");
+        Assert.assertEquals(FEFunctions.dayOfWeek(new DateLiteral("2019-06-26", Type.DATE)).getStringValue(), "4");
+        Assert.assertEquals(FEFunctions.dayOfWeek(new DateLiteral("2019-06-27", Type.DATE)).getStringValue(), "5");
+        Assert.assertEquals(FEFunctions.dayOfWeek(new DateLiteral("2019-06-28", Type.DATE)).getStringValue(), "6");
+        Assert.assertEquals(FEFunctions.dayOfWeek(new DateLiteral("2019-06-29", Type.DATE)).getStringValue(), "7");
+        Assert.assertEquals(FEFunctions.dayOfWeek(new DateLiteral("2023-02-13", Type.DATE)).getStringValue(), "2");
+        Assert.assertEquals(FEFunctions.dayOfWeek(new DateLiteral("2023-02-14", Type.DATE)).getStringValue(), "3");
+        Assert.assertEquals(FEFunctions.dayOfWeek(new DateLiteral("2023-02-15", Type.DATE)).getStringValue(), "4");
+        Assert.assertEquals(FEFunctions.dayOfWeek(new DateLiteral("2023-02-16", Type.DATE)).getStringValue(), "5");
+        Assert.assertEquals(FEFunctions.dayOfWeek(new DateLiteral("2023-02-17", Type.DATE)).getStringValue(), "6");
+        Assert.assertEquals(FEFunctions.dayOfWeek(new DateLiteral("2023-02-18", Type.DATE)).getStringValue(), "7");
+        Assert.assertEquals(FEFunctions.dayOfWeek(new DateLiteral("2023-02-19", Type.DATE)).getStringValue(), "1");
+    }
+
+    @Test
     public void fromUnixTimeTest() throws AnalysisException {
         StringLiteral actualResult = FEFunctions.fromUnixTime(new IntLiteral(100000));
         StringLiteral expectedResult = new StringLiteral("1970-01-02 11:46:40");

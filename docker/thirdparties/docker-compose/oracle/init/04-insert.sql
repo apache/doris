@@ -53,4 +53,25 @@ insert into doris_test.test_timestamp (id, t4) values (5, to_timestamp_tz('20191
 insert into doris_test.test_timestamp (id, t5) values (6, interval '11' year);
 insert into doris_test.test_timestamp (id, t5) values (7, interval '223-9' year(3) to month);
 insert into doris_test.test_timestamp (id, t6) values (8, interval '12 10:23:01.1234568' day to second);
+
+insert into doris_test.test_number values (1, 123.45, 12345, 0.0012345);
+insert into doris_test.test_number values (2, 123.45, 12345, 0.0099999);
+insert into doris_test.test_number values (3, 123.456, 123456.12, 0.00123456);
+insert into doris_test.test_number values (4, 12.3456, 1234567, 0.001234567);
+insert into doris_test.test_number values (5, 123.56, 9999899, 0.009999899);
+
+insert into doris_test.test_number2 values (1, 12345678901234567890123456789012345678);
+insert into doris_test.test_number2 values (2, 99999999999999999999999999999999999999);
+insert into doris_test.test_number2 values (3, 999999999999999999999999999999999999999);
+insert into doris_test.test_number2 values (4, 12345678);
+insert into doris_test.test_number2 values (5, 123.123);
+insert into doris_test.test_number2 values (6, 0.999999999999);
+
+insert into doris_test.test_number3 values (1, 9999);
+insert into doris_test.test_number3 values (2, 12345678901234567890123456789012345678);
+insert into doris_test.test_number3 values (3, 99999999999999999999999999999999999999);
+insert into doris_test.test_number3 values (4, 0.99999);
+
+insert into doris_test.test_number4 values (1, 12345678);
+insert into doris_test.test_number4 values (2, 123456789012);
 commit;

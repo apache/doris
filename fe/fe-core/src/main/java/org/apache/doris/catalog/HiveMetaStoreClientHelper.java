@@ -36,6 +36,7 @@ import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExprOpcode;
 
@@ -70,7 +71,7 @@ import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.thrift.TException;
+import shade.doris.hive.org.apache.thrift.TException;
 
 import java.io.IOException;
 import java.text.ParseException;
@@ -148,7 +149,7 @@ public class HiveMetaStoreClientHelper {
         hiveConf.set(ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
                 String.valueOf(Config.hive_metastore_client_timeout_second));
         IMetaStoreClient metaStoreClient = null;
-        String type = hiveConf.get(HMSResource.HIVE_METASTORE_TYPE);
+        String type = hiveConf.get(HMSProperties.HIVE_METASTORE_TYPE);
         try {
             if ("dlf".equalsIgnoreCase(type)) {
                 // For aliyun DLF
@@ -180,7 +181,7 @@ public class HiveMetaStoreClientHelper {
         List<RemoteIterator<LocatedFileStatus>> remoteIterators = new ArrayList<>();
         try {
             if (remoteHiveTbl.getPartitionKeys().size() > 0) {
-                String metaStoreUris = hiveTable.getHiveProperties().get(HMSResource.HIVE_METASTORE_URIS);
+                String metaStoreUris = hiveTable.getHiveProperties().get(HMSProperties.HIVE_METASTORE_URIS);
                 // hive partitioned table, get file iterator from table partition sd info
                 List<Partition> hivePartitions = getHivePartitions(metaStoreUris, remoteHiveTbl,
                         hivePartitionPredicate);
@@ -285,7 +286,7 @@ public class HiveMetaStoreClientHelper {
     }
 
     public static Table getTable(HiveTable hiveTable) throws DdlException {
-        IMetaStoreClient client = getClient(hiveTable.getHiveProperties().get(HMSResource.HIVE_METASTORE_URIS));
+        IMetaStoreClient client = getClient(hiveTable.getHiveProperties().get(HMSProperties.HIVE_METASTORE_URIS));
         Table table;
         try {
             table = client.getTable(hiveTable.getHiveDb(), hiveTable.getHiveTable());
@@ -670,9 +671,41 @@ public class HiveMetaStoreClientHelper {
     }
 
     /**
+     * The nested column has inner columns, and each column is separated a comma. The inner column maybe a nested
+     * column too, so we cannot simply split by the comma. We need to match the angle brackets，
+     * and deal with the inner column recursively.
+     */
+    private static int findNextNestedField(String commaSplitFields) {
+        int numLess = 0;
+        int numBracket = 0;
+        for (int i = 0; i < commaSplitFields.length(); i++) {
+            char c = commaSplitFields.charAt(i);
+            if (c == '<') {
+                numLess++;
+            } else if (c == '>') {
+                numLess--;
+            } else if (c == '(') {
+                numBracket++;
+            } else if (c == ')') {
+                numBracket--;
+            } else if (c == ',' && numLess == 0 && numBracket == 0) {
+                return i;
+            }
+        }
+        return commaSplitFields.length();
+    }
+
+    /**
      * Convert hive type to doris type.
      */
     public static Type hiveTypeToDorisType(String hiveType) {
+        return hiveTypeToDorisType(hiveType, 0);
+    }
+
+    /**
+     * Convert hive type to doris type with timescale.
+     */
+    public static Type hiveTypeToDorisType(String hiveType, int timeScale) {
         String lowerCaseType = hiveType.toLowerCase();
         switch (lowerCaseType) {
             case "boolean":
@@ -688,7 +721,7 @@ public class HiveMetaStoreClientHelper {
             case "date":
                 return ScalarType.createDateV2Type();
             case "timestamp":
-                return ScalarType.createDatetimeV2Type(0);
+                return ScalarType.createDatetimeV2Type(timeScale);
             case "float":
                 return Type.FLOAT;
             case "double":
@@ -699,10 +732,43 @@ public class HiveMetaStoreClientHelper {
             default:
                 break;
         }
+        // resolve schema like array<int>
         if (lowerCaseType.startsWith("array")) {
             if (lowerCaseType.indexOf("<") == 5 && lowerCaseType.lastIndexOf(">") == lowerCaseType.length() - 1) {
                 Type innerType = hiveTypeToDorisType(lowerCaseType.substring(6, lowerCaseType.length() - 1));
                 return ArrayType.create(innerType, true);
+            }
+        }
+        // resolve schema like map<text, int>
+        if (lowerCaseType.startsWith("map")) {
+            if (lowerCaseType.indexOf("<") == 3 && lowerCaseType.lastIndexOf(">") == lowerCaseType.length() - 1) {
+                String keyValue = lowerCaseType.substring(4, lowerCaseType.length() - 1);
+                int index = findNextNestedField(keyValue);
+                if (index != keyValue.length() && index != 0) {
+                    return new MapType(hiveTypeToDorisType(keyValue.substring(0, index)),
+                            hiveTypeToDorisType(keyValue.substring(index + 1)));
+                }
+            }
+        }
+        // resolve schema like struct<col1: text, col2: int>
+        if (lowerCaseType.startsWith("struct")) {
+            if (lowerCaseType.indexOf("<") == 6 && lowerCaseType.lastIndexOf(">") == lowerCaseType.length() - 1) {
+                String listFields = lowerCaseType.substring(7, lowerCaseType.length() - 1);
+                ArrayList<StructField> fields = new ArrayList<>();
+                while (listFields.length() > 0) {
+                    int index = findNextNestedField(listFields);
+                    int pivot = listFields.indexOf(':');
+                    if (pivot > 0 && pivot < listFields.length() - 1) {
+                        fields.add(new StructField(listFields.substring(0, pivot),
+                                hiveTypeToDorisType(listFields.substring(pivot + 1, index))));
+                        listFields = listFields.substring(Math.min(index + 1, listFields.length()));
+                    } else {
+                        break;
+                    }
+                }
+                if (listFields.isEmpty()) {
+                    return new StructType(fields);
+                }
             }
         }
         if (lowerCaseType.startsWith("char")) {
@@ -766,7 +832,7 @@ public class HiveMetaStoreClientHelper {
                 output.append("PARTITIONED BY (\n")
                         .append(remoteTable.getPartitionKeys().stream().map(
                                         partition ->
-                                                String.format(" `%s` `%s`", partition.getName(), partition.getType()))
+                                                String.format(" `%s` %s", partition.getName(), partition.getType()))
                                 .collect(Collectors.joining(",\n")))
                         .append(")\n");
             }
@@ -826,7 +892,7 @@ public class HiveMetaStoreClientHelper {
         hiveCatalog.setConf(conf);
         // initialize hive catalog
         Map<String, String> catalogProperties = new HashMap<>();
-        catalogProperties.put(HMSResource.HIVE_METASTORE_URIS, metastoreUri);
+        catalogProperties.put(HMSProperties.HIVE_METASTORE_URIS, metastoreUri);
         catalogProperties.put("uri", metastoreUri);
         hiveCatalog.initialize("hive", catalogProperties);
 

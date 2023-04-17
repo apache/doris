@@ -64,12 +64,18 @@
 #include "runtime/client_cache.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/runtime_state.h"
+#include "runtime/stream_load/new_load_stream_mgr.h"
+#include "runtime/stream_load/stream_load_context.h"
 #include "task_scheduler.h"
 #include "util/container_util.hpp"
 #include "vec/exec/join/vhash_join_node.h"
 #include "vec/exec/join/vnested_loop_join_node.h"
+#include "vec/exec/scan/new_es_scan_node.h"
 #include "vec/exec/scan/new_file_scan_node.h"
+#include "vec/exec/scan/new_jdbc_scan_node.h"
+#include "vec/exec/scan/new_odbc_scan_node.h"
 #include "vec/exec/scan/new_olap_scan_node.h"
+#include "vec/exec/scan/vmeta_scan_node.h"
 #include "vec/exec/scan/vscan_node.h"
 #include "vec/exec/vaggregation_node.h"
 #include "vec/exec/vexchange_node.h"
@@ -103,6 +109,7 @@ PipelineFragmentContext::PipelineFragmentContext(
           _report_thread_active(false),
           _report_status_cb(report_status_cb),
           _is_report_on_cancel(true) {
+    _report_thread_future = _report_thread_promise.get_future();
     _fragment_watcher.start();
 }
 
@@ -122,8 +129,11 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
             _exec_status = Status::Cancelled(msg);
         }
         _runtime_state->set_is_cancelled(true);
-        if (_pipe != nullptr) {
-            _pipe->cancel(PPlanFragmentCancelReason_Name(reason));
+        // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
+        // For stream load the fragment's query_id == load id, it is set in FE.
+        auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(_query_id);
+        if (stream_load_ctx != nullptr) {
+            stream_load_ctx->pipe->cancel(PPlanFragmentCancelReason_Name(reason));
         }
         _cancel_reason = reason;
         _cancel_msg = msg;
@@ -144,145 +154,6 @@ PipelinePtr PipelineFragmentContext::add_pipeline() {
     auto pipeline = std::make_shared<Pipeline>(id, weak_from_this());
     _pipelines.emplace_back(pipeline);
     return pipeline;
-}
-
-Status PipelineFragmentContext::prepare(const doris::TExecPlanFragmentParams& request) {
-    if (_prepared) {
-        return Status::InternalError("Already prepared");
-    }
-    _runtime_profile.reset(new RuntimeProfile("PipelineContext"));
-    _start_timer = ADD_TIMER(_runtime_profile, "StartTime");
-    COUNTER_UPDATE(_start_timer, _fragment_watcher.elapsed_time());
-    _prepare_timer = ADD_TIMER(_runtime_profile, "PrepareTime");
-    SCOPED_TIMER(_prepare_timer);
-
-    auto* fragment_context = this;
-    OpentelemetryTracer tracer = telemetry::get_noop_tracer();
-    if (opentelemetry::trace::Tracer::GetCurrentSpan()->GetContext().IsValid()) {
-        tracer = telemetry::get_tracer(print_id(_query_id));
-    }
-    START_AND_SCOPE_SPAN(tracer, span, "PipelineFragmentExecutor::prepare");
-
-    const TPlanFragmentExecParams& params = request.params;
-
-    LOG_INFO("PipelineFragmentContext::prepare")
-            .tag("query_id", _query_id)
-            .tag("instance_id", params.fragment_instance_id)
-            .tag("backend_num", request.backend_num)
-            .tag("pthread_id", (uintptr_t)pthread_self());
-
-    // 1. init _runtime_state
-    _runtime_state = std::make_unique<RuntimeState>(params, request.query_options,
-                                                    _query_ctx->query_globals, _exec_env);
-    _runtime_state->set_query_fragments_ctx(_query_ctx.get());
-    _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
-    _runtime_state->set_tracer(std::move(tracer));
-
-    // TODO should be combine with plan_fragment_executor.prepare funciton
-    SCOPED_ATTACH_TASK(get_runtime_state());
-    _runtime_state->runtime_filter_mgr()->init();
-    _runtime_state->set_be_number(request.backend_num);
-
-    if (request.__isset.backend_id) {
-        _runtime_state->set_backend_id(request.backend_id);
-    }
-    if (request.__isset.import_label) {
-        _runtime_state->set_import_label(request.import_label);
-    }
-    if (request.__isset.db_name) {
-        _runtime_state->set_db_name(request.db_name);
-    }
-    if (request.__isset.load_job_id) {
-        _runtime_state->set_load_job_id(request.load_job_id);
-    }
-
-    if (request.query_options.__isset.is_report_success) {
-        fragment_context->set_is_report_success(request.query_options.is_report_success);
-    }
-
-    auto* desc_tbl = _query_ctx->desc_tbl;
-    _runtime_state->set_desc_tbl(desc_tbl);
-
-    // 2. Create ExecNode to build pipeline with PipelineFragmentContext
-    RETURN_IF_ERROR(ExecNode::create_tree(_runtime_state.get(), _runtime_state->obj_pool(),
-                                          request.fragment.plan, *desc_tbl, &_root_plan));
-
-    // Set senders of exchange nodes before pipeline build
-    std::vector<ExecNode*> exch_nodes;
-    _root_plan->collect_nodes(TPlanNodeType::EXCHANGE_NODE, &exch_nodes);
-    for (ExecNode* exch_node : exch_nodes) {
-        DCHECK_EQ(exch_node->type(), TPlanNodeType::EXCHANGE_NODE);
-        int num_senders = find_with_default(params.per_exch_num_senders, exch_node->id(), 0);
-        DCHECK_GT(num_senders, 0);
-        static_cast<vectorized::VExchangeNode*>(exch_node)->set_num_senders(num_senders);
-    }
-
-    // All prepare work do in exec node tree
-    RETURN_IF_ERROR(_root_plan->prepare(_runtime_state.get()));
-    // set scan ranges
-    std::vector<ExecNode*> scan_nodes;
-    std::vector<TScanRangeParams> no_scan_ranges;
-    _root_plan->collect_scan_nodes(&scan_nodes);
-    VLOG_CRITICAL << "scan_nodes.size()=" << scan_nodes.size();
-    VLOG_CRITICAL << "params.per_node_scan_ranges.size()=" << params.per_node_scan_ranges.size();
-
-    _root_plan->try_do_aggregate_serde_improve();
-    // set scan range in ScanNode
-    for (int i = 0; i < scan_nodes.size(); ++i) {
-        // TODO(cmy): this "if...else" should be removed once all ScanNode are derived from VScanNode.
-        ExecNode* node = scan_nodes[i];
-        if (typeid(*node) == typeid(vectorized::NewOlapScanNode) ||
-            typeid(*node) == typeid(vectorized::NewFileScanNode) // ||
-//            typeid(*node) == typeid(vectorized::NewOdbcScanNode) ||
-//            typeid(*node) == typeid(vectorized::NewEsScanNode)
-#ifdef LIBJVM
-//            || typeid(*node) == typeid(vectorized::NewJdbcScanNode)
-#endif
-        ) {
-            auto* scan_node = static_cast<vectorized::VScanNode*>(scan_nodes[i]);
-            const std::vector<TScanRangeParams>& scan_ranges =
-                    find_with_default(params.per_node_scan_ranges, scan_node->id(), no_scan_ranges);
-            scan_node->set_scan_ranges(scan_ranges);
-        } else {
-            ScanNode* scan_node = static_cast<ScanNode*>(scan_nodes[i]);
-            const std::vector<TScanRangeParams>& scan_ranges =
-                    find_with_default(params.per_node_scan_ranges, scan_node->id(), no_scan_ranges);
-            scan_node->set_scan_ranges(scan_ranges);
-            VLOG_CRITICAL << "scan_node_Id=" << scan_node->id() << " size=" << scan_ranges.size();
-        }
-    }
-
-    _runtime_state->set_per_fragment_instance_idx(params.sender_id);
-    _runtime_state->set_num_per_fragment_instances(params.num_senders);
-
-    if (request.fragment.__isset.output_sink) {
-        RETURN_IF_ERROR(DataSink::create_data_sink(
-                _runtime_state->obj_pool(), request.fragment.output_sink,
-                request.fragment.output_exprs, params, _root_plan->row_desc(), _runtime_state.get(),
-                &_sink, *desc_tbl));
-    }
-
-    _root_pipeline = fragment_context->add_pipeline();
-    RETURN_IF_ERROR(_build_pipelines(_root_plan, _root_pipeline));
-    if (_sink) {
-        RETURN_IF_ERROR(_create_sink(request.fragment.output_sink));
-    }
-    RETURN_IF_ERROR(_build_pipeline_tasks(request));
-    if (_sink) {
-        _runtime_state->runtime_profile()->add_child(_sink->profile(), true, nullptr);
-    }
-    _runtime_state->runtime_profile()->add_child(_root_plan->runtime_profile(), true, nullptr);
-    _runtime_state->runtime_profile()->add_child(_runtime_profile.get(), true, nullptr);
-
-    if (_is_report_success && config::status_report_interval > 0) {
-        std::unique_lock<std::mutex> l(_report_thread_lock);
-        _report_thread = std::thread(&PipelineFragmentContext::report_profile, this);
-        // make sure the thread started up, otherwise report_profile() might get into a race
-        // with stop_report_thread()
-        _report_thread_started_cv.wait(l);
-    }
-    _prepared = true;
-    return Status::OK();
 }
 
 Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& request,
@@ -373,19 +244,23 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
         // TODO(cmy): this "if...else" should be removed once all ScanNode are derived from VScanNode.
         ExecNode* node = scan_nodes[i];
         if (typeid(*node) == typeid(vectorized::NewOlapScanNode) ||
-            typeid(*node) == typeid(vectorized::NewFileScanNode) // ||
-//            typeid(*node) == typeid(vectorized::NewOdbcScanNode) ||
-//            typeid(*node) == typeid(vectorized::NewEsScanNode)
+            typeid(*node) == typeid(vectorized::NewFileScanNode) ||
+            typeid(*node) == typeid(vectorized::NewOdbcScanNode) ||
+            typeid(*node) == typeid(vectorized::NewEsScanNode) ||
+            typeid(*node) == typeid(vectorized::VMetaScanNode)
 #ifdef LIBJVM
-//            || typeid(*node) == typeid(vectorized::NewJdbcScanNode)
+            || typeid(*node) == typeid(vectorized::NewJdbcScanNode)
 #endif
         ) {
             auto* scan_node = static_cast<vectorized::VScanNode*>(scan_nodes[i]);
             const std::vector<TScanRangeParams>& scan_ranges = find_with_default(
                     local_params.per_node_scan_ranges, scan_node->id(), no_scan_ranges);
+            const bool shared_scan =
+                    find_with_default(local_params.per_node_shared_scans, scan_node->id(), false);
             scan_node->set_scan_ranges(scan_ranges);
+            scan_node->set_shared_scan(_runtime_state.get(), shared_scan);
         } else {
-            ScanNode* scan_node = static_cast<ScanNode*>(scan_nodes[i]);
+            ScanNode* scan_node = static_cast<ScanNode*>(node);
             const std::vector<TScanRangeParams>& scan_ranges = find_with_default(
                     local_params.per_node_scan_ranges, scan_node->id(), no_scan_ranges);
             scan_node->set_scan_ranges(scan_ranges);
@@ -416,30 +291,6 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     _runtime_state->runtime_profile()->add_child(_runtime_profile.get(), true, nullptr);
 
     _prepared = true;
-    return Status::OK();
-}
-
-Status PipelineFragmentContext::_build_pipeline_tasks(
-        const doris::TExecPlanFragmentParams& request) {
-    for (PipelinePtr& pipeline : _pipelines) {
-        // if sink
-        auto sink = pipeline->sink()->build_operator();
-        // TODO pipeline 1 need to add new interface for exec node and operator
-        sink->init(request.fragment.output_sink);
-
-        Operators operators;
-        RETURN_IF_ERROR(pipeline->build_operators(operators));
-        auto task = std::make_unique<PipelineTask>(pipeline, 0, _runtime_state.get(), operators,
-                                                   sink, this, pipeline->pipeline_profile());
-        sink->set_child(task->get_root());
-        _tasks.emplace_back(std::move(task));
-        _runtime_profile->add_child(pipeline->pipeline_profile(), true, nullptr);
-    }
-
-    for (auto& task : _tasks) {
-        RETURN_IF_ERROR(task->prepare(_runtime_state.get()));
-    }
-    _total_tasks = _tasks.size();
     return Status::OK();
 }
 
@@ -475,7 +326,9 @@ void PipelineFragmentContext::_stop_report_thread() {
     _report_thread_active = false;
 
     _stop_report_thread_cv.notify_one();
-    _report_thread.join();
+    // Wait infinitly to ensure that the report task is finished and the this variable
+    // is not used in report thread.
+    _report_thread_future.wait();
 }
 
 void PipelineFragmentContext::report_profile() {
@@ -538,6 +391,7 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
     case TPlanNodeType::JDBC_SCAN_NODE:
     case TPlanNodeType::ODBC_SCAN_NODE:
     case TPlanNodeType::FILE_SCAN_NODE:
+    case TPlanNodeType::META_SCAN_NODE:
     case TPlanNodeType::ES_SCAN_NODE: {
         OperatorBuilderPtr operator_t =
                 std::make_shared<ScanOperatorBuilder>(next_operator_builder_id(), node);
@@ -545,10 +399,15 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         break;
     }
     case TPlanNodeType::MYSQL_SCAN_NODE: {
+#ifdef DORIS_WITH_MYSQL
         OperatorBuilderPtr operator_t =
                 std::make_shared<MysqlScanOperatorBuilder>(next_operator_builder_id(), node);
         RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
         break;
+#else
+        return Status::InternalError(
+                "Don't support MySQL table, you should rebuild Doris with WITH_MYSQL option ON");
+#endif
     }
     case TPlanNodeType::SCHEMA_SCAN_NODE: {
         OperatorBuilderPtr operator_t =
@@ -759,8 +618,12 @@ Status PipelineFragmentContext::submit() {
 
     int submit_tasks = 0;
     Status st;
+    auto* scheduler = _exec_env->pipeline_task_scheduler();
+    if (get_task_group()) {
+        scheduler = _exec_env->pipeline_task_group_scheduler();
+    }
     for (auto& task : _tasks) {
-        st = _exec_env->pipeline_task_scheduler()->schedule_task(task.get());
+        st = scheduler->schedule_task(task.get());
         if (!st) {
             cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "submit context fail");
             _total_tasks = submit_tasks;
@@ -780,6 +643,9 @@ Status PipelineFragmentContext::submit() {
 }
 
 void PipelineFragmentContext::close_if_prepare_failed() {
+    if (_tasks.empty()) {
+        _root_plan->close(_runtime_state.get());
+    }
     for (auto& task : _tasks) {
         DCHECK(!task->is_pending_finish());
         WARN_IF_ERROR(task->close(), "close_if_prepare_failed failed: ");

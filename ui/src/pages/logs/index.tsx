@@ -40,6 +40,7 @@ export default function Logs(params: any) {
                         container.current.innerHTML = res.data.LogContents.log;
                     }
                     setLogContents(res.data.LogContents);
+                    container.current.scrollTop = container.current.scrollHeight;
                 }
             }
         }).catch(err => {
@@ -81,7 +82,7 @@ export default function Logs(params: any) {
                 <p>Log path is: {LogContents.logPath}</p>
                 <p>{LogContents.showingLast}</p>
             </Paragraph>
-            <div ref={container} style={{background: '#f9f9f9', padding: '20px'}}>
+            <div ref={container} style={{background: '#f9f9f9', padding: '20px', overflowY: 'scroll', height: '800px'}}>
                 {/* {LogContents.log} */}
             </div>
             <BackTop></BackTop>

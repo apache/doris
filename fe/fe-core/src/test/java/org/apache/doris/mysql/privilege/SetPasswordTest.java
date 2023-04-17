@@ -85,7 +85,7 @@ public class SetPasswordTest {
         CreateUserStmt stmt = new CreateUserStmt(new UserDesc(userIdentity));
         auth.createUser(stmt);
 
-        ConnectContext ctx = new ConnectContext(null);
+        ConnectContext ctx = new ConnectContext();
         // set password for 'cmy'@'%'
         UserIdentity currentUser1 = new UserIdentity("default_cluster:cmy", "%");
         currentUser1.setIsAnalyzed();

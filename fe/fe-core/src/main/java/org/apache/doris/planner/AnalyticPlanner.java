@@ -301,7 +301,7 @@ public class AnalyticPlanner {
         ExprSubstitutionMap sortSmap = new ExprSubstitutionMap();
         List<Expr> sortSlotExprs = Lists.newArrayList();
         sortTupleDesc.setIsMaterialized(true);
-        for (TupleId tid : input.getTupleIds()) {
+        for (TupleId tid : input.getOutputTupleIds()) {
             TupleDescriptor tupleDesc = analyzer.getTupleDesc(tid);
             for (SlotDescriptor inputSlotDesc : tupleDesc.getSlots()) {
                 if (!inputSlotDesc.isMaterialized()) {
@@ -787,7 +787,7 @@ public class AnalyticPlanner {
 
             for (WindowGroup g : windowGroups) {
                 TupleDescriptor outputTuple = g.physicalOutputTuple;
-                Preconditions.checkState(outputTuple.getIsMaterialized());
+                Preconditions.checkState(outputTuple.isMaterialized());
                 Preconditions.checkState(outputTuple.getByteSize() != -1);
                 totalOutputTupleSize += outputTuple.getByteSize();
             }

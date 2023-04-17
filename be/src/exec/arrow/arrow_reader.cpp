@@ -16,30 +16,31 @@
 // under the License.
 #include "exec/arrow/arrow_reader.h"
 
-#include <arrow/array.h>
-#include <arrow/status.h>
-#include <time.h>
+#include <arrow/buffer.h>
+#include <arrow/record_batch.h>
+#include <opentelemetry/common/threadlocal.h>
+
+#include <algorithm>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <ostream>
+#include <utility>
 
 #include "common/logging.h"
-#include "gen_cpp/PaloBrokerService_types.h"
-#include "gen_cpp/TPaloBrokerService.h"
-#include "io/file_reader.h"
-#include "runtime/broker_mgr.h"
-#include "runtime/client_cache.h"
+#include "io/fs/file_reader.h"
 #include "runtime/descriptors.h"
-#include "runtime/exec_env.h"
-#include "runtime/mem_pool.h"
 #include "runtime/runtime_state.h"
+#include "util/slice.h"
 #include "util/string_util.h"
-#include "util/thrift_util.h"
 #include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/utils/arrow_column_to_doris_column.h"
 
 namespace doris {
 
 ArrowReaderWrap::ArrowReaderWrap(RuntimeState* state,
                                  const std::vector<SlotDescriptor*>& file_slot_descs,
-                                 FileReader* file_reader, int32_t num_of_columns_from_file,
+                                 io::FileReaderSPtr file_reader, int32_t num_of_columns_from_file,
                                  bool case_sensitive)
         : _state(state),
           _file_slot_descs(file_slot_descs),
@@ -189,7 +190,7 @@ void ArrowReaderWrap::prefetch_batch() {
     }
 }
 
-ArrowFile::ArrowFile(FileReader* file) : _file(file) {}
+ArrowFile::ArrowFile(io::FileReaderSPtr file_reader) : _file_reader(file_reader) {}
 
 ArrowFile::~ArrowFile() {
     arrow::Status st = Close();
@@ -199,20 +200,11 @@ ArrowFile::~ArrowFile() {
 }
 
 arrow::Status ArrowFile::Close() {
-    if (_file != nullptr) {
-        _file->close();
-        delete _file;
-        _file = nullptr;
-    }
     return arrow::Status::OK();
 }
 
 bool ArrowFile::closed() const {
-    if (_file != nullptr) {
-        return _file->closed();
-    } else {
-        return true;
-    }
+    return _file_reader->closed();
 }
 
 arrow::Result<int64_t> ArrowFile::Read(int64_t nbytes, void* buffer) {
@@ -220,11 +212,12 @@ arrow::Result<int64_t> ArrowFile::Read(int64_t nbytes, void* buffer) {
 }
 
 arrow::Result<int64_t> ArrowFile::ReadAt(int64_t position, int64_t nbytes, void* out) {
-    int64_t reads = 0;
     int64_t bytes_read = 0;
     _pos = position;
-    while (nbytes > 0) {
-        Status result = _file->readat(_pos, nbytes, &reads, out);
+    while (bytes_read < nbytes) {
+        size_t reads = 0;
+        Slice file_slice((uint8_t*)out, nbytes);
+        Status result = _file_reader->read_at(_pos, file_slice, &reads);
         if (!result.ok()) {
             return arrow::Status::IOError("Readat failed.");
         }
@@ -232,7 +225,6 @@ arrow::Result<int64_t> ArrowFile::ReadAt(int64_t position, int64_t nbytes, void*
             break;
         }
         bytes_read += reads; // total read bytes
-        nbytes -= reads;     // remained bytes
         _pos += reads;
         out = (char*)out + reads;
     }
@@ -240,7 +232,7 @@ arrow::Result<int64_t> ArrowFile::ReadAt(int64_t position, int64_t nbytes, void*
 }
 
 arrow::Result<int64_t> ArrowFile::GetSize() {
-    return _file->size();
+    return _file_reader->size();
 }
 
 arrow::Status ArrowFile::Seek(int64_t position) {

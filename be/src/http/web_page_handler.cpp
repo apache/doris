@@ -17,23 +17,28 @@
 
 #include "http/web_page_handler.h"
 
-#include <functional>
+#include <stdlib.h>
 
-#include "common/config.h"
-#include "env/env.h"
+#include <functional>
+#include <memory>
+
+#include "common/logging.h"
+#include "common/status.h"
 #include "gutil/stl_util.h"
+#include "gutil/strings/numbers.h"
 #include "gutil/strings/substitute.h"
 #include "http/ev_http_server.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
+#include "http/http_method.h"
 #include "http/http_request.h"
-#include "http/http_response.h"
 #include "http/http_status.h"
 #include "http/utils.h"
-#include "olap/file_helper.h"
+#include "io/fs/local_file_system.h"
 #include "util/cpu_info.h"
 #include "util/debug_util.h"
 #include "util/disk_info.h"
+#include "util/easy_json.h"
 #include "util/mem_info.h"
 #include "util/mustache/mustache.h"
 
@@ -174,14 +179,18 @@ std::string WebPageHandler::mustache_partial_tag(const std::string& path) const 
 
 bool WebPageHandler::static_pages_available() const {
     bool is_dir = false;
-    return Env::Default()->is_directory(_www_path, &is_dir).ok() && is_dir;
+    return io::global_local_filesystem()->is_directory(_www_path, &is_dir).ok() && is_dir;
 }
 
 bool WebPageHandler::mustache_template_available(const std::string& path) const {
     if (!static_pages_available()) {
         return false;
     }
-    return Env::Default()->path_exists(strings::Substitute("$0/$1.mustache", _www_path, path)).ok();
+    bool exists;
+    return io::global_local_filesystem()
+                   ->exists(strings::Substitute("$0/$1.mustache", _www_path, path), &exists)
+                   .ok() &&
+           exists;
 }
 
 void WebPageHandler::render_main_template(const std::string& content, std::stringstream* output) {

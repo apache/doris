@@ -140,7 +140,16 @@ public abstract class AlterHandler extends MasterDaemon {
     }
 
     public Long getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState state) {
-        return alterJobsV2.values().stream().filter(e -> e.getJobState() == state).count();
+        Long counter = 0L;
+
+        for (AlterJobV2 job : alterJobsV2.values()) {
+            // no need to check priv here. This method is only called in show proc stmt,
+            // which already check the ADMIN priv.
+            if (job.getJobState() == state) {
+                counter++;
+            }
+        }
+        return counter;
     }
 
     @Override

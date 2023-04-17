@@ -17,8 +17,7 @@
 
 suite("test_sum") {
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
-    sql "SET enable_fallback_to_original_planner=false" 
+    sql "SET enable_fallback_to_original_planner=false"
     // Nereids does't support window function
     // qt_select """
     //               select k1, sum(k5) over 

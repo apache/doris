@@ -173,7 +173,6 @@ under the License.
 | RowBlock error code | | |
 | OLAP_ERR_ROWBLOCK_DECOMPRESS_ERROR | -1300 | Rowblock decompression error |
 | OLAP_ERR_ROWBLOCK_FIND_ROW_EXCEPTION | -1301 | Failed to obtain Block Entry |
-| OLAP_ERR_ROWBLOCK_READ_INFO_ERROR | -1302 | Error reading Rowblock information |
 | Tablet metadata error | | |
 | OLAP_ERR_HEADER_ADD_VERSION | -1400 | Tablet metadata increase version |
 | OLAP_ERR_HEADER_DELETE_VERSION | -1401 | Tablet metadata deletion version |
@@ -245,9 +244,7 @@ under the License.
 | OLAP_ERR_ROWSET_ALREADY_EXIST | -3106 | Rowset already exists |
 | OLAP_ERR_ROWSET_CREATE_READER | -3107 | Rowset failed to create read object |
 | OLAP_ERR_ROWSET_INVALID | -3108 | Rowset is invalid |
-| OLAP_ERR_ROWSET_LOAD_FAILED | -3109 | Rowset load failed |
 | OLAP_ERR_ROWSET_READER_INIT | -3110 | Rowset read object initialization failed |
-| OLAP_ERR_ROWSET_READ_FAILED | -3111 | Rowset read failure |
 | OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION | -3112 | Rowset invalid transaction state |
 | OLAP_ERR_ROWSET_RENAME_FILE_FAILED | -3116 | Rowset failed to rename file |
 | OLAP_ERR_SEGCOMPACTION_INIT_READER | -3117 | Segment Compaction failed to init reader |

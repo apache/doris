@@ -20,11 +20,9 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.CTEContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -48,7 +46,7 @@ public class RegisterCTE extends OneAnalysisRuleFactory {
     @Override
     public Rule build() {
         return logicalCTE().thenApply(ctx -> {
-            LogicalCTE<GroupPlan> logicalCTE = ctx.root;
+            LogicalCTE<Plan> logicalCTE = ctx.root;
             register(logicalCTE.getAliasQueries(), ctx.cascadesContext);
             return logicalCTE.child();
         }).toRule(RuleType.REGISTER_CTE);
@@ -69,10 +67,10 @@ public class RegisterCTE extends OneAnalysisRuleFactory {
             CTEContext localCteContext = cteCtx;
 
             Function<Plan, LogicalPlan> analyzeCte = parsePlan -> {
-                CascadesContext localCascadesContext = new Memo(parsePlan)
-                        .newCascadesContext(cascadesContext.getStatementContext(), localCteContext);
+                CascadesContext localCascadesContext = CascadesContext.newRewriteContext(
+                        cascadesContext.getStatementContext(), parsePlan, localCteContext);
                 localCascadesContext.newAnalyzer().analyze();
-                return (LogicalPlan) localCascadesContext.getMemo().copyOut(false);
+                return (LogicalPlan) localCascadesContext.getRewritePlan();
             };
 
             LogicalPlan analyzedCteBody = analyzeCte.apply(aliasQuery.child());

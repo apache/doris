@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -34,6 +35,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Utils for Nereids.
@@ -208,10 +210,14 @@ public class Utils {
         if (binaryExpression.left().anyMatch(correlatedSlots::contains)) {
             if (binaryExpression.right() instanceof SlotReference) {
                 slots.add(binaryExpression.right());
+            } else if (binaryExpression.right() instanceof Cast) {
+                slots.add(((Cast) binaryExpression.right()).child());
             }
         } else {
             if (binaryExpression.left() instanceof SlotReference) {
                 slots.add(binaryExpression.left());
+            } else if (binaryExpression.left() instanceof Cast) {
+                slots.add(((Cast) binaryExpression.left()).child());
             }
         }
         return slots;
@@ -244,9 +250,34 @@ public class Utils {
         for (int i = 0; i < list.size(); i++) {
             if (list.get(i) == item) {
                 list.remove(i);
+                i--;
                 return;
             }
         }
         Preconditions.checkState(false, "item not found in list");
+    }
+
+    /** allCombinations */
+    public static <T> List<List<T>> allCombinations(List<List<T>> lists) {
+        int size = lists.size();
+        if (size == 0) {
+            return ImmutableList.of();
+        }
+        List<T> first = lists.get(0);
+        if (size == 1) {
+            return first
+                    .stream()
+                    .map(ImmutableList::of)
+                    .collect(ImmutableList.toImmutableList());
+        }
+        List<List<T>> rest = lists.subList(1, size);
+        List<List<T>> combinationWithoutFirst = allCombinations(rest);
+        return first.stream()
+                .flatMap(firstValue -> combinationWithoutFirst.stream()
+                        .map(restList ->
+                                Stream.concat(Stream.of(firstValue), restList.stream())
+                                .collect(ImmutableList.toImmutableList())
+                        )
+                ).collect(ImmutableList.toImmutableList());
     }
 }

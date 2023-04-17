@@ -50,7 +50,7 @@ public class HideOneRowRelationUnderUnion implements AnalysisRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(
             RuleType.HIDE_ONE_ROW_RELATION_UNDER_UNION.build(
-                logicalUnion(logicalOneRowRelation().when(LogicalOneRowRelation::buildUnionNode), group())
+                logicalUnion(logicalOneRowRelation().when(LogicalOneRowRelation::buildUnionNode), any())
                     .then(union -> {
                         List<Plan> newChildren = new ImmutableList.Builder<Plan>()
                                 .add(((LogicalOneRowRelation) union.child(0)).withBuildUnionNode(false))
@@ -60,7 +60,7 @@ public class HideOneRowRelationUnderUnion implements AnalysisRuleFactory {
                     })
             ),
             RuleType.HIDE_ONE_ROW_RELATION_UNDER_UNION.build(
-                logicalUnion(group(), logicalOneRowRelation().when(LogicalOneRowRelation::buildUnionNode))
+                logicalUnion(any(), logicalOneRowRelation().when(LogicalOneRowRelation::buildUnionNode))
                     .then(union -> {
                         List<Plan> children = new ImmutableList.Builder<Plan>()
                                 .add(union.child(0))

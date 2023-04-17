@@ -142,7 +142,7 @@ public class LdapAuthenticateTest {
     }
 
     private ConnectContext getContext() {
-        ConnectContext context = new ConnectContext(null);
+        ConnectContext context = new ConnectContext();
         context.setEnv(env);
         context.setThreadLocalInfo();
         return context;

@@ -25,6 +25,8 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.TypeUtils;
@@ -48,7 +50,8 @@ public class EliminateNotNull extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalFilter()
             .when(filter -> filter.getConjuncts().stream().anyMatch(expr -> expr.isGeneratedIsNotNull))
-            .then(filter -> {
+            .thenApply(ctx -> {
+                LogicalFilter<Plan> filter = ctx.root;
                 // Progress Example: `id > 0 and id is not null and name is not null(generated)`
                 // predicatesNotContainIsNotNull: `id > 0`
                 // predicatesNotContainIsNotNull infer nonNullable slots: `id`
@@ -66,7 +69,8 @@ public class EliminateNotNull extends OneRewriteRuleFactory {
                                 predicatesNotContainIsNotNull.add(expr);
                             }
                         });
-                Set<Slot> inferNonNotSlots = ExpressionUtils.inferNotNullSlots(predicatesNotContainIsNotNull);
+                Set<Slot> inferNonNotSlots = ExpressionUtils.inferNotNullSlots(
+                        predicatesNotContainIsNotNull, ctx.cascadesContext);
 
                 Set<Expression> keepIsNotNull = slotsFromIsNotNull.stream()
                         .filter(ExpressionTrait::nullable)

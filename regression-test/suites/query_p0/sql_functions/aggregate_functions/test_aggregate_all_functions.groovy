@@ -495,4 +495,45 @@ suite("test_aggregate_all_functions") {
     qt_select46 """select * from ${tableName_12} where id>=5 and id <=5 and level >10  order by id,level;"""
 
     qt_select47 """select count(*) from ${tableName_12}"""
+
+    def tableName_21 = "quantile_state_agg_test"
+
+    sql "DROP TABLE IF EXISTS ${tableName_21}"
+
+    sql """
+        CREATE TABLE IF NOT EXISTS ${tableName_21} (
+        	 `dt` int(11) NULL COMMENT "",
+        	 `id` int(11) NULL COMMENT "",
+        	 `price` quantile_state QUANTILE_UNION NOT NULL COMMENT ""
+        	) ENGINE=OLAP
+        	AGGREGATE KEY(`dt`, `id`)
+        	COMMENT "OLAP"
+        	DISTRIBUTED BY HASH(`dt`) BUCKETS 1
+        	PROPERTIES (
+                  "replication_num" = "1"
+            );
+        """
+    sql """INSERT INTO ${tableName_21} values(20220201,0, to_quantile_state(1, 2048))"""
+    sql """INSERT INTO ${tableName_21} values(20220201,1, to_quantile_state(-1, 2048)),
+            (20220201,1, to_quantile_state(0, 2048)),(20220201,1, to_quantile_state(1, 2048)),
+            (20220201,1, to_quantile_state(2, 2048)),(20220201,1, to_quantile_state(3, 2048))
+        """
+
+    List rows = new ArrayList()
+    for (int i = 0; i < 5000; ++i) {
+        rows.add([20220202, 2 , i])
+    }
+    streamLoad {
+        table "${tableName_21}"
+        set 'label', UUID.randomUUID().toString()
+        set 'columns', 'dt, id, price, price=to_quantile_state(price, 2048)'
+        inputIterator rows.iterator()
+    }
+
+    qt_select48 """select dt, id, quantile_percent(quantile_union(price), 0) from ${tableName_21} group by dt, id order by dt, id"""
+
+    qt_select49 """select dt, id, quantile_percent(quantile_union(price), 0.5) from ${tableName_21} group by dt, id order by dt, id"""
+    qt_select50 """select dt, id, quantile_percent(quantile_union(price), 1) from ${tableName_21} group by dt, id order by dt, id"""
+
+
 }

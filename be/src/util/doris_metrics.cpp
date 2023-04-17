@@ -20,9 +20,8 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include "env/env.h"
+#include "io/fs/local_file_system.h"
 #include "util/debug_util.h"
-#include "util/file_utils.h"
 #include "util/system_metrics.h"
 
 namespace doris {
@@ -138,8 +137,8 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(process_fd_num_limit_hard, MetricUnit::NOUNIT
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_cumulative_max_compaction_score, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_base_max_compaction_score, MetricUnit::NOUNIT);
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(all_rowset_nums, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(all_segment_nums, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(all_rowsets_num, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(all_segments_num, MetricUnit::NOUNIT);
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(compaction_used_permits, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(compaction_waitting_permits, MetricUnit::NOUNIT);
@@ -165,6 +164,7 @@ DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(query_cache_partition_total_count, Metri
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(tablet_schema_cache_count, MetricUnit::NOUNIT);
 DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(tablet_schema_cache_memory_bytes, MetricUnit::BYTES);
+DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(lru_cache_memory_bytes, MetricUnit::BYTES);
 
 DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(upload_total_byte, MetricUnit::BYTES);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(upload_rowset_count, MetricUnit::ROWSETS);
@@ -273,8 +273,8 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, tablet_cumulative_max_compaction_score);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, tablet_base_max_compaction_score);
 
-    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, all_rowset_nums);
-    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, all_segment_nums);
+    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, all_rowsets_num);
+    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, all_segments_num);
 
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, compaction_used_permits);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, compaction_waitting_permits);
@@ -303,6 +303,7 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
 
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, tablet_schema_cache_count);
     INT_UGAUGE_METRIC_REGISTER(_server_metric_entity, tablet_schema_cache_memory_bytes);
+    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, lru_cache_memory_bytes);
 
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, local_file_reader_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, s3_file_reader_total);
@@ -345,9 +346,13 @@ void DorisMetrics::_update_process_thread_num() {
     ss << "/proc/" << pid << "/task/";
 
     int64_t count = 0;
-    Status st = FileUtils::get_children_count(Env::Default(), ss.str(), &count);
+    auto cb = [&count](const io::FileInfo& file) -> bool {
+        count += 1;
+        return true;
+    };
+    Status st = io::global_local_filesystem()->iterate_directory(ss.str(), cb);
     if (!st.ok()) {
-        LOG(WARNING) << "failed to count thread num from: " << ss.str();
+        LOG(WARNING) << "failed to count thread num: " << st;
         process_thread_num->set_value(0);
         return;
     }
@@ -363,9 +368,13 @@ void DorisMetrics::_update_process_fd_num() {
     std::stringstream ss;
     ss << "/proc/" << pid << "/fd/";
     int64_t count = 0;
-    Status st = FileUtils::get_children_count(Env::Default(), ss.str(), &count);
+    auto cb = [&count](const io::FileInfo& file) -> bool {
+        count += 1;
+        return true;
+    };
+    Status st = io::global_local_filesystem()->iterate_directory(ss.str(), cb);
     if (!st.ok()) {
-        LOG(WARNING) << "failed to count fd from: " << ss.str();
+        LOG(WARNING) << "failed to count fd: " << st;
         process_fd_num_used->set_value(0);
         return;
     }

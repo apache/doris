@@ -21,21 +21,21 @@
 #include <stdint.h>
 
 #include <chrono>
+#include <climits>
 #include <cstddef>
 #include <iostream>
 
 #include "cctz/time_zone.h"
-#include "udf/udf.h"
 #include "util/hash_util.hpp"
 #include "util/time_lut.h"
 #include "util/timezone_utils.h"
 
 namespace doris {
-class DateTimeValue;
 
 namespace vectorized {
 
 enum TimeUnit {
+    MICROSECOND,
     SECOND,
     MINUTE,
     HOUR,
@@ -111,6 +111,9 @@ struct TimeInterval {
         case SECOND_MICROSECOND:
             microsecond = count;
             break;
+        case MICROSECOND:
+            microsecond = count;
+            break;
         default:
             break;
         }
@@ -137,6 +140,10 @@ const int TIME_MAX_MINUTE = 59;
 const int TIME_MAX_SECOND = 59;
 const int TIME_MAX_VALUE = 10000 * TIME_MAX_HOUR + 100 * TIME_MAX_MINUTE + TIME_MAX_SECOND;
 const int TIME_MAX_VALUE_SECONDS = 3600 * TIME_MAX_HOUR + 60 * TIME_MAX_MINUTE + TIME_MAX_SECOND;
+
+constexpr int HOUR_PER_DAY = 24;
+constexpr int64_t SECOND_PER_HOUR = 3600;
+constexpr int64_t SECOND_PER_MINUTE = 60;
 
 constexpr size_t const_length(const char* str) {
     return (str == nullptr || *str == 0) ? 0 : const_length(str + 1) + 1;
@@ -380,7 +387,7 @@ public:
         return true;
     }
 
-    uint64_t daynr() const { return calc_daynr(_year, _month, _day); }
+    int32_t daynr() const { return calc_daynr(_year, _month, _day); }
 
     int year() const { return _year; }
     int month() const { return _month; }
@@ -391,6 +398,9 @@ public:
     int minute() const { return _minute; }
     int second() const { return _second; }
     int neg() const { return _neg; }
+    int64_t time_part_to_seconds() const {
+        return _hour * SECOND_PER_HOUR + _minute * SECOND_PER_MINUTE + _second;
+    }
 
     bool check_loss_accuracy_cast_to_date() {
         auto loss_accuracy = _hour != 0 || _minute != 0 || _second != 0;
@@ -555,11 +565,6 @@ public:
 
     VecDateTimeValue& operator--() { return *this += -1; }
 
-    void to_datetime_val(doris_udf::DateTimeVal* tv) const {
-        tv->packed_time = to_int64_datetime_packed();
-        tv->type = _type;
-    }
-
     uint32_t to_date_v2() const {
         CHECK(_type == TIME_DATE);
         return (year() << 9 | month() << 5 | day());
@@ -570,15 +575,6 @@ public:
         return (uint64_t)(((uint64_t)year() << 46) | ((uint64_t)month() << 42) |
                           ((uint64_t)day() << 37) | ((uint64_t)hour() << 32) |
                           ((uint64_t)minute() << 26) | ((uint64_t)second() << 20));
-    }
-
-    static VecDateTimeValue from_datetime_val(const doris_udf::DateTimeVal& tv) {
-        VecDateTimeValue value;
-        value.from_packed_time(tv.packed_time);
-        if (tv.type == TIME_DATE) {
-            value.cast_to_date();
-        }
-        return value;
     }
 
     uint32_t hash(int seed) const { return ::doris::HashUtil::hash(this, sizeof(*this), seed); }
@@ -604,20 +600,14 @@ public:
         return _s_max_datetime_value;
     }
 
-    int64_t second_diff(const VecDateTimeValue& rhs) const {
-        int day_diff = daynr() - rhs.daynr();
-        int time_diff = (hour() * 3600 + minute() * 60 + second()) -
-                        (rhs.hour() * 3600 + rhs.minute() * 60 + rhs.second());
-        return day_diff * 3600 * 24 + time_diff;
+    template <typename T>
+    int64_t time_part_diff(const T& rhs) const {
+        return time_part_to_seconds() - rhs.time_part_to_seconds();
     }
 
     template <typename T>
-    int64_t second_diff(const DateV2Value<T>& rhs) const;
-
-    int64_t time_part_diff(const VecDateTimeValue& rhs) const {
-        int time_diff = (hour() * 3600 + minute() * 60 + second()) -
-                        (rhs.hour() * 3600 + rhs.minute() * 60 + rhs.second());
-        return time_diff;
+    int64_t second_diff(const T& rhs) const {
+        return (daynr() - rhs.daynr()) * SECOND_PER_HOUR * HOUR_PER_DAY + time_part_diff(rhs);
     }
 
     void set_type(int type);
@@ -629,13 +619,15 @@ public:
                _day > 0;
     }
 
-    void convert_vec_dt_to_dt(doris::DateTimeValue* dt) const;
-    void convert_dt_to_vec_dt(doris::DateTimeValue* dt);
     int64_t to_datetime_int64() const;
 
-private:
-    // Used to make sure sizeof VecDateTimeValue
-    friend class UnusedClass;
+    // To compatible with MySQL
+    int64_t to_int64_datetime_packed() const {
+        int64_t ymd = ((_year * 13 + _month) << 5) | _day;
+        int64_t hms = (_hour << 12) | (_minute << 6) | _second;
+        int64_t tmp = make_packed_time(((ymd << 17) | hms), 0);
+        return _neg ? -tmp : tmp;
+    }
 
     void from_packed_time(int64_t packed_time) {
         int64_t ymdhms = packed_time >> 24;
@@ -654,16 +646,12 @@ private:
         _type = TIME_DATETIME;
     }
 
+private:
+    // Used to make sure sizeof VecDateTimeValue
+    friend class UnusedClass;
+
     int64_t make_packed_time(int64_t time, int64_t second_part) const {
         return (time << 24) + second_part;
-    }
-
-    // To compatible with MySQL
-    int64_t to_int64_datetime_packed() const {
-        int64_t ymd = ((_year * 13 + _month) << 5) | _day;
-        int64_t hms = (_hour << 12) | (_minute << 6) | _second;
-        int64_t tmp = make_packed_time(((ymd << 17) | hms), 0);
-        return _neg ? -tmp : tmp;
     }
 
     int64_t to_int64_date_packed() const {
@@ -724,8 +712,7 @@ template <typename T>
 class DateV2Value {
 public:
     static constexpr bool is_datetime = std::is_same_v<T, DateTimeV2ValueType>;
-    using underlying_value =
-            std::conditional_t<std::is_same_v<T, DateTimeV2ValueType>, uint64_t, uint32_t>;
+    using underlying_value = std::conditional_t<is_datetime, uint64_t, uint32_t>;
 
     // Constructor
     DateV2Value() : date_v2_value_(0, 0, 0, 0, 0, 0, 0) {}
@@ -834,7 +821,7 @@ public:
         return true;
     }
 
-    uint32_t daynr() const {
+    int32_t daynr() const {
         return calc_daynr(date_v2_value_.year_, date_v2_value_.month_, date_v2_value_.day_);
     }
 
@@ -868,6 +855,10 @@ public:
         } else {
             return 0;
         }
+    }
+
+    int64_t time_part_to_seconds() const {
+        return hour() * SECOND_PER_HOUR + minute() * SECOND_PER_MINUTE + second();
     }
 
     uint16_t year() const { return date_v2_value_.year_; }
@@ -1059,23 +1050,15 @@ public:
         }
     }
 
+    //only calculate the diff of dd:mm:ss
     template <typename RHS>
-    int64_t second_diff(const DateV2Value<RHS>& rhs) const {
-        int day_diff = daynr() - rhs.daynr();
-        return day_diff * 3600 * 24 + (hour() * 3600 + minute() * 60 + second()) -
-               (rhs.hour() * 3600 + rhs.minute() * 60 + rhs.second());
+    int64_t time_part_diff(const RHS& rhs) const {
+        return time_part_to_seconds() - rhs.time_part_to_seconds();
     }
 
-    int64_t second_diff(const VecDateTimeValue& rhs) const {
-        int day_diff = daynr() - rhs.daynr();
-        return day_diff * 3600 * 24 + (hour() * 3600 + minute() * 60 + second()) -
-               (rhs.hour() * 3600 + rhs.minute() * 60 + rhs.second());
-    }
-
-    int64_t time_part_diff(const VecDateTimeValue& rhs) const {
-        int time_diff = (hour() * 3600 + minute() * 60 + second()) -
-                        (rhs.hour() * 3600 + rhs.minute() * 60 + rhs.second());
-        return time_diff;
+    template <typename RHS>
+    int64_t second_diff(const RHS& rhs) const {
+        return (daynr() - rhs.daynr()) * SECOND_PER_HOUR * HOUR_PER_DAY + time_part_diff(rhs);
     }
 
     bool can_cast_to_date_without_loss_accuracy() {
@@ -1093,14 +1076,6 @@ public:
     uint64_t set_datetime_uint64(uint64_t int_val);
 
     bool get_date_from_daynr(uint64_t);
-
-    static DateV2Value<DateTimeV2ValueType> from_datetimev2_val(
-            const doris_udf::DateTimeV2Val& tv) {
-        DCHECK(is_datetime);
-        DateV2Value<DateTimeV2ValueType> value;
-        value.from_datetime(tv.datetimev2_value);
-        return value;
-    }
 
     template <TimeUnit unit>
     void set_time_unit(uint32_t val) {
@@ -1144,6 +1119,10 @@ public:
 
     bool from_date_format_str(const char* format, int format_len, const char* value, int value_len,
                               const char** sub_val_end);
+    static constexpr int MAX_DATE_PARTS = 7;
+    static constexpr uint32_t MAX_TIME_PART_VALUE[3] = {23, 59, 59};
+
+    void format_datetime(uint32_t* date_v, bool* carry_bits) const;
 
 private:
     static uint8_t calc_week(const uint32_t& day_nr, const uint16_t& year, const uint8_t& month,

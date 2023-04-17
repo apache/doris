@@ -107,6 +107,7 @@ public class SlotRef extends Expr {
         col = other.col;
         label = other.label;
         desc = other.desc;
+        tupleId = other.tupleId;
     }
 
     @Override
@@ -369,6 +370,10 @@ public class SlotRef extends Expr {
         this.tupleId = tupleId;
     }
 
+    TupleId getTupleId() {
+        return tupleId;
+    }
+
     @Override
     public boolean isBoundByTupleIds(List<TupleId> tids) {
         Preconditions.checkState(desc != null || tupleId != null);
@@ -381,6 +386,16 @@ public class SlotRef extends Expr {
             }
         }
         return false;
+    }
+
+    @Override
+    public boolean hasAggregateSlot() {
+        return desc.getColumn().isAggregated();
+    }
+
+    @Override
+    public boolean isRelativedByTupleIds(List<TupleId> tids) {
+        return isBoundByTupleIds(tids);
     }
 
     @Override
@@ -522,11 +537,6 @@ public class SlotRef extends Expr {
     }
 
     @Override
-    public void finalizeImplForNereids() throws AnalysisException {
-
-    }
-
-    @Override
     public String toString() {
         StringBuilder builder = new StringBuilder();
         if (tblName != null) {
@@ -539,25 +549,37 @@ public class SlotRef extends Expr {
     }
 
     @Override
-    public boolean haveMvSlot() {
+    public boolean haveMvSlot(TupleId tid) {
+        if (!isBound(tid)) {
+            return false;
+        }
         String name = MaterializedIndexMeta.normalizeName(toSqlWithoutTbl());
         return CreateMaterializedViewStmt.isMVColumn(name);
     }
 
     @Override
-    public boolean matchExprs(List<Expr> exprs, SelectStmt stmt, boolean ignoreAlias, String tableName)
+    public boolean matchExprs(List<Expr> exprs, SelectStmt stmt, boolean ignoreAlias, TupleDescriptor tuple)
             throws AnalysisException {
         Expr originExpr = stmt.getExprFromAliasSMap(this);
         if (!(originExpr instanceof SlotRef)) {
             return true; // means this is alias of other expr.
         }
+
         SlotRef aliasExpr = (SlotRef) originExpr;
         if (aliasExpr.getColumnName() == null) {
+            if (desc.getSourceExprs() != null) {
+                for (Expr expr : desc.getSourceExprs()) {
+                    if (!expr.matchExprs(exprs, stmt, ignoreAlias, tuple)) {
+                        return false;
+                    }
+                }
+            }
             return true; // means this is alias of other expr.
         }
+
+        String name = MaterializedIndexMeta.normalizeName(aliasExpr.toSqlWithoutTbl());
         if (aliasExpr.desc != null) {
-            TableIf table = aliasExpr.desc.getParent().getTable();
-            if (table != null && table.getName() != tableName) {
+            if (!isBound(tuple.getId()) && !tuple.getColumnNames().contains(name)) {
                 return true; // means this from other scan node.
             }
 
@@ -566,7 +588,6 @@ public class SlotRef extends Expr {
             }
         }
 
-        String name = MaterializedIndexMeta.normalizeName(aliasExpr.toSqlWithoutTbl());
         for (Expr expr : exprs) {
             if (CreateMaterializedViewStmt.isMVColumnNormal(name)
                     && MaterializedIndexMeta.normalizeName(expr.toSqlWithoutTbl()).equals(CreateMaterializedViewStmt
@@ -575,5 +596,27 @@ public class SlotRef extends Expr {
             }
         }
         return !CreateMaterializedViewStmt.isMVColumn(name) && exprs.isEmpty();
+    }
+
+    @Override
+    public Expr getResultValue(boolean foldSlot) throws AnalysisException {
+        if (!foldSlot) {
+            return this;
+        }
+        if (!isConstant() || desc == null) {
+            return this;
+        }
+        List<Expr> exprs = desc.getSourceExprs();
+        if (CollectionUtils.isEmpty(exprs)) {
+            return this;
+        }
+        Expr expr = exprs.get(0);
+        if (expr instanceof SlotRef) {
+            return expr.getResultValue(foldSlot);
+        }
+        if (expr.isConstant()) {
+            return expr;
+        }
+        return this;
     }
 }

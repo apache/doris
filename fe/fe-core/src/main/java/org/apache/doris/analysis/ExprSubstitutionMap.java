@@ -86,9 +86,10 @@ public final class ExprSubstitutionMap {
                 if (lhsExpr.notCheckDescIdEquals(lhs.get(i))) {
                     return rhs.get(i);
                 }
-            }
-            if (lhsExpr.equals(lhs.get(i))) {
-                return rhs.get(i);
+            } else {
+                if (lhsExpr.equals(lhs.get(i))) {
+                    return rhs.get(i);
+                }
             }
         }
         return null;
@@ -135,6 +136,10 @@ public final class ExprSubstitutionMap {
 
     public void updateLhsExprs(List<Expr> lhsExprList) {
         lhs = lhsExprList;
+    }
+
+    public void updateRhsExprs(List<Expr> rhsExprList) {
+        rhs = rhsExprList;
     }
 
     /**

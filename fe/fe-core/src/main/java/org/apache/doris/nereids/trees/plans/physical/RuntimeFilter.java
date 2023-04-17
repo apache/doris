@@ -30,21 +30,40 @@ public class RuntimeFilter {
     private final RuntimeFilterId id;
     private final TRuntimeFilterType type;
     private final Expression srcSlot;
-    private Slot targetSlot;
+    //bitmap filter support target expression like  k1+1, abs(k1)
+    //targetExpression is an expression on targetSlot, in which there is only one non-const slot
+    private final Expression targetExpression;
+    private final Slot targetSlot;
     private final int exprOrder;
-    private PhysicalHashJoin builderNode;
+    private final AbstractPhysicalJoin builderNode;
+
+    private final boolean bitmapFilterNotIn;
+
+    private final long buildSideNdv;
 
     /**
      * constructor
      */
     public RuntimeFilter(RuntimeFilterId id, Expression src, Slot target, TRuntimeFilterType type,
-            int exprOrder, PhysicalHashJoin builderNode) {
+            int exprOrder, AbstractPhysicalJoin builderNode, long buildSideNdv) {
+        this(id, src, target, target, type, exprOrder, builderNode, false, buildSideNdv);
+    }
+
+    /**
+     * constructor
+     */
+    public RuntimeFilter(RuntimeFilterId id, Expression src, Slot target, Expression targetExpression,
+            TRuntimeFilterType type, int exprOrder, AbstractPhysicalJoin builderNode, boolean bitmapFilterNotIn,
+            long buildSideNdv) {
         this.id = id;
         this.srcSlot = src;
         this.targetSlot = target;
+        this.targetExpression = targetExpression;
         this.type = type;
         this.exprOrder = exprOrder;
         this.builderNode = builderNode;
+        this.bitmapFilterNotIn = bitmapFilterNotIn;
+        this.buildSideNdv = buildSideNdv <= 0 ? -1L : buildSideNdv;
     }
 
     public Expression getSrcExpr() {
@@ -67,7 +86,19 @@ public class RuntimeFilter {
         return exprOrder;
     }
 
-    public PhysicalHashJoin getBuilderNode() {
+    public AbstractPhysicalJoin getBuilderNode() {
         return builderNode;
+    }
+
+    public boolean isBitmapFilterNotIn() {
+        return bitmapFilterNotIn;
+    }
+
+    public Expression getTargetExpression() {
+        return targetExpression;
+    }
+
+    public long getBuildSideNdv() {
+        return buildSideNdv;
     }
 }

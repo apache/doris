@@ -27,7 +27,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -55,8 +55,8 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
 
     public PhysicalProject(List<NamedExpression> projects, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
-            StatsDeriveResult statsDeriveResult, CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_PROJECT, groupExpression, logicalProperties, physicalProperties, statsDeriveResult,
+            Statistics statistics, CHILD_TYPE child) {
+        super(PlanType.PHYSICAL_PROJECT, groupExpression, logicalProperties, physicalProperties, statistics,
                 child);
         this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
     }
@@ -67,9 +67,9 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalProject",
+        return Utils.toSqlString("PhysicalProject[" + id.asInt() + "]" + getGroupIdAsString(),
                 "projects", projects,
-                "stats", statsDeriveResult
+                "stats", statistics
         );
     }
 
@@ -118,9 +118,9 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
 
     @Override
     public PhysicalProject<CHILD_TYPE> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
-            StatsDeriveResult statsDeriveResult) {
-        return new PhysicalProject<>(projects, Optional.empty(), getLogicalProperties(), physicalProperties,
-                statsDeriveResult, child());
+            Statistics statistics) {
+        return new PhysicalProject<>(projects, groupExpression, getLogicalProperties(), physicalProperties,
+                statistics, child());
     }
 
     /**
@@ -134,7 +134,7 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
                 groupExpression,
                 getLogicalProperties(),
                 physicalProperties,
-                statsDeriveResult,
+                statistics,
                 child
                 );
     }

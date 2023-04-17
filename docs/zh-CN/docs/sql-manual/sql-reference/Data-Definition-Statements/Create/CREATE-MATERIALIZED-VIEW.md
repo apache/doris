@@ -59,10 +59,7 @@ CREATE MATERIALIZED VIEW [MV name] as [query]
   语法和查询语句语法一致。
 
   - `select_expr`：物化视图的 schema 中所有的列。  
-    - 仅支持不带表达式计算的单列，聚合列。 
-    - 其中聚合函数目前仅支持 SUM, MIN, MAX 三种，且聚合函数的参数只能是不带表达式计算的单列。 
     - 至少包含一个单列。 
-    - 所有涉及到的列，均只能出现一次。
   - `base view name`：物化视图的原始表名，必填项。  
     - 必须是单表，且非子查询
   - `group by`：物化视图的分组列，选填项。 

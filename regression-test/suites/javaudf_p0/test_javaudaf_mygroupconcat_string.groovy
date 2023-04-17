@@ -66,8 +66,9 @@ suite("test_javaudaf_mygroupconcat_string") {
 
         qt_select1 """ SELECT user_id, udaf_mygroupconcat_string(varchar_col) result FROM ${tableName} GROUP BY user_id order by user_id; """
 
-        sql """ DROP FUNCTION udaf_mygroupconcat_string(string); """
+
     } finally {
+        try_sql("DROP FUNCTION IF EXISTS udaf_mygroupconcat_string(string);")
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
 }

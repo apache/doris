@@ -17,7 +17,6 @@
 
 package org.apache.doris.mysql;
 
-import org.apache.doris.mysql.nio.NMysqlServer;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectScheduler;
 
@@ -84,7 +83,7 @@ public class MysqlServerTest {
         int port = socket.getLocalPort();
         socket.close();
 
-        NMysqlServer server = new NMysqlServer(port, scheduler);
+        MysqlServer server = new MysqlServer(port, scheduler);
         Assert.assertTrue(server.start());
 
         // submit
@@ -112,9 +111,9 @@ public class MysqlServerTest {
         ServerSocket socket = new ServerSocket(0);
         int port = socket.getLocalPort();
         socket.close();
-        NMysqlServer server = new NMysqlServer(port, scheduler);
+        MysqlServer server = new MysqlServer(port, scheduler);
         Assert.assertTrue(server.start());
-        NMysqlServer server1 = new NMysqlServer(port, scheduler);
+        MysqlServer server1 = new MysqlServer(port, scheduler);
         Assert.assertFalse(server1.start());
 
         server.stop();
@@ -125,7 +124,7 @@ public class MysqlServerTest {
         ServerSocket socket = new ServerSocket(0);
         int port = socket.getLocalPort();
         socket.close();
-        NMysqlServer server = new NMysqlServer(port, badScheduler);
+        MysqlServer server = new MysqlServer(port, badScheduler);
         Assert.assertTrue(server.start());
 
         // submit
