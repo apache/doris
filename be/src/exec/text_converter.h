@@ -17,7 +17,10 @@
 
 #pragma once
 
+#include <stddef.h>
+
 #include "vec/columns/column.h"
+
 namespace doris {
 
 class SlotDescriptor;

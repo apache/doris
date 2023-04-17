@@ -17,17 +17,30 @@
 
 #pragma once
 
+#include <gen_cpp/PaloInternalService_types.h>
+#include <glog/logging.h>
+#include <stddef.h>
+
+#include <boost/container/detail/std_fwd.hpp>
 #include <boost/lexical_cast.hpp>
 #include <cstdint>
+#include <iterator>
 #include <map>
+#include <memory>
+#include <set>
 #include <sstream>
 #include <string>
 #include <type_traits>
+#include <utility>
 #include <variant>
+#include <vector>
 
+#include "common/status.h"
 #include "exec/olap_utils.h"
 #include "olap/olap_common.h"
 #include "olap/olap_tuple.h"
+#include "runtime/datetime_value.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "runtime/type_limit.h"
 #include "vec/core/types.h"

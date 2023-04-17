@@ -17,10 +17,28 @@
 
 #include "exec/tablet_info.h"
 
+#include <butil/fast_rand.h>
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/descriptors.pb.h>
+#include <glog/logging.h>
+#include <stddef.h>
+
+#include <algorithm>
+#include <ostream>
+
+#include "olap/tablet_schema.h"
+#include "runtime/descriptors.h"
 #include "runtime/large_int_value.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/raw_value.h"
+#include "runtime/types.h"
+#include "util/hash_util.hpp"
 #include "util/string_parser.hpp"
+#include "vec/common/string_ref.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 

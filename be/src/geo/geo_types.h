@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <stddef.h>
+
 #include <memory>
 #include <string>
 #include <vector>
@@ -28,7 +30,6 @@ class S2Polyline;
 class S2Polygon;
 class S2Cap;
 class S2Loop;
-
 template <typename T>
 class Vector3;
 

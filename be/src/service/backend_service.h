@@ -17,17 +17,20 @@
 
 #pragma once
 
+#include <gen_cpp/BackendService.h>
+#include <gen_cpp/DorisExternalService_types.h>
+#include <gen_cpp/TDorisExternalService.h>
+#include <stdint.h>
 #include <thrift/protocol/TDebugProtocol.h>
 #include <time.h>
 
 #include <map>
 #include <memory>
+#include <string>
+#include <vector>
 
 #include "agent/agent_server.h"
 #include "common/status.h"
-#include "gen_cpp/BackendService.h"
-#include "gen_cpp/DorisExternalService_types.h"
-#include "gen_cpp/TDorisExternalService.h"
 
 namespace doris {
 
@@ -57,6 +60,20 @@ class TExportTaskRequest;
 class TExportStatusResult;
 class TStreamLoadRecordResult;
 class TDiskTrashInfo;
+class TCancelPlanFragmentParams;
+class TCheckStorageFormatResult;
+class TRoutineLoadTask;
+class TScanBatchResult;
+class TScanCloseParams;
+class TScanCloseResult;
+class TScanNextBatchParams;
+class TScanOpenParams;
+class TScanOpenResult;
+class TSnapshotRequest;
+class TStatus;
+class TTabletStatResult;
+class TTransmitDataParams;
+class TUniqueId;
 
 // This class just forward rpc for actual handler
 // make this class because we can bind multiple service on single point

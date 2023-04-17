@@ -18,13 +18,26 @@
 #pragma once
 
 #include <fmt/core.h>
+#include <fmt/format.h>
 #include <rapidjson/document.h>
 #include <simdjson.h>
 
 #include <sstream>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "common/status.h"
 #include "udf/udf.h"
+
+namespace simdjson {
+namespace fallback {
+namespace ondemand {
+class object;
+class value;
+} // namespace ondemand
+} // namespace fallback
+} // namespace simdjson
 
 namespace doris {
 

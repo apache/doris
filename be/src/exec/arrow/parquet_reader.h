@@ -23,6 +23,10 @@
 #include <arrow/io/file.h>
 #include <arrow/io/interfaces.h>
 #include <arrow/status.h>
+#include <arrow/type_fwd.h>
+#include <gen_cpp/PaloBrokerService_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
 #include <parquet/api/reader.h>
 #include <parquet/api/writer.h>
 #include <parquet/arrow/reader.h>
@@ -34,16 +38,23 @@
 #include <condition_variable>
 #include <list>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "common/config.h"
 #include "common/status.h"
 #include "exec/arrow/arrow_reader.h"
-#include "gen_cpp/PaloBrokerService_types.h"
-#include "gen_cpp/PlanNodes_types.h"
-#include "gen_cpp/Types_types.h"
+#include "io/fs/file_reader_writer_fwd.h"
+
+namespace arrow {
+class RecordBatch;
+} // namespace arrow
+namespace parquet {
+class FileMetaData;
+} // namespace parquet
 
 namespace doris {
 
@@ -54,6 +65,7 @@ class RuntimeState;
 class SlotDescriptor;
 class FileReader;
 class RowGroupReader;
+class TupleDescriptor;
 
 // Reader of parquet file
 class ParquetReaderWrap final : public ArrowReaderWrap {
