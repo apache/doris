@@ -35,8 +35,8 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
-import org.apache.commons.lang.NotImplementedException;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.NotImplementedException;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -217,7 +217,7 @@ public class DeployManager extends MasterDaemon {
     }
 
     public void startListenerInternal() {
-        throw new NotImplementedException();
+        throw new NotImplementedException("startListenerInternal not implemented");
     }
 
     // Call init before each runOneCycle
@@ -231,7 +231,7 @@ public class DeployManager extends MasterDaemon {
     // Must implement in derived class.
     // If encounter errors, return null
     protected List<HostInfo> getGroupHostInfos(NodeType nodeType) {
-        throw new NotImplementedException();
+        throw new NotImplementedException("getGroupHostInfos not implemented");
     }
 
     protected String getBrokerName() {
