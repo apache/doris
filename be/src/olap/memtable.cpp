@@ -247,6 +247,7 @@ void MemTable::_collect_vskiplist_results() {
         vectorized::MutableBlock mutable_block =
                 vectorized::MutableBlock::build_mutable_block(&in_block);
         _cmp.set_block(&mutable_block);
+	std::sort(_vec_row.begin(), _vec_row.end(), _cmp);
         std::vector<int> row_pos_vec;
         DCHECK(in_block.rows() <= std::numeric_limits<int>::max());
         row_pos_vec.reserve(in_block.rows());
