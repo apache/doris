@@ -20,13 +20,18 @@
 
 #pragma once
 
+#include <memory>
+#include <string>
 #include <vector>
 
+#include "common/status.h"
 #include "io/cache/block/block_file_cache.h"
-#include "io/cache/block/block_file_cache_fwd.h"
-#include "io/cache/block/block_file_cache_settings.h"
+
 namespace doris {
+class TUniqueId;
+
 namespace io {
+struct FileCacheSettings;
 
 enum FileCacheType {
     NORMAL,

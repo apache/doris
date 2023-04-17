@@ -17,8 +17,7 @@
 
 #include "io/fs/file_system.h"
 
-#include "olap/olap_define.h"
-#include "util/async_io.h"
+#include "util/async_io.h" // IWYU pragma: keep
 
 namespace doris {
 namespace io {

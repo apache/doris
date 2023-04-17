@@ -17,13 +17,17 @@
 
 #pragma once
 
-#include "operator.h"
+#include <stdint.h>
 
-namespace doris::vectorized {
-class VScanNode;
-class VScanner;
-class ScannerContext;
-} // namespace doris::vectorized
+#include <string>
+
+#include "common/status.h"
+#include "operator.h"
+#include "vec/exec/scan/vscan_node.h"
+
+namespace doris {
+class ExecNode;
+} // namespace doris
 
 namespace doris::pipeline {
 

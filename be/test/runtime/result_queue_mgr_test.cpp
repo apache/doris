@@ -26,6 +26,7 @@
 #include <memory>
 
 #include "gen_cpp/DorisExternalService_types.h"
+#include "runtime/record_batch_queue.h"
 #include "testutil/test_util.h"
 #include "util/blocking_queue.hpp"
 

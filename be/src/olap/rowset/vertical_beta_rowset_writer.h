@@ -17,10 +17,20 @@
 
 #pragma once
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <memory>
+#include <vector>
+
+#include "common/status.h"
 #include "olap/rowset/beta_rowset_writer.h"
 #include "olap/rowset/segment_v2/segment_writer.h"
 
 namespace doris {
+namespace vectorized {
+class Block;
+} // namespace vectorized
 
 // for vertical compaction
 class VerticalBetaRowsetWriter : public BetaRowsetWriter {

@@ -17,14 +17,32 @@
 
 #include "vec/sink/vresult_file_sink.h"
 
+#include <gen_cpp/DataSinks_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <glog/logging.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+#include <time.h>
+
+#include <new>
+#include <ostream>
+
 #include "common/config.h"
+#include "common/object_pool.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/exec_env.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/runtime_state.h"
+#include "util/runtime_profile.h"
+#include "util/telemetry/telemetry.h"
 #include "util/uid_util.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/runtime/vfile_result_writer.h"
+#include "vec/sink/vresult_writer.h"
+
+namespace doris {
+class QueryStatistics;
+class TExpr;
+} // namespace doris
 
 namespace doris::vectorized {
 

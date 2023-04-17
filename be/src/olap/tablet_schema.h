@@ -17,14 +17,25 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/olap_common.pb.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <map>
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
 #include <vector>
 
-#include "gen_cpp/olap_file.pb.h"
-#include "gen_cpp/segment_v2.pb.h"
-#include "olap/olap_define.h"
-#include "olap/types.h"
+#include "common/status.h"
+#include "gutil/stringprintf.h"
+#include "olap/olap_common.h"
 #include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/data_types/data_type.h"
 
 namespace doris {
 namespace vectorized {
@@ -32,6 +43,8 @@ class Block;
 }
 
 struct OlapTableIndexSchema;
+class TColumn;
+class TOlapTableIndex;
 
 class TabletColumn {
 public:

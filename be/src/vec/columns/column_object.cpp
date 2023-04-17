@@ -18,22 +18,40 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Columns/ColumnObject.cpp
 // and modified by Doris
 
-#include <parallel_hashmap/phmap.h>
-#include <vec/columns/column_array.h>
-#include <vec/columns/column_nullable.h>
-#include <vec/columns/column_object.h>
-#include <vec/columns/columns_number.h>
-#include <vec/common/field_visitors.h>
-#include <vec/common/hash_table/hash_set.h>
-#include <vec/common/pod_array_fwd.h>
-#include <vec/common/schema_util.h>
-#include <vec/core/field.h>
-#include <vec/data_types/convert_field_to_type.h>
-#include <vec/data_types/data_type_array.h>
-#include <vec/data_types/data_type_nothing.h>
-#include <vec/data_types/get_least_supertype.h>
+#include "vec/columns/column_object.h"
 
-#include <vec/data_types/data_type_factory.hpp>
+#include <assert.h>
+#include <fmt/format.h>
+#include <parallel_hashmap/phmap.h>
+
+#include <functional>
+#include <limits>
+#include <map>
+#include <optional>
+
+#include "vec/columns/column_array.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/field_visitors.h"
+#include "vec/common/schema_util.h"
+#include "vec/core/field.h"
+#include "vec/data_types/convert_field_to_type.h"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_nothing.h"
+#include "vec/data_types/get_least_supertype.h"
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/logging.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_vector.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/typeid_cast.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
 namespace {

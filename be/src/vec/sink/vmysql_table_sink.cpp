@@ -17,13 +17,21 @@
 
 #include "vec/sink/vmysql_table_sink.h"
 
-#include <sstream>
+#include <gen_cpp/DataSinks_types.h>
+#include <opentelemetry/nostd/shared_ptr.h>
 
 #include "runtime/runtime_state.h"
+#include "util/telemetry/telemetry.h"
 #include "vec/sink/vtable_sink.h"
 
 namespace doris {
+class ObjectPool;
+class RowDescriptor;
+class TExpr;
+
 namespace vectorized {
+class Block;
+
 VMysqlTableSink::VMysqlTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
                                  const std::vector<TExpr>& t_exprs)
         : VTableSink(pool, row_desc, t_exprs) {

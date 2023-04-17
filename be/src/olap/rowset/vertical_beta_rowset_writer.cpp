@@ -17,7 +17,28 @@
 
 #include "olap/rowset/vertical_beta_rowset_writer.h"
 
+#include <gen_cpp/olap_file.pb.h>
+
+#include <algorithm>
+#include <atomic>
+#include <mutex>
+#include <ostream>
+#include <string>
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/logging.h"
+#include "gutil/strings/substitute.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
 #include "olap/rowset/beta_rowset.h"
+#include "olap/rowset/rowset_meta.h"
+#include "olap/rowset/rowset_writer_context.h"
+#include "util/slice.h"
+#include "util/spinlock.h"
+#include "vec/core/block.h"
 
 namespace doris {
 using namespace ErrorCode;

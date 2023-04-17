@@ -17,21 +17,28 @@
 
 #pragma once
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include <condition_variable>
 #include <memory>
+#include <mutex>
+#include <string>
+#include <utility>
+#include <vector>
 
-#include "common/config.h"
 #include "common/status.h"
 #include "io/fs/file_reader.h"
-#include "olap/olap_define.h"
-#include "util/runtime_profile.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "io/fs/path.h"
+#include "util/slice.h"
 
 namespace doris {
 namespace io {
 
-class PrefetchBufferedReader;
+class FileSystem;
+class IOContext;
+
 struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer> {
     enum class BufferStatus { RESET, PENDING, PREFETCHED, CLOSED };
     PrefetchBuffer() = default;

@@ -50,15 +50,12 @@ class IOBufAsZeroCopyInputStream;
 namespace doris {
 class ObjectPool;
 class RuntimePredicateWrapper;
-class MemTracker;
 class PPublishFilterRequest;
 class PMergeFilterRequest;
 class TRuntimeFilterDesc;
 class RowDescriptor;
 class PInFilter;
 class PMinMaxFilter;
-class HashJoinNode;
-class RuntimeProfile;
 class BloomFilterFuncBase;
 class BitmapFilterFuncBase;
 class TNetworkAddress;

@@ -20,7 +20,10 @@
 #include <strings.h>
 
 #include <algorithm>
+#include <boost/token_functions.hpp>
 #include <boost/tokenizer.hpp>
+#include <cctype>
+#include <cstddef>
 #include <map>
 #include <set>
 #include <sstream>

@@ -17,9 +17,13 @@
 
 #include "olap/rowset/segment_v2/encoding_info.h"
 
-#include <type_traits>
+#include <gen_cpp/segment_v2.pb.h>
 
-#include "gutil/strings/substitute.h"
+#include <iterator>
+#include <type_traits>
+#include <unordered_map>
+#include <utility>
+
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/binary_dict_page.h"
 #include "olap/rowset/segment_v2/binary_plain_page.h"
@@ -29,6 +33,7 @@
 #include "olap/rowset/segment_v2/frame_of_reference_page.h"
 #include "olap/rowset/segment_v2/plain_page.h"
 #include "olap/rowset/segment_v2/rle_page.h"
+#include "olap/types.h"
 
 namespace doris {
 namespace segment_v2 {

@@ -17,21 +17,23 @@
 
 #pragma once
 
+#include <gen_cpp/PaloBrokerService_types.h>
+#include <gen_cpp/Types_types.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include <map>
 #include <string>
 
 #include "common/status.h"
-#include "gen_cpp/PaloBrokerService_types.h"
-#include "gen_cpp/Types_types.h"
+#include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
+#include "util/hash_util.hpp" // IWYU pragma: keep
+#include "util/slice.h"
 
 namespace doris {
 
 class ExecEnv;
-class TBrokerRangeDesc;
-class TNetworkAddress;
 
 namespace io {
 

@@ -20,11 +20,21 @@
 
 #include "vec/data_types/data_type_time.h"
 
+#include <typeinfo>
+#include <utility>
+
 #include "util/date_func.h"
-#include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/string_buffer.hpp"
+
+namespace doris {
+namespace vectorized {
+class IColumn;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

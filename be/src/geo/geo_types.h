@@ -21,7 +21,6 @@
 
 #include <memory>
 #include <string>
-#include <vector>
 
 #include "geo/geo_common.h"
 #include "geo/wkt_parse_type.h"

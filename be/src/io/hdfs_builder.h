@@ -17,9 +17,15 @@
 
 #pragma once
 
+#include <gen_cpp/PlanNodes_types.h>
+
+#include <map>
+#include <string>
+
 #include "common/status.h"
-#include "gen_cpp/PlanNodes_types.h"
-#include "io/fs/hdfs.h"
+#include "io/fs/hdfs.h" // IWYU pragma: keep
+
+struct hdfsBuilder;
 
 namespace doris {
 

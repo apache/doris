@@ -17,18 +17,30 @@
 
 #include "vec/sink/vmemory_scratch_sink.h"
 
-#include <arrow/memory_pool.h>
-#include <arrow/record_batch.h>
+#include <arrow/type_fwd.h>
+#include <gen_cpp/Types_types.h>
 
 #include <sstream>
 
-#include "gen_cpp/Types_types.h"
+#include "common/object_pool.h"
 #include "runtime/exec_env.h"
-#include "runtime/primitive_type.h"
+#include "runtime/record_batch_queue.h"
 #include "runtime/runtime_state.h"
 #include "util/arrow/block_convertor.h"
 #include "util/arrow/row_batch.h"
+#include "util/runtime_profile.h"
+#include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
+
+namespace arrow {
+class RecordBatch;
+} // namespace arrow
+
+namespace doris {
+class RowDescriptor;
+class TExpr;
+class TMemoryScratchSink;
+} // namespace doris
 
 namespace doris::vectorized {
 

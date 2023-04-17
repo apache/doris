@@ -17,7 +17,8 @@
 
 #include "common/daemon.h"
 
-#include <bthread/errno.h>
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
 #include <gflags/gflags.h>
 #include <gperftools/malloc_extension.h> // IWYU pragma: keep
 // IWYU pragma: no_include <bits/std_abs.h>
@@ -31,7 +32,6 @@
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <map>
-#include <memory>
 #include <ostream>
 #include <set>
 #include <string>
@@ -41,6 +41,7 @@
 #include "common/status.h"
 #include "olap/options.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet_manager.h"
 #include "runtime/block_spill_manager.h"
 #include "runtime/exec_env.h"
 #include "runtime/load_channel_mgr.h"
@@ -53,8 +54,10 @@
 #include "util/disk_info.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
+#include "util/metrics.h"
 #include "util/network_util.h"
 #include "util/perf_counters.h"
+#include "util/system_metrics.h"
 #include "util/thrift_util.h"
 #include "util/time.h"
 

@@ -17,15 +17,20 @@
 
 #pragma once
 
+#include <gen_cpp/parquet_types.h>
+
 #include <cstddef>
 #include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/parquet_types.h"
-#include "gen_cpp/segment_v2.pb.h"
 #include "util/slice.h"
 
 namespace doris {
+class faststring;
+
+namespace segment_v2 {
+enum CompressionTypePB : int;
+} // namespace segment_v2
 
 // This class is used to encapsulate Compression/Decompression algorithm.
 // This class only used to compress a block data, which means all data

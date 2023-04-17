@@ -17,8 +17,28 @@
 
 #include "pipeline_task.h"
 
+#include <fmt/format.h>
+#include <gen_cpp/Metrics_types.h>
+#include <glog/logging.h>
+#include <stddef.h>
+
+#include <ostream>
+
+#include "pipeline/exec/operator.h"
+#include "pipeline/pipeline.h"
 #include "pipeline_fragment_context.h"
+#include "runtime/descriptors.h"
+#include "runtime/query_fragments_ctx.h"
+#include "runtime/thread_context.h"
 #include "task_queue.h"
+#include "util/defer_op.h"
+
+namespace doris {
+class RuntimeState;
+namespace taskgroup {
+class TaskGroup;
+} // namespace taskgroup
+} // namespace doris
 
 namespace doris::pipeline {
 

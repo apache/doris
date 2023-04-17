@@ -18,7 +18,9 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
+#include "common/object_pool.h"
 #include "io/fs/local_file_system.h"
+#include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "vec/data_types/data_type_factory.hpp"

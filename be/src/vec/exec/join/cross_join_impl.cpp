@@ -15,7 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "gen_cpp/PlanNodes_types.h"
+#include <gen_cpp/PlanNodes_types.h>
+
 #include "process_hash_table_probe_impl.h"
 
 namespace doris::vectorized {

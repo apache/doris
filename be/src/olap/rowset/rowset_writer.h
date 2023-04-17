@@ -17,8 +17,9 @@
 
 #pragma once
 
-#include "gen_cpp/olap_file.pb.h"
-#include "gen_cpp/types.pb.h"
+#include <gen_cpp/olap_file.pb.h>
+#include <gen_cpp/types.pb.h>
+
 #include "gutil/macros.h"
 #include "olap/column_mapping.h"
 #include "olap/rowset/rowset.h"

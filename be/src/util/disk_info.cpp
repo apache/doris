@@ -17,17 +17,23 @@
 
 #include "util/disk_info.h"
 
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
 #include <sys/types.h>
-#include <sys/vfs.h>
-#include <unistd.h>
 
-#include <boost/algorithm/string.hpp>
-#include <boost/algorithm/string/join.hpp>
+#include <algorithm>
+#include <boost/algorithm/string/classification.hpp>
+#include <boost/algorithm/string/detail/classification.hpp>
+#include <boost/algorithm/string/trim.hpp>
 #include <fstream>
-#include <iostream>
-#include <sstream>
+#include <iterator>
+#include <memory>
+#include <utility>
 
 #include "gutil/strings/split.h"
 #include "io/fs/local_file_system.h"

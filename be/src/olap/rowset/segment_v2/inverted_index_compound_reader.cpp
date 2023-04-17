@@ -17,7 +17,27 @@
 
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
 
+#include <CLucene/clucene-config.h>
+#include <CLucene/debug/error.h>
+#include <CLucene/debug/mem.h>
+#include <CLucene/store/RAMDirectory.h>
+#include <CLucene/util/Misc.h>
+#include <stdio.h>
+#include <string.h>
+#include <wchar.h>
+
+#include <algorithm>
+#include <memory>
+#include <utility>
+
+#include "CLucene/SharedHeader.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
+
+namespace doris {
+namespace io {
+class FileWriter;
+} // namespace io
+} // namespace doris
 
 #define BUFFER_LENGTH 16384
 #define CL_MAX_PATH 4096

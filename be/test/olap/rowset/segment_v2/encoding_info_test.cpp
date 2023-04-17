@@ -17,6 +17,7 @@
 
 #include "olap/rowset/segment_v2/encoding_info.h"
 
+#include <gen_cpp/segment_v2.pb.h>
 #include <gtest/gtest.h>
 
 #include <iostream>

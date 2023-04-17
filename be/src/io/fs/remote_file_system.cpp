@@ -17,11 +17,18 @@
 
 #include "io/fs/remote_file_system.h"
 
+#include <glog/logging.h>
+
+#include <algorithm>
+
+#include "common/config.h"
 #include "gutil/strings/stringpiece.h"
 #include "io/cache/block/cached_remote_file_reader.h"
+#include "io/cache/file_cache.h"
 #include "io/cache/file_cache_manager.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/file_reader_options.h"
-#include "util/async_io.h"
+#include "util/async_io.h" // IWYU pragma: keep
 
 namespace doris {
 namespace io {

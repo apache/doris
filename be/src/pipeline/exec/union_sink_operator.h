@@ -17,16 +17,21 @@
 
 #pragma once
 
+#include <stdint.h>
+
+#include <memory>
+
+#include "common/status.h"
 #include "operator.h"
-#include "pipeline/exec/data_queue.h"
 #include "vec/core/block.h"
+#include "vec/exec/vunion_node.h"
+
 namespace doris {
-namespace vectorized {
-class VUnionNode;
-class Block;
-} // namespace vectorized
+class ExecNode;
+class RuntimeState;
 
 namespace pipeline {
+class DataQueue;
 
 class UnionSinkOperatorBuilder final : public OperatorBuilder<vectorized::VUnionNode> {
 public:

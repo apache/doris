@@ -17,18 +17,53 @@
 
 #include "vparquet_reader.h"
 
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/parquet_types.h>
+#include <glog/logging.h>
+
 #include <algorithm>
+#include <functional>
+#include <ostream>
+#include <utility>
 
 #include "common/status.h"
 #include "io/file_factory.h"
-#include "olap/iterators.h"
 #include "parquet_pred_cmp.h"
 #include "parquet_thrift_util.h"
-#include "rapidjson/document.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/types.h"
+#include "util/slice.h"
+#include "vec/common/typeid_cast.h"
+#include "vec/exec/format/format_common.h"
+#include "vec/exec/format/parquet/schema_desc.h"
+#include "vec/exec/format/parquet/vparquet_file_metadata.h"
+#include "vec/exec/format/parquet/vparquet_group_reader.h"
+#include "vec/exec/format/parquet/vparquet_page_index.h"
 #include "vec/exprs/vbloom_predicate.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
 #include "vec/exprs/vslot_ref.h"
+
+namespace cctz {
+class time_zone;
+} // namespace cctz
+namespace doris {
+class RowDescriptor;
+class RuntimeState;
+class SlotDescriptor;
+class TupleDescriptor;
+namespace io {
+class IOContext;
+enum class FileCachePolicy : uint8_t;
+} // namespace io
+namespace vectorized {
+class Block;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

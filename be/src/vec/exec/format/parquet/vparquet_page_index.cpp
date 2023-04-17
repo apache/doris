@@ -17,8 +17,27 @@
 
 #include "vparquet_page_index.h"
 
+#include <gen_cpp/parquet_types.h>
+
+#include <algorithm>
+#include <limits>
+#include <ostream>
+#include <string>
+
+#include "common/logging.h"
+#include "common/status.h"
 #include "parquet_pred_cmp.h"
 #include "util/thrift_util.h"
+#include "vec/exec/format/parquet/parquet_common.h"
+
+namespace cctz {
+class time_zone;
+} // namespace cctz
+namespace doris {
+namespace vectorized {
+struct FieldSchema;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

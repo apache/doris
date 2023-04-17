@@ -17,22 +17,31 @@
 
 #pragma once
 
+#include <stdint.h>
+#include <time.h>
+
+#include <algorithm>
+#include <atomic>
 #include <functional>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <ostream>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
+#include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/internal_service.pb.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/tablets_channel.h"
+#include "util/spinlock.h"
 #include "util/uid_util.h"
 
 namespace doris {
 
-class Cache;
+class PTabletWriterOpenRequest;
 
 // A LoadChannel manages tablets channels for all indexes
 // corresponding to a certain load job

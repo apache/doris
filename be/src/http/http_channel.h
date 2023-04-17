@@ -19,12 +19,9 @@
 
 #include <stddef.h>
 
-#include <cstdint>
 #include <string>
 
 #include "http/http_status.h"
-
-struct mg_connection;
 
 namespace doris {
 

@@ -17,7 +17,26 @@
 
 #pragma once
 
+#include <fmt/format.h>
+
+#include <memory>
+#include <string>
+
+#include "common/object_pool.h"
+#include "common/status.h"
+#include "udf/udf.h"
 #include "vec/exprs/vexpr.h"
+
+namespace doris {
+class BitmapFilterFuncBase;
+class RowDescriptor;
+class RuntimeState;
+class TExprNode;
+namespace vectorized {
+class Block;
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

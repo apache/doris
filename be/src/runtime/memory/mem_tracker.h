@@ -19,6 +19,20 @@
 // and modified by Doris
 #pragma once
 
+#include <gen_cpp/Metrics_types.h>
+#include <stdint.h>
+
+#include <atomic>
+// IWYU pragma: no_include <bits/std_abs.h>
+#include <cmath> // IWYU pragma: keep
+#include <list>
+#include <memory>
+#include <ostream>
+#include <string>
+#include <vector>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "util/pretty_printer.h"
 #include "util/runtime_profile.h"
 

@@ -17,7 +17,14 @@
 
 #include "schema_desc.h"
 
+#include <ctype.h>
+
+#include <algorithm>
+#include <ostream>
+#include <utility>
+
 #include "common/logging.h"
+#include "runtime/define_primitive_type.h"
 #include "util/slice.h"
 
 namespace doris::vectorized {

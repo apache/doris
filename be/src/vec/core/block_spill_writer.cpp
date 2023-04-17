@@ -17,9 +17,20 @@
 
 #include "vec/core/block_spill_writer.h"
 
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/data.pb.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <unistd.h>
+
+#include <algorithm>
+
 #include "agent/be_exec_version_manager.h"
 #include "io/file_factory.h"
-#include "runtime/runtime_state.h"
+#include "runtime/exec_env.h"
+#include "runtime/thread_context.h"
+#include "vec/columns/column.h"
+#include "vec/core/column_with_type_and_name.h"
 
 namespace doris {
 namespace vectorized {
