@@ -31,8 +31,6 @@ enum wkbType {
     wkbGeometryCollection = 7
 };
 
-const int SRID = 4326;
-
 } // namespace doris
 
 struct ToBinaryContext {

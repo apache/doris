@@ -116,10 +116,6 @@ void toBinary::writeInt(int val, ToBinaryContext* ctx) {
     ctx->outStream->write(reinterpret_cast<char*>(ctx->buf), 4);
 }
 
-void toBinary::writeSRID(ToBinaryContext* ctx) {
-    writeInt(SRID, ctx);
-}
-
 void toBinary::writeCoordinateList(const GeoCoordinateList& coords, bool sized,
                                    ToBinaryContext* ctx) {
     std::size_t size = coords.list.size();
