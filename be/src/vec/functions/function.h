@@ -282,7 +282,6 @@ public:
     virtual void check_number_of_arguments(size_t number_of_arguments) const = 0;
 
     /// Check arguments and return IFunctionBase.
-    /// @TEMPORARY: last bool for be_exec_version=2
     virtual FunctionBasePtr build(const ColumnsWithTypeAndName& arguments,
                                   const DataTypePtr& return_type) const = 0;
 
