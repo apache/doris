@@ -1,7 +1,9 @@
 ---
 {
     "title": "Seatunnel Doris Sink",
-    "language": "zh-CN"
+    "language": "zh-CN",
+    "toc_min_heading_level": 2,
+    "toc_max_heading_level": 4
 }
 ---
 
