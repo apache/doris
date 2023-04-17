@@ -208,6 +208,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String DISABLE_NEREIDS_RULES = "disable_nereids_rules";
     public static final String ENABLE_NEW_COST_MODEL = "enable_new_cost_model";
     public static final String ENABLE_FALLBACK_TO_ORIGINAL_PLANNER = "enable_fallback_to_original_planner";
+    public static final String ENABLE_NEREIDS_TIMEOUT = "enable_nereids_timeout";
 
     public static final String FORBID_UNKNOWN_COLUMN_STATS = "forbid_unknown_col_stats";
     public static final String BROADCAST_RIGHT_TABLE_SCALE_FACTOR = "broadcast_right_table_scale_factor";
@@ -707,6 +708,9 @@ public class SessionVariable implements Serializable, Writable {
     // in nereids for some mistaken modification. You should set it on the
     @VariableMgr.VarAttr(name = ENABLE_FALLBACK_TO_ORIGINAL_PLANNER, needForward = true)
     public boolean enableFallbackToOriginalPlanner = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_TIMEOUT, needForward = true)
+    public boolean enableNereidsTimeout = true;
 
     @VariableMgr.VarAttr(name = ENABLE_NEW_SHUFFLE_HASH_METHOD)
     public boolean enableNewShuffleHashMethod = true;
