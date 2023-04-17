@@ -18,7 +18,6 @@
 #pragma once
 
 #include <math.h>
-#include <parallel_hashmap/phmap.h>
 #include <stdio.h>
 
 #include <map>
@@ -30,6 +29,7 @@
 #endif
 
 #include "gutil/macros.h"
+#include "vec/common/hash_table/phmap_fwd_decl.h"
 
 namespace doris {
 
@@ -268,7 +268,7 @@ public:
 
 private:
     HllDataType _type = HLL_DATA_EMPTY;
-    phmap::flat_hash_set<uint64_t> _hash_set;
+    vectorized::flat_hash_set<uint64_t> _hash_set;
 
     // This field is much space consuming(HLL_REGISTERS_COUNT), we create
     // it only when it is really needed.

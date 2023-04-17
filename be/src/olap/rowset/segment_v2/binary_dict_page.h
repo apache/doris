@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <parallel_hashmap/phmap.h>
-
 #include <functional>
 #include <memory>
 #include <string>
