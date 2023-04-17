@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -52,7 +53,7 @@ public class PushdownProjectThroughSemiJoin extends OneExplorationRuleFactory {
         return logicalProject(logicalJoin())
             .when(project -> project.child().getJoinType().isLeftSemiOrAntiJoin())
             // Just pushdown project with non-column expr like (t.id + 1)
-            .whenNot(CBOUtils::isAllSlotProject)
+            .whenNot(LogicalProject::isAllSlots)
             .whenNot(project -> project.child().hasJoinHint())
             .then(project -> {
                 LogicalJoin<GroupPlan, GroupPlan> join = project.child();
@@ -65,7 +66,7 @@ public class PushdownProjectThroughSemiJoin extends OneExplorationRuleFactory {
                 Plan newLeft = CBOUtils.projectOrSelf(newProject, join.left());
 
                 Plan newJoin = join.withChildrenNoContext(newLeft, join.right());
-                return CBOUtils.projectOrSelfInOrder(new ArrayList<>(project.getOutput()), newJoin);
+                return CBOUtils.projectOrSelf(new ArrayList<>(project.getOutput()), newJoin);
             }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_SEMI_JOIN);
     }
 

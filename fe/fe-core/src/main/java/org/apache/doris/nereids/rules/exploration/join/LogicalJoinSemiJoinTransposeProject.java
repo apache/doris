@@ -46,7 +46,7 @@ public class LogicalJoinSemiJoinTransposeProject implements ExplorationRuleFacto
                                 || topJoin.getJoinType().isLeftOuterJoin())))
                         .whenNot(topJoin -> topJoin.hasJoinHint() || topJoin.left().child().hasJoinHint())
                         .whenNot(LogicalJoin::isMarkJoin)
-                        .when(join -> CBOUtils.isAllSlotProject(join.left()))
+                        .when(join -> join.left().isAllSlots())
                         .then(topJoin -> {
                             LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left().child();
                             GroupPlan a = bottomJoin.left();
@@ -64,7 +64,7 @@ public class LogicalJoinSemiJoinTransposeProject implements ExplorationRuleFacto
                         .when(topJoin -> (topJoin.right().child().getJoinType().isLeftSemiOrAntiJoin()
                                 && (topJoin.getJoinType().isInnerJoin()
                                 || topJoin.getJoinType().isRightOuterJoin())))
-                        .when(join -> CBOUtils.isAllSlotProject(join.right()))
+                        .when(join -> join.right().isAllSlots())
                         .then(topJoin -> {
                             LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.right().child();
                             GroupPlan a = topJoin.left();

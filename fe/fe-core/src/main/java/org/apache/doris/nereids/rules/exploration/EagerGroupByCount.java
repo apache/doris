@@ -26,7 +26,6 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -49,7 +48,7 @@ import java.util.Set;
  * |   (y)
  * (x)
  * ->
- * aggregate: SUM(sum1), SUM(y) * cnt
+ * aggregate: SUM(sum1), SUM(y  * cnt)
  * |
  * join
  * |   \
@@ -96,7 +95,7 @@ public class EagerGroupByCount extends OneExplorationRuleFactory {
                     for (int i = 0; i < leftSums.size(); i++) {
                         bottomSums.add(new Alias(new Sum(leftSums.get(i).child()), "sum" + i));
                     }
-                    Alias cnt = new Alias(new Count(Literal.of(1)), "cnt");
+                    Alias cnt = new Alias(new Count(), "cnt");
                     List<NamedExpression> bottomAggOutput = ImmutableList.<NamedExpression>builder()
                             .addAll(bottomAggGroupBy).addAll(bottomSums).add(cnt).build();
                     LogicalAggregate<GroupPlan> bottomAgg = new LogicalAggregate<>(
@@ -129,7 +128,8 @@ public class EagerGroupByCount extends OneExplorationRuleFactory {
                     }
                     for (Alias oldSum : rightSumOutputExprs) {
                         Sum oldSumFunc = (Sum) oldSum.child();
-                        newOutputExprs.add(new Alias(oldSum.getExprId(), new Multiply(oldSumFunc, cnt.toSlot()),
+                        Slot slot = (Slot) oldSumFunc.child();
+                        newOutputExprs.add(new Alias(oldSum.getExprId(), new Sum(new Multiply(slot, cnt.toSlot())),
                                 oldSum.getName()));
                     }
                     return agg.withAggOutput(newOutputExprs).withChildren(newJoin);
