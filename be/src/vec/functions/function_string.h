@@ -2292,75 +2292,94 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        const auto& left = block.get_by_position(arguments[0]);
-        const auto& right =
-                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
-        const auto& pos =
-                block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
-        const auto& [lcol, lcol_const] = unpack_if_const(left.column);
+        DCHECK_EQ(arguments.size(), 3);
+        bool col_const[3];
+        ColumnPtr argument_columns[3];
+        for (int i = 0; i < 3; ++i) {
+            col_const[i] = is_column_const(*block.get_by_position(arguments[i]).column);
+        }
+        argument_columns[2] = col_const[2] ? static_cast<const ColumnConst&>(
+                                                     *block.get_by_position(arguments[2]).column)
+                                                     .convert_to_full_column()
+                                           : block.get_by_position(arguments[2]).column;
+        default_preprocess_parameter_columns(argument_columns, col_const, {0, 1}, block, arguments);
+
+        auto col_left = assert_cast<const ColumnString*>(argument_columns[0].get());
+        auto col_right = assert_cast<const ColumnString*>(argument_columns[1].get());
+        auto col_pos = assert_cast<const ColumnVector<Int32>*>(argument_columns[2].get());
 
         ColumnInt32::MutablePtr col_res = ColumnInt32::create();
         auto& vec_res = col_res->get_data();
         vec_res.resize(block.rows());
-        if (auto col_left = check_and_get_column<ColumnString>(lcol.get())) {
-            if (auto col_right = check_and_get_column<ColumnString>(right.get())) {
-                if (auto col_pos = check_and_get_column<ColumnInt32>(pos.get())) {
-                    if (lcol_const) {
-                        scalar_vector(col_left->get_data_at(0), col_right->get_chars(),
-                                      col_right->get_offsets(), col_pos->get_data(), vec_res);
-                    } else {
-                        vector_vector(col_left->get_chars(), col_left->get_offsets(),
-                                      col_right->get_chars(), col_right->get_offsets(),
-                                      col_pos->get_data(), vec_res);
-                    }
 
-                    block.replace_by_position(result, std::move(col_res));
-                    return Status::OK();
-                }
-            }
+        if (col_const[0] && col_const[1]) {
+            scalar_search<true>(col_left->get_data_at(0), col_right, col_pos->get_data(), vec_res);
+        } else if (col_const[0] && !col_const[1]) {
+            scalar_search<false>(col_left->get_data_at(0), col_right, col_pos->get_data(), vec_res);
+        } else if (!col_const[0] && col_const[1]) {
+            vector_search<true>(col_left, col_right, col_pos->get_data(), vec_res);
+        } else {
+            vector_search<false>(col_left, col_right, col_pos->get_data(), vec_res);
         }
-        return Status::RuntimeError("unimplements function {}", get_name());
+        block.replace_by_position(result, std::move(col_res));
+        return Status::OK();
     }
 
 private:
-    void scalar_vector(const StringRef& ldata, const ColumnString::Chars& rdata,
-                       const ColumnString::Offsets& roffsets, const PaddedPODArray<Int32>& posdata,
-                       PaddedPODArray<Int32>& res) {
-        auto size = roffsets.size();
+    template <bool Const>
+    void scalar_search(const StringRef& ldata, const ColumnString* col_right,
+                       const PaddedPODArray<Int32>& posdata, PaddedPODArray<Int32>& res) {
+        const ColumnString::Chars& rdata = col_right->get_chars();
+        const ColumnString::Offsets& roffsets = col_right->get_offsets();
+
+        auto size = posdata.size();
         res.resize(size);
         StringRef substr(ldata.data, ldata.size);
         std::shared_ptr<StringSearch> search_ptr(new StringSearch(&substr));
-        for (int i = 0; i < size; ++i) {
-            const char* r_raw_str = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
-            int r_str_size = roffsets[i] - roffsets[i - 1];
-            StringRef str(r_raw_str, r_str_size);
 
-            res[i] = locate_pos(substr, str, search_ptr, posdata[i]);
+        for (int i = 0; i < size; ++i) {
+            if constexpr (!Const) {
+                const char* r_raw_str = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
+                int r_str_size = roffsets[i] - roffsets[i - 1];
+
+                StringRef str(r_raw_str, r_str_size);
+                res[i] = locate_pos(substr, str, search_ptr, posdata[i]);
+            } else {
+                res[i] = locate_pos(substr, col_right->get_data_at(0), search_ptr, posdata[i]);
+            }
         }
     }
-    void vector_vector(const ColumnString::Chars& ldata, const ColumnString::Offsets& loffsets,
-                       const ColumnString::Chars& rdata, const ColumnString::Offsets& roffsets,
-                       const PaddedPODArray<Int32>& posdata, PaddedPODArray<Int32>& res) {
-        DCHECK_EQ(loffsets.size(), roffsets.size());
 
-        auto size = loffsets.size();
+    template <bool Const>
+    void vector_search(const ColumnString* col_left, const ColumnString* col_right,
+                       const PaddedPODArray<Int32>& posdata, PaddedPODArray<Int32>& res) {
+        const ColumnString::Chars& rdata = col_right->get_chars();
+        const ColumnString::Offsets& roffsets = col_right->get_offsets();
+
+        const ColumnString::Chars& ldata = col_left->get_chars();
+        const ColumnString::Offsets& loffsets = col_left->get_offsets();
+
+        auto size = posdata.size();
         res.resize(size);
         std::shared_ptr<StringSearch> search_ptr;
         for (int i = 0; i < size; ++i) {
             const char* l_raw_str = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
             int l_str_size = loffsets[i] - loffsets[i - 1];
 
-            const char* r_raw_str = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
-            int r_str_size = roffsets[i] - roffsets[i - 1];
-
             StringRef substr(l_raw_str, l_str_size);
-            StringRef str(r_raw_str, r_str_size);
+            if constexpr (!Const) {
+                const char* r_raw_str = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
+                int r_str_size = roffsets[i] - roffsets[i - 1];
 
-            res[i] = locate_pos(substr, str, search_ptr, posdata[i]);
+                StringRef str(r_raw_str, r_str_size);
+                res[i] = locate_pos(substr, str, search_ptr, posdata[i]);
+            } else {
+                res[i] = locate_pos(substr, col_right->get_data_at(0), search_ptr, posdata[i]);
+            }
         }
     }
 
-    int locate_pos(StringRef& substr, StringRef& str, std::shared_ptr<StringSearch> search_ptr,
+    int locate_pos(StringRef substr, StringRef str, std::shared_ptr<StringSearch> search_ptr,
                    int start_pos) {
         if (substr.size == 0) {
             if (start_pos <= 0) {
