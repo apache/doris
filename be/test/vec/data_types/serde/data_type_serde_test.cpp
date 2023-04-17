@@ -119,7 +119,7 @@ void serialize_and_deserialize_pb_test() {
         const long max_rand = 1000000L;
         double lower_bound = 0;
         double upper_bound = 100;
-        srandom(time(NULL));
+        srandom(time(nullptr));
         for (int i = 0; i < 1024; ++i) {
             QuantileStateDouble q;
             double random_double =
