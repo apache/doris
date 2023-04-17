@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#pragma once
+
 namespace doris {
 /**
  * Check endianness of current machine.

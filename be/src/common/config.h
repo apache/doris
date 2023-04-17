@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "configbase.h"
+#include "configbase.h" // IWYU pragma: export
 
 namespace doris {
 namespace config {

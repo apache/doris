@@ -16,23 +16,24 @@
 // under the License.
 #include "exec/arrow/arrow_reader.h"
 
-#include <arrow/array.h>
-#include <arrow/status.h>
-#include <time.h>
+#include <arrow/buffer.h>
+#include <arrow/record_batch.h>
+#include <opentelemetry/common/threadlocal.h>
+
+#include <algorithm>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <ostream>
+#include <utility>
 
 #include "common/logging.h"
-#include "gen_cpp/PaloBrokerService_types.h"
-#include "gen_cpp/TPaloBrokerService.h"
-#include "io/io_common.h"
-#include "olap/iterators.h"
-#include "runtime/broker_mgr.h"
-#include "runtime/client_cache.h"
+#include "io/fs/file_reader.h"
 #include "runtime/descriptors.h"
-#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "util/slice.h"
 #include "util/string_util.h"
-#include "util/thrift_util.h"
 #include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/utils/arrow_column_to_doris_column.h"
 
 namespace doris {

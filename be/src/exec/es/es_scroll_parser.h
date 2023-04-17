@@ -17,15 +17,21 @@
 
 #pragma once
 
+#include <rapidjson/rapidjson.h>
+
+#include <map>
 #include <string>
+#include <vector>
 
 #include "rapidjson/document.h"
 #include "runtime/descriptors.h"
 #include "vec/core/block.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
 
 class Status;
+class TupleDescriptor;
 
 class ScrollParser {
 public:

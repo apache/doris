@@ -18,11 +18,16 @@
 #include "http/action/config_action.h"
 
 #include <rapidjson/document.h>
+#include <rapidjson/encodings.h>
 #include <rapidjson/prettywriter.h>
-#include <rapidjson/rapidjson.h>
 #include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
 
+#include <map>
+#include <ostream>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "common/configbase.h"
 #include "common/logging.h"
@@ -31,7 +36,6 @@
 #include "http/http_channel.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
-#include "http/http_response.h"
 #include "http/http_status.h"
 
 namespace doris {

@@ -21,10 +21,10 @@
 #pragma once
 
 #if defined(__aarch64__)
-#include <sse2neon.h>
+#include <sse2neon.h> // IWYU pragma: export
 #elif defined(__x86_64__)
-#include <immintrin.h>
-#include <mm_malloc.h>
+#include <immintrin.h> // IWYU pragma: export
+#include <mm_malloc.h> // IWYU pragma: export
 #endif
 
 namespace doris {

@@ -17,12 +17,19 @@
 
 #pragma once
 
-#include <string>
+#include <gen_cpp/FrontendService_types.h>
 
+#include <string>
+#include <vector>
+
+#include "common/status.h"
 #include "exec/schema_scanner.h"
-#include "gen_cpp/FrontendService_types.h"
 
 namespace doris {
+class RuntimeState;
+namespace vectorized {
+class Block;
+} // namespace vectorized
 
 class SchemaColumnsScanner : public SchemaScanner {
 public:

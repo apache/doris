@@ -26,6 +26,7 @@
 namespace doris {
 
 class HttpRequest;
+struct AuthInfo;
 
 std::string encode_basic_auth(const std::string& user, const std::string& passwd);
 // parse Basic authorization
