@@ -168,6 +168,6 @@ public class OlapScanNodeTest {
     public void testTableNameWithAlias() {
         GlobalVariable.lowerCaseTableNames = 1;
         SlotRef slot = new SlotRef(new TableName("DB.TBL"), Column.DELETE_SIGN);
-        Assert.assertTrue(slot.getTableName().toString().equals("DB.tbl"));
+        Assert.assertTrue(slot.getOriginTableName().toString().equals("DB.tbl"));
     }
 }

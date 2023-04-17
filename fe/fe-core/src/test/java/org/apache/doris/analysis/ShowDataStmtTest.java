@@ -57,7 +57,7 @@ public class ShowDataStmtTest {
 
     @Before
     public void setUp() throws UserException {
-        auth = new PaloAuth();
+        auth = AccessTestUtil.fetchAdminAccess();
         new Expectations() {
             {
                 Env.getCurrentInvertedIndex();
@@ -132,8 +132,6 @@ public class ShowDataStmtTest {
                 result = true;
             }
         };
-
-        AccessTestUtil.fetchAdminAccess();
     }
 
     @Test
