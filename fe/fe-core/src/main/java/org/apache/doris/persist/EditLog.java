@@ -897,8 +897,8 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_ALTER_LIGHT_SCHEMA_CHANGE: {
-                    final AlterLSCOperationLog info = (AlterLSCOperationLog) journal.getData();
-                    env.getSchemaChangeHandler().replayAlterLSC(info);
+                    final AlterLightSchemaChangeInfo info = (AlterLightSchemaChangeInfo) journal.getData();
+                    env.getSchemaChangeHandler().replayAlterLightSchChange(info);
                     break;
                 }
                 case OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES: {
@@ -1611,7 +1611,7 @@ public class EditLog {
         logEdit(OperationType.OP_MODIFY_IN_MEMORY, info);
     }
 
-    public void logAlterLightSchemaChange(AlterLSCOperationLog info) {
+    public void logAlterLightSchemaChange(AlterLightSchemaChangeInfo info) {
         logEdit(OperationType.OP_ALTER_LIGHT_SCHEMA_CHANGE, info);
     }
 

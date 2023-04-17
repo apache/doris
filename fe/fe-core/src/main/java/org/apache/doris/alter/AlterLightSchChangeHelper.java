@@ -28,8 +28,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
-import org.apache.doris.persist.AlterLSCOperationLog;
-import org.apache.doris.persist.ModifyTablePropertyOperationLog;
+import org.apache.doris.persist.AlterLightSchemaChangeInfo;
 import org.apache.doris.proto.InternalService.PFetchColIdsRequest;
 import org.apache.doris.proto.InternalService.PFetchColIdsRequest.Builder;
 import org.apache.doris.proto.InternalService.PFetchColIdsRequest.PFetchColIdParam;
@@ -60,13 +59,13 @@ import java.util.concurrent.TimeoutException;
 /**
  * For alter light_schema_change table property
  */
-public class AlterLSCHelper {
+public class AlterLightSchChangeHelper {
 
     private final Database db;
 
     private final OlapTable olapTable;
 
-    public AlterLSCHelper(Database db, OlapTable olapTable) {
+    public AlterLightSchChangeHelper(Database db, OlapTable olapTable) {
         this.db = db;
         this.olapTable = olapTable;
     }
@@ -79,17 +78,10 @@ public class AlterLSCHelper {
     public void enableLightSchemaChange() throws DdlException {
         final Map<Long, PFetchColIdsRequest> params = initParams();
         final PFetchColIdsResponse response = callForColumnIds(params);
-        updateTableMeta(response);
-        writeEditLog(response);
-    }
-
-    /**
-     * replay logic for alter LSC
-     *
-     * @param response will be set in edit log
-     */
-    public void replayAlterLSC(PFetchColIdsResponse response) throws DdlException {
-        updateTableMeta(response);
+        final AlterLightSchemaChangeInfo info =
+                new AlterLightSchemaChangeInfo(db.getId(), olapTable.getId(), response);
+        updateTableMeta(info);
+        Env.getCurrentEnv().getEditLog().logAlterLightSchemaChange(info);
     }
 
     /**
@@ -210,16 +202,14 @@ public class AlterLSCHelper {
         return builder.build();
     }
 
-    private void updateTableMeta(PFetchColIdsResponse response) throws DdlException {
-        Preconditions.checkState(response.isInitialized());
+    public void updateTableMeta(AlterLightSchemaChangeInfo info) throws DdlException {
+        Preconditions.checkNotNull(info);
         // update index-meta once and for all
         // schema pair: <maxColId, columns>
         final List<Pair<Integer, List<Column>>> schemaPairs = new ArrayList<>();
         final List<Long> indexIds = new ArrayList<>();
-        response.getEntriesList().forEach(entry -> {
-            final long indexId = entry.getIndexId();
+        info.getIndexIdToColumnInfo().forEach((indexId, colNameToId) -> {
             final List<Column> columns = olapTable.getSchemaByIndexId(indexId, true);
-            final Map<String, Integer> colNameToId = entry.getColNameToIdMap();
             Preconditions.checkState(columns.size() == colNameToId.size(),
                     "size mismatch for columns meta from BE");
             int maxColId = Column.COLUMN_UNIQUE_ID_INIT_VALUE;
@@ -250,12 +240,5 @@ public class AlterLSCHelper {
         }
         // write table property
         olapTable.setEnableLightSchemaChange(true);
-    }
-
-    private void writeEditLog(PFetchColIdsResponse response) {
-        //write edit log
-        final AlterLSCOperationLog operationLog = new AlterLSCOperationLog(
-                db.getId(), olapTable.getId(), response);
-        Env.getCurrentEnv().getEditLog().logAlterLightSchemaChange(operationLog);
     }
 }
