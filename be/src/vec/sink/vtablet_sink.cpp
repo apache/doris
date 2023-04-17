@@ -48,6 +48,7 @@
 #include "vec/columns/columns_number.h"
 #include "vec/core/block.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_decimal.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 
@@ -1375,6 +1376,33 @@ DecimalV2Value VOlapTableSink::_get_decimalv2_min_or_max(const TypeDescriptor& t
     return value;
 }
 
+template <typename DecimalType, bool IsMin>
+DecimalType VOlapTableSink::_get_decimalv3_min_or_max(const TypeDescriptor& type) {
+    std::map<int, typename DecimalType::NativeType>* pmap = nullptr;
+    if constexpr (std::is_same_v<DecimalType, vectorized::Decimal32>) {
+        pmap = IsMin ? &_min_decimal32_val : &_max_decimal32_val;
+    } else if constexpr (std::is_same_v<DecimalType, vectorized::Decimal64>) {
+        pmap = IsMin ? &_min_decimal64_val : &_max_decimal64_val;
+    } else {
+        pmap = IsMin ? &_min_decimal128_val : &_max_decimal128_val;
+    }
+
+    // found
+    auto iter = pmap->find(type.precision);
+    if (iter != pmap->end()) {
+        return iter->second;
+    }
+
+    typename DecimalType::NativeType value;
+    if constexpr (IsMin) {
+        value = vectorized::min_decimal_value<DecimalType>(type.precision);
+    } else {
+        value = vectorized::max_decimal_value<DecimalType>(type.precision);
+    }
+    pmap->emplace(type.precision, value);
+    return value;
+}
+
 Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescriptor& type,
                                         bool is_nullable, vectorized::ColumnPtr column,
                                         size_t slot_index, Bitmap* filter_bitmap,
@@ -1508,6 +1536,47 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
                 }
             }
         }
+        break;
+    }
+    case TYPE_DECIMAL32: {
+#define CHECK_VALIDATION_FOR_DECIMALV3(ColumnDecimalType, DecimalType)                             \
+    auto column_decimal = const_cast<vectorized::ColumnDecimal<vectorized::ColumnDecimalType>*>(   \
+            assert_cast<const vectorized::ColumnDecimal<vectorized::ColumnDecimalType>*>(          \
+                    real_column_ptr.get()));                                                       \
+    for (size_t j = 0; j < column->size(); ++j) {                                                  \
+        auto row = rows ? (*rows)[j] : j;                                                          \
+        if (row == last_invalid_row) {                                                             \
+            continue;                                                                              \
+        }                                                                                          \
+        if (need_to_validate(j, row)) {                                                            \
+            auto dec_val = column_decimal->get_data()[j];                                          \
+            bool invalid = false;                                                                  \
+            const auto& max_decimal =                                                              \
+                    _get_decimalv3_min_or_max<vectorized::DecimalType, false>(type);               \
+            const auto& min_decimal =                                                              \
+                    _get_decimalv3_min_or_max<vectorized::DecimalType, true>(type);                \
+            if (dec_val > max_decimal || dec_val < min_decimal) {                                  \
+                fmt::format_to(error_msg, "{}", "decimal value is not valid for definition");      \
+                fmt::format_to(error_msg, ", value={}", dec_val);                                  \
+                fmt::format_to(error_msg, ", precision={}, scale={}", type.precision, type.scale); \
+                fmt::format_to(error_msg, ", min={}, max={}; ", min_decimal, max_decimal);         \
+                invalid = true;                                                                    \
+            }                                                                                      \
+            if (invalid) {                                                                         \
+                last_invalid_row = row;                                                            \
+                RETURN_IF_ERROR(set_invalid_and_append_error_msg(row));                            \
+            }                                                                                      \
+        }                                                                                          \
+    }
+        CHECK_VALIDATION_FOR_DECIMALV3(Decimal32, Decimal32);
+        break;
+    }
+    case TYPE_DECIMAL64: {
+        CHECK_VALIDATION_FOR_DECIMALV3(Decimal64, Decimal64);
+        break;
+    }
+    case TYPE_DECIMAL128I: {
+        CHECK_VALIDATION_FOR_DECIMALV3(Decimal128I, Decimal128);
         break;
     }
     case TYPE_ARRAY: {

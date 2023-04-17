@@ -143,8 +143,15 @@ void VLiteral::init(const TExprNode& node) {
         case TYPE_DECIMALV2: {
             DCHECK_EQ(node.node_type, TExprNodeType::DECIMAL_LITERAL);
             DCHECK(node.__isset.decimal_literal);
-            DecimalV2Value value(node.decimal_literal.value);
-            field = DecimalField<Decimal128>(value.value(), value.scale());
+            DecimalV2Value value;
+            if (value.parse_from_str(node.decimal_literal.value.c_str(),
+                                     node.decimal_literal.value.size()) == E_DEC_OK) {
+                field = DecimalField<Decimal128>(value.value(), value.scale());
+            } else {
+                throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                       "Invalid decimal(scale: {}) value: {}", value.scale(),
+                                       node.decimal_literal.value);
+            }
             break;
         }
         case TYPE_DECIMAL32: {
@@ -152,11 +159,17 @@ void VLiteral::init(const TExprNode& node) {
             DCHECK(node.__isset.decimal_literal);
             DataTypePtr type_ptr = create_decimal(node.type.types[0].scalar_type.precision,
                                                   node.type.types[0].scalar_type.scale, false);
-            auto val = typeid_cast<const DataTypeDecimal<Decimal32>*>(type_ptr.get())
-                               ->parse_from_string(node.decimal_literal.value);
-            auto scale =
-                    typeid_cast<const DataTypeDecimal<Decimal32>*>(type_ptr.get())->get_scale();
-            field = DecimalField<Decimal32>(val, scale);
+            Decimal32 val;
+            if (typeid_cast<const DataTypeDecimal<Decimal32>*>(type_ptr.get())
+                        ->parse_from_string(node.decimal_literal.value, &val)) {
+                auto scale =
+                        typeid_cast<const DataTypeDecimal<Decimal32>*>(type_ptr.get())->get_scale();
+                field = DecimalField<Decimal32>(val, scale);
+            } else {
+                throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                       "Invalid value: {} for type {}", node.decimal_literal.value,
+                                       type_ptr->get_name());
+            }
             break;
         }
         case TYPE_DECIMAL64: {
@@ -164,11 +177,17 @@ void VLiteral::init(const TExprNode& node) {
             DCHECK(node.__isset.decimal_literal);
             DataTypePtr type_ptr = create_decimal(node.type.types[0].scalar_type.precision,
                                                   node.type.types[0].scalar_type.scale, false);
-            auto val = typeid_cast<const DataTypeDecimal<Decimal64>*>(type_ptr.get())
-                               ->parse_from_string(node.decimal_literal.value);
-            auto scale =
-                    typeid_cast<const DataTypeDecimal<Decimal64>*>(type_ptr.get())->get_scale();
-            field = DecimalField<Decimal64>(val, scale);
+            Decimal64 val;
+            if (typeid_cast<const DataTypeDecimal<Decimal64>*>(type_ptr.get())
+                        ->parse_from_string(node.decimal_literal.value, &val)) {
+                auto scale =
+                        typeid_cast<const DataTypeDecimal<Decimal64>*>(type_ptr.get())->get_scale();
+                field = DecimalField<Decimal64>(val, scale);
+            } else {
+                throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                       "Invalid value: {} for type {}", node.decimal_literal.value,
+                                       type_ptr->get_name());
+            }
             break;
         }
         case TYPE_DECIMAL128I: {
@@ -176,11 +195,17 @@ void VLiteral::init(const TExprNode& node) {
             DCHECK(node.__isset.decimal_literal);
             DataTypePtr type_ptr = create_decimal(node.type.types[0].scalar_type.precision,
                                                   node.type.types[0].scalar_type.scale, false);
-            auto val = typeid_cast<const DataTypeDecimal<Decimal128I>*>(type_ptr.get())
-                               ->parse_from_string(node.decimal_literal.value);
-            auto scale =
-                    typeid_cast<const DataTypeDecimal<Decimal128I>*>(type_ptr.get())->get_scale();
-            field = DecimalField<Decimal128I>(val, scale);
+            Decimal128I val;
+            if (typeid_cast<const DataTypeDecimal<Decimal128I>*>(type_ptr.get())
+                        ->parse_from_string(node.decimal_literal.value, &val)) {
+                auto scale = typeid_cast<const DataTypeDecimal<Decimal128I>*>(type_ptr.get())
+                                     ->get_scale();
+                field = DecimalField<Decimal128I>(val, scale);
+            } else {
+                throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                       "Invalid value: {} for type {}", node.decimal_literal.value,
+                                       type_ptr->get_name());
+            }
             break;
         }
         default: {
