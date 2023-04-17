@@ -103,9 +103,6 @@ Status VDataStreamRecvr::SenderQueue::_inner_get_batch(Block* block, bool* eos) 
 void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_number,
                                               int64_t packet_seq,
                                               ::google::protobuf::Closure** done) {
-    // Avoid deadlock when calling SenderQueue::cancel() in tcmalloc hook,
-    // limit memory via DataStreamRecvr::exceeds_limit.
-    STOP_CHECK_THREAD_MEM_TRACKER_LIMIT();
     {
         std::lock_guard<std::mutex> l(_lock);
         if (_is_cancelled) {
@@ -170,9 +167,6 @@ void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_numbe
 }
 
 void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
-    // Avoid deadlock when calling SenderQueue::cancel() in tcmalloc hook,
-    // limit memory via DataStreamRecvr::exceeds_limit.
-    STOP_CHECK_THREAD_MEM_TRACKER_LIMIT();
     {
         std::unique_lock<std::mutex> l(_lock);
         if (_is_cancelled || !block->rows()) {

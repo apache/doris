@@ -756,18 +756,10 @@ public class PropertyAnalyzer {
             sortMethod = properties.remove(DataSortInfo.DATA_SORT_TYPE);
         }
         TSortType sortType = TSortType.LEXICAL;
-        if (sortMethod.equalsIgnoreCase(TSortType.ZORDER.name())) {
-            sortType = TSortType.ZORDER;
-        } else if (sortMethod.equalsIgnoreCase(TSortType.LEXICAL.name())) {
+        if (sortMethod.equalsIgnoreCase(TSortType.LEXICAL.name())) {
             sortType = TSortType.LEXICAL;
         } else {
-            throw new AnalysisException("only support zorder/lexical method!");
-        }
-        if (keyType != KeysType.DUP_KEYS && sortType == TSortType.ZORDER) {
-            throw new AnalysisException("only duplicate key supports zorder method!");
-        }
-        if (storageFormat != TStorageFormat.V2 && sortType == TSortType.ZORDER) {
-            throw new AnalysisException("only V2 storage format supports zorder method!");
+            throw new AnalysisException("only support lexical method now!");
         }
 
         int colNum = keyCount;
@@ -777,9 +769,6 @@ public class PropertyAnalyzer {
             } catch (Exception e) {
                 throw new AnalysisException("param " + DataSortInfo.DATA_SORT_COL_NUM + " error");
             }
-        }
-        if (sortType == TSortType.ZORDER && (colNum <= 1 || colNum > keyCount)) {
-            throw new AnalysisException("z-order needs 2 columns at least, " + keyCount + " columns at most!");
         }
         DataSortInfo dataSortInfo = new DataSortInfo(sortType, colNum);
         return dataSortInfo;

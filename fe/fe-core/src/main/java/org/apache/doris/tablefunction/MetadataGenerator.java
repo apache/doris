@@ -68,6 +68,8 @@ public class MetadataGenerator {
                 return icebergMetadataResult(request.getMetadaTableParams());
             case BACKENDS:
                 return backendsMetadataResult(request.getMetadaTableParams());
+            case RESOURCE_GROUPS:
+                return resourceGroupsMetadataResult(request.getMetadaTableParams());
             default:
                 break;
         }
@@ -84,7 +86,7 @@ public class MetadataGenerator {
 
     private static TFetchSchemaTableDataResult icebergMetadataResult(TMetadataTableRequestParams params) {
         if (!params.isSetIcebergMetadataParams()) {
-            return errorResult("Iceberg metadata params is not set. ");
+            return errorResult("Iceberg metadata params is not set.");
         }
         TIcebergMetadataParams icebergMetadataParams =  params.getIcebergMetadataParams();
         HMSExternalCatalog catalog = (HMSExternalCatalog) Env.getCurrentEnv().getCatalogMgr()
@@ -130,7 +132,7 @@ public class MetadataGenerator {
 
     private static TFetchSchemaTableDataResult backendsMetadataResult(TMetadataTableRequestParams params) {
         if (!params.isSetBackendsMetadataParams()) {
-            return errorResult("backends metadata param is  not set. ");
+            return errorResult("backends metadata param is not set.");
         }
         TBackendsMetadataParams backendsParam = params.getBackendsMetadataParams();
         final SystemInfoService clusterInfoService = Env.getCurrentSystemInfo();
@@ -236,6 +238,27 @@ public class MetadataGenerator {
         // backends proc node get result too slow, add log to observer.
         LOG.debug("backends proc get tablet num cost: {}, total cost: {}",
                 watch.elapsed(TimeUnit.MILLISECONDS), (System.currentTimeMillis() - start));
+
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult resourceGroupsMetadataResult(TMetadataTableRequestParams params) {
+        List<List<String>> resourceGroupsInfo = Env.getCurrentEnv().getResourceGroupMgr()
+                .getResourcesInfo();
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        for (List<String> rGroupsInfo : resourceGroupsInfo) {
+            TRow trow = new TRow();
+            Long id = Long.valueOf(rGroupsInfo.get(0));
+            int value = Integer.valueOf(rGroupsInfo.get(3));
+            trow.addToColumnValue(new TCell().setLongVal(id));
+            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(1)));
+            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(2)));
+            trow.addToColumnValue(new TCell().setIntVal(value));
+            dataBatch.add(trow);
+        }
 
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));

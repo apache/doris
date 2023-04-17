@@ -473,7 +473,10 @@ public class BindExpression implements AnalysisRuleFactory {
                 })
             ),
             RuleType.BINDING_SET_OPERATION_SLOT.build(
-                logicalSetOperation().then(setOperation -> {
+                // LogicalSetOperation don't bind again if LogicalSetOperation.outputs is not empty, this is special
+                // we should not remove LogicalSetOperation::canBind, because in default case, the plan can run into
+                // bind callback if not bound or **not run into bind callback yet**.
+                logicalSetOperation().when(LogicalSetOperation::canBind).then(setOperation -> {
                     // check whether the left and right child output columns are the same
                     if (setOperation.child(0).getOutput().size() != setOperation.child(1).getOutput().size()) {
                         throw new AnalysisException("Operands have unequal number of columns:\n"

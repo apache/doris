@@ -42,7 +42,7 @@ public:
     template <PrimitiveType type, size_t N>
     static BasePtr get_function() {
         using CppType = typename PrimitiveTypeTraits<type>::CppType;
-        if constexpr (N >= 1 && N <= 12) {
+        if constexpr (N >= 1 && N <= FIXED_CONTAINER_MAX_SIZE) {
             using Set = std::conditional_t<
                     std::is_same_v<CppType, StringRef>, StringSet<>,
                     HybridSet<type,
@@ -172,16 +172,8 @@ inline auto create_set(PrimitiveType type, size_t size) {
         return create_set<6>(type);
     } else if (size == 7) {
         return create_set<7>(type);
-    } else if (size == 8) {
-        return create_set<8>(type);
-    } else if (size == 9) {
-        return create_set<9>(type);
-    } else if (size == 10) {
-        return create_set<10>(type);
-    } else if (size == 11) {
-        return create_set<11>(type);
-    } else if (size == 12) {
-        return create_set<12>(type);
+    } else if (size == FIXED_CONTAINER_MAX_SIZE) {
+        return create_set<FIXED_CONTAINER_MAX_SIZE>(type);
     } else {
         return create_set(type);
     }
@@ -189,7 +181,7 @@ inline auto create_set(PrimitiveType type, size_t size) {
 
 template <size_t N = 0>
 inline HybridSetBase* create_string_value_set() {
-    if constexpr (N >= 1 && N <= 12) {
+    if constexpr (N >= 1 && N <= FIXED_CONTAINER_MAX_SIZE) {
         return new StringValueSet<FixedContainer<StringRef, N>>();
     } else {
         return new StringValueSet();
@@ -211,16 +203,8 @@ inline HybridSetBase* create_string_value_set(size_t size) {
         return create_string_value_set<6>();
     } else if (size == 7) {
         return create_string_value_set<7>();
-    } else if (size == 8) {
-        return create_string_value_set<8>();
-    } else if (size == 9) {
-        return create_string_value_set<9>();
-    } else if (size == 10) {
-        return create_string_value_set<10>();
-    } else if (size == 11) {
-        return create_string_value_set<11>();
-    } else if (size == 12) {
-        return create_string_value_set<12>();
+    } else if (size == FIXED_CONTAINER_MAX_SIZE) {
+        return create_string_value_set<FIXED_CONTAINER_MAX_SIZE>();
     } else {
         return create_string_value_set();
     }

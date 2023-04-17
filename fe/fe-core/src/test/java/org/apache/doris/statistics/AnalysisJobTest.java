@@ -113,7 +113,7 @@ public class AnalysisJobTest extends TestWithFeService {
                         AnalysisType.COLUMN)
                 .setPartitionNames(Sets.newHashSet("t1"))
                 .build();
-        new OlapAnalysisTask(scheduler, analysisJobInfo).execute();
+        new OlapAnalysisTask(analysisJobInfo).execute();
     }
 
 }

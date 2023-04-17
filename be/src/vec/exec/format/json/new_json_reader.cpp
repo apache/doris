@@ -17,6 +17,8 @@
 
 #include "vec/exec/format/json/new_json_reader.h"
 
+#include <simdjson/error.h>
+
 #include "common/compiler_util.h"
 #include "exprs/json_functions.h"
 #include "io/file_factory.h"
@@ -28,6 +30,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "util/defer_op.h"
+#include "util/string_util.h"
 #include "vec/core/block.h"
 #include "vec/exec/format/file_reader/new_plain_text_line_reader.h"
 #include "vec/exec/scan/vscanner.h"
@@ -168,11 +171,11 @@ Status NewJsonReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
         bool is_empty_row = false;
 
         RETURN_IF_ERROR(_read_json_column(*block, _file_slot_descs, &is_empty_row, &_reader_eof));
-        ++(*read_rows);
         if (is_empty_row) {
             // Read empty row, just continue
             continue;
         }
+        ++(*read_rows);
     }
 
     return Status::OK();
@@ -1549,6 +1552,13 @@ Status NewJsonReader::_simdjson_parse_json_doc(size_t* size, bool* eof) {
         _simdjson_ondemand_padding_buffer.resize(*size + simdjson::SIMDJSON_PADDING);
         _padded_size = *size + simdjson::SIMDJSON_PADDING;
     }
+    // trim BOM since simdjson does not handle UTF-8 Unicode (with BOM)
+    if (*size >= 3 && static_cast<char>(json_str[0]) == '\xEF' &&
+        static_cast<char>(json_str[1]) == '\xBB' && static_cast<char>(json_str[2]) == '\xBF') {
+        // skip the first three BOM bytes
+        json_str += 3;
+        *size -= 3;
+    }
     memcpy(&_simdjson_ondemand_padding_buffer.front(), json_str, *size);
     auto error =
             _ondemand_json_parser
@@ -1576,12 +1586,25 @@ Status NewJsonReader::_simdjson_parse_json_doc(size_t* size, bool* eof) {
                        error, simdjson::error_message(error));
         return return_quality_error(error_msg, std::string((char*)json_str, *size));
     }
-    try {
-        // set json root
-        // if it is an array at top level, then we should iterate the entire array in
-        // ::_simdjson_handle_flat_array_complex_json
-        if (_parsed_json_root.size() != 0 &&
-            _original_json_doc.type() == simdjson::ondemand::json_type::object) {
+    auto type_res = _original_json_doc.type();
+    if (type_res.error() != simdjson::error_code::SUCCESS) {
+        fmt::memory_buffer error_msg;
+        fmt::format_to(error_msg, "Parse json data for JsonDoc failed. code: {}, error info: {}",
+                       type_res.error(), simdjson::error_message(type_res.error()));
+        return return_quality_error(error_msg, std::string((char*)json_str, *size));
+    }
+    simdjson::ondemand::json_type type = type_res.value();
+    if (type != simdjson::ondemand::json_type::object &&
+        type != simdjson::ondemand::json_type::array) {
+        fmt::memory_buffer error_msg;
+        fmt::format_to(error_msg, "Not an json object or json array");
+        return return_quality_error(error_msg, std::string((char*)json_str, *size));
+    }
+    if (_parsed_json_root.size() != 0 && type == simdjson::ondemand::json_type::object) {
+        try {
+            // set json root
+            // if it is an array at top level, then we should iterate the entire array in
+            // ::_simdjson_handle_flat_array_complex_json
             simdjson::ondemand::object object = _original_json_doc;
             Status st = JsonFunctions::extract_from_object(object, _parsed_json_root, &_json_value);
             if (!st.ok()) {
@@ -1589,13 +1612,14 @@ Status NewJsonReader::_simdjson_parse_json_doc(size_t* size, bool* eof) {
                 fmt::format_to(error_msg, "{}", st.to_string());
                 return return_quality_error(error_msg, std::string((char*)json_str, *size));
             }
-        } else {
-            _json_value = _original_json_doc;
+        } catch (simdjson::simdjson_error& e) {
+            fmt::memory_buffer error_msg;
+            fmt::format_to(error_msg, "Encounter error while extract_from_object, error: {}",
+                           e.what());
+            return return_quality_error(error_msg, std::string((char*)json_str, *size));
         }
-    } catch (simdjson::simdjson_error& e) {
-        fmt::memory_buffer error_msg;
-        fmt::format_to(error_msg, "Encounter error while extract_from_object, error: {}", e.what());
-        return return_quality_error(error_msg, std::string((char*)json_str, *size));
+    } else {
+        _json_value = _original_json_doc;
     }
 
     if (_json_value.type() == simdjson::ondemand::json_type::array && !_strip_outer_array) {

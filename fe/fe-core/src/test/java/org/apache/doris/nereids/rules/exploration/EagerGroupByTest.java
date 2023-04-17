@@ -48,7 +48,7 @@ class EagerGroupByTest implements MemoPatternMatchSupported {
                         ImmutableList.of(new Alias(new Sum(scan1.getOutput().get(3)), "sum")))
                 .build();
         PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
-                .applyExploration(EagerGroupBy.INSTANCE.build())
+                .applyExploration(new EagerGroupBy().buildRules())
                 .matchesExploration(
                         logicalAggregate(
                                 logicalJoin(
@@ -73,7 +73,7 @@ class EagerGroupByTest implements MemoPatternMatchSupported {
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
-                .applyExploration(EagerGroupBy.INSTANCE.build())
+                .applyExploration(new EagerGroupBy().buildRules())
                 .matchesExploration(
                     logicalAggregate(
                         logicalJoin(

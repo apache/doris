@@ -20,11 +20,9 @@ package org.apache.doris.catalog.external;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
 import org.apache.doris.statistics.AnalysisTaskInfo;
-import org.apache.doris.statistics.AnalysisTaskScheduler;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.HiveAnalysisTask;
 import org.apache.doris.statistics.IcebergAnalysisTask;
@@ -90,12 +88,9 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     protected synchronized void makeSureInitialized() {
+        super.makeSureInitialized();
         if (!objectCreated) {
-            try {
-                getRemoteTable();
-            } catch (MetaNotFoundException e) {
-                // CHECKSTYLE IGNORE THIS LINE
-            }
+            remoteTable = ((HMSExternalCatalog) catalog).getClient().getTable(dbName, name);
             if (remoteTable == null) {
                 dlaType = DLAType.UNKNOWN;
             } else {
@@ -151,14 +146,8 @@ public class HMSExternalTable extends ExternalTable {
     /**
      * Get the related remote hive metastore table.
      */
-    public org.apache.hadoop.hive.metastore.api.Table getRemoteTable() throws MetaNotFoundException {
-        if (remoteTable == null) {
-            synchronized (this) {
-                if (remoteTable == null) {
-                    remoteTable = ((HMSExternalCatalog) catalog).getClient().getTable(dbName, name);
-                }
-            }
-        }
+    public org.apache.hadoop.hive.metastore.api.Table getRemoteTable() {
+        makeSureInitialized();
         return remoteTable;
     }
 
@@ -252,13 +241,13 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     @Override
-    public BaseAnalysisTask createAnalysisTask(AnalysisTaskScheduler scheduler, AnalysisTaskInfo info) {
+    public BaseAnalysisTask createAnalysisTask(AnalysisTaskInfo info) {
         makeSureInitialized();
         switch (dlaType) {
             case HIVE:
-                return new HiveAnalysisTask(scheduler, info);
+                return new HiveAnalysisTask(info);
             case ICEBERG:
-                return new IcebergAnalysisTask(scheduler, info);
+                return new IcebergAnalysisTask(info);
             default:
                 throw new IllegalArgumentException("Analysis job for dlaType " + dlaType + " not supported.");
         }

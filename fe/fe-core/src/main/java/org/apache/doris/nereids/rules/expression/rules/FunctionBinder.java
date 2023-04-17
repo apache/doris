@@ -229,8 +229,12 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
                 new EqualTo(newCompareExpr, ((ListQuery) newListQuery).getQueryPlan().getOutput().get(0));
         ComparisonPredicate afterTypeCoercion = (ComparisonPredicate) TypeCoercionUtils.processComparisonPredicate(
                 newCpAfterUnNestingSubquery, newCompareExpr, newListQuery);
-        if (!newCompareExpr.getDataType().isBigIntType() && newListQuery.getDataType().isBitmapType()) {
-            newCompareExpr = new Cast(newCompareExpr, BigIntType.INSTANCE);
+        if (newListQuery.getDataType().isBitmapType()) {
+            if (!newCompareExpr.getDataType().isBigIntType()) {
+                newCompareExpr = new Cast(newCompareExpr, BigIntType.INSTANCE);
+            }
+        } else {
+            newCompareExpr = afterTypeCoercion.left();
         }
         return new InSubquery(newCompareExpr, (ListQuery) afterTypeCoercion.right(),
             inSubquery.getCorrelateSlots(), ((ListQuery) afterTypeCoercion.right()).getTypeCoercionExpr(),

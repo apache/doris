@@ -203,8 +203,8 @@ We welcome your suggestions, comments (including criticisms), comments and contr
 
 🔗[Doris Improvement Proposal (DSIP)](https://cwiki.apache.org/confluence/display/DORIS/Doris+Improvement+Proposals) can be thought of as **A Collection of Design Documents for all Major Feature Updates or Improvements**.
 
-
-
+### 🔑 Backend C++ Coding Specification
+🔗 [Backend C++ Coding Specification](https://cwiki.apache.org/confluence/pages/viewpage.action?pageId=240883637) should be strictly followed, which will help us achieve better code quality.
 
 ## 💬 Contact Us
 

@@ -489,6 +489,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("execute", new Integer(SqlParserSymbols.KW_EXECUTE));
         keywordMap.put("lines", new Integer(SqlParserSymbols.KW_LINES));
         keywordMap.put("ignore", new Integer(SqlParserSymbols.KW_IGNORE));
+        keywordMap.put("expired", new Integer(SqlParserSymbols.KW_EXPIRED));
    }
     
   // map from token id to token description

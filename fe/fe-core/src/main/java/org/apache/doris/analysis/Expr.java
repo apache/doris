@@ -2200,16 +2200,16 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
     }
 
-    public boolean haveMvSlot() {
+    public boolean haveMvSlot(TupleId tid) {
         for (Expr expr : getChildren()) {
-            if (expr.haveMvSlot()) {
+            if (expr.haveMvSlot(tid)) {
                 return true;
             }
         }
         return false;
     }
 
-    public boolean matchExprs(List<Expr> exprs, SelectStmt stmt, boolean ignoreAlias, String tableName)
+    public boolean matchExprs(List<Expr> exprs, SelectStmt stmt, boolean ignoreAlias, TupleDescriptor tuple)
             throws AnalysisException {
         List<SlotRef> slots = new ArrayList<>();
         collect(SlotRef.class, slots);
@@ -2235,7 +2235,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
 
         for (Expr expr : getChildren()) {
-            if (!expr.matchExprs(exprs, stmt, ignoreAlias, tableName)) {
+            if (!expr.matchExprs(exprs, stmt, ignoreAlias, tuple)) {
                 return false;
             }
         }

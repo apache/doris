@@ -48,7 +48,7 @@ class EagerCountTest implements MemoPatternMatchSupported {
                         ImmutableList.of(new Alias(new Sum(scan1.getOutput().get(1)), "sum")))
                 .build();
         PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
-                .applyExploration(EagerCount.INSTANCE.build())
+                .applyExploration(new EagerCount().buildRules())
                 .matchesExploration(
                     logicalAggregate(
                         logicalJoin(
@@ -72,7 +72,7 @@ class EagerCountTest implements MemoPatternMatchSupported {
                         ))
                 .build();
         PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
-                .applyExploration(EagerCount.INSTANCE.build())
+                .applyExploration(new EagerCount().buildRules())
                 .printlnOrigin()
                 .matchesExploration(
                     logicalAggregate(

@@ -133,6 +133,7 @@ PrefetchBufferedReader::PrefetchBufferedReader(io::FileReaderSPtr reader, int64_
     }
     _size = _reader->size();
     _whole_pre_buffer_size = buffer_size;
+    _end_offset = std::min((size_t)_end_offset, _size);
     int buffer_num = buffer_size > s_max_pre_buffer_size ? buffer_size / s_max_pre_buffer_size : 1;
     // set the _cur_offset of this reader as same as the inner reader's,
     // to make sure the buffer reader will start to read at right position.

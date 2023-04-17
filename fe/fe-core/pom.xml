@@ -670,11 +670,6 @@ under the License.
             <artifactId>protocol-core</artifactId>
             <version>${awssdk.version}</version>
         </dependency>
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-hive-metastore</artifactId>
-        </dependency>
-
         <!-- For Iceberg, must be consistent with Iceberg version -->
         <dependency>
             <groupId>org.apache.avro</groupId>
@@ -706,7 +701,10 @@ under the License.
             <groupId>org.apache.hudi</groupId>
             <artifactId>hudi-hadoop-mr</artifactId>
         </dependency>
-
+        <dependency>
+            <groupId>org.apache.parquet</groupId>
+            <artifactId>parquet-avro</artifactId>
+        </dependency>        
         <dependency> 
             <groupId>org.mariadb.jdbc</groupId>
             <artifactId>mariadb-java-client</artifactId>
@@ -764,6 +762,10 @@ under the License.
                 <exclusion>
                     <artifactId>elasticsearch-rest-high-level-client</artifactId>
                     <groupId>org.elasticsearch.client</groupId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.hive</groupId>
+                    <artifactId>hive-storage-api</artifactId>
                 </exclusion>
             </exclusions>
         </dependency>

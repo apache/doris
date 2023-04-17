@@ -21,6 +21,7 @@ import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ExperimentalUtil.ExperimentalType;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
@@ -96,6 +97,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String BATCH_SIZE = "batch_size";
     public static final String DISABLE_STREAMING_PREAGGREGATIONS = "disable_streaming_preaggregations";
     public static final String DISABLE_COLOCATE_PLAN = "disable_colocate_plan";
+    public static final String ENABLE_COLOCATE_SCAN = "enable_colocate_scan";
     public static final String ENABLE_BUCKET_SHUFFLE_JOIN = "enable_bucket_shuffle_join";
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM = "parallel_fragment_exec_instance_num";
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
@@ -207,6 +209,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_NEW_COST_MODEL = "enable_new_cost_model";
     public static final String ENABLE_FALLBACK_TO_ORIGINAL_PLANNER = "enable_fallback_to_original_planner";
 
+    public static final String FORBID_UNKNOWN_COLUMN_STATS = "forbid_unknown_col_stats";
     public static final String BROADCAST_RIGHT_TABLE_SCALE_FACTOR = "broadcast_right_table_scale_factor";
     public static final String BROADCAST_ROW_COUNT_LIMIT = "broadcast_row_count_limit";
 
@@ -454,7 +457,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DISABLE_COLOCATE_PLAN)
     public boolean disableColocatePlan = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_BUCKET_SHUFFLE_JOIN)
+    @VariableMgr.VarAttr(name = ENABLE_COLOCATE_SCAN)
+    public boolean enableColocateScan = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_BUCKET_SHUFFLE_JOIN, expType = ExperimentalType.EXPERIMENTAL_ONLINE)
     public boolean enableBucketShuffleJoin = true;
 
     @VariableMgr.VarAttr(name = PREFER_JOIN_METHOD)
@@ -524,7 +530,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean extractWideRangeExpr = true;
 
 
-    @VariableMgr.VarAttr(name = ENABLE_PIPELINE_ENGINE, fuzzy = true)
+    @VariableMgr.VarAttr(name = ENABLE_PIPELINE_ENGINE, fuzzy = true, expType = ExperimentalType.EXPERIMENTAL)
     public boolean enablePipelineEngine = false;
 
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_OUTFILE)
@@ -615,7 +621,7 @@ public class SessionVariable implements Serializable, Writable {
      * the new optimizer is fully developed. I hope that day
      * would be coming soon.
      */
-    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_PLANNER, needForward = true)
+    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_PLANNER, needForward = true, expType = ExperimentalType.EXPERIMENTAL)
     private boolean enableNereidsPlanner = false;
 
     @VariableMgr.VarAttr(name = DISABLE_NEREIDS_RULES, needForward = true)
@@ -656,11 +662,15 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = SESSION_CONTEXT, needForward = true)
     public String sessionContext = "";
 
-    @VariableMgr.VarAttr(name = ENABLE_SINGLE_REPLICA_INSERT, needForward = true)
+    @VariableMgr.VarAttr(name = ENABLE_SINGLE_REPLICA_INSERT,
+            needForward = true, expType = ExperimentalType.EXPERIMENTAL)
     public boolean enableSingleReplicaInsert = false;
 
     @VariableMgr.VarAttr(name = ENABLE_FUNCTION_PUSHDOWN)
     public boolean enableFunctionPushdown = true;
+
+    @VariableMgr.VarAttr(name = FORBID_UNKNOWN_COLUMN_STATS)
+    public boolean forbidUnknownColStats = false;
 
     @VariableMgr.VarAttr(name = ENABLE_COMMON_EXPR_PUSHDOWN, fuzzy = true)
     public boolean enableCommonExprPushdown = true;
@@ -735,7 +745,6 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableUnicodeNameSupport = false;
 
     @VariableMgr.VarAttr(name = REPEAT_MAX_NUM, needForward = true)
-
     public int repeatMaxNum = 10000;
 
     @VariableMgr.VarAttr(name = GROUP_CONCAT_MAX_LEN)
@@ -1097,6 +1106,10 @@ public class SessionVariable implements Serializable, Writable {
         return disableColocatePlan;
     }
 
+    public boolean enableColocateScan() {
+        return enableColocateScan;
+    }
+
     public boolean isEnableBucketShuffleJoin() {
         return enableBucketShuffleJoin;
     }
@@ -1345,6 +1358,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getEnableFunctionPushdown() {
         return this.enableFunctionPushdown;
+    }
+
+    public boolean getForbidUnknownColStats() {
+        return forbidUnknownColStats;
+    }
+
+    public void setForbidUnownColStats(boolean forbid) {
+        forbidUnknownColStats = forbid;
     }
 
     public boolean getEnableLocalExchange() {
@@ -1902,7 +1923,22 @@ public class SessionVariable implements Serializable, Writable {
             return;
         }
         setIsSingleSetVar(true);
-        VariableMgr.setVar(this,
-                new SetVar(SessionVariable.ENABLE_NEREIDS_PLANNER, new StringLiteral("false")));
+        VariableMgr.setVar(this, new SetVar(SessionVariable.ENABLE_NEREIDS_PLANNER, new StringLiteral("false")));
+    }
+
+    // return number of variables by given experimental type
+    public int getVariableNumByExperimentalType(ExperimentalType type) {
+        int num = 0;
+        Field[] fields = SessionVariable.class.getDeclaredFields();
+        for (Field f : fields) {
+            VarAttr varAttr = f.getAnnotation(VarAttr.class);
+            if (varAttr == null) {
+                continue;
+            }
+            if (varAttr.expType() == type) {
+                ++num;
+            }
+        }
+        return num;
     }
 }
