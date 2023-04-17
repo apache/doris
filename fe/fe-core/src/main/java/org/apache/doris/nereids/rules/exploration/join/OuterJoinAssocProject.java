@@ -59,7 +59,7 @@ public class OuterJoinAssocProject extends OneExplorationRuleFactory {
                 .whenNot(join -> join.hasJoinHint() || join.left().child().hasJoinHint())
                 .whenNot(join -> join.isMarkJoin() || join.left().child().isMarkJoin())
                 .when(join -> OuterJoinAssoc.checkCondition(join, join.left().child().left().getOutputSet()))
-                .when(join -> CBOUtils.isAllSlotProject(join.left()))
+                .when(join -> join.left().isAllSlots())
                 .then(topJoin -> {
                     /* ********** init ********** */
                     List<NamedExpression> projects = topJoin.left().getProjects();
