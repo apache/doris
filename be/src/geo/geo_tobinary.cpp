@@ -25,9 +25,9 @@
 #include "geo/geo_common.h"
 #include "geo/machine.h"
 #include "geo/wkt_parse_type.h"
-#include "iomanip"
 #include "geo_tobinary_type.h"
 #include "geo_types.h"
+#include "iomanip"
 
 namespace doris {
 
