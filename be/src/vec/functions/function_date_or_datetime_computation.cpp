@@ -122,6 +122,7 @@ struct CurrentTimeFunctionName {
 using FunctionCurTime = FunctionCurrentDateOrDateTime<CurrentTimeImpl<CurTimeFunctionName>>;
 using FunctionCurrentTime = FunctionCurrentDateOrDateTime<CurrentTimeImpl<CurrentTimeFunctionName>>;
 using FunctionUtcTimeStamp = FunctionCurrentDateOrDateTime<UtcTimestampImpl>;
+using FunctionTimeToSec = FunctionCurrentDateOrDateTime<TimeToSecImpl>;
 
 void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAddSeconds>();
@@ -171,6 +172,7 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionCurTime>();
     factory.register_function<FunctionCurrentTime>();
     factory.register_function<FunctionUtcTimeStamp>();
+    factory.register_function<FunctionTimeToSec>();
 
     // alias
     factory.register_alias("days_add", "date_add");

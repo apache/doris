@@ -150,6 +150,10 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
         }
     }
 
+    public boolean isInitialized() {
+        return this.initialized;
+    }
+
     // init some local objects such as:
     // hms client, read properties from hive-site.xml, es client
     protected abstract void initLocalObjectsImpl();

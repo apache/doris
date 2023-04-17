@@ -25,3 +25,7 @@
 [submodule ".github/actions/clang-tidy-review"]
 	path = .github/actions/clang-tidy-review
 	url = https://github.com/ZedThree/clang-tidy-review.git
+[submodule "be/src/apache-orc"]
+	path = be/src/apache-orc
+	url = https://github.com/apache/doris-thirdparty.git
+	branch = orc

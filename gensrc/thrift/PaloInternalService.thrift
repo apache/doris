@@ -151,9 +151,6 @@ struct TQueryOptions {
   // if the right table is greater than this value in the hash join,  we will ignore IN filter
   34: optional i32 runtime_filter_max_in_num = 1024;
 
-// whether enable vectorized engine 
-  41: optional bool enable_vectorized_engine = true
-
   // the resource limitation of this query
   42: optional TResourceLimit resource_limit
 
@@ -184,23 +181,24 @@ struct TQueryOptions {
 
   54: optional bool enable_share_hash_table_for_broadcast_join
 
-  55: optional bool enable_pipeline_engine = false
-
-  56: optional i32 repeat_max_num = 0
-  57: optional bool check_overflow_for_decimal = false
-
-  58: optional i64 external_sort_bytes_threshold = 0
-
-  59: optional i32 partitioned_hash_agg_rows_threshold = 0
-
-  60: optional bool enable_file_cache = true
-  
-  61: optional i32 insert_timeout = 14400
-
-  62: optional i32 execution_timeout = 3600
+  55: optional bool check_overflow_for_decimal = false
 
   // For debug purpose, skip delete bitmap when reading data
-  63: optional bool skip_delete_bitmap = false
+  56: optional bool skip_delete_bitmap = false
+
+  57: optional bool enable_pipeline_engine = false
+
+  58: optional i32 repeat_max_num = 0
+
+  59: optional i64 external_sort_bytes_threshold = 0
+
+  60: optional i32 partitioned_hash_agg_rows_threshold = 0
+
+  61: optional bool enable_file_cache = true
+  
+  62: optional i32 insert_timeout = 14400
+
+  63: optional i32 execution_timeout = 3600
 
   64: optional bool dry_run_query = false
 
@@ -576,6 +574,13 @@ struct TPipelineInstanceParams {
   6: optional i32 backend_num
 }
 
+struct TPipelineResourceGroup {
+  1: optional i64 id
+  2: optional string name
+  3: optional map<string, string> properties
+  4: optional i64 version
+}
+
 // ExecPlanFragment
 struct TPipelineFragmentParams {
   1: required PaloInternalServiceVersion protocol_version
@@ -604,6 +609,7 @@ struct TPipelineFragmentParams {
   23: optional Planner.TPlanFragment fragment
   24: list<TPipelineInstanceParams> local_params
   25: optional bool shared_scan_opt = false;
+  26: optional list<TPipelineResourceGroup> resource_groups
 }
 
 struct TPipelineFragmentParamsList {

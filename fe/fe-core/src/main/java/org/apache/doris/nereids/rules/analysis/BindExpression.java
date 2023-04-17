@@ -31,7 +31,8 @@ import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.AppliedAwareRule.AppliedAwareRuleCondition;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.expression.rewrite.rules.TypeCoercion;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rules.FunctionBinder;
 import org.apache.doris.nereids.trees.UnaryNode;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.BoundStar;
@@ -66,6 +67,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.UsingJoin;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
@@ -471,7 +473,10 @@ public class BindExpression implements AnalysisRuleFactory {
                 })
             ),
             RuleType.BINDING_SET_OPERATION_SLOT.build(
-                logicalSetOperation().then(setOperation -> {
+                // LogicalSetOperation don't bind again if LogicalSetOperation.outputs is not empty, this is special
+                // we should not remove LogicalSetOperation::canBind, because in default case, the plan can run into
+                // bind callback if not bound or **not run into bind callback yet**.
+                logicalSetOperation().when(LogicalSetOperation::canBind).then(setOperation -> {
                     // check whether the left and right child output columns are the same
                     if (setOperation.child(0).getOutput().size() != setOperation.child(1).getOutput().size()) {
                         throw new AnalysisException("Operands have unequal number of columns:\n"
@@ -611,7 +616,7 @@ public class BindExpression implements AnalysisRuleFactory {
 
     @SuppressWarnings("unchecked")
     private <E extends Expression> E bindFunction(E expr, CascadesContext cascadesContext) {
-        return (E) FunctionBinder.INSTANCE.bind(expr, cascadesContext);
+        return (E) FunctionBinder.INSTANCE.rewrite(expr, new ExpressionRewriteContext(cascadesContext));
     }
 
     /**
@@ -671,12 +676,8 @@ public class BindExpression implements AnalysisRuleFactory {
         if (!(function instanceof TableGeneratingFunction)) {
             throw new AnalysisException(function.toSql() + " is not a TableGeneratingFunction");
         }
-        function = (BoundFunction) TypeCoercion.INSTANCE.rewrite(function, null);
+        function = (BoundFunction) TypeCoercionUtils.processBoundFunction(function);
         return function;
-    }
-
-    public boolean canBind(Plan plan) {
-        return !plan.hasUnboundExpression() || plan.canBind();
     }
 
     private void checkIfOutputAliasNameDuplicatedForGroupBy(List<Expression> expressions,

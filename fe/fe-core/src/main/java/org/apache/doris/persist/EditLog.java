@@ -79,6 +79,7 @@ import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
+import org.apache.doris.resource.resourcegroup.ResourceGroup;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -764,6 +765,7 @@ public class EditLog {
                 }
                 case OperationType.OP_DYNAMIC_PARTITION:
                 case OperationType.OP_MODIFY_IN_MEMORY:
+                case OperationType.OP_ALTER_LIGHT_SCHEMA_CHANGE:
                 case OperationType.OP_MODIFY_REPLICATION_NUM: {
                     ModifyTablePropertyOperationLog log = (ModifyTablePropertyOperationLog) journal.getData();
                     env.replayModifyTableProperty(opCode, log);
@@ -999,6 +1001,11 @@ public class EditLog {
                 case OperationType.OP_REFRESH_EXTERNAL_PARTITIONS: {
                     final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
                     env.getCatalogMgr().replayRefreshExternalPartitions(log);
+                    break;
+                }
+                case OperationType.OP_CREATE_RESOURCE_GROUP: {
+                    final ResourceGroup resourceGroup = (ResourceGroup) journal.getData();
+                    env.getResourceGroupMgr().replayCreateResourceGroup(resourceGroup);
                     break;
                 }
                 case OperationType.OP_INIT_EXTERNAL_TABLE: {
@@ -1548,6 +1555,10 @@ public class EditLog {
         logEdit(OperationType.OP_ALTER_RESOURCE, resource);
     }
 
+    public void logCreateResourceGroup(ResourceGroup resourceGroup) {
+        logEdit(OperationType.OP_CREATE_RESOURCE_GROUP, resourceGroup);
+    }
+
     public void logAlterStoragePolicy(StoragePolicy storagePolicy) {
         logEdit(OperationType.OP_ALTER_STORAGE_POLICY, storagePolicy);
     }
@@ -1594,6 +1605,10 @@ public class EditLog {
 
     public void logModifyInMemory(ModifyTablePropertyOperationLog info) {
         logEdit(OperationType.OP_MODIFY_IN_MEMORY, info);
+    }
+
+    public void logAlterLightSchemaChange(ModifyTablePropertyOperationLog info) {
+        logEdit(OperationType.OP_ALTER_LIGHT_SCHEMA_CHANGE, info);
     }
 
     public void logReplaceTempPartition(ReplacePartitionOperationLog info) {

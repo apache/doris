@@ -491,12 +491,24 @@ public abstract class DataType implements AbstractDataType {
         return this instanceof HllType;
     }
 
+    public boolean isComplexType() {
+        return !isPrimitive();
+    }
+
     public boolean isArrayType() {
         return this instanceof ArrayType;
     }
 
+    public boolean isMapType() {
+        return this instanceof MapType;
+    }
+
+    public boolean isStructType() {
+        return this instanceof StructType;
+    }
+
     public boolean isOnlyMetricType() {
-        return isObjectType() || isArrayType();
+        return isObjectType() || isComplexType() || isJsonType();
     }
 
     public boolean isObjectType() {

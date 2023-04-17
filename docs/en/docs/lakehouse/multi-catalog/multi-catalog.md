@@ -313,6 +313,8 @@ Users need to manually update the metadata using the  [REFRESH CATALOG](https://
 
 <version since="1.2.2"></version>
 
+#### Hive Metastore
+
 Currently, Doris only supports automatic update of metadata in Hive Metastore (HMS). It perceives changes in metadata by the FE node which regularly reads the notification events from HMS. The supported events are as follows:
 
 | Event           | Corresponding Update Operation                               |
@@ -356,3 +358,22 @@ To enable automatic update, you need to modify the hive-site.xml of HMS and then
 ```
 
 > Note: To enable automatic update, whether for existing Catalogs or newly created Catalogs, all you need is to set `enable_hms_events_incremental_sync` to `true`, and then restart the FE node. You don't need to manually update the metadata before or after the restart.
+
+#### Timing Refresh
+
+When creating a catalog, specify the refresh time parameter `metadata_refresh_interval_sec` in the properties, in seconds. If this parameter is set when creating a catalog, the master node of FE will refresh the catalog regularly according to the parameter value. Three types are currently supported
+
+- hms: Hive MetaStore
+-es: Elasticsearch
+- jdbc: Standard interface for database access (JDBC)
+
+##### Example
+
+```
+-- Set the catalog refresh interval to 20 seconds
+CREATE CATALOG es PROPERTIES (
+     "type"="es",
+     "hosts"="http://127.0.0.1:9200",
+     "metadata_refresh_interval_sec"="20"
+);
+```

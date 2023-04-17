@@ -17,10 +17,7 @@
 
 package org.apache.doris.planner.external;
 
-import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.HMSExternalTable;
@@ -28,13 +25,9 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.planner.ColumnRange;
-import org.apache.doris.planner.external.ExternalFileScanNode.ParamCreateContext;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileFormatType;
-import org.apache.doris.thrift.TFileScanRangeParams;
-import org.apache.doris.thrift.TFileScanSlotInfo;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TFileType;
 
@@ -61,9 +54,6 @@ public class HiveScanProvider extends HMSTableScanProvider {
     protected HMSExternalTable hmsTable;
     protected final TupleDescriptor desc;
     protected Map<String, ColumnRange> columnNameToRange;
-
-    protected int totalPartitionNum = 0;
-    protected int readPartitionNum = 0;
 
     public HiveScanProvider(HMSExternalTable hmsTable, TupleDescriptor desc,
             Map<String, ColumnRange> columnNameToRange) {
@@ -111,6 +101,8 @@ public class HiveScanProvider extends HMSTableScanProvider {
                 return TFileType.FILE_LOCAL;
             } else if (location.startsWith(FeConstants.FS_PREFIX_OFS)) {
                 return TFileType.FILE_BROKER;
+            } else if (location.startsWith(FeConstants.FS_PREFIX_GFS)) {
+                return TFileType.FILE_BROKER;
             } else if (location.startsWith(FeConstants.FS_PREFIX_JFS)) {
                 return TFileType.FILE_BROKER;
             }
@@ -150,34 +142,6 @@ public class HiveScanProvider extends HMSTableScanProvider {
     @Override
     public List<String> getPathPartitionKeys() throws DdlException, MetaNotFoundException {
         return getRemoteHiveTable().getPartitionKeys().stream().map(FieldSchema::getName).collect(Collectors.toList());
-    }
-
-    @Override
-    public ParamCreateContext createContext(Analyzer analyzer) throws UserException {
-        ParamCreateContext context = new ParamCreateContext();
-        context.params = new TFileScanRangeParams();
-        context.destTupleDescriptor = desc;
-        context.params.setDestTupleId(desc.getId().asInt());
-        context.fileGroup = new BrokerFileGroup(hmsTable.getId(),
-                hmsTable.getRemoteTable().getSd().getLocation(), hmsTable.getRemoteTable().getSd().getInputFormat());
-
-
-        // Hive table must extract partition value from path and hudi/iceberg table keep
-        // partition field in file.
-        List<String> partitionKeys = getPathPartitionKeys();
-        List<Column> columns = hmsTable.getBaseSchema(false);
-        context.params.setNumOfColumnsFromFile(columns.size() - partitionKeys.size());
-        for (SlotDescriptor slot : desc.getSlots()) {
-            if (!slot.isMaterialized()) {
-                continue;
-            }
-
-            TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
-            slotInfo.setSlotId(slot.getId().asInt());
-            slotInfo.setIsFileSlot(!partitionKeys.contains(slot.getColumn().getName()));
-            context.params.addToRequiredSlots(slotInfo);
-        }
-        return context;
     }
 
     @Override

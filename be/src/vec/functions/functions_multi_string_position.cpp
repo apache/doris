@@ -18,6 +18,9 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/FunctionsMultiStringPosition.h
 // and modified by Doris
 
+#include <cstdint>
+#include <iterator>
+
 #include "function.h"
 #include "function_helpers.h"
 #include "vec/columns/column_array.h"
@@ -103,48 +106,53 @@ public:
     }
 };
 
-template <typename Impl>
 struct FunctionMultiSearchAllPositionsImpl {
+public:
     using ResultType = Int32;
-
+    using SingleSearcher = ASCIICaseSensitiveStringSearcher;
     static constexpr auto name = "multi_search_all_positions";
 
     static Status vector_constant(const ColumnString::Chars& haystack_data,
                                   const ColumnString::Offsets& haystack_offsets,
                                   const Array& needles_arr, PaddedPODArray<Int32>& vec_res,
                                   PaddedPODArray<UInt64>& offsets_res) {
-        if (needles_arr.size() > std::numeric_limits<UInt8>::max())
+        if (needles_arr.size() > std::numeric_limits<UInt8>::max()) {
             return Status::InvalidArgument(
                     "number of arguments for function {} doesn't match: "
                     "passed {}, should be at most 255",
                     name, needles_arr.size());
+        }
 
-        std::vector<StringRef> needles;
-        needles.reserve(needles_arr.size());
-        for (const auto& needle : needles_arr) needles.emplace_back(needle.get<StringRef>());
-
-        auto res_callback = [](const UInt8* start, const UInt8* end) -> Int32 {
-            return 1 + Impl::count_chars(reinterpret_cast<const char*>(start),
-                                         reinterpret_cast<const char*>(end));
-        };
-
-        auto searcher = Impl::create_multi_searcher(needles);
+        const size_t needles_size = needles_arr.size();
+        std::vector<SingleSearcher> searchers;
+        searchers.reserve(needles_size);
+        for (const auto& needle : needles_arr) {
+            searchers.emplace_back(needle.get<StringRef>().data, needle.get<StringRef>().size);
+        }
 
         const size_t haystack_size = haystack_offsets.size();
-        const size_t needles_size = needles.size();
-
-        vec_res.resize(haystack_size * needles.size());
+        vec_res.resize(haystack_size * needles_size);
         offsets_res.resize(haystack_size);
 
         std::fill(vec_res.begin(), vec_res.end(), 0);
 
-        while (searcher.hasMoreToSearch()) {
+        // we traverse to generator answer by Vector's slot of ColumnVector, not by Vector.
+        // TODO: check if the order of loop is best. The large data may make us writing across the line which size out of L2 cache.
+        for (size_t ans_slot_in_row = 0; ans_slot_in_row < searchers.size(); ans_slot_in_row++) {
+            //  is i.e. answer slot index in one Vector(row) of answer
+            auto& searcher = searchers[ans_slot_in_row];
             size_t prev_haystack_offset = 0;
-            for (size_t j = 0, from = 0; j < haystack_size; ++j, from += needles_size) {
+
+            for (size_t haystack_index = 0, res_index = ans_slot_in_row;
+                 haystack_index < haystack_size; ++haystack_index, res_index += needles_size) {
                 const auto* haystack = &haystack_data[prev_haystack_offset];
-                const auto* haystack_end = haystack + haystack_offsets[j] - prev_haystack_offset;
-                searcher.searchOneAll(haystack, haystack_end, &vec_res[from], res_callback);
-                prev_haystack_offset = haystack_offsets[j];
+                const auto* haystack_end =
+                        haystack - prev_haystack_offset + haystack_offsets[haystack_index];
+
+                auto ans_now = searcher.search(haystack, haystack_end);
+                vec_res[res_index] =
+                        ans_now >= haystack_end ? 0 : std::distance(haystack, ans_now) + 1;
+                prev_haystack_offset = haystack_offsets[haystack_index];
             }
         }
 
@@ -166,72 +174,72 @@ struct FunctionMultiSearchAllPositionsImpl {
         size_t prev_haystack_offset = 0;
         size_t prev_needles_offset = 0;
 
-        auto res_callback = [](const UInt8* start, const UInt8* end) -> Int32 {
-            return 1 + Impl::count_chars(reinterpret_cast<const char*>(start),
-                                         reinterpret_cast<const char*>(end));
-        };
-
-        offsets_res.reserve(haystack_offsets.size());
+        offsets_res.reserve(haystack_data.size());
+        uint64_t offset_now = 0;
 
         auto& nested_column =
                 vectorized::check_and_get_column<vectorized::ColumnNullable>(needles_data)
                         ->get_nested_column();
         const ColumnString* needles_data_string = check_and_get_column<ColumnString>(nested_column);
 
-        std::vector<StringRef> needles;
-        for (size_t i = 0; i < haystack_offsets.size(); ++i) {
-            needles.reserve(needles_offsets[i] - prev_needles_offset);
+        std::vector<StringRef> needles_for_row;
+        // haystack first, row by row.
+        for (size_t haystack_index = 0; haystack_index < haystack_offsets.size();
+             ++haystack_index) {
+            // get haystack for this row.
+            const auto* haystack = &haystack_data[prev_haystack_offset];
+            const auto* haystack_end =
+                    haystack - prev_haystack_offset + haystack_offsets[haystack_index];
 
-            for (size_t j = prev_needles_offset; j < needles_offsets[i]; ++j) {
-                needles.emplace_back(needles_data_string->get_data_at(j));
+            // build needles for this row.
+            needles_for_row.reserve(needles_offsets[haystack_index] - prev_needles_offset);
+            for (size_t j = prev_needles_offset; j < needles_offsets[haystack_index]; ++j) {
+                needles_for_row.emplace_back(needles_data_string->get_data_at(j));
             }
-
-            const size_t needles_size = needles.size();
-            if (needles_size > std::numeric_limits<UInt8>::max())
+            const size_t needles_row_size = needles_for_row.size();
+            if (needles_row_size > std::numeric_limits<UInt8>::max()) {
                 return Status::InvalidArgument(
                         "number of arguments for function {} doesn't match: "
                         "passed {}, should be at most 255",
-                        name, needles_size);
-
-            vec_res.resize(vec_res.size() + needles_size);
-
-            auto searcher = Impl::create_multi_searcher(needles);
-
-            std::fill(vec_res.begin() + vec_res.size() - needles_size, vec_res.end(), 0);
-
-            while (searcher.hasMoreToSearch()) {
-                const auto* haystack = &haystack_data[prev_haystack_offset];
-                const auto* haystack_end = haystack + haystack_offsets[i] - prev_haystack_offset;
-                searcher.searchOneAll(haystack, haystack_end,
-                                      &vec_res[vec_res.size() - needles_size], res_callback);
+                        name, needles_row_size);
             }
 
-            if (offsets_res.empty())
-                offsets_res.push_back(needles_size);
-            else
-                offsets_res.push_back(offsets_res.back() + needles_size);
+            // each searcher search for one needle.
+            std::vector<SingleSearcher> searchers;
+            searchers.clear();
+            searchers.reserve(needles_row_size);
+            for (auto needle : needles_for_row) {
+                searchers.emplace_back(needle.data, needle.size);
+            }
 
-            prev_haystack_offset = haystack_offsets[i];
-            prev_needles_offset = needles_offsets[i];
-            needles.clear();
+            // search for first so that the ans's size is constant for each row.
+            auto ans_row_begin = vec_res.size();
+            vec_res.resize(vec_res.size() + needles_row_size);
+            offset_now += searchers.size();
+            offsets_res.emplace_back(offset_now);
+
+            //for now haystack, apply needle to search, generator answer by order.
+            for (size_t ans_slot_in_row = 0; ans_slot_in_row < searchers.size();
+                 ans_slot_in_row++) {
+                //  is i.e. answer slot index in one Vector(row) of answer
+                auto& searcher = searchers[ans_slot_in_row];
+
+                auto ans_now = searcher.search(haystack, haystack_end);
+                vec_res[ans_row_begin + ans_slot_in_row] =
+                        ans_now >= haystack_end ? 0 : std::distance(haystack, ans_now) + 1;
+            }
+
+            prev_haystack_offset = haystack_offsets[haystack_index];
+            prev_needles_offset = needles_offsets[haystack_index];
+            needles_for_row.clear();
         }
 
         return Status::OK();
     }
 };
 
-struct MultiSearcherImpl {
-    using MultiSearcher = MultiStringSearcher;
-
-    static MultiSearcher create_multi_searcher(const std::vector<StringRef>& needles) {
-        return MultiSearcher(needles);
-    }
-
-    static size_t count_chars(const char* begin, const char* end) { return end - begin; }
-};
-
 using FunctionMultiSearchAllPositions =
-        FunctionMultiStringPosition<FunctionMultiSearchAllPositionsImpl<MultiSearcherImpl>>;
+        FunctionMultiStringPosition<FunctionMultiSearchAllPositionsImpl>;
 
 void register_function_multi_string_position(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMultiSearchAllPositions>();

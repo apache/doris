@@ -24,6 +24,7 @@ import org.apache.doris.analysis.MVRefreshInfo;
 import org.apache.doris.analysis.MVRefreshIntervalTriggerInfo;
 import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
@@ -53,6 +54,7 @@ public class MultiTableMaterializedViewTest extends TestWithFeService {
         createDatabase("test");
         connectContext.setDatabase("default_cluster:test");
         connectContext.getState().reset();
+        Config.enable_mtmv = true;
     }
 
     @AfterEach

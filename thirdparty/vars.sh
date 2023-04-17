@@ -55,10 +55,10 @@ export TP_JAR_DIR="${TP_INSTALL_DIR}/lib/jar"
 #####################################################
 
 #clucene
-CLUCENE_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/libclucene-v2.4.8.tar.gz"
-CLUCENE_NAME="doris-thirdparty-libclucene-v2.4.8.tar.gz"
-CLUCENE_SOURCE="doris-thirdparty-libclucene-v2.4.8"
-CLUCENE_MD5SUM="4d77af3c2c0d3c47754ffa68c277b9d6"
+CLUCENE_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/libclucene-v2.4.9.tar.gz"
+CLUCENE_NAME="doris-thirdparty-libclucene-v2.4.9.tar.gz"
+CLUCENE_SOURCE="doris-thirdparty-libclucene-v2.4.9"
+CLUCENE_MD5SUM="2d5c48bd24b0757d0fecb74111b9b2ed"
 
 # libevent
 LIBEVENT_DOWNLOAD="https://github.com/libevent/libevent/archive/release-2.1.12-stable.tar.gz"
@@ -374,10 +374,10 @@ KRB5_SOURCE="krb5-1.19"
 KRB5_MD5SUM="aaf18447a5a014aa3b7e81814923f4c9"
 
 # hdfs3
-HDFS3_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/libhdfs3-v2.3.8.tar.gz"
-HDFS3_NAME="doris-thirdparty-libhdfs3-v2.3.8.tar.gz"
-HDFS3_SOURCE="doris-thirdparty-libhdfs3-v2.3.8"
-HDFS3_MD5SUM="3a9890bb43d0caee183ea7a49df2e4f3"
+HDFS3_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/libhdfs3-v2.3.9.tar.gz"
+HDFS3_NAME="doris-thirdparty-libhdfs3-v2.3.9.tar.gz"
+HDFS3_SOURCE="doris-thirdparty-libhdfs3-v2.3.9"
+HDFS3_MD5SUM="b3eaa03e5b184521e5ad5bf6cabea97e"
 
 #libdivide
 LIBDIVIDE_DOWNLOAD="https://github.com/ridiculousfish/libdivide/archive/5.0.tar.gz"
@@ -435,10 +435,10 @@ LIBBACKTRACE_SOURCE=libbacktrace-2446c66076480ce07a6bd868badcbceb3eeecc2e
 LIBBACKTRACE_MD5SUM="6c79a8012870a24610c0d9c3621b23fe"
 
 # sse2noen
-SSE2NEON_DOWNLOAD="https://github.com/DLTcollab/sse2neon/archive/refs/tags/v1.5.1.tar.gz"
-SSE2NEON_NAME=sse2neon-1.5.1.tar.gz
-SSE2NEON_SOURCE=sse2neon-1.5.1
-SSE2NEON_MD5SUM="9de5dc2970aa7efac7faee59e2826c51"
+SSE2NEON_DOWNLOAD="https://github.com/DLTcollab/sse2neon/archive/refs/tags/v1.6.0.tar.gz"
+SSE2NEON_NAME=sse2neon-1.6.0.tar.gz
+SSE2NEON_SOURCE=sse2neon-1.6.0
+SSE2NEON_MD5SUM="dce28eb6a78f45bf98740d5fad73febb"
 
 # xxhash
 XXHASH_DOWNLOAD="https://github.com/Cyan4973/xxHash/archive/refs/tags/v0.8.1.tar.gz"

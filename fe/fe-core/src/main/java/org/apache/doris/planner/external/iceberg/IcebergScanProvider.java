@@ -23,7 +23,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.planner.external.ExternalFileScanNode;
 import org.apache.doris.planner.external.IcebergSplitter;
 import org.apache.doris.planner.external.QueryScanProvider;
 import org.apache.doris.thrift.TFileAttributes;
@@ -112,6 +111,8 @@ public class IcebergScanProvider extends QueryScanProvider {
                 return TFileType.FILE_LOCAL;
             } else if (location.startsWith(FeConstants.FS_PREFIX_OFS)) {
                 return TFileType.FILE_BROKER;
+            } else if (location.startsWith(FeConstants.FS_PREFIX_GFS)) {
+                return TFileType.FILE_BROKER;
             } else if (location.startsWith(FeConstants.FS_PREFIX_JFS)) {
                 return TFileType.FILE_BROKER;
             }
@@ -143,11 +144,6 @@ public class IcebergScanProvider extends QueryScanProvider {
     @Override
     public Map<String, String> getLocationProperties() throws MetaNotFoundException, DdlException {
         return icebergSource.getCatalog().getProperties();
-    }
-
-    @Override
-    public ExternalFileScanNode.ParamCreateContext createContext(Analyzer analyzer) throws UserException {
-        return icebergSource.createContext();
     }
 
     @Override

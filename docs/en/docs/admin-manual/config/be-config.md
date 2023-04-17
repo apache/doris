@@ -127,6 +127,12 @@ There are two ways to configure BE configuration items:
 * Description: The port of BRPC on BE, used for communication between BEs
 * Default value: 8060
 
+#### `enable_https`
+
+* Type: bool
+* Description: Whether https is supported. If so, configure `ssl_certificate_path` and `ssl_private_key_path` in be.conf.
+* Default value: false
+
 #### `single_replica_load_brpc_port`
 
 * Type: int32

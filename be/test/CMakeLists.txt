@@ -70,6 +70,7 @@ set(IO_TEST_FILES
     io/cache/file_block_cache_test.cpp
     io/fs/local_file_system_test.cpp
     io/fs/remote_file_system_test.cpp
+    io/fs/buffered_reader_test.cpp
 )
 set(OLAP_TEST_FILES
     olap/engine_storage_migration_task_test.cpp

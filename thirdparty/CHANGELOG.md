@@ -2,6 +2,15 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## v20230412
+- Modified: sse2neon 1.5.1 -> 1.6.0
+- Modified: libhdfs3 2.3.8 -> 2.3.9
+
+## v20230411
+- Modified: clucene 2.4.8 -> 2.4.9
+- Modified: sse2neon 1.5.1 -> 1.6.0
+- Modified: libhdfs3 2.3.8 -> 2.3.9
+
 ## v20230328
 - Modified: brpc 1.2.0 -> 1.4.0
 - Modified: boost 1.73.0 -> 1.81.0

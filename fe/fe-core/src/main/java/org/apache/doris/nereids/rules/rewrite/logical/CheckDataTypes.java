@@ -23,6 +23,7 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
@@ -43,14 +44,29 @@ public class CheckDataTypes implements CustomRewriter {
             MapType.class, StructType.class, JsonType.class, ArrayType.class);
 
     @Override
-    public Plan rewriteRoot(Plan plan, JobContext jobContext) {
-        return rewrite(plan);
+    public Plan rewriteRoot(Plan rootPlan, JobContext jobContext) {
+        checkPlan(rootPlan);
+        return rootPlan;
     }
 
-    private Plan rewrite(Plan plan) {
+    private void checkPlan(Plan plan) {
+        if (plan instanceof LogicalJoin) {
+            checkLogicalJoin((LogicalJoin) plan);
+        }
         plan.getExpressions().forEach(ExpressionChecker.INSTANCE::check);
-        plan.children().forEach(child -> rewrite(child));
-        return plan;
+        plan.children().forEach(child -> checkPlan(child));
+    }
+
+    private void checkLogicalJoin(LogicalJoin plan) {
+        plan.getHashJoinConjuncts().stream().forEach(expr -> {
+            DataType leftType = ((Expression) expr).child(0).getDataType();
+            DataType rightType = ((Expression) expr).child(1).getDataType();
+            if (!leftType.acceptsType(rightType)) {
+                throw new AnalysisException(
+                        String.format("type %s is not same as %s in hash join condition %s",
+                                leftType, rightType, ((Expression) expr).toSql()));
+            }
+        });
     }
 
     private static class ExpressionChecker extends DefaultExpressionVisitor<Expression, Void> {

@@ -22,6 +22,9 @@
 #include <memory>
 
 #include "gen_cpp/Exprs_types.h"
+#include "json2pb/json_to_pb.h"
+#include "json2pb/pb_to_json.h"
+#include "runtime/exec_env.h"
 
 namespace doris::vectorized {
 
