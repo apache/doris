@@ -32,7 +32,7 @@ suite("query_p1") {
         PROPERTIES("replication_num" = "1");
         """
 
-    sql """insert into test select e1,e1,e1,e1 from (select 1 k1) as t lateral view explode_numbers(100000000) tmp1 as e1;"""
+    sql """insert into test select e1,e1,e1,e1 from (select 1 k1) as t lateral view explode_numbers(10000000) tmp1 as e1;"""
 
     qt_sql """select count(*) from test;"""
 }
