@@ -21,6 +21,8 @@
 #include <fmt/format.h>
 
 #include <algorithm>
+#include <filesystem>
+#include <memory>
 #include <ostream>
 #include <utility>
 
@@ -390,6 +392,51 @@ bool BetaRowset::check_current_rowset_segment() {
         }
     }
     return true;
+}
+
+Status BetaRowset::add_to_binlog() {
+    // FIXME(Drogon): not only local file system
+    DCHECK(is_local());
+    auto fs = _rowset_meta->fs();
+    if (!fs) {
+        return Status::Error<INIT_FAILED>();
+    }
+    if (fs->type() != io::FileSystemType::LOCAL) {
+        return Status::InternalError("should be local file system");
+    }
+    io::LocalFileSystem* local_fs = static_cast<io::LocalFileSystem*>(fs.get());
+
+    // all segments are in the same directory, so cache binlog_dir without multi times check
+    std::string binlog_dir;
+
+    auto segments_num = num_segments();
+    LOG(INFO) << fmt::format("add rowset to binlog. rowset_id={}, segments_num={}",
+                             rowset_id().to_string(), segments_num);
+    for (int i = 0; i < segments_num; ++i) {
+        auto seg_file = segment_file_path(i);
+
+        if (binlog_dir.empty()) {
+            binlog_dir = std::filesystem::path(seg_file).parent_path().append("_binlog").string();
+
+            bool exists = true;
+            RETURN_IF_ERROR(local_fs->exists(binlog_dir, &exists));
+            if (!exists) {
+                RETURN_IF_ERROR(local_fs->create_directory(binlog_dir));
+            }
+        }
+
+        auto binlog_file =
+                (std::filesystem::path(binlog_dir) / std::filesystem::path(seg_file).filename())
+                        .string();
+        LOG(INFO) << "link " << seg_file << " to " << binlog_file;
+        if (!local_fs->link_file(seg_file, binlog_file).ok()) {
+            LOG(WARNING) << "fail to create hard link. from=" << seg_file << ", "
+                         << "to=" << binlog_file << ", errno=" << Errno::no();
+            return Status::Error<OS_ERROR>();
+        }
+    }
+
+    return Status::OK();
 }
 
 } // namespace doris

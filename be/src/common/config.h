@@ -1014,6 +1014,9 @@ DECLARE_mInt32(s3_write_buffer_whole_size);
 //enable shrink memory
 DECLARE_Bool(enable_shrink_memory);
 
+// enable binlog
+DECLARE_Bool(enable_feature_binlog);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
