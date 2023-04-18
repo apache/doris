@@ -66,5 +66,6 @@ public class StatisticConstants {
     public static final int ANALYSIS_JOB_INFO_EXPIRATION_TIME_IN_DAYS = 7;
 
     public static final int FETCH_LIMIT = 10000;
+    public static final int FETCH_INTERVAL_IN_MS = 500;
 
 }
