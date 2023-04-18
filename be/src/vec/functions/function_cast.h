@@ -117,9 +117,9 @@ inline UInt32 extract_to_decimal_scale(const ColumnWithTypeAndName& named_column
   * In Doris, the underlying storage type of the Time class is Float64.
   */
 struct TimeCast {
-    // Cast from string  
-    // Some examples of conversions. 
-    // '300' -> 00:03:00 '20:23' ->  20:23:00 '20:23:24' -> 20:23:24 
+    // Cast from string
+    // Some examples of conversions.
+    // '300' -> 00:03:00 '20:23' ->  20:23:00 '20:23:24' -> 20:23:24
     template <typename T>
     static bool try_parse_time(char* s, size_t len, T& x) {
         char* first_char = s;
