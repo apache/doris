@@ -76,6 +76,7 @@ public:
     DataTypeSerDeSPtr get_serde() const override {
         return std::make_shared<DataTypeNumberSerDe<Float64>>();
     };
+    bool is_time() const override { return true; }
 };
 
 } // namespace doris::vectorized

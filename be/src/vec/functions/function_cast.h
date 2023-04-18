@@ -113,13 +113,18 @@ inline UInt32 extract_to_decimal_scale(const ColumnWithTypeAndName& named_column
     named_column.column->get(0, field);
     return field.get<UInt32>();
 }
+/** Cast from string or number to Time.
+  * In Doris, the underlying storage type of the Time class is Float64.
+  */
 struct TimeCast {
+    // Cast from string  
+    // Some examples of conversions. 
+    // '300' -> 00:03:00 '20:23' ->  20:23:00 '20:23:24' -> 20:23:24 
     template <typename T>
     static bool try_parse_time(char* s, size_t len, T& x) {
         char* first_char = s;
         char* end_char = s + len;
         int hour = 0, minute = 0, second = 0;
-
         auto parse_from_str_to_int = [](char* begin, size_t len, auto& num) {
             StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
             auto int_value = StringParser::string_to_unsigned_int<uint64_t>(
@@ -134,7 +139,7 @@ struct TimeCast {
         if ((first_colon = (char*)memchr(first_char, ':', len)) != nullptr) {
             if ((second_colon = (char*)memchr(first_colon + 1, ':', end_char - first_colon - 1)) !=
                 nullptr) {
-                // now find tow ':'
+                // find tow colon
                 // parse hour
                 if (!parse_from_str_to_int(first_char, first_colon - first_char, hour)) {
                     // hour  failed
@@ -150,7 +155,7 @@ struct TimeCast {
                     return false;
                 }
             } else {
-                // find one ':'
+                // find one colon
                 // parse hour
                 if (!parse_from_str_to_int(first_char, first_colon - first_char, hour)) {
                     return false;
@@ -161,7 +166,7 @@ struct TimeCast {
                 }
             }
         } else {
-            // no ':' ,so try to parse as a number
+            // no colon ,so try to parse as a number
             size_t from {};
             if (!parse_from_str_to_int(first_char, len, from)) {
                 return false;
@@ -175,6 +180,8 @@ struct TimeCast {
         x = hour * 3600 + minute * 60 + second;
         return true;
     }
+
+    // Cast from number
     template <typename T, typename S>
     static bool try_parse_time(T from, S& x) {
         int64 seconds = from;
@@ -815,10 +822,10 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb, const DateL
 
     if constexpr (std::is_same_v<DataTypeString, FromDataType> &&
                   std::is_same_v<DataTypeTime, DataType>) {
-        // string to time(float64)
+        // cast from string to time(float64)
         auto len = rb.count();
         auto s = rb.position();
-        rb.position() = rb.end(); // make is_all_read = true;
+        rb.position() = rb.end(); // make is_all_read = true
         return TimeCast::try_parse_time(s, len, x);
     }
 
@@ -1963,12 +1970,9 @@ private:
 
             return false;
         };
-        {
-            auto rhs = to_type.get();
-            if (typeid(DataTypeTime) == typeid(*rhs)) {
-                make_default_wrapper(TypePair<DataTypeTime, void>());
-                return ret;
-            }
+        if (to_type->is_time()) {
+            make_default_wrapper(TypePair<DataTypeTime, void>());
+            return ret;
         }
 
         if (call_on_index_and_data_type<void>(to_type->get_type_id(), make_default_wrapper))
