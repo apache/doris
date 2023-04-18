@@ -108,9 +108,7 @@ public:
     }
 
     ColumnPtr replicate(const Offsets& offsets) const override {
-        if (s != offsets.size()) {
-            LOG(FATAL) << "Size of offsets doesn't match size of column.";
-        }
+        column_match_offsets_size(s, offsets.size());
 
         return clone_dummy(offsets.back());
     }
