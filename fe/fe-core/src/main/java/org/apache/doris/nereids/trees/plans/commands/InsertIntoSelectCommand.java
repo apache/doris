@@ -30,8 +30,13 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.txn.Transaction;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
+import org.apache.doris.transaction.TransactionState.TxnCoordinator;
+import org.apache.doris.transaction.TransactionState.TxnSourceType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Optional;
@@ -45,7 +50,6 @@ public class InsertIntoSelectCommand extends Command implements ForwardWithSync 
     private final List<String> colNames;
     private final LogicalPlan logicalQuery;
     private final PhysicalPlan physicalQuery;
-    private int txnId;
     private Database database;
     private Table table;
 
@@ -76,6 +80,10 @@ public class InsertIntoSelectCommand extends Command implements ForwardWithSync 
         executor.setParsedStmt(logicalPlanAdapter);
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
         planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
+
+        if (ctx.getMysqlChannel() != null) {
+            ctx.getMysqlChannel().reset();
+        }
         Transaction txn = new Transaction(ctx, database, table, ((NereidsPlanner) executor.getPlanner()));
         txn.executeInsertIntoSelectCommand(this);
     }
