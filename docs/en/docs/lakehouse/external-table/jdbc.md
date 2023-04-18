@@ -437,7 +437,7 @@ The followings list how data types in different databases are mapped in Doris.
 |   timestamp   |         bigint         |
 |    datetime    |       datetime        |
 | bool |  boolean  |
-|   vertex/edge/path/list/set/time等    |  varchar  |
+|   vertex/edge/path/list/set/time etc    |  varchar  |
 
 
 ## Q&A
