@@ -182,10 +182,7 @@ public class Transaction {
                     "insert into select in txn model is not supported");
             beginTxn();
             loadedRows = executeInsertIntoValuesCommand(null);
-            labelName = ctx.getTxnEntry().getLabel();
-            txnId = ctx.getTxnEntry().getTxnConf().getTxnId();
         } else {
-            labelName = command.getLabelName();
             LOG.info("Do insert [{}] with query id: {}", labelName, DebugUtil.printId(ctx.queryId()));
             try {
                 handleTransactionForNotInTxnModel();
