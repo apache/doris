@@ -117,6 +117,17 @@ public final class RuntimeFilterGenerator {
             defaultValue = Math.max(defaultValue, minVal);
             defaultVal = BitUtil.roundUpToPowerOf2(Math.min(defaultValue, maxVal));
         }
+
+        private FilterSizeLimits(long maxVal, long minVal, long defaultVal) {
+            this.maxVal = BitUtil.roundUpToPowerOf2(maxVal);
+            this.minVal = BitUtil.roundUpToPowerOf2(minVal);
+            defaultVal = Math.max(defaultVal, this.minVal);
+            this.defaultVal = BitUtil.roundUpToPowerOf2(Math.min(defaultVal, this.maxVal));
+        }
+
+        public FilterSizeLimits adjustForParallel(int parallel) {
+            return new FilterSizeLimits(maxVal / parallel, minVal / parallel, defaultVal / parallel);
+        }
     }
 
     // Contains size limits for bloom filters.
