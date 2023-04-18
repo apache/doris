@@ -37,6 +37,7 @@ import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoSelectCommand;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.InsertStreamTxnExecutor;
