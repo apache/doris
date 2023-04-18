@@ -23,7 +23,6 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Test;
 
-
 public class InsertIntoSelectCommandTest extends TestWithFeService {
     @Override
     public void runBeforeAll() throws Exception {
