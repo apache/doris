@@ -42,7 +42,7 @@ public class AlterCatalogPropertyStmt extends DdlStmt {
     public AlterCatalogPropertyStmt(String catalogName, Map<String, String> newProperties) {
         this.catalogName = catalogName;
         this.newProperties = newProperties;
-        this.comment = newProperties.getOrDefault("comment", null);
+        this.comment = newProperties.getOrDefault("comment", "");
     }
 
     public String getCatalogName() {

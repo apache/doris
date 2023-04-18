@@ -54,8 +54,8 @@ public class CreateCatalogStmt extends DdlStmt {
             String comment) {
         this.ifNotExists = ifNotExists;
         this.catalogName = catalogName;
-        this.resource = resource == null ? "" : resource;
-        this.comment = comment == null ? "" : comment;
+        this.resource = Strings.nullToEmpty(resource);
+        this.comment = Strings.nullToEmpty(comment);
         this.properties = properties == null ? Maps.newHashMap() : properties;
     }
 
