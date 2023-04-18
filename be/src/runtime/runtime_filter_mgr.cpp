@@ -81,7 +81,8 @@ Status RuntimeFilterMgr::get_producer_filter(const int filter_id,
 
 Status RuntimeFilterMgr::register_filter(const RuntimeFilterRole role,
                                          const TRuntimeFilterDesc& desc,
-                                         const TQueryOptions& options, int node_id) {
+                                         const TQueryOptions& options, int node_id,
+                                         bool build_bf_exactly) {
     DCHECK((role == RuntimeFilterRole::CONSUMER && node_id >= 0) ||
            role != RuntimeFilterRole::CONSUMER);
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
@@ -104,7 +105,7 @@ Status RuntimeFilterMgr::register_filter(const RuntimeFilterRole role,
     filter_mgr_val.role = role;
 
     RETURN_IF_ERROR(IRuntimeFilter::create(_state, &_pool, &desc, &options, role, node_id,
-                                           &filter_mgr_val.filter));
+                                           &filter_mgr_val.filter, build_bf_exactly));
 
     filter_map->emplace(key, filter_mgr_val);
 

@@ -120,6 +120,7 @@ struct RuntimeFilterParams {
     int32_t filter_id;
     UniqueId fragment_instance_id;
     bool bitmap_filter_not_in;
+    bool build_bf_exactly;
 };
 
 struct UpdateRuntimeFilterParams {
@@ -172,7 +173,7 @@ public:
 
     static Status create(RuntimeState* state, ObjectPool* pool, const TRuntimeFilterDesc* desc,
                          const TQueryOptions* query_options, const RuntimeFilterRole role,
-                         int node_id, IRuntimeFilter** res);
+                         int node_id, IRuntimeFilter** res, bool build_bf_exactly = false);
 
     void copy_to_shared_context(vectorized::SharedRuntimeFilterContext& context);
     Status copy_from_shared_context(vectorized::SharedRuntimeFilterContext& context);
@@ -228,7 +229,7 @@ public:
 
     // init filter with desc
     Status init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options,
-                          UniqueId fragment_id, int node_id = -1);
+                          UniqueId fragment_id, int node_id = -1, bool build_bf_exactly = false);
 
     BloomFilterFuncBase* get_bloomfilter() const;
 
@@ -247,6 +248,7 @@ public:
                                  ObjectPool* pool,
                                  std::unique_ptr<RuntimePredicateWrapper>* wrapper);
     void change_to_bloom_filter();
+    Status init_bloom_filter(const size_t build_bf_cardinality);
     Status update_filter(const UpdateRuntimeFilterParams* param);
 
     void set_ignored() { _is_ignored = true; }
