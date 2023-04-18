@@ -98,6 +98,9 @@ Status SchemaSchemaPrivilegesScanner::get_next_block(vectorized::Block* block, b
 Status SchemaSchemaPrivilegesScanner::_fill_block_impl(vectorized::Block* block) {
     SCOPED_TIMER(_fill_block_timer);
     auto privileges_num = _priv_result.privileges.size();
+    if (privileges_num <= 0) {
+        return Status::OK();
+    }
     std::vector<void*> datas(privileges_num);
 
     // grantee

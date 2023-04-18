@@ -65,6 +65,9 @@ Status SchemaCharsetsScanner::_fill_block_impl(vectorized::Block* block) {
     while (nullptr != _s_charsets[row_num].charset) {
         ++row_num;
     }
+    if (row_num <= 0) {
+        return Status::OK();
+    }
     std::vector<void*> datas(row_num);
 
     // variables names

@@ -68,6 +68,9 @@ Status SchemaCollationsScanner::_fill_block_impl(vectorized::Block* block) {
     while (nullptr != _s_collations[row_num].name) {
         ++row_num;
     }
+    if (row_num <= 0) {
+        return Status::OK();
+    }
     std::vector<void*> datas(row_num);
 
     // COLLATION_NAME

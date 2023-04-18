@@ -330,6 +330,9 @@ Status SchemaColumnsScanner::get_next_block(vectorized::Block* block, bool* eos)
 Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
     SCOPED_TIMER(_fill_block_timer);
     auto columns_num = _desc_result.columns.size();
+    if (columns_num <= 0) {
+        return Status::OK();
+    }
     std::vector<void*> null_datas(columns_num, nullptr);
     std::vector<void*> datas(columns_num);
     // TABLE_CATALOG

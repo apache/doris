@@ -98,6 +98,9 @@ Status SchemaSchemataScanner::get_next_block(vectorized::Block* block, bool* eos
 Status SchemaSchemataScanner::_fill_block_impl(vectorized::Block* block) {
     SCOPED_TIMER(_fill_block_timer);
     auto dbs_num = _db_result.dbs.size();
+    if (dbs_num <= 0) {
+        return Status::OK();
+    }
     std::vector<void*> null_datas(dbs_num, nullptr);
     std::vector<void*> datas(dbs_num);
 

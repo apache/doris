@@ -111,6 +111,9 @@ Status SchemaRowsetsScanner::get_next_block(vectorized::Block* block, bool* eos)
 Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
     SCOPED_TIMER(_fill_block_timer);
     size_t fill_rowsets_num = std::min(1000ul, rowsets_.size() - _rowsets_idx);
+    if (fill_rowsets_num <= 0) {
+        return Status::OK();
+    }
     auto fill_idx_begin = _rowsets_idx;
     auto fill_idx_end = _rowsets_idx + fill_rowsets_num;
     std::vector<void*> datas(fill_rowsets_num);
