@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "serde/data_type_fixedlengthobject_serde.h"
 #include "vec/columns/column_fixed_length_object.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -61,6 +62,9 @@ public:
 
     bool is_categorial() const override { return is_value_represented_by_integer(); }
     bool can_be_inside_low_cardinality() const override { return false; }
+    DataTypeSerDeSPtr get_serde() const override {
+        return std::make_shared<DataTypeFixedLengthObjectSerDe>();
+    };
 };
 
 } // namespace doris::vectorized

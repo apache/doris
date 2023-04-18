@@ -21,6 +21,7 @@
 #pragma once
 
 #include "gen_cpp/data.pb.h"
+#include "serde/data_type_map_serde.h"
 #include "util/stack_util.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_map.h"
@@ -79,6 +80,9 @@ public:
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
+    DataTypeSerDeSPtr get_serde() const override {
+        return std::make_shared<DataTypeMapSerDe>(key_type->get_serde(), value_type->get_serde());
+    };
 };
 
 } // namespace doris::vectorized
