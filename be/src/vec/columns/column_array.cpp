@@ -440,7 +440,7 @@ size_t ColumnArray::filter_number(const Filter& filter) {
 
 ColumnPtr ColumnArray::filter_string(const Filter& filt, ssize_t result_size_hint) const {
     size_t col_size = get_offsets().size();
-    if (col_size != filt.size()) LOG(FATAL) << "Size of filter doesn't match size of column.";
+    column_match_filter_size(col_size, filt.size());
 
     if (0 == col_size) return ColumnArray::create(data);
 
@@ -503,9 +503,7 @@ ColumnPtr ColumnArray::filter_string(const Filter& filt, ssize_t result_size_hin
 
 size_t ColumnArray::filter_string(const Filter& filter) {
     size_t col_size = get_offsets().size();
-    if (col_size != filter.size()) {
-        LOG(FATAL) << "Size of filter doesn't match size of column.";
-    }
+    column_match_filter_size(col_size, filter.size());
 
     if (0 == col_size) {
         return ColumnArray::create(data);
@@ -567,7 +565,7 @@ size_t ColumnArray::filter_string(const Filter& filter) {
 
 ColumnPtr ColumnArray::filter_generic(const Filter& filt, ssize_t result_size_hint) const {
     size_t size = get_offsets().size();
-    if (size != filt.size()) LOG(FATAL) << "Size of filter doesn't match size of column.";
+    column_match_filter_size(size, filt.size());
 
     if (size == 0) return ColumnArray::create(data);
 
@@ -606,9 +604,7 @@ ColumnPtr ColumnArray::filter_generic(const Filter& filt, ssize_t result_size_hi
 
 size_t ColumnArray::filter_generic(const Filter& filter) {
     size_t size = get_offsets().size();
-    if (size != filter.size()) {
-        LOG(FATAL) << "Size of filter doesn't match size of column.";
-    }
+    column_match_filter_size(size, filter.size());
 
     if (size == 0) {
         return 0;
@@ -788,8 +784,7 @@ void ColumnArray::replicate(const uint32_t* counts, size_t target_size, IColumn&
 template <typename T>
 ColumnPtr ColumnArray::replicate_number(const IColumn::Offsets& replicate_offsets) const {
     size_t col_size = size();
-    if (col_size != replicate_offsets.size())
-        LOG(FATAL) << "Size of offsets doesn't match size of column.";
+    column_match_offsets_size(col_size, replicate_offsets.size());
 
     MutableColumnPtr res = clone_empty();
 
@@ -836,8 +831,7 @@ ColumnPtr ColumnArray::replicate_number(const IColumn::Offsets& replicate_offset
 
 ColumnPtr ColumnArray::replicate_string(const IColumn::Offsets& replicate_offsets) const {
     size_t col_size = size();
-    if (col_size != replicate_offsets.size())
-        LOG(FATAL) << "Size of offsets doesn't match size of column.";
+    column_match_offsets_size(col_size, replicate_offsets.size());
 
     MutableColumnPtr res = clone_empty();
 
@@ -910,8 +904,7 @@ ColumnPtr ColumnArray::replicate_string(const IColumn::Offsets& replicate_offset
 
 ColumnPtr ColumnArray::replicate_const(const IColumn::Offsets& replicate_offsets) const {
     size_t col_size = size();
-    if (col_size != replicate_offsets.size())
-        LOG(FATAL) << "Size of offsets doesn't match size of column.";
+    column_match_offsets_size(col_size, replicate_offsets.size());
 
     if (0 == col_size) return clone_empty();
 
@@ -944,8 +937,7 @@ ColumnPtr ColumnArray::replicate_const(const IColumn::Offsets& replicate_offsets
 
 ColumnPtr ColumnArray::replicate_generic(const IColumn::Offsets& replicate_offsets) const {
     size_t col_size = size();
-    if (col_size != replicate_offsets.size())
-        LOG(FATAL) << "Size of offsets doesn't match size of column.";
+    column_match_offsets_size(col_size, replicate_offsets.size());
 
     MutableColumnPtr res = clone_empty();
     ColumnArray& res_concrete = assert_cast<ColumnArray&>(*res);

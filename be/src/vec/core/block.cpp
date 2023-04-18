@@ -738,7 +738,7 @@ Status Block::filter_block(Block* block, const std::vector<uint32_t>& columns_to
         for (size_t i = 0; i < size; ++i) {
             filter_data[i] &= !null_map[i];
         }
-        filter_block_internal(block, columns_to_filter, filter);
+        RETURN_IF_CATCH_EXCEPTION(filter_block_internal(block, columns_to_filter, filter));
     } else if (auto* const_column = check_and_get_column<ColumnConst>(*filter_column)) {
         bool ret = const_column->get_bool(0);
         if (!ret) {
@@ -750,7 +750,7 @@ Status Block::filter_block(Block* block, const std::vector<uint32_t>& columns_to
         const IColumn::Filter& filter =
                 assert_cast<const doris::vectorized::ColumnVector<UInt8>&>(*filter_column)
                         .get_data();
-        filter_block_internal(block, columns_to_filter, filter);
+        RETURN_IF_CATCH_EXCEPTION(filter_block_internal(block, columns_to_filter, filter));
     }
 
     erase_useless_column(block, column_to_keep);

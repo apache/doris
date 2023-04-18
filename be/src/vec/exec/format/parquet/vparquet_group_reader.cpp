@@ -272,11 +272,12 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
             if (_position_delete_ctx.has_filter) {
                 filters.push_back(_pos_delete_filter_ptr.get());
             }
-            RETURN_IF_ERROR(_execute_conjuncts_and_filter_block(_filter_conjuncts, filters, block,
-                                                                columns_to_filter, column_to_keep));
+            RETURN_IF_CATCH_EXCEPTION(RETURN_IF_ERROR(_execute_conjuncts_and_filter_block(
+                    _filter_conjuncts, filters, block, columns_to_filter, column_to_keep)));
             _convert_dict_cols_to_string_cols(block);
         } else {
-            RETURN_IF_ERROR(_filter_block(block, column_to_keep, columns_to_filter));
+            RETURN_IF_CATCH_EXCEPTION(
+                    RETURN_IF_ERROR(_filter_block(block, column_to_keep, columns_to_filter)));
         }
 
         *read_rows = block->rows();
@@ -440,8 +441,8 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
             // generated from next batch, so the filter column is removed ahead.
             DCHECK_EQ(block->rows(), 0);
         } else {
-            RETURN_IF_ERROR(_filter_block_internal(block, _lazy_read_ctx.all_predicate_col_ids,
-                                                   result_filter));
+            RETURN_IF_CATCH_EXCEPTION(RETURN_IF_ERROR(_filter_block_internal(
+                    block, _lazy_read_ctx.all_predicate_col_ids, result_filter)));
             Block::erase_useless_column(block, origin_column_num);
         }
     } else {
@@ -633,6 +634,7 @@ Status RowGroupReader::_build_pos_delete_filter(size_t read_rows) {
     return Status::OK();
 }
 
+// need exception safety
 Status RowGroupReader::_filter_block(Block* block, int column_to_keep,
                                      const std::vector<uint32_t>& columns_to_filter) {
     if (_pos_delete_filter_ptr) {
@@ -644,6 +646,7 @@ Status RowGroupReader::_filter_block(Block* block, int column_to_keep,
     return Status::OK();
 }
 
+// need exception safety
 Status RowGroupReader::_filter_block_internal(Block* block,
                                               const std::vector<uint32_t>& columns_to_filter,
                                               const IColumn::Filter& filter) {
@@ -734,8 +737,8 @@ Status RowGroupReader::_rewrite_dict_predicates() {
             temp_block.get_by_position(0).column->assume_mutable()->resize(dict_value_column_size);
         }
         std::vector<IColumn::Filter*> filters;
-        RETURN_IF_ERROR(_execute_conjuncts_and_filter_block(*ctxs, filters, &temp_block,
-                                                            columns_to_filter, column_to_keep));
+        RETURN_IF_CATCH_EXCEPTION(RETURN_IF_ERROR(_execute_conjuncts_and_filter_block(
+                *ctxs, filters, &temp_block, columns_to_filter, column_to_keep)));
         if (dict_pos != 0) {
             // We have to clean the first column to insert right data.
             temp_block.get_by_position(0).column->assume_mutable()->clear();
@@ -978,6 +981,7 @@ Status RowGroupReader::_execute_conjuncts(const std::vector<VExprContext*>& ctxs
 }
 
 // TODO Performance Optimization
+// need exception safety
 Status RowGroupReader::_execute_conjuncts_and_filter_block(
         const std::vector<VExprContext*>& ctxs, const std::vector<IColumn::Filter*>& filters,
         Block* block, std::vector<uint32_t>& columns_to_filter, int column_to_keep) {

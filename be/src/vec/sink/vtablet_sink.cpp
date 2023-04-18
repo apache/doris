@@ -1201,7 +1201,8 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
             for (size_t i = 0; i < filter_col.size(); ++i) {
                 filter_data[i] = !_filter_bitmap.Get(i);
             }
-            vectorized::Block::filter_block_internal(&block, filter_col, block.columns());
+            RETURN_IF_CATCH_EXCEPTION(
+                    vectorized::Block::filter_block_internal(&block, filter_col, block.columns()));
         }
     }
     // Add block to node channel

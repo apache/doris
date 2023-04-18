@@ -107,6 +107,7 @@ public:
     ColumnWithTypeAndName& get_by_position(size_t position) { return data[position]; }
     const ColumnWithTypeAndName& get_by_position(size_t position) const { return data[position]; }
 
+    // need exception safety
     Status copy_column_data_to_block(doris::vectorized::IColumn* input_col_ptr,
                                      uint16_t* sel_rowid_idx, uint16_t select_size, int block_cid,
                                      size_t batch_size) {
@@ -264,9 +265,11 @@ public:
 
     void append_block_by_selector(MutableBlock* dst, const IColumn::Selector& selector) const;
 
+    // need exception safety
     static void filter_block_internal(Block* block, const std::vector<uint32_t>& columns_to_filter,
                                       const IColumn::Filter& filter);
 
+    // need exception safety
     static void filter_block_internal(Block* block, const IColumn::Filter& filter,
                                       uint32_t column_to_keep);
 
