@@ -429,7 +429,7 @@ public:
                                                  arguments);
         }
         for (int i = 0; i < argument_size; i++) {
-            check_set_nullable(argument_columns[i], result_null_map);
+            check_set_nullable(argument_columns[i], result_null_map, col_const[i]);
         }
 
         if constexpr (std::is_same_v<Impl, RegexpExtractAllImpl>) {
