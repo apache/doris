@@ -79,7 +79,7 @@ public class InsertIntoSelectCommand extends Command implements ForwardWithSync 
         if (ctx.getMysqlChannel() != null) {
             ctx.getMysqlChannel().reset();
         }
-        Transaction txn = new Transaction(ctx, database, table, ((NereidsPlanner) executor.getPlanner()));
+        Transaction txn = new Transaction(ctx, database, table, planner);
         txn.executeInsertIntoSelectCommand(this);
     }
 
