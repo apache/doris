@@ -266,14 +266,9 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 Optional.empty(), logicalProperties, left(), right(), joinReorderContext);
     }
 
-    public LogicalJoin withChildrenNoContext(Plan left, Plan right) {
+    public LogicalJoin<Plan, Plan> withChildrenNoContext(Plan left, Plan right) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint,
                 markJoinSlotReference, left, right);
-    }
-
-    public LogicalJoin<Plan, Plan> withHashJoinConjuncts(List<Expression> hashJoinConjuncts) {
-        return new LogicalJoin<>(joinType, hashJoinConjuncts, this.otherJoinConjuncts, hint, markJoinSlotReference,
-                left(), right());
     }
 
     public LogicalJoin<Plan, Plan> withJoinConjuncts(

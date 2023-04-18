@@ -53,6 +53,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.ExtractAndNormalizeWindowE
 import org.apache.doris.nereids.rules.rewrite.logical.ExtractFilterFromCrossJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.ExtractSingleTableExpressionFromDisjunction;
 import org.apache.doris.nereids.rules.rewrite.logical.FindHashConditionForJoin;
+import org.apache.doris.nereids.rules.rewrite.logical.InferAggNotNull;
 import org.apache.doris.nereids.rules.rewrite.logical.InferFilterNotNull;
 import org.apache.doris.nereids.rules.rewrite.logical.InferJoinNotNull;
 import org.apache.doris.nereids.rules.rewrite.logical.InferPredicates;
@@ -161,6 +162,7 @@ public class NereidsRewriter extends BatchRewriteJob {
             topic("Rewrite join",
                 // infer not null filter, then push down filter, and then reorder join(cross join to inner join)
                 topDown(
+                    new InferAggNotNull(),
                     new InferFilterNotNull(),
                     new InferJoinNotNull()
                 ),
