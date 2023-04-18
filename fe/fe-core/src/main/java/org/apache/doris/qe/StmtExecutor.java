@@ -268,7 +268,7 @@ public class StmtExecutor {
         this.profile = new Profile("Query", context.getSessionVariable().enableProfile());
     }
 
-    private static InternalService.PDataRow getRowStringValue(List<Expr> cols) throws UserException {
+    public static InternalService.PDataRow getRowStringValue(List<Expr> cols) throws UserException {
         if (cols.isEmpty()) {
             return null;
         }
@@ -326,7 +326,7 @@ public class StmtExecutor {
         }
     }
 
-    public Planner planner() {
+    public Planner getPlanner() {
         return planner;
     }
 

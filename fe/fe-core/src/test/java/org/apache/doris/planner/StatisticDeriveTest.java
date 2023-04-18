@@ -110,9 +110,9 @@ public class StatisticDeriveTest extends TestWithFeService {
         sessionVariable.setEnableJoinReorderBasedCost(true);
         sessionVariable.setDisableJoinReorder(false);
         stmtExecutor.execute();
-        Assert.assertNotNull(stmtExecutor.planner());
-        Assert.assertNotNull(stmtExecutor.planner().getFragments());
-        Assert.assertNotEquals(0, stmtExecutor.planner().getFragments().size());
+        Assert.assertNotNull(stmtExecutor.getPlanner());
+        Assert.assertNotNull(stmtExecutor.getPlanner().getFragments());
+        Assert.assertNotEquals(0, stmtExecutor.getPlanner().getFragments().size());
         assertSQLPlanOrErrorMsgContains(sql, "AGGREGATE");
         assertSQLPlanOrErrorMsgContains(sql, "OlapScanNode");
     }
@@ -126,9 +126,9 @@ public class StatisticDeriveTest extends TestWithFeService {
         sessionVariable.setEnableJoinReorderBasedCost(true);
         sessionVariable.setDisableJoinReorder(false);
         stmtExecutor.execute();
-        Assert.assertNotNull(stmtExecutor.planner());
-        Assert.assertNotNull(stmtExecutor.planner().getFragments());
-        Assert.assertNotEquals(0, stmtExecutor.planner().getFragments().size());
+        Assert.assertNotNull(stmtExecutor.getPlanner());
+        Assert.assertNotNull(stmtExecutor.getPlanner().getFragments());
+        Assert.assertNotEquals(0, stmtExecutor.getPlanner().getFragments().size());
         System.out.println(getSQLPlanOrErrorMsg("explain " + sql));
         assertSQLPlanOrErrorMsgContains(sql, "ANALYTIC");
         assertSQLPlanOrErrorMsgContains(sql, "SORT");
@@ -157,9 +157,9 @@ public class StatisticDeriveTest extends TestWithFeService {
         sessionVariable.setEnableJoinReorderBasedCost(true);
         sessionVariable.setDisableJoinReorder(false);
         stmtExecutor.execute();
-        Assert.assertNotNull(stmtExecutor.planner());
-        Assert.assertNotNull(stmtExecutor.planner().getFragments());
-        Assert.assertNotEquals(0, stmtExecutor.planner().getFragments().size());
+        Assert.assertNotNull(stmtExecutor.getPlanner());
+        Assert.assertNotNull(stmtExecutor.getPlanner().getFragments());
+        Assert.assertNotEquals(0, stmtExecutor.getPlanner().getFragments().size());
         System.out.println(getSQLPlanOrErrorMsg("explain " + sql));
         assertSQLPlanOrErrorMsgContains(sql, "NESTED LOOP JOIN");
         assertSQLPlanOrErrorMsgContains(sql, "ASSERT NUMBER OF ROWS");
@@ -176,9 +176,9 @@ public class StatisticDeriveTest extends TestWithFeService {
         sessionVariable.setEnableJoinReorderBasedCost(true);
         sessionVariable.setDisableJoinReorder(false);
         stmtExecutor.execute();
-        Assert.assertNotNull(stmtExecutor.planner());
-        Assert.assertNotNull(stmtExecutor.planner().getFragments());
-        Assert.assertNotEquals(0, stmtExecutor.planner().getFragments().size());
+        Assert.assertNotNull(stmtExecutor.getPlanner());
+        Assert.assertNotNull(stmtExecutor.getPlanner().getFragments());
+        Assert.assertNotEquals(0, stmtExecutor.getPlanner().getFragments().size());
         System.out.println(getSQLPlanOrErrorMsg("explain " + sql));
         assertSQLPlanOrErrorMsgContains(sql, "EMPTYSET");
     }
@@ -191,9 +191,9 @@ public class StatisticDeriveTest extends TestWithFeService {
         sessionVariable.setEnableJoinReorderBasedCost(true);
         sessionVariable.setDisableJoinReorder(false);
         stmtExecutor.execute();
-        Assert.assertNotNull(stmtExecutor.planner());
-        Assert.assertNotNull(stmtExecutor.planner().getFragments());
-        Assert.assertNotEquals(0, stmtExecutor.planner().getFragments().size());
+        Assert.assertNotNull(stmtExecutor.getPlanner());
+        Assert.assertNotNull(stmtExecutor.getPlanner().getFragments());
+        Assert.assertNotEquals(0, stmtExecutor.getPlanner().getFragments().size());
         System.out.println(getSQLPlanOrErrorMsg("explain " + sql));
         assertSQLPlanOrErrorMsgContains(sql, "REPEAT_NODE");
     }
@@ -207,9 +207,9 @@ public class StatisticDeriveTest extends TestWithFeService {
         sessionVariable.setEnableJoinReorderBasedCost(true);
         sessionVariable.setDisableJoinReorder(false);
         stmtExecutor.execute();
-        Assert.assertNotNull(stmtExecutor.planner());
-        Assert.assertNotNull(stmtExecutor.planner().getFragments());
-        Assert.assertNotEquals(0, stmtExecutor.planner().getFragments().size());
+        Assert.assertNotNull(stmtExecutor.getPlanner());
+        Assert.assertNotNull(stmtExecutor.getPlanner().getFragments());
+        Assert.assertNotEquals(0, stmtExecutor.getPlanner().getFragments().size());
         System.out.println(getSQLPlanOrErrorMsg("explain " + sql));
         assertSQLPlanOrErrorMsgContains(sql, "HASH JOIN");
     }
@@ -222,9 +222,9 @@ public class StatisticDeriveTest extends TestWithFeService {
         sessionVariable.setDisableJoinReorder(false);
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
         stmtExecutor.execute();
-        Assert.assertNotNull(stmtExecutor.planner());
-        Assert.assertNotNull(stmtExecutor.planner().getFragments());
-        Assert.assertNotEquals(0, stmtExecutor.planner().getFragments().size());
+        Assert.assertNotNull(stmtExecutor.getPlanner());
+        Assert.assertNotNull(stmtExecutor.getPlanner().getFragments());
+        Assert.assertNotEquals(0, stmtExecutor.getPlanner().getFragments().size());
         System.out.println(getSQLPlanOrErrorMsg("explain " + sql));
         assertSQLPlanOrErrorMsgContains(sql, "SCAN MYSQL");
     }
@@ -237,9 +237,9 @@ public class StatisticDeriveTest extends TestWithFeService {
         sessionVariable.setDisableJoinReorder(false);
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
         stmtExecutor.execute();
-        Assert.assertNotNull(stmtExecutor.planner());
-        Assert.assertNotNull(stmtExecutor.planner().getFragments());
-        Assert.assertNotEquals(0, stmtExecutor.planner().getFragments().size());
+        Assert.assertNotNull(stmtExecutor.getPlanner());
+        Assert.assertNotNull(stmtExecutor.getPlanner().getFragments());
+        Assert.assertNotEquals(0, stmtExecutor.getPlanner().getFragments().size());
         System.out.println(getSQLPlanOrErrorMsg("explain " + sql));
         assertSQLPlanOrErrorMsgContains(sql, "SCAN ODBC");
     }
@@ -252,9 +252,9 @@ public class StatisticDeriveTest extends TestWithFeService {
         sessionVariable.setDisableJoinReorder(false);
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
         stmtExecutor.execute();
-        Assert.assertNotNull(stmtExecutor.planner());
-        Assert.assertNotNull(stmtExecutor.planner().getFragments());
-        Assert.assertNotEquals(0, stmtExecutor.planner().getFragments().size());
+        Assert.assertNotNull(stmtExecutor.getPlanner());
+        Assert.assertNotNull(stmtExecutor.getPlanner().getFragments());
+        Assert.assertNotEquals(0, stmtExecutor.getPlanner().getFragments().size());
         System.out.println(getSQLPlanOrErrorMsg("explain " + sql));
         assertSQLPlanOrErrorMsgContains(sql, "TABLE FUNCTION NODE");
     }
@@ -267,9 +267,9 @@ public class StatisticDeriveTest extends TestWithFeService {
         sessionVariable.setDisableJoinReorder(false);
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
         stmtExecutor.execute();
-        Assert.assertNotNull(stmtExecutor.planner());
-        Assert.assertNotNull(stmtExecutor.planner().getFragments());
-        Assert.assertNotEquals(0, stmtExecutor.planner().getFragments().size());
+        Assert.assertNotNull(stmtExecutor.getPlanner());
+        Assert.assertNotNull(stmtExecutor.getPlanner().getFragments());
+        Assert.assertNotEquals(0, stmtExecutor.getPlanner().getFragments().size());
         System.out.println(getSQLPlanOrErrorMsg("explain " + sql));
         assertSQLPlanOrErrorMsgContains(sql, "UNION");
     }

@@ -17,12 +17,18 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.load.sync.model.Data;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.txn.Transaction;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -32,17 +38,20 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * insert into select command
  */
 public class InsertIntoSelectCommand extends Command implements ForwardWithSync {
-    public static final Logger LOG = LogManager.getLogger(InsertIntoSelectCommand.class);
     private final String tableName;
     private final String labelName;
     private final List<String> colNames;
     private final LogicalPlan logicalQuery;
     private final PhysicalPlan physicalQuery;
+    private int txnId;
+    private Database database;
+    private Table table;
 
     /**
      * constructor
@@ -66,10 +75,13 @@ public class InsertIntoSelectCommand extends Command implements ForwardWithSync 
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        checkDatabaseAndTable(ctx);
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
         executor.setParsedStmt(logicalPlanAdapter);
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
         planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
+        Transaction txn = new Transaction(ctx, database, table, ((NereidsPlanner) executor.getPlanner()));
+        txn.executeInsertIntoSelectCommand(this);
     }
 
     public LogicalPlan getLogicalQuery() {
@@ -80,9 +92,21 @@ public class InsertIntoSelectCommand extends Command implements ForwardWithSync 
         return physicalQuery;
     }
 
-    // based on StmtExecutor#handleInsertStmt()
-    private void handleInsertIntoSelectStatement(ConnectContext ctx, Planner planner) {
+    public String getLabelName() {
+        return labelName;
+    }
 
+    private void checkDatabaseAndTable(ConnectContext ctx) {
+        Optional<Database> database = Env.getCurrentInternalCatalog().getDb(ctx.getDatabase());
+        if (!database.isPresent()) {
+            throw new AnalysisException("Unknown database: " + ctx.getDatabase());
+        }
+        this.database = database.get();
+        Optional<Table> table = this.database.getTable(tableName);
+        if (!table.isPresent()) {
+            throw new AnalysisException("Unknown table: " + ctx.getDatabase());
+        }
+        this.table = table.get();
     }
 
     @Override
