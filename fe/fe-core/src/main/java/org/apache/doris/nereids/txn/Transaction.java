@@ -82,16 +82,16 @@ public class Transaction {
     public static final Logger LOG = LogManager.getLogger(Transaction.class);
     private final ConnectContext ctx;
     private final NereidsPlanner planner;
-    private long createAt;
-    private long txnId;
-    private String labelName;
+    private final long createAt;
+    private final long txnId;
+    private final String labelName;
+    private final Database database;
+    private final Table table;
     private long loadedRows = 0;
     private int filteredRows = 0;
     private TransactionStatus txnStatus = TransactionStatus.ABORTED;
     private String errMsg = "";
     private Coordinator coordinator;
-    private Database database;
-    private Table table;
 
     /**
      * constructor
@@ -100,6 +100,7 @@ public class Transaction {
             throws TException, BeginTransactionException, MetaNotFoundException, AnalysisException,
             QuotaExceedException, LabelAlreadyUsedException, DuplicatedRequestException {
         this.ctx = ctx;
+        this.labelName = ctx.getTxnEntry().getLabel();
         this.database = database;
         this.table = table;
         this.planner = planner;
