@@ -99,11 +99,11 @@ public class Transaction {
     public Transaction(ConnectContext ctx, Database database, Table table, NereidsPlanner planner)
             throws TException, BeginTransactionException, MetaNotFoundException, AnalysisException,
             QuotaExceedException, LabelAlreadyUsedException, DuplicatedRequestException {
-        check();
         this.ctx = ctx;
         this.database = database;
         this.table = table;
         this.planner = planner;
+        check();
         this.coordinator = new Coordinator(ctx, null, planner);
         this.txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
                 database.getId(), ImmutableList.of(table.getId()), labelName,
