@@ -182,8 +182,8 @@ void MemTable::insert(const vectorized::Block* input_block, const std::vector<in
     _mem_usage += input_size;
     _insert_mem_tracker->consume(input_size);
     for (int i = 0; i < num_rows; i++) {
-        _row_in_blocks.emplace_back(new RowInBlock {cursor_in_mutableblock + i});
-        _insert_one_row_from_block(_row_in_blocks.back());
+        _row_in_blocks.emplace(_row_in_blocks.begin(), new RowInBlock {cursor_in_mutableblock + i});
+        _insert_one_row_from_block(_row_in_blocks.front());
     }
 }
 
@@ -191,8 +191,7 @@ void MemTable::_insert_one_row_from_block(RowInBlock* row_in_block) {
     _rows++;
     bool overwritten = false;
     if (_keys_type == KeysType::DUP_KEYS) {
-        // dup keys only need sort operation, use vector to sort is faster than skiplist
-        _vec_row.emplace_back(row_in_block);
+        // dup keys store in vector _row_in_blocks and sort it on flush stage
         DCHECK(!overwritten) << "Duplicate key model meet overwrite in SkipList";
         return;
     }
@@ -243,16 +242,18 @@ void MemTable::_collect_vskiplist_results() {
     VecTable::Iterator it(_vec_skip_list.get());
     vectorized::Block in_block = _input_mutable_block.to_block();
     if (_keys_type == KeysType::DUP_KEYS) {
-        RowComparator _cmp(_schema);
         vectorized::MutableBlock mutable_block =
                 vectorized::MutableBlock::build_mutable_block(&in_block);
-        _cmp.set_block(&mutable_block);
-        std::sort(_vec_row.begin(), _vec_row.end(), _cmp);
+        _vec_row_comparator->set_block(&mutable_block);
+        std::sort(_row_in_blocks.begin(), _row_in_blocks.end(),
+                  [this](const RowInBlock* l, const RowInBlock* r) -> bool {
+                      return (*(this->_vec_row_comparator))(l, r) < 0;
+                  });
         std::vector<int> row_pos_vec;
         DCHECK(in_block.rows() <= std::numeric_limits<int>::max());
         row_pos_vec.reserve(in_block.rows());
-        for (int i = 0; i < _vec_row.size(); i++) {
-            row_pos_vec.emplace_back(_vec_row[i]->_row_pos);
+        for (int i = 0; i < _row_in_blocks.size(); i++) {
+            row_pos_vec.emplace_back(_row_in_blocks[i]->_row_pos);
         }
         _output_mutable_block.add_rows(&in_block, row_pos_vec.data(),
                                        row_pos_vec.data() + in_block.rows());

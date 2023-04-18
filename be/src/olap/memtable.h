@@ -88,26 +88,6 @@ private:
         char* agg_places(size_t offset) const { return _agg_mem + _agg_state_offset[offset]; }
     };
 
-    class RowComparator {
-    public:
-        RowComparator(const Schema* schema) : _schema(schema) {}
-
-        void set_block(vectorized::MutableBlock* pblock) { _pblock = pblock; }
-
-        int compare(const RowInBlock* left, const RowInBlock* right) const {
-            return _pblock->compare_at(left->_row_pos, right->_row_pos, _schema->num_key_columns(),
-                                       *_pblock, -1);
-        }
-
-        bool operator()(const RowInBlock* left, const RowInBlock* right) const {
-            return compare(left, right) < 0;
-        }
-
-    private:
-        const Schema* _schema;
-        vectorized::MutableBlock* _pblock; // 对应Memtable::_input_mutable_block
-    };
-
     class RowInBlockComparator {
     public:
         RowInBlockComparator(const Schema* schema) : _schema(schema) {}
@@ -174,7 +154,6 @@ private:
     size_t _schema_size;
 
     std::unique_ptr<VecTable> _vec_skip_list;
-    std::vector<RowInBlock*> _vec_row;
     VecTable::Hint _vec_hint;
     void _init_columns_offset_by_slot_descs(const std::vector<SlotDescriptor*>* slot_descs,
                                             const TupleDescriptor* tuple_desc);
