@@ -17,12 +17,19 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.planner.Planner;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Preconditions;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
@@ -30,6 +37,7 @@ import java.util.List;
  * insert into select command
  */
 public class InsertIntoSelectCommand extends Command implements ForwardWithSync {
+    public static final Logger LOG = LogManager.getLogger(InsertIntoSelectCommand.class);
     private final String tableName;
     private final String labelName;
     private final List<String> colNames;
@@ -56,8 +64,25 @@ public class InsertIntoSelectCommand extends Command implements ForwardWithSync 
         this(tableName, labelName, colNames, logicalQuery, null);
     }
 
-    public InsertIntoSelectCommand withPhyscialQuery(PhysicalPlan physicalQuery) {
-        return new InsertIntoSelectCommand(tableName, labelName, colNames, logicalQuery, physicalQuery);
+    @Override
+    public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
+        executor.setParsedStmt(logicalPlanAdapter);
+        NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
+        planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
+    }
+
+    public LogicalPlan getLogicalQuery() {
+        return logicalQuery;
+    }
+
+    public PhysicalPlan getPhysicalQuery() {
+        return physicalQuery;
+    }
+
+    // based on StmtExecutor#handleInsertStmt()
+    private void handleInsertIntoSelectStatement(ConnectContext ctx, Planner planner) {
+
     }
 
     @Override
