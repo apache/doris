@@ -119,44 +119,60 @@ struct TimeCast {
         char* first_char = s;
         char* end_char = s + len;
         int hour = 0, minute = 0, second = 0;
-        char *first_colon {nullptr}, *second_colon {nullptr}, *third_colon {nullptr};
-        if ((first_colon = (char*)memchr(first_char, ':', len)) != nullptr &&
-            (second_colon = (char*)memchr(first_colon + 1, ':', end_char - first_colon - 1)) !=
-                    nullptr &&
-            (third_colon = (char*)memchr(second_colon + 1, ':', end_char - second_colon - 1)) ==
-                    nullptr) {
+
+        auto parse_from_str_to_int = [](char* begin, size_t len, auto& num) {
             StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
             auto int_value = StringParser::string_to_unsigned_int<uint64_t>(
-                    reinterpret_cast<char*>(first_char), first_colon - first_char, &parse_result);
+                    reinterpret_cast<char*>(begin), len, &parse_result);
             if (UNLIKELY(parse_result != StringParser::PARSE_SUCCESS)) {
                 return false;
+            }
+            num = int_value;
+            return true;
+        };
+        char *first_colon {nullptr}, *second_colon {nullptr};
+        if ((first_colon = (char*)memchr(first_char, ':', len)) != nullptr) {
+            if ((second_colon = (char*)memchr(first_colon + 1, ':', end_char - first_colon - 1)) !=
+                nullptr) {
+                // now find tow ':'
+                // parse hour
+                if (!parse_from_str_to_int(first_char, first_colon - first_char, hour)) {
+                    // hour  failed
+                    return false;
+                }
+                // parse minute
+                if (!parse_from_str_to_int(first_colon + 1, second_colon - first_colon - 1,
+                                           minute)) {
+                    return false;
+                }
+                // parse second
+                if (!parse_from_str_to_int(second_colon + 1, end_char - second_colon - 1, second)) {
+                    return false;
+                }
             } else {
-                hour = int_value;
+                // find one ':'
+                // parse hour
+                if (!parse_from_str_to_int(first_char, first_colon - first_char, hour)) {
+                    return false;
+                }
+                // parse minute
+                if (!parse_from_str_to_int(first_colon + 1, end_char - first_colon - 1, minute)) {
+                    return false;
+                }
             }
-            int_value = StringParser::string_to_unsigned_int<uint64_t>(
-                    reinterpret_cast<char*>(first_colon + 1), second_colon - first_colon - 1,
-                    &parse_result);
-            if (UNLIKELY(parse_result != StringParser::PARSE_SUCCESS)) {
-                return false;
-            } else {
-                minute = int_value;
-            }
-            int_value = StringParser::string_to_unsigned_int<uint64_t>(
-                    reinterpret_cast<char*>(second_colon + 1), end_char - second_colon - 1,
-                    &parse_result);
-            if (UNLIKELY(parse_result != StringParser::PARSE_SUCCESS)) {
-                return true;
-            } else {
-                second = int_value;
-            }
-
-            if (minute >= 60 || second >= 60) {
-                return false;
-            }
-            x = hour * 3600 + minute * 60 + second;
         } else {
+            // no ':' ,so try to parse as a number
+            size_t from {};
+            if (!parse_from_str_to_int(first_char, len, from)) {
+                return false;
+            }
+            return try_parse_time(from, x);
+        }
+        // minute second must be < 60
+        if (minute >= 60 || second >= 60) {
             return false;
         }
+        x = hour * 3600 + minute * 60 + second;
         return true;
     }
     template <typename T, typename S>
@@ -1947,6 +1963,13 @@ private:
 
             return false;
         };
+        {
+            auto rhs = to_type.get();
+            if (typeid(DataTypeTime) == typeid(*rhs)) {
+                make_default_wrapper(TypePair<DataTypeTime, void>());
+                return ret;
+            }
+        }
 
         if (call_on_index_and_data_type<void>(to_type->get_type_id(), make_default_wrapper))
             return ret;
