@@ -860,13 +860,9 @@ public class JdbcExecutor {
             return;
         }
         if (column[firstNotNullIndex] instanceof BigDecimal) {
-            System.out.println("fuck1");
             bigDecimalPutToDouble(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         } else if (column[firstNotNullIndex] instanceof Double) {
-            System.out.println("fuck2");
             doublePutToDouble(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
-        }else{
-            System.out.println("fuck3");
         }
     }
 
