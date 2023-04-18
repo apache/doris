@@ -294,6 +294,14 @@ void ColumnStruct::reserve(size_t n) {
     }
 }
 
+//please check you real need size in data column, When it mixes various data types， eg: string column with int column
+void ColumnStruct::resize(size_t n) {
+    const size_t tuple_size = columns.size();
+    for (size_t i = 0; i < tuple_size; ++i) {
+        get_column(i).resize(n);
+    }
+}
+
 size_t ColumnStruct::byte_size() const {
     size_t res = 0;
     for (const auto& column : columns) {

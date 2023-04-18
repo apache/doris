@@ -137,6 +137,7 @@ public:
 
     size_t size() const override { return get_offsets().size(); }
     void reserve(size_t n) override;
+    void resize(size_t n) override;
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
     void protect() override;

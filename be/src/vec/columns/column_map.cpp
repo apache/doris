@@ -359,6 +359,12 @@ void ColumnMap::reserve(size_t n) {
     values_column->reserve(n);
 }
 
+void ColumnMap::resize(size_t n) {
+    get_offsets().resize(n);
+    keys_column->resize(n);
+    values_column->resize(n);
+}
+
 size_t ColumnMap::byte_size() const {
     return keys_column->byte_size() + values_column->byte_size() + offsets_column->byte_size();
     ;

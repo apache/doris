@@ -121,6 +121,7 @@ public:
     }
     void get_extremes(Field& min, Field& max) const override;
     void reserve(size_t n) override;
+    void resize(size_t n) override;
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
     void protect() override;

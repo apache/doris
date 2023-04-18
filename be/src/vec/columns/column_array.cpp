@@ -301,6 +301,12 @@ void ColumnArray::reserve(size_t n) {
             n); /// The average size of arrays is not taken into account here. Or it is considered to be no more than 1.
 }
 
+//please check you real need size in data column, because it's maybe need greater size when data is string column
+void ColumnArray::resize(size_t n) {
+    get_offsets().resize(n);
+    get_data().resize(n);
+}
+
 size_t ColumnArray::byte_size() const {
     return get_data().byte_size() + get_offsets().size() * sizeof(get_offsets()[0]);
 }
