@@ -2812,30 +2812,30 @@ show_create_reporitory_stmt ::=
 
 // analyze statment
 analyze_stmt ::=
-    KW_ANALYZE opt_sync:sync KW_TABLE table_name:tbl opt_col_list:cols opt_partition_names:partitionNames opt_properties:properties
+    KW_ANALYZE opt_sync:sync KW_TABLE table_name:tbl opt_col_list:cols opt_properties:properties
     {:
         boolean is_whole_tbl = (cols == null);
         boolean is_histogram = false;
         boolean is_increment = false;
-        RESULT = new AnalyzeStmt(tbl, sync, cols, partitionNames, properties, is_whole_tbl, is_histogram, is_increment);
+        RESULT = new AnalyzeStmt(tbl, sync, cols, properties, is_whole_tbl, is_histogram, is_increment);
     :}
     | KW_ANALYZE opt_sync:sync KW_INCREMENTAL KW_TABLE table_name:tbl opt_col_list:cols opt_partition_names:partitionNames opt_properties:properties
     {:
         boolean is_whole_tbl = (cols == null);
         boolean is_histogram = false;
         boolean is_increment = true;
-        RESULT = new AnalyzeStmt(tbl, sync, cols, partitionNames, properties, is_whole_tbl, is_histogram, is_increment);
+        RESULT = new AnalyzeStmt(tbl, sync, cols, properties, is_whole_tbl, is_histogram, is_increment);
     :}
     | KW_ANALYZE opt_sync:sync KW_TABLE table_name:tbl KW_UPDATE KW_HISTOGRAM KW_ON ident_list:cols opt_partition_names:partitionNames opt_properties:properties
     {:
         boolean is_whole_tbl = false;
         boolean is_histogram = true;
         boolean is_increment = false;
-        RESULT = new AnalyzeStmt(tbl, sync, cols, partitionNames, properties, is_whole_tbl, is_histogram, is_increment);
+        RESULT = new AnalyzeStmt(tbl, sync, cols, properties, is_whole_tbl, is_histogram, is_increment);
     :}
     | KW_ANALYZE opt_sync:sync KW_TABLE table_name:tbl KW_UPDATE KW_HISTOGRAM
     {:
-        RESULT = new AnalyzeStmt(tbl, sync, null, null, new HashMap<>(), true, true, false);
+        RESULT = new AnalyzeStmt(tbl, sync, null, new HashMap<>(), true, true, false);
     :}
     ;
 
@@ -3014,9 +3014,9 @@ drop_stmt ::=
         RESULT = new DropPolicyStmt(PolicyTypeEnum.STORAGE, ifExists, policyName, null, null);
     :}
     /* statistics */
-    | KW_DROP KW_STATS opt_table_name:tbl opt_col_list:cols opt_partition_names:partitionNames
+    | KW_DROP KW_STATS table_name:tbl opt_col_list:cols
     {:
-        RESULT = new DropStatsStmt(tbl, partitionNames, cols);
+        RESULT = new DropStatsStmt(tbl, cols);
     :}
     | KW_DROP KW_EXPIRED KW_STATS
     {:
