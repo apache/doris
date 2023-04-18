@@ -42,6 +42,8 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.base.Preconditions;
+import org.apache.log4j.LogManager;
+import org.apache.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -60,6 +62,8 @@ import java.util.concurrent.TimeoutException;
  * For alter light_schema_change table property
  */
 public class AlterLightSchChangeHelper {
+
+    private static final Logger LOG = LogManager.getLogger(AlterLightSchChangeHelper.class);
 
     private final Database db;
 
@@ -82,6 +86,7 @@ public class AlterLightSchChangeHelper {
                 new AlterLightSchemaChangeInfo(db.getId(), olapTable.getId(), response);
         updateTableMeta(info);
         Env.getCurrentEnv().getEditLog().logAlterLightSchemaChange(info);
+        LOG.info("successfully enable `light_schema_change`");
     }
 
     /**
@@ -203,7 +208,7 @@ public class AlterLightSchChangeHelper {
     }
 
     public void updateTableMeta(AlterLightSchemaChangeInfo info) throws DdlException {
-        Preconditions.checkNotNull(info);
+        Preconditions.checkNotNull(info, "passed in info should be not null");
         // update index-meta once and for all
         // schema pair: <maxColId, columns>
         final List<Pair<Integer, List<Column>>> schemaPairs = new ArrayList<>();
@@ -226,7 +231,8 @@ public class AlterLightSchChangeHelper {
             schemaPairs.add(Pair.of(maxColId, newSchema));
             indexIds.add(indexId);
         });
-        Preconditions.checkState(schemaPairs.size() == indexIds.size());
+        Preconditions.checkState(schemaPairs.size() == indexIds.size(),
+                "impossible state, size of schemaPairs and indexIds should be the same");
         // update index-meta once and for all
         try {
             for (int i = 0; i < indexIds.size(); i++) {
@@ -240,5 +246,6 @@ public class AlterLightSchChangeHelper {
         }
         // write table property
         olapTable.setEnableLightSchemaChange(true);
+        LOG.info("successfully update table meta for `light_schema_change`");
     }
 }

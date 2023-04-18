@@ -46,7 +46,8 @@ public class AlterLightSchemaChangeInfo implements Writable {
     public AlterLightSchemaChangeInfo(long dbId, long tableId, PFetchColIdsResponse response) {
         this.dbId = dbId;
         this.tableId = tableId;
-        final List<PFetchColIdsResultEntry> entriesList = Preconditions.checkNotNull(response.getEntriesList());
+        final List<PFetchColIdsResultEntry> entriesList = Preconditions.checkNotNull(response.getEntriesList(),
+                "passed in entry list should be not null");
         entriesList.forEach(entry -> indexIdToColumnInfo.put(entry.getIndexId(), entry.getColNameToIdMap()));
     }
 
