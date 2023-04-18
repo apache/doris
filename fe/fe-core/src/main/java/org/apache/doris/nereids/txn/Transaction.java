@@ -22,10 +22,14 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.load.EtlJobType;
@@ -50,13 +54,17 @@ import org.apache.doris.thrift.TMergeType;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TTxnParams;
+import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionEntry;
-import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
+import org.apache.doris.transaction.TransactionState.TxnCoordinator;
+import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -88,13 +96,20 @@ public class Transaction {
      * constructor
      */
     public Transaction(ConnectContext ctx, Database database, Table table, NereidsPlanner planner)
-            throws TException {
+            throws TException, BeginTransactionException, MetaNotFoundException, AnalysisException,
+            QuotaExceedException, LabelAlreadyUsedException, DuplicatedRequestException {
         check();
         this.ctx = ctx;
         this.database = database;
         this.table = table;
         this.planner = planner;
         this.coordinator = new Coordinator(ctx, null, planner);
+        this.txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
+                database.getId(), ImmutableList.of(table.getId()), labelName,
+                new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                LoadJobSourceType.INSERT_STREAMING, ctx.getExecTimeout());
+        this.createAt = System.currentTimeMillis();
+
     }
 
     private void beginTxn() throws TException, UserException, ExecutionException, InterruptedException,
@@ -104,21 +119,12 @@ public class Transaction {
         SessionVariable sessionVariable = ctx.getSessionVariable();
         long timeoutSecond = ctx.getExecTimeout();
 
-        TransactionState.LoadJobSourceType sourceType = TransactionState.LoadJobSourceType.INSERT_STREAMING;
-        Database dbObj = Env.getCurrentInternalCatalog()
-                .getDbOrException(dbName, s -> new TException("database is invalid for dbName: " + s));
-        Table tblObj = dbObj.getTableOrException(tableName, s -> new TException("table is invalid: " + s));
+        txnConf.setDbId(database.getId()).setTbl(table.getName()).setDb(database.getFullName());
 
-        txnConf.setDbId(dbObj.getId()).setTbl(tableName).setDb(dbName);
-        txnEntry.setTable(tblObj);
-        txnEntry.setDb(dbObj);
+        txnEntry.setTable(table);
+        txnEntry.setDb(database);
 
         if (Env.getCurrentEnv().isMaster()) {
-            txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
-                    txnConf.getDbId(), Lists.newArrayList(tblObj.getId()),
-                    labelName, new TransactionState.TxnCoordinator(
-                            TransactionState.TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
-                    sourceType, timeoutSecond);
             txnConf.setTxnId(txnId);
             String token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
             txnConf.setToken(token);
@@ -130,7 +136,7 @@ public class Transaction {
             request.setDb(txnConf.getDb())
                     .setTbl(txnConf.getTbl())
                     .setToken(token)
-                    .setCluster(dbObj.getClusterName())
+                    .setCluster(database.getClusterName())
                     .setLabel(labelName)
                     .setUser("")
                     .setUserIp("")
@@ -180,14 +186,15 @@ public class Transaction {
         } else {
             labelName = command.getLabelName();
             LOG.info("Do insert [{}] with query id: {}", labelName, DebugUtil.printId(ctx.queryId()));
-            String errMsg = "";
             try {
                 handleTransactionForNotInTxnModel();
             } catch (Throwable t) {
                 errMsg = t.getMessage();
                 handleTransactionErrorForNotInTxnModel(t);
             } finally {
-                // endProfile(true);
+                if (ctx.getSessionVariable().enableProfile() && coordinator != null) {
+                    coordinator.endProfile(true);
+                }
                 QeProcessorImpl.INSTANCE.unregisterQuery(ctx.queryId());
             }
 
@@ -195,12 +202,11 @@ public class Transaction {
             // 1. transaction is finished successfully (COMMITTED or VISIBLE), or
             // 2. transaction failed but Config.using_old_load_usage_pattern is true.
             // we will record the load job info for these 2 cases
-            txnId = insertStmt.getTransactionId();
             try {
-                ctx.getEnv().getLoadManager()
-                        .recordFinishedLoadJob(labelName, txnId, database, table.getId(),
-                                EtlJobType.INSERT, createTime, errMsg,
-                                coordinator.getTrackingUrl(), insertStmt.getUserInfo());
+                ctx.getEnv().getLoadManager().recordFinishedLoadJob(
+                        labelName, txnId, database.getFullName(), table.getId(),
+                        EtlJobType.INSERT, createAt, errMsg,
+                        coordinator.getTrackingUrl(), ctx.getCurrentUserIdentity());
             } catch (MetaNotFoundException e) {
                 LOG.warn("Record info of insert load with error {}", e.getMessage(), e);
                 errMsg = "Record info of insert load with error " + e.getMessage();
@@ -245,7 +251,7 @@ public class Transaction {
 
     private void check() throws TException {
         TTxnParams txnConf = ctx.getTxnEntry().getTxnConf();
-        if (!txnConf.getDb().equals(dbName) || !txnConf.getTbl().equals(tableName)) {
+        if (!txnConf.getDb().equals(database.getFullName()) || !txnConf.getTbl().equals(table.getName())) {
             throw new TException("only one table in one transaction");
         }
     }
@@ -294,8 +300,6 @@ public class Transaction {
             }
         }
 
-        Database database = Env.getCurrentInternalCatalog().getDb(dbName).get();
-        Table table = database.getTable(tableName).get();
         if (table.getType() != TableType.OLAP && table.getType() != TableType.MATERIALIZED_VIEW) {
             // no need to add load job.
             // MySQL table is already being inserted.
@@ -364,7 +368,8 @@ public class Transaction {
 
         // set insert result in connection context,
         // so that user can use `show insert result` to get info of the last insert operation.
-        ctx.setOrUpdateInsertResult(txnId, labelName, dbName, tableName, txnStatus, loadedRows, filteredRows);
+        ctx.setOrUpdateInsertResult(txnId, labelName, database.getFullName(), table.getName(),
+                txnStatus, loadedRows, filteredRows);
         // update it, so that user can get loaded rows in fe.audit.log
         ctx.updateReturnRows((int) loadedRows);
     }
