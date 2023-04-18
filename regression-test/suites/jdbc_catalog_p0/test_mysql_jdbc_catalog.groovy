@@ -16,6 +16,8 @@
 // under the License.
 
 suite("test_mysql_jdbc_catalog", "p0") {
+    qt_sql """select current_catalog()"""
+
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String resource_name = "jdbc_resource_catalog_mysql"
@@ -73,7 +75,9 @@ suite("test_mysql_jdbc_catalog", "p0") {
                 PROPERTIES("replication_num" = "1");
         """
 
+        qt_sql """select current_catalog()"""
         sql """switch ${catalog_name}"""
+        qt_sql """select current_catalog()"""
         sql """ use ${ex_db_name}"""
 
         order_qt_ex_tb0  """ select id, name from ${ex_tb0} order by id; """

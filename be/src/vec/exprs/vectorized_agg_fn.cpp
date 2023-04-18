@@ -63,8 +63,7 @@ Status AggFnEvaluator::create(ObjectPool* pool, const TExpr& desc, const TSortIn
         ++node_idx;
         VExpr* expr = nullptr;
         VExprContext* ctx = nullptr;
-        RETURN_IF_ERROR(
-                VExpr::create_tree_from_thrift(pool, desc.nodes, nullptr, &node_idx, &expr, &ctx));
+        RETURN_IF_ERROR(VExpr::create_tree_from_thrift(pool, desc.nodes, &node_idx, &expr, &ctx));
         agg_fn_evaluator->_input_exprs_ctxs.push_back(ctx);
     }
 
@@ -74,8 +73,8 @@ Status AggFnEvaluator::create(ObjectPool* pool, const TExpr& desc, const TSortIn
     // to the order by functions
     for (int i = 0; i < sort_size; ++i) {
         agg_fn_evaluator->_sort_description.emplace_back(real_arguments_size + i,
-                                                         sort_info.is_asc_order[i] == true,
-                                                         sort_info.nulls_first[i] == true);
+                                                         sort_info.is_asc_order[i] ? 1 : -1,
+                                                         sort_info.nulls_first[i] ? -1 : 1);
     }
 
     // Pass the real arguments to get functions

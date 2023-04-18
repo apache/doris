@@ -16,11 +16,22 @@
 // under the License.
 
 suite("test_colocate_join") {
+    def db1 = "test_colocate_join_db1"
+    def db2 = "test_colocate_join_db2"
+    sql """ drop database if exists ${db1}"""
+    sql """ drop database if exists ${db2}"""
+    sql """ create database if not exists ${db1}"""
+    sql """ create database if not exists ${db2}"""
+    sql """ use ${db1}"""
+
     sql """ DROP TABLE IF EXISTS `test_colo1` """
     sql """ DROP TABLE IF EXISTS `test_colo2` """
     sql """ DROP TABLE IF EXISTS `test_colo3` """
     sql """ DROP TABLE IF EXISTS `test_colo4` """
     sql """ DROP TABLE IF EXISTS `test_colo5` """
+    sql """ DROP TABLE IF EXISTS `test_global_tbl1` """
+    sql """ DROP TABLE IF EXISTS `test_global_tbl2` """
+    sql """ DROP TABLE IF EXISTS ${db2}.`test_global_tbl3` """
 
     sql """
         CREATE TABLE `test_colo1` (
@@ -112,6 +123,46 @@ suite("test_colocate_join") {
         );
     """
 
+    sql """
+        create table test_global_tbl1 (
+            id int,
+            name varchar(100),
+            dt date
+        )
+        distributed by hash(id, name) buckets 4
+        properties("colocate_with" = "__global__group1",
+            "replication_num" = "1");
+    """
+
+    sql """
+        create table test_global_tbl2 (
+            id int,
+            name varchar(20),
+            dt date,
+            age bigint
+        )
+        distributed by hash(id, name) buckets 4
+        properties("colocate_with" = "__global__group1",
+            "replication_num" = "1");
+    """
+
+    sql """
+        create table ${db2}.test_global_tbl3 (
+            id int,
+            name varchar(50),
+            dt date,
+            age bigint
+        )
+        partition by range(dt) (
+            partition p1 values less than("2022-02-01"),
+            partition p2 values less than("2022-03-01"),
+            partition p3 values less than("2022-04-01")
+        )
+        distributed by hash(id, name) buckets 4
+        properties("colocate_with" = "__global__group1",
+            "replication_num" = "1");
+    """
+
     sql """insert into test_colo1 values('1','a',12);"""
     sql """insert into test_colo2 values('1','a',12);"""
     sql """insert into test_colo3 values('1','a',12);"""
@@ -193,4 +244,64 @@ suite("test_colocate_join") {
     sql """ DROP TABLE IF EXISTS `tbl1`;"""
     sql """ DROP TABLE IF EXISTS `tbl2`;"""
 
+    sql """insert into ${db1}.test_global_tbl1 values
+            (1,"jack", "2022-01-01"),
+            (2,"jack1", "2022-01-02"),
+            (3,"jack2", "2022-01-03"),
+            (4,"jack3", "2022-02-01"),
+            (5,"jack4", "2022-02-01"),
+            (6, null, "2022-03-01");
+    """
+
+    sql """insert into ${db1}.test_global_tbl2 values
+            (1,"jack", "2022-01-01", 10),
+            (2,"jack1", "2022-01-02", 11),
+            (3,"jack2", "2022-01-03", 12),
+            (4,"jack3", "2022-02-01", 13),
+            (5,"jack4", "2022-02-01", 14),
+            (6,null, "2022-03-01", 15);
+    """
+
+    sql """insert into ${db2}.test_global_tbl3 values
+            (1,"jack", "2022-01-01", 10),
+            (2,"jack1", "2022-01-02", 11),
+            (3,"jack2", "2022-01-03", 12),
+            (4,"jack3", "2022-02-01", 13),
+            (5,"jack4", "2022-02-01", 14),
+            (6,null, "2022-03-01", 15);
+    """
+
+    order_qt_global1 """select * from ${db1}.test_global_tbl1 a join ${db1}.test_global_tbl2 b on a.id = b.id and a.name = b.name """
+    order_qt_global2 """select * from ${db1}.test_global_tbl1 a join ${db2}.test_global_tbl3 b on a.id = b.id and a.name = b.name """
+
+    explain {
+        sql ("select * from ${db1}.test_global_tbl1 a join ${db1}.test_global_tbl2 b on a.id = b.id and a.name = b.name")
+        contains "COLOCATE"
+    }
+    explain {
+        sql ("select * from ${db1}.test_global_tbl1 a join ${db2}.test_global_tbl3 b on a.id = b.id and a.name = b.name")
+        contains "COLOCATE"
+    }
+    /* add partition */
+    sql """alter table ${db2}.test_global_tbl3 add partition p4 values less than("2022-05-01")"""
+    sql """insert into ${db2}.test_global_tbl3 values (7, "jack7", "2022-04-01", 16)"""
+    order_qt_global3 """select * from ${db1}.test_global_tbl1 a join ${db2}.test_global_tbl3 b on a.id = b.id and a.name = b.name """
+    explain {
+        sql ("select * from ${db1}.test_global_tbl1 a join ${db2}.test_global_tbl3 b on a.id = b.id and a.name = b.name")
+        contains "COLOCATE"
+    }
+
+    /* modify group: unset */
+    sql """alter table ${db2}.test_global_tbl3 set ("colocate_with" = "");"""
+    explain {
+        sql ("select * from ${db1}.test_global_tbl1 a join ${db2}.test_global_tbl3 b on a.id = b.id and a.name = b.name")
+        contains "Tables are not in the same group"
+    }
+
+    /* modify group: from global to database level */
+    sql """alter table ${db1}.test_global_tbl2 set ("colocate_with" = "db_level_group");"""
+    explain {
+        sql ("select * from ${db1}.test_global_tbl1 a join ${db1}.test_global_tbl2 b on a.id = b.id and a.name = b.name")
+        contains "Tables are not in the same group"
+    }
 }

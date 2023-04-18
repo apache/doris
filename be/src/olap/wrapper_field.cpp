@@ -24,11 +24,12 @@ namespace doris {
 const size_t DEFAULT_STRING_LENGTH = 50;
 
 WrapperField* WrapperField::create(const TabletColumn& column, uint32_t len) {
-    bool is_string_type =
-            (column.type() == OLAP_FIELD_TYPE_CHAR || column.type() == OLAP_FIELD_TYPE_VARCHAR ||
-             column.type() == OLAP_FIELD_TYPE_HLL || column.type() == OLAP_FIELD_TYPE_OBJECT ||
-             column.type() == OLAP_FIELD_TYPE_STRING);
-    size_t max_length = column.type() == OLAP_FIELD_TYPE_STRING
+    bool is_string_type = (column.type() == FieldType::OLAP_FIELD_TYPE_CHAR ||
+                           column.type() == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
+                           column.type() == FieldType::OLAP_FIELD_TYPE_HLL ||
+                           column.type() == FieldType::OLAP_FIELD_TYPE_OBJECT ||
+                           column.type() == FieldType::OLAP_FIELD_TYPE_STRING);
+    size_t max_length = column.type() == FieldType::OLAP_FIELD_TYPE_STRING
                                 ? config::string_type_length_soft_limit_bytes
                                 : OLAP_VARCHAR_MAX_LENGTH;
     if (is_string_type && len > max_length) {
@@ -43,15 +44,16 @@ WrapperField* WrapperField::create(const TabletColumn& column, uint32_t len) {
     }
 
     size_t variable_len = 0;
-    if (column.type() == OLAP_FIELD_TYPE_CHAR) {
+    if (column.type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
         variable_len = std::max(len, (uint32_t)(column.length()));
-    } else if (column.type() == OLAP_FIELD_TYPE_VARCHAR || column.type() == OLAP_FIELD_TYPE_HLL) {
+    } else if (column.type() == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
+               column.type() == FieldType::OLAP_FIELD_TYPE_HLL) {
         // column.length is the serialized varchar length
         // the first sizeof(VarcharLengthType) bytes is the length of varchar
         // variable_len is the real length of varchar
         variable_len =
                 std::max(len, static_cast<uint32_t>(column.length() - sizeof(VarcharLengthType)));
-    } else if (column.type() == OLAP_FIELD_TYPE_STRING) {
+    } else if (column.type() == FieldType::OLAP_FIELD_TYPE_STRING) {
         variable_len = len;
     } else {
         variable_len = column.length();
@@ -67,9 +69,11 @@ WrapperField* WrapperField::create_by_type(const FieldType& type, int32_t var_le
         return nullptr;
     }
     bool is_string_type =
-            (type == OLAP_FIELD_TYPE_CHAR || type == OLAP_FIELD_TYPE_VARCHAR ||
-             type == OLAP_FIELD_TYPE_HLL || type == OLAP_FIELD_TYPE_OBJECT ||
-             type == OLAP_FIELD_TYPE_STRING || type == OLAP_FIELD_TYPE_QUANTILE_STATE);
+            (type == FieldType::OLAP_FIELD_TYPE_CHAR ||
+             type == FieldType::OLAP_FIELD_TYPE_VARCHAR || type == FieldType::OLAP_FIELD_TYPE_HLL ||
+             type == FieldType::OLAP_FIELD_TYPE_OBJECT ||
+             type == FieldType::OLAP_FIELD_TYPE_STRING ||
+             type == FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE);
     auto wrapper = new WrapperField(rep, var_length, is_string_type);
     return wrapper;
 }
@@ -90,7 +94,7 @@ WrapperField::WrapperField(Field* rep, size_t variable_len, bool is_string_type)
         _string_content.reset(new char[slice->size]);
         slice->data = _string_content.get();
     }
-    if (_rep->type() == OLAP_FIELD_TYPE_STRING) {
+    if (_rep->type() == FieldType::OLAP_FIELD_TYPE_STRING) {
         _long_text_buf = (char*)malloc(RowCursor::DEFAULT_TEXT_LENGTH * sizeof(char));
         rep->set_long_text_buf(&_long_text_buf);
     }

@@ -28,12 +28,10 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 class JoinExchangeLeftProjectTest implements MemoPatternMatchSupported {
     @Test
-    @Disabled
     public void testSimple() {
         LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
         LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
@@ -56,15 +54,17 @@ class JoinExchangeLeftProjectTest implements MemoPatternMatchSupported {
                 .applyExploration(JoinExchangeLeftProject.INSTANCE.build())
                 .printlnExploration()
                 .matchesExploration(
-                    logicalJoin(
+                    logicalProject(
                         logicalJoin(
-                                logicalOlapScan().when(scan -> scan.getTable().getName().equals("t1")),
-                                logicalOlapScan().when(scan -> scan.getTable().getName().equals("t3"))
-                        ),
-                        logicalProject(
                             logicalJoin(
-                                    logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2")),
-                                    logicalOlapScan().when(scan -> scan.getTable().getName().equals("t4"))
+                                    logicalOlapScan().when(scan -> scan.getTable().getName().equals("t1")),
+                                    logicalOlapScan().when(scan -> scan.getTable().getName().equals("t3"))
+                            ),
+                            logicalProject(
+                                logicalJoin(
+                                        logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2")),
+                                        logicalOlapScan().when(scan -> scan.getTable().getName().equals("t4"))
+                                )
                             )
                         )
                     )

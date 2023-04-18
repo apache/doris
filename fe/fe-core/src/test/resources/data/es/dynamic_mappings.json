@@ -1,0 +1,23 @@
+{
+  "test_index": {
+    "mappings": {
+      "dynamic": "false",
+      "properties": {
+        "time": {
+          "type": "long"
+        },
+        "type": {
+          "type": "keyword"
+        },
+        "userId": {
+          "type": "text",
+          "fields": {
+            "keyword": {
+              "type": "keyword"
+            }
+          }
+        }
+      }
+    }
+  }
+}

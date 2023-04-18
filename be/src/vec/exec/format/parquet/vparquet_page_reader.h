@@ -32,7 +32,8 @@ public:
         int64_t decode_header_time = 0;
     };
 
-    PageReader(io::BufferedStreamReader* reader, uint64_t offset, uint64_t length);
+    PageReader(io::BufferedStreamReader* reader, io::IOContext* io_ctx, uint64_t offset,
+               uint64_t length);
     ~PageReader() = default;
 
     bool has_next_page() const { return _offset < _end_offset; }
@@ -57,6 +58,7 @@ private:
     enum PageReaderState { INITIALIZED, HEADER_PARSED };
 
     io::BufferedStreamReader* _reader;
+    io::IOContext* _io_ctx;
     tparquet::PageHeader _cur_page_header;
     Statistics _statistics;
     PageReaderState _state = INITIALIZED;

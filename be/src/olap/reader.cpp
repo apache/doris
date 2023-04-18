@@ -17,8 +17,6 @@
 
 #include "olap/reader.h"
 
-#include <parallel_hashmap/phmap.h>
-
 #include "common/status.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"

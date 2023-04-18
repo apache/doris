@@ -300,7 +300,8 @@ public:
         }
 
         // Currently, only the UINT32 block encoder supports expanding size:
-        if (UNLIKELY(Type != OLAP_FIELD_TYPE_UNSIGNED_INT && _size_of_element != SIZE_OF_TYPE)) {
+        if (UNLIKELY(Type != FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT &&
+                     _size_of_element != SIZE_OF_TYPE)) {
             return Status::InternalError(
                     "invalid size info. size of element:{}, SIZE_OF_TYPE:{}, type:{}",
                     _size_of_element, SIZE_OF_TYPE, Type);

@@ -17,11 +17,18 @@
 
 #include "exec/schema_scanner/schema_collations_scanner.h"
 
+#include <gen_cpp/Descriptors_types.h>
+#include <string.h>
+
 #include "common/status.h"
-#include "runtime/primitive_type.h"
+#include "runtime/define_primitive_type.h"
+#include "util/runtime_profile.h"
 #include "vec/common/string_ref.h"
 
 namespace doris {
+namespace vectorized {
+class Block;
+} // namespace vectorized
 
 std::vector<SchemaScanner::ColumnDesc> SchemaCollationsScanner::_s_cols_columns = {
         //   name,       type,          size

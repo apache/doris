@@ -167,6 +167,12 @@ Default：100
 
 the max txn number which bdbje can rollback when trying to rejoin the group
 
+### grpc_threadmgr_threads_nums
+
+Default: 4096
+
+Num of thread to handle grpc events in grpc_threadmgr.
+
 #### `bdbje_replica_ack_timeout_second`
 
 Default：10  (s)
@@ -392,13 +398,26 @@ Default value: 0.0.0.0
 
 Default：none
 
-Declare a selection strategy for those servers have many ips.  Note that there should at most one ip match this list.  this is a list in semicolon-delimited format, in CIDR notation, e.g. 10.10.10.0/24 ， If no ip match this rule, will choose one randomly..
+Declare a selection strategy for those servers have many ips.  Note that there should at most one ip match this list.  this is a list in semicolon-delimited format, in CIDR notation, e.g. 10.10.10.0/24 ， If no ip match this rule, will choose one randomly.
 
 #### `http_port`
 
 Default：8030
 
-HTTP bind port. Defaults to 8030
+HTTP bind port. All FE http ports must be same currently.
+
+#### `https_port`
+
+Default：8050
+
+HTTPS bind port. All FE https ports must be same currently.
+
+#### `enable_https`
+
+Default：false
+
+Https enable flag. If the value is false, http is supported. Otherwise, both http and https are supported, and http requests are automatically redirected to https.
+If enable_https is true, you need to configure ssl certificate information in fe.conf.
 
 #### `qe_max_connection`
 
@@ -2647,4 +2666,18 @@ MasterOnly：false
 
 Only take effect when `prefer_compute_node_for_external_table` is true. If the compute node number is less than this value, query on external table will try to get some mix node to assign, to let the total number of node reach this value.
 If the compute node number is larger than this value, query on external table will assign to compute node only.
+
+#### `infodb_support_ext_catalog`
+
+<version since="1.2.4"></version>
+
+Default: false
+
+IsMutable: true
+
+MasterOnly: false
+
+If false, when select from tables in information_schema database,
+the result will not contain the information of the table in external catalog.
+This is to avoid query time when external catalog is not reachable.
 

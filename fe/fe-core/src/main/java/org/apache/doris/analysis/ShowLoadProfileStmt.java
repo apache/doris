@@ -40,6 +40,7 @@ public class ShowLoadProfileStmt extends ShowStmt {
     public enum PathType {
         QUERY_IDS,
         TASK_IDS,
+        FRAGMENTS,
         INSTANCES,
         SINGLE_INSTANCE
     }
@@ -49,6 +50,7 @@ public class ShowLoadProfileStmt extends ShowStmt {
 
     private String jobId = "";
     private String taskId = "";
+    private String fragmentId = "";
     private String instanceId = "";
 
     public ShowLoadProfileStmt(String idPath) {
@@ -65,6 +67,10 @@ public class ShowLoadProfileStmt extends ShowStmt {
 
     public String getTaskId() {
         return taskId;
+    }
+
+    public String getFragmentId() {
+        return fragmentId;
     }
 
     public String getInstanceId() {
@@ -85,8 +91,8 @@ public class ShowLoadProfileStmt extends ShowStmt {
         }
         pathType = PathType.QUERY_IDS;
         String[] parts = idPath.split("/");
-        if (parts.length > 4) {
-            throw new AnalysisException("Path must in format '/jobId/taskId/instanceId'");
+        if (parts.length > 5) {
+            throw new AnalysisException("Path must in format '/jobId/taskId/fragmentId/instanceId'");
         }
 
         for (int i = 0; i < parts.length; i++) {
@@ -100,9 +106,13 @@ public class ShowLoadProfileStmt extends ShowStmt {
                     break;
                 case 2:
                     taskId = parts[i];
-                    pathType = PathType.INSTANCES;
+                    pathType = PathType.FRAGMENTS;
                     break;
                 case 3:
+                    fragmentId = parts[i];
+                    pathType = PathType.INSTANCES;
+                    break;
+                case 4:
                     instanceId = parts[i];
                     pathType = PathType.SINGLE_INSTANCE;
                     break;
@@ -130,6 +140,8 @@ public class ShowLoadProfileStmt extends ShowStmt {
                 return ShowQueryProfileStmt.META_DATA_QUERY_IDS;
             case TASK_IDS:
                 return META_DATA_TASK_IDS;
+            case FRAGMENTS:
+                return ShowQueryProfileStmt.META_DATA_FRAGMENTS;
             case INSTANCES:
                 return ShowQueryProfileStmt.META_DATA_INSTANCES;
             case SINGLE_INSTANCE:
@@ -139,3 +151,4 @@ public class ShowLoadProfileStmt extends ShowStmt {
         }
     }
 }
+

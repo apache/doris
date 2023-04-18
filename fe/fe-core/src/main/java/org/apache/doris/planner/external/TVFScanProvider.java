@@ -17,22 +17,15 @@
 
 package org.apache.doris.planner.external;
 
-import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionGenTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.load.BrokerFileGroup;
-import org.apache.doris.planner.external.ExternalFileScanNode.ParamCreateContext;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileFormatType;
-import org.apache.doris.thrift.TFileScanRangeParams;
-import org.apache.doris.thrift.TFileScanSlotInfo;
 import org.apache.doris.thrift.TFileType;
 
 import com.google.common.collect.Lists;
@@ -83,34 +76,6 @@ public class TVFScanProvider extends QueryScanProvider {
     @Override
     public List<String> getPathPartitionKeys() throws DdlException, MetaNotFoundException {
         return Lists.newArrayList();
-    }
-
-    @Override
-    public ParamCreateContext createContext(Analyzer analyzer) throws UserException {
-        ParamCreateContext context = new ParamCreateContext();
-        context.params = new TFileScanRangeParams();
-        context.destTupleDescriptor = desc;
-        context.params.setDestTupleId(desc.getId().asInt());
-        // no use, only for avoid null exception.
-        context.fileGroup = new BrokerFileGroup(tvfTable.getId(), "", "");
-
-
-        // Hive table must extract partition value from path and hudi/iceberg table keep
-        // partition field in file.
-        List<String> partitionKeys = getPathPartitionKeys();
-        List<Column> columns = tvfTable.getBaseSchema(false);
-        context.params.setNumOfColumnsFromFile(columns.size() - partitionKeys.size());
-        for (SlotDescriptor slot : desc.getSlots()) {
-            if (!slot.isMaterialized()) {
-                continue;
-            }
-
-            TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
-            slotInfo.setSlotId(slot.getId().asInt());
-            slotInfo.setIsFileSlot(!partitionKeys.contains(slot.getColumn().getName()));
-            context.params.addToRequiredSlots(slotInfo);
-        }
-        return context;
     }
 
     @Override

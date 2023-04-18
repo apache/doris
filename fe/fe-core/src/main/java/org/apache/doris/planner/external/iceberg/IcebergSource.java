@@ -23,7 +23,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.planner.external.ExternalFileScanNode;
 import org.apache.doris.thrift.TFileAttributes;
 
 public interface IcebergSource {
@@ -31,8 +30,6 @@ public interface IcebergSource {
     TupleDescriptor getDesc();
 
     org.apache.iceberg.Table getIcebergTable() throws MetaNotFoundException;
-
-    ExternalFileScanNode.ParamCreateContext createContext() throws UserException;
 
     TableIf getTargetTable();
 

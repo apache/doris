@@ -68,6 +68,13 @@ private:
 
 Status HdfsFileSystem::create(const THdfsParams& hdfs_params, const std::string& path,
                               std::shared_ptr<HdfsFileSystem>* fs) {
+#ifdef USE_HADOOP_HDFS
+    if (!config::enable_java_support) {
+        return Status::InternalError(
+                "hdfs file system is not enabled, you can change be config enable_java_support to "
+                "true.");
+    }
+#endif
     (*fs).reset(new HdfsFileSystem(hdfs_params, path));
     return (*fs)->connect();
 }

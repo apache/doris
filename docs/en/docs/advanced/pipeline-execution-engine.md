@@ -1,6 +1,6 @@
 ---
 {
-    "title": "[Experimental] Pipeline execution engine",
+    "title": "Pipeline execution engine",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Pipeline Execution Engine
+# [Experimental] Pipeline Execution Engine
 
 <version since="2.0.0">
 </version>

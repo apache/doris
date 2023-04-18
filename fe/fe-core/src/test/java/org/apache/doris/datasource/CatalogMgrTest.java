@@ -61,12 +61,10 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.cache.LoadingCache;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.RangeMap;
-import org.apache.hadoop.mapred.InputSplit;
 import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -678,7 +676,7 @@ public class CatalogMgrTest extends TestWithFeService {
 
         HMSExternalCatalog hiveCatalog = (HMSExternalCatalog) mgr.getCatalog(catalogName);
         HiveMetaStoreCache metaStoreCache = externalMetaCacheMgr.getMetaStoreCache(hiveCatalog);
-        LoadingCache<FileCacheKey, ImmutableList<InputSplit>> preFileCache = metaStoreCache.getFileCacheRef().get();
+        LoadingCache<FileCacheKey, HiveMetaStoreCache.FileCacheValue> preFileCache = metaStoreCache.getFileCacheRef().get();
 
 
         // 1. properties contains `file.meta.cache.ttl-second`, it should not be equal

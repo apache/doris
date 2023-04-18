@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -39,7 +40,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Map;
@@ -72,6 +73,8 @@ public class AnalyzeStmt extends DdlStmt {
     public boolean isIncrement;
 
     private final TableName tableName;
+
+    private final boolean sync;
     private final PartitionNames partitionNames;
     private final List<String> columnNames;
     private final Map<String, String> properties;
@@ -81,6 +84,7 @@ public class AnalyzeStmt extends DdlStmt {
     private TableIf table;
 
     public AnalyzeStmt(TableName tableName,
+                       boolean sync,
                        List<String> columnNames,
                        PartitionNames partitionNames,
                        Map<String, String> properties,
@@ -88,6 +92,7 @@ public class AnalyzeStmt extends DdlStmt {
                        Boolean isHistogram,
                        Boolean isIncrement) {
         this.tableName = tableName;
+        this.sync = sync;
         this.columnNames = columnNames;
         this.partitionNames = partitionNames;
         this.properties = properties;
@@ -110,7 +115,9 @@ public class AnalyzeStmt extends DdlStmt {
         DatabaseIf db = catalog.getDbOrAnalysisException(dbName);
         dbId = db.getId();
         table = db.getTableOrAnalysisException(tblName);
-
+        if (table instanceof View) {
+            throw new AnalysisException("Analyze view is not allowed");
+        }
         checkAnalyzePriv(dbName, tblName);
 
         if (columnNames != null && !columnNames.isEmpty()) {
@@ -271,5 +278,9 @@ public class AnalyzeStmt extends DdlStmt {
         }
 
         return sb.toString();
+    }
+
+    public boolean isSync() {
+        return sync;
     }
 }

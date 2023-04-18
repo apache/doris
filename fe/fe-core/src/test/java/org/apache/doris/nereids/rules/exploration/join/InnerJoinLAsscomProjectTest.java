@@ -52,7 +52,6 @@ class InnerJoinLAsscomProjectTest implements MemoPatternMatchSupported {
     private final LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
 
     @Test
-    @Disabled
     void testSimple() {
         /*
          * Star-Join
@@ -79,15 +78,17 @@ class InnerJoinLAsscomProjectTest implements MemoPatternMatchSupported {
                 .applyExploration(InnerJoinLAsscomProject.INSTANCE.build())
                 .printlnExploration()
                 .matchesExploration(
+                    logicalProject(
                         logicalJoin(
-                                logicalJoin(
-                                        logicalOlapScan().when(scan -> scan.getTable().getName().equals("t1")),
-                                        logicalOlapScan().when(scan -> scan.getTable().getName().equals("t3"))
-                                ),
-                                logicalProject(
-                                        logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2"))
-                                ).when(project -> project.getProjects().size() == 1)
+                            logicalJoin(
+                                    logicalOlapScan().when(scan -> scan.getTable().getName().equals("t1")),
+                                    logicalOlapScan().when(scan -> scan.getTable().getName().equals("t3"))
+                            ),
+                            logicalProject(
+                                    logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2"))
+                            ).when(project -> project.getProjects().size() == 1)
                         )
+                    )
                 );
     }
 

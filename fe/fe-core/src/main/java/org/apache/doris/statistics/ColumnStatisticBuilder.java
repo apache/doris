@@ -35,6 +35,8 @@ public class ColumnStatisticBuilder {
 
     private Histogram histogram;
 
+    private double originalNdv;
+
     public ColumnStatisticBuilder() {
     }
 
@@ -51,6 +53,7 @@ public class ColumnStatisticBuilder {
         this.maxExpr = columnStatistic.maxExpr;
         this.isUnknown = columnStatistic.isUnKnown;
         this.histogram = columnStatistic.histogram;
+        this.originalNdv = columnStatistic.originalNdv;
     }
 
     public ColumnStatisticBuilder setCount(double count) {
@@ -60,6 +63,11 @@ public class ColumnStatisticBuilder {
 
     public ColumnStatisticBuilder setNdv(double ndv) {
         this.ndv = ndv;
+        return this;
+    }
+
+    public ColumnStatisticBuilder setOriginalNdv(double originalNdv) {
+        this.originalNdv = originalNdv;
         return this;
     }
 
@@ -163,7 +171,7 @@ public class ColumnStatisticBuilder {
 
     public ColumnStatistic build() {
         dataSize = Math.max((count - numNulls + 1) * avgSizeByte, 0);
-        return new ColumnStatistic(count, ndv, avgSizeByte, numNulls,
+        return new ColumnStatistic(count, ndv, originalNdv, avgSizeByte, numNulls,
             dataSize, minValue, maxValue, selectivity, minExpr, maxExpr, isUnknown, histogram);
     }
 }

@@ -21,6 +21,8 @@
 
 namespace doris {
 class ExecEnv;
+class HttpRequest;
+
 class CheckRPCChannelAction : public HttpHandler {
 public:
     explicit CheckRPCChannelAction(ExecEnv* exec_env);

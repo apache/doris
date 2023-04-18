@@ -115,8 +115,8 @@ struct ConvertImpl {
                 }
                 if constexpr (IsDataTypeDecimal<FromDataType> && IsDataTypeDecimal<ToDataType>) {
                     convert_decimal_cols<FromDataType, ToDataType>(
-                            vec_from, vec_to, vec_from.get_scale(), vec_to.get_scale(),
-                            vec_null_map_to);
+                            vec_from.data(), vec_to.data(), vec_from.get_scale(),
+                            vec_to.get_scale(), vec_from.size(), vec_null_map_to);
                 } else {
                     for (size_t i = 0; i < size; ++i) {
                         if constexpr (IsDataTypeDecimal<FromDataType> &&
@@ -1647,7 +1647,7 @@ private:
         const auto& from_nested = from_type;
         const auto& to_nested = to_type;
 
-        if (from_type->only_null()) {
+        if (from_type->only_null() || from_type->is_null_literal()) {
             if (!to_nested->is_nullable()) {
                 return create_unsupport_wrapper("Cannot convert NULL to a non-nullable type");
             }
@@ -1856,18 +1856,7 @@ protected:
     }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
-        const auto type_col =
-                check_and_get_column_const<ColumnString>(arguments.back().column.get());
-        DataTypePtr type;
-        if (!type_col) {
-            // only used in schema_util::cast_column
-            // use second arg as type arg
-            // since not all types are in the DatatypeFactory
-            type = arguments[1].type;
-        } else {
-            // TODO(xy): support return struct type for factory
-            type = DataTypeFactory::instance().get(type_col->get_value<String>());
-        }
+        DataTypePtr type = arguments[1].type;
         DCHECK(type != nullptr);
         bool need_to_be_nullable = false;
         // 1. from_type is nullable
@@ -1885,7 +1874,7 @@ protected:
                                 arguments[0].type->get_type_id() != TypeIndex::DateTimeV2) &&
                                (type->get_type_id() == TypeIndex::DateV2 ||
                                 type->get_type_id() == TypeIndex::DateTimeV2);
-        if (need_to_be_nullable) {
+        if (need_to_be_nullable && !type->is_nullable()) {
             return make_nullable(type);
         }
 

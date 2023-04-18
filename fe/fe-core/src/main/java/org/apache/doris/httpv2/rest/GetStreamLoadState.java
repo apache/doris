@@ -27,7 +27,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.servlet.view.RedirectView;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -40,7 +39,7 @@ public class GetStreamLoadState extends RestBaseController {
                           HttpServletRequest request, HttpServletResponse response) {
         executeCheckPassword(request, response);
 
-        RedirectView redirectView = redirectToMaster(request, response);
+        Object redirectView = redirectToMaster(request, response);
         if (redirectView != null) {
             return redirectView;
         }

@@ -17,9 +17,11 @@
 
 #include "io/fs/hdfs_file_reader.h"
 
+#include "io/fs/err_utils.h"
 #include "io/fs/hdfs_file_system.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
+
 namespace doris {
 namespace io {
 HdfsFileReader::HdfsFileReader(Path path, size_t file_size, const std::string& name_node,
@@ -66,7 +68,7 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
     int res = hdfsSeek(handle->hdfs_fs, _hdfs_file, offset);
     if (res != 0) {
         return Status::InternalError("Seek to offset failed. (BE: {}) offset={}, err: {}",
-                                     BackendOptions::get_localhost(), offset, hdfsGetLastError());
+                                     BackendOptions::get_localhost(), offset, hdfs_error());
     }
 
     size_t bytes_req = result.size;
@@ -84,8 +86,7 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
         if (loop_read < 0) {
             return Status::InternalError(
                     "Read hdfs file failed. (BE: {}) namenode:{}, path:{}, err: {}",
-                    BackendOptions::get_localhost(), _name_node, _path.string(),
-                    hdfsGetLastError());
+                    BackendOptions::get_localhost(), _name_node, _path.string(), hdfs_error());
         }
         if (loop_read == 0) {
             break;

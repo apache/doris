@@ -210,4 +210,8 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
         return false;
     }
 
+    public String shapeInfo() {
+        return toSql();
+    }
+
 }

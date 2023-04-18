@@ -45,6 +45,8 @@ public class StatementContext {
 
     private int maxNAryInnerJoin = 0;
 
+    private boolean isDpHyp = false;
+
     private final IdGenerator<ExprId> exprIdGenerator = ExprId.createGenerator();
 
     private final IdGenerator<ObjectId> objectIdGenerator = ObjectId.createGenerator();
@@ -91,6 +93,14 @@ public class StatementContext {
 
     public int getMaxNAryInnerJoin() {
         return maxNAryInnerJoin;
+    }
+
+    public boolean isDpHyp() {
+        return isDpHyp;
+    }
+
+    public void setDpHyp(boolean dpHyp) {
+        isDpHyp = dpHyp;
     }
 
     public StatementBase getParsedStatement() {

@@ -25,7 +25,7 @@ import org.apache.iceberg.ClientPool;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.hive.HiveTableOperations;
 import org.apache.iceberg.io.FileIO;
-import org.apache.thrift.TException;
+import shade.doris.hive.org.apache.thrift.TException;
 
 public class DLFTableOperations extends HiveTableOperations {
 

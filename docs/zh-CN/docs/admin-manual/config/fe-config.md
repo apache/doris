@@ -173,7 +173,13 @@ Doris 元数据将保存在这里。 强烈建议将此目录的存储为：
 
 元数据会同步写入到多个 Follower FE，这个参数用于控制 Master FE 等待 Follower FE 发送 ack 的超时时间。当写入的数据较大时，可能 ack 时间较长，如果超时，会导致写元数据失败，FE 进程退出。此时可以适当调大这个参数。
 
-#### `bdbje_lock_timeout_second`
+### grpc_threadmgr_threads_nums
+
+默认值: 4096
+
+在grpc_threadmgr中处理grpc events的线程数量。
+
+#### `bdbje_lock_timeout_second`>>>>>>> 1b46f49ad0 (use customed threadpool instead of the default threadpool of grpc java to get better metrics)
 
 默认值：1
 
@@ -399,6 +405,19 @@ Doris FE 通过 mysql 协议查询连接端口
 默认值：8030
 
 FE http 端口，当前所有 FE http 端口都必须相同
+
+#### `https_port`
+
+默认值：8050
+
+FE https 端口，当前所有 FE https 端口都必须相同
+
+#### `enable_https`
+
+默认值：false
+
+FE https 使能标志位，false 表示支持 http，true 表示同时支持 http 与 https，并且会自动将 http 请求重定向到 https
+如果 enable_https 为 true，需要在 fe.conf 中配置 ssl 证书信息
 
 #### `qe_max_connection`
 
@@ -2646,3 +2665,17 @@ show data （其他用法：HELP SHOW DATA）
 
 仅在 `prefer_compute_node_for_external_table` 为 true 时生效。如果计算节点数小于此值，则对外部表的查询将尝试使用一些混合节点，让节点总数达到这个值。
 如果计算节点数大于这个值，外部表的查询将只分配给计算节点。
+
+#### `infodb_support_ext_catalog`
+
+<version since="1.2.4"></version>
+
+默认值：false
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：false
+
+当设置为 false 时，查询 `information_schema` 中的表时，将不再返回 external catalog 中的表的信息。
+
+这个参数主要用于避免因 external catalog 无法访问、信息过多等原因导致的查询 `information_schema` 超时的问题。

@@ -28,7 +28,7 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.util.BitUtil;
-import org.apache.doris.planner.external.ExternalFileScanNode;
+import org.apache.doris.planner.external.FileQueryScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TRuntimeFilterMode;
@@ -190,6 +190,12 @@ public final class RuntimeFilterGenerator {
         int numBloomFilters = 0;
         for (RuntimeFilter filter : filters) {
             filter.extractTargetsPosition();
+            // Number of parallel instances are large for pipeline engine, so we prefer bloom filter.
+            if (filter.hasRemoteTargets() && filter.getType() == TRuntimeFilterType.IN_OR_BLOOM
+                    && ConnectContext.get() != null
+                    && ConnectContext.get().getSessionVariable().enablePipelineEngine()) {
+                filter.setType(TRuntimeFilterType.BLOOM);
+            }
             if (filter.getType() == TRuntimeFilterType.BLOOM) {
                 if (numBloomFilters >= maxNumBloomFilters) {
                     continue;
@@ -362,7 +368,7 @@ public final class RuntimeFilterGenerator {
      * 2. Only olap scan nodes are supported:
      */
     private void assignRuntimeFilters(ScanNode scanNode) {
-        if (!(scanNode instanceof OlapScanNode) && !(scanNode instanceof ExternalFileScanNode)) {
+        if (!(scanNode instanceof OlapScanNode) && !(scanNode instanceof FileQueryScanNode)) {
             return;
         }
         TupleId tid = scanNode.getTupleIds().get(0);

@@ -125,7 +125,7 @@ public:
         if (is_null) {
             return;
         }
-        if (type() == OLAP_FIELD_TYPE_STRING) {
+        if (type() == FieldType::OLAP_FIELD_TYPE_STRING) {
             auto dst_slice = reinterpret_cast<Slice*>(dst->mutable_cell_ptr());
             auto src_slice = reinterpret_cast<const Slice*>(src.cell_ptr());
             if (dst_slice->size < src_slice->size) {
@@ -154,7 +154,7 @@ public:
     // value_string should end with '\0'
     Status from_string(char* buf, const std::string& value_string, const int precision = 0,
                        const int scale = 0) const {
-        if (type() == OLAP_FIELD_TYPE_STRING && !value_string.empty()) {
+        if (type() == FieldType::OLAP_FIELD_TYPE_STRING && !value_string.empty()) {
             auto slice = reinterpret_cast<Slice*>(buf);
             if (slice->size < value_string.size()) {
                 *_long_text_buf = static_cast<char*>(realloc(*_long_text_buf, value_string.size()));
@@ -538,13 +538,13 @@ public:
         // for key column
         if (column.is_key()) {
             switch (column.type()) {
-            case OLAP_FIELD_TYPE_CHAR:
+            case FieldType::OLAP_FIELD_TYPE_CHAR:
                 return new CharField(column);
-            case OLAP_FIELD_TYPE_VARCHAR:
+            case FieldType::OLAP_FIELD_TYPE_VARCHAR:
                 return new VarcharField(column);
-            case OLAP_FIELD_TYPE_STRING:
+            case FieldType::OLAP_FIELD_TYPE_STRING:
                 return new StringField(column);
-            case OLAP_FIELD_TYPE_STRUCT: {
+            case FieldType::OLAP_FIELD_TYPE_STRUCT: {
                 auto* local = new StructField(column);
                 for (uint32_t i = 0; i < column.get_subtype_count(); i++) {
                     std::unique_ptr<Field> sub_field(
@@ -553,13 +553,13 @@ public:
                 }
                 return local;
             }
-            case OLAP_FIELD_TYPE_ARRAY: {
+            case FieldType::OLAP_FIELD_TYPE_ARRAY: {
                 std::unique_ptr<Field> item_field(FieldFactory::create(column.get_sub_column(0)));
                 auto* local = new ArrayField(column);
                 local->add_sub_field(std::move(item_field));
                 return local;
             }
-            case OLAP_FIELD_TYPE_MAP: {
+            case FieldType::OLAP_FIELD_TYPE_MAP: {
                 std::unique_ptr<Field> key_field(FieldFactory::create(column.get_sub_column(0)));
                 std::unique_ptr<Field> val_field(FieldFactory::create(column.get_sub_column(1)));
                 auto* local = new MapField(column);
@@ -567,15 +567,15 @@ public:
                 local->add_sub_field(std::move(val_field));
                 return local;
             }
-            case OLAP_FIELD_TYPE_DECIMAL:
+            case FieldType::OLAP_FIELD_TYPE_DECIMAL:
                 [[fallthrough]];
-            case OLAP_FIELD_TYPE_DECIMAL32:
+            case FieldType::OLAP_FIELD_TYPE_DECIMAL32:
                 [[fallthrough]];
-            case OLAP_FIELD_TYPE_DECIMAL64:
+            case FieldType::OLAP_FIELD_TYPE_DECIMAL64:
                 [[fallthrough]];
-            case OLAP_FIELD_TYPE_DECIMAL128I:
+            case FieldType::OLAP_FIELD_TYPE_DECIMAL128I:
                 [[fallthrough]];
-            case OLAP_FIELD_TYPE_DATETIMEV2: {
+            case FieldType::OLAP_FIELD_TYPE_DATETIMEV2: {
                 Field* field = new Field(column);
                 field->set_precision(column.precision());
                 field->set_scale(column.frac());
@@ -595,13 +595,13 @@ public:
         case OLAP_FIELD_AGGREGATION_REPLACE:
         case OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL:
             switch (column.type()) {
-            case OLAP_FIELD_TYPE_CHAR:
+            case FieldType::OLAP_FIELD_TYPE_CHAR:
                 return new CharField(column);
-            case OLAP_FIELD_TYPE_VARCHAR:
+            case FieldType::OLAP_FIELD_TYPE_VARCHAR:
                 return new VarcharField(column);
-            case OLAP_FIELD_TYPE_STRING:
+            case FieldType::OLAP_FIELD_TYPE_STRING:
                 return new StringField(column);
-            case OLAP_FIELD_TYPE_STRUCT: {
+            case FieldType::OLAP_FIELD_TYPE_STRUCT: {
                 auto* local = new StructField(column);
                 for (uint32_t i = 0; i < column.get_subtype_count(); i++) {
                     std::unique_ptr<Field> sub_field(
@@ -610,13 +610,13 @@ public:
                 }
                 return local;
             }
-            case OLAP_FIELD_TYPE_ARRAY: {
+            case FieldType::OLAP_FIELD_TYPE_ARRAY: {
                 std::unique_ptr<Field> item_field(FieldFactory::create(column.get_sub_column(0)));
                 auto* local = new ArrayField(column);
                 local->add_sub_field(std::move(item_field));
                 return local;
             }
-            case OLAP_FIELD_TYPE_MAP: {
+            case FieldType::OLAP_FIELD_TYPE_MAP: {
                 DCHECK(column.get_subtype_count() == 2);
                 auto* local = new MapField(column);
                 std::unique_ptr<Field> key_field(FieldFactory::create(column.get_sub_column(0)));
@@ -625,15 +625,15 @@ public:
                 local->add_sub_field(std::move(value_field));
                 return local;
             }
-            case OLAP_FIELD_TYPE_DECIMAL:
+            case FieldType::OLAP_FIELD_TYPE_DECIMAL:
                 [[fallthrough]];
-            case OLAP_FIELD_TYPE_DECIMAL32:
+            case FieldType::OLAP_FIELD_TYPE_DECIMAL32:
                 [[fallthrough]];
-            case OLAP_FIELD_TYPE_DECIMAL64:
+            case FieldType::OLAP_FIELD_TYPE_DECIMAL64:
                 [[fallthrough]];
-            case OLAP_FIELD_TYPE_DECIMAL128I:
+            case FieldType::OLAP_FIELD_TYPE_DECIMAL128I:
                 [[fallthrough]];
-            case OLAP_FIELD_TYPE_DATETIMEV2: {
+            case FieldType::OLAP_FIELD_TYPE_DATETIMEV2: {
                 Field* field = new Field(column);
                 field->set_precision(column.precision());
                 field->set_scale(column.frac());

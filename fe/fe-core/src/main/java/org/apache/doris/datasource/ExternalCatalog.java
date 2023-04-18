@@ -31,6 +31,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -40,7 +41,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
-import org.apache.commons.lang.NotImplementedException;
+import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -115,7 +116,7 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
      * @return true if table exists, false otherwise
      */
     public boolean tableExistInLocal(String dbName, String tblName) {
-        throw new NotImplementedException();
+        throw new NotImplementedException("tableExistInLocal not implemented");
     }
 
     /**
@@ -149,12 +150,25 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
         }
     }
 
+    public boolean isInitialized() {
+        return this.initialized;
+    }
+
     // init some local objects such as:
     // hms client, read properties from hive-site.xml, es client
     protected abstract void initLocalObjectsImpl();
 
     // check if all required properties are set when creating catalog
     public void checkProperties() throws DdlException {
+        // check refresh parameter of catalog
+        Map<String, String> properties = getCatalogProperty().getProperties();
+        if (properties.containsKey(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC)) {
+            try {
+                Integer.valueOf(properties.get(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC));
+            } catch (NumberFormatException e) {
+                throw new DdlException("Invalid properties: " + CatalogMgr.METADATA_REFRESH_INTERVAL_SEC);
+            }
+        }
     }
 
     /**
@@ -297,7 +311,7 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
 
     @Override
     public Map<String, String> getProperties() {
-        return catalogProperty.getProperties();
+        return PropertyConverter.convertToMetaProperties(catalogProperty.getProperties());
     }
 
     @Override
@@ -412,11 +426,11 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     }
 
     public void dropDatabase(String dbName) {
-        throw new NotImplementedException();
+        throw new NotImplementedException("dropDatabase not implemented");
     }
 
     public void createDatabase(long dbId, String dbName) {
-        throw new NotImplementedException();
+        throw new NotImplementedException("createDatabase not implemented");
     }
 
     public Map getSpecifiedDatabaseMap() {

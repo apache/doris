@@ -17,21 +17,35 @@
 
 #include "common/daemon.h"
 
+#include <bthread/errno.h>
 #include <gflags/gflags.h>
-#include <gperftools/malloc_extension.h>
+#include <gperftools/malloc_extension.h> // IWYU pragma: keep
+// IWYU pragma: no_include <bits/std_abs.h>
+#include <math.h>
 #include <signal.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include <algorithm>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <map>
+#include <memory>
+#include <ostream>
+#include <set>
+#include <string>
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "exprs/math_functions.h"
-#include "exprs/string_functions.h"
+#include "common/status.h"
 #include "olap/options.h"
 #include "olap/storage_engine.h"
 #include "runtime/block_spill_manager.h"
 #include "runtime/exec_env.h"
-#include "runtime/fragment_mgr.h"
 #include "runtime/load_channel_mgr.h"
-#include "runtime/memory/chunk_allocator.h"
+#include "runtime/memory/mem_tracker.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/user_function_cache.h"
 #include "service/backend_options.h"
 #include "util/cpu_info.h"
@@ -40,7 +54,7 @@
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
 #include "util/network_util.h"
-#include "util/system_metrics.h"
+#include "util/perf_counters.h"
 #include "util/thrift_util.h"
 #include "util/time.h"
 
@@ -194,8 +208,9 @@ void Daemon::memory_maintenance_thread() {
                 DorisMetrics::instance()->system_metrics()->update_allocator_metrics();
             }
 #endif
+            LOG(INFO) << MemTrackerLimiter::
+                            process_mem_log_str(); // print mem log when memory state by 100M
             if (doris::config::memory_debug) {
-                LOG(INFO) << MemTrackerLimiter::process_mem_log_str();
                 LOG_EVERY_N(INFO, 10)
                         << doris::MemTrackerLimiter::log_process_usage_str("memory debug", false);
             }

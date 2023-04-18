@@ -25,12 +25,12 @@ import org.apache.doris.qe.ConnectContext;
  * according different operator
  */
 public interface Cost {
-    public double getValue();
+    double getValue();
 
     /**
      * This is for calculating the cost in simplifier
      */
-    public static Cost withRowCount(double rowCount) {
+    static Cost withRowCount(double rowCount) {
         if (ConnectContext.get().getSessionVariable().getEnableNewCostModel()) {
             return new CostV2(0, rowCount, 0);
         }
@@ -40,17 +40,14 @@ public interface Cost {
     /**
      * return zero cost
      */
-    public static Cost zero() {
+    static Cost zero() {
         if (ConnectContext.get().getSessionVariable().getEnableNewCostModel()) {
             return CostV2.zero();
         }
         return CostV1.zero();
     }
 
-    /**
-     * return infinite cost
-     */
-    public static Cost infinite() {
+    static Cost infinite() {
         if (ConnectContext.get().getSessionVariable().getEnableNewCostModel()) {
             return CostV2.infinite();
         }

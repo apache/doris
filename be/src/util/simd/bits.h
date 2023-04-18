@@ -21,13 +21,7 @@
 #include <cstring>
 #include <vector>
 
-#ifdef __AVX2__
-#include <immintrin.h>
-#elif __SSE2__
-#include <emmintrin.h>
-#elif __aarch64__
-#include <sse2neon.h>
-#endif
+#include "util/sse_util.hpp"
 
 namespace doris {
 namespace simd {

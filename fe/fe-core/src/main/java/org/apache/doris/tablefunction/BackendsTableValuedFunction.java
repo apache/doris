@@ -67,17 +67,18 @@ public class BackendsTableValuedFunction extends MetadataTableValuedFunction {
     public List<Column> getTableColumns() throws AnalysisException {
         List<Column> resColumns = Lists.newArrayList();
         resColumns.add(new Column("BackendId", ScalarType.createType(PrimitiveType.BIGINT)));
-        resColumns.add(new Column("Cluster", ScalarType.createVarchar(64)));
-        resColumns.add(new Column("IP", ScalarType.createVarchar(16)));
+        resColumns.add(new Column("Cluster", ScalarType.createStringType()));
+        resColumns.add(new Column("IP", ScalarType.createStringType()));
+        resColumns.add(new Column("HostName", ScalarType.createStringType()));
         resColumns.add(new Column("HeartbeatPort", ScalarType.createType(PrimitiveType.INT)));
         resColumns.add(new Column("BePort", ScalarType.createType(PrimitiveType.INT)));
         resColumns.add(new Column("HttpPort", ScalarType.createType(PrimitiveType.INT)));
         resColumns.add(new Column("BrpcPort", ScalarType.createType(PrimitiveType.INT)));
-        resColumns.add(new Column("LastStartTime", ScalarType.createVarchar(32)));
-        resColumns.add(new Column("LastHeartbeat", ScalarType.createVarchar(32)));
-        resColumns.add(new Column("Alive", ScalarType.createVarchar(8)));
-        resColumns.add(new Column("SystemDecommissioned", ScalarType.createVarchar(8)));
-        resColumns.add(new Column("ClusterDecommissioned", ScalarType.createVarchar(8)));
+        resColumns.add(new Column("LastStartTime", ScalarType.createStringType()));
+        resColumns.add(new Column("LastHeartbeat", ScalarType.createStringType()));
+        resColumns.add(new Column("Alive", ScalarType.createStringType()));
+        resColumns.add(new Column("SystemDecommissioned", ScalarType.createStringType()));
+        resColumns.add(new Column("ClusterDecommissioned", ScalarType.createStringType()));
         resColumns.add(new Column("TabletNum", ScalarType.createType(PrimitiveType.BIGINT)));
         resColumns.add(new Column("DataUsedCapacity", ScalarType.createType(PrimitiveType.BIGINT)));
         resColumns.add(new Column("AvailCapacity", ScalarType.createType(PrimitiveType.BIGINT)));
@@ -85,12 +86,12 @@ public class BackendsTableValuedFunction extends MetadataTableValuedFunction {
         resColumns.add(new Column("UsedPct", ScalarType.createType(PrimitiveType.DOUBLE)));
         resColumns.add(new Column("MaxDiskUsedPct", ScalarType.createType(PrimitiveType.DOUBLE)));
         resColumns.add(new Column("RemoteUsedCapacity", ScalarType.createType(PrimitiveType.BIGINT)));
-        resColumns.add(new Column("Tag", ScalarType.createVarchar(128)));
-        resColumns.add(new Column("ErrMsg", ScalarType.createVarchar(2048)));
-        resColumns.add(new Column("Version", ScalarType.createVarchar(64)));
-        resColumns.add(new Column("Status", ScalarType.createVarchar(1024)));
+        resColumns.add(new Column("Tag", ScalarType.createStringType()));
+        resColumns.add(new Column("ErrMsg", ScalarType.createStringType()));
+        resColumns.add(new Column("Version", ScalarType.createStringType()));
+        resColumns.add(new Column("Status", ScalarType.createStringType()));
         resColumns.add(new Column("HeartbeatFailureCounter", ScalarType.createType(PrimitiveType.INT)));
-        resColumns.add(new Column("NodeRole", ScalarType.createVarchar(64)));
+        resColumns.add(new Column("NodeRole", ScalarType.createStringType()));
         return resColumns;
     }
 }

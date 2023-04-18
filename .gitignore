@@ -26,7 +26,6 @@ package-lock.json
 **/build/
 **/target/
 **/node_modules/
-**/dist/
 **/log/
 
 # ignore project file
@@ -84,6 +83,7 @@ be/src/gen_cpp/opcode
 be/tags
 be/test/olap/test_data/tablet_meta_test.hdr
 be/.devcontainer/
+be/src/apache-orc/
 
 ## tools
 tools/ssb-tools/ssb-data/

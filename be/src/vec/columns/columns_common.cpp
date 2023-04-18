@@ -18,18 +18,13 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Columns/ColumnsCommon.cpp
 // and modified by Doris
 
-#if defined(__SSE2__)
-#include <emmintrin.h>
-#endif
-#if defined(__aarch64__)
-#include <sse2neon.h>
-#endif
+#include "vec/columns/columns_common.h"
 
 #include "util/simd/bits.h"
+#include "util/sse_util.hpp"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_common.h"
 
 namespace doris::vectorized {
 

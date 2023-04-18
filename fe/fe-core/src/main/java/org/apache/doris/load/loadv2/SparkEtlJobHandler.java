@@ -117,6 +117,8 @@ public class SparkEtlJobHandler {
             sparkConfigs.put("spark.yarn.stage.dir", jobStageHdfsPath);
         }
 
+        LOG.info("submit etl spark job, sparkConfigs:{}", sparkConfigs);
+
         try {
             byte[] configData = etlJobConfig.configToJson().getBytes("UTF-8");
             BrokerUtil.writeFile(configData, jobConfigHdfsPath, brokerDesc);
@@ -154,7 +156,8 @@ public class SparkEtlJobHandler {
             Process process = launcher.launch();
             handle.setProcess(process);
             if (!FeConstants.runningUnitTest) {
-                SparkLauncherMonitor.LogMonitor logMonitor = SparkLauncherMonitor.createLogMonitor(handle);
+                SparkLauncherMonitor.LogMonitor logMonitor =
+                        SparkLauncherMonitor.createLogMonitor(handle, sparkConfigs);
                 logMonitor.setSubmitTimeoutMs(GET_APPID_TIMEOUT_MS);
                 logMonitor.setRedirectLogPath(logFilePath);
                 logMonitor.start();

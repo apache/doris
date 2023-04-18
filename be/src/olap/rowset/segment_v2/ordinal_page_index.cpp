@@ -29,7 +29,8 @@ namespace segment_v2 {
 
 void OrdinalIndexWriter::append_entry(ordinal_t ordinal, const PagePointer& data_pp) {
     std::string key;
-    KeyCoderTraits<OLAP_FIELD_TYPE_UNSIGNED_BIGINT>::full_encode_ascending(&ordinal, &key);
+    KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT>::full_encode_ascending(&ordinal,
+                                                                                      &key);
     _page_builder->add(key, data_pp);
     _last_pp = data_pp;
 }
@@ -95,8 +96,9 @@ Status OrdinalIndexReader::load(bool use_page_cache, bool kept_in_memory) {
     for (int i = 0; i < _num_pages; i++) {
         Slice key = reader.get_key(i);
         ordinal_t ordinal = 0;
-        RETURN_IF_ERROR(KeyCoderTraits<OLAP_FIELD_TYPE_UNSIGNED_BIGINT>::decode_ascending(
-                &key, sizeof(ordinal_t), (uint8_t*)&ordinal));
+        RETURN_IF_ERROR(
+                KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT>::decode_ascending(
+                        &key, sizeof(ordinal_t), (uint8_t*)&ordinal));
 
         _ordinals[i] = ordinal;
         _pages[i] = reader.get_value(i);

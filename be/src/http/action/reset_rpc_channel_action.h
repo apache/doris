@@ -21,6 +21,8 @@
 
 namespace doris {
 class ExecEnv;
+class HttpRequest;
+
 class ResetRPCChannelAction : public HttpHandler {
 public:
     explicit ResetRPCChannelAction(ExecEnv* exec_env);

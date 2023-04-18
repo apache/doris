@@ -17,6 +17,7 @@
 
 #include "olap/rowset/segment_v2/segment_writer.h"
 
+#include "common/config.h"
 #include "common/consts.h"
 #include "common/logging.h" // LOG
 #include "io/fs/file_writer.h"
@@ -77,7 +78,7 @@ void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t column_id,
                                      const TabletColumn& column, TabletSchemaSPtr tablet_schema) {
     meta->set_column_id(column_id);
     meta->set_unique_id(column.unique_id());
-    meta->set_type(column.type());
+    meta->set_type(int(column.type()));
     meta->set_length(column.length());
     meta->set_encoding(DEFAULT_ENCODING);
     meta->set_compression(tablet_schema->compression_type());
@@ -189,7 +190,7 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key,
 
         if (column.is_row_store_column()) {
             // smaller page size for row store column
-            opts.data_page_size = 16 * 1024;
+            opts.data_page_size = config::row_column_page_size;
         }
 
         std::unique_ptr<ColumnWriter> writer;
@@ -218,7 +219,9 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key,
             _primary_key_index_builder.reset(
                     new PrimaryKeyIndexBuilder(_file_writer, seq_col_length));
             RETURN_IF_ERROR(_primary_key_index_builder->init());
+#ifndef NDEBUG
             _key_set.reset(new std::unordered_set<std::string>());
+#endif
         } else {
             _short_key_index_builder.reset(
                     new ShortKeyIndexBuilder(_segment_id, _opts.num_rows_per_block));
@@ -326,8 +329,10 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
             // create primary indexes
             for (size_t pos = 0; pos < num_rows; pos++) {
                 std::string key = _full_encode_keys(key_columns, pos);
+#ifndef NDEBUG
                 DCHECK(_key_set.get() != nullptr);
                 _key_set->insert(key);
+#endif
                 if (_tablet_schema->has_sequence_col()) {
                     _encode_seq_column(seq_column, pos, &key);
                 }

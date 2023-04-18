@@ -121,6 +121,21 @@ struct PredicateTypeTraits {
     }
 };
 
+#define EVALUATE_BY_SELECTOR(EVALUATE_IMPL_WITH_NULL_MAP, EVALUATE_IMPL_WITHOUT_NULL_MAP) \
+    const bool is_dense_column = pred_col.size() == size;                                 \
+    for (uint16_t i = 0; i < size; i++) {                                                 \
+        uint16_t idx = is_dense_column ? i : sel[i];                                      \
+        if constexpr (is_nullable) {                                                      \
+            if (EVALUATE_IMPL_WITH_NULL_MAP(idx)) {                                       \
+                sel[new_size++] = idx;                                                    \
+            }                                                                             \
+        } else {                                                                          \
+            if (EVALUATE_IMPL_WITHOUT_NULL_MAP(idx)) {                                    \
+                sel[new_size++] = idx;                                                    \
+            }                                                                             \
+        }                                                                                 \
+    }
+
 class ColumnPredicate {
 public:
     explicit ColumnPredicate(uint32_t column_id, bool opposite = false)
@@ -186,6 +201,8 @@ public:
         DCHECK(false) << "should not reach here";
     }
     uint32_t column_id() const { return _column_id; }
+
+    bool opposite() const { return _opposite; }
 
     virtual std::string debug_string() const {
         return _debug_string() + ", column_id=" + std::to_string(_column_id) +

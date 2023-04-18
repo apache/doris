@@ -42,7 +42,7 @@ SHOW CREATE LOAD for load_name;
 
 illustrate:
 
-1`load_name`: import job name
+-  `load_name`: import job name
 
 ### Example
 

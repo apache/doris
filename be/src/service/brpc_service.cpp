@@ -17,11 +17,18 @@
 
 #include "service/brpc_service.h"
 
+#include <brpc/server.h>
+#include <brpc/ssl_options.h>
+#include <bthread/errno.h>
+#include <butil/endpoint.h>
+#include <gflags/gflags_declare.h>
 #include <string.h>
 
+#include <ostream>
+
+#include "common/config.h"
 #include "common/logging.h"
 #include "service/backend_options.h"
-#include "service/brpc.h"
 #include "service/internal_service.h"
 
 namespace brpc {
@@ -48,6 +55,12 @@ Status BRpcService::start(int port, int num_threads) {
     brpc::ServerOptions options;
     if (num_threads != -1) {
         options.num_threads = num_threads;
+    }
+
+    if (config::enable_https) {
+        auto sslOptions = options.mutable_ssl_options();
+        sslOptions->default_cert.certificate = config::ssl_certificate_path;
+        sslOptions->default_cert.private_key = config::ssl_private_key_path;
     }
 
     butil::EndPoint point;

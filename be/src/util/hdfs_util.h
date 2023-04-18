@@ -17,13 +17,12 @@
 
 #pragma once
 
-#include <hdfs/hdfs.h>
-
 #include <map>
 #include <memory>
 #include <string>
 
 #include "common/status.h"
+#include "io/fs/hdfs.h"
 #include "io/fs/path.h"
 #include "io/hdfs_builder.h"
 

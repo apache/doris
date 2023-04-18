@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BaseTableRef;
 import org.apache.doris.analysis.BinaryPredicate;
@@ -185,15 +186,28 @@ public class OlapScanNode extends ScanNode {
     private Map<SlotRef, Expr> pointQueryEqualPredicats;
     private DescriptorTable descTable;
 
+    private Set<Integer> distributionColumnIds;
+
+    private boolean shouldColoScan = false;
+
     // Constructs node to scan given data files of table 'tbl'.
     public OlapScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
         super(id, desc, planNodeName, StatisticalType.OLAP_SCAN_NODE);
         olapTable = (OlapTable) desc.getTable();
+        distributionColumnIds = Sets.newTreeSet();
+
+        Set<String> distColumnName = olapTable != null
+                ? olapTable.getDistributionColumnNames() : Sets.newTreeSet();
+        int columnId = 0;
         // use for Nereids to generate uniqueId set for inverted index to avoid scan unnecessary big size column
         for (SlotDescriptor slotDescriptor : desc.getSlots()) {
             if (slotDescriptor.getColumn() != null) {
                 outputColumnUniqueIds.add(slotDescriptor.getColumn().getUniqueId());
+                if (distColumnName.contains(slotDescriptor.getColumn().getName().toLowerCase())) {
+                    distributionColumnIds.add(columnId);
+                }
             }
+            columnId++;
         }
     }
 
@@ -445,7 +459,8 @@ public class OlapScanNode extends ScanNode {
                 mvColumn = meta.getColumnByName(CreateMaterializedViewStmt.mvColumnBuilder(baseColumn.getName()));
             }
             if (mvColumn == null) {
-                throw new UserException("updateColumnType: Do not found mvColumn " + baseColumn.getName());
+                throw new UserException("updateColumnType: Do not found mvColumn=" + baseColumn.getName()
+                        + " from index=" + olapTable.getIndexNameById(selectedIndexId));
             }
 
             if (mvColumn.getType() != baseColumn.getType()) {
@@ -474,7 +489,9 @@ public class OlapScanNode extends ScanNode {
             if (mvColumn == null) {
                 boolean isBound = false;
                 for (Expr conjunct : conjuncts) {
-                    if (conjunct.isBound(slotDescriptor.getId())) {
+                    List<TupleId> tids = Lists.newArrayList();
+                    conjunct.getIds(tids, null);
+                    if (!tids.isEmpty() && conjunct.isBound(slotDescriptor.getId())) {
                         isBound = true;
                         break;
                     }
@@ -482,7 +499,8 @@ public class OlapScanNode extends ScanNode {
                 if (isBound) {
                     slotDescriptor.setIsMaterialized(false);
                 } else {
-                    throw new UserException("updateSlotUniqueId: Do not found mvColumn " + baseColumn.getName());
+                    throw new UserException("updateSlotUniqueId: Do not found mvColumn=" + baseColumn.getName()
+                            + " from index=" + olapTable.getIndexNameById(selectedIndexId));
                 }
             } else {
                 slotDescriptor.setColumn(mvColumn);
@@ -1004,7 +1022,9 @@ public class OlapScanNode extends ScanNode {
         // olap order by key: a.b.c.d
         // sort key: (a) (a,b) (a,b,c) (a,b,c,d) is ok
         //           (a,c) (a,c,d), (a,c,b) (a,c,f) (a,b,c,d,e)is NOT ok
-        List<Expr> sortExprs = sortNode.getSortInfo().getMaterializedOrderingExprs();
+        List<Expr> sortExprs = sortNode.getSortInfo().getOrigOrderingExprs();
+        List<Boolean> nullsFirsts = sortNode.getSortInfo().getNullsFirst();
+        List<Boolean> isAscOrders = sortNode.getSortInfo().getIsAscOrder();
         if (sortExprs.size() > olapTable.getDataSortInfo().getColNum()) {
             return false;
         }
@@ -1013,7 +1033,18 @@ public class OlapScanNode extends ScanNode {
             Column tableKey = olapTable.getFullSchema().get(i);
             // sort slot.
             Expr sortExpr = sortExprs.get(i);
-            if (!(sortExpr instanceof SlotRef) || !tableKey.equals(((SlotRef) sortExpr).getColumn())) {
+            if (sortExpr instanceof SlotRef) {
+                SlotRef slotRef = (SlotRef) sortExpr;
+                if (tableKey.equals(slotRef.getColumn())) {
+                    // ORDER BY DESC NULLS FIRST can not be optimized to only read file tail,
+                    // since NULLS is at file head but data is at tail
+                    if (tableKey.isAllowNull() && nullsFirsts.get(i) && !isAscOrders.get(i)) {
+                        return false;
+                    }
+                } else {
+                    return false;
+                }
+            } else {
                 return false;
             }
         }
@@ -1149,15 +1180,51 @@ public class OlapScanNode extends ScanNode {
     }
 
     @Override
-    public boolean shouldColoAgg() {
-        // In pipeline exec engine, the instance num is parallel instance. we should disable colo agg
-        // in parallelInstance >= tablet_num * 2 to use more thread to speed up the query
-        if (ConnectContext.get().getSessionVariable().enablePipelineEngine()) {
-            int parallelInstance = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
-            return parallelInstance < result.size() * 2;
+    public boolean shouldColoAgg(AggregateInfo aggregateInfo) {
+        distributionColumnIds.clear();
+        if (ConnectContext.get().getSessionVariable().enablePipelineEngine()
+                && ConnectContext.get().getSessionVariable().enableColocateScan()) {
+            List<Expr> aggPartitionExprs = aggregateInfo.getInputPartitionExprs();
+            List<SlotDescriptor> slots = desc.getSlots();
+            for (Expr aggExpr : aggPartitionExprs) {
+                if (aggExpr instanceof SlotRef) {
+                    SlotDescriptor slotDesc = ((SlotRef) aggExpr).getDesc();
+                    int columnId = 0;
+                    for (SlotDescriptor slotDescriptor : slots) {
+                        if (slotDescriptor.equals(slotDesc)) {
+                            if (slotDescriptor.getType().isFixedLengthType()
+                                    || slotDescriptor.getType().isStringType()) {
+                                distributionColumnIds.add(columnId);
+                            } else {
+                                return false;
+                            }
+                        }
+                        columnId++;
+                    }
+                }
+            }
+
+            for (int i = 0; i < slots.size(); i++) {
+                if (!distributionColumnIds.contains(i) && (!slots.get(i).getType().isFixedLengthType()
+                        || slots.get(i).getType().isStringType())) {
+                    return false;
+                }
+            }
+
+            return !distributionColumnIds.isEmpty();
         } else {
-            return true;
+            return false;
         }
+    }
+
+    @Override
+    public void setShouldColoScan() {
+        shouldColoScan = true;
+    }
+
+    @Override
+    public boolean getShouldColoScan() {
+        return shouldColoScan;
     }
 
     @Override
@@ -1215,6 +1282,10 @@ public class OlapScanNode extends ScanNode {
 
         if (outputColumnUniqueIds != null) {
             msg.olap_scan_node.setOutputColumnUniqueIds(outputColumnUniqueIds);
+        }
+
+        if (shouldColoScan) {
+            msg.olap_scan_node.setDistributeColumnIds(new ArrayList<>(distributionColumnIds));
         }
     }
 

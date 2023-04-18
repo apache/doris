@@ -110,7 +110,7 @@ func decodeVarint64(bt []byte) (int64, int) { // nolint
 }
 
 func (dao *bitmapReaderImpl) Query(sql string, args ...any) (*roaring64.Bitmap, error) {
-	sql = "set return_object_data_as_binary=true;set enable_vectorized_engine=false;set enable_sql_cache = false;" + sql
+	sql = "set return_object_data_as_binary=true;set enable_sql_cache = false;" + sql
 	rows, err := dao.db.Query(sql, args...)
 	if err != nil {
 		return nil, err

@@ -83,13 +83,21 @@ public class ColumnStatistic {
      */
     public final double selectivity;
 
+    /*
+    originalNdv is the ndv in stats of ScanNode. ndv may be changed after filter or join,
+    but originalNdv is not. It is used to trace the change of a column's ndv through serials
+    of sql operators.
+     */
+    public final double originalNdv;
+
     // For display only.
     public final LiteralExpr minExpr;
     public final LiteralExpr maxExpr;
 
+    // assign value when do stats estimation.
     public final Histogram histogram;
 
-    public ColumnStatistic(double count, double ndv, double avgSizeByte,
+    public ColumnStatistic(double count, double ndv, double originalNdv, double avgSizeByte,
             double numNulls, double dataSize, double minValue, double maxValue,
             double selectivity, LiteralExpr minExpr, LiteralExpr maxExpr, boolean isUnKnown, Histogram histogram) {
         this.count = count;
@@ -104,6 +112,7 @@ public class ColumnStatistic {
         this.maxExpr = maxExpr;
         this.isUnKnown = isUnKnown;
         this.histogram = histogram;
+        this.originalNdv = originalNdv;
     }
 
     // TODO: use thrift
@@ -136,12 +145,18 @@ public class ColumnStatistic {
             }
             String min = resultRow.getColumnValue("min");
             String max = resultRow.getColumnValue("max");
-            columnStatisticBuilder.setMinValue(StatisticsUtil.convertToDouble(col.getType(), min));
-            columnStatisticBuilder.setMaxValue(StatisticsUtil.convertToDouble(col.getType(), max));
-            columnStatisticBuilder.setMaxExpr(StatisticsUtil.readableValue(col.getType(), max));
-            columnStatisticBuilder.setMinExpr(StatisticsUtil.readableValue(col.getType(), min));
+            if (!StatisticsUtil.isNullOrEmpty(min)) {
+                columnStatisticBuilder.setMinValue(StatisticsUtil.convertToDouble(col.getType(), min));
+                columnStatisticBuilder.setMinExpr(StatisticsUtil.readableValue(col.getType(), min));
+            }
+            if (!StatisticsUtil.isNullOrEmpty(max)) {
+                columnStatisticBuilder.setMaxValue(StatisticsUtil.convertToDouble(col.getType(), max));
+                columnStatisticBuilder.setMaxExpr(StatisticsUtil.readableValue(col.getType(), max));
+            }
             columnStatisticBuilder.setSelectivity(1.0);
-            Histogram histogram = Env.getCurrentEnv().getStatisticsCache().getHistogram(tblId, idxId, colName);
+            columnStatisticBuilder.setOriginalNdv(ndv);
+            Histogram histogram = Env.getCurrentEnv().getStatisticsCache().getHistogram(tblId, idxId, colName)
+                    .orElse(null);
             columnStatisticBuilder.setHistogram(histogram);
             return columnStatisticBuilder.build();
         } catch (Exception e) {
@@ -236,26 +251,15 @@ public class ColumnStatistic {
         }
     }
 
+    public boolean notEnclosed(ColumnStatistic other) {
+        return !enclosed(other);
+    }
+
     /**
-     * the percentage of intersection range to this range
-     * @param other
-     * @return
+     * Return true if range of this is enclosed by another.
      */
-    public double coverage(ColumnStatistic other) {
-        if (isUnKnown) {
-            return 1.0;
-        }
-        if (minValue == maxValue) {
-            if (other.minValue <= minValue && minValue <= other.maxValue) {
-                return 1.0;
-            } else {
-                return 0.0;
-            }
-        } else {
-            double myRange = maxValue - minValue;
-            double interSection = Math.min(maxValue, other.maxValue) - Math.max(minValue, other.minValue);
-            return interSection / myRange;
-        }
+    public boolean enclosed(ColumnStatistic other) {
+        return this.maxValue >= other.maxValue && this.maxValue <= other.maxValue;
     }
 
     @Override

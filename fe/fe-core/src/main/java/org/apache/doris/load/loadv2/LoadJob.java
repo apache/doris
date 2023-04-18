@@ -132,7 +132,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     protected List<ErrorTabletInfo> errorTabletInfos = Lists.newArrayList();
 
-    protected UserIdentity userInfo;
+    protected UserIdentity userInfo = UserIdentity.UNKNOWN;
 
     protected String comment = "";
 
@@ -1116,8 +1116,12 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
                 userInfo = UserIdentity.read(in);
                 // must set is as analyzed, because when write the user info to meta image, it will be checked.
                 userInfo.setIsAnalyzed();
+            } else {
+                userInfo = UserIdentity.UNKNOWN;
             }
             comment = Text.readString(in);
+        } else {
+            comment = "";
         }
     }
 

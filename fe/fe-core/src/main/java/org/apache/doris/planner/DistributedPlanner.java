@@ -592,7 +592,7 @@ public class DistributedPlanner {
                 }
             }
 
-            //3 the join columns should contains all distribute columns to enable colocate join
+            //3 the join columns should contain all distribute columns to enable colocate join
             if (leftJoinColumns.containsAll(leftDistributeColumns)
                     && rightJoinColumns.containsAll(rightDistributeColumns)) {
                 return true;
@@ -932,9 +932,11 @@ public class DistributedPlanner {
             return createPhase2DistinctAggregationFragment(node, childFragment, fragments);
         } else {
             if (canColocateAgg(node.getAggInfo(), childFragment.getDataPartition())
-                    && childFragment.getPlanRoot().shouldColoAgg()) {
+                    || childFragment.getPlanRoot().shouldColoAgg(node.getAggInfo())) {
+                childFragment.getPlanRoot().setShouldColoScan();
                 childFragment.addPlanRoot(node);
-                childFragment.setHasColocatePlanNode(true);
+                // pipeline here should use shared scan to improve performance
+                childFragment.setHasColocatePlanNode(!ConnectContext.get().getSessionVariable().enablePipelineEngine());
                 return childFragment;
             } else {
                 return createMergeAggregationFragment(node, childFragment);

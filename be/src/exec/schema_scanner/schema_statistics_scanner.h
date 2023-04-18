@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <vector>
+
 #include "exec/schema_scanner.h"
 
 namespace doris {

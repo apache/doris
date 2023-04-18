@@ -81,6 +81,7 @@ public class FeConstants {
     public static String FS_PREFIX_COS = "cos";
     public static String FS_PREFIX_OBS = "obs";
     public static String FS_PREFIX_OFS = "ofs";
+    public static String FS_PREFIX_GFS = "gfs";
     public static String FS_PREFIX_JFS = "jfs";
     public static String FS_PREFIX_HDFS = "hdfs";
     public static String FS_PREFIX_FILE = "file";

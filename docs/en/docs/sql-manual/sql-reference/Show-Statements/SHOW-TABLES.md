@@ -37,7 +37,7 @@ This statement is used to display all tables under the current db
 grammar:
 
 ```sql
-SHOW TABLES [LIKE]
+SHOW [FULL] TABLES [LIKE]
 ````
 
 illustrate:

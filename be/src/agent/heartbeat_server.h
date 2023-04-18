@@ -17,14 +17,20 @@
 
 #pragma once
 
+#include <butil/macros.h>
+#include <gen_cpp/HeartbeatService.h>
+#include <stdint.h>
+
 #include <mutex>
 
 #include "common/status.h"
-#include "gen_cpp/HeartbeatService.h"
 #include "olap/olap_define.h"
 #include "runtime/exec_env.h"
 
 namespace doris {
+class ExecEnv;
+class THeartbeatResult;
+class TMasterInfo;
 
 const uint32_t HEARTBEAT_INTERVAL = 10;
 class StorageEngine;

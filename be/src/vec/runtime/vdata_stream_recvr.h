@@ -68,6 +68,8 @@ public:
 
     void add_block(Block* block, int sender_id, bool use_move);
 
+    bool sender_queue_empty(int sender_id);
+
     bool ready_to_read();
 
     Status get_next(Block* block, bool* eos);
@@ -174,6 +176,8 @@ public:
 
     void close();
 
+    bool queue_empty() { return _block_queue_empty; }
+
 protected:
     virtual void _update_block_queue_empty() {}
     Status _inner_get_batch(Block* block, bool* eos);
@@ -217,10 +221,6 @@ public:
     }
 
     void add_block(Block* block, bool use_move) override {
-        // Avoid deadlock when calling SenderQueue::cancel() in tcmalloc hook,
-        // limit memory via DataStreamRecvr::exceeds_limit.
-        STOP_CHECK_THREAD_MEM_TRACKER_LIMIT();
-
         if (_is_cancelled || !block->rows()) {
             return;
         }

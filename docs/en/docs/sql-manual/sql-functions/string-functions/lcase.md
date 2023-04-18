@@ -30,8 +30,7 @@ under the License.
 
 `INT lcase (VARCHAR str)`
 
-
-Consistent with `lower`.
+Convert all strings in parameters to lowercase. Another alias for this function is [lower](./lower.md).
 
 ### keywords
     LCASE

@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.exploration.CBOUtils;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -32,6 +33,7 @@ import org.apache.doris.nereids.util.JoinUtils;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -52,7 +54,7 @@ public class JoinExchangeLeftProject extends OneExplorationRuleFactory {
     public Rule build() {
         return innerLogicalJoin(logicalProject(innerLogicalJoin()), innerLogicalJoin())
                 .when(JoinExchange::checkReorder)
-                .when(join -> JoinReorderUtils.isAllSlotProject(join.left()))
+                .when(join -> join.left().isAllSlots())
                 .whenNot(join -> join.hasJoinHint()
                         || join.left().child().hasJoinHint() || join.right().hasJoinHint())
                 .whenNot(join -> join.isMarkJoin() || join.left().child().isMarkJoin() || join.right().isMarkJoin())
@@ -90,19 +92,19 @@ public class JoinExchangeLeftProject extends OneExplorationRuleFactory {
                             newLeftJoinHashJoinConjuncts, newLeftJoinOtherJoinConjuncts, JoinHint.NONE, a, c);
                     LogicalJoin<GroupPlan, GroupPlan> newRightJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
                             newRightJoinHashJoinConjuncts, newRightJoinOtherJoinConjuncts, JoinHint.NONE, b, d);
-                    // Set<ExprId> topUsedExprIds = new HashSet<>(topJoin.getOutputExprIdSet());
-                    // newTopJoinHashJoinConjuncts.forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
-                    // newTopJoinOtherJoinConjuncts.forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
-                    // Plan left = JoinReorderUtils.newProject(topUsedExprIds, newLeftJoin);
-                    // Plan right = JoinReorderUtils.newProject(topUsedExprIds, newRightJoin);
+                    Set<ExprId> topUsedExprIds = new HashSet<>(topJoin.getOutputExprIdSet());
+                    newTopJoinHashJoinConjuncts.forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
+                    newTopJoinOtherJoinConjuncts.forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
+                    Plan left = CBOUtils.newProject(topUsedExprIds, newLeftJoin);
+                    Plan right = CBOUtils.newProject(topUsedExprIds, newRightJoin);
                     LogicalJoin newTopJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
                             newTopJoinHashJoinConjuncts, newTopJoinOtherJoinConjuncts, JoinHint.NONE,
-                            newLeftJoin, newRightJoin);
+                            left, right);
                     JoinExchange.setNewLeftJoinReorder(newLeftJoin, leftJoin);
                     JoinExchange.setNewRightJoinReorder(newRightJoin, leftJoin);
                     JoinExchange.setNewTopJoinReorder(newTopJoin, topJoin);
 
-                    return JoinReorderUtils.projectOrSelf(new ArrayList<>(topJoin.getOutput()), newTopJoin);
+                    return CBOUtils.projectOrSelf(new ArrayList<>(topJoin.getOutput()), newTopJoin);
                 }).toRule(RuleType.LOGICAL_JOIN_EXCHANGE);
     }
 

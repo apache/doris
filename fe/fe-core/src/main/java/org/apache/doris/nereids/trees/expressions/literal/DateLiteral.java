@@ -149,6 +149,11 @@ public class DateLiteral extends Literal {
     }
 
     @Override
+    public double getDouble() {
+        return (double) getValue();
+    }
+
+    @Override
     public String getStringValue() {
         return String.format("%04d-%02d-%02d", year, month, day);
     }

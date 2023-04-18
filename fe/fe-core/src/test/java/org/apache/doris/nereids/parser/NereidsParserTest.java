@@ -267,9 +267,22 @@ public class NereidsParserTest extends ParserTestBase {
         System.out.println(logicalPlan.treeString());
 
         String union1 = "select * from t1 union (select * from t2 union all select * from t3)";
-        NereidsParser nereidsParser1 = new NereidsParser();
-        LogicalPlan logicalPlan1 = nereidsParser1.parseSingle(union1);
+        LogicalPlan logicalPlan1 = nereidsParser.parseSingle(union1);
         System.out.println(logicalPlan1.treeString());
+
+        String union2 = "(SELECT K1, K2, K3, K4, K5, K6, K7, K8, K9, K10, K11 FROM test WHERE K1 > 0)"
+                + " UNION ALL (SELECT 1, 2, 3, 4, 3.14, 'HELLO', 'WORLD', 0.0, 1.1, CAST('1989-03-21' AS DATE), CAST('1989-03-21 13:00:00' AS DATETIME))"
+                + " UNION ALL (SELECT K1, K2, K3, K4, K5, K6, K7, K8, K9, K10, K11 FROM baseall WHERE K3 > 0)"
+                + " ORDER BY K1, K2, K3, K4";
+        LogicalPlan logicalPlan2 = nereidsParser.parseSingle(union2);
+        System.out.println(logicalPlan2.treeString());
+
+        String union3 = "select a.k1, a.k2, a.k3, b.k1, b.k2, b.k3 from test a left outer join baseall b"
+                + " on a.k1 = b.k1 and a.k2 > b.k2 union (select a.k1, a.k2, a.k3, b.k1, b.k2, b.k3"
+                + " from test a right outer join baseall b on a.k1 = b.k1 and a.k2 > b.k2)"
+                + " order by isnull(a.k1), 1, 2, 3, 4, 5 limit 65535";
+        LogicalPlan logicalPlan3 = nereidsParser.parseSingle(union3);
+        System.out.println(logicalPlan3.treeString());
     }
 
     @Test

@@ -84,6 +84,10 @@ public class StmtExecutionAction extends RestBaseController {
     @RequestMapping(path = "/api/query/{" + NS_KEY + "}/{" + DB_KEY + "}", method = {RequestMethod.POST})
     public Object executeSQL(@PathVariable(value = NS_KEY) String ns, @PathVariable(value = DB_KEY) String dbName,
             HttpServletRequest request, HttpServletResponse response, @RequestBody String body) {
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
+
         ActionAuthorizationInfo authInfo = checkWithCookie(request, response, false);
         String fullDbName = getFullDbName(dbName);
         if (Config.enable_all_http_auth) {
@@ -125,8 +129,12 @@ public class StmtExecutionAction extends RestBaseController {
      * @return plain text of create table stmts
      */
     @RequestMapping(path = "/api/query_schema/{" + NS_KEY + "}/{" + DB_KEY + "}", method = {RequestMethod.POST})
-    public String querySchema(@PathVariable(value = NS_KEY) String ns, @PathVariable(value = DB_KEY) String dbName,
+    public Object querySchema(@PathVariable(value = NS_KEY) String ns, @PathVariable(value = DB_KEY) String dbName,
             HttpServletRequest request, HttpServletResponse response, @RequestBody String sql) {
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
+
         checkWithCookie(request, response, false);
 
         if (ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {

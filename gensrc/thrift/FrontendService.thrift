@@ -429,6 +429,8 @@ struct TReportExecStatusParams {
   18: optional list<Types.TErrorTabletInfo> errorTabletInfos
 
   19: optional i32 fragment_id
+
+  20: optional PaloInternalService.TQueryType query_type
 }
 
 struct TFeResult {
@@ -570,6 +572,7 @@ struct TStreamLoadPutRequest {
     41: optional i64 file_size // only for stream load with parquet or orc
     42: optional bool trim_double_quotes // trim double quotes for csv
     43: optional i32 skip_lines // csv skip line num, only used when csv header_type is not set.
+    44: optional bool enable_profile
 }
 
 struct TStreamLoadPutResult {
@@ -716,7 +719,7 @@ struct TInitExternalCtlMetaResult {
 }
 
 enum TSchemaTableName {
-  BACKENDS = 0,
+  // BACKENDS = 0,
   METADATA_TABLE = 1,
 }
 

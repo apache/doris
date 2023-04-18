@@ -103,9 +103,6 @@ Status VDataStreamRecvr::SenderQueue::_inner_get_batch(Block* block, bool* eos) 
 void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_number,
                                               int64_t packet_seq,
                                               ::google::protobuf::Closure** done) {
-    // Avoid deadlock when calling SenderQueue::cancel() in tcmalloc hook,
-    // limit memory via DataStreamRecvr::exceeds_limit.
-    STOP_CHECK_THREAD_MEM_TRACKER_LIMIT();
     {
         std::lock_guard<std::mutex> l(_lock);
         if (_is_cancelled) {
@@ -170,9 +167,6 @@ void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_numbe
 }
 
 void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
-    // Avoid deadlock when calling SenderQueue::cancel() in tcmalloc hook,
-    // limit memory via DataStreamRecvr::exceeds_limit.
-    STOP_CHECK_THREAD_MEM_TRACKER_LIMIT();
     {
         std::unique_lock<std::mutex> l(_lock);
         if (_is_cancelled || !block->rows()) {
@@ -371,6 +365,11 @@ void VDataStreamRecvr::add_block(const PBlock& pblock, int sender_id, int be_num
 void VDataStreamRecvr::add_block(Block* block, int sender_id, bool use_move) {
     int use_sender_id = _is_merging ? sender_id : 0;
     _sender_queues[use_sender_id]->add_block(block, use_move);
+}
+
+bool VDataStreamRecvr::sender_queue_empty(int sender_id) {
+    int use_sender_id = _is_merging ? sender_id : 0;
+    return _sender_queues[use_sender_id]->queue_empty();
 }
 
 bool VDataStreamRecvr::ready_to_read() {

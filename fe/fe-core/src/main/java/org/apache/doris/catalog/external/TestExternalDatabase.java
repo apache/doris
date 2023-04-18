@@ -64,6 +64,7 @@ public class TestExternalDatabase extends ExternalDatabase<TestExternalTable> im
                     tblId = tableNameToId.get(tableName);
                     tmpTableNameToId.put(tableName, tblId);
                     TestExternalTable table = idToTbl.get(tblId);
+                    table.unsetObjectCreated();
                     tmpIdToTbl.put(tblId, table);
                     initDatabaseLog.addRefreshTable(tblId);
                 } else {

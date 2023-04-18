@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -31,6 +32,10 @@ public class Bucket {
     public double preSum;
     public double ndv;
 
+    // For display only.
+    public LiteralExpr lowerExpr;
+    public LiteralExpr upperExpr;
+
     public Bucket() {
     }
 
@@ -42,44 +47,15 @@ public class Bucket {
         this.ndv = ndv;
     }
 
-    public double getLower() {
-        return lower;
-    }
-
-    public void setLower(double lower) {
+    public Bucket(double lower, double upper, double count, double preSum, double ndv,
+            LiteralExpr lowerExpr, LiteralExpr upperExpr) {
         this.lower = lower;
-    }
-
-    public double getUpper() {
-        return upper;
-    }
-
-    public void setUpper(double upper) {
         this.upper = upper;
-    }
-
-    public double getCount() {
-        return count;
-    }
-
-    public void setCount(int count) {
         this.count = count;
-    }
-
-    public double getPreSum() {
-        return preSum;
-    }
-
-    public void setPreSum(int preSum) {
         this.preSum = preSum;
-    }
-
-    public double getNdv() {
-        return ndv;
-    }
-
-    public void setNdv(int ndv) {
         this.ndv = ndv;
+        this.lowerExpr = lowerExpr;
+        this.upperExpr = upperExpr;
     }
 
     public static Bucket deserializeFromJson(Type datatype, String json) throws AnalysisException {
@@ -90,6 +66,11 @@ public class Bucket {
         bucket.count = bucketJson.get("count").getAsInt();
         bucket.preSum = bucketJson.get("pre_sum").getAsInt();
         bucket.ndv = bucketJson.get("ndv").getAsInt();
+
+        // LowerExpr and upperExpr for display only.
+        bucket.lowerExpr = StatisticsUtil.readableValue(datatype, bucketJson.get("lower").getAsString());
+        bucket.upperExpr = StatisticsUtil.readableValue(datatype, bucketJson.get("upper").getAsString());
+
         return bucket;
     }
 
@@ -99,8 +80,8 @@ public class Bucket {
         }
 
         JsonObject bucketJson = new JsonObject();
-        bucketJson.addProperty("upper", bucket.upper);
-        bucketJson.addProperty("lower", bucket.lower);
+        bucketJson.addProperty("lower_expr", bucket.lowerExpr.getStringValue());
+        bucketJson.addProperty("upper_expr", bucket.upperExpr.getStringValue());
         bucketJson.addProperty("count", bucket.count);
         bucketJson.addProperty("pre_sum", bucket.preSum);
         bucketJson.addProperty("ndv", bucket.ndv);

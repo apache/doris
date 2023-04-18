@@ -51,8 +51,8 @@ public class LogicalJoinSemiJoinTranspose implements ExplorationRuleFactory {
                             GroupPlan b = bottomJoin.right();
                             GroupPlan c = topJoin.right();
 
-                            Plan newBottomJoin = topJoin.withChildren(a, c);
-                            return bottomJoin.withChildren(newBottomJoin, b);
+                            Plan newBottomJoin = topJoin.withChildrenNoContext(a, c);
+                            return bottomJoin.withChildrenNoContext(newBottomJoin, b);
                         }).toRule(RuleType.LOGICAL_JOIN_LOGICAL_SEMI_JOIN_TRANSPOSE),
 
                 logicalJoin(group(), logicalJoin())
@@ -67,8 +67,8 @@ public class LogicalJoinSemiJoinTranspose implements ExplorationRuleFactory {
                             GroupPlan b = bottomJoin.left();
                             GroupPlan c = bottomJoin.right();
 
-                            Plan newBottomJoin = topJoin.withChildren(a, b);
-                            return bottomJoin.withChildren(newBottomJoin, c);
+                            Plan newBottomJoin = topJoin.withChildrenNoContext(a, b);
+                            return bottomJoin.withChildrenNoContext(newBottomJoin, c);
                         }).toRule(RuleType.LOGICAL_JOIN_LOGICAL_SEMI_JOIN_TRANSPOSE)
         );
     }

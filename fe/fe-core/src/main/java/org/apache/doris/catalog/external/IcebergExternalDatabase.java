@@ -92,6 +92,7 @@ public class IcebergExternalDatabase extends ExternalDatabase<IcebergExternalTab
                     tblId = tableNameToId.get(tableName);
                     tmpTableNameToId.put(tableName, tblId);
                     IcebergExternalTable table = idToTbl.get(tblId);
+                    table.unsetObjectCreated();
                     tmpIdToTbl.put(tblId, table);
                     initDatabaseLog.addRefreshTable(tblId);
                 } else {

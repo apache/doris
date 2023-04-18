@@ -24,7 +24,7 @@ namespace pipeline {
 
 TaskQueue::~TaskQueue() = default;
 
-PipelineTask* SubWorkTaskQueue::try_take(bool is_steal) {
+PipelineTask* SubTaskQueue::try_take(bool is_steal) {
     if (_queue.empty()) {
         return nullptr;
     }
@@ -32,81 +32,69 @@ PipelineTask* SubWorkTaskQueue::try_take(bool is_steal) {
     if (!task->can_steal() && is_steal) {
         return nullptr;
     }
-    ++_schedule_time;
     _queue.pop();
     return task;
 }
 
-////////////////////  WorkTaskQueue ////////////////////
+////////////////////  PriorityTaskQueue ////////////////////
 
-NormalWorkTaskQueue::NormalWorkTaskQueue() : _closed(false) {
+PriorityTaskQueue::PriorityTaskQueue() : _closed(false) {
     double factor = 1;
     for (int i = 0; i < SUB_QUEUE_LEVEL; ++i) {
-        _sub_queues[i].set_factor_for_normal(factor);
+        _sub_queues[i].set_level_factor(factor);
         factor *= LEVEL_QUEUE_TIME_FACTOR;
-    }
-
-    int i = 0;
-    _task_schedule_limit[i] = BASE_LIMIT * (i + 1);
-    for (i = 1; i < SUB_QUEUE_LEVEL - 1; ++i) {
-        _task_schedule_limit[i] = _task_schedule_limit[i - 1] + BASE_LIMIT * (i + 1);
     }
 }
 
-void NormalWorkTaskQueue::close() {
+void PriorityTaskQueue::close() {
     std::unique_lock<std::mutex> lock(_work_size_mutex);
     _closed = true;
     _wait_task.notify_all();
 }
 
-PipelineTask* NormalWorkTaskQueue::try_take_unprotected(bool is_steal) {
+PipelineTask* PriorityTaskQueue::try_take_unprotected(bool is_steal) {
     if (_total_task_size == 0 || _closed) {
         return nullptr;
     }
-    double normal_schedule_times[SUB_QUEUE_LEVEL];
-    double min_schedule_time = 0;
-    int idx = -1;
+
+    double min_vruntime = 0;
+    int level = -1;
     for (int i = 0; i < SUB_QUEUE_LEVEL; ++i) {
-        normal_schedule_times[i] = _sub_queues[i].schedule_time_after_normal();
+        double cur_queue_vruntime = _sub_queues[i].get_vruntime();
         if (!_sub_queues[i].empty()) {
-            if (idx == -1 || normal_schedule_times[i] < min_schedule_time) {
-                idx = i;
-                min_schedule_time = normal_schedule_times[i];
+            if (level == -1 || cur_queue_vruntime < min_vruntime) {
+                level = i;
+                min_vruntime = cur_queue_vruntime;
             }
         }
     }
-    DCHECK(idx != -1);
-    // update empty queue's schedule time, to avoid too high priority
-    for (int i = 0; i < SUB_QUEUE_LEVEL; ++i) {
-        if (_sub_queues[i].empty() && normal_schedule_times[i] < min_schedule_time) {
-            _sub_queues[i]._schedule_time = min_schedule_time / _sub_queues[i]._factor_for_normal;
-        }
-    }
+    DCHECK(level != -1);
+    _queue_level_min_vruntime = min_vruntime;
 
-    auto task = _sub_queues[idx].try_take(is_steal);
+    auto task = _sub_queues[level].try_take(is_steal);
     if (task) {
+        task->update_queue_level(level);
         _total_task_size--;
     }
     return task;
 }
 
-int NormalWorkTaskQueue::_compute_level(PipelineTask* task) {
-    uint32_t schedule_time = task->total_schedule_time();
+int PriorityTaskQueue::_compute_level(uint64_t runtime) {
     for (int i = 0; i < SUB_QUEUE_LEVEL - 1; ++i) {
-        if (schedule_time <= _task_schedule_limit[i]) {
+        if (runtime <= _queue_level_limit[i]) {
             return i;
         }
     }
     return SUB_QUEUE_LEVEL - 1;
 }
 
-PipelineTask* NormalWorkTaskQueue::try_take(bool is_steal) {
+PipelineTask* PriorityTaskQueue::try_take(bool is_steal) {
     // TODO other efficient lock? e.g. if get lock fail, return null_ptr
     std::unique_lock<std::mutex> lock(_work_size_mutex);
     return try_take_unprotected(is_steal);
 }
 
-PipelineTask* NormalWorkTaskQueue::take(uint32_t timeout_ms) {
+PipelineTask* PriorityTaskQueue::take(uint32_t timeout_ms) {
     std::unique_lock<std::mutex> lock(_work_size_mutex);
     auto task = try_take_unprotected(false);
     if (task) {
@@ -121,44 +109,53 @@ PipelineTask* NormalWorkTaskQueue::take(uint32_t timeout_ms) {
     }
 }
 
-Status NormalWorkTaskQueue::push(PipelineTask* task) {
+Status PriorityTaskQueue::push(PipelineTask* task) {
     if (_closed) {
         return Status::InternalError("WorkTaskQueue closed");
     }
-    auto level = _compute_level(task);
+    auto level = _compute_level(task->get_runtime_ns());
     std::unique_lock<std::mutex> lock(_work_size_mutex);
+
+    // update empty queue's  runtime, to avoid too high priority
+    if (_sub_queues[level].empty() &&
+        _queue_level_min_vruntime > _sub_queues[level].get_vruntime()) {
+        _sub_queues[level].adjust_runtime(_queue_level_min_vruntime);
+    }
+
     _sub_queues[level].push_back(task);
     _total_task_size++;
     _wait_task.notify_one();
     return Status::OK();
 }
 
-NormalTaskQueue::~NormalTaskQueue() = default;
+MultiCoreTaskQueue::~MultiCoreTaskQueue() = default;
 
-NormalTaskQueue::NormalTaskQueue(size_t core_size) : TaskQueue(core_size), _closed(false) {
-    _async_queue.reset(new NormalWorkTaskQueue[core_size]);
+MultiCoreTaskQueue::MultiCoreTaskQueue(size_t core_size) : TaskQueue(core_size), _closed(false) {
+    _prio_task_queue_list.reset(new PriorityTaskQueue[core_size]);
 }
 
-void NormalTaskQueue::close() {
+void MultiCoreTaskQueue::close() {
     _closed = true;
     for (int i = 0; i < _core_size; ++i) {
-        _async_queue[i].close();
+        _prio_task_queue_list[i].close();
     }
 }
 
-PipelineTask* NormalTaskQueue::take(size_t core_id) {
+PipelineTask* MultiCoreTaskQueue::take(size_t core_id) {
     PipelineTask* task = nullptr;
     while (!_closed) {
-        task = _async_queue[core_id].try_take(false);
+        task = _prio_task_queue_list[core_id].try_take(false);
         if (task) {
+            task->set_core_id(core_id);
             break;
         }
         task = _steal_take(core_id);
         if (task) {
             break;
         }
-        task = _async_queue[core_id].take(WAIT_CORE_TASK_TIMEOUT_MS /* timeout_ms */);
+        task = _prio_task_queue_list[core_id].take(WAIT_CORE_TASK_TIMEOUT_MS /* timeout_ms */);
         if (task) {
+            task->set_core_id(core_id);
             break;
         }
     }
@@ -168,7 +165,7 @@ PipelineTask* NormalTaskQueue::take(size_t core_id) {
     return task;
 }
 
-PipelineTask* NormalTaskQueue::_steal_take(size_t core_id) {
+PipelineTask* MultiCoreTaskQueue::_steal_take(size_t core_id) {
     DCHECK(core_id < _core_size);
     size_t next_id = core_id;
     for (size_t i = 1; i < _core_size; ++i) {
@@ -177,15 +174,16 @@ PipelineTask* NormalTaskQueue::_steal_take(size_t core_id) {
             next_id = 0;
         }
         DCHECK(next_id < _core_size);
-        auto task = _async_queue[next_id].try_take(true);
+        auto task = _prio_task_queue_list[next_id].try_take(true);
         if (task) {
+            task->set_core_id(next_id);
             return task;
         }
     }
     return nullptr;
 }
 
-Status NormalTaskQueue::push_back(PipelineTask* task) {
+Status MultiCoreTaskQueue::push_back(PipelineTask* task) {
     int core_id = task->get_previous_core_id();
     if (core_id < 0) {
         core_id = _next_core.fetch_add(1) % _core_size;
@@ -193,10 +191,10 @@ Status NormalTaskQueue::push_back(PipelineTask* task) {
     return push_back(task, core_id);
 }
 
-Status NormalTaskQueue::push_back(PipelineTask* task, size_t core_id) {
+Status MultiCoreTaskQueue::push_back(PipelineTask* task, size_t core_id) {
     DCHECK(core_id < _core_size);
     task->put_in_runnable_queue();
-    return _async_queue[core_id].push(task);
+    return _prio_task_queue_list[core_id].push(task);
 }
 
 bool TaskGroupTaskQueue::TaskGroupSchedEntityComparator::operator()(
@@ -343,6 +341,22 @@ void TaskGroupTaskQueue::update_statistics(PipelineTask* task, int64_t time_spen
     if (is_in_queue) {
         _group_entities.emplace(entity);
         _update_min_tg();
+    }
+}
+
+void TaskGroupTaskQueue::update_task_group(const taskgroup::TaskGroupInfo& task_group_info,
+                                           taskgroup::TaskGroupPtr& task_group) {
+    std::unique_lock<std::mutex> lock(_rs_mutex);
+    auto* entity = task_group->task_entity();
+    bool is_in_queue = _group_entities.find(entity) != _group_entities.end();
+    if (is_in_queue) {
+        _group_entities.erase(entity);
+        _total_cpu_share -= entity->cpu_share();
+    }
+    task_group->check_and_update(task_group_info);
+    if (is_in_queue) {
+        _group_entities.emplace(entity);
+        _total_cpu_share += entity->cpu_share();
     }
 }
 

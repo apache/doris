@@ -59,9 +59,12 @@ public class StatisticConstants {
      */
     public static final long STATISTICS_TASKS_TIMEOUT_IN_MS = TimeUnit.MINUTES.toMillis(10);
 
+    public static final long PRELOAD_RETRY_TIMES = 5;
 
-    public static final int LOAD_TASK_LIMITS = 10;
+    public static final long PRELOAD_RETRY_INTERVAL_IN_SECONDS = TimeUnit.SECONDS.toMillis(10);
 
-    public static final double DEFAULT_INNER_JOIN_FACTOR = 0.1;
+    public static final int ANALYSIS_JOB_INFO_EXPIRATION_TIME_IN_DAYS = 7;
+
+    public static final int FETCH_LIMIT = 10000;
 
 }

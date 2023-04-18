@@ -19,6 +19,7 @@
 
 #include <string>
 
+#include "gen_cpp/PaloInternalService_types.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/columns_number.h"
@@ -96,8 +97,6 @@ constexpr bool has_variable_type(PrimitiveType type) {
 }
 
 bool is_type_compatible(PrimitiveType lhs, PrimitiveType rhs);
-
-PrimitiveType get_primitive_type(vectorized::TypeIndex v_type);
 
 TExprOpcode::type to_in_opcode(PrimitiveType t);
 PrimitiveType thrift_to_type(TPrimitiveType::type ttype);

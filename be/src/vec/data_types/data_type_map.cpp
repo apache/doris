@@ -26,6 +26,16 @@ DataTypeMap::DataTypeMap(const DataTypePtr& key_type_, const DataTypePtr& value_
     value_type = value_type_;
 }
 
+Field DataTypeMap::get_default() const {
+    Map m;
+    Array key, val;
+    key.push_back(key_type->get_default());
+    val.push_back(value_type->get_default());
+    m.push_back(key);
+    m.push_back(val);
+    return m;
+};
+
 std::string DataTypeMap::to_string(const IColumn& column, size_t row_num) const {
     const ColumnMap& map_column = assert_cast<const ColumnMap&>(column);
     const ColumnArray::Offsets64& offsets = map_column.get_offsets();

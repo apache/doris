@@ -152,6 +152,8 @@ public class EsUtil {
         }
         // remove `dynamic_templates` field
         mappings.remove("dynamic_templates");
+        // remove `dynamic` field
+        mappings.remove("dynamic");
         // check explicit mapping
         if (mappings.isEmpty()) {
             throw new DorisEsException("Do not support index without explicit mapping.");
@@ -215,6 +217,9 @@ public class EsUtil {
     }
 
     private static ObjectNode replaceFieldAlias(ObjectNode mappingProps, ObjectNode fieldValue) {
+        if (!fieldValue.has("type")) {
+            return fieldValue;
+        }
         String typeStr = fieldValue.get("type").asText();
         if ("alias".equals(typeStr)) {
             String path = fieldValue.get("path").asText();
