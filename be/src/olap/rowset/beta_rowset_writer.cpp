@@ -610,10 +610,12 @@ void BetaRowsetWriter::_build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_met
             total_data_size += itr.second.data_size;
             total_index_size += itr.second.index_size;
             segments_encoded_key_bounds.push_back(itr.second.key_bounds);
+#ifndef NDEBUG
             if (_context.enable_unique_key_merge_on_write) {
                 DCHECK(itr.second.key_set.get() != nullptr);
                 key_set.insert(itr.second.key_set->begin(), itr.second.key_set->end());
             }
+#endif
         }
     }
     _num_mow_keys = key_set.size();

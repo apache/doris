@@ -20,8 +20,6 @@
 
 #pragma once
 
-#include <parallel_hashmap/phmap.h>
-
 #include <type_traits>
 
 #include "gutil/hash/city.h"
@@ -31,6 +29,7 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/bit_cast.h"
 #include "vec/common/hash_table/hash_set.h"
+#include "vec/common/hash_table/phmap_fwd_decl.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/data_types/data_type_number.h"
 
@@ -47,7 +46,7 @@ struct AggregateFunctionUniqExactData {
     using Key = std::conditional_t<is_string_key, UInt128, T>;
     using Hash = std::conditional_t<is_string_key, UInt128TrivialHash, HashCRC32<Key>>;
 
-    using Set = phmap::flat_hash_set<Key, Hash>;
+    using Set = flat_hash_set<Key, Hash>;
 
     static UInt128 ALWAYS_INLINE get_key(const StringRef& value) {
         UInt128 key;
