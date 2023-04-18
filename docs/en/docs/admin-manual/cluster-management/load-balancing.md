@@ -549,7 +549,7 @@ cd /usr/local/nginx
 mysql -uroot -P6030 -h172.31.7.119
 ```
 
-Parameter explanation: -u specifies the Doris username -p specifies the Doris password, my password here is empty, so there is no -h specifies the Nginx proxy server IP-P specifies the port
+Parameter explanation: -u specifies the Doris username, -p specifies the Doris password(my password here is empty, so there is no), -h specifies the Nginx proxy server IP, -P specifies the port
 
 ```sql
 mysql -uroot -P6030 -h172.31.7.119

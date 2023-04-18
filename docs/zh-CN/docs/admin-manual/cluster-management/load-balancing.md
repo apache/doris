@@ -549,7 +549,7 @@ cd /usr/local/nginx
 mysql -uroot -P6030 -h172.31.7.119
 ```
 
-参数解释:-u   指定Doris用户名-p   指定Doris密码,我这里密码是空，所以没有-h   指定Nginx代理服务器IP-P   指定端口
+参数解释: -u 指定Doris用户名，-p 指定Doris密码(我这里密码是空，所以没有)，-h 指定Nginx代理服务器IP，-P 指定端口
 
 ```sql
 mysql -uroot -P6030 -h172.31.7.119
