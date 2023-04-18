@@ -41,6 +41,7 @@ public class SlotDescriptor {
     private final TupleDescriptor parent;
     private Type type;
     private Column column;  // underlying column, if there is one
+    private List<Column> fullSchema;
 
     // for SlotRef.toSql() in the absence of a path
     private String label;
@@ -79,6 +80,7 @@ public class SlotDescriptor {
         this.isNullable = true;
         this.isAgg = false;
         this.isMultiRef = false;
+        this.fullSchema = parent.getTable().getFullSchema();
     }
 
     public SlotDescriptor(SlotId id, TupleDescriptor parent, SlotDescriptor src) {
@@ -95,6 +97,7 @@ public class SlotDescriptor {
         this.isAgg = false;
         this.stats = src.stats;
         this.type = src.type;
+        this.fullSchema = src.fullSchema;
     }
 
     public boolean isMultiRef() {
@@ -310,8 +313,10 @@ public class SlotDescriptor {
     }
 
     public TSlotDescriptor toThrift() {
+        int colPos = column == null ? -1 : fullSchema.indexOf(column);
+        LOG.info("TSlotDescriptor colPos = {}", colPos);
         TSlotDescriptor tSlotDescriptor = new TSlotDescriptor(id.asInt(), parent.getId().asInt(),
-                type.toThrift(), -1, byteOffset, nullIndicatorByte,
+                type.toThrift(), colPos, byteOffset, nullIndicatorByte,
                 nullIndicatorBit, ((column != null) ? column.getName() : ""), slotIdx, isMaterialized);
         tSlotDescriptor.setNeedMaterialize(needMaterialize);
         if (column != null) {

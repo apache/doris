@@ -86,6 +86,7 @@ class SlotDescriptor {
 public:
     // virtual ~SlotDescriptor() {};
     SlotId id() const { return _id; }
+    int slotIdx() const { return _slot_idx; }
     const TypeDescriptor& type() const { return _type; }
     TupleId parent() const { return _parent; }
     // Returns the column index of this slot, including partition keys.
