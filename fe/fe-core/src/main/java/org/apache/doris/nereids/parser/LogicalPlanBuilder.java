@@ -314,7 +314,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         InsertIntoSelectCommand cmd = new InsertIntoSelectCommand(ctx.identifier().getText(), label, colNames,
                 withCte(visitQuery(insertCtx.query()), insertCtx.cte()));
-        return withExplain(cmd, ctx.explain());
+        if (ctx.explain() != null) {
+            return withExplain(cmd.getLogicalQuery(), ctx.explain());
+        }
+        return cmd;
     }
 
     /**
