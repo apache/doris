@@ -28,9 +28,11 @@ under the License.
 
 本文档主要介绍 Doris 的监控项及如何采集、展示监控项。以及如何配置报警（TODO）
 
-[Dashboard 模板点击下载](https://grafana.com/api/dashboards/9734/revisions/5/download)
+Dashboard 模板点击下载
 
-> 注：0.9.0（不含）之前的版本请使用 revision 1。0.9.x 版本请使用 revision 2。0.10.x 版本请使用 revision 3。1.1.x 版本请使用 revision 4 。1.2.x 版本请使用 revision 5
+| Doris 版本    | Dashboard 版本                                                               |
+|--------------|----------------------------------------------------------------------------|
+| 1.2.x        | [revision 5](https://grafana.com/api/dashboards/9734/revisions/5/download) |
 
 Dashboard 模板会不定期更新。更新模板的方式见最后一小节。
 
@@ -62,46 +64,46 @@ Doris 的监控数据通过 Frontend 和 Backend 的 http 接口向外暴露。�
 
 用户将看到如下监控项结果（示例为 FE 部分监控项）：
 
-    ```
-      # HELP  jvm_heap_size_bytes jvm heap stat
-      # TYPE  jvm_heap_size_bytes gauge
-      jvm_heap_size_bytes{type="max"} 8476557312
-      jvm_heap_size_bytes{type="committed"} 1007550464
-      jvm_heap_size_bytes{type="used"} 156375280
-      # HELP  jvm_non_heap_size_bytes jvm non heap stat
-      # TYPE  jvm_non_heap_size_bytes gauge
-      jvm_non_heap_size_bytes{type="committed"} 194379776
-      jvm_non_heap_size_bytes{type="used"} 188201864
-      # HELP  jvm_young_size_bytes jvm young mem pool stat
-      # TYPE  jvm_young_size_bytes gauge
-      jvm_young_size_bytes{type="used"} 40652376
-      jvm_young_size_bytes{type="peak_used"} 277938176
-      jvm_young_size_bytes{type="max"} 907345920
-      # HELP  jvm_old_size_bytes jvm old mem pool stat
-      # TYPE  jvm_old_size_bytes gauge
-      jvm_old_size_bytes{type="used"} 114633448
-      jvm_old_size_bytes{type="peak_used"} 114633448
-      jvm_old_size_bytes{type="max"} 7455834112
-      # HELP  jvm_young_gc jvm young gc stat
-      # TYPE  jvm_young_gc gauge
-      jvm_young_gc{type="count"} 247
-      jvm_young_gc{type="time"} 860
-      # HELP  jvm_old_gc jvm old gc stat
-      # TYPE  jvm_old_gc gauge
-      jvm_old_gc{type="count"} 3
-      jvm_old_gc{type="time"} 211
-      # HELP  jvm_thread jvm thread stat
-      # TYPE  jvm_thread gauge
-      jvm_thread{type="count"} 162
-      jvm_thread{type="peak_count"} 205
-      jvm_thread{type="new_count"} 0
-      jvm_thread{type="runnable_count"} 48
-      jvm_thread{type="blocked_count"} 1
-      jvm_thread{type="waiting_count"} 41
-      jvm_thread{type="timed_waiting_count"} 72
-      jvm_thread{type="terminated_count"} 0
-    ...
-    ```
+```
+# HELP  jvm_heap_size_bytes jvm heap stat
+# TYPE  jvm_heap_size_bytes gauge
+jvm_heap_size_bytes{type="max"} 8476557312
+jvm_heap_size_bytes{type="committed"} 1007550464
+jvm_heap_size_bytes{type="used"} 156375280
+# HELP  jvm_non_heap_size_bytes jvm non heap stat
+# TYPE  jvm_non_heap_size_bytes gauge
+jvm_non_heap_size_bytes{type="committed"} 194379776
+jvm_non_heap_size_bytes{type="used"} 188201864
+# HELP  jvm_young_size_bytes jvm young mem pool stat
+# TYPE  jvm_young_size_bytes gauge
+jvm_young_size_bytes{type="used"} 40652376
+jvm_young_size_bytes{type="peak_used"} 277938176
+jvm_young_size_bytes{type="max"} 907345920
+# HELP  jvm_old_size_bytes jvm old mem pool stat
+# TYPE  jvm_old_size_bytes gauge
+jvm_old_size_bytes{type="used"} 114633448
+jvm_old_size_bytes{type="peak_used"} 114633448
+jvm_old_size_bytes{type="max"} 7455834112
+# HELP  jvm_young_gc jvm young gc stat
+# TYPE  jvm_young_gc gauge
+jvm_young_gc{type="count"} 247
+jvm_young_gc{type="time"} 860
+# HELP  jvm_old_gc jvm old gc stat
+# TYPE  jvm_old_gc gauge
+jvm_old_gc{type="count"} 3
+jvm_old_gc{type="time"} 211
+# HELP  jvm_thread jvm thread stat
+# TYPE  jvm_thread gauge
+jvm_thread{type="count"} 162
+jvm_thread{type="peak_count"} 205
+jvm_thread{type="new_count"} 0
+jvm_thread{type="runnable_count"} 48
+jvm_thread{type="blocked_count"} 1
+jvm_thread{type="waiting_count"} 41
+jvm_thread{type="timed_waiting_count"} 72
+jvm_thread{type="terminated_count"} 0
+...
+```
 
 这是一个以 [Prometheus 格式](https://prometheus.io/docs/practices/naming/) 呈现的监控数据。我们以其中一个监控项为例进行说明：
 

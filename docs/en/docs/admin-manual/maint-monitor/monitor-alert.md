@@ -28,9 +28,11 @@ under the License.
 
 This document mainly introduces Doris's monitoring items and how to collect and display them. And how to configure alarm (TODO)
 
-[Dashboard template click download](https://grafana.com/api/dashboards/9734/revisions/5/download)
+Dashboard template click download
 
-> Note: Before 0.9.0 (excluding), please use revision 1. For version 0.9.x, use revision 2. For version 0.10.x, use revision 3. For version 1.1.x, use revision 4. For version 1.2.x, use revision 5.
+| Doris Version | Dashboard Version                                                          |
+|---------------|----------------------------------------------------------------------------|
+| 1.2.x         | [revision 5](https://grafana.com/api/dashboards/9734/revisions/5/download) |
 
 Dashboard templates are updated from time to time. The way to update the template is shown in the last section.
 
@@ -62,46 +64,46 @@ Doris's monitoring data is exposed through the HTTP interface of Frontend and Ba
 
 Users will see the following monitoring item results (for example, FE partial monitoring items):
 
-    ```
-      # HELP  jvm_heap_size_bytes jvm heap stat
-      # TYPE  jvm_heap_size_bytes gauge
-      jvm_heap_size_bytes{type="max"} 8476557312
-      jvm_heap_size_bytes{type="committed"} 1007550464
-      jvm_heap_size_bytes{type="used"} 156375280
-      # HELP  jvm_non_heap_size_bytes jvm non heap stat
-      # TYPE  jvm_non_heap_size_bytes gauge
-      jvm_non_heap_size_bytes{type="committed"} 194379776
-      jvm_non_heap_size_bytes{type="used"} 188201864
-      # HELP  jvm_young_size_bytes jvm young mem pool stat
-      # TYPE  jvm_young_size_bytes gauge
-      jvm_young_size_bytes{type="used"} 40652376
-      jvm_young_size_bytes{type="peak_used"} 277938176
-      jvm_young_size_bytes{type="max"} 907345920
-      # HELP  jvm_old_size_bytes jvm old mem pool stat
-      # TYPE  jvm_old_size_bytes gauge
-      jvm_old_size_bytes{type="used"} 114633448
-      jvm_old_size_bytes{type="peak_used"} 114633448
-      jvm_old_size_bytes{type="max"} 7455834112
-      # HELP  jvm_young_gc jvm young gc stat
-      # TYPE  jvm_young_gc gauge
-      jvm_young_gc{type="count"} 247
-      jvm_young_gc{type="time"} 860
-      # HELP  jvm_old_gc jvm old gc stat
-      # TYPE  jvm_old_gc gauge
-      jvm_old_gc{type="count"} 3
-      jvm_old_gc{type="time"} 211
-      # HELP  jvm_thread jvm thread stat
-      # TYPE  jvm_thread gauge
-      jvm_thread{type="count"} 162
-      jvm_thread{type="peak_count"} 205
-      jvm_thread{type="new_count"} 0
-      jvm_thread{type="runnable_count"} 48
-      jvm_thread{type="blocked_count"} 1
-      jvm_thread{type="waiting_count"} 41
-      jvm_thread{type="timed_waiting_count"} 72
-      jvm_thread{type="terminated_count"} 0
-    ...
-    ```
+```
+# HELP  jvm_heap_size_bytes jvm heap stat
+# TYPE  jvm_heap_size_bytes gauge
+jvm_heap_size_bytes{type="max"} 8476557312
+jvm_heap_size_bytes{type="committed"} 1007550464
+jvm_heap_size_bytes{type="used"} 156375280
+# HELP  jvm_non_heap_size_bytes jvm non heap stat
+# TYPE  jvm_non_heap_size_bytes gauge
+jvm_non_heap_size_bytes{type="committed"} 194379776
+jvm_non_heap_size_bytes{type="used"} 188201864
+# HELP  jvm_young_size_bytes jvm young mem pool stat
+# TYPE  jvm_young_size_bytes gauge
+jvm_young_size_bytes{type="used"} 40652376
+jvm_young_size_bytes{type="peak_used"} 277938176
+jvm_young_size_bytes{type="max"} 907345920
+# HELP  jvm_old_size_bytes jvm old mem pool stat
+# TYPE  jvm_old_size_bytes gauge
+jvm_old_size_bytes{type="used"} 114633448
+jvm_old_size_bytes{type="peak_used"} 114633448
+jvm_old_size_bytes{type="max"} 7455834112
+# HELP  jvm_young_gc jvm young gc stat
+# TYPE  jvm_young_gc gauge
+jvm_young_gc{type="count"} 247
+jvm_young_gc{type="time"} 860
+# HELP  jvm_old_gc jvm old gc stat
+# TYPE  jvm_old_gc gauge
+jvm_old_gc{type="count"} 3
+jvm_old_gc{type="time"} 211
+# HELP  jvm_thread jvm thread stat
+# TYPE  jvm_thread gauge
+jvm_thread{type="count"} 162
+jvm_thread{type="peak_count"} 205
+jvm_thread{type="new_count"} 0
+jvm_thread{type="runnable_count"} 48
+jvm_thread{type="blocked_count"} 1
+jvm_thread{type="waiting_count"} 41
+jvm_thread{type="timed_waiting_count"} 72
+jvm_thread{type="terminated_count"} 0
+...
+```
     
 This is a monitoring data presented in [Prometheus Format](https://prometheus.io/docs/practices/naming/). We take one of these monitoring items as an example to illustrate:
 
