@@ -29,6 +29,9 @@ import com.clickhouse.data.value.UnsignedInteger;
 import com.clickhouse.data.value.UnsignedLong;
 import com.clickhouse.data.value.UnsignedShort;
 import com.google.common.base.Preconditions;
+import com.vesoft.nebula.client.graph.data.DateTimeWrapper;
+import com.vesoft.nebula.client.graph.data.DateWrapper;
+import com.vesoft.nebula.client.graph.data.ValueWrapper;
 import org.apache.log4j.Logger;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
@@ -45,6 +48,7 @@ import java.net.MalformedURLException;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.Date;
+import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
@@ -77,6 +81,7 @@ public class JdbcExecutor {
     private int maxPoolSize;
     private int minIdleSize;
     private int maxIdelTime;
+    private TOdbcTableType tableType;
 
     public JdbcExecutor(byte[] thriftParams) throws Exception {
         TJdbcExecutorCtorParams request = new TJdbcExecutorCtorParams();
@@ -89,6 +94,7 @@ public class JdbcExecutor {
         minPoolSize = Integer.valueOf(System.getProperty("JDBC_MIN_POOL", "1"));
         maxPoolSize = Integer.valueOf(System.getProperty("JDBC_MAX_POOL", "100"));
         maxIdelTime = Integer.valueOf(System.getProperty("JDBC_MAX_IDEL_TIME", "300000"));
+        tableType = request.table_type;
         minIdleSize = minPoolSize > 0 ? 1 : 0;
         LOG.info("JdbcExecutor set minPoolSize = " + minPoolSize
                 + ", maxPoolSize = " + maxPoolSize
@@ -96,6 +102,10 @@ public class JdbcExecutor {
                 + ", minIdleSize = " + minIdleSize);
         init(request.driver_path, request.statement, request.batch_size, request.jdbc_driver_class,
                 request.jdbc_url, request.jdbc_user, request.jdbc_password, request.op, request.table_type);
+    }
+
+    public boolean isGraph() {
+        return tableType == TOdbcTableType.NEBULA;
     }
 
     public void close() throws Exception {
@@ -127,7 +137,9 @@ public class JdbcExecutor {
             resultColumnTypeNames = new ArrayList<>(columnCount);
             block = new ArrayList<>(columnCount);
             for (int i = 0; i < columnCount; ++i) {
-                resultColumnTypeNames.add(resultSetMetaData.getColumnClassName(i + 1));
+                if (!isGraph()) {
+                    resultColumnTypeNames.add(resultSetMetaData.getColumnClassName(i + 1));
+                }
                 block.add((Object[]) Array.newInstance(Object.class, batchSizeNum));
             }
             return columnCount;
@@ -200,7 +212,11 @@ public class JdbcExecutor {
             curBlockRows = 0;
             do {
                 for (int i = 0; i < columnCount; ++i) {
-                    block.get(i)[curBlockRows] = resultSet.getObject(i + 1);
+                    if (isGraph()) {
+                        block.get(i)[curBlockRows] = tranferToDorisObject((ValueWrapper) resultSet.getObject(i + 1));
+                    } else {
+                        block.get(i)[curBlockRows] = resultSet.getObject(i + 1);
+                    }
                 }
                 curBlockRows++;
             } while (curBlockRows < batchSize && resultSet.next());
@@ -254,6 +270,7 @@ public class JdbcExecutor {
     private void init(String driverUrl, String sql, int batchSize, String driverClass, String jdbcUrl, String jdbcUser,
             String jdbcPassword, TJdbcOperation op, TOdbcTableType tableType) throws UdfRuntimeException {
         try {
+<<<<<<< HEAD
             ClassLoader parent = getClass().getClassLoader();
             ClassLoader classLoader = UdfUtils.getClassLoader(driverUrl, parent);
             druidDataSource = JdbcDataSource.getDataSource().getSource(jdbcUrl + jdbcUser + jdbcPassword);
@@ -290,9 +307,51 @@ public class JdbcExecutor {
                 } else {
                     stmt.setFetchSize(batchSize);
                 }
+=======
+            if (isGraph()) {
+>>>>>>> d038b048dc ([feature](graph)Support querying data from the Nebula graph database)
                 batchSizeNum = batchSize;
+                Class.forName(driverClass);
+                conn = DriverManager.getConnection(jdbcUrl, jdbcUser, jdbcPassword);
+                stmt = conn.prepareStatement(sql);
             } else {
-                stmt = conn.createStatement();
+                ClassLoader parent = getClass().getClassLoader();
+                ClassLoader classLoader = UdfUtils.getClassLoader(driverUrl, parent);
+                druidDataSource = JdbcDataSource.getDataSource().getSource(jdbcUrl + jdbcUser + jdbcPassword);
+                if (druidDataSource == null) {
+                    DruidDataSource ds = new DruidDataSource();
+                    ds.setDriverClassLoader(classLoader);
+                    ds.setDriverClassName(driverClass);
+                    ds.setUrl(jdbcUrl);
+                    ds.setUsername(jdbcUser);
+                    ds.setPassword(jdbcPassword);
+                    ds.setMinIdle(minIdleSize);
+                    ds.setInitialSize(minPoolSize);
+                    ds.setMaxActive(maxPoolSize);
+                    ds.setMaxWait(5000);
+                    ds.setTimeBetweenEvictionRunsMillis(maxIdelTime);
+                    ds.setMinEvictableIdleTimeMillis(maxIdelTime / 2);
+                    druidDataSource = ds;
+                    // here is a cache of datasource, which using the string(jdbcUrl + jdbcUser +
+                    // jdbcPassword) as key.
+                    // and the default datasource init = 1, min = 1, max = 100, if one of connection idle
+                    // time greater than 10 minutes. then connection will be retrieved.
+                    JdbcDataSource.getDataSource().putSource(jdbcUrl + jdbcUser + jdbcPassword, ds);
+                }
+                conn = druidDataSource.getConnection();
+                if (op == TJdbcOperation.READ) {
+                    conn.setAutoCommit(false);
+                    Preconditions.checkArgument(sql != null);
+                    stmt = conn.prepareStatement(sql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
+                    if (tableType == TOdbcTableType.MYSQL) {
+                        stmt.setFetchSize(Integer.MIN_VALUE);
+                    } else {
+                        stmt.setFetchSize(batchSize);
+                    }
+                    batchSizeNum = batchSize;
+                } else {
+                    stmt = conn.createStatement();
+                }
             }
         } catch (MalformedURLException e) {
             throw new UdfRuntimeException("MalformedURLException to load class about " + driverUrl, e);
@@ -300,6 +359,8 @@ public class JdbcExecutor {
             throw new UdfRuntimeException("Initialize datasource failed: ", e);
         } catch (FileNotFoundException e) {
             throw new UdfRuntimeException("FileNotFoundException failed: ", e);
+        } catch (Exception e) {
+            throw new UdfRuntimeException("Initialize datasource failed: ", e);
         }
     }
 
@@ -799,9 +860,13 @@ public class JdbcExecutor {
             return;
         }
         if (column[firstNotNullIndex] instanceof BigDecimal) {
+            System.out.println("fuck1");
             bigDecimalPutToDouble(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         } else if (column[firstNotNullIndex] instanceof Double) {
+            System.out.println("fuck2");
             doublePutToDouble(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
+        }else{
+            System.out.println("fuck3");
         }
     }
 
@@ -1480,5 +1545,57 @@ public class JdbcExecutor {
             }
         }
         return i;
+    }
+
+    // only used by nebula-graph
+    public static Object tranferToDorisObject(ValueWrapper value) {
+        try {
+            if (value.isLong()) {
+                return value.asLong();
+            }
+            if (value.isBoolean()) {
+                return value.asBoolean();
+            }
+            if (value.isDouble()) {
+                return value.asDouble();
+            }
+            if (value.isString()) {
+                return value.asString();
+            }
+            if (value.isTime()) {
+                return value.asTime().toString();
+            }
+            if (value.isDate()) {
+                DateWrapper date = value.asDate();
+                return LocalDate.of(date.getYear(), date.getMonth(), date.getDay());
+            }
+            if (value.isDateTime()) {
+                DateTimeWrapper dateTime = value.asDateTime();
+                return LocalDateTime.of(dateTime.getYear(), dateTime.getMonth(), dateTime.getDay(),
+                        dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(), dateTime.getMicrosec() * 1000);
+            }
+
+            if (value.isVertex()) {
+                return value.asNode().toString();
+            }
+            if (value.isEdge()) {
+                return value.asRelationship().toString();
+            }
+            if (value.isPath()) {
+                return value.asPath().toString();
+            }
+            if (value.isList()) {
+                return value.asList().toString();
+            }
+            if (value.isSet()) {
+                return value.asSet().toString();
+            }
+            if (value.isMap()) {
+                return value.asMap().toString();
+            }
+            return null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 }
