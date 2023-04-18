@@ -96,7 +96,7 @@ docker build -t doris .
 
 由于如果是使用 windows 开发，挂载会存在跨文件系统访问的问题，请自行斟酌设置。
 
-`--cap-add SYS_PTRACE`参数可以允许docker使用ptrace，便于我们使用ptrace和gdb远程调试功能`。
+`--cap-add SYS_PTRACE`参数可以允许docker使用ptrace，便于我们使用ptrace和gdb远程调试功能。
 
 ```bash
 docker run -it --cap-add SYS_PTRACE doris:latest /bin/bash
