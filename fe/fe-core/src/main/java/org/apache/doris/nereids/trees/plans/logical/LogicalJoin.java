@@ -145,6 +145,14 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 .flatMap(expr -> expr.getInputSlotExprIds().stream()).collect(Collectors.toSet());
     }
 
+    public Set<Slot> getLeftConditionSlot() {
+        Set<Slot> leftOutputSet = this.left().getOutputSet();
+        return Stream.concat(hashJoinConjuncts.stream(), otherJoinConjuncts.stream())
+                .flatMap(expr -> expr.getInputSlots().stream())
+                .filter(leftOutputSet::contains)
+                .collect(ImmutableSet.toImmutableSet());
+    }
+
     public Optional<Expression> getOnClauseCondition() {
         return ExpressionUtils.optionalAnd(hashJoinConjuncts, otherJoinConjuncts);
     }
