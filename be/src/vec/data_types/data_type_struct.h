@@ -24,6 +24,7 @@
 #include <optional>
 
 #include "gen_cpp/data.pb.h"
+#include "serde/data_type_struct_serde.h"
 #include "util/stack_util.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
@@ -99,6 +100,13 @@ public:
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     bool get_have_explicit_names() const { return have_explicit_names; }
+    DataTypeSerDeSPtr get_serde() const override {
+        DataTypeSerDeSPtrs ptrs;
+        for (auto iter = elems.begin(); iter < elems.end(); ++iter) {
+            ptrs.push_back((*iter)->get_serde());
+        }
+        return std::make_shared<DataTypeStructSerDe>(ptrs);
+    };
 };
 
 } // namespace doris::vectorized

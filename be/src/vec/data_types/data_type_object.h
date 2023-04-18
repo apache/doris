@@ -22,6 +22,9 @@
 #include <vec/columns/column_object.h>
 #include <vec/core/field.h>
 #include <vec/data_types/data_type.h>
+
+#include "serde/data_type_object_serde.h"
+
 namespace doris::vectorized {
 class DataTypeObject : public IDataType {
 private:
@@ -54,5 +57,8 @@ public:
     [[noreturn]] Field get_default() const override {
         LOG(FATAL) << "Method getDefault() is not implemented for data type " << get_name();
     }
+    DataTypeSerDeSPtr get_serde() const override {
+        return std::make_shared<DataTypeObjectSerDe>();
+    };
 };
 } // namespace doris::vectorized
