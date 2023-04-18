@@ -523,8 +523,9 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
         break;
     }
     default: {
-        LOG(FATAL) << fmt::format("Unknown data type: {}", pcolumn.type());
-        return nullptr;
+        //LOG(FATAL) << fmt::format("Unknown data type: {}", pcolumn.type());
+        nested = std::make_shared<DataTypeTime>();
+        break;
     }
     }
 
