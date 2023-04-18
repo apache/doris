@@ -205,6 +205,9 @@ public class Repository implements Writable {
 
     // create repository dir and repo info file
     public Status initRepository() {
+        if (FeConstants.runningUnitTest) {
+            return Status.OK;
+        }
         String repoInfoFilePath = assembleRepoInfoFilePath();
         // check if the repo is already exist in remote
         List<RemoteFile> remoteFiles = Lists.newArrayList();
