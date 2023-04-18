@@ -21,13 +21,18 @@ import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.analysis.DropStatsStmt;
 import org.apache.doris.analysis.ShowAnalyzeStmt;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ShowResultSet;
+import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisTaskInfo.JobType;
@@ -94,19 +99,35 @@ public class AnalysisManager {
         long jobId = Env.getCurrentEnv().getNextId();
         AnalysisTaskInfoBuilder taskInfoBuilder = buildCommonTaskInfo(stmt, jobId);
         Map<Long, AnalysisTaskInfo> analysisTaskInfos = new HashMap<>();
-
         // start build analysis tasks
-        createTaskForEachColumns(stmt.getColumnNames(), taskInfoBuilder, analysisTaskInfos);
-        createTaskForMVIdx(stmt.getTable(), taskInfoBuilder, analysisTaskInfos, stmt.getAnalysisType());
-        persistAnalysisJob(taskInfoBuilder);
+        createTaskForEachColumns(stmt.getColumnNames(), taskInfoBuilder, analysisTaskInfos, stmt.isSync());
+        createTaskForMVIdx(stmt.getTable(), taskInfoBuilder, analysisTaskInfos, stmt.getAnalysisType(), stmt.isSync());
 
         if (stmt.isSync()) {
             syncExecute(analysisTaskInfos.values());
             return;
         }
 
+        persistAnalysisJob(taskInfoBuilder);
         analysisJobIdToTaskMap.put(jobId, analysisTaskInfos);
         analysisTaskInfos.values().forEach(taskScheduler::schedule);
+        sendJobId(jobId);
+    }
+
+    private void sendJobId(long jobId) {
+        List<Column> columns = new ArrayList<>();
+        columns.add(new Column("Job_Id", ScalarType.createVarchar(19)));
+        ShowResultSetMetaData commonResultSetMetaData = new ShowResultSetMetaData(columns);
+        List<List<String>> resultRows = new ArrayList<>();
+        List<String> row = new ArrayList<>();
+        row.add(String.valueOf(jobId));
+        resultRows.add(row);
+        ShowResultSet commonResultSet = new ShowResultSet(commonResultSetMetaData, resultRows);
+        try {
+            ConnectContext.get().getExecutor().sendResultSet(commonResultSet);
+        } catch (Throwable t) {
+            LOG.warn("Failed to send job id to user", t);
+        }
     }
 
     private AnalysisTaskInfoBuilder buildCommonTaskInfo(AnalyzeStmt stmt, long jobId) {
@@ -161,7 +182,8 @@ public class AnalysisManager {
     }
 
     private void createTaskForMVIdx(TableIf table, AnalysisTaskInfoBuilder taskInfoBuilder,
-            Map<Long, AnalysisTaskInfo> analysisTaskInfos, AnalysisType analysisType) throws DdlException {
+            Map<Long, AnalysisTaskInfo> analysisTaskInfos, AnalysisType analysisType,
+            boolean isSync) throws DdlException {
         TableType type = table.getType();
         if (analysisType != AnalysisType.INDEX || !type.equals(TableType.OLAP)) {
             // not need to collect statistics for materialized view
@@ -182,12 +204,14 @@ public class AnalysisManager {
                 long taskId = Env.getCurrentEnv().getNextId();
                 AnalysisTaskInfo analysisTaskInfo = indexTaskInfoBuilder.setIndexId(indexId)
                         .setTaskId(taskId).build();
+                if (isSync) {
+                    return;
+                }
                 try {
                     StatisticsRepository.persistAnalysisTask(analysisTaskInfo);
                 } catch (Exception e) {
                     throw new DdlException("Failed to create analysis task", e);
                 }
-                analysisTaskInfos.put(taskId, analysisTaskInfo);
             }
         } finally {
             olapTable.readUnlock();
@@ -195,23 +219,30 @@ public class AnalysisManager {
     }
 
     private void createTaskForEachColumns(Set<String> colNames, AnalysisTaskInfoBuilder taskInfoBuilder,
-            Map<Long, AnalysisTaskInfo> analysisTaskInfos) throws DdlException {
+            Map<Long, AnalysisTaskInfo> analysisTaskInfos, boolean isSync) throws DdlException {
         for (String colName : colNames) {
             AnalysisTaskInfoBuilder colTaskInfoBuilder = taskInfoBuilder.copy();
             long indexId = -1;
             long taskId = Env.getCurrentEnv().getNextId();
             AnalysisTaskInfo analysisTaskInfo = colTaskInfoBuilder.setColName(colName)
                     .setIndexId(indexId).setTaskId(taskId).build();
+            analysisTaskInfos.put(taskId, analysisTaskInfo);
+            if (isSync) {
+                continue;
+            }
             try {
                 StatisticsRepository.persistAnalysisTask(analysisTaskInfo);
             } catch (Exception e) {
                 throw new DdlException("Failed to create analysis task", e);
             }
-            analysisTaskInfos.put(taskId, analysisTaskInfo);
+
         }
     }
 
     public void updateTaskStatus(AnalysisTaskInfo info, AnalysisState jobState, String message, long time) {
+        if (analysisJobIdToTaskMap.get(info.jobId) == null) {
+            return;
+        }
         Map<String, String> params = new HashMap<>();
         params.put("jobState", jobState.toString());
         params.put("message", StringUtils.isNotEmpty(message) ? String.format(", message = '%s'", message) : "");
@@ -235,7 +266,6 @@ public class AnalysisManager {
                     LOG.warn(String.format("Failed to update state for job: %s", info.jobId), e);
                 }
             }
-
         }
     }
 

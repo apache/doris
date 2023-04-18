@@ -250,11 +250,7 @@ public class StatisticsCleaner extends MasterDaemon {
                     LOG.warn("Error occurred when retrieving expired stats", e);
                 }
             }
-            try {
-                Thread.sleep(StatisticConstants.FETCH_INTERVAL_IN_MS);
-            } catch (InterruptedException t) {
-                // IGNORE
-            }
+            this.yieldForOtherTask();
         }
         return pos;
     }
@@ -271,12 +267,7 @@ public class StatisticsCleaner extends MasterDaemon {
                 }
             }
             pos += StatisticConstants.FETCH_LIMIT;
-            try {
-                Thread.sleep(StatisticConstants.FETCH_INTERVAL_IN_MS);
-            } catch (InterruptedException t) {
-                // IGNORE
-            }
-
+            this.yieldForOtherTask();
         }
         return pos;
     }
@@ -304,6 +295,15 @@ public class StatisticsCleaner extends MasterDaemon {
                     && expiredTable.isEmpty()
                     && expiredIdxId.isEmpty()
                     && ids.size() < Config.max_allowed_in_element_num_of_delete / 10;
+        }
+    }
+
+    // Avoid this task takes too much IO.
+    private void yieldForOtherTask() {
+        try {
+            Thread.sleep(StatisticConstants.FETCH_INTERVAL_IN_MS);
+        } catch (InterruptedException t) {
+            // IGNORE
         }
     }
 
