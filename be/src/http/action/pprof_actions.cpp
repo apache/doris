@@ -17,12 +17,14 @@
 
 #include "http/action/pprof_actions.h"
 
+#include <gperftools/heap-profiler.h>    // IWYU pragma: keep
+#include <gperftools/malloc_extension.h> // IWYU pragma: keep
+#include <gperftools/profiler.h>         // IWYU pragma: keep
 #include <stdio.h>
 
 #include <fstream>
 #include <memory>
 #include <mutex>
-#include <string>
 
 #include "common/config.h"
 #include "common/object_pool.h"
@@ -34,6 +36,7 @@
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "util/bfd_parser.h"
+#include "util/pprof_utils.h" // IWYU pragma: keep
 
 namespace doris {
 

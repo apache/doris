@@ -119,8 +119,8 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         if (!thrift_sink.__isset.mysql_table_sink) {
             return Status::InternalError("Missing data buffer sink.");
         }
-        doris::vectorized::VMysqlTableSink* vmysql_tbl_sink =
-                new doris::vectorized::VMysqlTableSink(pool, row_desc, output_exprs);
+        vectorized::VMysqlTableSink* vmysql_tbl_sink =
+                new vectorized::VMysqlTableSink(pool, row_desc, output_exprs);
         sink->reset(vmysql_tbl_sink);
         break;
 #else
@@ -260,8 +260,8 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         if (!thrift_sink.__isset.mysql_table_sink) {
             return Status::InternalError("Missing data buffer sink.");
         }
-        doris::vectorized::VMysqlTableSink* vmysql_tbl_sink =
-                new doris::vectorized::VMysqlTableSink(pool, row_desc, output_exprs);
+        vectorized::VMysqlTableSink* vmysql_tbl_sink =
+                new vectorized::VMysqlTableSink(pool, row_desc, output_exprs);
         sink->reset(vmysql_tbl_sink);
         break;
 #else

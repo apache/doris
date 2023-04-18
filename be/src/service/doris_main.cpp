@@ -19,6 +19,7 @@
 #include <butil/macros.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <gperftools/malloc_extension.h> // IWYU pragma: keep
 #include <libgen.h>
 #include <setjmp.h>
 #include <signal.h>
@@ -27,7 +28,6 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-#include <algorithm>
 #include <cstring>
 #include <ostream>
 #include <string>
