@@ -103,7 +103,6 @@ public class Transaction {
         this.database = database;
         this.table = table;
         this.planner = planner;
-        check();
         this.coordinator = new Coordinator(ctx, null, planner);
         this.txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
                 database.getId(), ImmutableList.of(table.getId()), labelName,
