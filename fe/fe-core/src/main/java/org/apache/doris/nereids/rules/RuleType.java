@@ -100,6 +100,7 @@ public enum RuleType {
     ELIMINATE_ORDER_BY_CONSTANT(RuleTypeClass.REWRITE),
     ELIMINATE_HINT(RuleTypeClass.REWRITE),
     INFER_PREDICATES(RuleTypeClass.REWRITE),
+    INFER_AGG_NOT_NULL(RuleTypeClass.REWRITE),
     INFER_FILTER_NOT_NULL(RuleTypeClass.REWRITE),
     INFER_JOIN_NOT_NULL(RuleTypeClass.REWRITE),
     // subquery analyze
