@@ -84,7 +84,7 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
     }
 
     public void init() {
-        if (Config.enable_resource_group) {
+        if (Config.enable_resource_group || Config.use_fuzzy_session_variable /* for github workflow */) {
             checkAndCreateDefaultGroup();
         }
     }
@@ -128,7 +128,7 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
 
     public void createResourceGroup(CreateResourceGroupStmt stmt) throws DdlException {
         if (!Config.enable_resource_group) {
-            throw new DdlException("unsupported feature now,coming soon");
+            throw new DdlException("unsupported feature now, coming soon.");
         }
 
         ResourceGroup resourceGroup = ResourceGroup.create(stmt.getResourceGroupName(), stmt.getProperties());
@@ -165,26 +165,12 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
 
     // for ut
     public Map<String, ResourceGroup> getNameToResourceGroup() {
-        Map<String, ResourceGroup> results = Maps.newHashMap();
-        readLock();
-        try {
-            this.nameToResourceGroup.forEach((key, value) -> results.put(key, value.clone()));
-        } finally {
-            readUnlock();
-        }
-        return results;
+        return nameToResourceGroup;
     }
 
     // for ut
     public Map<Long, ResourceGroup> getIdToResourceGroup() {
-        Map<Long, ResourceGroup> results = Maps.newHashMap();
-        readLock();
-        try {
-            this.idToResourceGroup.forEach((key, value) -> results.put(key, value.clone()));
-        } finally {
-            readUnlock();
-        }
-        return results;
+        return idToResourceGroup;
     }
 
     @Override
