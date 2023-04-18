@@ -33,7 +33,7 @@ import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.ExportStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FloatLiteral;
-import org.apache.doris.analysis.InsertOverwriteTableSelect;
+import org.apache.doris.analysis.InsertOverwriteTableStmt;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
 import org.apache.doris.analysis.LiteralExpr;
@@ -682,8 +682,8 @@ public class StmtExecutor implements ProfileWriter {
                 handleTransactionStmt();
             } else if (parsedStmt instanceof CreateTableAsSelectStmt) {
                 handleCtasStmt();
-            } else if (parsedStmt instanceof InsertOverwriteTableSelect) {
-                handleIotsStmt();
+            } else if (parsedStmt instanceof InsertOverwriteTableStmt) {
+                handleIotStmt();
             } else if (parsedStmt instanceof InsertStmt) { // Must ahead of DdlStmt because InsertStmt is its subclass
                 try {
                     handleInsertStmt();
@@ -2112,20 +2112,18 @@ public class StmtExecutor implements ProfileWriter {
             return;
         }
         // after success create table insert data
-        if (MysqlStateType.OK.equals(context.getState().getStateType())) {
-            try {
-                parsedStmt = ctasStmt.getInsertStmt();
-                parsedStmt.setUserInfo(context.getCurrentUserIdentity());
-                execute();
-                if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
-                    LOG.warn("CTAS insert data error, stmt={}", ctasStmt.toSql());
-                    handleCtasRollback(ctasStmt.getCreateTableStmt().getDbTbl());
-                }
-            } catch (Exception e) {
-                LOG.warn("CTAS insert data error, stmt={}", ctasStmt.toSql(), e);
-                context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+        try {
+            parsedStmt = ctasStmt.getInsertStmt();
+            parsedStmt.setUserInfo(context.getCurrentUserIdentity());
+            execute();
+            if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
+                LOG.warn("CTAS insert data error, stmt={}", ctasStmt.toSql());
                 handleCtasRollback(ctasStmt.getCreateTableStmt().getDbTbl());
             }
+        } catch (Exception e) {
+            LOG.warn("CTAS insert data error, stmt={}", ctasStmt.toSql(), e);
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+            handleCtasRollback(ctasStmt.getCreateTableStmt().getDbTbl());
         }
     }
 
@@ -2142,12 +2140,12 @@ public class StmtExecutor implements ProfileWriter {
         }
     }
 
-    private void handleIotsStmt() {
-        InsertOverwriteTableSelect iotsStmt = (InsertOverwriteTableSelect) this.parsedStmt;
+    private void handleIotStmt() {
+        InsertOverwriteTableStmt iotStmt = (InsertOverwriteTableStmt) this.parsedStmt;
         UUID uuid = UUID.randomUUID();
         TableName tmpTableName = new TableName(null, null, "tmp_" + uuid);
-        TableName targetTableName = new TableName(null, iotsStmt.getInsertStmt().getDb(),
-                iotsStmt.getInsertStmt().getTbl());
+        TableName targetTableName = new TableName(null, iotStmt.getDb(),
+                iotStmt.getTbl());
         try {
             // create a tmp table with uuid
             CreateTableLikeStmt createTableLikeStmt = new CreateTableLikeStmt(false, tmpTableName, targetTableName,
@@ -2156,56 +2154,54 @@ public class StmtExecutor implements ProfileWriter {
             context.getState().setOk();
         } catch (Exception e) {
             // Maybe our bug
-            LOG.warn("IOTS create a tmp table error, stmt={}", originStmt.originStmt, e);
+            LOG.warn("IOT create a tmp table error, stmt={}", originStmt.originStmt, e);
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
             return;
         }
         // after success create table insert data
         if (MysqlStateType.OK.equals(context.getState().getStateType())) {
             try {
-                parsedStmt = iotsStmt.getInsertStmt();
+                parsedStmt = iotStmt;
                 parsedStmt.setUserInfo(context.getCurrentUserIdentity());
                 execute();
                 if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
-                    LOG.warn("IOTS insert data error, stmt={}", iotsStmt.toSql());
-                    handleIotsRollback(tmpTableName);
+                    LOG.warn("IOT insert data error, stmt={}", iotStmt.toSql());
+                    handleIotRollback(tmpTableName);
                     return;
                 }
                 context.getState().setOk();
             } catch (Exception e) {
-                LOG.warn("IOTS insert data error, stmt={}", iotsStmt.toSql(), e);
+                LOG.warn("IOT insert data error, stmt={}", iotStmt.toSql(), e);
                 context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
-                handleIotsRollback(tmpTableName);
+                handleIotRollback(tmpTableName);
                 return;
             }
         }
 
         // overwrite old table with tmp table
-        if (MysqlStateType.OK.equals(context.getState().getStateType())) {
-            try {
-                List<AlterClause> ops = new ArrayList<>();
-                Map<String, String> properties = new HashMap<>();
-                properties.put("swap", "false");
-                ops.add(new ReplaceTableClause(targetTableName.getTbl(), properties));
-                AlterTableStmt alterTableStmt = new AlterTableStmt(tmpTableName, ops);
-                DdlExecutor.execute(context.getEnv(), alterTableStmt);
-            } catch (Exception e) {
-                // Maybe our bug
-                LOG.warn("IOTS overwrite table error, stmt={}", originStmt.originStmt, e);
-                context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
-                handleIotsRollback(tmpTableName);
-            }
+        try {
+            List<AlterClause> ops = new ArrayList<>();
+            Map<String, String> properties = new HashMap<>();
+            properties.put("swap", "false");
+            ops.add(new ReplaceTableClause(targetTableName.getTbl(), properties));
+            AlterTableStmt alterTableStmt = new AlterTableStmt(tmpTableName, ops);
+            DdlExecutor.execute(context.getEnv(), alterTableStmt);
+        } catch (Exception e) {
+            // Maybe our bug
+            LOG.warn("IOT overwrite table error, stmt={}", originStmt.originStmt, e);
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+            handleIotRollback(tmpTableName);
         }
 
     }
 
-    private void handleIotsRollback(TableName table) {
+    private void handleIotRollback(TableName table) {
         // insert error drop the tmp table
         DropTableStmt dropTableStmt = new DropTableStmt(true, table, true);
         try {
             DdlExecutor.execute(context.getEnv(), dropTableStmt);
         } catch (Exception ex) {
-            LOG.warn("IOTS drop table error, stmt={}", parsedStmt.toSql(), ex);
+            LOG.warn("IOT drop table error, stmt={}", parsedStmt.toSql(), ex);
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + ex.getMessage());
         }
     }
