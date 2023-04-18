@@ -373,12 +373,15 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
         private final List<OrderExpression> orderKeys;
         private final WindowFrame windowFrame;
 
+        private final long limitVal;
+
         public WindowFrameGroup(NamedExpression windowAlias) {
             WindowExpression window = (WindowExpression) (windowAlias.child(0));
             partitionKeys = ImmutableSet.copyOf(window.getPartitionKeys());
             orderKeys = window.getOrderKeys();
             windowFrame = window.getWindowFrame().get();
             groups.add(windowAlias);
+            limitVal = window.getLimitVal();
         }
 
         @Override
@@ -420,6 +423,7 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
                     .map(OrderExpression::toString)
                     .collect(Collectors.joining(", ", "[", "], ")));
             sb.append("WindowFrame=").append(windowFrame);
+            sb.append("LimitValue=").append(limitVal);
             return sb + ")";
         }
 
