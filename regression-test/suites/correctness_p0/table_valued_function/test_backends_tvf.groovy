@@ -20,4 +20,7 @@ suite("test_backends_tvf") {
     List<List<Object>> table =  sql """ select * from backends(); """
     assertTrue(table.size() > 0) // row should > 0
     assertTrue(table[0].size == 26) // column should be 26
+    List<List<Object>> tableIP =  sql """ select IP from backends(); """
+    assertTrue(tableIP.size() > 0)
+    assertTrue(tableIP[0][0] != null)
 }
