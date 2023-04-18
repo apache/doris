@@ -65,12 +65,19 @@ public:
         return columns_with_type_and_name;
     }
 
-    static void update_null_map(NullMap& dst, const NullMap& src) {
+    // is_single: whether src is null map of a ColumnConst
+    static void update_null_map(NullMap& dst, const NullMap& src, bool is_single = false) {
         size_t size = dst.size();
         auto* __restrict l = dst.data();
         auto* __restrict r = src.data();
-        for (size_t i = 0; i < size; ++i) {
-            l[i] |= r[i];
+        if (is_single && r[0]) {
+            for (size_t i = 0; i < size; ++i) {
+                l[i] = 1;
+            }
+        } else {
+            for (size_t i = 0; i < size; ++i) {
+                l[i] |= r[i];
+            }
         }
     }
 

@@ -194,7 +194,7 @@ public:
         default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block, arguments);
 
         for (int i = 0; i < 3; i++) {
-            check_set_nullable(argument_columns[i], result_null_map_column);
+            check_set_nullable(argument_columns[i], result_null_map_column, col_const[i]);
         }
 
         if (col_const[1] && col_const[2]) {

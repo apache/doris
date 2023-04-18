@@ -144,6 +144,35 @@ suite("test_string_function") {
     qt_sql "select substring('abc1', 5);"
     qt_sql "select substring('abc1def', 2, 2);"
 
+    sql """ drop table if exists test_string_function; """
+    sql """ create table test_string_function (
+        k1 varchar(16),
+        v1 int
+    ) distributed by hash (k1) buckets 1
+    properties ("replication_num"="1");
+    """
+    sql """ insert into test_string_function values
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1)
+    """
+    // bug fix
+    qt_sql_substring1 """ select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ substring(k1, cast(null as int), cast(null as int)) from test_string_function; """
+
     qt_sql "select substr('a',3,1);"
     qt_sql "select substr('a',2,1);"
     qt_sql "select substr('a',1,1);"
