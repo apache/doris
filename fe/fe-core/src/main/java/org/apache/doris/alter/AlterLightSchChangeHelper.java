@@ -81,9 +81,7 @@ public class AlterLightSchChangeHelper {
      */
     public void enableLightSchemaChange() throws DdlException {
         final Map<Long, PFetchColIdsRequest> params = initParams();
-        final PFetchColIdsResponse response = callForColumnIds(params);
-        final AlterLightSchemaChangeInfo info =
-                new AlterLightSchemaChangeInfo(db.getId(), olapTable.getId(), response);
+        final AlterLightSchemaChangeInfo info = callForColumnsInfo(params);
         updateTableMeta(info);
         Env.getCurrentEnv().getEditLog().logAlterLightSchemaChange(info);
         LOG.info("successfully enable `light_schema_change`");
@@ -140,10 +138,12 @@ public class AlterLightSchChangeHelper {
 
     /**
      * @param beIdToRequest rpc param for corresponding BEs
-     * @return indexIds to each tablet schema info which consists of columnName to corresponding column unique id pairs
+     * @return contains indexIds to each tablet schema info which consists of columnName to corresponding
+     * column unique id pairs
      * @throws DdlException as a wrapper for rpc failures
      */
-    private PFetchColIdsResponse callForColumnIds(Map<Long, PFetchColIdsRequest> beIdToRequest) throws DdlException {
+    private AlterLightSchemaChangeInfo callForColumnsInfo(Map<Long, PFetchColIdsRequest> beIdToRequest)
+            throws DdlException {
         final List<Future<PFetchColIdsResponse>> futureList = new ArrayList<>();
         // start a rpc in a pipeline way
         try {
@@ -180,14 +180,14 @@ public class AlterLightSchChangeHelper {
         } catch (TimeoutException e) {
             throw new DdlException("fetch columnIds RPC result timeout", e);
         }
-        return compactToUniqResp(resultList);
+        return compactToAlterLscInfo(resultList);
     }
 
     /**
      * Since the result collected from several BEs may contain repeated indexes in distributed storage scenarios,
      * we should do consistency check for the result for the same index, and get the unique result.
      */
-    private PFetchColIdsResponse compactToUniqResp(List<PFetchColIdsResponse> resultList) {
+    private AlterLightSchemaChangeInfo compactToAlterLscInfo(List<PFetchColIdsResponse> resultList) {
         final PFetchColIdsResponse.Builder builder = PFetchColIdsResponse.newBuilder();
         Map<Long, Map<String, Integer>> indexIdToTabletInfo = new HashMap<>();
         resultList.forEach(response -> {
@@ -204,7 +204,7 @@ public class AlterLightSchChangeHelper {
                         "index: " + indexId + "got inconsistent schema in storage");
             }
         });
-        return builder.build();
+        return new AlterLightSchemaChangeInfo(db.getId(), olapTable.getId(), indexIdToTabletInfo);
     }
 
     public void updateTableMeta(AlterLightSchemaChangeInfo info) throws DdlException {

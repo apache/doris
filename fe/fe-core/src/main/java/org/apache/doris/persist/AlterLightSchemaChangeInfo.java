@@ -20,16 +20,12 @@ package org.apache.doris.persist;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.proto.InternalService.PFetchColIdsResponse;
-import org.apache.doris.proto.InternalService.PFetchColIdsResponse.PFetchColIdsResultEntry;
 
-import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.List;
 import java.util.Map;
 
 public class AlterLightSchemaChangeInfo implements Writable {
@@ -43,12 +39,10 @@ public class AlterLightSchemaChangeInfo implements Writable {
     @SerializedName("indexIdToColumnInfo")
     private Map<Long, Map<String, Integer>> indexIdToColumnInfo;
 
-    public AlterLightSchemaChangeInfo(long dbId, long tableId, PFetchColIdsResponse response) {
+    public AlterLightSchemaChangeInfo(long dbId, long tableId, Map<Long, Map<String, Integer>> info) {
         this.dbId = dbId;
         this.tableId = tableId;
-        final List<PFetchColIdsResultEntry> entriesList = Preconditions.checkNotNull(response.getEntriesList(),
-                "passed in entry list should be not null");
-        entriesList.forEach(entry -> indexIdToColumnInfo.put(entry.getIndexId(), entry.getColNameToIdMap()));
+        this.indexIdToColumnInfo = info;
     }
 
     public Long getDbId() {
