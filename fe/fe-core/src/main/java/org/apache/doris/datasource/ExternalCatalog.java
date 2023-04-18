@@ -331,8 +331,14 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
 
     @Override
     public void modifyCatalogProps(Map<String, String> props) {
+        modifyComment(props);
         catalogProperty.modifyCatalogProps(props);
         notifyPropertiesUpdated(props);
+    }
+
+    private void modifyComment(Map<String, String> props) {
+        setComment(props.getOrDefault("comment", comment));
+        props.remove("comment");
     }
 
     @Override

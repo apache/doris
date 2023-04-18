@@ -56,8 +56,10 @@ public class CreateCatalogStmtTest {
         CreateCatalogStmt stmt = new CreateCatalogStmt(false, "testCatalog", null, props, "comment");
         stmt.analyze(analyzer);
         Assert.assertEquals("testCatalog", stmt.getCatalogName());
+        Assert.assertNotNull(stmt.getComment());
         Assert.assertNotNull(stmt.getProperties());
-        Assert.assertEquals(2, stmt.getProperties().size());
+        Assert.assertTrue(stmt.getProperties().containsKey("create_time"));
+        Assert.assertEquals(3, stmt.getProperties().size());
     }
 
     @Test(expected = AnalysisException.class)
