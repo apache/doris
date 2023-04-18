@@ -127,6 +127,7 @@ void DownloadAction::handle_error_log(HttpRequest* req, const std::string& file_
 
 void DownloadAction::handle(HttpRequest* req) {
     if (_is_async) {
+        // async for heavy download job, currently mainly for single-replica-load
         CHECK(_download_workers->submit_func([this, req]() { _handle(req); }).ok());
     } else {
         _handle(req);
