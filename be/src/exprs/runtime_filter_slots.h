@@ -243,9 +243,7 @@ public:
         return Status::OK();
     }
 
-    bool empty() {
-        return !_runtime_filters.size();
-    }
+    bool empty() { return !_runtime_filters.size(); }
 
 private:
     const std::vector<ExprCtxType*>& _probe_expr_context;
