@@ -197,7 +197,7 @@ public class TableQueryPlanAction extends RestBaseController {
         }
 
         // acquired Planner to get PlanNode and fragment templates
-        Planner planner = stmtExecutor.planner();
+        Planner planner = stmtExecutor.getPlanner();
         // acquire ScanNode to obtain pruned tablet
         // in this way, just retrieve only one scannode
         List<ScanNode> scanNodes = planner.getScanNodes();
