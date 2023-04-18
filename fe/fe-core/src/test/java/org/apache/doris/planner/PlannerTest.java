@@ -77,7 +77,7 @@ public class PlannerTest extends TestWithFeService {
                 + "where b.k1 = 'a'";
         StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
         stmtExecutor1.execute();
-        Planner planner1 = stmtExecutor1.planner();
+        Planner planner1 = stmtExecutor1.getPlanner();
         String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
         Assertions.assertEquals(1, StringUtils.countMatches(plan1, "UNION"));
         String sql2 = "explain select * from db1.tbl1 where k1='a' and k4=1\n"
@@ -101,7 +101,7 @@ public class PlannerTest extends TestWithFeService {
                 + "   order by 3 limit 3)";
         StmtExecutor stmtExecutor2 = new StmtExecutor(connectContext, sql2);
         stmtExecutor2.execute();
-        Planner planner2 = stmtExecutor2.planner();
+        Planner planner2 = stmtExecutor2.getPlanner();
         String plan2 = planner2.getExplainString(new ExplainOptions(false, false));
         Assertions.assertEquals(4, StringUtils.countMatches(plan2, "UNION"));
 
@@ -116,7 +116,7 @@ public class PlannerTest extends TestWithFeService {
                 + "where b.k1 = 'a'";
         StmtExecutor stmtExecutor3 = new StmtExecutor(connectContext, sql3);
         stmtExecutor3.execute();
-        Planner planner3 = stmtExecutor3.planner();
+        Planner planner3 = stmtExecutor3.getPlanner();
         String plan3 = planner3.getExplainString(new ExplainOptions(false, false));
         Assertions.assertEquals(1, StringUtils.countMatches(plan3, "INTERSECT"));
         String sql4 = "explain select * from db1.tbl1 where k1='a' and k4=1\n"
@@ -141,7 +141,7 @@ public class PlannerTest extends TestWithFeService {
 
         StmtExecutor stmtExecutor4 = new StmtExecutor(connectContext, sql4);
         stmtExecutor4.execute();
-        Planner planner4 = stmtExecutor4.planner();
+        Planner planner4 = stmtExecutor4.getPlanner();
         String plan4 = planner4.getExplainString(new ExplainOptions(false, false));
         Assertions.assertEquals(3, StringUtils.countMatches(plan4, "INTERSECT"));
 
@@ -156,7 +156,7 @@ public class PlannerTest extends TestWithFeService {
                 + "where b.k1 = 'a'";
         StmtExecutor stmtExecutor5 = new StmtExecutor(connectContext, sql5);
         stmtExecutor5.execute();
-        Planner planner5 = stmtExecutor5.planner();
+        Planner planner5 = stmtExecutor5.getPlanner();
         String plan5 = planner5.getExplainString(new ExplainOptions(false, false));
         Assertions.assertEquals(1, StringUtils.countMatches(plan5, "EXCEPT"));
 
@@ -170,7 +170,7 @@ public class PlannerTest extends TestWithFeService {
                 + "order by 3 limit 3";
         StmtExecutor stmtExecutor6 = new StmtExecutor(connectContext, sql6);
         stmtExecutor6.execute();
-        Planner planner6 = stmtExecutor6.planner();
+        Planner planner6 = stmtExecutor6.getPlanner();
         String plan6 = planner6.getExplainString(new ExplainOptions(false, false));
         Assertions.assertEquals(1, StringUtils.countMatches(plan6, "EXCEPT"));
 
@@ -184,7 +184,7 @@ public class PlannerTest extends TestWithFeService {
                 + "order by 3 limit 3";
         StmtExecutor stmtExecutor7 = new StmtExecutor(connectContext, sql7);
         stmtExecutor7.execute();
-        Planner planner7 = stmtExecutor7.planner();
+        Planner planner7 = stmtExecutor7.getPlanner();
         String plan7 = planner7.getExplainString(new ExplainOptions(false, false));
         Assertions.assertEquals(1, StringUtils.countMatches(plan7, "EXCEPT"));
 
@@ -199,7 +199,7 @@ public class PlannerTest extends TestWithFeService {
                 + "order by 3 limit 3";
         StmtExecutor stmtExecutor8 = new StmtExecutor(connectContext, sql8);
         stmtExecutor8.execute();
-        Planner planner8 = stmtExecutor8.planner();
+        Planner planner8 = stmtExecutor8.getPlanner();
         String plan8 = planner8.getExplainString(new ExplainOptions(false, false));
         Assertions.assertEquals(1, StringUtils.countMatches(plan8, "UNION"));
         Assertions.assertEquals(1, StringUtils.countMatches(plan8, "INTERSECT"));
@@ -227,7 +227,7 @@ public class PlannerTest extends TestWithFeService {
 
         StmtExecutor stmtExecutor9 = new StmtExecutor(connectContext, sql9);
         stmtExecutor9.execute();
-        Planner planner9 = stmtExecutor9.planner();
+        Planner planner9 = stmtExecutor9.getPlanner();
         String plan9 = planner9.getExplainString(new ExplainOptions(false, false));
         Assertions.assertEquals(2, StringUtils.countMatches(plan9, "UNION"));
         Assertions.assertEquals(3, StringUtils.countMatches(plan9, "INTERSECT"));
@@ -236,7 +236,7 @@ public class PlannerTest extends TestWithFeService {
         String sql10 = "select 499 union select 670 except select 499";
         StmtExecutor stmtExecutor10 = new StmtExecutor(connectContext, sql10);
         stmtExecutor10.execute();
-        Planner planner10 = stmtExecutor10.planner();
+        Planner planner10 = stmtExecutor10.getPlanner();
         List<PlanFragment> fragments10 = planner10.getFragments();
         Assertions.assertTrue(fragments10.get(0).getPlanRoot().getFragment()
                 .getPlanRoot().getChild(0) instanceof AggregationNode);
@@ -249,7 +249,7 @@ public class PlannerTest extends TestWithFeService {
                 + "(SELECT '01' x UNION all SELECT '02') b";
         StmtExecutor stmtExecutor11 = new StmtExecutor(connectContext, sql11);
         stmtExecutor11.execute();
-        Planner planner11 = stmtExecutor11.planner();
+        Planner planner11 = stmtExecutor11.getPlanner();
         SetOperationNode setNode11 = (SetOperationNode) (planner11.getFragments().get(1).getPlanRoot());
         Assertions.assertEquals(2, setNode11.getMaterializedConstExprLists().size());
 
@@ -261,7 +261,7 @@ public class PlannerTest extends TestWithFeService {
                 + "SELECT k1 from db1.tbl1) b;";
         StmtExecutor stmtExecutor12 = new StmtExecutor(connectContext, sql12);
         stmtExecutor12.execute();
-        Planner planner12 = stmtExecutor12.planner();
+        Planner planner12 = stmtExecutor12.getPlanner();
         SetOperationNode setNode12 = (SetOperationNode) (planner12.getFragments().get(1).getPlanRoot());
         Assertions.assertEquals(2, setNode12.getMaterializedResultExprLists().size());
     }
@@ -295,7 +295,7 @@ public class PlannerTest extends TestWithFeService {
                 + "WHERE IF(k2 IS NULL, 'ALL', k2) = 'ALL'";
         StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
         stmtExecutor1.execute();
-        Planner planner1 = stmtExecutor1.planner();
+        Planner planner1 = stmtExecutor1.getPlanner();
         List<PlanFragment> fragments1 = planner1.getFragments();
         Assertions.assertEquals("if",
                 fragments1.get(0).getPlanRoot().conjuncts.get(0).getChild(0).getFn().functionName());
@@ -322,7 +322,7 @@ public class PlannerTest extends TestWithFeService {
                         + "WHERE IF(k2 IS NULL, 'ALL', k2) = 'ALL'";
         StmtExecutor stmtExecutor2 = new StmtExecutor(connectContext, sql2);
         stmtExecutor2.execute();
-        Planner planner2 = stmtExecutor2.planner();
+        Planner planner2 = stmtExecutor2.getPlanner();
         List<PlanFragment> fragments2 = planner2.getFragments();
         Assertions.assertEquals(4, fragments2.get(0).getPlanRoot().getChild(0).conjuncts.size());
 
@@ -337,7 +337,7 @@ public class PlannerTest extends TestWithFeService {
 
         StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
         stmtExecutor1.execute();
-        Planner planner1 = stmtExecutor1.planner();
+        Planner planner1 = stmtExecutor1.getPlanner();
         String plan1 = planner1.getExplainString(new ExplainOptions(true, false));
         Assertions.assertEquals(2, StringUtils.countMatches(plan1, "nullable=true"));
     }
@@ -347,7 +347,7 @@ public class PlannerTest extends TestWithFeService {
         String sql = "select count(k1) from db1.tbl2";
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
         stmtExecutor.execute();
-        Assertions.assertNotNull(stmtExecutor.planner());
+        Assertions.assertNotNull(stmtExecutor.getPlanner());
     }
 
     @Test
@@ -359,8 +359,8 @@ public class PlannerTest extends TestWithFeService {
                 + "GROUP BY a.k1, a.k3";
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
         stmtExecutor.execute();
-        Assertions.assertNotNull(stmtExecutor.planner());
-        Planner planner = stmtExecutor.planner();
+        Assertions.assertNotNull(stmtExecutor.getPlanner());
+        Planner planner = stmtExecutor.getPlanner();
         List<PlanFragment> fragments = planner.getFragments();
         Assertions.assertTrue(fragments.size() > 0);
         PlanNode node = fragments.get(0).getPlanRoot().getChild(0);
@@ -387,7 +387,7 @@ public class PlannerTest extends TestWithFeService {
             } catch (Exception e) {
                 e.printStackTrace();
             }
-            Planner planner1 = stmtExecutor1.planner();
+            Planner planner1 = stmtExecutor1.getPlanner();
             String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
 
             StmtExecutor stmtExecutor2 = new StmtExecutor(connectContext, sql2);
@@ -396,7 +396,7 @@ public class PlannerTest extends TestWithFeService {
             } catch (Exception e) {
                 e.printStackTrace();
             }
-            Planner planner2 = stmtExecutor2.planner();
+            Planner planner2 = stmtExecutor2.getPlanner();
             String plan2 = planner2.getExplainString(new ExplainOptions(false, false));
 
             Assertions.assertEquals(plan1, plan2);
@@ -431,7 +431,7 @@ public class PlannerTest extends TestWithFeService {
                 + " group by grouping sets((k1), (k1, k2)) having k1 = 1 and k2 = 1";
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
         stmtExecutor.execute();
-        Planner planner = stmtExecutor.planner();
+        Planner planner = stmtExecutor.getPlanner();
         String plan = planner.getExplainString(new ExplainOptions(false, false));
         Assertions.assertTrue(plan.contains("PREDICATES: `k1` = 1\n"));
     }
@@ -442,7 +442,7 @@ public class PlannerTest extends TestWithFeService {
                 + " group by rollup(k1, k2) having k1 = 1 and k2 = 1";
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
         stmtExecutor.execute();
-        Planner planner = stmtExecutor.planner();
+        Planner planner = stmtExecutor.getPlanner();
         String plan = planner.getExplainString(new ExplainOptions(false, false));
         Assertions.assertFalse(plan.contains("PREDICATES:"));
     }
@@ -453,7 +453,7 @@ public class PlannerTest extends TestWithFeService {
                 + " group by k1, k2 having k1 = 1 and k2 = 1";
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
         stmtExecutor.execute();
-        Planner planner = stmtExecutor.planner();
+        Planner planner = stmtExecutor.getPlanner();
         String plan = planner.getExplainString(new ExplainOptions(false, false));
         Assertions.assertTrue(plan.contains("PREDICATES: `k1` = 1 AND `k2` = 1\n"));
     }
@@ -465,7 +465,7 @@ public class PlannerTest extends TestWithFeService {
                 + " as 'moving total' from db1.tbl4 where k1 = 1";
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
         stmtExecutor.execute();
-        Planner planner = stmtExecutor.planner();
+        Planner planner = stmtExecutor.getPlanner();
         String plan = planner.getExplainString(new ExplainOptions(false, false));
         Assertions.assertTrue(plan.contains("PREDICATES: `k1` = 1\n"));
     }
@@ -504,7 +504,7 @@ public class PlannerTest extends TestWithFeService {
         String sql1 = "explain select k1 from db1.tbl3 order by k1, k2";
         StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
         stmtExecutor1.execute();
-        Planner planner1 = stmtExecutor1.planner();
+        Planner planner1 = stmtExecutor1.getPlanner();
         String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
         Assertions.assertFalse(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
         Assertions.assertFalse(plan1.contains("SORT LIMIT:"));
@@ -515,7 +515,7 @@ public class PlannerTest extends TestWithFeService {
             + (connectContext.getSessionVariable().topnOptLimitThreshold + 1);
         stmtExecutor1 = new StmtExecutor(connectContext, sql1);
         stmtExecutor1.execute();
-        planner1 = stmtExecutor1.planner();
+        planner1 = stmtExecutor1.getPlanner();
         plan1 = planner1.getExplainString(new ExplainOptions(false, false));
         Assertions.assertFalse(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
         Assertions.assertFalse(plan1.contains("SORT LIMIT:"));
@@ -526,7 +526,7 @@ public class PlannerTest extends TestWithFeService {
             + (connectContext.getSessionVariable().topnOptLimitThreshold);
         stmtExecutor1 = new StmtExecutor(connectContext, sql1);
         stmtExecutor1.execute();
-        planner1 = stmtExecutor1.planner();
+        planner1 = stmtExecutor1.getPlanner();
         plan1 = planner1.getExplainString(new ExplainOptions(false, false));
         Assertions.assertTrue(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
         Assertions.assertTrue(plan1.contains("SORT LIMIT:"));
@@ -538,7 +538,7 @@ public class PlannerTest extends TestWithFeService {
                 + (connectContext.getSessionVariable().topnOptLimitThreshold - 1);
             stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
-            planner1 = stmtExecutor1.planner();
+            planner1 = stmtExecutor1.getPlanner();
             plan1 = planner1.getExplainString(new ExplainOptions(false, false));
             Assertions.assertTrue(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
             Assertions.assertTrue(plan1.contains("SORT LIMIT:"));
@@ -549,7 +549,7 @@ public class PlannerTest extends TestWithFeService {
         String sql2 = "explain select k1, k2, k3 from db1.tbl3 order by k1, k3, k2";
         StmtExecutor stmtExecutor2 = new StmtExecutor(connectContext, sql2);
         stmtExecutor2.execute();
-        Planner planner2 = stmtExecutor2.planner();
+        Planner planner2 = stmtExecutor2.getPlanner();
         String plan2 = planner2.getExplainString(new ExplainOptions(false, false));
         Assertions.assertFalse(plan2.contains("SORT INFO:"));
         Assertions.assertFalse(plan2.contains("SORT LIMIT:"));
@@ -563,7 +563,7 @@ public class PlannerTest extends TestWithFeService {
                     + connectContext.getSessionVariable().topnOptLimitThreshold;
             StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
-            Planner planner1 = stmtExecutor1.planner();
+            Planner planner1 = stmtExecutor1.getPlanner();
             String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
             Assertions.assertTrue(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
             Assertions.assertTrue(plan1.contains("SORT LIMIT:"));
@@ -575,7 +575,7 @@ public class PlannerTest extends TestWithFeService {
                     + connectContext.getSessionVariable().topnOptLimitThreshold;
             StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
-            Planner planner1 = stmtExecutor1.planner();
+            Planner planner1 = stmtExecutor1.getPlanner();
             String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
             Assertions.assertTrue(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
             Assertions.assertTrue(plan1.contains("SORT LIMIT:"));
@@ -587,7 +587,7 @@ public class PlannerTest extends TestWithFeService {
                     + connectContext.getSessionVariable().topnOptLimitThreshold;
             StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
-            Planner planner1 = stmtExecutor1.planner();
+            Planner planner1 = stmtExecutor1.getPlanner();
             String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
             Assertions.assertTrue(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
             Assertions.assertTrue(plan1.contains("SORT LIMIT:"));
@@ -599,7 +599,7 @@ public class PlannerTest extends TestWithFeService {
                     + connectContext.getSessionVariable().topnOptLimitThreshold;
             StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
-            Planner planner1 = stmtExecutor1.planner();
+            Planner planner1 = stmtExecutor1.getPlanner();
             String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
             Assertions.assertTrue(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
             Assertions.assertTrue(plan1.contains("SORT LIMIT:"));
@@ -611,7 +611,7 @@ public class PlannerTest extends TestWithFeService {
                     + connectContext.getSessionVariable().topnOptLimitThreshold;
             StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
-            Planner planner1 = stmtExecutor1.planner();
+            Planner planner1 = stmtExecutor1.getPlanner();
             String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
             Assertions.assertTrue(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
             Assertions.assertTrue(plan1.contains("SORT LIMIT:"));
@@ -624,7 +624,7 @@ public class PlannerTest extends TestWithFeService {
                     + connectContext.getSessionVariable().topnOptLimitThreshold;
             StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
-            Planner planner1 = stmtExecutor1.planner();
+            Planner planner1 = stmtExecutor1.getPlanner();
             String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
             Assertions.assertTrue(plan1.contains("order by:"));
             }
@@ -635,7 +635,7 @@ public class PlannerTest extends TestWithFeService {
                     + connectContext.getSessionVariable().topnOptLimitThreshold;
             StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
-            Planner planner1 = stmtExecutor1.planner();
+            Planner planner1 = stmtExecutor1.getPlanner();
             String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
             Assertions.assertTrue(plan1.contains("order by:"));
             }
@@ -646,7 +646,7 @@ public class PlannerTest extends TestWithFeService {
                     + connectContext.getSessionVariable().topnOptLimitThreshold;
             StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
-            Planner planner1 = stmtExecutor1.planner();
+            Planner planner1 = stmtExecutor1.getPlanner();
             String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
             Assertions.assertFalse(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
             Assertions.assertFalse(plan1.contains("SORT LIMIT:"));
@@ -658,7 +658,7 @@ public class PlannerTest extends TestWithFeService {
                     + connectContext.getSessionVariable().topnOptLimitThreshold;
             StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
-            Planner planner1 = stmtExecutor1.planner();
+            Planner planner1 = stmtExecutor1.getPlanner();
             String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
             Assertions.assertFalse(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
             Assertions.assertFalse(plan1.contains("SORT LIMIT:"));
@@ -670,7 +670,7 @@ public class PlannerTest extends TestWithFeService {
                     + connectContext.getSessionVariable().topnOptLimitThreshold;
             StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
-            Planner planner1 = stmtExecutor1.planner();
+            Planner planner1 = stmtExecutor1.getPlanner();
             String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
             Assertions.assertFalse(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
             Assertions.assertFalse(plan1.contains("SORT LIMIT:"));
@@ -682,7 +682,7 @@ public class PlannerTest extends TestWithFeService {
                     + connectContext.getSessionVariable().topnOptLimitThreshold;
             StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
-            Planner planner1 = stmtExecutor1.planner();
+            Planner planner1 = stmtExecutor1.getPlanner();
             String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
             Assertions.assertFalse(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
             Assertions.assertFalse(plan1.contains("SORT LIMIT:"));
@@ -695,7 +695,7 @@ public class PlannerTest extends TestWithFeService {
                     + connectContext.getSessionVariable().topnOptLimitThreshold;
             StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
-            Planner planner1 = stmtExecutor1.planner();
+            Planner planner1 = stmtExecutor1.getPlanner();
             String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
             Assertions.assertFalse(plan1.contains("SORT INFO:"));
             Assertions.assertFalse(plan1.contains("SORT LIMIT:"));

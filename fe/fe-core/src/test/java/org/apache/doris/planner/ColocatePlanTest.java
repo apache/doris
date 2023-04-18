@@ -153,7 +153,7 @@ public class ColocatePlanTest extends TestWithFeService {
     public void sqlAggWithColocateTable() throws Exception {
         String sql = "select k1, k2, count(*) from db1.test_multi_partition where k2 = 1 group by k1, k2";
         StmtExecutor executor = getSqlStmtExecutor(sql);
-        Planner planner = executor.planner();
+        Planner planner = executor.getPlanner();
         Coordinator coordinator = Deencapsulation.getField(executor, "coord");
         List<ScanNode> scanNodeList = planner.getScanNodes();
         Assert.assertEquals(scanNodeList.size(), 1);
@@ -172,7 +172,7 @@ public class ColocatePlanTest extends TestWithFeService {
         String sql
                 = "select a.k1 from db1.test_colocate a, db1.test_colocate b where a.k1=b.k1 and a.k2=b.k2 group by a.k1;";
         StmtExecutor executor = getSqlStmtExecutor(sql);
-        Planner planner = executor.planner();
+        Planner planner = executor.getPlanner();
         Coordinator coordinator = Deencapsulation.getField(executor, "coord");
         boolean isColocateFragment0 = Deencapsulation.invoke(coordinator, "isColocateFragment",
                 planner.getFragments().get(1), planner.getFragments().get(1).getPlanRoot());
