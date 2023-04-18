@@ -34,6 +34,7 @@ import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.HashJoinNode.DistributionMode;
 import org.apache.doris.planner.JoinNodeBase;
 import org.apache.doris.planner.RuntimeFilter.RuntimeFilterTarget;
+import org.apache.doris.planner.RuntimeFilterGenerator.FilterSizeLimits;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TRuntimeFilterType;
@@ -125,11 +126,20 @@ public class RuntimeFilterTranslator {
         if (!src.getType().equals(target.getType()) && filter.getType() != TRuntimeFilterType.BITMAP) {
             targetExpr = new CastExpr(src.getType(), targetExpr);
         }
+        FilterSizeLimits filterSizeLimits = context.getLimits();
+        if (node instanceof HashJoinNode
+                && !(((HashJoinNode) node).getDistributionMode() == DistributionMode.BROADCAST)
+                && ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().enablePipelineEngine()
+                && ConnectContext.get().getSessionVariable().getParallelExecInstanceNum() > 0) {
+            filterSizeLimits = filterSizeLimits.adjustForParallel(
+                    ConnectContext.get().getSessionVariable().getParallelExecInstanceNum());
+        }
         org.apache.doris.planner.RuntimeFilter origFilter
                 = org.apache.doris.planner.RuntimeFilter.fromNereidsRuntimeFilter(
                 filter.getId(), node, src, filter.getExprOrder(), targetExpr,
                 ImmutableMap.of(targetTupleId, ImmutableList.of(targetSlotId)),
-                filter.getType(), context.getLimits(), filter.getBuildSideNdv());
+                filter.getType(), filterSizeLimits);
         if (node instanceof HashJoinNode) {
             origFilter.setIsBroadcast(((HashJoinNode) node).getDistributionMode() == DistributionMode.BROADCAST);
         } else {
