@@ -1970,10 +1970,6 @@ private:
 
             return false;
         };
-        if (to_type->is_time()) {
-            make_default_wrapper(TypePair<DataTypeTime, void>());
-            return ret;
-        }
 
         if (call_on_index_and_data_type<void>(to_type->get_type_id(), make_default_wrapper))
             return ret;

@@ -260,8 +260,7 @@ public:
                                     int be_exec_version) const = 0;
 
     virtual void to_pb_column_meta(PColumnMeta* col_meta) const;
-    // type is DataTypeTime
-    virtual bool is_time() const { return false; }
+
     static PGenericType_TypeId get_pdata_type(const IDataType* data_type);
 
 private:
