@@ -96,11 +96,11 @@ public class Transaction {
     /**
      * constructor
      */
-    public Transaction(ConnectContext ctx, Database database, Table table, NereidsPlanner planner)
+    public Transaction(ConnectContext ctx, Database database, Table table, String labelName, NereidsPlanner planner)
             throws TException, BeginTransactionException, MetaNotFoundException, AnalysisException,
             QuotaExceedException, LabelAlreadyUsedException, DuplicatedRequestException {
         this.ctx = ctx;
-        this.labelName = ctx.getTxnEntry().getLabel();
+        this.labelName = labelName;
         this.database = database;
         this.table = table;
         this.planner = planner;

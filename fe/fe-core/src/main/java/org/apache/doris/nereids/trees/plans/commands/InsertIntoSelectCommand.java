@@ -41,10 +41,10 @@ import java.util.Optional;
  */
 public class InsertIntoSelectCommand extends Command implements ForwardWithSync {
     private final String tableName;
-    private final String labelName;
     private final List<String> colNames;
     private final LogicalPlan logicalQuery;
     private final PhysicalPlan physicalQuery;
+    private final String labelName;
     private Database database;
     private Table table;
 
@@ -79,7 +79,11 @@ public class InsertIntoSelectCommand extends Command implements ForwardWithSync 
         if (ctx.getMysqlChannel() != null) {
             ctx.getMysqlChannel().reset();
         }
-        Transaction txn = new Transaction(ctx, database, table, planner);
+        String label = this.labelName;
+        if (label == null) {
+            label = "label-" + ctx.queryId().toString();
+        }
+        Transaction txn = new Transaction(ctx, database, table, label, planner);
         txn.executeInsertIntoSelectCommand(this);
     }
 
