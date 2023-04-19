@@ -22,14 +22,10 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.load.EtlJobType;
@@ -56,7 +52,6 @@ import org.apache.doris.thrift.TMergeType;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TTxnParams;
-import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
@@ -113,7 +108,7 @@ public class Transaction {
 
         OlapTableSink sink = ((OlapTableSink) planner.getFragments().get(0).getSink());
         sink.init(ctx.queryId(), txnId, database.getId(), ctx.getExecTimeout(),
-                        ctx.getSessionVariable().getSendBatchParallelism(), false);
+                ctx.getSessionVariable().getSendBatchParallelism(), false);
         sink.complete();
     }
 
