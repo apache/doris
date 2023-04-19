@@ -316,10 +316,23 @@ Status VScanNode::_register_runtime_filter() {
     for (int i = 0; i < filter_size; ++i) {
         IRuntimeFilter* runtime_filter = nullptr;
         const auto& filter_desc = _runtime_filter_descs[i];
-        RETURN_IF_ERROR(_state->runtime_filter_mgr()->register_filter(
-                RuntimeFilterRole::CONSUMER, filter_desc, _state->query_options(), id()));
-        RETURN_IF_ERROR(_state->runtime_filter_mgr()->get_consume_filter(filter_desc.filter_id,
-                                                                         &runtime_filter));
+        if (filter_desc.__isset.opt_remote_rf && filter_desc.opt_remote_rf &&
+            filter_desc.has_remote_targets && filter_desc.type == TRuntimeFilterType::BLOOM) {
+            // Optimize merging phase iff:
+            // 1. All BE has been upgraded (e.g. opt_remote_rf)
+            // 2. This filter is bloom filter (only bloom filter should be used for merging)
+            RETURN_IF_ERROR(_state->get_query_ctx()->runtime_filter_mgr()->register_filter(
+                    RuntimeFilterRole::CONSUMER, filter_desc, _state->query_options(), id(),
+                    false));
+            RETURN_IF_ERROR(_state->get_query_ctx()->runtime_filter_mgr()->get_consume_filter(
+                    filter_desc.filter_id, &runtime_filter));
+        } else {
+            RETURN_IF_ERROR(_state->runtime_filter_mgr()->register_filter(
+                    RuntimeFilterRole::CONSUMER, filter_desc, _state->query_options(), id(),
+                    false));
+            RETURN_IF_ERROR(_state->runtime_filter_mgr()->get_consume_filter(filter_desc.filter_id,
+                                                                             &runtime_filter));
+        }
         _runtime_filter_ctxs.emplace_back(runtime_filter);
         _runtime_filter_ready_flag.emplace_back(false);
     }
@@ -345,13 +358,6 @@ Status VScanNode::_acquire_runtime_filter(bool wait) {
     std::vector<VExpr*> vexprs;
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
         IRuntimeFilter* runtime_filter = _runtime_filter_ctxs[i].runtime_filter;
-        // If all targets are local, scan node will use hash node's runtime filter, and we don't
-        // need to allocate memory again
-        if (runtime_filter->has_remote_target()) {
-            if (auto bf = runtime_filter->get_bloomfilter()) {
-                RETURN_IF_ERROR(bf->init_with_fixed_length());
-            }
-        }
         bool ready = runtime_filter->is_ready();
         if (!ready && wait) {
             ready = runtime_filter->await();

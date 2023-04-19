@@ -199,6 +199,7 @@ public final class RuntimeFilter {
             tFilter.setBitmapTargetExpr(targets.get(0).expr.treeToThrift());
             tFilter.setBitmapFilterNotIn(bitmapFilterNotIn);
         }
+        tFilter.setOptRemoteRf(true);
         return tFilter;
     }
 
