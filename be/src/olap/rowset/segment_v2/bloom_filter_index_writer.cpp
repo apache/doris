@@ -233,16 +233,15 @@ uint64_t NGramBloomFilterIndexWriterImpl::size() {
 
 TokenBloomFilterIndexWriterImpl::TokenBloomFilterIndexWriterImpl(
         const BloomFilterOptions& bf_options, uint16_t bf_size)
-        : _bf_options(bf_options),
-          _bf_size(bf_size),
-          _bf_buffer_size(0),
-          _token_extractor() {
+        : _bf_options(bf_options), _bf_size(bf_size), _bf_buffer_size(0) {
     BloomFilter::create(TOKEN_BLOOM_FILTER, &_bf, bf_size);
 }
 
 void TokenBloomFilterIndexWriterImpl::add_values(const void* values, size_t count) {
     const Slice* src = reinterpret_cast<const Slice*>(values);
-    _token_extractor.string_to_bloom_filter(src->data, src->size, *_bf);
+    for (int i = 0; i < count; ++i, ++src) {
+        _token_extractor.string_to_bloom_filter(src->data, src->size, *_bf);
+    }
 }
 
 Status TokenBloomFilterIndexWriterImpl::flush() {

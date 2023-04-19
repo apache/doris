@@ -75,7 +75,7 @@ public class IndexDef {
             properties.putIfAbsent(NGRAM_BF_SIZE_KEY, DEFAULT_NGRAM_BF_SIZE);
         }
         if (indexType == IndexType.TOKEN_BF) {
-            properties.putIfAbsent(NGRAM_BF_TOKEN_KEY, DEFAULT_TOKEN_BF_SIZE);
+            properties.putIfAbsent(TOKEN_BF_SIZE_KEY, DEFAULT_TOKEN_BF_SIZE);
         }
     }
 

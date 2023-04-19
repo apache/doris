@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/rowset/segment_v2/ngram_bloom_filter.h"
+#include "olap/rowset/segment_v2/general_bloom_filter.h"
 
 #include <gen_cpp/segment_v2.pb.h>
 #include <glog/logging.h>
@@ -28,13 +28,13 @@ namespace segment_v2 {
 
 static constexpr uint64_t SEED_GEN = 217728422;
 
-NGramBloomFilter::NGramBloomFilter(size_t size)
+GeneralBloomFilter::GeneralBloomFilter(size_t size)
         : _size(size),
           words((size + sizeof(UnderType) - 1) / sizeof(UnderType)),
           filter(words, 0) {}
 
 // for read
-Status NGramBloomFilter::init(const char* buf, uint32_t size, HashStrategyPB strategy) {
+Status GeneralBloomFilter::init(const char* buf, uint32_t size, HashStrategyPB strategy) {
     if (size == 0) {
         return Status::InvalidArgument(strings::Substitute("invalid size:$0", size));
     }
@@ -53,7 +53,7 @@ Status NGramBloomFilter::init(const char* buf, uint32_t size, HashStrategyPB str
     return Status::OK();
 }
 
-void NGramBloomFilter::add_bytes(const char* data, uint32_t len) {
+void GeneralBloomFilter::add_bytes(const char* data, uint32_t len) {
     size_t hash1 = CityHash_v1_0_2::CityHash64WithSeed(data, len, 0);
     size_t hash2 = CityHash_v1_0_2::CityHash64WithSeed(data, len, SEED_GEN);
 
@@ -63,8 +63,8 @@ void NGramBloomFilter::add_bytes(const char* data, uint32_t len) {
     }
 }
 
-bool NGramBloomFilter::contains(const BloomFilter& bf_) const {
-    const NGramBloomFilter& bf = static_cast<const NGramBloomFilter&>(bf_);
+bool GeneralBloomFilter::contains(const BloomFilter& bf_) const {
+    const GeneralBloomFilter& bf = static_cast<const GeneralBloomFilter&>(bf_);
     for (size_t i = 0; i < words; ++i) {
         if ((filter[i] & bf.filter[i]) != bf.filter[i]) {
             return false;

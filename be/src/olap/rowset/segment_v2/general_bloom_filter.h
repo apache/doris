@@ -29,12 +29,12 @@ namespace doris {
 namespace segment_v2 {
 enum HashStrategyPB : int;
 
-class NGramBloomFilter : public BloomFilter {
+class GeneralBloomFilter : public BloomFilter {
 public:
     // Fixed hash function number
     static const size_t HASH_FUNCTIONS = 2;
     using UnderType = uint64_t;
-    NGramBloomFilter(size_t size);
+    GeneralBloomFilter(size_t size);
     void add_bytes(const char* data, uint32_t len) override;
     bool contains(const BloomFilter& bf_) const override;
     Status init(const char* buf, uint32_t size, HashStrategyPB strategy) override;

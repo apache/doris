@@ -25,7 +25,7 @@
 
 #include "common/status.h"
 #include "olap/rowset/segment_v2/block_split_bloom_filter.h"
-#include "olap/rowset/segment_v2/ngram_bloom_filter.h"
+#include "olap/rowset/segment_v2/general_bloom_filter.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -35,9 +35,9 @@ Status BloomFilter::create(BloomFilterAlgorithmPB algorithm, std::unique_ptr<Blo
     if (algorithm == BLOCK_BLOOM_FILTER) {
         bf->reset(new BlockSplitBloomFilter());
     } else if (algorithm == NGRAM_BLOOM_FILTER) {
-        bf->reset(new NGramBloomFilter(bf_size));
+        bf->reset(new GeneralBloomFilter(bf_size));
     } else if (algorithm == TOKEN_BLOOM_FILTER) {
-        bf->reset(new TokenBloomFilter(bf_size));
+        bf->reset(new GeneralBloomFilter(bf_size));
     } else {
         return Status::InternalError("invalid bloom filter algorithm:{}", algorithm);
     }

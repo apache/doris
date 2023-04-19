@@ -524,31 +524,31 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
                 auto gram_bf_size = tablet_index->get_gram_bf_size();
                 auto gram_size = tablet_index->get_gram_size();
 
-                segment_v2::BloomFilter::create(segment_v2::NGRAM_BLOOM_FILTER, &ng_bf, gram_bf_size);
+                segment_v2::BloomFilter::create(segment_v2::NGRAM_BLOOM_FILTER, &ng_bf,
+                                                gram_bf_size);
                 NgramTokenExtractor _token_extractor(gram_size);
 
                 if (_token_extractor.string_like_to_bloom_filter(pattern.data(), pattern.length(),
-                                                                *ng_bf)) {
+                                                                 *ng_bf)) {
                     pred->set_page_ng_bf(std::move(ng_bf));
                 }
             }
             tablet_index = _tablet->tablet_schema()->get_token_bf_index(col.unique_id());
             if (tablet_index) {
-                std::unique_ptr<segment_v2::BloomFilter> ng_bf;
+                std::unique_ptr<segment_v2::BloomFilter> token_bf;
                 std::string pattern = pred->get_search_str();
                 auto token_bf_size = tablet_index->get_token_bf_size();
 
-                segment_v2::BloomFilter::create(segment_v2::TOKEN_BLOOM_FILTER, &ng_bf, token_bf_size);
+                segment_v2::BloomFilter::create(segment_v2::TOKEN_BLOOM_FILTER, &token_bf,
+                                                token_bf_size);
                 SplitTokenExtractor _token_extractor;
 
                 if (_token_extractor.string_like_to_bloom_filter(pattern.data(), pattern.length(),
-                                                                *ng_bf)) {
-                    pred->set_page_token_bf(std::move(ng_bf));
+                                                                 *token_bf)) {
+                    pred->set_page_token_bf(std::move(token_bf));
                 }
             }
         }
-
-        
     }
     return Status::OK();
 }
