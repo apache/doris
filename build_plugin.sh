@@ -100,7 +100,7 @@ echo "Get params:
 cd "${DORIS_HOME}"
 PLUGIN_MODULE=''
 if [[ "${ALL_PLUGIN}" -eq 1 ]]; then
-    cd "${DORIS_HOME}/fe_plugins"
+    cd "${DORIS_HOME}/fe/fe-plugins"
     if [[ "${CLEAN}" -eq 1 ]]; then
         "${MVN_CMD}" clean
     fi
@@ -108,7 +108,7 @@ if [[ "${ALL_PLUGIN}" -eq 1 ]]; then
     "${MVN_CMD}" package -DskipTests
 else
     PLUGIN_MODULE="$1"
-    cd "${DORIS_HOME}/fe_plugins/${PLUGIN_MODULE}"
+    cd "${DORIS_HOME}/fe/fe-plugins/${PLUGIN_MODULE}"
     if [[ "${CLEAN}" -eq 1 ]]; then
         "${MVN_CMD}" clean
     fi
@@ -118,13 +118,13 @@ fi
 
 cd "${DORIS_HOME}"
 # Clean and prepare output dir
-DORIS_OUTPUT="${DORIS_HOME}/fe_plugins/output"
+DORIS_OUTPUT="${DORIS_HOME}/fe/fe-plugins/output"
 mkdir -p "${DORIS_OUTPUT}"
 
 if [[ "${ALL_PLUGIN}" -eq 1 ]]; then
-    cp -p "${DORIS_HOME}/fe_plugins"/*/target/*.zip "${DORIS_OUTPUT}"/
+    cp -p "${DORIS_HOME}/fe/fe-plugins"/*/target/*.zip "${DORIS_OUTPUT}"/
 else
-    cp -p "${DORIS_HOME}/fe_plugins/${PLUGIN_MODULE}/target"/*.zip "${DORIS_OUTPUT}"/
+    cp -p "${DORIS_HOME}/fe/fe-plugins/${PLUGIN_MODULE}/target"/*.zip "${DORIS_OUTPUT}"/
 fi
 
 echo "***************************************"

@@ -20,8 +20,11 @@ set -eo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
-export DORIS_HOME="${ROOT}/../.."
+echo "Build Auditloader..."
+echo "ROOT: ${ROOT}"
+export DORIS_HOME="${ROOT}/../../.."
 
+echo "DORIS_HOME: ${DORIS_HOME}"
 . "${DORIS_HOME}/env.sh"
 
 export AUDITLOADER_HOME="${ROOT}"
