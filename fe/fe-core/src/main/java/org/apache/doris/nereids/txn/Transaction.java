@@ -92,7 +92,7 @@ public class Transaction {
     private int filteredRows = 0;
     private TransactionStatus txnStatus = TransactionStatus.ABORTED;
     private String errMsg = "";
-    private Coordinator coordinator;
+    private final Coordinator coordinator;
 
     /**
      * constructor
