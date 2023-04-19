@@ -418,6 +418,21 @@ class Suite implements GroovyInterceptable {
         Assert.assertEquals("SUCCESS", status)
     }
 
+    void waitForS3LoadFinished(String label) {
+        // check load state
+        while (true) {
+            def stateResult = sql "show load where Label = '${label}'"
+            logger.info("load result is ${stateResult}")
+            def loadState = stateResult[stateResult.size() - 1][2].toString()
+            if ("CANCELLED".equalsIgnoreCase(loadState)) {
+                throw new IllegalStateException("load ${label} failed.")
+            } else if ("FINISHED".equalsIgnoreCase(loadState)) {
+                break
+            }
+            sleep(5000)
+        }
+    }
+
     List<String> downloadExportFromHdfs(String label) {
         String dataDir = context.config.dataPath + "/" + group + "/"
         String hdfsFs = context.config.otherConfigs.get("hdfsFs")
