@@ -20,7 +20,20 @@
 
 #pragma once
 
+#include <glog/logging.h>
+#include <stdint.h>
+#include <sys/types.h>
+
+#include <ostream>
+#include <string>
+#include <vector>
+
+#include "common/exception.h"
+#include "common/status.h"
 #include "vec/columns/column.h"
+#include "vec/common/pod_array_fwd.h"
+#include "vec/common/typeid_cast.h"
+#include "vec/core/types.h"
 
 /// Common helper methods for implementation of different columns.
 

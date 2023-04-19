@@ -16,10 +16,25 @@
 // under the License.
 
 #pragma once
-#include "vec/common/schema_util.h"
-#include "vec/data_types/data_type_object.h"
+#include <gen_cpp/Exprs_types.h>
+#include <stdint.h>
+
+#include <string>
+
+#include "common/object_pool.h"
+#include "common/status.h"
+#include "udf/udf.h"
 #include "vec/exprs/vexpr.h"
-#include "vec/functions/function.h"
+
+namespace doris {
+class RowDescriptor;
+class RuntimeState;
+
+namespace vectorized {
+class Block;
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

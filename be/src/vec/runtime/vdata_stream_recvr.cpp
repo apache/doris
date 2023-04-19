@@ -17,8 +17,18 @@
 
 #include "vec/runtime/vdata_stream_recvr.h"
 
-#include "gen_cpp/data.pb.h"
+#include <fmt/format.h>
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/data.pb.h>
+
+#include <algorithm>
+#include <functional>
+#include <string>
+
+#include "common/logging.h"
 #include "runtime/memory/mem_tracker.h"
+#include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/uid_util.h"
 #include "vec/core/block.h"

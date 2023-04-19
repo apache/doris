@@ -30,6 +30,7 @@
 
 #include "vec/columns/column.h"
 #include "vec/columns/column_decimal.h"
+#include "vec/core/call_on_type_index.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
 

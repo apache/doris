@@ -17,8 +17,10 @@
 
 #include "io/fs/file_reader.h"
 
+#include <bthread/bthread.h>
+#include <glog/logging.h>
+
 #include "io/fs/file_system.h"
-#include "io/io_common.h"
 #include "util/async_io.h"
 
 namespace doris {

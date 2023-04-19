@@ -20,16 +20,17 @@
 
 #include "io/cache/block/block_file_segment.h"
 
-#include <filesystem>
+#include <glog/logging.h>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
 #include <sstream>
 #include <string>
 #include <thread>
 
 #include "common/status.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "olap/iterators.h"
-#include "vec/common/hex.h"
 
 namespace doris {
 namespace io {

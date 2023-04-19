@@ -36,9 +36,6 @@ class Schema;
 
 namespace doris {
 
-class ObjectPool;
-class RowDescriptor;
-
 Status convert_to_arrow_batch(const vectorized::Block& block,
                               const std::shared_ptr<arrow::Schema>& schema, arrow::MemoryPool* pool,
                               std::shared_ptr<arrow::RecordBatch>* result);

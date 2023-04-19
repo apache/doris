@@ -21,9 +21,11 @@
 #include <sql.h>
 #include <stdint.h>
 
+#include <algorithm>
 #include <ostream>
 
-#include "common/compiler_util.h"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "olap/hll.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"

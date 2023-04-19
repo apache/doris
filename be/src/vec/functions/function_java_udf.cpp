@@ -17,27 +17,26 @@
 
 #include "vec/functions/function_java_udf.h"
 
-#include <fmt/format.h>
-
 #include <memory>
-#include <sstream>
+#include <string>
+#include <utility>
+#include <vector>
 
-#include "gen_cpp/Exprs_types.h"
 #include "gutil/strings/substitute.h"
-#include "runtime/exec_env.h"
+#include "jni.h"
+#include "jni_md.h"
 #include "runtime/user_function_cache.h"
 #include "util/jni-util.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/block.h"
-#include "vec/data_types/data_type_bitmap.h"
-#include "vec/data_types/data_type_date.h"
-#include "vec/data_types/data_type_date_time.h"
-#include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_string.h"
 
 const char* EXECUTOR_CLASS = "org/apache/doris/udf/UdfExecutor";
 const char* EXECUTOR_CTOR_SIGNATURE = "([B)V";

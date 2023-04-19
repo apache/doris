@@ -24,8 +24,6 @@
 #include <vector>
 
 #include "rapidjson/document.h"
-#include "runtime/descriptors.h"
-#include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris {

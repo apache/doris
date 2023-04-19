@@ -17,14 +17,16 @@
 
 #include "data_queue.h"
 
-#include <mutex>
+#include <glog/logging.h>
 
+#include <algorithm>
+#include <mutex>
+#include <utility>
+
+#include "gutil/integral_types.h"
 #include "vec/core/block.h"
 
 namespace doris {
-namespace vectorized {
-class Block;
-}
 namespace pipeline {
 
 DataQueue::DataQueue(int child_count) {

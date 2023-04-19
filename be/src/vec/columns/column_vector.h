@@ -20,16 +20,47 @@
 
 #pragma once
 
-#include <cmath>
-#include <type_traits>
+#include <glog/logging.h>
+#include <stdint.h>
+#include <string.h>
+#include <sys/types.h>
 
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <cmath>
+#include <initializer_list>
+#include <string>
+#include <type_traits>
+#include <typeinfo>
+#include <vector>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/status.h"
+#include "gutil/integral_types.h"
 #include "olap/uint24.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_impl.h"
 #include "vec/columns/column_vector_helper.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/cow.h"
+#include "vec/common/pod_array_fwd.h"
+#include "vec/common/string_ref.h"
+#include "vec/common/uint128.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/field.h"
+#include "vec/core/types.h"
+#include "vec/runtime/vdatetime_value.h"
+
+class SipHash;
+
+namespace doris {
+namespace vectorized {
+class Arena;
+class ColumnSorter;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

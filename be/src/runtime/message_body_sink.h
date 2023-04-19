@@ -17,6 +17,11 @@
 
 #pragma once
 
+#include <stddef.h>
+
+#include <memory>
+#include <string>
+
 #include "common/status.h"
 #include "util/byte_buffer.h"
 

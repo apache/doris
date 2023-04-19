@@ -17,24 +17,52 @@
 
 #pragma once
 
-#include <cstdint>
+#include <butil/macros.h>
+#include <fmt/format.h>
+#include <gen_cpp/Descriptors_types.h>
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <memory>
+#include <ostream>
+#include <set>
+#include <shared_mutex>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+
+#include "common/config.h"
+#include "common/object_pool.h"
 #include "common/status.h"
-#include "gen_cpp/AgentService_types.h"
 #include "olap/column_mapping.h"
-#include "olap/delete_handler.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/rowset_writer.h"
+#include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "olap/tablet.h"
-#include "vec/columns/column.h"
-#include "vec/core/block.h"
-#include "vec/olap/olap_data_convertor.h"
+#include "olap/tablet_schema.h"
+#include "runtime/descriptors.h"
+#include "runtime/memory/mem_tracker.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
+class DeleteHandler;
+class Field;
+class TAlterInvertedIndexReq;
+class TAlterTabletReqV2;
+class TExpr;
+enum AlterTabletType : int;
+enum RowsetTypePB : int;
+enum SegmentsOverlapPB : int;
 
-namespace segment_v2 {
-class InvertedIndexColumnWriter;
-}
+namespace vectorized {
+class Block;
+class OlapBlockDataConvertor;
+} // namespace vectorized
 
 class BlockChanger {
 public:

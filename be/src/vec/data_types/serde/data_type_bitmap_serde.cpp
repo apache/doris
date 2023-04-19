@@ -17,12 +17,19 @@
 
 #include "data_type_bitmap_serde.h"
 
+#include <gen_cpp/types.pb.h>
+
+#include <string>
+
+#include "util/bitmap_value.h"
 #include "vec/columns/column_complex.h"
-#include "vec/data_types/data_type.h"
+#include "vec/common/assert_cast.h"
 
 namespace doris {
 
 namespace vectorized {
+class IColumn;
+
 Status DataTypeBitMapSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
                                                int end) const {
     auto ptype = result.mutable_type();

@@ -20,13 +20,20 @@
 
 #include "vec/columns/column_nullable.h"
 
+#include <string.h>
+
+#include <algorithm>
+
+#include "util/hash_util.hpp"
 #include "util/simd/bits.h"
 #include "vec/columns/column_const.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/nan_utils.h"
+#include "vec/common/sip_hash.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/sort_block.h"
+#include "vec/data_types/data_type.h"
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {

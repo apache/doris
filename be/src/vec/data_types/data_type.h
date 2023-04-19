@@ -20,26 +20,32 @@
 
 #pragma once
 
-#include <boost/noncopyable.hpp>
-#include <memory>
+#include <gen_cpp/Types_types.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#include "gen_cpp/data.pb.h"
+#include <boost/core/noncopyable.hpp>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/common/cow.h"
-#include "vec/common/string_buffer.hpp"
 #include "vec/core/types.h"
 #include "vec/data_types/serde/data_type_serde.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris {
-class PBlock;
-class PColumn;
+class PColumnMeta;
+enum PGenericType_TypeId : int;
 
 namespace vectorized {
 
 class IDataType;
-
 class IColumn;
+class BufferWritable;
+class ReadBuffer;
+
 using ColumnPtr = COW<IColumn>::Ptr;
 using MutableColumnPtr = COW<IColumn>::MutablePtr;
 

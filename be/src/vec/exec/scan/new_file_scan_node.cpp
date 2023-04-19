@@ -17,7 +17,22 @@
 
 #include "vec/exec/scan/new_file_scan_node.h"
 
+#include <gen_cpp/PlanNodes_types.h>
+#include <glog/logging.h>
+#include <stddef.h>
+
+#include <algorithm>
+#include <ostream>
+
+#include "common/config.h"
+#include "common/object_pool.h"
 #include "vec/exec/scan/vfile_scanner.h"
+#include "vec/exec/scan/vscanner.h"
+
+namespace doris {
+class DescriptorTbl;
+class RuntimeState;
+} // namespace doris
 
 namespace doris::vectorized {
 

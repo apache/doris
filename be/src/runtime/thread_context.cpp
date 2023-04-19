@@ -19,8 +19,11 @@
 
 #include "common/signal_handler.h"
 #include "runtime/runtime_state.h"
+#include "util/doris_metrics.h" // IWYU pragma: keep
+#include "util/uid_util.h"
 
 namespace doris {
+class MemTracker;
 
 DEFINE_STATIC_THREAD_LOCAL(ThreadContext, ThreadContextPtr, _ptr);
 

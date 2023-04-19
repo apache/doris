@@ -20,29 +20,46 @@
 
 #include "vec/core/block.h"
 
+#include <assert.h>
 #include <fmt/format.h>
-#include <glog/logging.h>
+#include <gen_cpp/data.pb.h>
 #include <snappy.h>
+#include <sys/types.h>
+
+#include <algorithm>
+#include <iomanip>
+#include <iterator>
+#include <limits>
 
 #include "agent/be_exec_version_manager.h"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
+#include "common/logging.h"
 #include "common/status.h"
 #include "runtime/descriptors.h"
 #include "runtime/thread_context.h"
-#include "udf/udf.h"
 #include "util/block_compression.h"
 #include "util/faststring.h"
+#include "util/runtime_profile.h"
 #include "util/simd/bits.h"
+#include "util/slice.h"
+#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/schema_util.h"
-#include "vec/common/string_ref.h"
-#include "vec/common/typeid_cast.h"
 #include "vec/data_types/data_type_factory.hpp"
+
+class SipHash;
+
+namespace doris {
+namespace segment_v2 {
+enum CompressionTypePB : int;
+} // namespace segment_v2
+} // namespace doris
 
 namespace doris::vectorized {
 

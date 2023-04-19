@@ -17,24 +17,46 @@
 
 #include "vec/exec/vjdbc_connector.h"
 
-#include <cstring>
+#include <gen_cpp/Types_types.h>
 
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+// IWYU pragma: no_include <bits/std_abs.h>
+#include <cmath> // IWYU pragma: keep
+#include <cstring>
+#include <memory>
+#include <ostream>
+#include <utility>
+
+#include "common/logging.h"
 #include "common/status.h"
 #include "exec/table_connector.h"
-#include "gen_cpp/Types_types.h"
 #include "gutil/strings/substitute.h"
 #include "jni.h"
+#include "jni_md.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/descriptors.h"
+#include "runtime/runtime_state.h"
+#include "runtime/types.h"
 #include "runtime/user_function_cache.h"
 #include "util/jni-util.h"
 #include "util/runtime_profile.h"
-#include "vec/columns/column_array.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
-#include "vec/data_types/data_type_factory.hpp"
+#include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/exec/jni_connector.h"
-#include "vec/exec/scan/new_jdbc_scanner.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
+#include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris {

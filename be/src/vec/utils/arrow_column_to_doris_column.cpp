@@ -17,17 +17,34 @@
 
 #include "vec/utils/arrow_column_to_doris_column.h"
 
-#include <arrow/array.h>
-#include <arrow/record_batch.h>
-#include <arrow/status.h>
+#include <arrow/array/array_base.h>
+#include <arrow/array/array_decimal.h>
+#include <arrow/array/array_primitive.h>
+#include <arrow/array/data.h>
+#include <arrow/buffer.h>
+#include <cctz/time_zone.h>
+#include <fmt/format.h>
+#include <glog/logging.h>
+#include <stdint.h>
+
+#include <memory>
+#include <utility>
+#include <vector>
 
 #include "arrow/array/array_binary.h"
 #include "arrow/array/array_nested.h"
 #include "arrow/type.h"
-#include "arrow/type_fwd.h"
 #include "gutil/casts.h"
+#include "util/binary_cast.hpp"
+#include "util/timezone_utils.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
+#include "vec/common/assert_cast.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"

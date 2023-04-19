@@ -17,9 +17,20 @@
 
 #include "util/s3_util.h"
 
+#include <aws/core/auth/AWSAuthSigner.h>
 #include <aws/core/auth/AWSCredentials.h>
+#include <aws/core/client/ClientConfiguration.h>
+#include <aws/core/utils/logging/LogLevel.h>
+#include <aws/core/utils/logging/LogSystemInterface.h>
+#include <aws/core/utils/memory/stl/AWSStringStream.h>
 #include <aws/s3/S3Client.h>
 #include <util/string_util.h>
+
+#include <atomic>
+#include <cstdlib>
+#include <functional>
+#include <ostream>
+#include <utility>
 
 #include "common/config.h"
 #include "common/logging.h"

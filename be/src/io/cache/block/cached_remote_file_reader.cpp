@@ -17,12 +17,26 @@
 
 #include "io/cache/block/cached_remote_file_reader.h"
 
+#include <fmt/format.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <string.h>
+
+#include <algorithm>
+#include <list>
+#include <vector>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "io/cache/block/block_file_cache.h"
 #include "io/cache/block/block_file_cache_factory.h"
+#include "io/cache/block/block_file_segment.h"
 #include "io/fs/file_reader.h"
-#include "olap/iterators.h"
-#include "olap/olap_common.h"
-#include "util/async_io.h"
+#include "io/io_common.h"
+#include "util/bit_util.h"
+#include "util/doris_metrics.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 namespace io {

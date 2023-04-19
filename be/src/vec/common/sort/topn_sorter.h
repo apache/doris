@@ -16,9 +16,26 @@
 // under the License.
 
 #pragma once
-#include <queue>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <memory>
+#include <vector>
+
+#include "common/status.h"
 #include "vec/common/sort/sorter.h"
+
+namespace doris {
+class ObjectPool;
+class RowDescriptor;
+class RuntimeProfile;
+class RuntimeState;
+
+namespace vectorized {
+class Block;
+class VSortExecExprs;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

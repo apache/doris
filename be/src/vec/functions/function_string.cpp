@@ -17,10 +17,10 @@
 
 #include "vec/functions/function_string.h"
 
-#include <re2/re2.h>
+#include <ctype.h>
+#include <math.h>
+#include <re2/stringpiece.h>
 
-#include <cstddef>
-#include <cstdlib>
 #include <string_view>
 
 #include "runtime/string_search.hpp"

@@ -19,6 +19,7 @@
 
 #include "exprs/block_bloom_filter.hpp"
 #include "exprs/runtime_filter.h"
+#include "olap/rowset/segment_v2/bloom_filter.h" // IWYU pragma: keep
 
 namespace doris {
 

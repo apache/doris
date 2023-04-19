@@ -17,14 +17,16 @@
 
 #pragma once
 
+#include <stdint.h>
+
 #include <functional>
-#include <map>
 #include <memory>
 #include <mutex>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
-#include "gen_cpp/internal_service.pb.h"
 #include "runtime/routine_load/data_consumer_pool.h"
-#include "util/doris_metrics.h"
 #include "util/priority_thread_pool.hpp"
 #include "util/uid_util.h"
 
@@ -34,6 +36,8 @@ class ExecEnv;
 class Status;
 class StreamLoadContext;
 class TRoutineLoadTask;
+class PIntegerPair;
+class PKafkaMetaProxyRequest;
 
 // A routine load task executor will receive routine load
 // tasks from FE, put it to a fixed thread pool.

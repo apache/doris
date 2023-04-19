@@ -17,11 +17,30 @@
 
 #pragma once
 
+#include <stddef.h>
+
+#include <atomic>
+#include <condition_variable>
+#include <list>
+#include <memory>
+#include <mutex>
+#include <utility>
+#include <vector>
+
 #include "common/status.h"
-#include "pipeline.h"
+#include "gutil/ref_counted.h"
 #include "pipeline_task.h"
-#include "task_queue.h"
-#include "util/threadpool.h"
+#include "runtime/task_group/task_group.h"
+#include "util/thread.h"
+
+namespace doris {
+class ExecEnv;
+class ThreadPool;
+
+namespace pipeline {
+class TaskQueue;
+} // namespace pipeline
+} // namespace doris
 
 namespace doris::pipeline {
 

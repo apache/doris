@@ -17,9 +17,7 @@
 
 #pragma once
 
-#include <type_traits>
-
-#include "runtime/primitive_type.h"
+#include <stdint.h>
 
 namespace doris {
 

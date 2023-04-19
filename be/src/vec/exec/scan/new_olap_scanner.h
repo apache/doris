@@ -17,20 +17,36 @@
 
 #pragma once
 
-#include "exec/olap_utils.h"
-#include "exprs/function_filter.h"
+#include <gen_cpp/PaloInternalService_types.h>
+#include <stdint.h>
+
+#include <memory>
+#include <string>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+
+#include "common/status.h"
+#include "olap/data_dir.h"
 #include "olap/reader.h"
-#include "util/runtime_profile.h"
+#include "olap/rowset/rowset_reader.h"
+#include "olap/tablet.h"
+#include "olap/tablet_schema.h"
 #include "vec/exec/scan/vscanner.h"
 
 namespace doris {
 
 struct OlapScanRange;
+class FunctionFilter;
+class RuntimeProfile;
+class RuntimeState;
+class TPaloScanRange;
 
 namespace vectorized {
 
 class NewOlapScanNode;
 struct FilterPredicates;
+class Block;
 
 class NewOlapScanner : public VScanner {
 public:

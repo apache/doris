@@ -16,15 +16,17 @@
 // under the License.
 
 #pragma once
+
 #include <memory>
-#include <string>
+#include <vector>
 
 #include "common/status.h"
-#include "vec/columns/column.h"
 
 namespace doris {
+class PValues;
 
 namespace vectorized {
+class IColumn;
 // Deserialize means read from different file format or memory format,
 // for example read from arrow, read from parquet.
 // Serialize means write the column cell or the total column into another

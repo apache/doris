@@ -17,6 +17,9 @@
 
 #include "olap/compaction_permit_limiter.h"
 
+#include "common/config.h"
+#include "util/doris_metrics.h"
+
 namespace doris {
 
 CompactionPermitLimiter::CompactionPermitLimiter() : _used_permits(0) {}

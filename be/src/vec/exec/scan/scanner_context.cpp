@@ -17,12 +17,25 @@
 
 #include "scanner_context.h"
 
+#include <bthread/bthread.h>
+#include <fmt/format.h>
+#include <gen_cpp/Metrics_types.h>
+#include <glog/logging.h>
+
+#include <algorithm>
 #include <mutex>
+#include <ostream>
+#include <utility>
 
 #include "common/config.h"
+#include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
+#include "runtime/query_fragments_ctx.h"
 #include "runtime/runtime_state.h"
-#include "util/threadpool.h"
+#include "util/pretty_printer.h"
+#include "util/uid_util.h"
 #include "vec/core/block.h"
+#include "vec/exec/scan/scanner_scheduler.h"
 #include "vec/exec/scan/vscan_node.h"
 #include "vec/exec/scan/vscanner.h"
 

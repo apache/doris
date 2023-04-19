@@ -23,6 +23,7 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
+#include "vec/core/block.h" // IWYU pragma: keep
 #include "vec/runtime/shared_hash_table_controller.h"
 
 namespace doris {

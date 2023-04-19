@@ -16,14 +16,23 @@
 // under the License.
 #pragma once
 
-#include <queue>
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <atomic>
+#include <condition_variable>
+#include <memory>
+#include <mutex>
+#include <ostream>
+#include <queue>
+#include <set>
+
+#include "common/status.h"
 #include "pipeline_task.h"
+#include "runtime/task_group/task_group.h"
 
 namespace doris {
-namespace taskgroup {
-class TaskGroup;
-}
 
 namespace pipeline {
 
