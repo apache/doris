@@ -143,4 +143,6 @@ public interface CatalogIf<T extends DatabaseIf> {
     default void onClose() {
         Env.getCurrentEnv().getRefreshManager().removeFromRefreshMap(getId());
     }
+
+    String getComment();
 }

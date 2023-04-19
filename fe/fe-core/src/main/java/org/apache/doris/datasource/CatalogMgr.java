@@ -373,6 +373,10 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                         } else {
                             row.add("");
                         }
+                        Map<String, String> props = catalog.getProperties();
+                        String createTime = props.getOrDefault(CreateCatalogStmt.CREATE_TIME_PROP, "UNRECORDED");
+                        row.add(createTime);
+                        row.add(catalog.getComment());
                         rows.add(row);
                     }
 
@@ -421,8 +425,11 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 throw new AnalysisException("No catalog found with name " + showStmt.getCatalog());
             }
             StringBuilder sb = new StringBuilder();
-            sb.append("CREATE CATALOG `").append(ClusterNamespace.getNameFromFullName(showStmt.getCatalog()))
+            sb.append("\nCREATE CATALOG `").append(ClusterNamespace.getNameFromFullName(showStmt.getCatalog()))
                     .append("`");
+            if (!com.google.common.base.Strings.isNullOrEmpty(catalog.getComment())) {
+                sb.append("\nCOMMENT \"").append(catalog.getComment()).append("\"\n");
+            }
             if (catalog.getProperties().size() > 0) {
                 sb.append(" PROPERTIES (\n");
                 sb.append(new PrintableMap<>(catalog.getProperties(), "=", true, true, true, true));

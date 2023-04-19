@@ -237,6 +237,11 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     @Override
+    public String getComment() {
+        return "Doris internal catalog";
+    }
+
+    @Override
     public String getName() {
         return INTERNAL_CATALOG_NAME;
     }
