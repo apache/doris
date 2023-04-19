@@ -412,6 +412,7 @@ under the License.
                             <overWriteReleases>false</overWriteReleases>
                             <overWriteSnapshots>false</overWriteSnapshots>
                             <overWriteIfNewer>true</overWriteIfNewer>
+                            <includeScope>runtime</includeScope>
                             <skip>${skip.plugin}</skip>
                         </configuration>
                     </execution>
@@ -445,29 +446,6 @@ under the License.
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-dependency-plugin</artifactId>
                     <version>${maven-dependency-plugin.version}</version>
-                </plugin>
-                <plugin>
-                    <groupId>org.owasp</groupId>
-                    <artifactId>dependency-check-maven</artifactId>
-                    <version>${owasp-dependency-check-maven.version}</version>
-                    <configuration>
-                        <skip>true</skip>
-                        <skipProvidedScope>true</skipProvidedScope>
-                        <skipRuntimeScope>true</skipRuntimeScope>
-                        <skipSystemScope>true</skipSystemScope>
-                        <failBuildOnCVSS>7</failBuildOnCVSS>
-                        <format>CSV</format>
-                        <scanDependencies>true</scanDependencies>
-                        <prettyPrint>true</prettyPrint>
-                        <outputDirectory>/Users/calvinkirs/oss/src/doris-master/report</outputDirectory>
-                    </configuration>
-                    <executions>
-                        <execution>
-                            <goals>
-                                <goal>aggregate</goal>
-                            </goals>
-                        </execution>
-                    </executions>
                 </plugin>
                 <!--set for ecplise lifecycle -->
                 <plugin>
