@@ -1509,6 +1509,8 @@ visible_functions = [
     [['sub_replace'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT'], 'ALWAYS_NULLABLE'],
     [['sub_replace'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT', 'INT'], 'ALWAYS_NULLABLE'],
 
+    [['char'], 'VARCHAR', ['VARCHAR', 'INT', '...'], 'ALWAYS_NULLABLE'],
+
     # width_bucket
     [['width_bucket'], 'BIGINT', ['TINYINT','TINYINT','TINYINT','TINYINT'], ''],
     [['width_bucket'], 'BIGINT', ['SMALLINT','SMALLINT','SMALLINT','SMALLINT'], ''],
