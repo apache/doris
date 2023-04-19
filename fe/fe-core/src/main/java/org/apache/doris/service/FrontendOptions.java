@@ -17,13 +17,13 @@
 
 package org.apache.doris.service;
 
+import com.alibaba.fastjson2.util.InetAddressValidator;
 import org.apache.doris.common.CIDR;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.NetUtils;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import org.apache.commons.validator.routines.InetAddressValidator;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

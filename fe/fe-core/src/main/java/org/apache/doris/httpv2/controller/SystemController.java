@@ -17,7 +17,9 @@
 
 package org.apache.doris.httpv2.controller;
 
+import org.apache.commons.validator.routines.UrlValidator;
 import org.apache.doris.analysis.RedirectStatus;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.proc.ProcDirInterface;
@@ -35,7 +37,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.commons.validator.routines.UrlValidator;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.http.ResponseEntity;
@@ -114,7 +115,7 @@ public class SystemController extends BaseController {
                 return ResponseEntityBuilder.internalError("Failed to get result from master");
             }
 
-            columnNames = resultSet.getMetaData().getColumns().stream().map(c -> c.getName()).collect(
+            columnNames = resultSet.getMetaData().getColumns().stream().map(Column::getName).collect(
                     Collectors.toList());
             rows = resultSet.getResultRows();
         } else {
@@ -182,6 +183,11 @@ public class SystemController extends BaseController {
         ResponseEntity entity = ResponseEntityBuilder.ok(result);
         ((ResponseBody) entity.getBody()).setCount(list.size());
         return entity;
+    }
+
+    private boolean checkUrlIsValidate(String url) {
+        UrlValidator validator = new UrlValidator();
+        return validator.isValid(url);
     }
 
     private String getParentUrl(String pathStr) {

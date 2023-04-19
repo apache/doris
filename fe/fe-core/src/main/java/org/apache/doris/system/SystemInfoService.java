@@ -17,6 +17,7 @@
 
 package org.apache.doris.system;
 
+import com.alibaba.fastjson2.util.InetAddressValidator;
 import org.apache.doris.analysis.ModifyBackendClause;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
@@ -44,7 +45,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
-import org.apache.commons.validator.routines.InetAddressValidator;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
