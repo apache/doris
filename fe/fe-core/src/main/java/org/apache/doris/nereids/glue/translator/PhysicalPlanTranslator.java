@@ -824,6 +824,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 partitionExprs,
                 orderByElements,
                 analyticWindow,
+                windowFrameGroup.getLimitVal(),
                 intermediateTupleDesc,
                 outputTupleDesc,
                 partitionExprsIsNullableMatched,

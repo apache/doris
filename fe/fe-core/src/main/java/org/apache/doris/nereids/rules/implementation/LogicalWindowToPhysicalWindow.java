@@ -444,6 +444,10 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
             return windowFrame;
         }
 
+        public Long getLimitVal() {
+            return limitVal;
+        }
+
     }
 
     /**

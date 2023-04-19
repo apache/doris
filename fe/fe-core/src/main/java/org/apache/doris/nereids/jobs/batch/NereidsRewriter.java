@@ -64,7 +64,6 @@ import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanTablet;
 import org.apache.doris.nereids.rules.rewrite.logical.PushFilterInsideJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughProject;
-import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughWindow;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownLimit;
 import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinAggTranspose;
@@ -228,12 +227,7 @@ public class NereidsRewriter extends BatchRewriteJob {
                     new BuildAggForUnion()
                     // after eliminate filter, the project maybe can push down again,
                     // so we add push down rules
-                )).addAll(RuleSet.PUSH_DOWN_FILTERS).build()),
-
-                topDown(
-                    // TODO: adjust this position
-                    new PushdownFilterThroughWindow()
-                )
+                )).addAll(RuleSet.PUSH_DOWN_FILTERS).build())
             ),
 
             // TODO: I think these rules should be implementation rules, and generate alternative physical plans.
