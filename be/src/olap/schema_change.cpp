@@ -1712,14 +1712,19 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
             }
         }
 
-        int32_t column_index = base_tablet_schema->field_index(column_name);
+        int32_t column_index = base_tablet_schema->field_index( std::string_view(column_name));
         if (column_index >= 0) {
             column_mapping->ref_column = column_index;
             continue;
         }
 
+        if (column_name.starts_with("__doris_shadow_")) {
+            // Should delete in the future, just a protection for bug.
+            return Status::InternalError("failed due to operate on shadow");
+        }
         // Newly added column go here
         column_mapping->ref_column = -1;
+
 
         if (i < base_tablet_schema->num_short_key_columns()) {
             *sc_directly = true;
@@ -1727,8 +1732,9 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
         RETURN_IF_ERROR(
                 _init_column_mapping(column_mapping, new_column, new_column.default_value()));
 
-        VLOG_TRACE << "A column with default value will be added after schema changing. "
-                   << "column=" << column_name << ", default_value=" << new_column.default_value();
+        LOG(INFO) << "A column with default value will be added after schema changing. "
+                  << "column=" << column_name << ", default_value=" << new_column.default_value()
+                  << " to table " << new_tablet->get_table_id();
     }
 
     if (materialized_function_map.count(WHERE_SIGN)) {
