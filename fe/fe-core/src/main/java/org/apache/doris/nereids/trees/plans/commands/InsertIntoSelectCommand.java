@@ -90,6 +90,8 @@ public class InsertIntoSelectCommand extends Command implements ForwardWithSync 
 
         PlanFragment root = planner.getFragments().get(0);
         DataSink sink = createDataSink(ctx, root);
+        Preconditions.checkArgument(sink instanceof OlapTableSink, "olap table sink is expected when"
+                + " running insert into select");
         root.resetSink(sink);
         Transaction txn = new Transaction(ctx, database, table, label, planner);
         txn.executeInsertIntoSelectCommand(this);

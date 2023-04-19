@@ -37,6 +37,9 @@ import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoSelectCommand;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.planner.DataSink;
+import org.apache.doris.planner.OlapTableSink;
+import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
@@ -110,6 +113,10 @@ public class Transaction {
                 new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
                 LoadJobSourceType.INSERT_STREAMING, ctx.getExecTimeout());
         this.createAt = System.currentTimeMillis();
+
+        ((OlapTableSink) planner.getFragments().get(0).getSink())
+                .init(ctx.queryId(), txnId, database.getId(), ctx.getExecTimeout(),
+                        ctx.getSessionVariable().getSendBatchParallelism(), false);
 
     }
 
