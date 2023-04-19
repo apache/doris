@@ -135,11 +135,12 @@ struct TimeCast {
             num = int_value;
             return true;
         };
-        char *first_colon {nullptr}, *second_colon {nullptr};
-        if ((first_colon = (char*)memchr(first_char, ':', len)) != nullptr) {
-            if ((second_colon = (char*)memchr(first_colon + 1, ':', end_char - first_colon - 1)) !=
+        if (char* first_colon {nullptr};
+            (first_colon = (char*)memchr(first_char, ':', len)) != nullptr) {
+            if (char* second_colon {nullptr};
+                (second_colon = (char*)memchr(first_colon + 1, ':', end_char - first_colon - 1)) !=
                 nullptr) {
-                // find tow colon
+                // find two colon
                 // parse hour
                 if (!parse_from_str_to_int(first_char, first_colon - first_char, hour)) {
                     // hour  failed
@@ -184,12 +185,12 @@ struct TimeCast {
     // Cast from number
     template <typename T, typename S>
     static bool try_parse_time(T from, S& x) {
-        int64 seconds = from;
+        int64 seconds = from / 100;
         int64 hour = 0, minute = 0, second = 0;
-        second = seconds % 100;
-        seconds /= 100;
-        minute = seconds % 100;
-        seconds /= 100;
+        second = from - 100 * seconds;
+        from /= 100;
+        seconds = from / 100;
+        minute = from - 100 * seconds;
         hour = seconds;
         if (minute >= 60 || second >= 60) {
             return false;
@@ -366,7 +367,7 @@ struct ConvertImpl {
                               std::is_same_v<ToDataType, DataTypeTime>) {
                     // 300 -> 00:03:00  360 will be parse failed , so value maybe null
                     ColumnUInt8::MutablePtr col_null_map_to;
-                    ColumnUInt8::Container* vec_null_map_to [[maybe_unused]] = nullptr;
+                    ColumnUInt8::Container* vec_null_map_to = nullptr;
                     col_null_map_to = ColumnUInt8::create(size);
                     vec_null_map_to = &col_null_map_to->get_data();
                     for (size_t i = 0; i < size; ++i) {
