@@ -182,8 +182,8 @@ void MemTable::insert(const vectorized::Block* input_block, const std::vector<in
     _mem_usage += input_size;
     _insert_mem_tracker->consume(input_size);
     for (int i = 0; i < num_rows; i++) {
-        _row_in_blocks.emplace(_row_in_blocks.begin(), new RowInBlock {cursor_in_mutableblock + i});
-        _insert_one_row_from_block(_row_in_blocks.front());
+        _row_in_blocks.emplace_back(new RowInBlock {cursor_in_mutableblock + i});
+        _insert_one_row_from_block(_row_in_blocks.back());
     }
 }
 
@@ -247,7 +247,11 @@ void MemTable::_collect_vskiplist_results() {
         _vec_row_comparator->set_block(&mutable_block);
         std::sort(_row_in_blocks.begin(), _row_in_blocks.end(),
                   [this](const RowInBlock* l, const RowInBlock* r) -> bool {
-                      return (*(this->_vec_row_comparator))(l, r) < 0;
+                      if ((*(this->_vec_row_comparator))(l, r) == 0) {
+                          return l->_row_pos - r->_row_pos > 0;
+                      } else {
+                          return (*(this->_vec_row_comparator))(l, r) < 0;
+                      }
                   });
         std::vector<int> row_pos_vec;
         DCHECK(in_block.rows() <= std::numeric_limits<int>::max());
