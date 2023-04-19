@@ -17,8 +17,8 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_segcompaction_unique_keys_mow") {
-    def tableName = "segcompaction_unique_keys_regression_test_mow"
+suite("test_segcompaction_dup_keys") {
+    def tableName = "segcompaction_dup_keys_regression_test"
     String ak = getS3AK()
     String sk = getS3SK()
     String endpoint = getS3Endpoint()
@@ -77,13 +77,9 @@ suite("test_segcompaction_unique_keys_mow") {
                 `col_40` VARCHAR(20),`col_41` VARCHAR(20),`col_42` VARCHAR(20),`col_43` VARCHAR(20),`col_44` VARCHAR(20),
                 `col_45` VARCHAR(20),`col_46` VARCHAR(20),`col_47` VARCHAR(20),`col_48` VARCHAR(20),`col_49` VARCHAR(20)
                 )
-            UNIQUE KEY(`col_0`) DISTRIBUTED BY HASH(`col_0`) BUCKETS 1
-            PROPERTIES (
-                "replication_num" = "1"
-                );
+            DUPLICATE KEY(`col_0`) DISTRIBUTED BY HASH(`col_0`) BUCKETS 1
+            PROPERTIES ( "replication_num" = "1" );
         """
-        //      "enable_unique_key_merge_on_write" = "true"
-
 
         def uuid = UUID.randomUUID().toString().replace("-", "0")
         def path = "oss://$bucket/regression/segcompaction_test/segcompaction_test.orc"
@@ -109,7 +105,7 @@ suite("test_segcompaction_unique_keys_mow") {
             )
             """
 
-        def max_try_milli_secs = 1800000
+        def max_try_milli_secs = 3600000
         while (max_try_milli_secs > 0) {
             String[][] result = sql """ show load where label="$uuid" order by createtime desc limit 1; """
             if (result[0][2].equals("FINISHED")) {
@@ -127,7 +123,7 @@ suite("test_segcompaction_unique_keys_mow") {
             }
         }
 
-        qt_select_default """ SELECT * FROM ${tableName} WHERE col_0=47; """
+        qt_select_default """ SELECT * FROM ${tableName} WHERE col_0=47 order by col_1, col_2; """
 
         String[][] tablets = sql """ show tablets from ${tableName}; """
 
