@@ -20,8 +20,11 @@ set -eo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
-export DORIS_HOME="${ROOT}/../.."
+echo "Build broker..."
+echo "ROOT: ${ROOT}"
 
+export DORIS_HOME="${ROOT}/../../.."
+echo "DORIS_HOME: ${DORIS_HOME}"
 . "${DORIS_HOME}/env.sh"
 
 export BROKER_HOME="${ROOT}"
@@ -29,8 +32,7 @@ export BROKER_HOME="${ROOT}"
 # prepare thrift
 mkdir -p "${BROKER_HOME}/src/main/resources/thrift"
 mkdir -p "${BROKER_HOME}/src/main/thrift"
-
-cp "${BROKER_HOME}/../../gensrc/thrift/PaloBrokerService.thrift" "${BROKER_HOME}/src/main/resources/thrift"/
+cp "${BROKER_HOME}/../../../gensrc/thrift/PaloBrokerService.thrift" "${BROKER_HOME}/src/main/resources/thrift"/
 
 "${MVN_CMD}" package -DskipTests
 

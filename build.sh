@@ -618,10 +618,10 @@ fi
 if [[ "${BUILD_BROKER}" -eq 1 ]]; then
     install -d "${DORIS_OUTPUT}/apache_hdfs_broker"
 
-    cd "${DORIS_HOME}/fs_brokers/apache_hdfs_broker"
+    cd "${DORIS_HOME}/fe/fs-brokers/apache-hdfs-broker"
     ./build.sh
     rm -rf "${DORIS_OUTPUT}/apache_hdfs_broker"/*
-    cp -r -p "${DORIS_HOME}/fs_brokers/apache_hdfs_broker/output/apache_hdfs_broker"/* "${DORIS_OUTPUT}/apache_hdfs_broker"/
+    cp -r -p "${DORIS_HOME}/fe/fs-brokers/apache-hdfs-broker/output/apache_hdfs_broker"/* "${DORIS_OUTPUT}/apache_hdfs_broker"/
     copy_common_files "${DORIS_OUTPUT}/apache_hdfs_broker/"
     cd "${DORIS_HOME}"
 fi
@@ -629,10 +629,10 @@ fi
 if [[ "${BUILD_AUDIT}" -eq 1 ]]; then
     install -d "${DORIS_OUTPUT}/audit_loader"
 
-    cd "${DORIS_HOME}/fe_plugins/auditloader"
+    cd "${DORIS_HOME}/fe/fe-plugins/auditloader"
     ./build.sh
     rm -rf "${DORIS_OUTPUT}/audit_loader"/*
-    cp -r -p "${DORIS_HOME}/fe_plugins/auditloader/output"/* "${DORIS_OUTPUT}/audit_loader"/
+    cp -r -p "${DORIS_HOME}/fe/fe-plugins/auditloader/output"/* "${DORIS_OUTPUT}/audit_loader"/
     cd "${DORIS_HOME}"
 fi
 

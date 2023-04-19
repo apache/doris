@@ -70,6 +70,27 @@ under the License.
                 <version>1.2.5</version>
             </plugin>
             <plugin>
+                <groupId>org.commonjava.maven.plugins</groupId>
+                <artifactId>directory-maven-plugin</artifactId>
+                <version>0.1</version>
+                <executions>
+                    <execution>
+                        <id>directories</id>
+                        <goals>
+                            <goal>directory-of</goal>
+                        </goals>
+                        <phase>initialize</phase>
+                        <configuration>
+                            <property>fe.dir</property>
+                            <project>
+                                <groupId>org.apache.doris</groupId>
+                                <artifactId>fe</artifactId>
+                            </project>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-checkstyle-plugin</artifactId>
             </plugin>
@@ -158,6 +179,8 @@ under the License.
         <module>fe-core</module>
         <module>hive-udf</module>
         <module>java-udf</module>
+        <module>fe-plugins</module>
+        <module>fs-brokers</module>
     </modules>
     <properties>
         <doris.home>${basedir}/../</doris.home>
@@ -166,6 +189,9 @@ under the License.
         <doris.hive.catalog.shade.version>1.0.3-SNAPSHOT</doris.hive.catalog.shade.version>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
+        <!--plugin parameters-->
+        <skip.plugin>false</skip.plugin>
+        <doris.thirdparty>${fe.dir}/../thirdparty</doris.thirdparty>
         <sonar.organization>apache</sonar.organization>
         <sonar.host.url>https://sonarcloud.io</sonar.host.url>
         <aspectj.version>1.9.7</aspectj.version>
@@ -253,28 +279,6 @@ under the License.
         <zookeeper.version>3.4.14</zookeeper.version>
     </properties>
     <profiles>
-        <!-- for custom internal repository -->
-        <profile>
-            <id>custom-env</id>
-            <activation>
-                <property>
-                    <name>env.CUSTOM_MAVEN_REPO</name>
-                </property>
-            </activation>
-            <repositories>
-                <repository>
-                    <id>custom-nexus</id>
-                    <url>${env.CUSTOM_MAVEN_REPO}</url>
-                </repository>
-            </repositories>
-            <pluginRepositories>
-                <pluginRepository>
-                    <id>custom-nexus</id>
-                    <url>${env.CUSTOM_MAVEN_REPO}</url>
-                </pluginRepository>
-            </pluginRepositories>
-        </profile>
-        <!-- for general repository -->
         <profile>
             <id>general-env</id>
             <activation>
@@ -310,6 +314,52 @@ under the License.
                     <url>https://repository.cloudera.com/artifactory/public/</url>
                 </pluginRepository>
             </pluginRepositories>
+        </profile>
+        <profile>
+            <id>thirdparty</id>
+            <activation>
+                <property>
+                    <name>env.DORIS_THIRDPARTY</name>
+                </property>
+            </activation>
+            <properties>
+                <doris.thirdparty>${env.DORIS_THIRDPARTY}</doris.thirdparty>
+            </properties>
+        </profile>
+        <profile>
+            <id>ut_parallel</id>
+            <activation>
+                <property>
+                    <name>env.FE_UT_PARALLEL</name>
+                </property>
+            </activation>
+            <properties>
+                <fe_ut_parallel>${env.FE_UT_PARALLEL}</fe_ut_parallel>
+            </properties>
+        </profile>
+        <profile>
+            <id>protoc_rosetta</id>
+            <activation>
+                <os>
+                    <name>Mac OS X</name>
+                    <arch>aarch64</arch>
+                </os>
+            </activation>
+            <properties>
+                <protoc.artifact>com.google.protobuf:protoc:${protobuf.version}:exe:osx-x86_64</protoc.artifact>
+                <grpc.java.artifact>io.grpc:protoc-gen-grpc-java:${grpc.version}:exe:osx-x86_64</grpc.java.artifact>
+            </properties>
+        </profile>
+        <profile>
+            <id>protoc_command</id>
+            <activation>
+                <file>
+                    <exists>${doris.thirdparty}/installed/bin/protoc</exists>
+                </file>
+            </activation>
+            <properties>
+                <protoc.command>${doris.thirdparty}/installed/bin/protoc</protoc.command>
+            </properties>
         </profile>
     </profiles>
     <dependencyManagement>
@@ -999,7 +1049,7 @@ under the License.
             <name>apache snapshots maven repo https</name>
             <url>https://repository.apache.org/content/repositories/snapshots/</url>
             <snapshots>
-              <updatePolicy>always</updatePolicy>
+                <updatePolicy>always</updatePolicy>
             </snapshots>
         </repository>
     </repositories>

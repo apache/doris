@@ -21,47 +21,14 @@ under the License.
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <parent>
-        <groupId>org.apache</groupId>
-        <artifactId>apache</artifactId>
-        <version>23</version>
+        <groupId>org.apache.doris</groupId>
+        <version>${revision}</version>
+        <artifactId>fs-brokers</artifactId>
+        <relativePath>../pom.xml</relativePath>
     </parent>
-    <groupId>org.apache.doris</groupId>
     <artifactId>apache-hdfs-broker</artifactId>
-    <version>0.15-SNAPSHOT</version>
     <packaging>jar</packaging>
     <name>Doris HDFS Broker</name>
-    <url>https://doris.apache.org/</url>
-    <licenses>
-        <license>
-            <name>Apache 2.0 License</name>
-            <url>https://www.apache.org/licenses/LICENSE-2.0.html</url>
-            <distribution>repo</distribution>
-        </license>
-    </licenses>
-    <scm>
-        <connection>scm:git:https://git@github.com/apache/doris.git</connection>
-        <developerConnection>scm:git:https://git@github.com/apache/doris.git</developerConnection>
-        <url>scm:git:https://git@github.com/apache/doris.git</url>
-        <tag>HEAD</tag>
-    </scm>
-    <issueManagement>
-        <system>GitHub</system>
-        <url>https://github.com/apache/doris/issues</url>
-    </issueManagement>
-    <mailingLists>
-        <mailingList>
-            <name>Dev Mailing List</name>
-            <post>dev@doris.apache.org</post>
-            <subscribe>dev-subscribe@doris.apache.org</subscribe>
-            <unsubscribe>dev-unsubscribe@doris.apache.org</unsubscribe>
-        </mailingList>
-        <mailingList>
-            <name>Commits Mailing List</name>
-            <post>commits@doris.apache.org</post>
-            <subscribe>commits-subscribe@doris.apache.org</subscribe>
-            <unsubscribe>commits-unsubscribe@doris.apache.org</unsubscribe>
-        </mailingList>
-    </mailingLists>
     <properties>
         <palo.home>${basedir}/../../</palo.home>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -73,27 +40,6 @@ under the License.
         <netty.version>4.1.65.Final</netty.version>
     </properties>
     <profiles>
-        <!-- for custom internal repository -->
-        <profile>
-            <id>custom-env</id>
-            <activation>
-                <property>
-                    <name>env.CUSTOM_MAVEN_REPO</name>
-                </property>
-            </activation>
-            <repositories>
-                <repository>
-                    <id>custom-nexus</id>
-                    <url>${env.CUSTOM_MAVEN_REPO}</url>
-                </repository>
-            </repositories>
-            <pluginRepositories>
-                <pluginRepository>
-                    <id>custom-nexus</id>
-                    <url>${env.CUSTOM_MAVEN_REPO}</url>
-                </pluginRepository>
-            </pluginRepositories>
-        </profile>
         <!-- for general repository -->
         <profile>
             <id>general-env</id>
@@ -111,7 +57,7 @@ under the License.
                 <!-- for bdb je -->
                 <repository>
                     <id>oracleReleases</id>
-                    <url>http://download.oracle.com/maven</url>
+                    <url>https://download.oracle.com/maven</url>
                 </repository>
                 <!-- for huawei obs sdk -->
                 <repository>
@@ -123,7 +69,7 @@ under the License.
                 <!-- for cup-maven-plugin -->
                 <pluginRepository>
                     <id>spring-plugins</id>
-                    <url>http://repo.spring.io/plugins-release/</url>
+                    <url>https://repo.spring.io/plugins-release/</url>
                 </pluginRepository>
             </pluginRepositories>
         </profile>
@@ -164,12 +110,6 @@ under the License.
             <groupId>commons-io</groupId>
             <artifactId>commons-io</artifactId>
             <version>2.4</version>
-        </dependency>
-        <!-- https://mvnrepository.com/artifact/commons-lang/commons-lang -->
-        <dependency>
-            <groupId>commons-lang</groupId>
-            <artifactId>commons-lang</artifactId>
-            <version>2.6</version>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.apache.commons/commons-lang3 -->
         <dependency>
@@ -241,49 +181,17 @@ under the License.
             <artifactId>htrace-core</artifactId>
             <version>3.1.0-incubating</version>
         </dependency>
-        <!-- https://mvnrepository.com/artifact/junit/junit -->
-        <dependency>
-            <groupId>junit</groupId>
-            <artifactId>junit</artifactId>
-            <version>4.12</version>
-            <scope>test</scope>
-        </dependency>
         <!-- https://mvnrepository.com/artifact/org.apache.thrift/libthrift -->
         <dependency>
             <groupId>org.apache.thrift</groupId>
             <artifactId>libthrift</artifactId>
             <version>0.16.0</version>
         </dependency>
-        <!-- https://mvnrepository.com/artifact/org.apache.logging.log4j/log4j-api -->
-        <dependency>
-            <groupId>org.apache.logging.log4j</groupId>
-            <artifactId>log4j-api</artifactId>
-            <version>${log4j2.version}</version>
-        </dependency>
-        <!-- https://mvnrepository.com/artifact/org.apache.logging.log4j/log4j-core -->
-        <dependency>
-            <groupId>org.apache.logging.log4j</groupId>
-            <artifactId>log4j-core</artifactId>
-            <version>${log4j2.version}</version>
-        </dependency>
         <!-- https://mvnrepository.com/artifact/com.google.protobuf/protobuf-java -->
         <dependency>
             <groupId>com.google.protobuf</groupId>
             <artifactId>protobuf-java</artifactId>
             <version>2.5.0</version>
-        </dependency>
-        <!-- https://mvnrepository.com/artifact/org.slf4j/slf4j-api -->
-        <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-api</artifactId>
-            <version>1.6.4</version>
-        </dependency>
-        <!-- https://mvnrepository.com/artifact/org.slf4j/slf4j-log4j12 -->
-        <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-log4j12</artifactId>
-            <version>1.7.5</version>
-            <scope>test</scope>
         </dependency>
         <!-- support jdk9 -->
         <dependency>
@@ -363,7 +271,7 @@ under the License.
                         <configuration>
                             <executable>cp</executable>
                             <arguments>
-                                <argument>${palo.home}/gensrc/thrift/PaloBrokerService.thrift</argument>
+                                <argument>${fe.dir}/../gensrc/thrift/PaloBrokerService.thrift</argument>
                                 <argument>${basedir}/src/main/resources/thrift/</argument>
                             </arguments>
                             <skip>${skip.plugin}</skip>
@@ -377,11 +285,10 @@ under the License.
                 <artifactId>maven-thrift-plugin</artifactId>
                 <version>0.1.11</version>
                 <configuration>
-                    <thriftExecutable>${env.DORIS_THIRDPARTY}/installed/bin/thrift</thriftExecutable>
+                    <thriftExecutable>${doris.thirdparty}/installed/bin/thrift</thriftExecutable>
                     <thriftSourceRoot>${basedir}/src/main/resources/thrift/</thriftSourceRoot>
                     <outputDirectory>${basedir}/src/main/thrift/</outputDirectory>
                     <generator>java:fullcamel</generator>
-                    <skip>${skip.plugin}</skip>
                 </configuration>
                 <executions>
                     <execution>
@@ -397,7 +304,6 @@ under the License.
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-dependency-plugin</artifactId>
-                <version>3.1.1</version>
                 <executions>
                     <execution>
                         <id>copy-dependencies</id>
@@ -428,6 +334,13 @@ under the License.
                         </goals>
                     </execution>
                 </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-checkstyle-plugin</artifactId>
+                <configuration>
+                    <skip>true</skip>
+                </configuration>
             </plugin>
         </plugins>
         <pluginManagement>
