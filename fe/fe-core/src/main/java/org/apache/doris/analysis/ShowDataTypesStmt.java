@@ -24,7 +24,10 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
+import com.google.common.collect.Lists;
+
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
@@ -39,6 +42,45 @@ public class ShowDataTypesStmt extends ShowStmt {
 
     public static ArrayList<PrimitiveType> getTypes() {
         return PrimitiveType.getSupportedTypes();
+    }
+
+    public static List<List<String>> getFilterTypes() {
+        ArrayList<String> filterTypes = new ArrayList<>(Arrays.asList("VARIANT", "NULL_TYPE", "TIME", "TIMEV2", "MAP"));
+        ArrayList<PrimitiveType> supportedTypes = getTypes();
+        List<List<String>> rows = Lists.newArrayList();
+        boolean isDecimalv3 = false;
+        boolean isBreak = false;
+
+        for (PrimitiveType type : supportedTypes) {
+            isBreak = false;
+            List<String> row = new ArrayList<>();
+            if (type.isDecimalV2Type()) {
+                row.add("DECIMAL");
+                row.add(Integer.toString(type.getSlotSize()));
+            } else if (type.isDecimalV3Type()) {
+                if (isDecimalv3) {
+                    continue;
+                }
+                row.add("DECIMALV3");
+                row.add("16");
+                isDecimalv3 = true;
+            } else {
+                for (String s : filterTypes) {
+                    if (s.equals(type.toString())) {
+                        isBreak = true;
+                    }
+                }
+                if (!isBreak) {
+                    row.add(type.toString());
+                    row.add(Integer.toString(type.getSlotSize()));
+                } else {
+                    continue;
+                }
+            }
+            rows.add(row);
+        }
+
+        return rows;
     }
 
     @Override
