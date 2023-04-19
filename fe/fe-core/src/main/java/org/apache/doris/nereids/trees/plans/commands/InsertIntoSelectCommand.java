@@ -89,7 +89,8 @@ public class InsertIntoSelectCommand extends Command implements ForwardWithSync 
         }
 
         PlanFragment root = planner.getFragments().get(0);
-        root.setSink(createDataSink(ctx, root));
+        DataSink sink = createDataSink(ctx, root);
+        root.resetSink(sink);
         Transaction txn = new Transaction(ctx, database, table, label, planner);
         txn.executeInsertIntoSelectCommand(this);
     }
