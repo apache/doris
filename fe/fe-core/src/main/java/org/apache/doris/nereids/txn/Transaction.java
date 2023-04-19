@@ -306,8 +306,7 @@ public class Transaction {
         }
 
         if (Env.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
-                database, Lists.newArrayList(table),
-                ctx.getTxnEntry().getTxnConf().getTxnId(),
+                database, Lists.newArrayList(table), txnId,
                 TabletCommitInfo.fromThrift(coordinator.getCommitInfos()),
                 ctx.getSessionVariable().getInsertVisibleTimeoutMs())) {
             txnStatus = TransactionStatus.VISIBLE;
