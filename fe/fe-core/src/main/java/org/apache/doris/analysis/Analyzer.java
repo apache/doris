@@ -827,7 +827,7 @@ public class Analyzer {
                     }
                     View hmsView = new View(table.getId(), table.getName(), table.getFullSchema());
                     hmsView.setInlineViewDefWithSqlMode(((HMSExternalTable) table).getViewText(),
-                        ConnectContext.get().getSessionVariable().getSqlMode());
+                            ConnectContext.get().getSessionVariable().getSqlMode());
                     return new InlineViewRef(hmsView, tableRef);
                 }
             }
