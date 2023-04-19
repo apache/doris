@@ -162,7 +162,7 @@ MySQL [test]> desc mv_test all;
 ### 取消创建物化试图
 
 ```text
- CANCEL ALTER MATERIALIZED VIEW FROM db_name.table_name
+ CANCEL ALTER TABLE MATERIALIZED VIEW FROM db_name.table_name
 ```
 
 ## 最佳实践1
