@@ -76,6 +76,10 @@ else()
 endif()
 option(USE_JEMALLOC "Use jemalloc" ON)
 
+if (DISPLAY_BUILD_TIME)
+    set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE "time -f 'TimeUsage: real=%es, user=%Us, sys=%Ss'")
+endif()
+
 message(STATUS "GLIBC_COMPATIBILITY is ${GLIBC_COMPATIBILITY}")
 message(STATUS "USE_LIBCPP is ${USE_LIBCPP}")
 message(STATUS "USE_MEM_TRACKER is ${USE_MEM_TRACKER}")
@@ -132,7 +136,7 @@ set(Boost_DEBUG FALSE)
 set(Boost_USE_MULTITHREADED ON)
 set(Boost_ROOT ${THIRDPARTY_DIR})
 set(Boost_NO_BOOST_CMAKE OFF)
-set(BOOST_VERSION "1.73.0")
+set(BOOST_VERSION "1.81.0")
 
 if (NOT APPLE)
     find_package(Boost ${BOOST_VERSION} REQUIRED COMPONENTS system date_time)
@@ -297,9 +301,6 @@ set_target_properties(roaring PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib
 add_library(fmt STATIC IMPORTED)
 set_target_properties(fmt PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libfmt.a)
 
-add_library(orc STATIC IMPORTED)
-set_target_properties(orc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/liborc.a)
-
 add_library(cctz STATIC IMPORTED)
 set_target_properties(cctz PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libcctz.a)
 
@@ -432,6 +433,21 @@ if (OS_MACOSX)
     add_library(intl STATIC IMPORTED)
     set_target_properties(intl PROPERTIES IMPORTED_LOCATION "${THIRDPARTY_DIR}/lib/libintl.a")
 endif()
+
+option(BUILD_JAVA OFF)
+option(BUILD_CPP_TESTS OFF)
+option(STOP_BUILD_ON_WARNING OFF)
+option(BUILD_LIBHDFSPP OFF)
+SET(PROTOBUF_HOME "$ENV{DORIS_THIRDPARTY}/installed")
+SET(SNAPPY_HOME "$ENV{DORIS_THIRDPARTY}/installed")
+SET(LZ4_HOME "$ENV{DORIS_THIRDPARTY}/installed")
+SET(LZ4_INCLUDE_DIR "$ENV{DORIS_THIRDPARTY}/installed/include/lz4")
+SET(ZLIB_HOME "$ENV{DORIS_THIRDPARTY}/installed")
+SET(ZSTD_HOME "$ENV{DORIS_THIRDPARTY}/installed")
+SET(ZSTD_INCLUDE_DIR "$ENV{DORIS_THIRDPARTY}/installed/include/zstd")
+
+add_subdirectory(${SRC_DIR}/apache-orc EXCLUDE_FROM_ALL)
+target_compile_options(orc PRIVATE -Wno-implicit-fallthrough)
 
 # Check if functions are supported in this platform. All flags will generated
 # in gensrc/build/common/env_config.h.
@@ -618,6 +634,11 @@ set(CMAKE_C_FLAGS ${CMAKE_CXX_FLAGS})
 
 # Set include dirs
 include_directories(
+    ${SRC_DIR}/apache-orc/c++/include
+    ${CMAKE_CURRENT_BINARY_DIR}/src/apache-orc/c++/include
+)
+
+include_directories(
     ${SRC_DIR}/
     ${TEST_DIR}/
 )
@@ -740,7 +761,6 @@ set(COMMON_THIRDPARTY
     zstd
     arrow
     parquet
-    orc
     odbc
     cctz
     minizip
@@ -825,6 +845,8 @@ if (WITH_MYSQL)
     set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} mysql)
 endif()
 
+set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} orc)
+
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${WL_END_GROUP})
 
 # Add all external dependencies. They should come after the palo libs.
@@ -846,6 +868,7 @@ else()
         -liconv
     )
 endif()
+
 
 if (USE_JEMALLOC)
     set(MALLOCLIB jemalloc)
@@ -935,7 +958,7 @@ endif ()
 
 get_directory_property(COMPILER_FLAGS COMPILE_OPTIONS)
 get_directory_property(COMPILER_DEFINES COMPILE_DEFINITIONS)
-message(STATUS "Compiler: ${CMAKE_CXX_COMPILER_ID}")
+message(STATUS "Compiler: ${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}")
 message(STATUS "CXX Standard: ${CMAKE_CXX_STANDARD}")
 message(STATUS "C Standard: ${CMAKE_C_STANDARD}")
 message(STATUS "CXX Flags: ${CMAKE_CXX_FLAGS}")
@@ -1000,3 +1023,4 @@ get_property(dirs DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY INCLUDE_DIRECTO
 foreach(dir ${dirs})
     message(STATUS "dir='${dir}'")
 endforeach()
+

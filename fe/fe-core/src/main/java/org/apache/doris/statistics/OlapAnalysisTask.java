@@ -53,8 +53,8 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         super();
     }
 
-    public OlapAnalysisTask(AnalysisTaskScheduler analysisTaskScheduler, AnalysisTaskInfo info) {
-        super(analysisTaskScheduler, info);
+    public OlapAnalysisTask(AnalysisTaskInfo info) {
+        super(info);
     }
 
     public void execute() throws Exception {
@@ -73,7 +73,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         List<String> partitionAnalysisSQLs = new ArrayList<>();
         try {
             tbl.readLock();
-            Set<String> partNames = info.partitionNames;
+            Set<String> partNames = tbl.getPartitionNames();
             for (String partName : partNames) {
                 Partition part = tbl.getPartition(partName);
                 if (part == null) {
@@ -94,7 +94,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(ANALYZE_COLUMN_SQL_TEMPLATE);
         execSQL(sql);
-        Env.getCurrentEnv().getStatisticsCache().refreshSync(tbl.getId(), -1, col.getName());
+        Env.getCurrentEnv().getStatisticsCache().refreshColStatsSync(tbl.getId(), -1, col.getName());
     }
 
     @VisibleForTesting
@@ -107,6 +107,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     @VisibleForTesting
     public void execSQL(String sql) throws Exception {
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+            r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
             this.stmtExecutor = new StmtExecutor(r.connectContext, sql);
             this.stmtExecutor.execute();
         }

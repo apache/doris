@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 冷热分离
+# [Experimental] 冷热分离
 
 ## 需求场景
 

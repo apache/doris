@@ -85,10 +85,15 @@ public:
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
+    DataTypeSerDeSPtr get_serde() const override {
+        return std::make_shared<DataTypeNumberSerDe<UInt64>>();
+    };
 
     MutableColumnPtr create_column() const override;
 
     UInt32 get_scale() const { return _scale; }
+
+    void to_pb_column_meta(PColumnMeta* col_meta) const override;
 
     static void cast_to_date(const UInt64 from, Int64& to);
     static void cast_to_date_time(const UInt64 from, Int64& to);

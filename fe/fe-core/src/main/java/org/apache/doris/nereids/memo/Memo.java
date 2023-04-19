@@ -38,7 +38,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
-import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 
@@ -427,6 +426,9 @@ public class Memo {
             if (target != null && !target.getGroupId().equals(existedGroupExpression.getOwnerGroup().getGroupId())) {
                 mergeGroup(existedGroupExpression.getOwnerGroup(), target);
             }
+            // When we create a GroupExpression, we will add it into ParentExpression of childGroup.
+            // But if it already exists, we should remove it from ParentExpression of childGroup.
+            groupExpression.children().forEach(childGroup -> childGroup.removeParentExpression(groupExpression));
             return CopyInResult.of(false, existedGroupExpression);
         }
         if (target != null) {
@@ -469,7 +471,7 @@ public class Memo {
         for (GroupExpression reinsertGroupExpr : needReplaceChild) {
             // After change GroupExpression children, hashcode will change, so need to reinsert into map.
             groupExpressions.remove(reinsertGroupExpr);
-            Utils.replaceList(reinsertGroupExpr.children(), source, destination);
+            reinsertGroupExpr.replaceChild(source, destination);
 
             GroupExpression existGroupExpr = groupExpressions.get(reinsertGroupExpr);
             if (existGroupExpr != null) {

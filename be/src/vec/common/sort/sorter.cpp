@@ -305,13 +305,9 @@ Status FullSorter::append_block(Block* block) {
             DCHECK(data[i].type->equals(*(arrival_data[i].type)))
                     << " type1: " << data[i].type->get_name()
                     << " type2: " << arrival_data[i].type->get_name();
-            try {
-                //TODO: to eliminate unnecessary expansion, we need a `insert_range_from_const` for every column type.
-                RETURN_IF_CATCH_BAD_ALLOC(data[i].column->assume_mutable()->insert_range_from(
-                        *arrival_data[i].column->convert_to_full_column_if_const(), 0, sz));
-            } catch (const doris::Exception& e) {
-                return Status::Error(e.code(), e.to_string());
-            }
+            //TODO: to eliminate unnecessary expansion, we need a `insert_range_from_const` for every column type.
+            RETURN_IF_CATCH_EXCEPTION(data[i].column->assume_mutable()->insert_range_from(
+                    *arrival_data[i].column->convert_to_full_column_if_const(), 0, sz));
         }
         block->clear_column_data();
     }

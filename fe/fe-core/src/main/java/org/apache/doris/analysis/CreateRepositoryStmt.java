@@ -47,11 +47,11 @@ public class CreateRepositoryStmt extends DdlStmt {
     }
 
     public String getBrokerName() {
-        return storage.getStorageName();
+        return storage.getStorageDesc().getName();
     }
 
     public StorageBackend.StorageType getStorageType() {
-        return storage.getStorageType();
+        return storage.getStorageDesc().getStorageType();
     }
 
     public String getLocation() {
@@ -59,7 +59,7 @@ public class CreateRepositoryStmt extends DdlStmt {
     }
 
     public Map<String, String> getProperties() {
-        return storage.getProperties();
+        return storage.getStorageDesc().getProperties();
     }
 
     @Override

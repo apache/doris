@@ -20,9 +20,8 @@
 
 #pragma once
 
-#include <parallel_hashmap/phmap.h>
-
 #include "vec/columns/column_complex.h"
+#include "vec/common/hash_table/phmap_fwd_decl.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/field.h"
@@ -221,7 +220,7 @@ public:
                       std::is_same_v<Derived,
                                      AggregateFunctionBitmapOp<AggregateFunctionBitmapUnionOp>>) {
             if (agg_many) {
-                phmap::flat_hash_map<AggregateDataPtr, std::vector<int>> place_rows;
+                flat_hash_map<AggregateDataPtr, std::vector<int>> place_rows;
                 for (int i = 0; i < batch_size; ++i) {
                     auto iter = place_rows.find(places[i] + place_offset);
                     if (iter == place_rows.end()) {

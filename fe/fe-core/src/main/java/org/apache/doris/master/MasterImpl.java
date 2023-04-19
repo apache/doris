@@ -51,7 +51,6 @@ import org.apache.doris.task.StorageMediaMigrationTask;
 import org.apache.doris.task.UpdateTabletMetaInfoTask;
 import org.apache.doris.task.UploadTask;
 import org.apache.doris.thrift.TBackend;
-import org.apache.doris.thrift.TFetchResourceResult;
 import org.apache.doris.thrift.TFinishTaskRequest;
 import org.apache.doris.thrift.TMasterResult;
 import org.apache.doris.thrift.TPushType;
@@ -565,10 +564,6 @@ public class MasterImpl {
 
     public TMasterResult report(TReportRequest request) throws TException {
         return reportHandler.handleReport(request);
-    }
-
-    public TFetchResourceResult fetchResource() {
-        return Env.getCurrentEnv().getAuth().toResourceThrift();
     }
 
     private void finishAlterTask(AgentTask task) {

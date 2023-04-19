@@ -80,9 +80,10 @@ Status VArrowScanner::_open_next_reader() {
         io::FileReaderSPtr file_reader;
         _init_system_properties(range);
         _init_file_description(range);
-        // no use
-        RETURN_IF_ERROR(FileFactory::create_file_reader(
-                _profile, _system_properties, _file_description, &_file_system, &file_reader));
+        io::FileCachePolicy cache_policy = FileFactory::get_cache_policy(_state);
+        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties,
+                                                        _file_description, &_file_system,
+                                                        &file_reader, cache_policy));
 
         if (file_reader->size() == 0) {
             continue;
@@ -250,7 +251,7 @@ Status VArrowScanner::get_next(vectorized::Block* block, bool* eof) {
     RETURN_IF_ERROR(_cast_src_block(&_src_block));
 
     // materialize, src block => dest columns
-    return _fill_dest_block(block, eof);
+    RETURN_IF_CATCH_EXCEPTION({ return _fill_dest_block(block, eof); });
 }
 
 // arrow type ==arrow_column_to_doris_column==> primitive type(PT0) ==cast_src_block==>

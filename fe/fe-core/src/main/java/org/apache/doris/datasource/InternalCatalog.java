@@ -74,7 +74,6 @@ import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsTable;
-import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.HiveTable;
 import org.apache.doris.catalog.IcebergTable;
@@ -138,6 +137,7 @@ import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
+import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.external.elasticsearch.EsRepository;
 import org.apache.doris.external.hudi.HudiProperty;
 import org.apache.doris.external.hudi.HudiTable;
@@ -234,6 +234,11 @@ public class InternalCatalog implements CatalogIf<Database> {
     @Override
     public String getType() {
         return "internal";
+    }
+
+    @Override
+    public String getComment() {
+        return "Doris internal catalog";
     }
 
     @Override
@@ -974,7 +979,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
 
-        if (table instanceof MaterializedView && Config.enable_mtmv_scheduler_framework) {
+        if (table instanceof MaterializedView) {
             List<Long> dropIds = Env.getCurrentEnv().getMTMVJobManager().showJobs(db.getFullName(), table.getName())
                     .stream().map(MTMVJob::getId).collect(Collectors.toList());
             Env.getCurrentEnv().getMTMVJobManager().dropJobs(dropIds, isReplay);
@@ -1107,6 +1112,11 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         // check if db exists
         Database db = (Database) getDbOrDdlException(dbName);
+        // InfoSchemaDb can not create table
+        if (db instanceof InfoSchemaDb) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName,
+                    ErrorCode.ERR_CANT_CREATE_TABLE.getCode(), "not supported create table in this database");
+        }
 
         // only internal table should check quota and cluster capacity
         if (!stmt.isExternal()) {
@@ -1951,11 +1961,13 @@ public class InternalCatalog implements CatalogIf<Database> {
                 keysDesc.keysColumnSize(), storageFormat);
         olapTable.setDataSortInfo(dataSortInfo);
 
-        boolean enableUniqueKeyMergeOnWrite;
-        try {
-            enableUniqueKeyMergeOnWrite = PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(properties);
-        } catch (AnalysisException e) {
-            throw new DdlException(e.getMessage());
+        boolean enableUniqueKeyMergeOnWrite = false;
+        if (keysType == KeysType.UNIQUE_KEYS) {
+            try {
+                enableUniqueKeyMergeOnWrite = PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(properties);
+            } catch (AnalysisException e) {
+                throw new DdlException(e.getMessage());
+            }
         }
         olapTable.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
 
@@ -2175,6 +2187,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         // create partition
         try {
             if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
+                if (storagePolicy.equals("") && properties != null && !properties.isEmpty()) {
+                    // here, all properties should be checked
+                    throw new DdlException("Unknown properties: " + properties);
+                }
                 // this is a 1-level partitioned table
                 // use table name as partition name
                 DistributionInfo partitionDistributionInfo = distributionDesc.toDistributionInfo(baseSchema);
@@ -2314,8 +2330,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw e;
         }
 
-        if (olapTable instanceof MaterializedView && Config.enable_mtmv_scheduler_framework
-                && MTMVJobFactory.isGenerateJob((MaterializedView) olapTable)) {
+        if (olapTable instanceof MaterializedView && MTMVJobFactory.isGenerateJob((MaterializedView) olapTable)) {
             List<MTMVJob> jobs = MTMVJobFactory.buildJob((MaterializedView) olapTable, db.getFullName());
             for (MTMVJob job : jobs) {
                 Env.getCurrentEnv().getMTMVJobManager().createJob(job, false);
@@ -2415,8 +2430,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         hiveTable.setComment(stmt.getComment());
         // check hive table whether exists in hive database
         HiveConf hiveConf = new HiveConf();
-        hiveConf.set(HMSResource.HIVE_METASTORE_URIS,
-                hiveTable.getHiveProperties().get(HMSResource.HIVE_METASTORE_URIS));
+        hiveConf.set(HMSProperties.HIVE_METASTORE_URIS,
+                hiveTable.getHiveProperties().get(HMSProperties.HIVE_METASTORE_URIS));
         PooledHiveMetaStoreClient client = new PooledHiveMetaStoreClient(hiveConf, 1);
         if (!client.tableExists(hiveTable.getHiveDb(), hiveTable.getHiveTable())) {
             throw new DdlException(String.format("Table [%s] dose not exist in Hive.", hiveTable.getHiveDbTable()));
@@ -2438,7 +2453,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         HudiUtils.validateCreateTable(hudiTable);
         // check hudi table whether exists in hive database
         HiveConf hiveConf = new HiveConf();
-        hiveConf.set(HMSResource.HIVE_METASTORE_URIS,
+        hiveConf.set(HMSProperties.HIVE_METASTORE_URIS,
                 hudiTable.getTableProperties().get(HudiProperty.HUDI_HIVE_METASTORE_URIS));
         PooledHiveMetaStoreClient client = new PooledHiveMetaStoreClient(hiveConf, 1);
         if (!client.tableExists(hudiTable.getHmsDatabaseName(), hudiTable.getHmsTableName())) {
@@ -3507,5 +3522,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         getEsRepository().loadTableFromCatalog();
         LOG.info("finished replay databases from image");
         return newChecksum;
+    }
+
+    public ConcurrentHashMap<Long, Database> getIdToDb() {
+        return new ConcurrentHashMap<>(idToDb);
     }
 }

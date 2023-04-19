@@ -106,7 +106,7 @@ struct ProcessHashTableBuild {
         // the hash table build bucket, which may waste a lot of memory.
         // TODO, use the NDV expansion of the key column in the optimizer statistics
         if (!_join_node->_build_unique) {
-            RETURN_IF_CATCH_BAD_ALLOC(hash_table_ctx.hash_table.expanse_for_add_elem(
+            RETURN_IF_CATCH_EXCEPTION(hash_table_ctx.hash_table.expanse_for_add_elem(
                     std::min<int>(_rows, config::hash_table_pre_expanse_max_rows)));
         }
 
@@ -479,7 +479,7 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
     Status st;
     if (_probe_index < _probe_block.rows()) {
         DCHECK(_has_set_need_null_map_for_probe);
-        try {
+        RETURN_IF_CATCH_EXCEPTION({
             std::visit(
                     [&](auto&& arg, auto&& process_hashtable_ctx, auto need_null_map_for_probe,
                         auto ignore_null) {
@@ -516,9 +516,7 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
                     *_hash_table_variants, *_process_hashtable_ctx_variants,
                     make_bool_variant(_need_null_map_for_probe),
                     make_bool_variant(_probe_ignore_null));
-        } catch (const doris::Exception& e) {
-            return Status::Error(e.code(), e.to_string());
-        }
+        });
     } else if (_probe_eos) {
         if (_is_right_semi_anti || (_is_outer_join && _join_op != TJoinOp::LEFT_OUTER_JOIN)) {
             std::visit(
@@ -774,7 +772,7 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
 
         if (in_block->rows() != 0) {
             SCOPED_TIMER(_build_side_merge_block_timer);
-            RETURN_IF_CATCH_BAD_ALLOC(_build_side_mutable_block.merge(*in_block));
+            RETURN_IF_CATCH_EXCEPTION(_build_side_mutable_block.merge(*in_block));
         }
 
         if (UNLIKELY(_build_side_mem_used - _build_side_last_mem_used > BUILD_BLOCK_MAX_SIZE)) {

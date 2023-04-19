@@ -88,5 +88,13 @@ and you will be able to manage issues and pull request directly through our Gith
 
 11. Select "squash and merge" to merge.
 
-12. When there is a disagreement about a modification, try to discuss the resolution. If the discussion doesn't work out, it can be resolved by a vote in private@doris.apache.org by the majority rules.
+12. When there is a disagreement about a modification, try to discuss the resolution. If the discussion doesn't work out, it can be resolved by a vote in dev@doris.apache.org by the majority rules.
+
+13. Adding External libraries
+
+Extra care should be taken when introducing external libraries. When adding a new library, the following factors should be considered:
+- What functionality does the new external library provide? Can the existing libraries provide this functionality (perhaps with some effort)?
+- Is the external library maintained by an active contributor community?
+- What are the licensing terms of the new library?
+- Are you adding the library to a core module? This will affect other parts of the Doris codebase. For example, in Java, if the new library introduces a large number of transitive dependencies, we may encounter unexpected class conflicts, which are difficult to discover through testing because they depend on the order in which libraries are loaded at runtime.
 

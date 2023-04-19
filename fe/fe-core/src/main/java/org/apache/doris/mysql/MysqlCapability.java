@@ -74,7 +74,8 @@ public class MysqlCapability {
 
     private static final int DEFAULT_FLAGS = Flag.CLIENT_PROTOCOL_41.getFlagBit()
             | Flag.CLIENT_CONNECT_WITH_DB.getFlagBit() | Flag.CLIENT_SECURE_CONNECTION.getFlagBit()
-            | Flag.CLIENT_PLUGIN_AUTH.getFlagBit() | Flag.CLIENT_LOCAL_FILES.getFlagBit();
+            | Flag.CLIENT_PLUGIN_AUTH.getFlagBit() | Flag.CLIENT_LOCAL_FILES.getFlagBit() | Flag.CLIENT_LONG_FLAG
+            .getFlagBit();
 
     private static final int SSL_FLAGS = Flag.CLIENT_PROTOCOL_41.getFlagBit()
             | Flag.CLIENT_CONNECT_WITH_DB.getFlagBit() | Flag.CLIENT_SECURE_CONNECTION.getFlagBit()

@@ -20,15 +20,24 @@
 
 #pragma once
 
-#include <string>
+#include <gen_cpp/PaloInternalService_types.h>
 
+#include <functional>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
 #include "exec/exec_node.h"
-#include "gen_cpp/PaloInternalService_types.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
 
 class TScanRange;
+class DescriptorTbl;
+class ObjectPool;
+class RuntimeState;
+class TPlanNode;
+class TScanRangeParams;
 
 // Abstract base class of all scan nodes; introduces set_scan_range().
 //

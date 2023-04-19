@@ -113,17 +113,17 @@ docker run -itd \
 --name=fe \
 --env FE_SERVERS="fe1:172.20.80.2:9010" \
 --env FE_ID=1 \
--p 8030:8030\
+-p 8030:8030 \
 -p 9030:9030 \
 -v /data/fe/doris-meta:/opt/apache-doris/fe/doris-meta \
 -v /data/fe/conf:/opt/apache-doris/fe/conf \
 -v /data/fe/log:/opt/apache-doris/fe/log \
 --network=doris-network \
---ip=172.20.80.2\
+--ip=172.20.80.2 \
 apache/doris:1.2.1-fe-x86_64
 
 docker run -itd \
---name=be\
+--name=be \
 --env FE_SERVERS="fe1:172.20.80.2:9010" \
 --env BE_ADDR="172.20.80.3:9050" \
 -p 8040:8040 \
@@ -131,11 +131,16 @@ docker run -itd \
 -v /data/be/conf:/opt/apache-doris/be/conf \
 -v /data/be/log:/opt/apache-doris/be/log \
 --network=doris-network \
---ip=172.20.80.3\
-apache/doris:1.2.1-be-x86_64
+--ip=172.20.80.3 \
+apache/doris:1.2.1-be-x86_64  # if CPU does not support AVX2, use
+                              # apache/doris:1.2.1-be-x86_64-noavx2
 ```
 
-3FE & 3BE Run command template if needed [click here](https://github.com/apache/doris/tree/master/docker/runtime/docker-compose-demo/build-cluster/rum-command/3fe_3be.sh ) to access Downloads.
+> Note: if you CPU does not support AVX2, the backend will fail to start. 
+> If this is the case, use the `apache/doris:X.X.X-be-x86_64-noavx2` backend image.
+> Use `docker logs -f be` to check the backend for error messages.
+
+3FE & 3BE run command template can be downloaded [here](https://github.com/apache/doris/tree/master/docker/runtime/docker-compose-demo/build-cluster/rum-command/3fe_3be.sh).
 
 #### Docker Compose script
 
@@ -162,7 +167,7 @@ services:
        doris_net:
          ipv4_address: 172.20.80.2
    docker-be:
-     image: "apache/doris:1.2.1-be-x86_64"
+     image: "apache/doris:1.2.1-be-x86_64"  # use apache/doris:1.2.1-be-x86_64-noavx2, if CPU does not support AVX2
      container_name: "doris-be"
      hostname: "be"
      depends_on:
@@ -187,7 +192,7 @@ networks:
          - subnet: 172.20.80.0/16
 ```
 
-3FE & 3BE Docker Compose script template if needed [click here](https://github.com/apache/doris/tree/master/docker/runtime/docker-compose-demo/build-cluster/docker-compose/ 3fe_3be/docker-compose.yaml) access to download.
+3FE & 3BE Docker Compose file can be downloaded [here](https://github.com/apache/doris/tree/master/docker/runtime/docker-compose-demo/build-cluster/docker-compose/3fe_3be/docker-compose.yaml).
 
 ## Deploy Doris Docker
 

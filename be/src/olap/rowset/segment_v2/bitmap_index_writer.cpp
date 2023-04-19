@@ -139,7 +139,8 @@ public:
                 bitmap_sizes.push_back(bitmap_size);
             }
 
-            const auto* bitmap_type_info = get_scalar_type_info<OLAP_FIELD_TYPE_OBJECT>();
+            const auto* bitmap_type_info =
+                    get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_OBJECT>();
             IndexedColumnWriterOptions options;
             options.write_ordinal_index = true;
             options.write_value_index = false;
@@ -189,62 +190,63 @@ Status BitmapIndexWriter::create(const TypeInfo* type_info,
                                  std::unique_ptr<BitmapIndexWriter>* res) {
     FieldType type = type_info->type();
     switch (type) {
-    case OLAP_FIELD_TYPE_TINYINT:
-        res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_TINYINT>(type_info));
+    case FieldType::OLAP_FIELD_TYPE_TINYINT:
+        res->reset(new BitmapIndexWriterImpl<FieldType::OLAP_FIELD_TYPE_TINYINT>(type_info));
         break;
-    case OLAP_FIELD_TYPE_SMALLINT:
-        res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_SMALLINT>(type_info));
+    case FieldType::OLAP_FIELD_TYPE_SMALLINT:
+        res->reset(new BitmapIndexWriterImpl<FieldType::OLAP_FIELD_TYPE_SMALLINT>(type_info));
         break;
-    case OLAP_FIELD_TYPE_INT:
-        res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_INT>(type_info));
+    case FieldType::OLAP_FIELD_TYPE_INT:
+        res->reset(new BitmapIndexWriterImpl<FieldType::OLAP_FIELD_TYPE_INT>(type_info));
         break;
-    case OLAP_FIELD_TYPE_UNSIGNED_INT:
-        res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_UNSIGNED_INT>(type_info));
+    case FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT:
+        res->reset(new BitmapIndexWriterImpl<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT>(type_info));
         break;
-    case OLAP_FIELD_TYPE_BIGINT:
-        res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_BIGINT>(type_info));
+    case FieldType::OLAP_FIELD_TYPE_BIGINT:
+        res->reset(new BitmapIndexWriterImpl<FieldType::OLAP_FIELD_TYPE_BIGINT>(type_info));
         break;
-    case OLAP_FIELD_TYPE_CHAR:
-        res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_CHAR>(type_info));
+    case FieldType::OLAP_FIELD_TYPE_CHAR:
+        res->reset(new BitmapIndexWriterImpl<FieldType::OLAP_FIELD_TYPE_CHAR>(type_info));
         break;
-    case OLAP_FIELD_TYPE_VARCHAR:
-        res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_VARCHAR>(type_info));
+    case FieldType::OLAP_FIELD_TYPE_VARCHAR:
+        res->reset(new BitmapIndexWriterImpl<FieldType::OLAP_FIELD_TYPE_VARCHAR>(type_info));
         break;
-    case OLAP_FIELD_TYPE_STRING:
-        res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_STRING>(type_info));
+    case FieldType::OLAP_FIELD_TYPE_STRING:
+        res->reset(new BitmapIndexWriterImpl<FieldType::OLAP_FIELD_TYPE_STRING>(type_info));
         break;
-    case OLAP_FIELD_TYPE_DATE:
-        res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_DATE>(type_info));
+    case FieldType::OLAP_FIELD_TYPE_DATE:
+        res->reset(new BitmapIndexWriterImpl<FieldType::OLAP_FIELD_TYPE_DATE>(type_info));
         break;
-    case OLAP_FIELD_TYPE_DATETIME:
-        res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_DATETIME>(type_info));
+    case FieldType::OLAP_FIELD_TYPE_DATETIME:
+        res->reset(new BitmapIndexWriterImpl<FieldType::OLAP_FIELD_TYPE_DATETIME>(type_info));
         break;
-    case OLAP_FIELD_TYPE_DATEV2:
-        res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_DATEV2>(type_info));
+    case FieldType::OLAP_FIELD_TYPE_DATEV2:
+        res->reset(new BitmapIndexWriterImpl<FieldType::OLAP_FIELD_TYPE_DATEV2>(type_info));
         break;
-    case OLAP_FIELD_TYPE_DATETIMEV2:
-        res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_DATETIMEV2>(type_info));
+    case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
+        res->reset(new BitmapIndexWriterImpl<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>(type_info));
         break;
-    case OLAP_FIELD_TYPE_LARGEINT:
-        res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_LARGEINT>(type_info));
+    case FieldType::OLAP_FIELD_TYPE_LARGEINT:
+        res->reset(new BitmapIndexWriterImpl<FieldType::OLAP_FIELD_TYPE_LARGEINT>(type_info));
         break;
-    case OLAP_FIELD_TYPE_DECIMAL:
-        res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_DECIMAL>(type_info));
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL:
+        res->reset(new BitmapIndexWriterImpl<FieldType::OLAP_FIELD_TYPE_DECIMAL>(type_info));
         break;
-    case OLAP_FIELD_TYPE_DECIMAL32:
-        res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_DECIMAL32>(type_info));
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL32:
+        res->reset(new BitmapIndexWriterImpl<FieldType::OLAP_FIELD_TYPE_DECIMAL32>(type_info));
         break;
-    case OLAP_FIELD_TYPE_DECIMAL64:
-        res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_DECIMAL64>(type_info));
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL64:
+        res->reset(new BitmapIndexWriterImpl<FieldType::OLAP_FIELD_TYPE_DECIMAL64>(type_info));
         break;
-    case OLAP_FIELD_TYPE_DECIMAL128I:
-        res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_DECIMAL128I>(type_info));
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL128I:
+        res->reset(new BitmapIndexWriterImpl<FieldType::OLAP_FIELD_TYPE_DECIMAL128I>(type_info));
         break;
-    case OLAP_FIELD_TYPE_BOOL:
-        res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_BOOL>(type_info));
+    case FieldType::OLAP_FIELD_TYPE_BOOL:
+        res->reset(new BitmapIndexWriterImpl<FieldType::OLAP_FIELD_TYPE_BOOL>(type_info));
         break;
     default:
-        return Status::NotSupported("unsupported type for bitmap index: {}", std::to_string(type));
+        return Status::NotSupported("unsupported type for bitmap index: {}",
+                                    std::to_string(int(type)));
     }
     return Status::OK();
 }

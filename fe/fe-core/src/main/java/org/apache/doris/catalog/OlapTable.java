@@ -50,7 +50,6 @@ import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.statistics.AnalysisTaskInfo;
 import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisType;
-import org.apache.doris.statistics.AnalysisTaskScheduler;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.HistogramTask;
 import org.apache.doris.statistics.MVAnalysisTask;
@@ -577,6 +576,10 @@ public class OlapTable extends Table {
         return indexIdToMeta;
     }
 
+    public Map<Long, MaterializedIndexMeta> getCopyOfIndexIdToMeta() {
+        return new HashMap<>(indexIdToMeta);
+    }
+
     public Map<Long, MaterializedIndexMeta> getCopiedIndexIdToMeta() {
         return new HashMap<>(indexIdToMeta);
     }
@@ -1034,14 +1037,14 @@ public class OlapTable extends Table {
     }
 
     @Override
-    public BaseAnalysisTask createAnalysisTask(AnalysisTaskScheduler scheduler, AnalysisTaskInfo info) {
+    public BaseAnalysisTask createAnalysisTask(AnalysisTaskInfo info) {
         if (info.analysisType.equals(AnalysisType.HISTOGRAM)) {
-            return new HistogramTask(scheduler, info);
+            return new HistogramTask(info);
         }
         if (info.analysisType.equals(AnalysisType.COLUMN)) {
-            return new OlapAnalysisTask(scheduler, info);
+            return new OlapAnalysisTask(info);
         }
-        return new MVAnalysisTask(scheduler, info);
+        return new MVAnalysisTask(info);
     }
 
     @Override

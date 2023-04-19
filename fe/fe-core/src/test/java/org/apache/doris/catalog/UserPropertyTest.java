@@ -83,25 +83,23 @@ public class UserPropertyTest {
         fakeEnv = new FakeEnv();
         FakeEnv.setMetaVersion(FeConstants.meta_version);
 
-        UserProperty property = new UserProperty("root");
-        property.getResource().updateGroupShare("low", 991);
+        String qualifiedUser = "root";
+        UserProperty property = new UserProperty(qualifiedUser);
         // To image
         ByteArrayOutputStream byteStream = new ByteArrayOutputStream();
         DataOutputStream outputStream = new DataOutputStream(byteStream);
         property.write(outputStream);
         outputStream.flush();
+
         DataInputStream inputStream = new DataInputStream(new ByteArrayInputStream(byteStream.toByteArray()));
         UserProperty newProperty = UserProperty.read(inputStream);
-
-        Assert.assertEquals(991, newProperty.getResource().getShareByGroup().get("low").intValue());
+        Assert.assertEquals(qualifiedUser, newProperty.getQualifiedUser());
     }
 
     @Test
     public void testUpdate() throws UserException {
         List<Pair<String, String>> properties = Lists.newArrayList();
         properties.add(Pair.of("MAX_USER_CONNECTIONS", "100"));
-        properties.add(Pair.of("resource.cpu_share", "101"));
-        properties.add(Pair.of("quota.normal", "102"));
         properties.add(Pair.of("load_cluster.dpp-cluster.hadoop_palo_path", "/user/palo2"));
         properties.add(Pair.of("default_load_cluster", "dpp-cluster"));
         properties.add(Pair.of("max_qUERY_instances", "3000"));
@@ -112,8 +110,6 @@ public class UserPropertyTest {
         UserProperty userProperty = new UserProperty();
         userProperty.update(properties);
         Assert.assertEquals(100, userProperty.getMaxConn());
-        Assert.assertEquals(101, userProperty.getResource().getResource().getByDesc("cpu_share"));
-        Assert.assertEquals(102, userProperty.getResource().getShareByGroup().get("normal").intValue());
         Assert.assertEquals("/user/palo2", userProperty.getLoadClusterInfo("dpp-cluster").second.getPaloPath());
         Assert.assertEquals("dpp-cluster", userProperty.getDefaultLoadCluster());
         Assert.assertEquals(3000, userProperty.getMaxQueryInstances());
@@ -129,10 +125,6 @@ public class UserPropertyTest {
 
             if (key.equalsIgnoreCase("max_user_connections")) {
                 Assert.assertEquals("100", value);
-            } else if (key.equalsIgnoreCase("resource.cpu_share")) {
-                Assert.assertEquals("101", value);
-            } else if (key.equalsIgnoreCase("quota.normal")) {
-                Assert.assertEquals("102", value);
             } else if (key.equalsIgnoreCase("load_cluster.dpp-cluster.hadoop_palo_path")) {
                 Assert.assertEquals("/user/palo2", value);
             } else if (key.equalsIgnoreCase("default_load_cluster")) {

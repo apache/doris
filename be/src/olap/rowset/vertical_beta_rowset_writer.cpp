@@ -67,9 +67,6 @@ Status VerticalBetaRowsetWriter::add_columns(const vectorized::Block* block,
             // segment is full, need flush columns and create new segment writer
             RETURN_IF_ERROR(_flush_columns(&_segment_writers[_cur_writer_idx], true));
 
-            _segment_num_rows.resize(_cur_writer_idx + 1);
-            _segment_num_rows[_cur_writer_idx] = _segment_writers[_cur_writer_idx]->row_count();
-
             std::unique_ptr<segment_v2::SegmentWriter> writer;
             RETURN_IF_ERROR(_create_segment_writer(col_ids, is_key, &writer));
             _segment_writers.emplace_back(std::move(writer));
@@ -116,6 +113,8 @@ Status VerticalBetaRowsetWriter::_flush_columns(
         key_bounds.set_min_key(min_key.to_string());
         key_bounds.set_max_key(max_key.to_string());
         _segments_encoded_key_bounds.emplace_back(key_bounds);
+        _segment_num_rows.resize(_cur_writer_idx + 1);
+        _segment_num_rows[_cur_writer_idx] = _segment_writers[_cur_writer_idx]->row_count();
     }
     _total_index_size += static_cast<int64_t>(index_size);
     return Status::OK();

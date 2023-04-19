@@ -412,7 +412,7 @@ public:
         auto data_null_map = ColumnUInt8::create(input_rows_count, 0);
         auto& null_map = data_null_map->get_data();
 
-        auto& column = block.get_by_position(arguments[0]).column;
+        auto column = block.get_by_position(arguments[0]).column;
         if (auto* nullable = check_and_get_column<const ColumnNullable>(*column)) {
             VectorizedUtils::update_null_map(null_map, nullable->get_null_map_data());
             column = nullable->get_nested_column_ptr();
@@ -1001,7 +1001,7 @@ public:
         default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block, arguments);
 
         for (int i = 0; i < 3; i++) {
-            check_set_nullable(argument_columns[i], res_null_map);
+            check_set_nullable(argument_columns[i], res_null_map, col_const[i]);
         }
 
         auto bitmap_column = assert_cast<const ColumnBitmap*>(argument_columns[0].get());

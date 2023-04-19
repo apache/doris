@@ -136,7 +136,7 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
         }
         default:
             return Status::NotSupported("unsupported type for ColumnReader: {}",
-                                        std::to_string(type));
+                                        std::to_string(int(type)));
         }
     }
 }
@@ -342,7 +342,7 @@ Status ColumnReader::_get_filtered_pages(const AndBlockColumnPredicate* col_pred
                     for (auto del_pred : *delete_predicates) {
                         // TODO: Both `min_value` and `max_value` should be 0 or neither should be 0.
                         //  So nullable only need to judge once.
-                        if (min_value.get() != nullptr && max_value.get() != nullptr &&
+                        if (min_value != nullptr && max_value != nullptr &&
                             del_pred->evaluate_del({min_value.get(), max_value.get()})) {
                             should_read = false;
                             break;
@@ -553,7 +553,7 @@ Status ColumnReader::new_iterator(ColumnIterator** iterator) {
         }
         default:
             return Status::NotSupported("unsupported type to create iterator: {}",
-                                        std::to_string(type));
+                                        std::to_string(int(type)));
         }
     }
 }
@@ -861,6 +861,7 @@ Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
     }
     RETURN_IF_ERROR(get_block_compression_codec(_reader->get_compression(), &_compress_codec));
     if (config::enable_low_cardinality_optimize &&
+        opts.io_ctx.reader_type == ReaderType::READER_QUERY &&
         _reader->encoding_info()->encoding() == DICT_ENCODING) {
         auto dict_encoding_type = _reader->get_dict_encoding_type();
         if (dict_encoding_type == ColumnReader::UNKNOWN_DICT_ENCODING) {
@@ -1111,12 +1112,12 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
                                                    _compress_codec));
                 // ignore dict_footer.dict_page_footer().encoding() due to only
                 // PLAIN_ENCODING is supported for dict page right now
-                _dict_decoder = std::make_unique<BinaryPlainPageDecoder<OLAP_FIELD_TYPE_VARCHAR>>(
-                        dict_data);
+                _dict_decoder = std::make_unique<
+                        BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>>(dict_data);
                 RETURN_IF_ERROR(_dict_decoder->init());
 
-                auto* pd_decoder =
-                        (BinaryPlainPageDecoder<OLAP_FIELD_TYPE_VARCHAR>*)_dict_decoder.get();
+                auto* pd_decoder = (BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>*)
+                                           _dict_decoder.get();
                 _dict_word_info.reset(new StringRef[pd_decoder->_num_elems]);
                 pd_decoder->get_dict_word_info(_dict_word_info.get());
             }
@@ -1160,23 +1161,23 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
             Status s = Status::OK();
             // If char length is 10, but default value is 'a' , it's length is 1
             // not fill 0 to the ending, because segment iterator will shrink the tail 0 char
-            if (_type_info->type() == OLAP_FIELD_TYPE_VARCHAR ||
-                _type_info->type() == OLAP_FIELD_TYPE_HLL ||
-                _type_info->type() == OLAP_FIELD_TYPE_OBJECT ||
-                _type_info->type() == OLAP_FIELD_TYPE_STRING ||
-                _type_info->type() == OLAP_FIELD_TYPE_CHAR) {
+            if (_type_info->type() == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
+                _type_info->type() == FieldType::OLAP_FIELD_TYPE_HLL ||
+                _type_info->type() == FieldType::OLAP_FIELD_TYPE_OBJECT ||
+                _type_info->type() == FieldType::OLAP_FIELD_TYPE_STRING ||
+                _type_info->type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
                 ((Slice*)_mem_value.data())->size = _default_value.length();
                 ((Slice*)_mem_value.data())->data = _default_value.data();
-            } else if (_type_info->type() == OLAP_FIELD_TYPE_ARRAY) {
+            } else if (_type_info->type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
                 if (_default_value != "[]") {
                     return Status::NotSupported("Array default {} is unsupported", _default_value);
                 } else {
                     ((Slice*)_mem_value.data())->size = _default_value.length();
                     ((Slice*)_mem_value.data())->data = _default_value.data();
                 }
-            } else if (_type_info->type() == OLAP_FIELD_TYPE_STRUCT) {
+            } else if (_type_info->type() == FieldType::OLAP_FIELD_TYPE_STRUCT) {
                 return Status::NotSupported("STRUCT default type is unsupported");
-            } else if (_type_info->type() == OLAP_FIELD_TYPE_MAP) {
+            } else if (_type_info->type() == FieldType::OLAP_FIELD_TYPE_MAP) {
                 return Status::NotSupported("MAP default type is unsupported");
             } else {
                 s = _type_info->from_string(_mem_value.data(), _default_value, _precision, _scale);
@@ -1201,18 +1202,19 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
     dst = dst->convert_to_predicate_column_if_dictionary();
 
     switch (type_info->type()) {
-    case OLAP_FIELD_TYPE_OBJECT:
-    case OLAP_FIELD_TYPE_HLL: {
+    case FieldType::OLAP_FIELD_TYPE_OBJECT:
+    case FieldType::OLAP_FIELD_TYPE_HLL: {
         dst->insert_many_defaults(n);
         break;
     }
-    case OLAP_FIELD_TYPE_DATE: {
+    case FieldType::OLAP_FIELD_TYPE_DATE: {
         vectorized::Int64 int64;
         char* data_ptr = (char*)&int64;
         size_t data_len = sizeof(int64);
 
-        assert(type_size == sizeof(FieldTypeTraits<OLAP_FIELD_TYPE_DATE>::CppType)); //uint24_t
-        std::string str = FieldTypeTraits<OLAP_FIELD_TYPE_DATE>::to_string(mem_value);
+        assert(type_size ==
+               sizeof(FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::CppType)); //uint24_t
+        std::string str = FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::to_string(mem_value);
 
         vectorized::VecDateTimeValue value;
         value.from_date_str(str.c_str(), str.length());
@@ -1222,13 +1224,15 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
         dst->insert_many_data(data_ptr, data_len, n);
         break;
     }
-    case OLAP_FIELD_TYPE_DATETIME: {
+    case FieldType::OLAP_FIELD_TYPE_DATETIME: {
         vectorized::Int64 int64;
         char* data_ptr = (char*)&int64;
         size_t data_len = sizeof(int64);
 
-        assert(type_size == sizeof(FieldTypeTraits<OLAP_FIELD_TYPE_DATETIME>::CppType)); //int64_t
-        std::string str = FieldTypeTraits<OLAP_FIELD_TYPE_DATETIME>::to_string(mem_value);
+        assert(type_size ==
+               sizeof(FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIME>::CppType)); //int64_t
+        std::string str =
+                FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIME>::to_string(mem_value);
 
         vectorized::VecDateTimeValue value;
         value.from_date_str(str.c_str(), str.length());
@@ -1238,28 +1242,28 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
         dst->insert_many_data(data_ptr, data_len, n);
         break;
     }
-    case OLAP_FIELD_TYPE_DECIMAL: {
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL: {
         vectorized::Int128 int128;
         char* data_ptr = (char*)&int128;
         size_t data_len = sizeof(int128);
 
         assert(type_size ==
-               sizeof(FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL>::CppType)); //decimal12_t
+               sizeof(FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL>::CppType)); //decimal12_t
         decimal12_t* d = (decimal12_t*)mem_value;
         int128 = DecimalV2Value(d->integer, d->fraction).value();
         dst->insert_many_data(data_ptr, data_len, n);
         break;
     }
-    case OLAP_FIELD_TYPE_STRING:
-    case OLAP_FIELD_TYPE_VARCHAR:
-    case OLAP_FIELD_TYPE_CHAR:
-    case OLAP_FIELD_TYPE_JSONB: {
+    case FieldType::OLAP_FIELD_TYPE_STRING:
+    case FieldType::OLAP_FIELD_TYPE_VARCHAR:
+    case FieldType::OLAP_FIELD_TYPE_CHAR:
+    case FieldType::OLAP_FIELD_TYPE_JSONB: {
         char* data_ptr = ((Slice*)mem_value)->data;
         size_t data_len = ((Slice*)mem_value)->size;
         dst->insert_many_data(data_ptr, data_len, n);
         break;
     }
-    case OLAP_FIELD_TYPE_ARRAY: {
+    case FieldType::OLAP_FIELD_TYPE_ARRAY: {
         if (dst->is_nullable()) {
             static_cast<vectorized::ColumnNullable&>(*dst).insert_not_null_elements(n);
         } else {

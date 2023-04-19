@@ -30,8 +30,9 @@ suite("test_encryption_function") {
     """
 
     sql "SET enable_nereids_planner=true"
-    sql "set batch_size = 4096;"
 
+    sql "set batch_size = 4096;"
+   
     sql "set block_encryption_mode=\"AES_128_ECB\";"
     qt_sql "SELECT TO_BASE64(AES_ENCRYPT('text','F3229A0B371ED2D9441B830D21A390C3'));" // 'wr2JEDVXzL9+2XtRhgIloA=='
     qt_sql "SELECT TO_BASE64(AES_ENCRYPT('text','F3229A0B371ED2D9441B830D21A390C3', '0123456789'));" // wr2JEDVXzL9+2XtRhgIloA==

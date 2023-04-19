@@ -17,29 +17,26 @@
 
 #include "http/action/pprof_actions.h"
 
-#include <gperftools/heap-profiler.h>
-#include <gperftools/malloc_extension.h>
-#include <gperftools/profiler.h>
+#include <gperftools/heap-profiler.h>    // IWYU pragma: keep
+#include <gperftools/malloc_extension.h> // IWYU pragma: keep
+#include <gperftools/profiler.h>         // IWYU pragma: keep
+#include <stdio.h>
 
 #include <fstream>
-#include <iostream>
+#include <memory>
 #include <mutex>
-#include <sstream>
 
-#include "agent/utils.h"
 #include "common/config.h"
 #include "common/object_pool.h"
-#include "gutil/strings/substitute.h"
 #include "http/ev_http_server.h"
 #include "http/http_channel.h"
 #include "http/http_handler.h"
-#include "http/http_headers.h"
+#include "http/http_method.h"
 #include "http/http_request.h"
-#include "http/http_response.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "util/bfd_parser.h"
-#include "util/pprof_utils.h"
+#include "util/pprof_utils.h" // IWYU pragma: keep
 
 namespace doris {
 

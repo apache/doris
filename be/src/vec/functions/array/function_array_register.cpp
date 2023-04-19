@@ -22,6 +22,7 @@
 
 namespace doris::vectorized {
 
+void register_function_array_shuffle(SimpleFunctionFactory&);
 void register_function_array_exists(SimpleFunctionFactory&);
 void register_function_array_element(SimpleFunctionFactory&);
 void register_function_array_index(SimpleFunctionFactory&);
@@ -52,6 +53,7 @@ void register_function_array_pushfront(SimpleFunctionFactory& factory);
 void register_function_array_first_index(SimpleFunctionFactory& factory);
 
 void register_function_array(SimpleFunctionFactory& factory) {
+    register_function_array_shuffle(factory);
     register_function_array_exists(factory);
     register_function_array_element(factory);
     register_function_array_index(factory);

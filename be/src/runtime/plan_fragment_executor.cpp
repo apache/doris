@@ -20,6 +20,7 @@
 
 #include "runtime/plan_fragment_executor.h"
 
+#include <gen_cpp/version.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <unordered_map>
@@ -204,6 +205,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 
     // set up profile counters
     profile()->add_child(_plan->runtime_profile(), true, nullptr);
+    profile()->add_info_string("DoriBeVersion", DORIS_BUILD_SHORT_HASH);
     _rows_produced_counter = ADD_COUNTER(profile(), "RowsProduced", TUnit::UNIT);
     _blocks_produced_counter = ADD_COUNTER(profile(), "BlocksProduced", TUnit::UNIT);
     _fragment_cpu_timer = ADD_TIMER(profile(), "FragmentCpuTime");

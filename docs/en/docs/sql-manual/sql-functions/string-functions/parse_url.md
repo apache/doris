@@ -44,5 +44,7 @@ mysql> SELECT parse_url ('https://doris.apache.org/', 'HOST');
 +------------------------------------------------+
 ```
 
+If you want to get parameter in QUERY, you can use [extract_url_parameter](./extract_url_parameter.md).
+
 ### keywords
     PARSE URL

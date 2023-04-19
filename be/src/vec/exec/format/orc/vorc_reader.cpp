@@ -72,10 +72,12 @@ void ORCFileInputStream::read(void* buf, uint64_t length, uint64_t offset) {
     }
 }
 
-OrcReader::OrcReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                     const TFileRangeDesc& range, const std::vector<std::string>& column_names,
-                     size_t batch_size, const std::string& ctz, io::IOContext* io_ctx)
+OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
+                     const TFileScanRangeParams& params, const TFileRangeDesc& range,
+                     const std::vector<std::string>& column_names, size_t batch_size,
+                     const std::string& ctz, io::IOContext* io_ctx)
         : _profile(profile),
+          _state(state),
           _scan_params(params),
           _scan_range(range),
           _batch_size(std::max(batch_size, _MIN_BATCH_SIZE)),
@@ -153,8 +155,10 @@ void OrcReader::_init_profile() {
 Status OrcReader::_create_file_reader() {
     if (_file_input_stream == nullptr) {
         io::FileReaderSPtr inner_reader;
-        RETURN_IF_ERROR(FileFactory::create_file_reader(
-                _profile, _system_properties, _file_description, &_file_system, &inner_reader));
+        io::FileCachePolicy cache_policy = FileFactory::get_cache_policy(_state);
+        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties,
+                                                        _file_description, &_file_system,
+                                                        &inner_reader, cache_policy));
         _file_input_stream.reset(
                 new ORCFileInputStream(_scan_range.path, inner_reader, &_statistics, _io_ctx));
     }
@@ -656,23 +660,36 @@ Status OrcReader::_decode_string_column(const std::string& col_name,
     string_values.reserve(num_values);
     if (type_kind == orc::TypeKind::CHAR) {
         // Possibly there are some zero padding characters in CHAR type, we have to strip them off.
-        for (int i = 0; i < num_values; ++i) {
-            if (cvb->notNull[i]) {
+        if (cvb->hasNulls) {
+            for (int i = 0; i < num_values; ++i) {
+                if (cvb->notNull[i]) {
+                    string_values.emplace_back(data->data[i],
+                                               trim_right(data->data[i], data->length[i]));
+                } else {
+                    // Orc doesn't fill null values in new batch, but the former batch has been release.
+                    // Other types like int/long/timestamp... are flat types without pointer in them,
+                    // so other types do not need to be handled separately like string.
+                    string_values.emplace_back(empty_string.data(), 0);
+                }
+            }
+        } else {
+            for (int i = 0; i < num_values; ++i) {
                 string_values.emplace_back(data->data[i],
                                            trim_right(data->data[i], data->length[i]));
-            } else {
-                // Orc doesn't fill null values in new batch, but the former batch has been release.
-                // Other types like int/long/timestamp... are flat types without pointer in them,
-                // so other types do not need to be handled separately like string.
-                string_values.emplace_back(empty_string.data(), 0);
             }
         }
     } else {
-        for (int i = 0; i < num_values; ++i) {
-            if (cvb->notNull[i]) {
+        if (cvb->hasNulls) {
+            for (int i = 0; i < num_values; ++i) {
+                if (cvb->notNull[i]) {
+                    string_values.emplace_back(data->data[i], data->length[i]);
+                } else {
+                    string_values.emplace_back(empty_string.data(), 0);
+                }
+            }
+        } else {
+            for (int i = 0; i < num_values; ++i) {
                 string_values.emplace_back(data->data[i], data->length[i]);
-            } else {
-                string_values.emplace_back(empty_string.data(), 0);
             }
         }
     }
@@ -742,17 +759,13 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
         FOR_FLAT_ORC_COLUMNS(DISPATCH)
 #undef DISPATCH
     case TypeIndex::Decimal32:
-        return _decode_decimal_column<Int32>(col_name, data_column, data_type,
-                                             _decimal_scale_params, cvb, num_values);
+        return _decode_decimal_column<Int32>(col_name, data_column, data_type, cvb, num_values);
     case TypeIndex::Decimal64:
-        return _decode_decimal_column<Int64>(col_name, data_column, data_type,
-                                             _decimal_scale_params, cvb, num_values);
+        return _decode_decimal_column<Int64>(col_name, data_column, data_type, cvb, num_values);
     case TypeIndex::Decimal128:
-        return _decode_decimal_column<Int128>(col_name, data_column, data_type,
-                                              _decimal_scale_params, cvb, num_values);
+        return _decode_decimal_column<Int128>(col_name, data_column, data_type, cvb, num_values);
     case TypeIndex::Decimal128I:
-        return _decode_decimal_column<Int128>(col_name, data_column, data_type,
-                                              _decimal_scale_params, cvb, num_values);
+        return _decode_decimal_column<Int128>(col_name, data_column, data_type, cvb, num_values);
     case TypeIndex::Date:
         return _decode_time_column<VecDateTimeValue, Int64, orc::LongVectorBatch>(
                 col_name, data_column, cvb, num_values);
@@ -850,6 +863,8 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     SCOPED_RAW_TIMER(&_statistics.column_read_time);
     {
         SCOPED_RAW_TIMER(&_statistics.get_batch_time);
+        // reset decimal_scale_params_index
+        _decimal_scale_params_index = 0;
         if (!_row_reader->next(*_batch)) {
             *eof = true;
             *read_rows = 0;

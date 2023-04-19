@@ -32,7 +32,7 @@ import org.apache.iceberg.exceptions.NamespaceNotEmptyException;
 import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.io.FileIO;
-import org.apache.thrift.TException;
+import shade.doris.hive.org.apache.thrift.TException;
 
 import java.util.ArrayList;
 import java.util.List;

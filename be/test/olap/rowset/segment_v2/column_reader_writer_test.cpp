@@ -85,7 +85,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
         writer_opts.meta->set_column_id(0);
         writer_opts.meta->set_unique_id(0);
         writer_opts.meta->set_type(type);
-        if (type == OLAP_FIELD_TYPE_CHAR || type == OLAP_FIELD_TYPE_VARCHAR) {
+        if (type == FieldType::OLAP_FIELD_TYPE_CHAR || type == FieldType::OLAP_FIELD_TYPE_VARCHAR) {
             writer_opts.meta->set_length(10);
         } else {
             writer_opts.meta->set_length(0);
@@ -96,9 +96,9 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
         writer_opts.need_zone_map = true;
 
         TabletColumn column(OLAP_FIELD_AGGREGATION_NONE, type);
-        if (type == OLAP_FIELD_TYPE_VARCHAR) {
+        if (type == FieldType::OLAP_FIELD_TYPE_VARCHAR) {
             column = create_varchar_key(1);
-        } else if (type == OLAP_FIELD_TYPE_CHAR) {
+        } else if (type == FieldType::OLAP_FIELD_TYPE_CHAR) {
             column = create_char_key(1);
         }
         std::unique_ptr<ColumnWriter> writer;
@@ -160,7 +160,8 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
                 for (int j = 0; j < rows_read; ++j) {
                     EXPECT_EQ(BitmapTest(src_is_null, idx), col.is_null(j));
                     if (!col.is_null(j)) {
-                        if (type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_CHAR) {
+                        if (type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
+                            type == FieldType::OLAP_FIELD_TYPE_CHAR) {
                             Slice* src_slice = (Slice*)src_data;
                             EXPECT_EQ(src_slice[idx].to_string(),
                                       reinterpret_cast<const Slice*>(col.cell_ptr(j))->to_string())
@@ -215,7 +216,8 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
                 for (int j = 0; j < rows_read; ++j) {
                     EXPECT_EQ(BitmapTest(src_is_null, idx), col.is_null(j));
                     if (!col.is_null(j)) {
-                        if (type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_CHAR) {
+                        if (type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
+                            type == FieldType::OLAP_FIELD_TYPE_CHAR) {
                             Slice* src_slice = (Slice*)src_data;
                             EXPECT_EQ(src_slice[idx].to_string(),
                                       reinterpret_cast<const Slice*>(col.cell_ptr(j))->to_string());
@@ -236,9 +238,10 @@ void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, i
                               std::string test_name) {
     CollectionValue* src = src_data;
     ColumnMetaPB meta;
-    TabletColumn list_column(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_ARRAY);
+    TabletColumn list_column(OLAP_FIELD_AGGREGATION_NONE, FieldType::OLAP_FIELD_TYPE_ARRAY);
     int32 item_length = 0;
-    if (item_type == OLAP_FIELD_TYPE_CHAR || item_type == OLAP_FIELD_TYPE_VARCHAR) {
+    if (item_type == FieldType::OLAP_FIELD_TYPE_CHAR ||
+        item_type == FieldType::OLAP_FIELD_TYPE_VARCHAR) {
         item_length = 10;
     }
     TabletColumn item_column(OLAP_FIELD_AGGREGATION_NONE, item_type, true, 0, item_length);
@@ -257,7 +260,7 @@ void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, i
         writer_opts.meta = &meta;
         writer_opts.meta->set_column_id(0);
         writer_opts.meta->set_unique_id(0);
-        writer_opts.meta->set_type(OLAP_FIELD_TYPE_ARRAY);
+        writer_opts.meta->set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
         writer_opts.meta->set_length(0);
         writer_opts.meta->set_encoding(array_encoding);
         writer_opts.meta->set_compression(segment_v2::CompressionTypePB::LZ4F);
@@ -399,7 +402,7 @@ TEST_F(ColumnReaderWriterTest, test_array_type) {
             array_val[array_index].set_length(3);
         }
     }
-    test_array_nullable_data<OLAP_FIELD_TYPE_TINYINT, BIT_SHUFFLE, BIT_SHUFFLE>(
+    test_array_nullable_data<FieldType::OLAP_FIELD_TYPE_TINYINT, BIT_SHUFFLE, BIT_SHUFFLE>(
             array_val, array_is_null, num_array, "null_array_bs");
 
     delete[] array_val;
@@ -412,7 +415,8 @@ TEST_F(ColumnReaderWriterTest, test_array_type) {
     for (int i = 0; i < 3; ++i) {
         item_is_null[i] = i == 1;
         if (i != 1) {
-            set_column_value_by_type(OLAP_FIELD_TYPE_VARCHAR, i, (char*)&varchar_vals[i], &_pool);
+            set_column_value_by_type(FieldType::OLAP_FIELD_TYPE_VARCHAR, i, (char*)&varchar_vals[i],
+                                     &_pool);
         }
     }
     for (int i = 0; i < num_array; ++i) {
@@ -425,7 +429,7 @@ TEST_F(ColumnReaderWriterTest, test_array_type) {
         array_val[i].set_null_signs(item_is_null);
         array_val[i].set_length(3);
     }
-    test_array_nullable_data<OLAP_FIELD_TYPE_VARCHAR, DICT_ENCODING, BIT_SHUFFLE>(
+    test_array_nullable_data<FieldType::OLAP_FIELD_TYPE_VARCHAR, DICT_ENCODING, BIT_SHUFFLE>(
             array_val, array_is_null, num_array, "null_array_chars");
 
     delete[] array_val;
@@ -466,12 +470,13 @@ void test_read_default_value(string value, void* result) {
             st = iter.next_batch(&rows_read, &dst, &has_null);
             EXPECT_TRUE(st.ok());
             for (int j = 0; j < rows_read; ++j) {
-                if (type == OLAP_FIELD_TYPE_CHAR) {
+                if (type == FieldType::OLAP_FIELD_TYPE_CHAR) {
                     EXPECT_EQ(*(string*)result,
                               reinterpret_cast<const Slice*>(col.cell_ptr(j))->to_string())
                             << "j:" << j;
-                } else if (type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_HLL ||
-                           type == OLAP_FIELD_TYPE_OBJECT) {
+                } else if (type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
+                           type == FieldType::OLAP_FIELD_TYPE_HLL ||
+                           type == FieldType::OLAP_FIELD_TYPE_OBJECT) {
                     EXPECT_EQ(value, reinterpret_cast<const Slice*>(col.cell_ptr(j))->to_string())
                             << "j:" << j;
                 } else {
@@ -498,12 +503,13 @@ void test_read_default_value(string value, void* result) {
                 st = iter.next_batch(&rows_read, &dst, &has_null);
                 EXPECT_TRUE(st.ok());
                 for (int j = 0; j < rows_read; ++j) {
-                    if (type == OLAP_FIELD_TYPE_CHAR) {
+                    if (type == FieldType::OLAP_FIELD_TYPE_CHAR) {
                         EXPECT_EQ(*(string*)result,
                                   reinterpret_cast<const Slice*>(col.cell_ptr(j))->to_string())
                                 << "j:" << j;
-                    } else if (type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_HLL ||
-                               type == OLAP_FIELD_TYPE_OBJECT) {
+                    } else if (type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
+                               type == FieldType::OLAP_FIELD_TYPE_HLL ||
+                               type == FieldType::OLAP_FIELD_TYPE_OBJECT) {
                         EXPECT_EQ(value,
                                   reinterpret_cast<const Slice*>(col.cell_ptr(j))->to_string());
                     } else {
@@ -517,25 +523,25 @@ void test_read_default_value(string value, void* result) {
 }
 
 static vectorized::MutableColumnPtr create_vectorized_column_ptr(FieldType type) {
-    if (type == OLAP_FIELD_TYPE_INT) {
+    if (type == FieldType::OLAP_FIELD_TYPE_INT) {
         return vectorized::DataTypeInt32().create_column();
-    } else if (type == OLAP_FIELD_TYPE_SMALLINT) {
+    } else if (type == FieldType::OLAP_FIELD_TYPE_SMALLINT) {
         return vectorized::DataTypeInt16().create_column();
-    } else if (type == OLAP_FIELD_TYPE_BIGINT) {
+    } else if (type == FieldType::OLAP_FIELD_TYPE_BIGINT) {
         return vectorized::DataTypeInt64().create_column();
-    } else if (type == OLAP_FIELD_TYPE_LARGEINT) {
+    } else if (type == FieldType::OLAP_FIELD_TYPE_LARGEINT) {
         return vectorized::DataTypeInt128().create_column();
-    } else if (type == OLAP_FIELD_TYPE_FLOAT) {
+    } else if (type == FieldType::OLAP_FIELD_TYPE_FLOAT) {
         return vectorized::DataTypeFloat32().create_column();
-    } else if (type == OLAP_FIELD_TYPE_DOUBLE) {
+    } else if (type == FieldType::OLAP_FIELD_TYPE_DOUBLE) {
         return vectorized::DataTypeFloat64().create_column();
-    } else if (type == OLAP_FIELD_TYPE_CHAR) {
+    } else if (type == FieldType::OLAP_FIELD_TYPE_CHAR) {
         return vectorized::DataTypeString().create_column();
-    } else if (type == OLAP_FIELD_TYPE_DATE) {
+    } else if (type == FieldType::OLAP_FIELD_TYPE_DATE) {
         return vectorized::DataTypeDate().create_column();
-    } else if (type == OLAP_FIELD_TYPE_DATETIME) {
+    } else if (type == FieldType::OLAP_FIELD_TYPE_DATETIME) {
         return vectorized::DataTypeDateTime().create_column();
-    } else if (type == OLAP_FIELD_TYPE_DECIMAL) {
+    } else if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL) {
         return vectorized::DataTypeDecimal<vectorized::Decimal128>(27, 9).create_column();
     }
     return vectorized::DataTypeNothing().create_column();
@@ -569,10 +575,12 @@ void test_v_read_default_value(string value, void* result) {
 
             EXPECT_TRUE(st.ok());
             for (int j = 0; j < rows_read; ++j) {
-                if (type == OLAP_FIELD_TYPE_CHAR) {
-                } else if (type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_HLL ||
-                           type == OLAP_FIELD_TYPE_OBJECT) {
-                } else if (type == OLAP_FIELD_TYPE_DATE || type == OLAP_FIELD_TYPE_DATETIME) {
+                if (type == FieldType::OLAP_FIELD_TYPE_CHAR) {
+                } else if (type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
+                           type == FieldType::OLAP_FIELD_TYPE_HLL ||
+                           type == FieldType::OLAP_FIELD_TYPE_OBJECT) {
+                } else if (type == FieldType::OLAP_FIELD_TYPE_DATE ||
+                           type == FieldType::OLAP_FIELD_TYPE_DATETIME) {
                     StringRef sr = mcp->get_data_at(j);
                     EXPECT_EQ(sr.size, sizeof(vectorized::Int64));
 
@@ -582,7 +590,7 @@ void test_v_read_default_value(string value, void* result) {
                     value.to_string(buf);
                     int ret = strcmp(buf, (char*)result);
                     EXPECT_EQ(ret, 0);
-                } else if (type == OLAP_FIELD_TYPE_DECIMAL) {
+                } else if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL) {
                     StringRef sr = mcp->get_data_at(j);
                     EXPECT_EQ(sr.size, sizeof(vectorized::Int128));
 
@@ -611,16 +619,16 @@ TEST_F(ColumnReaderWriterTest, test_nullable) {
         BitmapChange(is_null, i, (i % 4) == 0);
     }
 
-    test_nullable_data<OLAP_FIELD_TYPE_TINYINT, BIT_SHUFFLE>(val, is_null, num_uint8_rows,
-                                                             "null_tiny_bs");
-    test_nullable_data<OLAP_FIELD_TYPE_SMALLINT, BIT_SHUFFLE>(val, is_null, num_uint8_rows / 2,
-                                                              "null_smallint_bs");
-    test_nullable_data<OLAP_FIELD_TYPE_INT, BIT_SHUFFLE>(val, is_null, num_uint8_rows / 4,
-                                                         "null_int_bs");
-    test_nullable_data<OLAP_FIELD_TYPE_BIGINT, BIT_SHUFFLE>(val, is_null, num_uint8_rows / 8,
-                                                            "null_bigint_bs");
-    test_nullable_data<OLAP_FIELD_TYPE_LARGEINT, BIT_SHUFFLE>(val, is_null, num_uint8_rows / 16,
-                                                              "null_largeint_bs");
+    test_nullable_data<FieldType::OLAP_FIELD_TYPE_TINYINT, BIT_SHUFFLE>(
+            val, is_null, num_uint8_rows, "null_tiny_bs");
+    test_nullable_data<FieldType::OLAP_FIELD_TYPE_SMALLINT, BIT_SHUFFLE>(
+            val, is_null, num_uint8_rows / 2, "null_smallint_bs");
+    test_nullable_data<FieldType::OLAP_FIELD_TYPE_INT, BIT_SHUFFLE>(
+            val, is_null, num_uint8_rows / 4, "null_int_bs");
+    test_nullable_data<FieldType::OLAP_FIELD_TYPE_BIGINT, BIT_SHUFFLE>(
+            val, is_null, num_uint8_rows / 8, "null_bigint_bs");
+    test_nullable_data<FieldType::OLAP_FIELD_TYPE_LARGEINT, BIT_SHUFFLE>(
+            val, is_null, num_uint8_rows / 16, "null_largeint_bs");
 
     // test for the case where most values are not null
     uint8_t* is_null_sparse = new uint8_t[num_uint8_rows];
@@ -633,26 +641,26 @@ TEST_F(ColumnReaderWriterTest, test_nullable) {
         }
         BitmapChange(is_null_sparse, i, v);
     }
-    test_nullable_data<OLAP_FIELD_TYPE_TINYINT, BIT_SHUFFLE>(val, is_null_sparse, num_uint8_rows,
-                                                             "sparse_null_tiny_bs");
+    test_nullable_data<FieldType::OLAP_FIELD_TYPE_TINYINT, BIT_SHUFFLE>(
+            val, is_null_sparse, num_uint8_rows, "sparse_null_tiny_bs");
 
     float* float_vals = new float[num_uint8_rows];
     for (int i = 0; i < num_uint8_rows; ++i) {
         float_vals[i] = i;
         is_null[i] = ((i % 16) == 0);
     }
-    test_nullable_data<OLAP_FIELD_TYPE_FLOAT, BIT_SHUFFLE>((uint8_t*)float_vals, is_null,
-                                                           num_uint8_rows, "null_float_bs");
+    test_nullable_data<FieldType::OLAP_FIELD_TYPE_FLOAT, BIT_SHUFFLE>(
+            (uint8_t*)float_vals, is_null, num_uint8_rows, "null_float_bs");
 
     double* double_vals = new double[num_uint8_rows];
     for (int i = 0; i < num_uint8_rows; ++i) {
         double_vals[i] = i;
         is_null[i] = ((i % 16) == 0);
     }
-    test_nullable_data<OLAP_FIELD_TYPE_DOUBLE, BIT_SHUFFLE>((uint8_t*)double_vals, is_null,
-                                                            num_uint8_rows, "null_double_bs");
-    // test_nullable_data<OLAP_FIELD_TYPE_FLOAT, BIT_SHUFFLE>(val, is_null, num_uint8_rows / 4, "null_float_bs");
-    // test_nullable_data<OLAP_FIELD_TYPE_DOUBLE, BIT_SHUFFLE>(val, is_null, num_uint8_rows / 8, "null_double_bs");
+    test_nullable_data<FieldType::OLAP_FIELD_TYPE_DOUBLE, BIT_SHUFFLE>(
+            (uint8_t*)double_vals, is_null, num_uint8_rows, "null_double_bs");
+    // test_nullable_data<FieldType::OLAP_FIELD_TYPE_FLOAT, BIT_SHUFFLE>(val, is_null, num_uint8_rows / 4, "null_float_bs");
+    // test_nullable_data<FieldType::OLAP_FIELD_TYPE_DOUBLE, BIT_SHUFFLE>(val, is_null, num_uint8_rows / 8, "null_double_bs");
     delete[] val;
     delete[] is_null;
     delete[] is_null_sparse;
@@ -676,30 +684,32 @@ TEST_F(ColumnReaderWriterTest, test_types) {
         datetime_vals[i] = i + 33;
         decimal_vals[i] = {i, i}; // 1.000000001
 
-        set_column_value_by_type(OLAP_FIELD_TYPE_VARCHAR, i, (char*)&varchar_vals[i], &_pool);
-        set_column_value_by_type(OLAP_FIELD_TYPE_CHAR, i, (char*)&char_vals[i], &_pool, 8);
+        set_column_value_by_type(FieldType::OLAP_FIELD_TYPE_VARCHAR, i, (char*)&varchar_vals[i],
+                                 &_pool);
+        set_column_value_by_type(FieldType::OLAP_FIELD_TYPE_CHAR, i, (char*)&char_vals[i], &_pool,
+                                 8);
 
         BitmapChange(is_null, i, (i % 4) == 0);
     }
-    test_nullable_data<OLAP_FIELD_TYPE_CHAR, DICT_ENCODING>((uint8_t*)char_vals, is_null,
-                                                            num_uint8_rows, "null_char_bs");
-    test_nullable_data<OLAP_FIELD_TYPE_VARCHAR, DICT_ENCODING>((uint8_t*)varchar_vals, is_null,
-                                                               num_uint8_rows, "null_varchar_bs");
-    test_nullable_data<OLAP_FIELD_TYPE_BOOL, BIT_SHUFFLE>((uint8_t*)bool_vals, is_null,
-                                                          num_uint8_rows, "null_bool_bs");
-    test_nullable_data<OLAP_FIELD_TYPE_DATE, BIT_SHUFFLE>((uint8_t*)date_vals, is_null,
-                                                          num_uint8_rows / 3, "null_date_bs");
+    test_nullable_data<FieldType::OLAP_FIELD_TYPE_CHAR, DICT_ENCODING>(
+            (uint8_t*)char_vals, is_null, num_uint8_rows, "null_char_bs");
+    test_nullable_data<FieldType::OLAP_FIELD_TYPE_VARCHAR, DICT_ENCODING>(
+            (uint8_t*)varchar_vals, is_null, num_uint8_rows, "null_varchar_bs");
+    test_nullable_data<FieldType::OLAP_FIELD_TYPE_BOOL, BIT_SHUFFLE>(
+            (uint8_t*)bool_vals, is_null, num_uint8_rows, "null_bool_bs");
+    test_nullable_data<FieldType::OLAP_FIELD_TYPE_DATE, BIT_SHUFFLE>(
+            (uint8_t*)date_vals, is_null, num_uint8_rows / 3, "null_date_bs");
 
     for (int i = 0; i < num_uint8_rows; ++i) {
         BitmapChange(is_null, i, (i % 16) == 0);
     }
-    test_nullable_data<OLAP_FIELD_TYPE_DATETIME, BIT_SHUFFLE>(
+    test_nullable_data<FieldType::OLAP_FIELD_TYPE_DATETIME, BIT_SHUFFLE>(
             (uint8_t*)datetime_vals, is_null, num_uint8_rows / 8, "null_datetime_bs");
 
     for (int i = 0; i < num_uint8_rows; ++i) {
         BitmapChange(is_null, i, (i % 24) == 0);
     }
-    test_nullable_data<OLAP_FIELD_TYPE_DECIMAL, BIT_SHUFFLE>(
+    test_nullable_data<FieldType::OLAP_FIELD_TYPE_DECIMAL, BIT_SHUFFLE>(
             (uint8_t*)decimal_vals, is_null, num_uint8_rows / 12, "null_decimal_bs");
 
     delete[] char_vals;
@@ -714,88 +724,88 @@ TEST_F(ColumnReaderWriterTest, test_types) {
 TEST_F(ColumnReaderWriterTest, test_default_value) {
     std::string v_int("1");
     int32_t result = 1;
-    test_read_default_value<OLAP_FIELD_TYPE_TINYINT>(v_int, &result);
-    test_read_default_value<OLAP_FIELD_TYPE_SMALLINT>(v_int, &result);
-    test_read_default_value<OLAP_FIELD_TYPE_INT>(v_int, &result);
+    test_read_default_value<FieldType::OLAP_FIELD_TYPE_TINYINT>(v_int, &result);
+    test_read_default_value<FieldType::OLAP_FIELD_TYPE_SMALLINT>(v_int, &result);
+    test_read_default_value<FieldType::OLAP_FIELD_TYPE_INT>(v_int, &result);
 
     std::string v_bigint("9223372036854775807");
     int64_t result_bigint = std::numeric_limits<int64_t>::max();
-    test_read_default_value<OLAP_FIELD_TYPE_BIGINT>(v_bigint, &result_bigint);
+    test_read_default_value<FieldType::OLAP_FIELD_TYPE_BIGINT>(v_bigint, &result_bigint);
     int128_t result_largeint = std::numeric_limits<int64_t>::max();
-    test_read_default_value<OLAP_FIELD_TYPE_LARGEINT>(v_bigint, &result_largeint);
+    test_read_default_value<FieldType::OLAP_FIELD_TYPE_LARGEINT>(v_bigint, &result_largeint);
 
     std::string v_float("1.00");
     float result2 = 1.00;
-    test_read_default_value<OLAP_FIELD_TYPE_FLOAT>(v_float, &result2);
+    test_read_default_value<FieldType::OLAP_FIELD_TYPE_FLOAT>(v_float, &result2);
 
     std::string v_double("1.00");
     double result3 = 1.00;
-    test_read_default_value<OLAP_FIELD_TYPE_DOUBLE>(v_double, &result3);
+    test_read_default_value<FieldType::OLAP_FIELD_TYPE_DOUBLE>(v_double, &result3);
 
     std::string v_varchar("varchar");
-    test_read_default_value<OLAP_FIELD_TYPE_VARCHAR>(v_varchar, &v_varchar);
+    test_read_default_value<FieldType::OLAP_FIELD_TYPE_VARCHAR>(v_varchar, &v_varchar);
 
     std::string v_char("char");
-    test_read_default_value<OLAP_FIELD_TYPE_CHAR>(v_char, &v_char);
+    test_read_default_value<FieldType::OLAP_FIELD_TYPE_CHAR>(v_char, &v_char);
 
     char* c = (char*)malloc(1);
     c[0] = 0;
     std::string v_object(c, 1);
-    test_read_default_value<OLAP_FIELD_TYPE_HLL>(v_object, &v_object);
-    test_read_default_value<OLAP_FIELD_TYPE_OBJECT>(v_object, &v_object);
+    test_read_default_value<FieldType::OLAP_FIELD_TYPE_HLL>(v_object, &v_object);
+    test_read_default_value<FieldType::OLAP_FIELD_TYPE_OBJECT>(v_object, &v_object);
     free(c);
 
     std::string v_date("2019-11-12");
     uint24_t result_date(1034092);
-    test_read_default_value<OLAP_FIELD_TYPE_DATE>(v_date, &result_date);
+    test_read_default_value<FieldType::OLAP_FIELD_TYPE_DATE>(v_date, &result_date);
 
     std::string v_datetime("2019-11-12 12:01:08");
     int64_t result_datetime = 20191112120108;
-    test_read_default_value<OLAP_FIELD_TYPE_DATETIME>(v_datetime, &result_datetime);
+    test_read_default_value<FieldType::OLAP_FIELD_TYPE_DATETIME>(v_datetime, &result_datetime);
 
     std::string v_decimal("102418.000000002");
     decimal12_t decimal = {102418, 2};
-    test_read_default_value<OLAP_FIELD_TYPE_DECIMAL>(v_decimal, &decimal);
+    test_read_default_value<FieldType::OLAP_FIELD_TYPE_DECIMAL>(v_decimal, &decimal);
 }
 
 TEST_F(ColumnReaderWriterTest, test_v_default_value) {
     std::string v_int("1");
     int32_t result = 1;
-    test_v_read_default_value<OLAP_FIELD_TYPE_INT>(v_int, &result);
+    test_v_read_default_value<FieldType::OLAP_FIELD_TYPE_INT>(v_int, &result);
 
     std::string v_bigint("9223372036854775807");
     int64_t result_bigint = std::numeric_limits<int64_t>::max();
-    test_v_read_default_value<OLAP_FIELD_TYPE_BIGINT>(v_bigint, &result_bigint);
+    test_v_read_default_value<FieldType::OLAP_FIELD_TYPE_BIGINT>(v_bigint, &result_bigint);
 
     int128_t result_largeint = std::numeric_limits<int64_t>::max();
-    test_v_read_default_value<OLAP_FIELD_TYPE_LARGEINT>(v_bigint, &result_largeint);
+    test_v_read_default_value<FieldType::OLAP_FIELD_TYPE_LARGEINT>(v_bigint, &result_largeint);
 
     std::string v_float("1.00");
     float result_float = 1.00;
-    test_v_read_default_value<OLAP_FIELD_TYPE_FLOAT>(v_float, &result_float);
+    test_v_read_default_value<FieldType::OLAP_FIELD_TYPE_FLOAT>(v_float, &result_float);
 
     std::string v_double("1.99");
     double result_double = 1.99;
-    test_v_read_default_value<OLAP_FIELD_TYPE_DOUBLE>(v_double, &result_double);
+    test_v_read_default_value<FieldType::OLAP_FIELD_TYPE_DOUBLE>(v_double, &result_double);
 
     std::string v_date("2019-11-12");
     char result_date[] = "2019-11-12";
-    test_v_read_default_value<OLAP_FIELD_TYPE_DATE>(v_date, result_date);
+    test_v_read_default_value<FieldType::OLAP_FIELD_TYPE_DATE>(v_date, result_date);
 
     std::string v_datetime("2019-11-12 12:01:08");
     char result_datetime[] = "2019-11-12 12:01:08";
-    test_v_read_default_value<OLAP_FIELD_TYPE_DATETIME>(v_datetime, &result_datetime);
+    test_v_read_default_value<FieldType::OLAP_FIELD_TYPE_DATETIME>(v_datetime, &result_datetime);
 
     std::string v_decimal("102418.000000002");
     decimal12_t decimal = {102418, 2};
-    test_v_read_default_value<OLAP_FIELD_TYPE_DECIMAL>(v_decimal, &decimal);
+    test_v_read_default_value<FieldType::OLAP_FIELD_TYPE_DECIMAL>(v_decimal, &decimal);
 }
 
 TEST_F(ColumnReaderWriterTest, test_single_empty_array) {
     size_t num_array = 1;
     std::unique_ptr<uint8_t[]> array_is_null(new uint8_t[BitmapSize(num_array)]());
     CollectionValue array(0);
-    test_array_nullable_data<OLAP_FIELD_TYPE_TINYINT, BIT_SHUFFLE, BIT_SHUFFLE>(
+    test_array_nullable_data<FieldType::OLAP_FIELD_TYPE_TINYINT, BIT_SHUFFLE, BIT_SHUFFLE>(
             &array, array_is_null.get(), num_array, "test_single_empty_array");
 }
 
@@ -811,7 +821,7 @@ TEST_F(ColumnReaderWriterTest, test_mixed_empty_arrays) {
             new (&collection_values[i]) CollectionValue(&data, 3, false, nullptr);
         }
     }
-    test_array_nullable_data<OLAP_FIELD_TYPE_INT, BIT_SHUFFLE, BIT_SHUFFLE>(
+    test_array_nullable_data<FieldType::OLAP_FIELD_TYPE_INT, BIT_SHUFFLE, BIT_SHUFFLE>(
             collection_values.get(), array_is_null.get(), num_array, "test_mixed_empty_arrays");
 }
 

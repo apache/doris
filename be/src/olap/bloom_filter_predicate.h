@@ -76,13 +76,13 @@ private:
                 }
             }
         } else if (IRuntimeFilter::enable_use_batch(_be_exec_version, T)) {
-            new_size = _specific_filter->find_fixed_len_olap_engine(
-                    (char*)reinterpret_cast<
+            const auto& data =
+                    reinterpret_cast<
                             const vectorized::PredicateColumnType<PredicateEvaluateType<T>>*>(
                             &column)
-                            ->get_data()
-                            .data(),
-                    null_map, sel, size);
+                            ->get_data();
+            new_size = _specific_filter->find_fixed_len_olap_engine((char*)data.data(), null_map,
+                                                                    sel, size, data.size() != size);
         } else {
             uint24_t tmp_uint24_value;
             auto get_cell_value = [&tmp_uint24_value](auto& data) {
@@ -95,24 +95,20 @@ private:
                 }
             };
 
-            auto pred_col_data =
+            auto& pred_col =
                     reinterpret_cast<
                             const vectorized::PredicateColumnType<PredicateEvaluateType<T>>*>(
                             &column)
-                            ->get_data()
-                            .data();
-            for (uint16_t i = 0; i < size; i++) {
-                uint16_t idx = sel[i];
-                sel[new_size] = idx;
+                            ->get_data();
 
-                if constexpr (is_nullable) {
-                    new_size += !null_map[idx] && _specific_filter->find_olap_engine(
-                                                          get_cell_value(pred_col_data[idx]));
-                } else {
-                    new_size +=
-                            _specific_filter->find_olap_engine(get_cell_value(pred_col_data[idx]));
-                }
-            }
+            auto pred_col_data = pred_col.data();
+#define EVALUATE_WITH_NULL_IMPL(IDX) \
+    !null_map[IDX] && _specific_filter->find_olap_engine(get_cell_value(pred_col_data[IDX]))
+#define EVALUATE_WITHOUT_NULL_IMPL(IDX) \
+    _specific_filter->find_olap_engine(get_cell_value(pred_col_data[IDX]))
+            EVALUATE_BY_SELECTOR(EVALUATE_WITH_NULL_IMPL, EVALUATE_WITHOUT_NULL_IMPL)
+#undef EVALUATE_WITH_NULL_IMPL
+#undef EVALUATE_WITHOUT_NULL_IMPL
         }
         return new_size;
     }

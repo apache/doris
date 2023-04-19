@@ -73,6 +73,7 @@ suite("test_pg_jdbc_catalog", "p0") {
         order_qt_test12  """ select * from test10 order by id; """
         order_qt_test13  """ select * from test11 order by id; """
         order_qt_test14  """ select * from test12 order by id; """
+        order_qt_wkb_test  """ select * from wkb_test order by id; """
 
         // test insert
         String uuid1 = UUID.randomUUID().toString();

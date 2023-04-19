@@ -60,19 +60,33 @@ void runNextInStringLike(const ITokenExtractor& extractor, std::string statement
     ASSERT_EQ(expect, actual);
 }
 
+#if __cplusplus > 201703L
+std::string from_u8string(const std::u8string& s) {
+    return std::string(s.begin(), s.end());
+}
+#else
+std::string from_u8string(const std::string& s) {
+    return std::string(s.begin(), s.end());
+}
+#endif
+
 TEST_F(TestITokenExtractor, ngram_extractor) {
-    std::string statement = u8"预计09发布i13手机。";
-    std::vector<std::string> expect = {u8"预计", u8"计0", u8"09",  u8"9发",  u8"发布", u8"布i",
-                                       u8"i1",   u8"13",  u8"3手", u8"手机", u8"机。"};
+    std::string statement = from_u8string(u8"预计09发布i13手机。");
+    std::vector<std::string> expect = {
+            from_u8string(u8"预计"), from_u8string(u8"计0"),  from_u8string(u8"09"),
+            from_u8string(u8"9发"),  from_u8string(u8"发布"), from_u8string(u8"布i"),
+            from_u8string(u8"i1"),   from_u8string(u8"13"),   from_u8string(u8"3手"),
+            from_u8string(u8"手机"), from_u8string(u8"机。")};
     NgramTokenExtractor ngram_extractor(2);
     runNextInString(ngram_extractor, statement, expect);
 }
 
 TEST_F(TestITokenExtractor, ngram_like_extractor) {
     NgramTokenExtractor ngram_extractor(2);
-    runNextInStringLike(ngram_extractor, u8"%手机%", {u8"手机"});
-    runNextInStringLike(ngram_extractor, u8"%机%", {});
-    runNextInStringLike(ngram_extractor, {u8"i_%手机%"}, {u8"手机"});
-    runNextInStringLike(ngram_extractor, {u8"\\_手机%"}, {u8"_手", u8"手机"});
+    runNextInStringLike(ngram_extractor, from_u8string(u8"%手机%"), {from_u8string(u8"手机")});
+    runNextInStringLike(ngram_extractor, from_u8string(u8"%机%"), {});
+    runNextInStringLike(ngram_extractor, {from_u8string(u8"i_%手机%")}, {from_u8string(u8"手机")});
+    runNextInStringLike(ngram_extractor, {from_u8string(u8"\\_手机%")},
+                        {from_u8string(u8"_手"), from_u8string(u8"手机")});
 }
 } // namespace doris

@@ -377,9 +377,7 @@ void ColumnString::get_permutation(bool reverse, size_t limit, int /*nan_directi
 
 ColumnPtr ColumnString::replicate(const Offsets& replicate_offsets) const {
     size_t col_size = size();
-    if (col_size != replicate_offsets.size()) {
-        LOG(FATAL) << "Size of offsets doesn't match size of column.";
-    }
+    column_match_offsets_size(col_size, replicate_offsets.size());
 
     auto res = ColumnString::create();
 

@@ -47,6 +47,7 @@ import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.BetweenToCompoundRule;
 import org.apache.doris.rewrite.CompoundPredicateWriteRule;
+import org.apache.doris.rewrite.EliminateUnnecessaryFunctions;
 import org.apache.doris.rewrite.EraseRedundantCastExpr;
 import org.apache.doris.rewrite.ExprRewriteRule;
 import org.apache.doris.rewrite.ExprRewriter;
@@ -69,6 +70,7 @@ import org.apache.doris.rewrite.mvrewrite.ExprToSlotRefRule;
 import org.apache.doris.rewrite.mvrewrite.HLLHashToSlotRefRule;
 import org.apache.doris.rewrite.mvrewrite.NDVToHll;
 import org.apache.doris.rewrite.mvrewrite.ToBitmapToSlotRefRule;
+import org.apache.doris.thrift.TPipelineResourceGroup;
 import org.apache.doris.thrift.TQueryGlobals;
 
 import com.google.common.base.Joiner;
@@ -402,6 +404,8 @@ public class Analyzer {
 
         private final Map<InlineViewRef, Set<Expr>> migrateFailedConjuncts = Maps.newHashMap();
 
+        public List<TPipelineResourceGroup> tResourceGroups;
+
         public GlobalState(Env env, ConnectContext context) {
             this.env = env;
             this.context = context;
@@ -426,6 +430,7 @@ public class Analyzer {
             rules.add(RewriteInPredicateRule.INSTANCE);
             rules.add(RewriteAliasFunctionRule.INSTANCE);
             rules.add(MatchPredicateRule.INSTANCE);
+            rules.add(EliminateUnnecessaryFunctions.INSTANCE);
             List<ExprRewriteRule> onceRules = Lists.newArrayList();
             onceRules.add(ExtractCommonFactorsRule.INSTANCE);
             onceRules.add(InferFiltersRule.INSTANCE);
@@ -578,6 +583,14 @@ public class Analyzer {
 
     public String getExplicitViewAlias() {
         return explicitViewAlias;
+    }
+
+    public void setResourceGroups(List<TPipelineResourceGroup> tResourceGroups) {
+        globalState.tResourceGroups = tResourceGroups;
+    }
+
+    public List<TPipelineResourceGroup> getResourceGroups() {
+        return globalState.tResourceGroups;
     }
 
     /**
@@ -1195,7 +1208,7 @@ public class Analyzer {
                     registerConstantConjunct(id, conjunct);
                 }
             }
-            markConstantConjunct(conjunct, fromHavingClause);
+            markConstantConjunct(conjunct, fromHavingClause, false);
         }
     }
 
@@ -1211,7 +1224,7 @@ public class Analyzer {
     }
 
     public void registerMigrateFailedConjuncts(InlineViewRef ref, Expr e) throws AnalysisException {
-        markConstantConjunct(e, false);
+        markConstantConjunct(e, false, false);
         Set<Expr> exprSet = globalState.migrateFailedConjuncts.computeIfAbsent(ref, (k) -> new HashSet<>());
         exprSet.add(e);
     }
@@ -1824,7 +1837,7 @@ public class Analyzer {
             if (rhsRef.getJoinOp().isInnerJoin()) {
                 globalState.ijClauseByConjunct.put(conjunct.getId(), rhsRef);
             }
-            markConstantConjunct(conjunct, false);
+            markConstantConjunct(conjunct, false, true);
         }
     }
 
@@ -1836,9 +1849,9 @@ public class Analyzer {
      * No-op if the conjunct is not constant or is outer joined.
      * Throws an AnalysisException if there is an error evaluating `conjunct`
      */
-    private void markConstantConjunct(Expr conjunct, boolean fromHavingClause)
+    private void markConstantConjunct(Expr conjunct, boolean fromHavingClause, boolean join)
             throws AnalysisException {
-        if (!conjunct.isConstant() || isOjConjunct(conjunct)) {
+        if (!conjunct.isConstant() || isOjConjunct(conjunct) || join) {
             return;
         }
         if ((!fromHavingClause && !hasEmptySpjResultSet)

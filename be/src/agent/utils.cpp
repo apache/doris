@@ -17,22 +17,42 @@
 
 #include "agent/utils.h"
 
+#include <errno.h>
+#include <gen_cpp/FrontendService.h>
+#include <gen_cpp/HeartbeatService_types.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
 #include <rapidjson/document.h>
+#include <rapidjson/encodings.h>
 #include <rapidjson/rapidjson.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <thrift/transport/TTransportException.h>
 
 #include <cstdio>
+#include <exception>
 #include <fstream>
-#include <sstream>
+#include <memory>
+#include <utility>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "runtime/client_cache.h"
+
+namespace doris {
+class TConfirmUnusedRemoteFilesRequest;
+class TConfirmUnusedRemoteFilesResult;
+class TFinishTaskRequest;
+class TMasterResult;
+class TReportRequest;
+} // namespace doris
 
 using std::map;
 using std::string;
 using std::stringstream;
-using apache::thrift::TException;
 using apache::thrift::transport::TTransportException;
 
 namespace doris {
@@ -80,7 +100,7 @@ Status MasterServerClient::finish_task(const TFinishTaskRequest& request, TMaste
             }
             client->finishTask(*result, request);
         }
-    } catch (TException& e) {
+    } catch (std::exception& e) {
         client.reopen(config::thrift_rpc_timeout_ms);
         LOG(WARNING) << "fail to finish_task. "
                      << "host=" << _master_info.network_address.hostname
@@ -130,7 +150,7 @@ Status MasterServerClient::report(const TReportRequest& request, TMasterResult* 
                 return Status::InternalError("Fail to report to master");
             }
         }
-    } catch (TException& e) {
+    } catch (std::exception& e) {
         client.reopen(config::thrift_rpc_timeout_ms);
         LOG(WARNING) << "fail to report to master. "
                      << "host=" << _master_info.network_address.hostname
@@ -181,7 +201,7 @@ Status MasterServerClient::confirm_unused_remote_files(
                         client_status.code(), e.what());
             }
         }
-    } catch (TException& e) {
+    } catch (std::exception& e) {
         client.reopen(config::thrift_rpc_timeout_ms);
         return Status::InternalError(
                 "fail to confirm unused remote files. host={}, port={}, code={}, reason={}",

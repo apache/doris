@@ -17,20 +17,17 @@
 
 #include "http/action/checksum_action.h"
 
+#include <boost/lexical_cast/bad_lexical_cast.hpp>
 #include <sstream>
 #include <string>
 
 #include "boost/lexical_cast.hpp"
 #include "common/logging.h"
+#include "common/status.h"
 #include "http/http_channel.h"
-#include "http/http_headers.h"
 #include "http/http_request.h"
-#include "http/http_response.h"
 #include "http/http_status.h"
-#include "olap/olap_define.h"
-#include "olap/storage_engine.h"
 #include "olap/task/engine_checksum_task.h"
-#include "runtime/exec_env.h"
 
 namespace doris {
 

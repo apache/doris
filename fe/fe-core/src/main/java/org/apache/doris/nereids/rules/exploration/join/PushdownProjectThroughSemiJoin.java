@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.exploration.CBOUtils;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -26,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -51,20 +53,20 @@ public class PushdownProjectThroughSemiJoin extends OneExplorationRuleFactory {
         return logicalProject(logicalJoin())
             .when(project -> project.child().getJoinType().isLeftSemiOrAntiJoin())
             // Just pushdown project with non-column expr like (t.id + 1)
-            .whenNot(JoinReorderUtils::isAllSlotProject)
+            .whenNot(LogicalProject::isAllSlots)
             .whenNot(project -> project.child().hasJoinHint())
             .then(project -> {
                 LogicalJoin<GroupPlan, GroupPlan> join = project.child();
-                Set<Slot> conditionLeftSlots = JoinReorderUtils.joinChildConditionSlots(join, true);
+                Set<Slot> conditionLeftSlots = CBOUtils.joinChildConditionSlots(join, true);
 
                 List<NamedExpression> newProject = new ArrayList<>(project.getProjects());
                 Set<Slot> projectUsedSlots = project.getProjects().stream().map(NamedExpression::toSlot)
                         .collect(Collectors.toSet());
                 conditionLeftSlots.stream().filter(slot -> !projectUsedSlots.contains(slot)).forEach(newProject::add);
-                Plan newLeft = JoinReorderUtils.projectOrSelf(newProject, join.left());
+                Plan newLeft = CBOUtils.projectOrSelf(newProject, join.left());
 
                 Plan newJoin = join.withChildrenNoContext(newLeft, join.right());
-                return JoinReorderUtils.projectOrSelfInOrder(new ArrayList<>(project.getOutput()), newJoin);
+                return CBOUtils.projectOrSelf(new ArrayList<>(project.getOutput()), newJoin);
             }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_SEMI_JOIN);
     }
 

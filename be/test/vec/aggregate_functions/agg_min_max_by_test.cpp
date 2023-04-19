@@ -20,7 +20,6 @@
 
 #include "gtest/gtest.h"
 #include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/aggregate_functions/aggregate_function_min_max_by.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column_vector.h"
 #include "vec/data_types/data_type.h"
@@ -31,7 +30,8 @@ const int agg_test_batch_size = 4096;
 
 namespace doris::vectorized {
 // declare function
-void register_aggregate_function_min_max_by(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_min_by(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_max_by(AggregateFunctionSimpleFactory& factory);
 
 class AggMinMaxByTest : public ::testing::TestWithParam<std::string> {};
 
@@ -60,7 +60,8 @@ TEST_P(AggMinMaxByTest, min_max_by_test) {
 
     // Prepare test function and parameters.
     AggregateFunctionSimpleFactory factory;
-    register_aggregate_function_min_max_by(factory);
+    register_aggregate_function_min_by(factory);
+    register_aggregate_function_max_by(factory);
 
     // Test on 2 kind of key types (int32, string).
     for (int i = 0; i < 2; i++) {

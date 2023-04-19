@@ -86,4 +86,6 @@ suite ("k123p") {
         contains "(k123p4w)"
     }
     qt_select_mv """select k1,k2+k3 from d_table where k1 = 2 and k4 = "b" order by k1;"""
+
+    qt_select_mv_constant """select bitmap_empty() from d_table where true;"""
 }

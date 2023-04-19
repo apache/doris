@@ -65,7 +65,7 @@ public:
     };
 
     ColumnChunkReader(io::BufferedStreamReader* reader, tparquet::ColumnChunk* column_chunk,
-                      FieldSchema* field_schema, cctz::time_zone* ctz);
+                      FieldSchema* field_schema, cctz::time_zone* ctz, io::IOContext* io_ctx);
     ~ColumnChunkReader() = default;
 
     // Initialize chunk reader, will generate the decoder and codec.
@@ -175,6 +175,7 @@ private:
     io::BufferedStreamReader* _stream_reader;
     tparquet::ColumnMetaData _metadata;
     cctz::time_zone* _ctz;
+    io::IOContext* _io_ctx;
 
     std::unique_ptr<PageReader> _page_reader = nullptr;
     BlockCompressionCodec* _block_compress_codec = nullptr;

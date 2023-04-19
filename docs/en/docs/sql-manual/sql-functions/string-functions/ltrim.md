@@ -28,10 +28,10 @@ under the License.
 ### Description
 #### Syntax
 
-`VARCHAR ltrim (VARCHAR str)`
+`VARCHAR ltrim(VARCHAR str[, VARCHAR rhs])`
 
 
-Remove the space that appears continuously from the beginning of the parameter str
+When the 'rhs' parameter is not present, remove the continuous spaces that appear from the beginning of the 'str' parameter. Otherwise, remove 'rhs'.
 
 ### example
 
@@ -42,6 +42,13 @@ mysql> SELECT ltrim('   ab d');
 +------------------+
 | ab d             |
 +------------------+
+
+mysql> SELECT ltrim('ababccaab','ab') str;
++-------+
+| str   |
++-------+
+| ccaab |
++-------+
 ```
 ### keywords
     LTRIM

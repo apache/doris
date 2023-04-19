@@ -157,28 +157,28 @@ private:
 template <PredicateType PT, typename ConditionType>
 std::unique_ptr<PredicateCreator<ConditionType>> get_creator(const FieldType& type) {
     switch (type) {
-    case OLAP_FIELD_TYPE_TINYINT: {
+    case FieldType::OLAP_FIELD_TYPE_TINYINT: {
         return std::make_unique<IntegerPredicateCreator<TYPE_TINYINT, PT, ConditionType>>();
     }
-    case OLAP_FIELD_TYPE_SMALLINT: {
+    case FieldType::OLAP_FIELD_TYPE_SMALLINT: {
         return std::make_unique<IntegerPredicateCreator<TYPE_SMALLINT, PT, ConditionType>>();
     }
-    case OLAP_FIELD_TYPE_INT: {
+    case FieldType::OLAP_FIELD_TYPE_INT: {
         return std::make_unique<IntegerPredicateCreator<TYPE_INT, PT, ConditionType>>();
     }
-    case OLAP_FIELD_TYPE_BIGINT: {
+    case FieldType::OLAP_FIELD_TYPE_BIGINT: {
         return std::make_unique<IntegerPredicateCreator<TYPE_BIGINT, PT, ConditionType>>();
     }
-    case OLAP_FIELD_TYPE_LARGEINT: {
+    case FieldType::OLAP_FIELD_TYPE_LARGEINT: {
         return std::make_unique<IntegerPredicateCreator<TYPE_LARGEINT, PT, ConditionType>>();
     }
-    case OLAP_FIELD_TYPE_FLOAT: {
+    case FieldType::OLAP_FIELD_TYPE_FLOAT: {
         return std::make_unique<IntegerPredicateCreator<TYPE_FLOAT, PT, ConditionType>>();
     }
-    case OLAP_FIELD_TYPE_DOUBLE: {
+    case FieldType::OLAP_FIELD_TYPE_DOUBLE: {
         return std::make_unique<IntegerPredicateCreator<TYPE_DOUBLE, PT, ConditionType>>();
     }
-    case OLAP_FIELD_TYPE_DECIMAL: {
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL: {
         return std::make_unique<CustomPredicateCreator<TYPE_DECIMALV2, PT, ConditionType>>(
                 [](const std::string& condition) {
                     decimal12_t value = {0, 0};
@@ -186,39 +186,39 @@ std::unique_ptr<PredicateCreator<ConditionType>> get_creator(const FieldType& ty
                     return value;
                 });
     }
-    case OLAP_FIELD_TYPE_DECIMAL32: {
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL32: {
         return std::make_unique<DecimalPredicateCreator<TYPE_DECIMAL32, PT, ConditionType>>();
     }
-    case OLAP_FIELD_TYPE_DECIMAL64: {
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL64: {
         return std::make_unique<DecimalPredicateCreator<TYPE_DECIMAL64, PT, ConditionType>>();
     }
-    case OLAP_FIELD_TYPE_DECIMAL128I: {
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL128I: {
         return std::make_unique<DecimalPredicateCreator<TYPE_DECIMAL128I, PT, ConditionType>>();
     }
-    case OLAP_FIELD_TYPE_CHAR: {
+    case FieldType::OLAP_FIELD_TYPE_CHAR: {
         return std::make_unique<StringPredicateCreator<TYPE_CHAR, PT, ConditionType>>();
     }
-    case OLAP_FIELD_TYPE_VARCHAR:
-    case OLAP_FIELD_TYPE_STRING: {
+    case FieldType::OLAP_FIELD_TYPE_VARCHAR:
+    case FieldType::OLAP_FIELD_TYPE_STRING: {
         return std::make_unique<StringPredicateCreator<TYPE_STRING, PT, ConditionType>>();
     }
-    case OLAP_FIELD_TYPE_DATE: {
+    case FieldType::OLAP_FIELD_TYPE_DATE: {
         return std::make_unique<CustomPredicateCreator<TYPE_DATE, PT, ConditionType>>(
                 timestamp_from_date);
     }
-    case OLAP_FIELD_TYPE_DATEV2: {
+    case FieldType::OLAP_FIELD_TYPE_DATEV2: {
         return std::make_unique<CustomPredicateCreator<TYPE_DATEV2, PT, ConditionType>>(
                 timestamp_from_date_v2);
     }
-    case OLAP_FIELD_TYPE_DATETIME: {
+    case FieldType::OLAP_FIELD_TYPE_DATETIME: {
         return std::make_unique<CustomPredicateCreator<TYPE_DATETIME, PT, ConditionType>>(
                 timestamp_from_datetime);
     }
-    case OLAP_FIELD_TYPE_DATETIMEV2: {
+    case FieldType::OLAP_FIELD_TYPE_DATETIMEV2: {
         return std::make_unique<CustomPredicateCreator<TYPE_DATETIMEV2, PT, ConditionType>>(
                 timestamp_from_datetime_v2);
     }
-    case OLAP_FIELD_TYPE_BOOL: {
+    case FieldType::OLAP_FIELD_TYPE_BOOL: {
         return std::make_unique<CustomPredicateCreator<TYPE_BOOLEAN, PT, ConditionType>>(
                 [](const std::string& condition) {
                     int32_t ivalue = 0;

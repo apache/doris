@@ -643,7 +643,7 @@ public:
 
 private:
     std::aligned_union_t<DBMS_MIN_FIELD_SIZE - sizeof(Types::Which), Null, UInt64, UInt128, Int64,
-                         Int128, Float64, String, JsonbField, Array, Tuple, VariantMap,
+                         Int128, Float64, String, JsonbField, Array, Tuple, Map, VariantMap,
                          DecimalField<Decimal32>, DecimalField<Decimal64>, DecimalField<Decimal128>,
                          DecimalField<Decimal128I>, AggregateFunctionStateData>
             storage;

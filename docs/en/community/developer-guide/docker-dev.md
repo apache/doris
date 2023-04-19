@@ -96,8 +96,10 @@ note! [problems with mounting](../../docs/install/source-install/compilation.md)
 
 if you are developing on windows, mounting may cause cross-filesystem access problems, please consider setting it manually
 
+`--cap-add SYS_PTRACE` parameter allows dockers to use ptrace, making it easier for us to use ptrace and gdb remote debugging functions.
+
 ```bash
-docker run -it doris:latest /bin/bash
+docker run -it --cap-add SYS_PTRACE doris:latest /bin/bash
 ```
 
 if you installed zsh, replace plugins in ~/.zshrc after running the container
@@ -112,6 +114,8 @@ create directory and download doris
 su <your user>
 mkdir code && cd code
 git clone https://github.com/apache/doris.git
+cd doris
+git submodule update --init --recursive
 ```
 
 ## Compile

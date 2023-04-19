@@ -89,10 +89,6 @@ using FunctionDatetimeV2SubYears =
     FUNCTION_DATEV2_WITH_TWO_ARGS(NAME, IMPL, DataTypeDateTimeV2, DataTypeDateTimeV2) \
     FUNCTION_DATEV2_WITH_TWO_ARGS(NAME, IMPL, DataTypeDateTimeV2, DataTypeDateV2)     \
     FUNCTION_DATEV2_WITH_TWO_ARGS(NAME, IMPL, DataTypeDateV2, DataTypeDateTimeV2)     \
-    FUNCTION_DATEV2_WITH_TWO_ARGS(NAME, IMPL, DataTypeDateTimeV2, DataTypeDateTime)   \
-    FUNCTION_DATEV2_WITH_TWO_ARGS(NAME, IMPL, DataTypeDateTime, DataTypeDateTimeV2)   \
-    FUNCTION_DATEV2_WITH_TWO_ARGS(NAME, IMPL, DataTypeDateTime, DataTypeDateV2)       \
-    FUNCTION_DATEV2_WITH_TWO_ARGS(NAME, IMPL, DataTypeDateV2, DataTypeDateTime)       \
     FUNCTION_DATEV2_WITH_TWO_ARGS(NAME, IMPL, DataTypeDateV2, DataTypeDateV2)
 
 ALL_FUNCTION_DATEV2_WITH_TWO_ARGS(FunctionDatetimeV2DateDiff, DateDiffImpl)
@@ -109,6 +105,10 @@ using FunctionDatetimeV2ToYearWeekTwoArgs =
         FunctionDateOrDateTimeComputation<ToYearWeekTwoArgsImpl<DataTypeDateTimeV2>>;
 using FunctionDatetimeV2ToWeekTwoArgs =
         FunctionDateOrDateTimeComputation<ToWeekTwoArgsImpl<DataTypeDateTimeV2>>;
+
+/// @TEMPORARY: for be_exec_version=2
+using FunctionDatetimeV2ToWeekTwoArgsOld =
+        FunctionDateOrDateTimeComputation<ToWeekTwoArgsImplOld<DataTypeDateTimeV2>>;
 
 void register_function_date_time_computation_v2(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAddSecondsV2>();
@@ -156,11 +156,7 @@ void register_function_date_time_computation_v2(SimpleFunctionFactory& factory) 
     REGISTER_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME, DataTypeDateTimeV2, DataTypeDateTimeV2) \
     REGISTER_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME, DataTypeDateTimeV2, DataTypeDateV2)     \
     REGISTER_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME, DataTypeDateV2, DataTypeDateTimeV2)     \
-    REGISTER_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME, DataTypeDateTimeV2, DataTypeDateTime)   \
-    REGISTER_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME, DataTypeDateV2, DataTypeDateTime)       \
-    REGISTER_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME, DataTypeDateV2, DataTypeDateV2)         \
-    REGISTER_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME, DataTypeDateTime, DataTypeDateV2)       \
-    REGISTER_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME, DataTypeDateTime, DataTypeDateTimeV2)
+    REGISTER_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME, DataTypeDateV2, DataTypeDateV2)
 
     REGISTER_ALL_DATEV2_FUNCTIONS_WITH_TWO_ARGS(FunctionDatetimeV2DateDiff)
     REGISTER_ALL_DATEV2_FUNCTIONS_WITH_TWO_ARGS(FunctionDatetimeV2TimeDiff)
@@ -176,6 +172,9 @@ void register_function_date_time_computation_v2(SimpleFunctionFactory& factory) 
     factory.register_function<FunctionToWeekTwoArgsV2>();
     factory.register_function<FunctionDatetimeV2ToYearWeekTwoArgs>();
     factory.register_function<FunctionDatetimeV2ToWeekTwoArgs>();
+
+    /// @TEMPORARY: for be_exec_version=2
+    factory.register_alternative_function<FunctionDatetimeV2ToWeekTwoArgsOld>();
 }
 
 } // namespace doris::vectorized

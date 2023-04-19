@@ -55,7 +55,8 @@ TEST_F(ParquetThriftReaderTest, normal) {
     EXPECT_TRUE(st.ok());
 
     FileMetaData* meta_data;
-    parse_thrift_footer(reader, &meta_data);
+    size_t meta_size;
+    parse_thrift_footer(reader, &meta_data, &meta_size, nullptr);
     tparquet::FileMetaData t_metadata = meta_data->to_thrift();
 
     LOG(WARNING) << "=====================================";
@@ -88,7 +89,8 @@ TEST_F(ParquetThriftReaderTest, complex_nested_file) {
     EXPECT_TRUE(st.ok());
 
     FileMetaData* metadata;
-    parse_thrift_footer(reader, &metadata);
+    size_t meta_size;
+    parse_thrift_footer(reader, &metadata, &meta_size, nullptr);
     tparquet::FileMetaData t_metadata = metadata->to_thrift();
     FieldDescriptor schemaDescriptor;
     schemaDescriptor.parse_from_thrift(t_metadata.schema);
@@ -164,7 +166,7 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
 
     cctz::time_zone ctz;
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
-    ColumnChunkReader chunk_reader(&stream_reader, column_chunk, field_schema, &ctz);
+    ColumnChunkReader chunk_reader(&stream_reader, column_chunk, field_schema, &ctz, nullptr);
     // initialize chunk reader
     chunk_reader.init();
     // seek to next page header
@@ -361,7 +363,8 @@ static void read_parquet_data_and_check(const std::string& parquet_file,
     std::unique_ptr<vectorized::Block> block;
     create_block(block);
     FileMetaData* metadata;
-    parse_thrift_footer(reader, &metadata);
+    size_t meta_size;
+    parse_thrift_footer(reader, &metadata, &meta_size, nullptr);
     tparquet::FileMetaData t_metadata = metadata->to_thrift();
     FieldDescriptor schema_descriptor;
     schema_descriptor.parse_from_thrift(t_metadata.schema);
@@ -482,7 +485,8 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
 
     // prepare metadata
     FileMetaData* meta_data;
-    parse_thrift_footer(file_reader, &meta_data);
+    size_t meta_size;
+    parse_thrift_footer(file_reader, &meta_data, &meta_size, nullptr);
     tparquet::FileMetaData t_metadata = meta_data->to_thrift();
 
     cctz::time_zone ctz;
@@ -491,7 +495,8 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
     std::shared_ptr<RowGroupReader> row_group_reader;
     RowGroupReader::PositionDeleteContext position_delete_ctx(row_group.num_rows, 0);
     row_group_reader.reset(new RowGroupReader(file_reader, read_columns, 0, row_group, &ctz,
-                                              position_delete_ctx, lazy_read_ctx, nullptr));
+                                              nullptr, position_delete_ctx, lazy_read_ctx,
+                                              nullptr));
     std::vector<RowRange> row_ranges;
     row_ranges.emplace_back(0, row_group.num_rows);
 

@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.exploration.CBOUtils;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -53,7 +54,7 @@ public class JoinExchangeRightProject extends OneExplorationRuleFactory {
     public Rule build() {
         return innerLogicalJoin(innerLogicalJoin(), logicalProject(innerLogicalJoin()))
                 .when(JoinExchange::checkReorder)
-                .when(join -> JoinReorderUtils.isAllSlotProject(join.right()))
+                .when(join -> join.right().isAllSlots())
                 .whenNot(join -> join.hasJoinHint()
                         || join.left().hasJoinHint() || join.right().child().hasJoinHint())
                 .whenNot(join -> join.isMarkJoin() || join.left().isMarkJoin() || join.right().child().isMarkJoin())
@@ -94,8 +95,8 @@ public class JoinExchangeRightProject extends OneExplorationRuleFactory {
                     Set<ExprId> topUsedExprIds = new HashSet<>(topJoin.getOutputExprIdSet());
                     newTopJoinHashJoinConjuncts.forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
                     newTopJoinOtherJoinConjuncts.forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
-                    Plan left = JoinReorderUtils.newProject(topUsedExprIds, newLeftJoin);
-                    Plan right = JoinReorderUtils.newProject(topUsedExprIds, newRightJoin);
+                    Plan left = CBOUtils.newProject(topUsedExprIds, newLeftJoin);
+                    Plan right = CBOUtils.newProject(topUsedExprIds, newRightJoin);
                     LogicalJoin newTopJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
                             newTopJoinHashJoinConjuncts, newTopJoinOtherJoinConjuncts, JoinHint.NONE,
                             left, right);
@@ -103,7 +104,7 @@ public class JoinExchangeRightProject extends OneExplorationRuleFactory {
                     JoinExchange.setNewRightJoinReorder(newRightJoin, leftJoin);
                     JoinExchange.setNewTopJoinReorder(newTopJoin, topJoin);
 
-                    return JoinReorderUtils.projectOrSelf(new ArrayList<>(topJoin.getOutput()), newTopJoin);
+                    return CBOUtils.projectOrSelf(new ArrayList<>(topJoin.getOutput()), newTopJoin);
                 }).toRule(RuleType.LOGICAL_JOIN_EXCHANGE);
     }
 

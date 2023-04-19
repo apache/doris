@@ -115,6 +115,21 @@ Status LocalFileSystem::delete_directory_impl(const Path& dir) {
     return Status::OK();
 }
 
+Status LocalFileSystem::delete_directory_or_file(const Path& path) {
+    auto the_path = absolute_path(path);
+    FILESYSTEM_M(delete_directory_or_file_impl(the_path));
+}
+
+Status LocalFileSystem::delete_directory_or_file_impl(const Path& path) {
+    bool is_dir;
+    RETURN_IF_ERROR(is_directory(path, &is_dir));
+    if (is_dir) {
+        return delete_directory_impl(path);
+    } else {
+        return delete_file_impl(path);
+    }
+}
+
 Status LocalFileSystem::batch_delete_impl(const std::vector<Path>& files) {
     for (auto& file : files) {
         RETURN_IF_ERROR(delete_file_impl(file));

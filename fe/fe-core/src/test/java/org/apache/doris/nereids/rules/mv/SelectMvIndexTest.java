@@ -52,7 +52,7 @@ import java.util.stream.Collectors;
 /**
  * Tests ported from {@link org.apache.doris.planner.MaterializedViewFunctionTest}
  */
-public class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoPatternMatchSupported {
+class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoPatternMatchSupported {
 
     private static final String EMPS_TABLE_NAME = "emps";
     private static final String EMPS_MV_NAME = "emps_mv";

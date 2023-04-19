@@ -163,6 +163,7 @@
                     ]
                 },
                 "advanced/pipeline-execution-engine",
+                "advanced/autobucket",
                 "advanced/materialized-view",
                 "advanced/broker",
                 {
@@ -184,7 +185,8 @@
                 "advanced/cold_hot_separation",
                 "advanced/compute_node",
                 "advanced/hight-concurrent-point-query",
-                "advanced/nereids"
+                "advanced/nereids",
+                "advanced/lateral-view"
             ]
         },
         {
@@ -226,21 +228,15 @@
                 "ecosystem/spark-doris-connector",
                 "ecosystem/flink-doris-connector",
                 "ecosystem/datax",
+                "ecosystem/seatunnel",
                 "ecosystem/kyuubi",
                 "ecosystem/mysql-to-doris",
                 "ecosystem/logstash",
+                "ecosystem/beats",
                 "ecosystem/plugin-development-manual",
                 "ecosystem/audit-plugin",
                 "ecosystem/cloudcanal",
                 "ecosystem/hive-bitmap-udf",
-                {
-                    "type": "category",
-                    "label": "SeaTunnel",
-                    "items": [
-                        "ecosystem/seatunnel/flink-sink",
-                        "ecosystem/seatunnel/spark-sink"
-                    ]
-                },
                 {
                     "type": "category",
                     "label": "UDF",
@@ -304,6 +300,7 @@
                                 "sql-manual/sql-functions/array-functions/array_compact",
                                 "sql-manual/sql-functions/array-functions/array_concat",
                                 "sql-manual/sql-functions/array-functions/array_zip",
+                                "sql-manual/sql-functions/array-functions/array_shuffle",
                                 "sql-manual/sql-functions/array-functions/array_exists",
                                 "sql-manual/sql-functions/array-functions/array_first_index",
                                 "sql-manual/sql-functions/array-functions/arrays_overlap",
@@ -345,6 +342,7 @@
                                 "sql-manual/sql-functions/date-time-functions/utc_timestamp",
                                 "sql-manual/sql-functions/date-time-functions/to_date",
                                 "sql-manual/sql-functions/date-time-functions/to_days",
+                                "sql-manual/sql-functions/date-time-functions/time_to_sec",
                                 "sql-manual/sql-functions/date-time-functions/extract",
                                 "sql-manual/sql-functions/date-time-functions/makedate",
                                 "sql-manual/sql-functions/date-time-functions/str_to_date",
@@ -398,7 +396,11 @@
                                 "sql-manual/sql-functions/spatial-functions/st_astext",
                                 "sql-manual/sql-functions/spatial-functions/st_contains",
                                 "sql-manual/sql-functions/spatial-functions/st_geometryfromtext",
-                                "sql-manual/sql-functions/spatial-functions/st_linefromtext"
+                                "sql-manual/sql-functions/spatial-functions/st_linefromtext",
+                                "sql-manual/sql-functions/spatial-functions/st_asbinary",
+                                "sql-manual/sql-functions/spatial-functions/st_asewkb",
+                                "sql-manual/sql-functions/spatial-functions/st_geometryfromwkb",
+                                "sql-manual/sql-functions/spatial-functions/st_geometryfromewkb"
                             ]
                         },
                         {
@@ -683,7 +685,9 @@
                                 "sql-manual/sql-functions/table-functions/explode-numbers",
                                 "sql-manual/sql-functions/table-functions/s3",
                                 "sql-manual/sql-functions/table-functions/hdfs",
-                                "sql-manual/sql-functions/table-functions/iceberg_meta"
+                                "sql-manual/sql-functions/table-functions/iceberg_meta",
+                                "sql-manual/sql-functions/table-functions/backends",
+                                "sql-manual/sql-functions/table-functions/resource-group"
                             ]
                         },
                         {
@@ -910,6 +914,7 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-DATABASE",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-MATERIALIZED-VIEW",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-LOAD",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-REPOSITORY",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-ROUTINE-LOAD",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-FUNCTION",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-COLUMNS",
@@ -1051,6 +1056,7 @@
                 "admin-manual/tracing",
                 "admin-manual/optimization",
                 "admin-manual/certificate",
+                "admin-manual/fe-certificate",
                 {
                     "type": "category",
                     "label": "Maintenance and Monitor",
@@ -1104,7 +1110,6 @@
                     "type": "category",
                     "label": "System Table",
                     "items": [
-                        "admin-manual/system-table/backends",
                         "admin-manual/system-table/rowsets"
                     ]
                 },

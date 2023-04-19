@@ -68,6 +68,8 @@ suite("test_array_map_function") {
         qt_select_21 "select array_filter(x->abs(x), [1,2]);"
         qt_select_22 "select *,array_filter(x->x%2=0,c_array1) from array_test2 order by id;"
         qt_select_23 "select *,array_filter(x->x%2=0,c_array2) from array_test2 order by id;"
+
+        qt_select_24 "select * from array_test2 order by array_max(array_map(x->x,c_array1));"
         
         sql "DROP TABLE IF EXISTS ${tableName}"
 }

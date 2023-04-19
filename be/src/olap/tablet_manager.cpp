@@ -61,7 +61,8 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(tablet_meta_mem_consumption, MetricUnit::BYTE
 TabletManager::TabletManager(int32_t tablet_map_lock_shard_size)
         : _mem_tracker(std::make_shared<MemTracker>(
                   "TabletManager", ExecEnv::GetInstance()->experimental_mem_tracker())),
-          _tablet_meta_mem_tracker(std::make_shared<MemTracker>("TabletMeta")),
+          _tablet_meta_mem_tracker(std::make_shared<MemTracker>(
+                  "TabletMeta", ExecEnv::GetInstance()->experimental_mem_tracker())),
           _tablets_shards_size(tablet_map_lock_shard_size),
           _tablets_shards_mask(tablet_map_lock_shard_size - 1) {
     CHECK_GT(_tablets_shards_size, 0);
@@ -1055,7 +1056,7 @@ void TabletManager::try_delete_unused_tablet_path(DataDir* data_dir, TTabletId t
     TabletMetaSharedPtr tablet_meta(new TabletMeta());
     Status check_st = TabletMetaManager::get_meta(data_dir, tablet_id, schema_hash, tablet_meta);
     if (check_st.ok()) {
-        LOG(INFO) << "tablet meta exist is meta store, skip delete the path " << schema_hash_path;
+        LOG(INFO) << "tablet meta exists in meta store, skip delete the path " << schema_hash_path;
         return;
     }
 

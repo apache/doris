@@ -23,6 +23,7 @@
 #include "util/easy_json.h"
 
 namespace doris {
+class HttpRequest;
 
 class CheckTabletSegmentAction : public HttpHandler {
 public:

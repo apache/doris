@@ -54,56 +54,58 @@ mysql> show proc "/";
 +---------------------------+
 | name                      |
 +---------------------------+
-| statistic                 |
-| brokers                   |
-| frontends                 |
-| routine_loads             |
 | auth                      |
-| jobs                      |
-| bdbje                     |
-| resources                 |
-| monitor                   |
-| transactions              |
-| colocation_group          |
 | backends                  |
-| trash                     |
+| bdbje                     |
+| brokers                   |
+| catalogs                  |
 | cluster_balance           |
-| current_queries           |
-| dbs                       |
-| load_error_hub            |
-| current_backend_instances |
-| tasks                     |
 | cluster_health            |
+| colocation_group          |
+| current_backend_instances |
+| current_queries           |
 | current_query_stmts       |
+| dbs                       |
+| frontends                 |
+| jobs                      |
+| load_error_hub            |
+| monitor                   |
+| resources                 |
+| routine_loads             |
+| statistic                 |
 | stream_loads              |
+| tasks                     |
+| transactions              |
+| trash                     |
 +---------------------------+
-22 rows in set (0.00 sec)
+23 rows in set (0.00 sec)
 ```
 
 说明：
 
-1. statistics：主要用于汇总查看 Doris 集群中数据库、表、分区、分片、副本的数量。以及不健康副本的数量。这个信息有助于我们总体把控集群元信息的规模。帮助我们从整体视角查看集群分片情况，能够快速查看集群分片的健康情况。从而进一步定位有问题的数据分片。
-2. brokers : 查看集群 Broker 节点信息，等同于 [SHOW BROKER](./SHOW-BROKER.md)   
-3. frontends ：显示集群中所有的 FE 节点信息，包括IP地址、角色、状态、是否是mater等，等同于 [SHOW FRONTENDS](./SHOW-FRONTENDS.md)   
-4. routine_loads ： 显示所有的 routine load 作业信息，包括作业名称、状态等
-5. auth：用户名称及对应的权限信息
-6. jobs ：各类任务的统计信息，可查看指定数据库的 Job 的统计信息，如果 `dbId` = -1, 则返回所有库的汇总信息
-7. bdbje：查看 bdbje 数据库列表，需要修改 `fe.conf` 文件增加 `enable_bdbje_debug_mode=true` , 然后通过 `sh start_fe.sh --daemon` 启动 `FE` 即可进入 `debug` 模式。 进入 `debug` 模式之后，仅会启动 `http server` 和  `MySQLServer` 并打开 `BDBJE` 实例，但不会进入任何元数据的加载及后续其他启动流程，
-8. dbs ： 主要用于查看 Doris 集群中各个数据库以及其中的表的元数据信息。这些信息包括表结构、分区、物化视图、数据分片和副本等等。通过这个目录和其子目录，可以清楚的展示集群中的表元数据情况，以及定位一些如数据倾斜、副本故障等问题
-9. resources : 查看系统资源，普通账户只能看到自己有 USAGE_PRIV 使用权限的资源。只有root和admin账户可以看到所有的资源。等同于 [SHOW RESOURCES](./SHOW-RESOURCES.md)
-10.  monitor : 显示的是 FE JVM 的资源使用情况     
-11.  transactions ：用于查看指定 transaction id 的事务详情，等同于 [SHOW TRANSACTION](./SHOW-TRANSACTION.md)
-12.  colocation_group :   该命令可以查看集群内已存在的 Group 信息, 具体可以查看 [Colocation Join](../../../advanced/join-optimization/colocation-join.md) 章节
-13.  backends ：显示集群中 BE 的节点列表  ， 等同于 [SHOW BACKENDS](./SHOW-BACKENDS.md)        
-14.  trash ：该语句用于查看 backend 内的垃圾数据占用空间。 等同于 [SHOW TRASH](./SHOW-TRASH.md)    
-15. cluster_balance  ： 查看集群均衡情况，具体参照 [数据副本管理](../../../admin-manual/maint-monitor/tablet-repair-and-balance.md)
-16. current_queries  : 查看正在执行的查询列表，当前正在运行的SQL语句。                          
-17.  load_error_hub ：Doris 支持将 load 作业产生的错误信息集中存储到一个 error hub 中。然后直接通过 <code>SHOW LOAD WARNINGS;</code> 语句查看错误信息。这里展示的就是 error hub 的配置信息。
-18.  current_backend_instances ：显示当前正在执行作业的be节点列表
-19.  tasks :  显示现在各种作业的任务总量，及失败的数量。
-20.  cluster_health : 通过 <code>SHOW PROC '/cluster_health/tablet_health'</code>; 命令可以查看整个集群的副本状态。
-21.  current_query_stmts : 返回当前正在执行的 query。
-22.  stream_loads : 返回当前正在执行的stream load 任务。
+1. auth：用户名称及对应的权限信息
+2. backends ：显示集群中 BE 的节点列表  ， 等同于 [SHOW BACKENDS](./SHOW-BACKENDS.md)        
+3. bdbje：查看 bdbje 数据库列表，需要修改 `fe.conf` 文件增加 `enable_bdbje_debug_mode=true` , 然后通过 `sh start_fe.sh --daemon` 启动 `FE` 即可进入 `debug` 模式。 进入 `debug` 模式之后，仅会启动 `http server` 和  `MySQLServer` 并打开 `BDBJE` 实例，但不会进入任何元数据的加载及后续其他启动流程，
+4. brokers : 查看集群 Broker 节点信息，等同于 [SHOW BROKER](./SHOW-BROKER.md)
+5. catalogs : 查看当前已创建的数据目录，等同于 [SHOW CATALOGS](./SHOW-CATALOGS.md)
+6. cluster_balance  ： 查看集群均衡情况，具体参照 [数据副本管理](../../../admin-manual/maint-monitor/tablet-repair-and-balance.md)
+7. cluster_health : 通过 <code>SHOW PROC '/cluster_health/tablet_health'</code>; 命令可以查看整个集群的副本状态。
+8. colocation_group :   该命令可以查看集群内已存在的 Group 信息, 具体可以查看 [Colocation Join](../../../advanced/join-optimization/colocation-join.md) 章节
+9. current_backend_instances ：显示当前正在执行作业的be节点列表
+10. current_queries  : 查看正在执行的查询列表，当前正在运行的SQL语句。                          
+11. current_query_stmts : 返回当前正在执行的 query。
+12. dbs ： 主要用于查看 Doris 集群中各个数据库以及其中的表的元数据信息。这些信息包括表结构、分区、物化视图、数据分片和副本等等。通过这个目录和其子目录，可以清楚的展示集群中的表元数据情况，以及定位一些如数据倾斜、副本故障等问题
+13. frontends ：显示集群中所有的 FE 节点信息，包括IP地址、角色、状态、是否是mater等，等同于 [SHOW FRONTENDS](./SHOW-FRONTENDS.md)   
+14. jobs ：各类任务的统计信息，可查看指定数据库的 Job 的统计信息，如果 `dbId` = -1, 则返回所有库的汇总信息
+15. load_error_hub ：Doris 支持将 load 作业产生的错误信息集中存储到一个 error hub 中。然后直接通过 <code>SHOW LOAD WARNINGS;</code> 语句查看错误信息。这里展示的就是 error hub 的配置信息。
+16. monitor : 显示的是 FE JVM 的资源使用情况     
+17. resources : 查看系统资源，普通账户只能看到自己有 USAGE_PRIV 使用权限的资源。只有root和admin账户可以看到所有的资源。等同于 [SHOW RESOURCES](./SHOW-RESOURCES.md)
+18. routine_loads ： 显示所有的 routine load 作业信息，包括作业名称、状态等
+19. statistics：主要用于汇总查看 Doris 集群中数据库、表、分区、分片、副本的数量。以及不健康副本的数量。这个信息有助于我们总体把控集群元信息的规模。帮助我们从整体视角查看集群分片情况，能够快速查看集群分片的健康情况。从而进一步定位有问题的数据分片。
+20. stream_loads : 返回当前正在执行的stream load 任务。
+21. tasks :  显示现在各种作业的任务总量，及失败的数量。
+22. transactions ：用于查看指定 transaction id 的事务详情，等同于 [SHOW TRANSACTION](./SHOW-TRANSACTION.md)
+23. trash ：该语句用于查看 backend 内的垃圾数据占用空间。 等同于 [SHOW TRASH](./SHOW-TRASH.md)    
 
 ### Example
 

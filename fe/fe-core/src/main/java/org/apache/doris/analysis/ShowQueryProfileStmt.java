@@ -70,7 +70,7 @@ public class ShowQueryProfileStmt extends ShowStmt {
 
     public enum PathType {
         QUERY_IDS,
-        FRAGMETNS,
+        FRAGMENTS,
         INSTANCES,
         SINGLE_INSTANCE
     }
@@ -127,7 +127,7 @@ public class ShowQueryProfileStmt extends ShowStmt {
                     continue;
                 case 1:
                     queryId = parts[i];
-                    pathType = PathType.FRAGMETNS;
+                    pathType = PathType.FRAGMENTS;
                     break;
                 case 2:
                     fragmentId = parts[i];
@@ -159,7 +159,7 @@ public class ShowQueryProfileStmt extends ShowStmt {
         switch (pathType) {
             case QUERY_IDS:
                 return META_DATA_QUERY_IDS;
-            case FRAGMETNS:
+            case FRAGMENTS:
                 return META_DATA_FRAGMENTS;
             case INSTANCES:
                 return META_DATA_INSTANCES;
@@ -170,3 +170,4 @@ public class ShowQueryProfileStmt extends ShowStmt {
         }
     }
 }
+

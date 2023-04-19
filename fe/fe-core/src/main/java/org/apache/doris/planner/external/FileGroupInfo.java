@@ -29,7 +29,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.BrokerFileGroup;
-import org.apache.doris.planner.external.ExternalFileScanNode.ParamCreateContext;
+import org.apache.doris.planner.FileLoadScanNode;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExternalScanRange;
@@ -188,8 +188,9 @@ public class FileGroupInfo {
         LOG.info("number instance of file scan node is: {}, bytes per instance: {}", numInstances, bytesPerInstance);
     }
 
-    public void createScanRangeLocations(ParamCreateContext context, FederationBackendPolicy backendPolicy,
-            List<TScanRangeLocations> scanRangeLocations) throws UserException {
+    public void createScanRangeLocations(FileLoadScanNode.ParamCreateContext context,
+                                         FederationBackendPolicy backendPolicy,
+                                         List<TScanRangeLocations> scanRangeLocations) throws UserException {
         TScanRangeLocations curLocations = newLocations(context.params, brokerDesc, backendPolicy);
         long curInstanceBytes = 0;
         long curFileOffset = 0;

@@ -21,17 +21,14 @@
 #include "exprs/math_functions.h"
 
 #include <stdlib.h>
-
+#include <string.h>
+// IWYU pragma: no_include <bits/std_abs.h>
 #include <cmath>
-#include <iomanip>
-#include <random>
-#include <sstream>
+#include <limits>
 #include <string_view>
 
 #include "common/compiler_util.h"
-#include "runtime/decimalv2_value.h"
-#include "runtime/large_int_value.h"
-#include "util/simd/vstring_function.h"
+#include "udf/udf.h"
 #include "util/string_parser.hpp"
 
 namespace doris {
