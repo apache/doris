@@ -159,7 +159,7 @@ MySQL [test]> desc mv_test all;
 
 具体的语法可查看[SHOW CREATE MATERIALIZED VIEW](../sql-manual/sql-reference/Show-Statements/SHOW-CREATE-MATERIALIZED-VIEW.md)
 
-### 取消创建物化试图
+### 取消创建物化视图
 
 ```text
  CANCEL ALTER TABLE MATERIALIZED VIEW FROM db_name.table_name
