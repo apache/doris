@@ -55,8 +55,9 @@ doris::Status VectorizedFnCall::prepare(doris::RuntimeState* state,
                     "and restart be.");
         }
     } else {
-        _function = SimpleFunctionFactory::instance().get_function(_fn.name.function_name,
-                                                                   argument_template, _data_type);
+        // get the function. won't prepare function.
+        _function = SimpleFunctionFactory::instance().get_function(
+                _fn.name.function_name, argument_template, _data_type, state->be_exec_version());
     }
     if (_function == nullptr) {
         std::string type_str;
