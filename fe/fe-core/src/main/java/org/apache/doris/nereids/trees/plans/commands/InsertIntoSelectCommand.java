@@ -93,7 +93,6 @@ public class InsertIntoSelectCommand extends Command implements ForwardWithSync 
         Preconditions.checkArgument(sink instanceof OlapTableSink, "olap table sink is expected when"
                 + " running insert into select");
         root.resetSink(sink);
-        ((OlapTableSink) sink).complete();
         Transaction txn = new Transaction(ctx, database, table, label, planner);
         txn.executeInsertIntoSelectCommand(this);
     }
