@@ -76,12 +76,12 @@ public class JdbcScanNode extends ScanNode {
         getGraphQueryString();
     }
 
-    private boolean isGraph() {
+    private boolean isNebula() {
         return jdbcType == TOdbcTableType.NEBULA;
     }
 
     private void getGraphQueryString() {
-        if (!isGraph()) {
+        if (!isNebula()) {
             return;
         }
         for (Expr expr : conjuncts) {
@@ -152,7 +152,7 @@ public class JdbcScanNode extends ScanNode {
     }
 
     private String getJdbcQueryStr() {
-        if (isGraph()) {
+        if (isNebula()) {
             return graphQueryString;
         }
         StringBuilder sql = new StringBuilder("SELECT ");

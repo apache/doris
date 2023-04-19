@@ -29,8 +29,6 @@ import com.clickhouse.data.value.UnsignedInteger;
 import com.clickhouse.data.value.UnsignedLong;
 import com.clickhouse.data.value.UnsignedShort;
 import com.google.common.base.Preconditions;
-import com.vesoft.nebula.client.graph.data.DateTimeWrapper;
-import com.vesoft.nebula.client.graph.data.DateWrapper;
 import com.vesoft.nebula.client.graph.data.ValueWrapper;
 import org.apache.log4j.Logger;
 import org.apache.thrift.TDeserializer;
@@ -104,7 +102,7 @@ public class JdbcExecutor {
                 request.jdbc_url, request.jdbc_user, request.jdbc_password, request.op, request.table_type);
     }
 
-    public boolean isGraph() {
+    public boolean isNebula() {
         return tableType == TOdbcTableType.NEBULA;
     }
 
@@ -137,7 +135,7 @@ public class JdbcExecutor {
             resultColumnTypeNames = new ArrayList<>(columnCount);
             block = new ArrayList<>(columnCount);
             for (int i = 0; i < columnCount; ++i) {
-                if (!isGraph()) {
+                if (!isNebula()) {
                     resultColumnTypeNames.add(resultSetMetaData.getColumnClassName(i + 1));
                 }
                 block.add((Object[]) Array.newInstance(Object.class, batchSizeNum));
@@ -212,8 +210,8 @@ public class JdbcExecutor {
             curBlockRows = 0;
             do {
                 for (int i = 0; i < columnCount; ++i) {
-                    if (isGraph()) {
-                        block.get(i)[curBlockRows] = transferToObject((ValueWrapper) resultSet.getObject(i + 1));
+                    if (isNebula()) {
+                        block.get(i)[curBlockRows] = UdfUtils.convertObject((ValueWrapper) resultSet.getObject(i + 1));
                     } else {
                         block.get(i)[curBlockRows] = resultSet.getObject(i + 1);
                     }
@@ -271,6 +269,7 @@ public class JdbcExecutor {
             String jdbcPassword, TJdbcOperation op, TOdbcTableType tableType) throws UdfRuntimeException {
         try {
 <<<<<<< HEAD
+<<<<<<< HEAD
             ClassLoader parent = getClass().getClassLoader();
             ClassLoader classLoader = UdfUtils.getClassLoader(driverUrl, parent);
             druidDataSource = JdbcDataSource.getDataSource().getSource(jdbcUrl + jdbcUser + jdbcPassword);
@@ -310,6 +309,9 @@ public class JdbcExecutor {
 =======
             if (isGraph()) {
 >>>>>>> d038b048dc ([feature](graph)Support querying data from the Nebula graph database)
+=======
+            if (isNebula()) {
+>>>>>>> 3303ea56a5 ([feature](graph)Support querying data from the Nebula graph database)
                 batchSizeNum = batchSize;
                 Class.forName(driverClass);
                 conn = DriverManager.getConnection(jdbcUrl, jdbcUser, jdbcPassword);
@@ -1541,58 +1543,5 @@ public class JdbcExecutor {
             }
         }
         return i;
-    }
-
-    // only used by nebula-graph
-    // transfer to an object that can copy to the block
-    public static Object tranferToObject(ValueWrapper value) {
-        try {
-            if (value.isLong()) {
-                return value.asLong();
-            }
-            if (value.isBoolean()) {
-                return value.asBoolean();
-            }
-            if (value.isDouble()) {
-                return value.asDouble();
-            }
-            if (value.isString()) {
-                return value.asString();
-            }
-            if (value.isTime()) {
-                return value.asTime().toString();
-            }
-            if (value.isDate()) {
-                DateWrapper date = value.asDate();
-                return LocalDate.of(date.getYear(), date.getMonth(), date.getDay());
-            }
-            if (value.isDateTime()) {
-                DateTimeWrapper dateTime = value.asDateTime();
-                return LocalDateTime.of(dateTime.getYear(), dateTime.getMonth(), dateTime.getDay(),
-                        dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(), dateTime.getMicrosec() * 1000);
-            }
-
-            if (value.isVertex()) {
-                return value.asNode().toString();
-            }
-            if (value.isEdge()) {
-                return value.asRelationship().toString();
-            }
-            if (value.isPath()) {
-                return value.asPath().toString();
-            }
-            if (value.isList()) {
-                return value.asList().toString();
-            }
-            if (value.isSet()) {
-                return value.asSet().toString();
-            }
-            if (value.isMap()) {
-                return value.asMap().toString();
-            }
-            return null;
-        } catch (Exception e) {
-            return null;
-        }
     }
 }
