@@ -98,8 +98,7 @@ public class Transaction {
      * constructor
      */
     public Transaction(ConnectContext ctx, Database database, Table table, String labelName, NereidsPlanner planner)
-            throws BeginTransactionException, MetaNotFoundException, AnalysisException,
-            QuotaExceedException, LabelAlreadyUsedException, DuplicatedRequestException {
+            throws UserException {
         this.ctx = ctx;
         this.labelName = labelName;
         this.database = database;
@@ -112,10 +111,10 @@ public class Transaction {
                 LoadJobSourceType.INSERT_STREAMING, ctx.getExecTimeout());
         this.createAt = System.currentTimeMillis();
 
-        ((OlapTableSink) planner.getFragments().get(0).getSink())
-                .init(ctx.queryId(), txnId, database.getId(), ctx.getExecTimeout(),
+        OlapTableSink sink = ((OlapTableSink) planner.getFragments().get(0).getSink());
+        sink.init(ctx.queryId(), txnId, database.getId(), ctx.getExecTimeout(),
                         ctx.getSessionVariable().getSendBatchParallelism(), false);
-
+        sink.complete();
     }
 
     private void beginTxn() throws TException, UserException, ExecutionException, InterruptedException,
