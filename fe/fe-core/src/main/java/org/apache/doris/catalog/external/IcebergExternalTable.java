@@ -44,6 +44,7 @@ public class IcebergExternalTable extends ExternalTable {
     }
 
     protected synchronized void makeSureInitialized() {
+        super.makeSureInitialized();
         if (!objectCreated) {
             objectCreated = true;
         }

@@ -150,14 +150,11 @@ MutableColumnPtr DataTypeDecimal<T>::create_column() const {
 }
 
 template <typename T>
-T DataTypeDecimal<T>::parse_from_string(const std::string& str) const {
+bool DataTypeDecimal<T>::parse_from_string(const std::string& str, T* res) const {
     StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-    T value = StringParser::string_to_decimal<__int128>(str.c_str(), str.size(), precision, scale,
-                                                        &result);
-    if (result != StringParser::PARSE_SUCCESS) {
-        LOG(WARNING) << "Failed to parse string of decimal";
-    }
-    return value;
+    *res = StringParser::string_to_decimal<__int128>(str.c_str(), str.size(), precision, scale,
+                                                     &result);
+    return result == StringParser::PARSE_SUCCESS;
 }
 
 DataTypePtr create_decimal(UInt64 precision_value, UInt64 scale_value, bool use_v2) {

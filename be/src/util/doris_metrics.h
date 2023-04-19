@@ -198,6 +198,7 @@ public:
     UIntGauge* query_cache_memory_total_byte;
     UIntGauge* query_cache_sql_total_count;
     UIntGauge* query_cache_partition_total_count;
+    IntGauge* lru_cache_memory_bytes;
 
     UIntGauge* scanner_thread_pool_queue_size;
     UIntGauge* add_batch_task_queue_size;

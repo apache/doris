@@ -78,7 +78,7 @@ under the License.
             <dependency>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-dependencies</artifactId>
-                <version>${spring.version}</version>
+                <version>2.7.3</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -700,7 +700,10 @@ under the License.
             <groupId>org.apache.doris</groupId>
             <artifactId>hudi-mr-shade-0.13</artifactId>
         </dependency>
-
+        <dependency>
+            <groupId>org.apache.parquet</groupId>
+            <artifactId>parquet-avro</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.mariadb.jdbc</groupId>
             <artifactId>mariadb-java-client</artifactId>
@@ -756,10 +759,10 @@ under the License.
                 </excludes>
             </resource>
             <resource>
-                <directory>src/main/resources</directory>
-                <includes>
-                    <include>**/*.*</include>
-                </includes>
+               <directory>src/main/resources</directory>
+               <includes>
+                  <include>**/*.*</include>
+               </includes>
             </resource>
         </resources>
         <plugins>
@@ -1006,7 +1009,7 @@ under the License.
                             <overWriteReleases>false</overWriteReleases>
                             <overWriteSnapshots>false</overWriteSnapshots>
                             <overWriteIfNewer>true</overWriteIfNewer>
-                            <includeScope>compile</includeScope>
+                            <includeScope>runtime</includeScope>
                             <skip>${skip.plugin}</skip>
                         </configuration>
                     </execution>

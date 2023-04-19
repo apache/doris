@@ -394,13 +394,17 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
 
             NewOlapScanner* scanner = new NewOlapScanner(
                     _state, this, _limit_per_scanner, _olap_scan_node.is_preaggregation,
-                    _need_agg_finalize, *scan_range, _scanner_profile.get());
+                    _need_agg_finalize, _scanner_profile.get());
             // add scanner to pool before doing prepare.
             // so that scanner can be automatically deconstructed if prepare failed.
             _scanner_pool.add(scanner);
-            RETURN_IF_ERROR(scanner->prepare(*scan_range, scanner_ranges, _vconjunct_ctx_ptr.get(),
-                                             _olap_filters, _filter_predicates,
-                                             _push_down_functions));
+            Status st = scanner->prepare(*scan_range, scanner_ranges, _vconjunct_ctx_ptr.get(),
+                                         _olap_filters, _filter_predicates, _push_down_functions);
+            if (!st.ok()) {
+                // during prepare, scanner already cloned vexpr_context, should call close to release it.
+                scanner->close(_state);
+                return st;
+            }
             scanners->push_back((VScanner*)scanner);
             disk_set.insert(scanner->scan_disk());
         }

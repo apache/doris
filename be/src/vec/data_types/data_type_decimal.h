@@ -215,7 +215,7 @@ public:
 
     static T get_scale_multiplier(UInt32 scale);
 
-    T parse_from_string(const std::string& str) const;
+    bool parse_from_string(const std::string& str, T* res) const;
 
 private:
     const UInt32 precision;
@@ -236,7 +236,7 @@ DataTypePtr decimal_result_type(const DataTypeDecimal<T>& tx, const DataTypeDeci
         size_t divide_precision = tx.get_precision() + ty.get_scale();
         size_t plus_minus_precision =
                 std::max(tx.get_precision() - tx.get_scale(), ty.get_precision() - ty.get_scale()) +
-                scale;
+                scale + 1;
         if (is_multiply) {
             scale = tx.get_scale() + ty.get_scale();
             precision = std::min(multiply_precision, max_decimal_precision<Decimal128I>());

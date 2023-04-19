@@ -171,6 +171,13 @@ pushd "${TP_DIR}/installed"/
 ln -sf lib64 lib
 popd
 
+# Configure the search paths for pkg-config and cmake
+export PKG_CONFIG_PATH="${TP_DIR}/installed/lib64/pkgconfig"
+export CMAKE_PREFIX_PATH="${TP_DIR}/installed"
+
+echo "PKG_CONFIG_PATH: ${PKG_CONFIG_PATH}"
+echo "CMAKE_PREFIX_PATH: ${CMAKE_PREFIX_PATH}"
+
 check_prerequest() {
     local CMD="$1"
     local NAME="$2"
@@ -557,7 +564,7 @@ build_zlib() {
     check_if_source_exist "${ZLIB_SOURCE}"
     cd "${TP_SOURCE_DIR}/${ZLIB_SOURCE}"
 
-    CFLAGS="-fPIC" \
+    CFLAGS="-O3 -fPIC" \
         CPPFLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
         ./configure --prefix="${TP_INSTALL_DIR}" --static
@@ -856,7 +863,8 @@ build_librdkafka() {
     # PKG_CONFIG="pkg-config --static"
 
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
-        LDFLAGS="-L${TP_LIB_DIR} -lssl -lcrypto -lzstd -lz -lsasl2" \
+        LDFLAGS="-L${TP_LIB_DIR} -lssl -lcrypto -lzstd -lz -lsasl2 \
+        -lgssapi_krb5 -lkrb5 -lkrb5support -lk5crypto -lcom_err -lresolv" \
         ./configure --prefix="${TP_INSTALL_DIR}" --enable-static --enable-sasl --disable-c11threads
 
     make -j "${PARALLEL}"
@@ -1545,6 +1553,16 @@ build_fast_float() {
     cp -r ./include/fast_float "${TP_INSTALL_DIR}/include/"
 }
 
+# hadoop_libs_x86
+build_hadoop_libs_x86() {
+    check_if_source_exist "${HADOOP_LIBS_X86_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${HADOOP_LIBS_X86_SOURCE}"
+    mkdir -p "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
+    mkdir -p "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
+    cp ./include/hdfs.h "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
+    cp -r ./* "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
+}
+
 if [[ "$(uname -s)" == 'Darwin' ]]; then
     echo 'build for Darwin'
     build_binutils
@@ -1607,5 +1625,9 @@ build_sse2neon
 build_xxhash
 build_concurrentqueue
 build_fast_float
+
+if [[ "$(uname -m)" == 'x86_64' ]]; then
+    build_hadoop_libs_x86
+fi
 
 echo "Finished to build all thirdparties"

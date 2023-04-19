@@ -361,13 +361,14 @@ public class ArithmeticExpr extends Expr {
         if (pt1 == PrimitiveType.DOUBLE || pt2 == PrimitiveType.DOUBLE) {
             return Type.DOUBLE;
         } else if (pt1 == PrimitiveType.DECIMALV2 || pt2 == PrimitiveType.DECIMALV2) {
-            return Type.MAX_DECIMALV2_TYPE;
+            return pt1 == PrimitiveType.DECIMALV2 && pt2 == PrimitiveType.DECIMALV2
+                    ? Type.MAX_DECIMALV2_TYPE : Type.DOUBLE;
         } else if (pt1 == PrimitiveType.DECIMAL32 || pt2 == PrimitiveType.DECIMAL32) {
-            return Type.DECIMAL32;
+            return pt1 == PrimitiveType.DECIMAL32 && pt2 == PrimitiveType.DECIMAL32 ? Type.DECIMAL32 : Type.DOUBLE;
         } else if (pt1 == PrimitiveType.DECIMAL64 || pt2 == PrimitiveType.DECIMAL64) {
-            return Type.DECIMAL64;
+            return pt1 == PrimitiveType.DECIMAL64 && pt2 == PrimitiveType.DECIMAL64 ? Type.DECIMAL64 : Type.DOUBLE;
         } else if (pt1 == PrimitiveType.DECIMAL128 || pt2 == PrimitiveType.DECIMAL128) {
-            return Type.DECIMAL128;
+            return pt1 == PrimitiveType.DECIMAL128 && pt2 == PrimitiveType.DECIMAL128 ? Type.DECIMAL128 : Type.DOUBLE;
         } else if (pt1 == PrimitiveType.LARGEINT || pt2 == PrimitiveType.LARGEINT) {
             return Type.LARGEINT;
         } else {
@@ -532,7 +533,7 @@ public class ArithmeticExpr extends Expr {
                     // target type: DECIMALV3(max(widthOfIntPart1, widthOfIntPart2) + max(scale1, scale2) + 1,
                     // max(scale1, scale2))
                     scale = Math.max(t1Scale, t2Scale);
-                    precision = Math.max(widthOfIntPart1, widthOfIntPart2) + scale;
+                    precision = Math.max(widthOfIntPart1, widthOfIntPart2) + scale + 1;
                 } else {
                     scale = Math.max(t1Scale, t2Scale);
                     precision = widthOfIntPart2 + scale;
@@ -547,10 +548,10 @@ public class ArithmeticExpr extends Expr {
                 }
                 type = ScalarType.createDecimalV3Type(precision, scale);
                 if (op == Operator.ADD || op == Operator.SUBTRACT) {
-                    if (!Type.matchExactType(type, children.get(0).type)) {
+                    if (((ScalarType) type).getScalarScale() != ((ScalarType) children.get(0).type).getScalarScale()) {
                         castChild(type, 0);
                     }
-                    if (!Type.matchExactType(type, children.get(1).type)) {
+                    if (((ScalarType) type).getScalarScale() != ((ScalarType) children.get(1).type).getScalarScale()) {
                         castChild(type, 1);
                     }
                 } else if (op == Operator.DIVIDE && (t2Scale != 0) && t1.isDecimalV3()) {

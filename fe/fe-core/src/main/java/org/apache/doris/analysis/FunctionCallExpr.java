@@ -119,7 +119,7 @@ public class FunctionCallExpr extends Expr {
                 }
                 int scaleArg = (int) (((IntLiteral) children.get(1)).getValue());
                 return ScalarType.createDecimalV3Type(children.get(0).getType().getPrecision(),
-                        Math.max(scaleArg, 0));
+                        Math.min(Math.max(scaleArg, 0), ((ScalarType) children.get(0).getType()).decimalScale()));
             } else {
                 return returnType;
             }
@@ -1582,6 +1582,9 @@ public class FunctionCallExpr extends Expr {
         }
 
         retExpr.fnParams = new FunctionParams(oriExpr.fnParams.isDistinct(), oriParamsExprs);
+
+        // retExpr changed to original function, so the fn should be null.
+        retExpr.fn = null;
 
         // reset children
         retExpr.children.clear();

@@ -395,7 +395,6 @@ private:
     /// Creates an expr tree for the node rooted at 'node_idx' via depth-first traversal.
     /// parameters
     ///   nodes: vector of thrift expression nodes to be translated
-    ///   parent: parent of node at node_idx (or nullptr for node_idx == 0)
     ///   node_idx:
     ///     in: root of TExprNode tree
     ///     out: next node in 'nodes' that isn't part of tree
@@ -405,8 +404,7 @@ private:
     ///   status.ok() if successful
     ///   !status.ok() if tree is inconsistent or corrupt
     static Status create_tree_from_thrift(ObjectPool* pool, const std::vector<TExprNode>& nodes,
-                                          Expr* parent, int* node_idx, Expr** root_expr,
-                                          ExprContext** ctx);
+                                          int* node_idx, Expr** root_expr, ExprContext** ctx);
 
     /// Static wrappers around the virtual Get*Val() functions. Calls the appropriate
     /// Get*Val() function on expr, passing it the context and row arguments.

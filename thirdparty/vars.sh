@@ -270,10 +270,10 @@ FMT_SOURCE="fmt-7.1.3"
 FMT_MD5SUM="2522ec65070c0bda0ca288677ded2831"
 
 # parallel-hashmap
-PARALLEL_HASHMAP_DOWNLOAD="https://github.com/greg7mdp/parallel-hashmap/archive/1.33.tar.gz"
-PARALLEL_HASHMAP_NAME="parallel-hashmap-1.33.tar.gz"
-PARALLEL_HASHMAP_SOURCE="parallel-hashmap-1.33"
-PARALLEL_HASHMAP_MD5SUM="7626b5215f745c4ce59b5a4e41d16235"
+PARALLEL_HASHMAP_DOWNLOAD="https://github.com/greg7mdp/parallel-hashmap/archive/refs/tags/v1.3.8.tar.gz"
+PARALLEL_HASHMAP_NAME="parallel-hashmap-1.3.8.tar.gz"
+PARALLEL_HASHMAP_SOURCE="parallel-hashmap-1.3.8"
+PARALLEL_HASHMAP_MD5SUM="1b8130d0b4f656257ef654699bfbf941"
 
 # orc
 ORC_DOWNLOAD="https://archive.apache.org/dist/orc/orc-1.7.2/orc-1.7.2.tar.gz"
@@ -441,6 +441,12 @@ FAST_FLOAT_NAME=fast_float-3.9.0.tar.gz
 FAST_FLOAT_SOURCE=fast_float-3.9.0
 FAST_FLOAT_MD5SUM="5656b0d8b150a3b157cfb092d214f6ea"
 
+# libhdfs
+HADOOP_LIBS_X86_DOWNLOAD="https://github.com/apache/doris-thirdparty/releases/download/hadoop-libs-3.3.4/hadoop_lib_3.3.4-x86.tar.gz"
+HADOOP_LIBS_X86_NAME="hadoop_lib_3.3.4-x86.tar.gz"
+HADOOP_LIBS_X86_SOURCE="hadoop_lib_3.3.4-x86"
+HADOOP_LIBS_X86_MD5SUM="96117450170487f007ffeca5ddf62f7e"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'LIBEVENT'
@@ -505,6 +511,7 @@ export TP_ARCHIVES=(
     'XXHASH'
     'CONCURRENTQUEUE'
     'FAST_FLOAT'
+    'HADOOP_LIBS_X86'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

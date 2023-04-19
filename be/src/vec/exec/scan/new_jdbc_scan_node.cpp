@@ -53,7 +53,12 @@ Status NewJdbcScanNode::_init_scanners(std::list<VScanner*>* scanners) {
             new NewJdbcScanner(_state, this, _limit_per_scanner, _tuple_id, _query_string,
                                _table_type, _state->runtime_profile());
     _scanner_pool.add(scanner);
-    RETURN_IF_ERROR(scanner->prepare(_state, _vconjunct_ctx_ptr.get()));
+    Status st = scanner->prepare(_state, _vconjunct_ctx_ptr.get());
+    if (!st.ok()) {
+        // during prepare, scanner already cloned vexpr_context, should call close to release it.
+        scanner->close(_state);
+        return st;
+    }
     scanners->push_back(static_cast<VScanner*>(scanner));
     return Status::OK();
 }

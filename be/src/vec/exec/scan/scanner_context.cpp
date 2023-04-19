@@ -34,6 +34,8 @@ Status ScannerContext::init() {
     // should find a more reasonable value.
     _max_thread_num =
             std::min(config::doris_scanner_thread_pool_thread_num / 4, (int32_t)_scanners.size());
+    _max_thread_num = _max_thread_num == 0 ? 1 : _max_thread_num;
+    DCHECK(_max_thread_num > 0);
 
     // 2. Calculate how many blocks need to be preallocated.
     // The calculation logic is as follows:

@@ -119,8 +119,8 @@ Status DataDir::init() {
 }
 
 void DataDir::stop_bg_worker() {
-    std::unique_lock<std::mutex> lck(_check_path_mutex);
     _stop_bg_worker = true;
+    std::unique_lock<std::mutex> lck(_check_path_mutex);
     _check_path_cv.notify_one();
 }
 
@@ -235,7 +235,8 @@ void DataDir::health_check() {
     if (_is_used) {
         Status res = _read_and_write_test_file();
         if (!res) {
-            LOG(WARNING) << "store read/write test file occur IO Error. path=" << _path;
+            LOG(WARNING) << "store read/write test file occur IO Error. path=" << _path
+                         << ", err: " << res;
             if (res.is_io_error()) {
                 _is_used = false;
             }
@@ -667,6 +668,10 @@ void DataDir::perform_path_scan() {
             continue;
         }
         for (const auto& tablet_id : tablet_ids) {
+            if (_stop_bg_worker) {
+                break;
+            }
+
             auto tablet_id_path = fmt::format("{}/{}", shard_path, tablet_id);
             std::set<std::string> schema_hashes;
             ret = FileUtils::list_dirs_files(tablet_id_path, &schema_hashes, nullptr,
@@ -679,6 +684,9 @@ void DataDir::perform_path_scan() {
 
             for (const auto& schema_hash : schema_hashes) {
                 int32_t interval_ms = config::path_scan_step_interval_ms;
+                if (_stop_bg_worker) {
+                    break;
+                }
                 if (interval_ms > 0) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(interval_ms));
                 }

@@ -127,7 +127,7 @@ public class ShowDataStmtTest {
                 minTimes = 0;
                 result = true;
 
-                auth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                auth.checkTblPriv((ConnectContext) any, anyString, anyString, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
             }

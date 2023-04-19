@@ -21,6 +21,7 @@
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <memory>
+#include <stack>
 
 #include "exprs/anyval_util.h"
 #include "gen_cpp/Exprs_types.h"
@@ -110,63 +111,67 @@ void VExpr::close(doris::RuntimeState* state, VExprContext* context,
 
 Status VExpr::create_expr(doris::ObjectPool* pool, const doris::TExprNode& texpr_node,
                           VExpr** expr) {
-    switch (texpr_node.node_type) {
-    case TExprNodeType::BOOL_LITERAL:
-    case TExprNodeType::INT_LITERAL:
-    case TExprNodeType::LARGE_INT_LITERAL:
-    case TExprNodeType::FLOAT_LITERAL:
-    case TExprNodeType::DECIMAL_LITERAL:
-    case TExprNodeType::DATE_LITERAL:
-    case TExprNodeType::STRING_LITERAL:
-    case TExprNodeType::JSON_LITERAL:
-    case TExprNodeType::NULL_LITERAL: {
-        *expr = pool->add(new VLiteral(texpr_node));
-        return Status::OK();
-    }
-    case TExprNodeType::ARRAY_LITERAL: {
-        *expr = pool->add(new VArrayLiteral(texpr_node));
-        return Status::OK();
-    }
-    case doris::TExprNodeType::SLOT_REF: {
-        *expr = pool->add(new VSlotRef(texpr_node));
-        break;
-    }
-    case doris::TExprNodeType::COMPOUND_PRED: {
-        *expr = pool->add(new VcompoundPred(texpr_node));
-        break;
-    }
-    case doris::TExprNodeType::ARITHMETIC_EXPR:
-    case doris::TExprNodeType::BINARY_PRED:
-    case doris::TExprNodeType::FUNCTION_CALL:
-    case doris::TExprNodeType::COMPUTE_FUNCTION_CALL: {
-        *expr = pool->add(new VectorizedFnCall(texpr_node));
-        break;
-    }
-    case doris::TExprNodeType::CAST_EXPR: {
-        *expr = pool->add(new VCastExpr(texpr_node));
-        break;
-    }
-    case doris::TExprNodeType::IN_PRED: {
-        *expr = pool->add(new VInPredicate(texpr_node));
-        break;
-    }
-    case doris::TExprNodeType::CASE_EXPR: {
-        if (!texpr_node.__isset.case_expr) {
-            return Status::InternalError("Case expression not set in thrift node");
+    try {
+        switch (texpr_node.node_type) {
+        case TExprNodeType::BOOL_LITERAL:
+        case TExprNodeType::INT_LITERAL:
+        case TExprNodeType::LARGE_INT_LITERAL:
+        case TExprNodeType::FLOAT_LITERAL:
+        case TExprNodeType::DECIMAL_LITERAL:
+        case TExprNodeType::DATE_LITERAL:
+        case TExprNodeType::STRING_LITERAL:
+        case TExprNodeType::JSON_LITERAL:
+        case TExprNodeType::NULL_LITERAL: {
+            *expr = pool->add(new VLiteral(texpr_node));
+            return Status::OK();
         }
-        *expr = pool->add(new VCaseExpr(texpr_node));
-        break;
-    }
-    case TExprNodeType::INFO_FUNC: {
-        *expr = pool->add(new VInfoFunc(texpr_node));
-        break;
-    }
-    case TExprNodeType::TUPLE_IS_NULL_PRED: {
-        *expr = pool->add(new VTupleIsNullPredicate(texpr_node));
-        break;
-    }
-    default:
-        return Status::InternalError("Unknown expr node type: {}", texpr_node.node_type);
+        case TExprNodeType::ARRAY_LITERAL: {
+            *expr = pool->add(new VArrayLiteral(texpr_node));
+            return Status::OK();
+        }
+        case doris::TExprNodeType::SLOT_REF: {
+            *expr = pool->add(new VSlotRef(texpr_node));
+            break;
+        }
+        case doris::TExprNodeType::COMPOUND_PRED: {
+            *expr = pool->add(new VcompoundPred(texpr_node));
+            break;
+        }
+        case doris::TExprNodeType::ARITHMETIC_EXPR:
+        case doris::TExprNodeType::BINARY_PRED:
+        case doris::TExprNodeType::FUNCTION_CALL:
+        case doris::TExprNodeType::COMPUTE_FUNCTION_CALL: {
+            *expr = pool->add(new VectorizedFnCall(texpr_node));
+            break;
+        }
+        case doris::TExprNodeType::CAST_EXPR: {
+            *expr = pool->add(new VCastExpr(texpr_node));
+            break;
+        }
+        case doris::TExprNodeType::IN_PRED: {
+            *expr = pool->add(new VInPredicate(texpr_node));
+            break;
+        }
+        case doris::TExprNodeType::CASE_EXPR: {
+            if (!texpr_node.__isset.case_expr) {
+                return Status::InternalError("Case expression not set in thrift node");
+            }
+            *expr = pool->add(new VCaseExpr(texpr_node));
+            break;
+        }
+        case TExprNodeType::INFO_FUNC: {
+            *expr = pool->add(new VInfoFunc(texpr_node));
+            break;
+        }
+        case TExprNodeType::TUPLE_IS_NULL_PRED: {
+            *expr = pool->add(new VTupleIsNullPredicate(texpr_node));
+            break;
+        }
+        default:
+            return Status::InternalError("Unknown expr node type: {}", texpr_node.node_type);
+        }
+    } catch (const Exception& e) {
+        return Status::Error(e.code());
     }
     if (!(*expr)->data_type()) {
         return Status::InvalidArgument("Unknown expr type: {}", texpr_node.node_type);
@@ -175,31 +180,49 @@ Status VExpr::create_expr(doris::ObjectPool* pool, const doris::TExprNode& texpr
 }
 
 Status VExpr::create_tree_from_thrift(doris::ObjectPool* pool,
-                                      const std::vector<doris::TExprNode>& nodes, VExpr* parent,
-                                      int* node_idx, VExpr** root_expr, VExprContext** ctx) {
+                                      const std::vector<doris::TExprNode>& nodes, int* node_idx,
+                                      VExpr** root_expr, VExprContext** ctx) {
     // propagate error case
     if (*node_idx >= nodes.size()) {
         return Status::InternalError("Failed to reconstruct expression tree from thrift.");
     }
-    int num_children = nodes[*node_idx].num_children;
-    VExpr* expr = nullptr;
-    RETURN_IF_ERROR(create_expr(pool, nodes[*node_idx], &expr));
-    DCHECK(expr != nullptr);
-    if (parent != nullptr) {
-        parent->add_child(expr);
-    } else {
-        DCHECK(root_expr != nullptr);
-        DCHECK(ctx != nullptr);
-        *root_expr = expr;
-        *ctx = pool->add(new VExprContext(expr));
+
+    // create root expr
+    int root_children = nodes[*node_idx].num_children;
+    VExpr* root = nullptr;
+    RETURN_IF_ERROR(create_expr(pool, nodes[*node_idx], &root));
+    DCHECK(root != nullptr);
+
+    DCHECK(root_expr != nullptr);
+    DCHECK(ctx != nullptr);
+    *root_expr = root;
+    *ctx = pool->add(new VExprContext(root));
+    // short path for leaf node
+    if (root_children <= 0) {
+        return Status::OK();
     }
-    for (int i = 0; i < num_children; i++) {
-        *node_idx += 1;
-        RETURN_IF_ERROR(create_tree_from_thrift(pool, nodes, expr, node_idx, nullptr, nullptr));
-        // we are expecting a child, but have used all nodes
-        // this means we have been given a bad tree and must fail
-        if (*node_idx >= nodes.size()) {
+
+    // non-recursive traversal
+    std::stack<std::pair<VExpr*, int>> s;
+    s.push({root, root_children});
+    while (!s.empty()) {
+        auto& parent = s.top();
+        if (parent.second > 1) {
+            parent.second -= 1;
+        } else {
+            s.pop();
+        }
+
+        if (++*node_idx >= nodes.size()) {
             return Status::InternalError("Failed to reconstruct expression tree from thrift.");
+        }
+        VExpr* expr = nullptr;
+        RETURN_IF_ERROR(create_expr(pool, nodes[*node_idx], &expr));
+        DCHECK(expr != nullptr);
+        parent.first->add_child(expr);
+        int num_children = nodes[*node_idx].num_children;
+        if (num_children > 0) {
+            s.push({expr, num_children});
         }
     }
     return Status::OK();
@@ -213,7 +236,7 @@ Status VExpr::create_expr_tree(doris::ObjectPool* pool, const doris::TExpr& texp
     }
     int node_idx = 0;
     VExpr* e = nullptr;
-    Status status = create_tree_from_thrift(pool, texpr.nodes, nullptr, &node_idx, &e, ctx);
+    Status status = create_tree_from_thrift(pool, texpr.nodes, &node_idx, &e, ctx);
     if (status.ok() && node_idx + 1 != texpr.nodes.size()) {
         status = Status::InternalError(
                 "Expression tree only partially reconstructed. Not all thrift nodes were used.");

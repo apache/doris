@@ -1242,7 +1242,7 @@ bool IRuntimeFilter::await() {
     SCOPED_TIMER(_await_time_cost);
     // bitmap filter is precise filter and only filter once, so it must be applied.
     int64_t wait_times_ms = _wrapper->get_real_type() == RuntimeFilterType::BITMAP_FILTER
-                                    ? _state->query_options().query_timeout
+                                    ? _state->query_options().query_timeout * 1000
                                     : _state->runtime_filter_wait_time_ms();
     std::unique_lock<std::mutex> lock(_inner_mutex);
     if (!_is_ready) {

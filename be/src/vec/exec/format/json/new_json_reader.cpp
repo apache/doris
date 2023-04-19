@@ -121,11 +121,11 @@ Status NewJsonReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
         bool is_empty_row = false;
 
         RETURN_IF_ERROR(_read_json_column(columns, _file_slot_descs, &is_empty_row, &_reader_eof));
-        ++(*read_rows);
         if (is_empty_row) {
             // Read empty row, just continue
             continue;
         }
+        ++(*read_rows);
     }
 
     columns.clear();

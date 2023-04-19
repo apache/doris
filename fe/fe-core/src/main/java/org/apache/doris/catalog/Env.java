@@ -1841,6 +1841,10 @@ public class Env {
         newChecksum ^= size;
         for (int i = 0; i < size; i++) {
             AlterJobV2 alterJobV2 = AlterJobV2.read(dis);
+            if (alterJobV2.isExpire()) {
+                LOG.info("alter job {} is expired, type: {}, ignore it", alterJobV2.getJobId(), alterJobV2.getType());
+                continue;
+            }
             if (type == JobType.ROLLUP || type == JobType.SCHEMA_CHANGE) {
                 if (type == JobType.ROLLUP) {
                     this.getMaterializedViewHandler().addAlterJobV2(alterJobV2);
@@ -2813,7 +2817,8 @@ public class Env {
                 // There MUST BE 2 space in front of each column description line
                 // sqlalchemy requires this to parse SHOW CREATE TABLE stmt.
                 if (table.getType() == TableType.OLAP) {
-                    sb.append("  ").append(column.toSql(((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS));
+                    sb.append("  ").append(
+                            column.toSql(((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS, true));
                 } else {
                     sb.append("  ").append(column.toSql());
                 }

@@ -129,27 +129,6 @@ TEST_F(StringFunctionsTest, money_format_double) {
     delete context;
 }
 
-TEST_F(StringFunctionsTest, money_format_decimal_v2) {
-    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
-
-    DecimalV2Value dv1(std::string("3333333333.2222222222"));
-    DecimalV2Val value1;
-    dv1.to_decimal_val(&value1);
-
-    StringVal result = StringFunctions::money_format(context, value1);
-    StringVal expected = AnyValUtil::from_string(ctx, std::string("3,333,333,333.22"));
-    EXPECT_EQ(expected, result);
-
-    DecimalV2Value dv2(std::string("-740740740.71604938271975308642"));
-    DecimalV2Val value2;
-    dv2.to_decimal_val(&value2);
-
-    result = StringFunctions::money_format(context, value2);
-    expected = AnyValUtil::from_string(ctx, std::string("-740,740,740.72"));
-    EXPECT_EQ(expected, result);
-    delete context;
-}
-
 TEST_F(StringFunctionsTest, split_part) {
     doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
 

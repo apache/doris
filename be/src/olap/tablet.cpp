@@ -1162,7 +1162,8 @@ bool Tablet::check_rowset_id(const RowsetId& rowset_id) {
             return true;
         }
     }
-    if (RowsetMetaManager::check_rowset_meta(_data_dir->get_meta(), tablet_uid(), rowset_id)) {
+    Status s = RowsetMetaManager::exists(_data_dir->get_meta(), tablet_uid(), rowset_id);
+    if (!s.is<META_KEY_NOT_FOUND>()) {
         return true;
     }
     return false;
@@ -2235,7 +2236,7 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset, const TabletT
     RETURN_IF_ERROR(calc_delete_bitmap(rowset->rowset_id(), segments, &rowset_ids_to_add,
                                        delete_bitmap, cur_version - 1, true));
 
-    // Check the delete_bitmap correctness.
+    // Check the delete_bitmap correctness, now the check is only enabled in DEBUG env.
     if (load_info->num_keys != 0) {
         DeleteBitmap rs_bm(tablet_id());
         delete_bitmap->subset({rowset->rowset_id(), 0, 0},
