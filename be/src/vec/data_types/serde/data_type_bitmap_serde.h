@@ -16,6 +16,7 @@
 // under the License.
 
 #include "data_type_serde.h"
+
 namespace doris {
 
 namespace vectorized {
@@ -25,6 +26,11 @@ public:
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override;
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
+
+    Status write_column_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
+                                 const int32_t col_id, const int row_num) const override;
+
+    Status read_column_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
 };
 } // namespace vectorized
 } // namespace doris

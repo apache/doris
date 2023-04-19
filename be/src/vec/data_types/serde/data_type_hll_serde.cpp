@@ -18,6 +18,7 @@
 #include "data_type_hll_serde.h"
 
 #include "vec/columns/column_complex.h"
+#include "vec/common/arena.h"
 
 namespace doris {
 
@@ -45,6 +46,28 @@ Status DataTypeHLLSerDe::read_column_from_pb(IColumn& column, const PValues& arg
         value.deserialize(Slice(arg.bytes_value(i)));
         col.insert_value(value);
     }
+    return Status::OK();
+}
+
+Status DataTypeHLLSerDe::write_column_to_jsonb(const IColumn& column, JsonbWriter& result,
+                                               Arena* mem_pool, const int32_t col_id,
+                                               const int row_num) const {
+    result.writeKey(col_id);
+    auto& data_column = assert_cast<const ColumnHLL&>(column);
+    auto& hll_value = const_cast<HyperLogLog&>(data_column.get_element(row_num));
+    auto size = hll_value.max_serialized_size();
+    auto ptr = reinterpret_cast<char*>(mem_pool->alloc(size));
+    size_t actual_size = hll_value.serialize((uint8_t*)ptr);
+    result.writeStartBinary();
+    result.writeBinary(reinterpret_cast<const char*>(ptr), actual_size);
+    result.writeEndBinary();
+    return Status::OK();
+}
+Status DataTypeHLLSerDe::read_column_from_jsonb(IColumn& column, const JsonbValue* arg) const {
+    auto& col = reinterpret_cast<ColumnHLL&>(column);
+    auto blob = static_cast<const JsonbBlobVal*>(arg);
+    HyperLogLog hyper_log_log(Slice(blob->getBlob()));
+    col.insert_value(hyper_log_log);
     return Status::OK();
 }
 

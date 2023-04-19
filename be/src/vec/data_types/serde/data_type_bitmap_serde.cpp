@@ -18,6 +18,7 @@
 #include "data_type_bitmap_serde.h"
 
 #include "vec/columns/column_complex.h"
+#include "vec/common/arena.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris {
@@ -48,5 +49,31 @@ Status DataTypeBitMapSerDe::read_column_from_pb(IColumn& column, const PValues& 
     }
     return Status::OK();
 }
+
+Status DataTypeBitMapSerDe::write_column_to_jsonb(const IColumn& column, JsonbWriter& result,
+                                                  Arena* mem_pool, const int32_t col_id,
+                                                  const int row_num) const {
+    auto& data_column = assert_cast<const ColumnBitmap&>(column);
+    result.writeKey(col_id);
+    auto bitmap_value = const_cast<BitmapValue&>(data_column.get_element(row_num));
+    // serialize the content of string
+    auto size = bitmap_value.getSizeInBytes();
+    // serialize the content of string
+    auto ptr = mem_pool->alloc(size);
+    bitmap_value.write_to(const_cast<char*>(ptr));
+    result.writeStartBinary();
+    result.writeBinary(reinterpret_cast<const char*>(ptr), size);
+    result.writeEndBinary();
+    return Status::OK();
+}
+
+Status DataTypeBitMapSerDe::read_column_from_jsonb(IColumn& column, const JsonbValue* arg) const {
+    auto& col = reinterpret_cast<ColumnBitmap&>(column);
+    auto blob = static_cast<const JsonbBlobVal*>(arg);
+    BitmapValue bitmap_value(blob->getBlob());
+    col.insert_value(bitmap_value);
+    return Status::OK();
+}
+
 } // namespace vectorized
 } // namespace doris

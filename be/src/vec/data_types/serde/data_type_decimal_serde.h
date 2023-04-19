@@ -30,6 +30,11 @@ public:
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override;
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
+
+    Status write_column_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
+                                 const int32_t col_id, const int row_num) const override;
+
+    Status read_column_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
 };
 
 template <typename T>
@@ -70,6 +75,48 @@ Status DataTypeDecimalSerDe<T>::read_column_from_pb(IColumn& column, const PValu
     }
 
     return Status::NotSupported("unknown ColumnType for reading from pb");
+}
+
+template <typename T>
+Status DataTypeDecimalSerDe<T>::write_column_to_jsonb(const IColumn& column, JsonbWriter& result,
+                                                      Arena* mem_pool, const int32_t col_id,
+                                                      const int row_num) const {
+    StringRef data_ref = column.get_data_at(row_num);
+    result.writeKey(col_id);
+    if constexpr (std::is_same_v<T, Decimal<Int128>>) {
+        Decimal128::NativeType val =
+                *reinterpret_cast<const Decimal128::NativeType*>(data_ref.data);
+        result.writeInt128(val);
+    } else if constexpr (std::is_same_v<T, Decimal<Int128I>>) {
+        Decimal64::NativeType val = *reinterpret_cast<const Decimal64::NativeType*>(data_ref.data);
+        result.writeInt128(val);
+    } else if constexpr (std::is_same_v<T, Decimal<Int32>>) {
+        Decimal32::NativeType val = *reinterpret_cast<const Decimal32::NativeType*>(data_ref.data);
+        result.writeInt32(val);
+    } else if constexpr (std::is_same_v<T, Decimal<Int64>>) {
+        Decimal64::NativeType val = *reinterpret_cast<const Decimal64::NativeType*>(data_ref.data);
+        result.writeInt64(val);
+    } else {
+        return Status::NotSupported("unknown Column '{}' for writing to jsonb", column.get_name());
+    }
+    return Status::OK();
+}
+
+template <typename T>
+Status DataTypeDecimalSerDe<T>::read_column_from_jsonb(IColumn& column,
+                                                       const JsonbValue* arg) const {
+    if constexpr (std::is_same_v<T, Decimal<Int128>>) {
+        column.insert(static_cast<const JsonbInt128Val*>(arg)->val());
+    } else if constexpr (std::is_same_v<T, Decimal<Int128I>>) {
+        column.insert(static_cast<const JsonbInt128Val*>(arg)->val());
+    } else if constexpr (std::is_same_v<T, Decimal<Int32>>) {
+        column.insert(static_cast<const JsonbInt32Val*>(arg)->val());
+    } else if constexpr (std::is_same_v<T, Decimal<Int64>>) {
+        column.insert(static_cast<const JsonbInt64Val*>(arg)->val());
+    } else {
+        return Status::NotSupported("unknown jsonb '{}' for writing to column", arg->type());
+    }
+    return Status::OK();
 }
 } // namespace vectorized
 } // namespace doris

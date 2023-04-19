@@ -39,5 +39,23 @@ Status DataTypeStringSerDe::read_column_from_pb(IColumn& column, const PValues& 
     }
     return Status::OK();
 }
+
+Status DataTypeStringSerDe::write_column_to_jsonb(const IColumn& column, JsonbWriter& result,
+                                                  Arena* mem_pool, const int32_t col_id,
+                                                  const int row_num) const {
+    result.writeKey(col_id);
+    const auto& data_ref = column.get_data_at(row_num);
+    result.writeStartBinary();
+    result.writeBinary(reinterpret_cast<const char*>(data_ref.data), data_ref.size);
+    result.writeEndBinary();
+    return Status::OK();
+}
+Status DataTypeStringSerDe::read_column_from_jsonb(IColumn& column, const JsonbValue* arg) const {
+    assert(arg->isBinary());
+    auto& col = reinterpret_cast<ColumnString&>(column);
+    auto blob = static_cast<const JsonbBlobVal*>(arg);
+    col.insert_data(blob->getBlob(), blob->getBlobLen());
+    return Status::OK();
+}
 } // namespace vectorized
 } // namespace doris

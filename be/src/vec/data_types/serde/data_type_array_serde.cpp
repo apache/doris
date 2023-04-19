@@ -17,8 +17,28 @@
 
 #include "data_type_array_serde.h"
 
-#include "vec/columns/column_array.cpp"
 namespace doris {
 
-namespace vectorized {}
+namespace vectorized {
+
+Status DataTypeArraySerDe::write_column_to_jsonb(const IColumn& column, JsonbWriter& result,
+                                                 Arena* mem_pool, const int32_t col_id,
+                                                 const int row_num) const {
+    result.writeKey(col_id);
+    const char* begin = nullptr;
+    // maybe serialize_value_into_arena should move to here later.
+    StringRef value = column.serialize_value_into_arena(row_num, *mem_pool, begin);
+    result.writeStartBinary();
+    result.writeBinary(value.data, value.size);
+    result.writeEndBinary();
+    return Status::OK();
+}
+
+Status DataTypeArraySerDe::read_column_from_jsonb(IColumn& column, const JsonbValue* arg) const {
+    auto blob = static_cast<const JsonbBlobVal*>(arg);
+    column.deserialize_and_insert_from_arena(blob->getBlob());
+    return Status::OK();
+}
+
+} // namespace vectorized
 } // namespace doris

@@ -16,6 +16,9 @@
 // under the License.
 
 #include "data_type_serde.h"
+#include "vec/columns/column_complex.h"
+#include "vec/common/arena.h"
+
 namespace doris {
 
 namespace vectorized {
@@ -26,6 +29,11 @@ public:
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override;
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
+
+    Status write_column_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
+                                 const int32_t col_id, const int row_num) const override;
+
+    Status read_column_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
 };
 
 template <typename T>
@@ -48,5 +56,33 @@ Status DataTypeQuantileStateSerDe<T>::read_column_from_pb(IColumn& column,
     }
     return Status::OK();
 }
+
+template <typename T>
+Status DataTypeQuantileStateSerDe<T>::write_column_to_jsonb(const IColumn& column,
+                                                            JsonbWriter& result, Arena* mem_pool,
+                                                            const int32_t col_id,
+                                                            const int row_num) const {
+    auto& col = reinterpret_cast<const ColumnQuantileState<T>&>(column);
+    auto& val = const_cast<QuantileState<T>&>(col.get_element(row_num));
+    size_t actual_size = val.get_serialized_size();
+    auto ptr = mem_pool->alloc(actual_size);
+    result.writeKey(col_id);
+    result.writeStartBinary();
+    result.writeBinary(reinterpret_cast<const char*>(ptr), actual_size);
+    result.writeEndBinary();
+    return Status::OK();
+}
+
+template <typename T>
+Status DataTypeQuantileStateSerDe<T>::read_column_from_jsonb(IColumn& column,
+                                                             const JsonbValue* arg) const {
+    auto& col = reinterpret_cast<ColumnQuantileState<T>&>(column);
+    auto blob = static_cast<const JsonbBlobVal*>(arg);
+    QuantileState<T> val;
+    val.deserialize(Slice(blob->getBlob()));
+    col.insert_value(val);
+    return Status::OK();
+}
+
 } // namespace vectorized
 } // namespace doris

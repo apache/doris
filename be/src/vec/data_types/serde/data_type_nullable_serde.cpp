@@ -59,5 +59,31 @@ Status DataTypeNullableSerDe::read_column_from_pb(IColumn& column, const PValues
     }
     return Status::OK();
 }
+Status DataTypeNullableSerDe::write_column_to_jsonb(const IColumn& column, JsonbWriter& result,
+                                                    Arena* mem_pool, const int32_t col_id,
+                                                    const int row_num) const {
+    auto& nullable_col = assert_cast<const ColumnNullable&>(column);
+    if (nullable_col.is_null_at(row_num)) {
+        // do not insert to jsonb
+        return Status::OK();
+    }
+    result.writeKey(col_id);
+    return nested_serde->write_column_to_jsonb(nullable_col.get_nested_column(), result, mem_pool,
+                                               col_id, row_num);
+}
+Status DataTypeNullableSerDe::read_column_from_jsonb(IColumn& column, const JsonbValue* arg) const {
+    auto& col = reinterpret_cast<ColumnNullable&>(column);
+    if (!arg || arg->isNull()) {
+        col.insert_default();
+        return Status::OK();
+    }
+    if (auto st = nested_serde->read_column_from_jsonb(col.get_nested_column(), arg);
+        st != Status::OK()) {
+        return st;
+    }
+    auto& null_map_data = col.get_null_map_data();
+    null_map_data.push_back(0);
+    return Status::OK();
+}
 } // namespace vectorized
 } // namespace doris
