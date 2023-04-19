@@ -25,8 +25,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <type_traits>
-
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <cmath>
@@ -77,8 +75,8 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
-#include "vec/data_types/data_type_time_v2.h"
 #include "vec/data_types/data_type_time.h"
+#include "vec/data_types/data_type_time_v2.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
 #include "vec/io/io_helper.h"
