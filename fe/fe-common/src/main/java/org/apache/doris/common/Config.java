@@ -1738,8 +1738,7 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean enable_pipeline_load = false;
 
-    // enable_resource_group should be immutable and temporarily set to mutable during the development test phase
-    @ConfField(mutable = true, masterOnly = true, expType = ExperimentalType.EXPERIMENTAL)
+    @ConfField
     public static boolean enable_resource_group = false;
 
     @ConfField(mutable = false, masterOnly = true)
@@ -1807,7 +1806,7 @@ public class Config extends ConfigBase {
      * Max data version of backends serialize block.
      */
     @ConfField(mutable = false)
-    public static int max_be_exec_version = 1;
+    public static int max_be_exec_version = 2;
 
     /**
      * Min data version of backends serialize block.
