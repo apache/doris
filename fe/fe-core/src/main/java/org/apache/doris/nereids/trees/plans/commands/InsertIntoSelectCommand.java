@@ -17,6 +17,9 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -51,6 +54,8 @@ public class InsertIntoSelectCommand extends Command implements ForwardWithSync 
     private final String labelName;
     private Database database;
     private Table table;
+    private NereidsPlanner planner;
+    private TupleDescriptor olapTuple;
 
     /**
      * constructor
@@ -77,7 +82,7 @@ public class InsertIntoSelectCommand extends Command implements ForwardWithSync 
         checkDatabaseAndTable(ctx);
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
         executor.setParsedStmt(logicalPlanAdapter);
-        NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
+        planner = new NereidsPlanner(ctx.getStatementContext());
         planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
 
         if (ctx.getMysqlChannel() != null) {
@@ -88,12 +93,28 @@ public class InsertIntoSelectCommand extends Command implements ForwardWithSync 
             label = String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo);
         }
 
+        // create insert target table's tupledesc.
+        olapTuple = planner.getDescTable().createTupleDescriptor();
+        for (Column col : table.getFullSchema()) {
+            SlotDescriptor slotDesc = planner.getDescTable().addSlotDescriptor(olapTuple);
+            slotDesc.setIsMaterialized(true);
+            slotDesc.setType(col.getType());
+            slotDesc.setColumn(col);
+            slotDesc.setIsNullable(col.isAllowNull());
+        }
+
         PlanFragment root = planner.getFragments().get(0);
         DataSink sink = createDataSink(ctx, root);
         Preconditions.checkArgument(sink instanceof OlapTableSink, "olap table sink is expected when"
                 + " running insert into select");
-        root.resetSink(sink);
         Transaction txn = new Transaction(ctx, database, table, label, planner);
+
+        OlapTableSink olapTableSink = ((OlapTableSink) sink);
+        olapTableSink.init(ctx.queryId(), txn.getTxnId(), database.getId(), ctx.getExecTimeout(),
+                ctx.getSessionVariable().getSendBatchParallelism(), false);
+        olapTableSink.complete();
+        root.resetSink(olapTableSink);
+
         txn.executeInsertIntoSelectCommand(this);
     }
 
@@ -126,8 +147,9 @@ public class InsertIntoSelectCommand extends Command implements ForwardWithSync 
             throws org.apache.doris.common.AnalysisException {
         DataSink dataSink;
         if (table instanceof OlapTable) {
-            dataSink = new OlapTableSink((OlapTable) table, root.getPlanRoot().getOutputTupleDesc(),
-                    ((OlapTable) table).getPartitionIds(), ctx.getSessionVariable().isEnableSingleReplicaInsert());
+            dataSink = new OlapTableSink((OlapTable) table, olapTuple,
+                    ((OlapTable) table).getPartitionIds(),
+                    ctx.getSessionVariable().isEnableSingleReplicaInsert());
         } else {
             dataSink = DataSink.createDataSink(table);
         }
