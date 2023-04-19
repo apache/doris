@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -28,6 +29,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.txn.Transaction;
+import org.apache.doris.planner.DataSink;
+import org.apache.doris.planner.OlapTableSink;
+import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
@@ -83,6 +87,9 @@ public class InsertIntoSelectCommand extends Command implements ForwardWithSync 
         if (label == null) {
             label = String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo);
         }
+
+        PlanFragment root = planner.getFragments().get(0);
+        root.setSink(createDataSink(ctx, root));
         Transaction txn = new Transaction(ctx, database, table, label, planner);
         txn.executeInsertIntoSelectCommand(this);
     }
@@ -110,6 +117,18 @@ public class InsertIntoSelectCommand extends Command implements ForwardWithSync 
             throw new AnalysisException("Unknown table: " + ctx.getDatabase());
         }
         this.table = table.get();
+    }
+
+    private DataSink createDataSink(ConnectContext ctx, PlanFragment root)
+            throws org.apache.doris.common.AnalysisException {
+        DataSink dataSink;
+        if (table instanceof OlapTable) {
+            dataSink = new OlapTableSink((OlapTable) table, root.getPlanRoot().getOutputTupleDesc(),
+                    ((OlapTable) table).getPartitionIds(), ctx.getSessionVariable().isEnableSingleReplicaInsert());
+        } else {
+            dataSink = DataSink.createDataSink(table);
+        }
+        return dataSink;
     }
 
     @Override
