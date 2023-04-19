@@ -103,15 +103,11 @@ under the License.
                 <groupId>org.apache.doris</groupId>
                 <artifactId>hadoop-shade-2</artifactId>
                 <version>${doris.shade.version}</version>
-                <scope>system</scope>
-                <systemPath>${project.basedir}/lib/hadoop-shade-2-${doris.shade.version}.jar</systemPath>
             </dependency>
             <dependency>
                 <groupId>org.apache.doris</groupId>
                 <artifactId>thrift-shade-0.13</artifactId>
                 <version>${doris.shade.version}</version>
-                <scope>system</scope>
-                <systemPath>${basedir}/lib/thrift-shade-0.13-${doris.shade.version}.jar</systemPath>
             </dependency>
             <dependency>
                 <groupId>org.apache.doris</groupId>
@@ -568,4 +564,14 @@ under the License.
             </plugins>
         </pluginManagement>
     </build>
+    <repositories>
+        <repository>
+            <id>snapshots</id>
+            <name>apache snapshots maven repo https</name>
+            <url>https://repository.apache.org/content/repositories/snapshots/</url>
+            <snapshots>
+                <updatePolicy>always</updatePolicy>
+            </snapshots>
+        </repository>
+    </repositories>
 </project>
