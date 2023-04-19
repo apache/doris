@@ -105,7 +105,6 @@ public:
 
     bool next_in_string_like(const char* data, size_t length, size_t* pos,
                              std::string& token) const override;
-
 };
 } // namespace doris
 

@@ -59,6 +59,7 @@
                         "data-table/index/inverted-index",
                         "data-table/index/bloomfilter",
                         "data-table/index/ngram-bloomfilter-index",
+                        "data-table/index/token-bloomfilter-index",
                         "data-table/index/bitmap-index"
                     ]
                 }
