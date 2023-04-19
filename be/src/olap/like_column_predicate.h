@@ -173,7 +173,7 @@ private:
     // LikeColumnPredicate.
     vectorized::LikeSearchState _like_state;
     std::unique_ptr<segment_v2::BloomFilter> _page_ng_bf; // for ngram-bf index
-    std::unique_ptr<segment_v2::BloomFilter> _page_token_bf; // for ngram-bf index
+    std::unique_ptr<segment_v2::BloomFilter> _page_token_bf; // for token-bf index
 };
 
 } // namespace doris
