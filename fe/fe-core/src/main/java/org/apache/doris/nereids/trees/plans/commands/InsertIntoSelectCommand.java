@@ -39,6 +39,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Optional;
@@ -95,7 +96,20 @@ public class InsertIntoSelectCommand extends Command implements ForwardWithSync 
 
         // create insert target table's tupledesc.
         olapTuple = planner.getDescTable().createTupleDescriptor();
-        for (Column col : table.getFullSchema()) {
+        List<Column> columns = Lists.newArrayList();
+        if (colNames == null) {
+            columns = table.getFullSchema();
+        } else {
+            for (String colName : colNames) {
+                Column col = table.getColumn(colName);
+                if (col == null) {
+                    throw new AnalysisException(String.format("Column: %s is not in table: %s",
+                            colName, table.getName()));
+                }
+                columns.add(col);
+            }
+        }
+        for (Column col : columns) {
             SlotDescriptor slotDesc = planner.getDescTable().addSlotDescriptor(olapTuple);
             slotDesc.setIsMaterialized(true);
             slotDesc.setType(col.getType());
