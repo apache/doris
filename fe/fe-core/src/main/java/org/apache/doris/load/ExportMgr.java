@@ -417,7 +417,7 @@ public class ExportMgr extends MasterDaemon {
         infoMap.put("max_file_size", job.getMaxFileSize());
         jobInfo.add(new Gson().toJson(infoMap));
         // path
-        jobInfo.add(job.getShowExportPath());
+        jobInfo.add(job.getExportPath());
 
         jobInfo.add(TimeUtils.longToTimeString(job.getCreateTimeMs()));
         jobInfo.add(TimeUtils.longToTimeString(job.getStartTimeMs()));

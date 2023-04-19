@@ -338,13 +338,7 @@ public class ExportJob implements Writable {
         this.brokerDesc = brokerDesc;
     }
 
-    public String getShowExportPath() {
-        if (brokerDesc.getFileType() == TFileType.FILE_LOCAL) {
-            StringBuilder sb = new StringBuilder();
-            sb.append(OutFileClause.LOCAL_FILE_PREFIX.substring(0, OutFileClause.LOCAL_FILE_PREFIX.length() - 1));
-            sb.append(exportPath);
-            return sb.toString();
-        }
+    public String getExportPath() {
         return exportPath;
     }
 
