@@ -221,7 +221,7 @@ protected:
     bool _inited;
     std::mutex _lock;
     int64_t _bloom_filter_length;
-    bool _build_bf_exactly;
+    bool _build_bf_exactly = false;
 };
 
 template <class T>
