@@ -193,8 +193,8 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Double, Void> {
         GroupExpression enforcer = outputDistributionSpec.addEnforcer(child.getOwnerGroup());
         jobContext.getCascadesContext().getMemo().addEnforcerPlan(enforcer, child.getOwnerGroup());
         Cost totalCost = CostCalculator.addChildCost(enforcer.getPlan(),
-                currentCost,
                 CostCalculator.calculateCost(enforcer, Lists.newArrayList(childOutput)),
+                currentCost,
                 0);
 
         if (enforcer.updateLowestCostTable(newOutputProperty,
