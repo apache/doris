@@ -56,7 +56,6 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentClient;
 import org.apache.doris.thrift.TAgentResult;
-import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TScanRange;

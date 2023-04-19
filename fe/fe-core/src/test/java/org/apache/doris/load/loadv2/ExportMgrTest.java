@@ -18,7 +18,6 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
@@ -27,7 +26,6 @@ import org.apache.doris.load.ExportMgr;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.MockedAuth;
 
-import com.google.common.collect.Maps;
 import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
@@ -35,7 +33,6 @@ import org.junit.Test;
 
 import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 public class ExportMgrTest {
     private final ExportMgr exportMgr = new ExportMgr();
