@@ -45,6 +45,8 @@ struct FileDescription {
 
 class FileFactory {
 public:
+    static io::FileCachePolicy get_cache_policy(RuntimeState* state);
+
     /// Create FileWriter
     static Status create_file_writer(TFileType::type type, ExecEnv* env,
                                      const std::vector<TNetworkAddress>& broker_addresses,
@@ -53,11 +55,11 @@ public:
                                      std::unique_ptr<io::FileWriter>& file_writer);
 
     /// Create FileReader
-    static Status create_file_reader(RuntimeProfile* profile,
-                                     const FileSystemProperties& system_properties,
-                                     const FileDescription& file_description,
-                                     std::shared_ptr<io::FileSystem>* file_system,
-                                     io::FileReaderSPtr* file_reader);
+    static Status create_file_reader(
+            RuntimeProfile* profile, const FileSystemProperties& system_properties,
+            const FileDescription& file_description, std::shared_ptr<io::FileSystem>* file_system,
+            io::FileReaderSPtr* file_reader,
+            io::FileCachePolicy cache_policy = io::FileCachePolicy::NO_CACHE);
 
     // Create FileReader for stream load pipe
     static Status create_pipe_reader(const TUniqueId& load_id, io::FileReaderSPtr* file_reader);

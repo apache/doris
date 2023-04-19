@@ -597,6 +597,23 @@ message PMultiGetResponse {
     optional PStatus status = 2;
 };
 
+message PFetchColIdsRequest {
+    message PFetchColIdParam {
+        required int64 indexId = 1;
+        repeated int64 tablet_ids = 2;
+    };
+    repeated PFetchColIdParam params = 1;
+};
+
+message PFetchColIdsResponse {
+    message PFetchColIdsResultEntry {
+        required int64 index_id = 1;
+        map<string, int32> col_name_to_id = 2;
+    };
+    optional PStatus status = 1;
+    repeated PFetchColIdsResultEntry entries = 2;
+};
+
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
     rpc transmit_data_by_http(PEmptyRequest) returns (PTransmitDataResult);
@@ -631,5 +648,6 @@ service PBackendService {
     rpc fetch_table_schema(PFetchTableSchemaRequest) returns (PFetchTableSchemaResult);
     rpc multiget_data(PMultiGetRequest) returns (PMultiGetResponse);
     rpc tablet_fetch_data(PTabletKeyLookupRequest) returns (PTabletKeyLookupResponse);
+    rpc get_column_ids_by_tablet_ids(PFetchColIdsRequest) returns (PFetchColIdsResponse);
 };
 

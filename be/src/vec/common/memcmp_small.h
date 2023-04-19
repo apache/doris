@@ -39,11 +39,7 @@ int cmp(T a, T b) {
 /// Disable optimized functions if compile with Memory Sanitizer.
 
 #if (defined(__SSE2__) || defined(__aarch64__)) && !defined(MEMORY_SANITIZER)
-#ifdef __SSE2__
-#include <emmintrin.h>
-#elif __aarch64__
-#include <sse2neon.h>
-#endif
+#include "util/sse_util.hpp"
 
 /** All functions works under the following assumptions:
   * - it's possible to read up to 15 excessive bytes after end of 'a' and 'b' region;

@@ -162,8 +162,11 @@ CREATE CATALOG hive WITH RESOURCE hms_resource PROPERTIES(
 ```
 
 <version since="dev"></version> 
+
 You can use the config `file.meta.cache.ttl-second` to set TTL(Time-to-Live) config of File Cache, so that the stale file info will be invalidated automatically after expiring. The unit of time is second.
+
 You can also set file_meta_cache_ttl_second to 0 to disable file cache.Here is an example:
+
 ```sql
 CREATE CATALOG hive PROPERTIES (
     'type'='hms',

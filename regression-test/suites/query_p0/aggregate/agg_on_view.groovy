@@ -16,8 +16,12 @@
 // under the License.
 
 suite("agg_on_view") {
+
     sql """
-    create table test (
+        drop table if exists agg_on_view_test;
+    """
+    sql """
+    create table agg_on_view_test (
             id int,
                     user_id int,
             name varchar(20)
@@ -34,7 +38,11 @@ suite("agg_on_view") {
     from (
             select *,
             "abc" as tag
-            from test limit 10)t
+            from agg_on_view_test limit 10)t
     group by user_id,tag
+    """
+
+    sql """
+        drop table agg_on_view_test;
     """
 }

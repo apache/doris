@@ -19,6 +19,7 @@
 
 #include <string>
 
+#include "gen_cpp/PaloInternalService_types.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/columns_number.h"

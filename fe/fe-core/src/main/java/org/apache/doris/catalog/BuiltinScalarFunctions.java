@@ -90,6 +90,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTo;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTz;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CountEqual;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentCatalog;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
@@ -271,12 +272,18 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StAngle;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAngleSphere;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAreaSquareKm;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAreaSquareMeters;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StAsBinary;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StAsEWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAstext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAswkt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAzimuth;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StCircle;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDistanceSphere;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomFromEWKB;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomFromWKB;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryFromEWKB;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryFromWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StLinefromtext;
@@ -417,6 +424,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ConvertTz.class, "convert_tz"),
             scalar(Cos.class, "cos"),
             scalar(CountEqual.class, "countequal"),
+            scalar(CurrentCatalog.class, "current_catalog"),
             scalar(CurrentDate.class, "curdate", "current_date"),
             scalar(CurrentTime.class, "curtime", "current_time"),
             scalar(CurrentUser.class, "current_user"),
@@ -594,6 +602,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(SplitByString.class, "split_by_string"),
             scalar(SplitPart.class, "split_part"),
             scalar(Sqrt.class, "sqrt"),
+            scalar(StAsBinary.class, "st_asbinary"),
+            scalar(StAsEWKB.class, "st_asewkb"),
             scalar(StAstext.class, "st_astext"),
             scalar(StAswkt.class, "st_aswkt"),
             scalar(StCircle.class, "st_circle"),
@@ -604,8 +614,12 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(StAzimuth.class, "st_azimuth"),
             scalar(StAreaSquareMeters.class, "st_area_square_meters"),
             scalar(StAreaSquareKm.class, "st_area_square_km"),
+            scalar(StGeometryFromEWKB.class, "st_geometryfromewkb"),
             scalar(StGeometryfromtext.class, "st_geometryfromtext"),
+            scalar(StGeometryFromWKB.class, "st_geometryfromwkb"),
+            scalar(StGeomFromEWKB.class, "st_geomfromewkb"),
             scalar(StGeomfromtext.class, "st_geomfromtext"),
+            scalar(StGeomFromWKB.class, "st_geomfromwkb"),
             scalar(StLinefromtext.class, "st_linefromtext"),
             scalar(StLinestringfromtext.class, "st_linestringfromtext"),
             scalar(StPoint.class, "st_point"),

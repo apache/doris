@@ -21,6 +21,7 @@
 #pragma once
 
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/serde/data_type_nullable_serde.h"
 
 namespace doris::vectorized {
 
@@ -98,11 +99,16 @@ public:
     const DataTypePtr& get_nested_type() const { return nested_data_type; }
     bool is_null_literal() const override { return nested_data_type->is_null_literal(); }
 
+    DataTypeSerDeSPtr get_serde() const override {
+        return std::make_shared<DataTypeNullableSerDe>(nested_data_type->get_serde());
+    }
+
 private:
     DataTypePtr nested_data_type;
 };
 
 DataTypePtr make_nullable(const DataTypePtr& type);
+DataTypes make_nullable(const DataTypes& types);
 DataTypePtr remove_nullable(const DataTypePtr& type);
 DataTypes remove_nullable(const DataTypes& types);
 bool have_nullable(const DataTypes& types);

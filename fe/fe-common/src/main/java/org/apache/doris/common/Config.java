@@ -17,6 +17,8 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.common.ExperimentalUtil.ExperimentalType;
+
 public class Config extends ConfigBase {
 
     /**
@@ -1511,6 +1513,12 @@ public class Config extends ConfigBase {
     public static int grpc_max_message_size_bytes = 2147483647; // 2GB
 
     /**
+     * num of thread to handle grpc events in grpc_threadmgr
+     */
+    @ConfField
+    public static int grpc_threadmgr_threads_nums = 4096;
+
+    /**
      * Used to set minimal number of replication per tablet.
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1728,22 +1736,14 @@ public class Config extends ConfigBase {
     public static boolean enable_quantile_state_type = true;
 
     @ConfField
-    public static boolean enable_vectorized_load = true;
-
-    @ConfField
     public static boolean enable_pipeline_load = false;
+
+    // enable_resource_group should be immutable and temporarily set to mutable during the development test phase
+    @ConfField(mutable = true, masterOnly = true, expType = ExperimentalType.EXPERIMENTAL)
+    public static boolean enable_resource_group = false;
 
     @ConfField(mutable = false, masterOnly = true)
     public static int backend_rpc_timeout_ms = 60000; // 1 min
-
-    @ConfField(mutable = true, masterOnly = false)
-    public static long file_scan_node_split_size = 256 * 1024 * 1024; // 256mb
-
-    @ConfField(mutable = true, masterOnly = false)
-    public static long file_scan_node_split_num = 128;
-
-    @ConfField(mutable = true, masterOnly = false)
-    public static long file_split_size = 0; // 0 means use the block size in HDFS/S3 as split size
 
     /**
      * If set to TRUE, FE will:
@@ -1804,16 +1804,10 @@ public class Config extends ConfigBase {
     public static long remote_fragment_exec_timeout_ms = 5000; // 5 sec
 
     /**
-     * Temp config, should be removed when new file scan node is ready.
-     */
-    @ConfField(mutable = true)
-    public static boolean enable_new_load_scan_node = true;
-
-    /**
      * Max data version of backends serialize block.
      */
     @ConfField(mutable = false)
-    public static int max_be_exec_version = 1;
+    public static int max_be_exec_version = 2;
 
     /**
      * Min data version of backends serialize block.
@@ -1834,10 +1828,10 @@ public class Config extends ConfigBase {
     public static int statistic_task_scheduler_execution_interval_ms = 1000;
 
     /*
-     * mtmv scheduler framework is still under dev, remove this config when it is graduate.
+     * mtmv is still under dev, remove this config when it is graduate.
      */
-    @ConfField(mutable = true)
-    public static boolean enable_mtmv_scheduler_framework = false;
+    @ConfField(mutable = true, masterOnly = true, expType = ExperimentalType.EXPERIMENTAL)
+    public static boolean enable_mtmv = false;
 
     /* Max running task num at the same time, otherwise the submitted task will still be keep in pending poll*/
     @ConfField(mutable = true, masterOnly = true)
@@ -2008,7 +2002,7 @@ public class Config extends ConfigBase {
      * When enable_fqdn_mode is true, the name of the pod where be is located will remain unchanged
      * after reconstruction, while the ip can be changed.
      */
-    @ConfField(mutable = false, masterOnly = true)
+    @ConfField(mutable = false, masterOnly = true, expType = ExperimentalType.EXPERIMENTAL)
     public static boolean enable_fqdn_mode = false;
 
     /**
@@ -2045,7 +2039,7 @@ public class Config extends ConfigBase {
     /**
      * If set to ture, doris will establish an encrypted channel based on the SSL protocol with mysql.
      */
-    @ConfField(mutable = false, masterOnly = false)
+    @ConfField(mutable = false, masterOnly = false, expType = ExperimentalType.EXPERIMENTAL)
     public static boolean enable_ssl = true;
 
     /**
@@ -2095,6 +2089,8 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = false)
     public static String mysql_load_server_secure_path = "";
 
+    @ConfField(mutable = false, masterOnly = false)
+    public static int mysql_load_in_memory_record = 20;
 
     @ConfField(mutable = false, masterOnly = false)
     public static int mysql_load_thread_pool = 4;
@@ -2111,5 +2107,14 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static long lock_reporting_threshold_ms = 500L;
+
+    /**
+     * If false, when select from tables in information_schema database,
+     * the result will not contain the information of the table in external catalog.
+     * This is to avoid query time when external catalog is not reachable.
+     * TODO: this is a temp solution, we should support external catalog in the future.
+     */
+    @ConfField(mutable = true)
+    public static boolean infodb_support_ext_catalog = false;
 }
 

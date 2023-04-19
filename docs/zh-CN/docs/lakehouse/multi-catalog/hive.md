@@ -159,6 +159,7 @@ CREATE CATALOG hive WITH RESOURCE hms_resource PROPERTIES(
 <version since="dev"></version>
 
 创建 Catalog 时可以采用参数 `file.meta.cache.ttl-second` 来设置 File Cache 自动失效时间，也可以将该值设置为 0 来禁用 File Cache。时间单位为：秒。示例如下：
+
 ```sql
 CREATE CATALOG hive PROPERTIES (
     'type'='hms',

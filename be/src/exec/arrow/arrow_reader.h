@@ -22,22 +22,39 @@
 #include <arrow/io/api.h>
 #include <arrow/io/file.h>
 #include <arrow/io/interfaces.h>
+#include <arrow/result.h>
+#include <gen_cpp/PaloBrokerService_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
 #include <parquet/api/reader.h>
 #include <parquet/api/writer.h>
 #include <parquet/arrow/reader.h>
 #include <parquet/arrow/writer.h>
 #include <parquet/exception.h>
+#include <parquet/platform.h>
+#include <stddef.h>
 #include <stdint.h>
 
+#include <atomic>
+#include <condition_variable>
+#include <list>
 #include <map>
+#include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
+#include <vector>
 
+#include "common/config.h"
 #include "common/status.h"
-#include "gen_cpp/PaloBrokerService_types.h"
-#include "gen_cpp/PlanNodes_types.h"
-#include "gen_cpp/Types_types.h"
 #include "io/fs/file_reader.h"
+#include "io/fs/file_reader_writer_fwd.h"
 #include "vec/exec/format/generic_reader.h"
+
+namespace arrow {
+class RecordBatch;
+class RecordBatchReader;
+} // namespace arrow
 
 namespace doris {
 
@@ -47,6 +64,11 @@ class TNetworkAddress;
 class RuntimeState;
 class SlotDescriptor;
 class FileReader;
+class TupleDescriptor;
+
+namespace vectorized {
+class Block;
+} // namespace vectorized
 
 struct Statistics {
     int32_t filtered_row_groups = 0;

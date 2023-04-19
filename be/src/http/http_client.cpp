@@ -17,6 +17,12 @@
 
 #include "http/http_client.h"
 
+#include <glog/logging.h>
+#include <unistd.h>
+
+#include <memory>
+#include <ostream>
+
 #include "common/config.h"
 #include "util/stack_util.h"
 

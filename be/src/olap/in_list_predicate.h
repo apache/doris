@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <parallel_hashmap/phmap.h>
-
 #include <cstdint>
 #include <roaring/roaring.hh>
 
@@ -244,6 +242,17 @@ public:
             indices |= index;
             iter->next();
         }
+
+        // mask out null_bitmap, since NULL cmp VALUE will produce NULL
+        //  and be treated as false in WHERE
+        // keep it after query, since query will try to read null_bitmap and put it to cache
+        InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+        RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap_cache_handle));
+        roaring::Roaring* null_bitmap = null_bitmap_cache_handle.get_bitmap();
+        if (null_bitmap) {
+            *result -= *null_bitmap;
+        }
+
         if constexpr (PT == PredicateType::IN_LIST) {
             *result &= indices;
         } else {
@@ -447,33 +456,21 @@ private:
                 LOG(FATAL) << "column_dictionary must use StringRef predicate.";
             }
         } else {
-            auto* nested_col_ptr = vectorized::check_and_get_column<
-                    vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>(column);
-            auto& data_array = nested_col_ptr->get_data();
+            auto& pred_col =
+                    vectorized::check_and_get_column<
+                            vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>(column)
+                            ->get_data();
+            auto pred_col_data = pred_col.data();
 
-            for (uint16_t i = 0; i < size; i++) {
-                uint16_t idx = sel[i];
-                if constexpr (is_nullable) {
-                    if ((*null_map)[idx]) {
-                        if constexpr (is_opposite) {
-                            sel[new_size++] = idx;
-                        }
-                        continue;
-                    }
-                }
-
-                if constexpr (!is_opposite) {
-                    if (_operator(_values->find(reinterpret_cast<const T*>(&data_array[idx])),
-                                  false)) {
-                        sel[new_size++] = idx;
-                    }
-                } else {
-                    if (!_operator(_values->find(reinterpret_cast<const T*>(&data_array[idx])),
-                                   false)) {
-                        sel[new_size++] = idx;
-                    }
-                }
-            }
+#define EVALUATE_WITH_NULL_IMPL(IDX) \
+    is_opposite ^                    \
+            (!(*null_map)[IDX] &&    \
+             _operator(_values->find(reinterpret_cast<const T*>(&pred_col_data[IDX])), false))
+#define EVALUATE_WITHOUT_NULL_IMPL(IDX) \
+    is_opposite ^ _operator(_values->find(reinterpret_cast<const T*>(&pred_col_data[IDX])), false)
+            EVALUATE_BY_SELECTOR(EVALUATE_WITH_NULL_IMPL, EVALUATE_WITHOUT_NULL_IMPL)
+#undef EVALUATE_WITH_NULL_IMPL
+#undef EVALUATE_WITHOUT_NULL_IMPL
         }
         return new_size;
     }
@@ -589,7 +586,7 @@ ColumnPredicate* _create_in_list_predicate(uint32_t column_id, const ConditionTy
                                            const TabletColumn* col = nullptr,
                                            vectorized::Arena* arena = nullptr) {
     using T = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
-    if constexpr (N >= 1 && N <= 12) {
+    if constexpr (N >= 1 && N <= FIXED_CONTAINER_MAX_SIZE) {
         using Set = std::conditional_t<
                 std::is_same_v<T, StringRef>, StringSet<FixedContainer<std::string, N>>,
                 HybridSet<Type, FixedContainer<T, N>,
@@ -632,21 +629,10 @@ ColumnPredicate* create_in_list_predicate(uint32_t column_id, const ConditionTyp
     } else if (conditions.size() == 7) {
         return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 7>(
                 column_id, conditions, convert, is_opposite, col, arena);
-    } else if (conditions.size() == 8) {
-        return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 8>(
-                column_id, conditions, convert, is_opposite, col, arena);
-    } else if (conditions.size() == 9) {
-        return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 9>(
-                column_id, conditions, convert, is_opposite, col, arena);
-    } else if (conditions.size() == 10) {
-        return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 10>(
-                column_id, conditions, convert, is_opposite, col, arena);
-    } else if (conditions.size() == 11) {
-        return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 11>(
-                column_id, conditions, convert, is_opposite, col, arena);
-    } else if (conditions.size() == 12) {
-        return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 12>(
-                column_id, conditions, convert, is_opposite, col, arena);
+    } else if (conditions.size() == FIXED_CONTAINER_MAX_SIZE) {
+        return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc,
+                                         FIXED_CONTAINER_MAX_SIZE>(column_id, conditions, convert,
+                                                                   is_opposite, col, arena);
     } else {
         return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc>(
                 column_id, conditions, convert, is_opposite, col, arena);
@@ -658,7 +644,7 @@ ColumnPredicate* _create_in_list_predicate(uint32_t column_id,
                                            const std::shared_ptr<HybridSetBase>& hybrid_set,
                                            size_t char_length = 0) {
     using T = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
-    if constexpr (N >= 1 && N <= 12) {
+    if constexpr (N >= 1 && N <= FIXED_CONTAINER_MAX_SIZE) {
         using Set = std::conditional_t<
                 std::is_same_v<T, StringRef>, StringSet<FixedContainer<std::string, N>>,
                 HybridSet<Type, FixedContainer<T, N>,
@@ -691,16 +677,9 @@ ColumnPredicate* create_in_list_predicate(uint32_t column_id,
         return _create_in_list_predicate<Type, PT, 6>(column_id, hybrid_set, char_length);
     } else if (hybrid_set->size() == 7) {
         return _create_in_list_predicate<Type, PT, 7>(column_id, hybrid_set, char_length);
-    } else if (hybrid_set->size() == 8) {
-        return _create_in_list_predicate<Type, PT, 8>(column_id, hybrid_set, char_length);
-    } else if (hybrid_set->size() == 9) {
-        return _create_in_list_predicate<Type, PT, 9>(column_id, hybrid_set, char_length);
-    } else if (hybrid_set->size() == 10) {
-        return _create_in_list_predicate<Type, PT, 10>(column_id, hybrid_set, char_length);
-    } else if (hybrid_set->size() == 11) {
-        return _create_in_list_predicate<Type, PT, 11>(column_id, hybrid_set, char_length);
-    } else if (hybrid_set->size() == 12) {
-        return _create_in_list_predicate<Type, PT, 12>(column_id, hybrid_set, char_length);
+    } else if (hybrid_set->size() == FIXED_CONTAINER_MAX_SIZE) {
+        return _create_in_list_predicate<Type, PT, FIXED_CONTAINER_MAX_SIZE>(column_id, hybrid_set,
+                                                                             char_length);
     } else {
         return _create_in_list_predicate<Type, PT>(column_id, hybrid_set, char_length);
     }

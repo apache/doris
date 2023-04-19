@@ -147,7 +147,7 @@ suite("modify_replica_use_partition") {
     }
 
     sql """
-        CREATE RESOURCE "${resource_name}"
+        CREATE RESOURCE IF NOT EXISTS "${resource_name}"
         PROPERTIES(
             "type"="s3",
             "AWS_ENDPOINT" = "${getS3Endpoint()}",
@@ -164,7 +164,7 @@ suite("modify_replica_use_partition") {
     """
 
     sql """
-        CREATE STORAGE POLICY ${policy_name}
+        CREATE STORAGE POLICY IF NOT EXISTS ${policy_name}
         PROPERTIES(
             "storage_resource" = "${resource_name}",
             "cooldown_ttl" = "300"

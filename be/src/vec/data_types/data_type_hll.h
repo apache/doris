@@ -17,6 +17,7 @@
 
 #pragma once
 #include "olap/hll.h"
+#include "serde/data_type_hll_serde.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
 #include "vec/core/types.h"
@@ -82,6 +83,8 @@ public:
     static void serialize_as_stream(const HyperLogLog& value, BufferWritable& buf);
 
     static void deserialize_as_stream(HyperLogLog& value, BufferReadable& buf);
+
+    DataTypeSerDeSPtr get_serde() const override { return std::make_shared<DataTypeHLLSerDe>(); };
 };
 
 } // namespace doris::vectorized

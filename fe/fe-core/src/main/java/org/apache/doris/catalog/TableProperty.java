@@ -107,6 +107,9 @@ public class TableProperty implements Writable {
                 buildInMemory();
                 buildStoragePolicy();
                 break;
+            case OperationType.OP_ALTER_LIGHT_SCHEMA_CHANGE:
+                buildEnableLightSchemaChange();
+                break;
             default:
                 break;
         }
@@ -344,7 +347,8 @@ public class TableProperty implements Writable {
                 .buildCompressionType()
                 .buildStoragePolicy()
                 .buildEnableLightSchemaChange()
-                .buildStoreRowColumn();
+                .buildStoreRowColumn()
+                .buildDisableAutoCompaction();
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
             // get replica num from property map and create replica allocation
             String repNum = tableProperty.properties.remove(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM);

@@ -73,12 +73,15 @@ struct CompareMultiImpl {
             result_column->insert_range_from(*(cols[0]), 0, input_rows_count);
             WhichDataType which(data_type);
 
-#define DISPATCH(TYPE, COLUMN_TYPE)                                                   \
-    if (which.idx == TypeIndex::TYPE) {                                               \
-        for (int i = 1; i < arguments.size(); ++i) {                                  \
-            insert_result_data<COLUMN_TYPE>(result_column, cols[i], input_rows_count, \
-                                            col_const[i]);                            \
-        }                                                                             \
+#define DISPATCH(TYPE, COLUMN_TYPE)                                                               \
+    if (which.idx == TypeIndex::TYPE) {                                                           \
+        for (int i = 1; i < arguments.size(); ++i) {                                              \
+            if (col_const[i]) {                                                                   \
+                insert_result_data<COLUMN_TYPE, true>(result_column, cols[i], input_rows_count);  \
+            } else {                                                                              \
+                insert_result_data<COLUMN_TYPE, false>(result_column, cols[i], input_rows_count); \
+            }                                                                                     \
+        }                                                                                         \
     }
             NUMERIC_TYPE_TO_COLUMN_TYPE(DISPATCH)
             DISPATCH(Decimal128, ColumnDecimal<Decimal128>)
@@ -90,10 +93,10 @@ struct CompareMultiImpl {
     }
 
 private:
-    template <typename ColumnType>
+    template <typename ColumnType, bool ArgConst>
     static void insert_result_data(const MutableColumnPtr& result_column,
-                                   const ColumnPtr& argument_column, const size_t input_rows_count,
-                                   const bool arg_const) {
+                                   const ColumnPtr& argument_column,
+                                   const size_t input_rows_count) {
         auto* __restrict result_raw_data =
                 reinterpret_cast<ColumnType*>(result_column.get())->get_data().data();
         auto* __restrict column_raw_data =
@@ -101,19 +104,19 @@ private:
 
         if constexpr (std::is_same_v<ColumnType, ColumnDecimal128>) {
             for (size_t i = 0; i < input_rows_count; ++i) {
-                result_raw_data[i] = Op<DecimalV2Value, DecimalV2Value>::apply(
-                                             column_raw_data[index_check_const(i, arg_const)],
-                                             result_raw_data[i])
-                                             ? column_raw_data[index_check_const(i, arg_const)]
-                                             : result_raw_data[i];
+                result_raw_data[i] =
+                        Op<DecimalV2Value, DecimalV2Value>::apply(
+                                column_raw_data[index_check_const(i, ArgConst)], result_raw_data[i])
+                                ? column_raw_data[index_check_const(i, ArgConst)]
+                                : result_raw_data[i];
             }
         } else {
             for (size_t i = 0; i < input_rows_count; ++i) {
                 using type = std::decay_t<decltype(result_raw_data[0])>;
                 result_raw_data[i] =
-                        Op<type, type>::apply(column_raw_data[index_check_const(i, arg_const)],
+                        Op<type, type>::apply(column_raw_data[index_check_const(i, ArgConst)],
                                               result_raw_data[i])
-                                ? column_raw_data[index_check_const(i, arg_const)]
+                                ? column_raw_data[index_check_const(i, ArgConst)]
                                 : result_raw_data[i];
             }
         }
@@ -138,13 +141,16 @@ struct FunctionFieldImpl {
         for (int i = 0; i < column_size; ++i) {
             argument_columns[i] = block.get_by_position(arguments[i]).column;
         }
-        argument_columns[0] = argument_columns[0]->convert_to_full_column_if_const();
+
+        bool arg_const;
+        std::tie(argument_columns[0], arg_const) = unpack_if_const(argument_columns[0]);
+
         WhichDataType which(data_type);
         //TODO: maybe could use hashmap to save column data, not use for loop ervey time to test equals.
         if (which.is_string_or_fixed_string()) {
             const auto& column_string = reinterpret_cast<const ColumnString&>(*argument_columns[0]);
             for (int row = 0; row < input_rows_count; ++row) {
-                const auto& str_data = column_string.get_data_at(row);
+                const auto& str_data = column_string.get_data_at(index_check_const(row, arg_const));
                 for (int col = 1; col < column_size; ++col) {
                     const auto& temp_data =
                             reinterpret_cast<const ColumnConst&>(*argument_columns[col])
@@ -155,13 +161,21 @@ struct FunctionFieldImpl {
                     }
                 }
             }
-        } else {
-#define DISPATCH(TYPE, COLUMN_TYPE)                                                               \
-    if (which.idx == TypeIndex::TYPE) {                                                           \
-        for (int col = 1; col < arguments.size(); ++col) {                                        \
-            insert_result_data<COLUMN_TYPE>(res_data, argument_columns[0], argument_columns[col], \
-                                            input_rows_count, col);                               \
-        }                                                                                         \
+
+        } else { //string or not
+#define DISPATCH(TYPE, COLUMN_TYPE)                                                             \
+    if (which.idx == TypeIndex::TYPE) {                                                         \
+        for (int col = 1; col < arguments.size(); ++col) {                                      \
+            if (arg_const) {                                                                    \
+                insert_result_data<COLUMN_TYPE, true>(res_data, argument_columns[0],            \
+                                                      argument_columns[col], input_rows_count,  \
+                                                      col);                                     \
+            } else {                                                                            \
+                insert_result_data<COLUMN_TYPE, false>(res_data, argument_columns[0],           \
+                                                       argument_columns[col], input_rows_count, \
+                                                       col);                                    \
+            }                                                                                   \
+        }                                                                                       \
     }
             NUMERIC_TYPE_TO_COLUMN_TYPE(DISPATCH)
             DISPATCH(Decimal128, ColumnDecimal<Decimal128>)
@@ -173,7 +187,7 @@ struct FunctionFieldImpl {
     }
 
 private:
-    template <typename ColumnType>
+    template <typename ColumnType, bool ArgConst>
     static void insert_result_data(PaddedPODArray<Int32>& __restrict res_data,
                                    ColumnPtr first_column, ColumnPtr argument_column,
                                    const size_t input_rows_count, const int col) {
@@ -186,15 +200,17 @@ private:
         if constexpr (std::is_same_v<ColumnType, ColumnDecimal128>) {
             for (size_t i = 0; i < input_rows_count; ++i) {
                 res_data[i] |= (!res_data[i] *
-                                (EqualsOp<DecimalV2Value, DecimalV2Value>::apply(first_raw_data[i],
-                                                                                 arg_data)) *
+                                (EqualsOp<DecimalV2Value, DecimalV2Value>::apply(
+                                        first_raw_data[index_check_const(i, ArgConst)], arg_data)) *
                                 col);
             }
         } else {
             for (size_t i = 0; i < input_rows_count; ++i) {
                 using type = std::decay_t<decltype(first_raw_data[0])>;
                 res_data[i] |= (!res_data[i] *
-                                (EqualsOp<type, type>::apply(first_raw_data[i], arg_data)) * col);
+                                (EqualsOp<type, type>::apply(
+                                        first_raw_data[index_check_const(i, ArgConst)], arg_data)) *
+                                col);
             }
         }
     }

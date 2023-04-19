@@ -55,11 +55,19 @@ doris::Status VectorizedFnCall::prepare(doris::RuntimeState* state,
                     "and restart be.");
         }
     } else {
-        _function = SimpleFunctionFactory::instance().get_function(_fn.name.function_name,
-                                                                   argument_template, _data_type);
+        // get the function. won't prepare function.
+        _function = SimpleFunctionFactory::instance().get_function(
+                _fn.name.function_name, argument_template, _data_type, state->be_exec_version());
     }
     if (_function == nullptr) {
-        return Status::InternalError("Function {} is not implemented", _fn.name.function_name);
+        std::string type_str;
+        for (auto arg : argument_template) {
+            type_str = type_str + " " + arg.type->get_name();
+        }
+        return Status::InternalError(
+                "Function {} is not implemented, input param type is {}, "
+                "and return type is {}.",
+                _fn.name.function_name, type_str, _data_type->get_name());
     }
     VExpr::register_function_context(state, context);
     _expr_name = fmt::format("{}({})", _fn.name.function_name, child_expr_name);

@@ -26,10 +26,6 @@ suite("test_query_sys_tables", "query,p0") {
     sql("drop database IF EXISTS ${dbName2}")
     sql("drop database IF EXISTS ${dbName3}")
 
-    // test backends
-    sql("use information_schema")
-    qt_backends("select count(*) >= 1 from backends")
-
     // test charsets
     sql("use information_schema")
     qt_charsets("select count(*) >= 1 from character_sets")

@@ -488,6 +488,7 @@ void VNestedLoopJoinNode::_reset_with_next_probe_row() {
         block->get_by_position(i).column->assume_mutable()->clear(); \
     }
 
+// need exception safety
 template <typename Filter, bool SetBuildSideFlag, bool SetProbeSideFlag>
 void VNestedLoopJoinNode::_do_filtering_and_update_visited_flags_impl(
         Block* block, int column_to_keep, int build_block_idx, int processed_blocks_num,
@@ -517,6 +518,7 @@ void VNestedLoopJoinNode::_do_filtering_and_update_visited_flags_impl(
     }
 }
 
+// need exception safety
 template <bool SetBuildSideFlag, bool SetProbeSideFlag, bool IgnoreNull>
 Status VNestedLoopJoinNode::_do_filtering_and_update_visited_flags(Block* block, bool materialize) {
     auto column_to_keep = block->columns();

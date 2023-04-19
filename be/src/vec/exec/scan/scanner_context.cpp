@@ -55,8 +55,10 @@ Status ScannerContext::init() {
     // 1. Calculate max concurrency
     // TODO: now the max thread num <= config::doris_scanner_thread_pool_thread_num / 4
     // should find a more reasonable value.
-    _max_thread_num = _state->shared_scan_opt() ? config::doris_scanner_thread_pool_thread_num
+    _max_thread_num = _parent->_shared_scan_opt ? config::doris_scanner_thread_pool_thread_num
                                                 : config::doris_scanner_thread_pool_thread_num / 4;
+    _max_thread_num = _max_thread_num == 0 ? 1 : _max_thread_num;
+    DCHECK(_max_thread_num > 0);
     _max_thread_num = std::min(_max_thread_num, (int32_t)_scanners.size());
     // For select * from table limit 10; should just use one thread.
     if (_parent->should_run_serial()) {
@@ -114,14 +116,17 @@ Status ScannerContext::init() {
     return Status::OK();
 }
 
-vectorized::BlockUPtr ScannerContext::get_free_block(bool* has_free_block) {
+vectorized::BlockUPtr ScannerContext::get_free_block(bool* has_free_block,
+                                                     bool get_block_not_empty) {
     {
         std::lock_guard l(_free_blocks_lock);
         if (!_free_blocks.empty()) {
-            auto block = std::move(_free_blocks.back());
-            _free_blocks.pop_back();
-            _free_blocks_memory_usage->add(-block->allocated_bytes());
-            return block;
+            if (!get_block_not_empty || _free_blocks.back()->mem_reuse()) {
+                auto block = std::move(_free_blocks.back());
+                _free_blocks.pop_back();
+                _free_blocks_memory_usage->add(-block->allocated_bytes());
+                return block;
+            }
         }
     }
     *has_free_block = false;
@@ -269,7 +274,6 @@ void ScannerContext::clear_and_join(VScanNode* node, RuntimeState* state) {
     _close_and_clear_scanners(node, state);
 
     _blocks_queue.clear();
-    _free_blocks.clear();
 }
 
 bool ScannerContext::no_schedule() {
@@ -302,7 +306,6 @@ void ScannerContext::push_back_scanner_and_reschedule(VScanner* scanner) {
         std::unique_lock l(_scanners_lock);
         _scanners.push_front(scanner);
     }
-
     std::lock_guard l(_transfer_lock);
     if (has_enough_space_in_blocks_queue()) {
         _num_scheduling_ctx++;
@@ -319,6 +322,7 @@ void ScannerContext::push_back_scanner_and_reschedule(VScanner* scanner) {
     // same scanner.
     if (scanner->need_to_close() && scanner->set_counted_down() &&
         (--_num_unfinished_scanners) == 0) {
+        _dispose_coloate_blocks_not_in_queue();
         _is_finished = true;
         _blocks_queue_added_cv.notify_one();
     }

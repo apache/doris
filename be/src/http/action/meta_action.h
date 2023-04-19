@@ -17,12 +17,15 @@
 
 #pragma once
 
+#include <string>
+
 #include "common/status.h"
 #include "http/http_handler.h"
 
 namespace doris {
 
 class ExecEnv;
+class HttpRequest;
 
 // Get Meta Info
 class MetaAction : public HttpHandler {

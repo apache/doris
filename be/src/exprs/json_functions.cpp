@@ -17,25 +17,23 @@
 
 #include "exprs/json_functions.h"
 
+#include <rapidjson/allocators.h>
 #include <rapidjson/document.h>
-#include <rapidjson/stringbuffer.h>
-#include <rapidjson/writer.h>
+#include <rapidjson/encodings.h>
+#include <rapidjson/rapidjson.h>
 #include <re2/re2.h>
+#include <simdjson/simdjson.h> // IWYU pragma: keep
 #include <stdlib.h>
-#include <sys/time.h>
 
-#include <boost/algorithm/string.hpp>
-#include <iomanip>
+#include <boost/iterator/iterator_facade.hpp>
+#include <boost/token_functions.hpp>
+#include <boost/tokenizer.hpp>
 #include <sstream>
 #include <string>
-#include <string_view>
 #include <vector>
 
 #include "common/compiler_util.h"
 #include "common/logging.h"
-#include "gutil/strings/stringpiece.h"
-#include "udf/udf.h"
-#include "util/string_util.h"
 
 namespace doris {
 

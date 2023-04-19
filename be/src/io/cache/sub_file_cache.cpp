@@ -51,7 +51,7 @@ SubFileCache::~SubFileCache() {}
 Status SubFileCache::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                   const IOContext* io_ctx) {
     RETURN_IF_ERROR(_init());
-    if (io_ctx->reader_type != READER_QUERY) {
+    if (io_ctx != nullptr && io_ctx->reader_type != READER_QUERY) {
         return _remote_file_reader->read_at(offset, result, bytes_read, io_ctx);
     }
     std::vector<size_t> need_cache_offsets;

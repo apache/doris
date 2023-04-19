@@ -402,7 +402,7 @@ Status BetaRowsetWriter::_add_block(const vectorized::Block* block,
     do {
         auto max_row_add = (*segment_writer)->max_row_to_add(row_avg_size_in_bytes);
         if (UNLIKELY(max_row_add < 1)) {
-            // no space for another signle row, need flush now
+            // no space for another single row, need flush now
             RETURN_NOT_OK(_flush_segment_writer(segment_writer));
             RETURN_NOT_OK(_create_segment_writer(segment_writer, block));
             max_row_add = (*segment_writer)->max_row_to_add(row_avg_size_in_bytes);
@@ -610,10 +610,12 @@ void BetaRowsetWriter::_build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_met
             total_data_size += itr.second.data_size;
             total_index_size += itr.second.index_size;
             segments_encoded_key_bounds.push_back(itr.second.key_bounds);
+#ifndef NDEBUG
             if (_context.enable_unique_key_merge_on_write) {
                 DCHECK(itr.second.key_set.get() != nullptr);
                 key_set.insert(itr.second.key_set->begin(), itr.second.key_set->end());
             }
+#endif
         }
     }
     _num_mow_keys = key_set.size();

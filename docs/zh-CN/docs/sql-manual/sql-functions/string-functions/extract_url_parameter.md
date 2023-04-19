@@ -46,5 +46,7 @@ mysql> SELECT extract_url_parameter ("http://doris.apache.org?k1=aa&k2=bb&test=c
 +--------------------------------------------------------------------------------+
 ```
 
+如果想获取 URL 中的其他部分，可以使用[parse_url](./parse_url.md)。
+
 ### keywords
     EXTRACT URL PARAMETER

@@ -17,18 +17,27 @@
 
 #include "service/point_query_executor.h"
 
+#include <fmt/format.h>
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <stdlib.h>
+
 #include "olap/lru_cache.h"
+#include "olap/olap_tuple.h"
 #include "olap/row_cursor.h"
 #include "olap/storage_engine.h"
-#include "service/internal_service.h"
-#include "util/defer_op.h"
+#include "olap/tablet_manager.h"
+#include "olap/tablet_schema.h"
+#include "runtime/runtime_state.h"
 #include "util/key_util.h"
 #include "util/runtime_profile.h"
 #include "util/thrift_util.h"
 #include "vec/exprs/vexpr.h"
-#include "vec/exprs/vliteral.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/jsonb/serialize.h"
 #include "vec/sink/vmysql_result_writer.cpp"
+#include "vec/sink/vmysql_result_writer.h"
 
 namespace doris {
 

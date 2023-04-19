@@ -24,7 +24,7 @@ TabletColumn create_int_key(int32_t id, bool is_nullable, bool is_bf_column,
     TabletColumn column;
     column._unique_id = id;
     column._col_name = std::to_string(id);
-    column._type = OLAP_FIELD_TYPE_INT;
+    column._type = FieldType::OLAP_FIELD_TYPE_INT;
     column._is_key = true;
     column._is_nullable = is_nullable;
     column._length = 4;
@@ -40,7 +40,7 @@ TabletColumn create_int_value(int32_t id, FieldAggregationMethod agg_method, boo
     TabletColumn column;
     column._unique_id = id;
     column._col_name = std::to_string(id);
-    column._type = OLAP_FIELD_TYPE_INT;
+    column._type = FieldType::OLAP_FIELD_TYPE_INT;
     column._is_key = false;
     column._aggregation = agg_method;
     column._is_nullable = is_nullable;
@@ -59,7 +59,7 @@ TabletColumn create_char_key(int32_t id, bool is_nullable) {
     TabletColumn column;
     column._unique_id = id;
     column._col_name = std::to_string(id);
-    column._type = OLAP_FIELD_TYPE_CHAR;
+    column._type = FieldType::OLAP_FIELD_TYPE_CHAR;
     column._is_key = true;
     column._is_nullable = is_nullable;
     column._length = 8;
@@ -71,7 +71,7 @@ TabletColumn create_varchar_key(int32_t id, bool is_nullable) {
     TabletColumn column;
     column._unique_id = id;
     column._col_name = std::to_string(id);
-    column._type = OLAP_FIELD_TYPE_VARCHAR;
+    column._type = FieldType::OLAP_FIELD_TYPE_VARCHAR;
     column._is_key = true;
     column._is_nullable = is_nullable;
     column._length = 65533;
@@ -83,7 +83,7 @@ TabletColumn create_string_key(int32_t id, bool is_nullable) {
     TabletColumn column;
     column._unique_id = id;
     column._col_name = std::to_string(id);
-    column._type = OLAP_FIELD_TYPE_STRING;
+    column._type = FieldType::OLAP_FIELD_TYPE_STRING;
     column._is_key = true;
     column._is_nullable = is_nullable;
     column._length = 2147483643;
@@ -93,7 +93,7 @@ TabletColumn create_string_key(int32_t id, bool is_nullable) {
 
 void set_column_value_by_type(FieldType fieldType, int src, char* target, vectorized::Arena* pool,
                               size_t _length) {
-    if (fieldType == OLAP_FIELD_TYPE_CHAR) {
+    if (fieldType == FieldType::OLAP_FIELD_TYPE_CHAR) {
         std::string s = std::to_string(src);
         const char* src_value = s.c_str();
         int src_len = s.size();
@@ -103,7 +103,7 @@ void set_column_value_by_type(FieldType fieldType, int src, char* target, vector
         dest_slice->data = pool->alloc(dest_slice->size);
         memcpy(dest_slice->data, src_value, src_len);
         memset(dest_slice->data + src_len, 0, dest_slice->size - src_len);
-    } else if (fieldType == OLAP_FIELD_TYPE_VARCHAR) {
+    } else if (fieldType == FieldType::OLAP_FIELD_TYPE_VARCHAR) {
         std::string s = std::to_string(src);
         const char* src_value = s.c_str();
         int src_len = s.size();
@@ -112,7 +112,7 @@ void set_column_value_by_type(FieldType fieldType, int src, char* target, vector
         dest_slice->size = src_len;
         dest_slice->data = pool->alloc(src_len);
         memcpy(dest_slice->data, src_value, src_len);
-    } else if (fieldType == OLAP_FIELD_TYPE_STRING) {
+    } else if (fieldType == FieldType::OLAP_FIELD_TYPE_STRING) {
         std::string s = std::to_string(src);
         const char* src_value = s.c_str();
         int src_len = s.size();
@@ -127,7 +127,7 @@ void set_column_value_by_type(FieldType fieldType, int src, char* target, vector
 }
 void set_column_value_by_type(FieldType fieldType, const std::string& src, char* target,
                               vectorized::Arena* pool, size_t _length) {
-    if (fieldType == OLAP_FIELD_TYPE_CHAR) {
+    if (fieldType == FieldType::OLAP_FIELD_TYPE_CHAR) {
         const char* src_value = src.c_str();
         int src_len = src.size();
 
@@ -136,7 +136,7 @@ void set_column_value_by_type(FieldType fieldType, const std::string& src, char*
         dest_slice->data = pool->alloc(dest_slice->size);
         memcpy(dest_slice->data, src_value, src_len);
         memset(dest_slice->data + src_len, 0, dest_slice->size - src_len);
-    } else if (fieldType == OLAP_FIELD_TYPE_VARCHAR) {
+    } else if (fieldType == FieldType::OLAP_FIELD_TYPE_VARCHAR) {
         const char* src_value = src.c_str();
         int src_len = src.size();
 
@@ -144,7 +144,7 @@ void set_column_value_by_type(FieldType fieldType, const std::string& src, char*
         dest_slice->size = src_len;
         dest_slice->data = pool->alloc(src_len);
         memcpy(dest_slice->data, src_value, src_len);
-    } else if (fieldType == OLAP_FIELD_TYPE_STRING) {
+    } else if (fieldType == FieldType::OLAP_FIELD_TYPE_STRING) {
         const char* src_value = src.c_str();
         int src_len = src.size();
 

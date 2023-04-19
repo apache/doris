@@ -59,8 +59,8 @@ public class HistogramTask extends BaseAnalysisTask {
         super();
     }
 
-    public HistogramTask(AnalysisTaskScheduler analysisTaskScheduler, AnalysisTaskInfo info) {
-        super(analysisTaskScheduler, info);
+    public HistogramTask(AnalysisTaskInfo info) {
+        super(info);
     }
 
     @Override
@@ -81,7 +81,7 @@ public class HistogramTask extends BaseAnalysisTask {
         params.put("percentValue", String.valueOf((int) (info.sampleRate * 100)));
 
         String histogramSql;
-        Set<String> partitionNames = info.partitionNames;
+        Set<String> partitionNames = tbl.getPartitionNames();
 
         if (partitionNames.isEmpty()) {
             StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
@@ -104,10 +104,11 @@ public class HistogramTask extends BaseAnalysisTask {
         LOG.info("SQL to collect the histogram:\n {}", histogramSql);
 
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+            r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
             this.stmtExecutor = new StmtExecutor(r.connectContext, histogramSql);
             this.stmtExecutor.execute();
         }
 
-        Env.getCurrentEnv().getStatisticsCache().refreshSync(tbl.getId(), -1, col.getName());
+        Env.getCurrentEnv().getStatisticsCache().refreshHistogramSync(tbl.getId(), -1, col.getName());
     }
 }

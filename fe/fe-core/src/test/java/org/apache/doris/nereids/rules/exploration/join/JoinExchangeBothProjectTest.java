@@ -54,17 +54,19 @@ class JoinExchangeBothProjectTest implements MemoPatternMatchSupported {
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyExploration(JoinExchangeBothProject.INSTANCE.build())
                 .matchesExploration(
-                    logicalJoin(
-                        logicalProject(
-                            logicalJoin(
-                                    logicalOlapScan().when(scan -> scan.getTable().getName().equals("t1")),
-                                    logicalOlapScan().when(scan -> scan.getTable().getName().equals("t3"))
-                            )
-                        ),
-                        logicalProject(
-                            logicalJoin(
-                                    logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2")),
-                                    logicalOlapScan().when(scan -> scan.getTable().getName().equals("t4"))
+                    logicalProject(
+                        logicalJoin(
+                            logicalProject(
+                                logicalJoin(
+                                        logicalOlapScan().when(scan -> scan.getTable().getName().equals("t1")),
+                                        logicalOlapScan().when(scan -> scan.getTable().getName().equals("t3"))
+                                )
+                            ),
+                            logicalProject(
+                                logicalJoin(
+                                        logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2")),
+                                        logicalOlapScan().when(scan -> scan.getTable().getName().equals("t4"))
+                                )
                             )
                         )
                     )

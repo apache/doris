@@ -134,13 +134,8 @@ public:
 private:
     void _exec_actual(std::shared_ptr<FragmentExecState> exec_state, const FinishCallback& cb);
 
-    void _set_scan_concurrency(const TExecPlanFragmentParams& params,
-                               QueryFragmentsCtx* fragments_ctx);
-
-    void _set_scan_concurrency(const TPipelineFragmentParams& params,
-                               QueryFragmentsCtx* fragments_ctx);
-
-    bool _is_scan_node(const TPlanNodeType::type& type);
+    template <typename Param>
+    void _set_scan_concurrency(const Param& params, QueryFragmentsCtx* fragments_ctx);
 
     void _setup_shared_hashtable_for_broadcast_join(const TExecPlanFragmentParams& params,
                                                     RuntimeState* state,

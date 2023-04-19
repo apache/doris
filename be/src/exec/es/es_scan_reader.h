@@ -17,10 +17,16 @@
 
 #pragma once
 
+#include <map>
+#include <memory>
 #include <string>
 
 #include "exec/es/es_scroll_parser.h"
 #include "http/http_client.h"
+
+namespace doris {
+class ScrollParser;
+} // namespace doris
 
 using std::string;
 

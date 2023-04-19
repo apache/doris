@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
@@ -64,7 +65,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     public static final double DEFAULT_HAVING_COEFFICIENT = 0.01;
 
     public static final double DEFAULT_EQUALITY_COMPARISON_SELECTIVITY = 0.1;
-
+    public static final double DEFAULT_LIKE_COMPARISON_SELECTIVITY = 0.2;
     private Set<Slot> aggSlots;
 
     public FilterEstimation() {
@@ -176,7 +177,8 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             return estimateLessThanLiteralWithHistogram(leftExpr, statsForLeft, val, context, contains);
         }
         //rightRange.distinctValues should not be used
-        StatisticRange rightRange = new StatisticRange(statsForLeft.minValue, val, statsForLeft.ndv);
+        StatisticRange rightRange = new StatisticRange(statsForLeft.minValue, val, statsForLeft.ndv,
+                leftExpr.getDataType());
         return estimateBinaryComparisonFilter(leftExpr,
                 statsForLeft,
                 rightRange, context);
@@ -189,7 +191,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         }
         //rightRange.distinctValues should not be used
         StatisticRange rightRange = new StatisticRange(val, statsForLeft.maxValue,
-                statsForLeft.ndv);
+                statsForLeft.ndv, leftExpr.getDataType());
         return estimateBinaryComparisonFilter(leftExpr, statsForLeft, rightRange, context);
     }
 
@@ -360,7 +362,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     private Statistics estimateBinaryComparisonFilter(Expression leftExpr, ColumnStatistic leftStats,
             StatisticRange rightRange, EstimationContext context) {
         StatisticRange leftRange =
-                new StatisticRange(leftStats.minValue, leftStats.maxValue, leftStats.ndv);
+                new StatisticRange(leftStats.minValue, leftStats.maxValue, leftStats.ndv, leftExpr.getDataType());
         StatisticRange intersectRange = leftRange.cover(rightRange);
         ColumnStatisticBuilder leftColumnStatisticBuilder = new ColumnStatisticBuilder(leftStats)
                 .setMinValue(intersectRange.getLow())
@@ -375,8 +377,8 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
 
     private Statistics estimateColumnEqualToColumn(Expression leftExpr, ColumnStatistic leftStats,
             Expression rightExpr, ColumnStatistic rightStats, EstimationContext context) {
-        StatisticRange leftRange = StatisticRange.from(leftStats);
-        StatisticRange rightRange = StatisticRange.from(rightStats);
+        StatisticRange leftRange = StatisticRange.from(leftStats, leftExpr.getDataType());
+        StatisticRange rightRange = StatisticRange.from(rightStats, rightExpr.getDataType());
         StatisticRange leftIntersectRight = leftRange.intersect(rightRange);
         StatisticRange rightIntersectLeft = rightRange.intersect(leftIntersectRight);
         ColumnStatisticBuilder leftBuilder = new ColumnStatisticBuilder(leftStats);
@@ -387,7 +389,22 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         rightBuilder.setNdv(rightIntersectLeft.getDistinctValues());
         rightBuilder.setMinValue(rightIntersectLeft.getLow());
         rightBuilder.setMaxValue(rightIntersectLeft.getDistinctValues());
-        double sel = 1 / StatsMathUtil.nonZeroDivisor(Math.max(leftStats.ndv, rightStats.ndv));
+        double sel;
+        double reduceRatio = 0.25;
+        double bothSideReducedRatio = 0.9;
+        if (leftStats.ndv < leftStats.originalNdv * bothSideReducedRatio
+                && rightStats.ndv < rightStats.originalNdv * bothSideReducedRatio) {
+            double sel1;
+            if (leftStats.ndv > rightStats.ndv) {
+                sel1 = 1 / StatsMathUtil.nonZeroDivisor(leftStats.ndv);
+            } else {
+                sel1 = 1 / StatsMathUtil.nonZeroDivisor(rightStats.ndv);
+            }
+            double sel2 = Math.min(rightStats.ndv / rightStats.originalNdv, leftStats.ndv / leftStats.originalNdv);
+            sel = sel1 * Math.pow(sel2, reduceRatio);
+        } else {
+            sel = 1 / StatsMathUtil.nonZeroDivisor(Math.max(leftStats.ndv, rightStats.ndv));
+        }
         Statistics updatedStatistics = context.statistics.withSel(sel);
         updatedStatistics.addColumnStats(leftExpr, leftBuilder.build());
         updatedStatistics.addColumnStats(rightExpr, rightBuilder.build());
@@ -396,8 +413,8 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
 
     private Statistics estimateColumnLessThanColumn(Expression leftExpr, ColumnStatistic leftStats,
             Expression rightExpr, ColumnStatistic rightStats, EstimationContext context) {
-        StatisticRange leftRange = StatisticRange.from(leftStats);
-        StatisticRange rightRange = StatisticRange.from(rightStats);
+        StatisticRange leftRange = StatisticRange.from(leftStats, leftExpr.getDataType());
+        StatisticRange rightRange = StatisticRange.from(rightStats, rightExpr.getDataType());
         Statistics statistics = null;
         // Left always less than Right
         if (leftRange.getHigh() < rightRange.getLow()) {
@@ -414,7 +431,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             return context.statistics.withRowCount(0.0);
         }
         StatisticRange leftAlwaysLessThanRightRange = new StatisticRange(leftStats.minValue,
-                rightStats.minValue, Double.NaN);
+                rightStats.minValue, Double.NaN, leftExpr.getDataType());
         double leftAlwaysLessThanRightPercent = 0;
         if (leftRange.getLow() < rightRange.getLow()) {
             leftAlwaysLessThanRightPercent = leftRange.overlapPercentWith(leftAlwaysLessThanRightRange);
@@ -429,7 +446,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         double rightAlwaysGreaterRangeFraction = 0;
         if (leftRange.getHigh() < rightRange.getHigh()) {
             rightAlwaysGreaterRangeFraction = rightRange.overlapPercentWith(new StatisticRange(leftRange.getHigh(),
-                    rightRange.getHigh(), Double.NaN));
+                    rightRange.getHigh(), Double.NaN, rightExpr.getDataType()));
         }
         ColumnStatistic rightColumnStatistic = new ColumnStatisticBuilder(rightStats)
                 .setMinValue(Math.max(leftRange.getLow(), rightRange.getLow()))
@@ -537,5 +554,10 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 .setMinValue(numVal)
                 .build();
         return context.statistics.withSel(sel).addColumnStats(leftExpr, columnStatistic);
+    }
+
+    @Override
+    public Statistics visitLike(Like like, EstimationContext context) {
+        return context.statistics.withSel(DEFAULT_LIKE_COMPARISON_SELECTIVITY);
     }
 }

@@ -151,21 +151,10 @@ public:
                             int end, const DataTypes& argument_types) {
         for (int i = 0; i < argument_types.size(); i++) {
             PValues* arg = request.add_args();
-            if (auto* nullable = vectorized::check_and_get_column<const vectorized::ColumnNullable>(
-                        *columns[i])) {
-                auto data_col = nullable->get_nested_column_ptr();
-                auto& null_col = nullable->get_null_map_column();
-                auto data_type = std::reinterpret_pointer_cast<const vectorized::DataTypeNullable>(
-                        argument_types[i]);
-                data_col->get_data_at(0);
-                RPCFnImpl::convert_nullable_col_to_pvalue(
-                        data_col->convert_to_full_column_if_const(), data_type->get_nested_type(),
-                        null_col, arg, start, end);
-
-            } else {
-                RPCFnImpl::convert_col_to_pvalue<false>(
-                        columns[i]->convert_to_full_column_if_const(), argument_types[i], arg,
-                        start, end);
+            auto data_type = argument_types[i];
+            if (auto st = data_type->get_serde()->write_column_to_pb(*columns[i], *arg, start, end);
+                st != Status::OK()) {
+                return st;
             }
         }
         return Status::OK();

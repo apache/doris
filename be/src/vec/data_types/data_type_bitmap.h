@@ -18,6 +18,7 @@
 #pragma once
 #include <gen_cpp/Types_types.h>
 
+#include "serde/data_type_bitmap_serde.h"
 #include "util/bitmap_value.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
@@ -87,6 +88,10 @@ public:
     static void serialize_as_stream(const BitmapValue& value, BufferWritable& buf);
 
     static void deserialize_as_stream(BitmapValue& value, BufferReadable& buf);
+
+    DataTypeSerDeSPtr get_serde() const override {
+        return std::make_shared<DataTypeBitMapSerDe>();
+    };
 };
 
 } // namespace doris::vectorized

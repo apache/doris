@@ -19,6 +19,7 @@
 
 #include <fmt/format.h>
 #include <gen_cpp/Types_types.h>
+#include <stdint.h>
 
 #include <boost/format.hpp>
 #include <cstdlib>
@@ -27,9 +28,20 @@
 
 #include "common/status.h"
 #include "runtime/descriptors.h"
+#include "runtime/types.h"
+#include "util/runtime_profile.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris {
+class RuntimeState;
+class TupleDescriptor;
+
+namespace vectorized {
+class Block;
+class VExprContext;
+} // namespace vectorized
 
 // Table Connector for scan data from ODBC/JDBC
 class TableConnector {

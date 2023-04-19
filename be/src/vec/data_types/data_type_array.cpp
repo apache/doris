@@ -42,7 +42,9 @@ MutableColumnPtr DataTypeArray::create_column() const {
 }
 
 Field DataTypeArray::get_default() const {
-    return Array();
+    Array a;
+    a.push_back(nested->get_default());
+    return a;
 }
 
 bool DataTypeArray::equals(const IDataType& rhs) const {

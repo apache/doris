@@ -80,7 +80,7 @@ public class AdjustNullable implements RewriteRuleFactory {
                 RuleType.ADJUST_NULLABLE_ON_PROJECT.build(logicalProject().then(project -> {
                     Map<ExprId, Slot> exprIdSlotMap = collectChildrenOutputMap(project);
                     List<NamedExpression> newProjects = updateExpressions(project.getProjects(), exprIdSlotMap);
-                    return project.withProjects(newProjects).recomputeLogicalProperties();
+                    return project.withProjects(newProjects);
                 })),
                 RuleType.ADJUST_NULLABLE_ON_REPEAT.build(logicalRepeat().then(repeat -> {
                     Map<ExprId, Slot> exprIdSlotMap = collectChildrenOutputMap(repeat);

@@ -22,6 +22,7 @@
 
 #include <cstdint>
 
+#include "serde/data_type_number_serde.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -119,6 +120,9 @@ public:
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
     bool is_null_literal() const override { return _is_null_literal; }
     void set_null_literal(bool flag) { _is_null_literal = flag; }
+    DataTypeSerDeSPtr get_serde() const override {
+        return std::make_shared<DataTypeNumberSerDe<T>>();
+    };
 
 private:
     bool _is_null_literal = false;

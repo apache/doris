@@ -329,4 +329,82 @@ std::string JniConnector::get_hive_type(const TypeDescriptor& desc) {
         return "unsupported";
     }
 }
+
+Status JniConnector::generate_meta_info(Block* block, std::unique_ptr<long[]>& meta) {
+    std::vector<long> meta_data;
+    // insert number of rows
+    meta_data.emplace_back(block->rows());
+    for (int i = 0; i < block->columns(); ++i) {
+        auto& column_with_type_and_name = block->get_by_position(i);
+        auto& column_ptr = column_with_type_and_name.column;
+        auto& column_type = column_with_type_and_name.type;
+        TypeIndex logical_type = remove_nullable(column_type)->get_type_id();
+
+        // insert null map address
+        MutableColumnPtr data_column;
+        if (column_ptr->is_nullable()) {
+            auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
+                    column_ptr->assume_mutable().get());
+            data_column = nullable_column->get_nested_column_ptr();
+            NullMap& null_map = nullable_column->get_null_map_data();
+            meta_data.emplace_back((long)null_map.data());
+        } else {
+            meta_data.emplace_back(0);
+            data_column = column_ptr->assume_mutable();
+        }
+
+        switch (logical_type) {
+#define DISPATCH(NUMERIC_TYPE, CPP_NUMERIC_TYPE)                                          \
+    case NUMERIC_TYPE: {                                                                  \
+        meta_data.emplace_back(_get_numeric_data_address<CPP_NUMERIC_TYPE>(data_column)); \
+        break;                                                                            \
+    }
+            FOR_LOGICAL_NUMERIC_TYPES(DISPATCH)
+#undef DISPATCH
+        case TypeIndex::Decimal128:
+            [[fallthrough]];
+        case TypeIndex::Decimal128I: {
+            meta_data.emplace_back(_get_decimal_data_address<Int128>(data_column));
+            break;
+        }
+        case TypeIndex::Decimal32: {
+            meta_data.emplace_back(_get_decimal_data_address<Int32>(data_column));
+            break;
+        }
+        case TypeIndex::Decimal64: {
+            meta_data.emplace_back(_get_decimal_data_address<Int64>(data_column));
+            break;
+        }
+        case TypeIndex::DateV2: {
+            meta_data.emplace_back(_get_time_data_address<UInt32>(data_column));
+            break;
+        }
+        case TypeIndex::DateTimeV2: {
+            meta_data.emplace_back(_get_time_data_address<UInt64>(data_column));
+            break;
+        }
+        case TypeIndex::String:
+            [[fallthrough]];
+        case TypeIndex::FixedString: {
+            auto& string_column = static_cast<ColumnString&>(*data_column);
+            // inert offsets
+            meta_data.emplace_back((long)string_column.get_offsets().data());
+            meta_data.emplace_back((long)string_column.get_chars().data());
+            break;
+        }
+        case TypeIndex::Array:
+            [[fallthrough]];
+        case TypeIndex::Struct:
+            [[fallthrough]];
+        case TypeIndex::Map:
+            return Status::IOError("Unhandled type {}", getTypeName(logical_type));
+        default:
+            return Status::IOError("Unsupported type {}", getTypeName(logical_type));
+        }
+    }
+
+    meta.reset(new long[meta_data.size()]);
+    memcpy(meta.get(), &meta_data[0], meta_data.size() * 8);
+    return Status::OK();
+}
 } // namespace doris::vectorized

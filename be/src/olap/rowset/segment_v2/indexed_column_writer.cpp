@@ -118,8 +118,8 @@ Status IndexedColumnWriter::_finish_current_data_page(size_t& num_val) {
 
     if (_options.write_ordinal_index) {
         std::string key;
-        KeyCoderTraits<OLAP_FIELD_TYPE_UNSIGNED_BIGINT>::full_encode_ascending(&first_ordinal,
-                                                                               &key);
+        KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT>::full_encode_ascending(
+                &first_ordinal, &key);
         _ordinal_index_builder->add(key, _last_data_page);
     }
 
@@ -143,7 +143,7 @@ Status IndexedColumnWriter::finish(IndexedColumnMetaPB* meta) {
     if (_options.write_value_index) {
         RETURN_IF_ERROR(_flush_index(_value_index_builder.get(), meta->mutable_value_index_meta()));
     }
-    meta->set_data_type(_type_info->type());
+    meta->set_data_type(int(_type_info->type()));
     meta->set_encoding(_options.encoding);
     meta->set_num_values(_num_values);
     meta->set_compression(_options.compression);

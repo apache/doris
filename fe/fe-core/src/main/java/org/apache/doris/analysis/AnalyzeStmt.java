@@ -21,9 +21,8 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -39,7 +38,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Map;
@@ -72,7 +71,8 @@ public class AnalyzeStmt extends DdlStmt {
     public boolean isIncrement;
 
     private final TableName tableName;
-    private final PartitionNames partitionNames;
+
+    private final boolean sync;
     private final List<String> columnNames;
     private final Map<String, String> properties;
 
@@ -81,15 +81,15 @@ public class AnalyzeStmt extends DdlStmt {
     private TableIf table;
 
     public AnalyzeStmt(TableName tableName,
+                       boolean sync,
                        List<String> columnNames,
-                       PartitionNames partitionNames,
                        Map<String, String> properties,
                        Boolean isWholeTbl,
                        Boolean isHistogram,
                        Boolean isIncrement) {
         this.tableName = tableName;
+        this.sync = sync;
         this.columnNames = columnNames;
-        this.partitionNames = partitionNames;
         this.properties = properties;
         this.isWholeTbl = isWholeTbl;
         this.isHistogram = isHistogram;
@@ -110,7 +110,9 @@ public class AnalyzeStmt extends DdlStmt {
         DatabaseIf db = catalog.getDbOrAnalysisException(dbName);
         dbId = db.getId();
         table = db.getTableOrAnalysisException(tblName);
-
+        if (table instanceof View) {
+            throw new AnalysisException("Analyze view is not allowed");
+        }
         checkAnalyzePriv(dbName, tblName);
 
         if (columnNames != null && !columnNames.isEmpty()) {
@@ -130,8 +132,6 @@ public class AnalyzeStmt extends DdlStmt {
             }
         }
 
-        checkPartitionNames();
-
         checkProperties();
     }
 
@@ -149,29 +149,6 @@ public class AnalyzeStmt extends DdlStmt {
                     ConnectContext.get().getQualifiedUser(),
                     ConnectContext.get().getRemoteIP(),
                     dbName + ": " + tblName);
-        }
-    }
-
-    private void checkPartitionNames() throws AnalysisException {
-        if (partitionNames != null) {
-            partitionNames.analyze(analyzer);
-            Database db = analyzer.getEnv().getInternalCatalog()
-                    .getDbOrAnalysisException(tableName.getDb());
-            OlapTable olapTable = (OlapTable) db.getTableOrAnalysisException(tableName.getTbl());
-            if (!olapTable.isPartitioned()) {
-                throw new AnalysisException("Not a partitioned table: " + olapTable.getName());
-            }
-            List<String> names = partitionNames.getPartitionNames();
-            Set<String> olapPartitionNames = olapTable.getPartitionNames();
-            List<String> tempPartitionNames = olapTable.getTempPartitions().stream()
-                    .map(Partition::getName).collect(Collectors.toList());
-            Optional<String> illegalPartitionName = names.stream()
-                    .filter(name -> (tempPartitionNames.contains(name)
-                            || !olapPartitionNames.contains(name)))
-                    .findFirst();
-            if (illegalPartitionName.isPresent()) {
-                throw new AnalysisException("Temporary partition or partition does not exist");
-            }
         }
     }
 
@@ -220,11 +197,6 @@ public class AnalyzeStmt extends DdlStmt {
                 .stream().map(Column::getName).collect(Collectors.toSet()) : Sets.newHashSet(columnNames);
     }
 
-    public Set<String> getPartitionNames() {
-        return partitionNames == null ? Sets.newHashSet(table.getPartitionNames())
-                : Sets.newHashSet(partitionNames.getPartitionNames());
-    }
-
     public Map<String, String> getProperties() {
         // TODO add default properties
         return properties != null ? properties : Maps.newHashMap();
@@ -256,11 +228,6 @@ public class AnalyzeStmt extends DdlStmt {
             sb.append(")");
         }
 
-        if (partitionNames != null) {
-            sb.append(" ");
-            sb.append(partitionNames.toSql());
-        }
-
         if (properties != null) {
             sb.append(" ");
             sb.append("PROPERTIES(");
@@ -271,5 +238,9 @@ public class AnalyzeStmt extends DdlStmt {
         }
 
         return sb.toString();
+    }
+
+    public boolean isSync() {
+        return sync;
     }
 }

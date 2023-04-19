@@ -348,7 +348,6 @@ Status MemTable::_generate_delete_bitmap(int64_t atomic_num_segments_before_flus
 }
 
 Status MemTable::flush() {
-    SCOPED_CONSUME_MEM_TRACKER(_flush_mem_tracker);
     VLOG_CRITICAL << "begin to flush memtable for tablet: " << tablet_id()
                   << ", memsize: " << memory_usage() << ", rows: " << _rows;
     int64_t duration_ns = 0;
@@ -370,6 +369,7 @@ Status MemTable::flush() {
 }
 
 Status MemTable::_do_flush(int64_t& duration_ns) {
+    SCOPED_CONSUME_MEM_TRACKER(_flush_mem_tracker);
     SCOPED_RAW_TIMER(&duration_ns);
     _collect_vskiplist_results<true>();
     vectorized::Block block = _output_mutable_block.to_block();
@@ -422,6 +422,9 @@ void MemTable::serialize_block_to_row_column(vectorized::Block& block) {
             row_column_id = i;
             break;
         }
+    }
+    if (row_column_id == 0) {
+        return;
     }
     vectorized::ColumnString* row_store_column =
             static_cast<vectorized::ColumnString*>(block.get_by_position(row_column_id)

@@ -40,7 +40,7 @@ suite("load") {
             `kdtv2` datev2 null,
             `kdtm` datetime null,
             `kdtmv2` datetimev2(0) null,
-            `kdcml32v3` decimalv3(5, 3) null,
+            `kdcml32v3` decimalv3(7, 3) null,
             `kdcml64v3` decimalv3(10, 5) null,
             `kdcml128v3` decimalv3(20, 8) null
         ) engine=olap
@@ -67,7 +67,7 @@ suite("load") {
             `kdtv2` datev2 not null,
             `kdtm` datetime not null,
             `kdtmv2` datetimev2(0) not null,
-            `kdcml32v3` decimalv3(5, 3) not null,
+            `kdcml32v3` decimalv3(7, 3) not null,
             `kdcml64v3` decimalv3(10, 5) not null,
             `kdcml128v3` decimalv3(20, 8) not null
         ) engine=olap

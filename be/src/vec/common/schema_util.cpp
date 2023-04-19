@@ -20,23 +20,18 @@
 #include <vec/common/schema_util.h>
 #include <vec/core/field.h>
 #include <vec/data_types/data_type_array.h>
-#include <vec/data_types/data_type_object.h>
 #include <vec/functions/simple_function_factory.h>
-#include <vec/json/parse2column.h>
 
 #include <vec/data_types/data_type_factory.hpp>
 #include <vector>
 
-#include "common/compiler_util.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/HeartbeatService_types.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "runtime/client_cache.h"
-#include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "util/thrift_rpc_helper.h"
 #include "vec/columns/column.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -91,19 +86,22 @@ bool is_conversion_required_between_integers(const IDataType& lhs, const IDataTy
 bool is_conversion_required_between_integers(FieldType lhs, FieldType rhs) {
     // We only support signed integers for semi-structure data at present
     // TODO add unsigned integers
-    if (lhs == OLAP_FIELD_TYPE_BIGINT) {
-        return !(rhs == OLAP_FIELD_TYPE_TINYINT || rhs == OLAP_FIELD_TYPE_SMALLINT ||
-                 rhs == OLAP_FIELD_TYPE_INT || rhs == OLAP_FIELD_TYPE_BIGINT);
+    if (lhs == FieldType::OLAP_FIELD_TYPE_BIGINT) {
+        return !(rhs == FieldType::OLAP_FIELD_TYPE_TINYINT ||
+                 rhs == FieldType::OLAP_FIELD_TYPE_SMALLINT ||
+                 rhs == FieldType::OLAP_FIELD_TYPE_INT || rhs == FieldType::OLAP_FIELD_TYPE_BIGINT);
     }
-    if (lhs == OLAP_FIELD_TYPE_INT) {
-        return !(rhs == OLAP_FIELD_TYPE_TINYINT || rhs == OLAP_FIELD_TYPE_SMALLINT ||
-                 rhs == OLAP_FIELD_TYPE_INT);
+    if (lhs == FieldType::OLAP_FIELD_TYPE_INT) {
+        return !(rhs == FieldType::OLAP_FIELD_TYPE_TINYINT ||
+                 rhs == FieldType::OLAP_FIELD_TYPE_SMALLINT ||
+                 rhs == FieldType::OLAP_FIELD_TYPE_INT);
     }
-    if (lhs == OLAP_FIELD_TYPE_SMALLINT) {
-        return !(rhs == OLAP_FIELD_TYPE_TINYINT || rhs == OLAP_FIELD_TYPE_SMALLINT);
+    if (lhs == FieldType::OLAP_FIELD_TYPE_SMALLINT) {
+        return !(rhs == FieldType::OLAP_FIELD_TYPE_TINYINT ||
+                 rhs == FieldType::OLAP_FIELD_TYPE_SMALLINT);
     }
-    if (lhs == OLAP_FIELD_TYPE_TINYINT) {
-        return !(rhs == OLAP_FIELD_TYPE_TINYINT);
+    if (lhs == FieldType::OLAP_FIELD_TYPE_TINYINT) {
+        return !(rhs == FieldType::OLAP_FIELD_TYPE_TINYINT);
     }
     return true;
 }

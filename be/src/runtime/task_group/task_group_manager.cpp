@@ -19,10 +19,7 @@
 
 namespace doris::taskgroup {
 
-TaskGroupManager::TaskGroupManager() {
-    _create_default_task_group();
-    _create_short_task_group();
-}
+TaskGroupManager::TaskGroupManager() = default;
 TaskGroupManager::~TaskGroupManager() = default;
 
 TaskGroupManager* TaskGroupManager::instance() {
@@ -30,23 +27,23 @@ TaskGroupManager* TaskGroupManager::instance() {
     return &tgm;
 }
 
-TaskGroupPtr TaskGroupManager::get_task_group(uint64_t id) {
-    std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
-    if (_task_groups.count(id)) {
-        return _task_groups[id];
-    } else {
-        return _task_groups[DEFAULT_TG_ID];
+TaskGroupPtr TaskGroupManager::get_or_create_task_group(const TaskGroupInfo& task_group_info) {
+    {
+        std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
+        if (_task_groups.count(task_group_info._id)) {
+            return _task_groups[task_group_info._id];
+        }
     }
-}
 
-void TaskGroupManager::_create_default_task_group() {
-    _task_groups[DEFAULT_TG_ID] =
-            std::make_shared<TaskGroup>(DEFAULT_TG_ID, "default_tg", DEFAULT_TG_CPU_SHARE);
-}
-
-void TaskGroupManager::_create_short_task_group() {
-    _task_groups[SHORT_TG_ID] =
-            std::make_shared<TaskGroup>(SHORT_TG_ID, "short_tg", SHORT_TG_CPU_SHARE);
+    auto new_task_group =
+            std::make_shared<TaskGroup>(task_group_info._id, task_group_info._name,
+                                        task_group_info._cpu_share, task_group_info._version);
+    std::lock_guard<std::shared_mutex> w_lock(_group_mutex);
+    if (_task_groups.count(task_group_info._id)) {
+        return _task_groups[task_group_info._id];
+    }
+    _task_groups[task_group_info._id] = new_task_group;
+    return new_task_group;
 }
 
 } // namespace doris::taskgroup

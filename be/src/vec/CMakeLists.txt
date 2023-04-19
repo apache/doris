@@ -30,7 +30,8 @@ set(VEC_FILES
   aggregate_functions/aggregate_function_sum.cpp
   aggregate_functions/aggregate_function_sort.cpp
   aggregate_functions/aggregate_function_min_max.cpp
-  aggregate_functions/aggregate_function_min_max_by.cpp
+  aggregate_functions/aggregate_function_min_by.cpp
+  aggregate_functions/aggregate_function_max_by.cpp
   aggregate_functions/aggregate_function_uniq.cpp
   aggregate_functions/aggregate_function_hll_union_agg.cpp
   aggregate_functions/aggregate_function_bit.cpp
@@ -72,6 +73,7 @@ set(VEC_FILES
   common/sort/vsort_exec_exprs.cpp
   common/string_utils/string_utils.cpp
   common/hex.cpp
+  common/allocator.cpp
   core/block.cpp
   core/block_spill_reader.cpp
   core/block_spill_writer.cpp
@@ -80,6 +82,19 @@ set(VEC_FILES
   core/field.cpp
   core/sort_block.cpp
   core/materialize_block.cpp
+  data_types/serde/data_type_serde.cpp
+  data_types/serde/data_type_map_serde.cpp
+  data_types/serde/data_type_array_serde.cpp
+  data_types/serde/data_type_struct_serde.cpp
+  data_types/serde/data_type_number_serde.cpp
+  data_types/serde/data_type_string_serde.cpp
+  data_types/serde/data_type_decimal_serde.cpp
+  data_types/serde/data_type_object_serde.cpp
+  data_types/serde/data_type_fixedlengthobject_serde.cpp
+  data_types/serde/data_type_hll_serde.cpp
+  data_types/serde/data_type_bitmap_serde.cpp
+  data_types/serde/data_type_quantilestate_serde.cpp
+  data_types/serde/data_type_nullable_serde.cpp
   data_types/data_type.cpp
   data_types/data_type_array.cpp
   data_types/data_type_struct.cpp
@@ -168,6 +183,7 @@ set(VEC_FILES
   functions/array/function_array_sort.cpp
   functions/array/function_array_sortby.cpp
   functions/array/function_array_utils.cpp
+  functions/array/function_array_shuffle.cpp
   functions/array/function_arrays_overlap.cpp
   functions/array/function_array_distinct.cpp
   functions/array/function_array_remove.cpp
@@ -191,6 +207,7 @@ set(VEC_FILES
   functions/array/function_array_pushfront.cpp
   functions/array/function_array_first_index.cpp
   functions/function_map.cpp
+  functions/function_struct.cpp
   exprs/table_function/vexplode_json_array.cpp
   functions/math.cpp
   functions/function_bitmap.cpp

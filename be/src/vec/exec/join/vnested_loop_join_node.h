@@ -105,10 +105,11 @@ private:
             }
 
             if constexpr (set_probe_side_flag) {
-                auto status =
-                        _do_filtering_and_update_visited_flags<set_build_side_flag,
-                                                               set_probe_side_flag, ignore_null>(
-                                &_join_block, !_is_left_semi_anti);
+                Status status;
+                RETURN_IF_CATCH_EXCEPTION(
+                        (status = _do_filtering_and_update_visited_flags<
+                                 set_build_side_flag, set_probe_side_flag, ignore_null>(
+                                 &_join_block, !_is_left_semi_anti)));
                 _update_additional_flags(&_join_block);
                 if (!status.ok()) {
                     return status;
@@ -141,10 +142,11 @@ private:
         }
 
         if constexpr (!set_probe_side_flag) {
-            Status status =
-                    _do_filtering_and_update_visited_flags<set_build_side_flag, set_probe_side_flag,
-                                                           ignore_null>(&_join_block,
-                                                                        !_is_right_semi_anti);
+            Status status;
+            RETURN_IF_CATCH_EXCEPTION(
+                    (status = _do_filtering_and_update_visited_flags<
+                             set_build_side_flag, set_probe_side_flag, ignore_null>(
+                             &_join_block, !_is_right_semi_anti)));
             _update_additional_flags(&_join_block);
             mutable_join_block = MutableBlock(&_join_block);
             if (!status.ok()) {

@@ -161,6 +161,14 @@ DataTypePtr make_nullable(const DataTypePtr& type) {
     return std::make_shared<DataTypeNullable>(type);
 }
 
+DataTypes make_nullable(const DataTypes& types) {
+    DataTypes nullable_types;
+    for (auto& type : types) {
+        nullable_types.push_back(make_nullable(type));
+    }
+    return nullable_types;
+}
+
 DataTypePtr remove_nullable(const DataTypePtr& type) {
     if (type->is_nullable()) return static_cast<const DataTypeNullable&>(*type).get_nested_type();
     return type;

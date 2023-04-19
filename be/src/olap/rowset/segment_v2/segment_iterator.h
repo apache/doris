@@ -257,9 +257,9 @@ private:
                 auto* field = key.schema()->column(cid);
                 _short_key[cid] = Schema::get_column_by_field(*field);
 
-                if (field->type() == OLAP_FIELD_TYPE_DATE) {
+                if (field->type() == FieldType::OLAP_FIELD_TYPE_DATE) {
                     _short_key[cid]->set_date_type();
-                } else if (field->type() == OLAP_FIELD_TYPE_DATETIME) {
+                } else if (field->type() == FieldType::OLAP_FIELD_TYPE_DATETIME) {
                     _short_key[cid]->set_datetime_type();
                 }
             }
@@ -278,9 +278,9 @@ private:
             if (cell.is_null()) {
                 _short_key[cid]->insert_default();
             } else {
-                if (field->type() == OLAP_FIELD_TYPE_VARCHAR ||
-                    field->type() == OLAP_FIELD_TYPE_CHAR ||
-                    field->type() == OLAP_FIELD_TYPE_STRING) {
+                if (field->type() == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
+                    field->type() == FieldType::OLAP_FIELD_TYPE_CHAR ||
+                    field->type() == FieldType::OLAP_FIELD_TYPE_STRING) {
                     const Slice* slice = reinterpret_cast<const Slice*>(cell.cell_ptr());
                     _short_key[cid]->insert_data(slice->data, slice->size);
                 } else {
