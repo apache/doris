@@ -89,12 +89,7 @@ public class ExportMgrTest {
         BrokerDesc bd = new BrokerDesc("broker", new HashMap<>());
         Deencapsulation.setField(job1, "brokerDesc", bd);
 
-        Map<String, String> properties = Maps.newHashMap();
-        properties.put(LoadStmt.EXEC_MEM_LIMIT, "-1");
-        properties.put(LoadStmt.TIMEOUT_PROPERTY, "-1");
-        Deencapsulation.setField(job1, "properties", properties);
-
-
+        Deencapsulation.setField(job1, "timeoutSecond", -1);
         return job1;
     }
 

@@ -99,6 +99,7 @@ public class ExportStmt extends StatementBase {
         this.columnSeparator = DEFAULT_COLUMN_SEPARATOR;
         this.lineDelimiter = DEFAULT_LINE_DELIMITER;
         this.columns = DEFAULT_COLUMNS;
+        this.sessionVariables = ConnectContext.get().getSessionVariable();
     }
 
     public String getColumns() {
@@ -147,11 +148,6 @@ public class ExportStmt extends StatementBase {
 
     public SessionVariable getSessionVariables() {
         return sessionVariables;
-    }
-
-    public void setSessionVariable(SessionVariable sessionVariable) {
-        this.sessionVariables = sessionVariable;
-        sessionVariables.setQueryTimeoutS(Integer.parseInt(properties.get(LoadStmt.TIMEOUT_PROPERTY)));
     }
 
     public String getQualifiedUser() {

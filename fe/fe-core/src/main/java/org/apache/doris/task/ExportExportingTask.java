@@ -114,15 +114,15 @@ public class ExportExportingTask extends MasterTask {
         LOG.info("Exporting task progress is {}%, export job: {}", progress, job.getId());
 
         if (isFailed) {
-            job.cancel(errorMsg.getCancelType(), errorMsg.getMsg());
             registerProfile();
+            job.cancel(errorMsg.getCancelType(), errorMsg.getMsg());
             LOG.warn("Exporting task failed because Exception: {}", errorMsg.getMsg());
             return;
         }
 
+        registerProfile();
         if (job.finish(outfileInfoList)) {
             LOG.info("export job success. job: {}", job);
-            registerProfile();
             // TODO(ftw): when we implement exporting tablet one by one, we should release snapshot here
             // release snapshot
             // Status releaseSnapshotStatus = job.releaseSnapshotPaths();

@@ -91,8 +91,6 @@ import java.util.Map.Entry;
 public class ExportJob implements Writable {
     private static final Logger LOG = LogManager.getLogger(ExportJob.class);
 
-    private static final String PATH_PREFIXES = "export_";
-
     private static final String BROKER_PROPERTY_PREFIXES = "broker.";
 
     public enum JobState {
@@ -221,6 +219,8 @@ public class ExportJob implements Writable {
         this.exportPath = path;
         this.sessionVariables = stmt.getSessionVariables();
         this.timeoutSecond = sessionVariables.getQueryTimeoutS();
+        this.enableProfile = sessionVariables.enableProfile();
+
         this.qualifiedUser = stmt.getQualifiedUser();
         this.userIdentity = stmt.getUserIdentity();
         this.format = stmt.getFormat();
