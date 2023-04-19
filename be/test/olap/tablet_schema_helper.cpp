@@ -17,6 +17,8 @@
 
 #include "olap/tablet_schema_helper.h"
 
+#include "vec/common/arena.h"
+
 namespace doris {
 
 TabletColumn create_int_key(int32_t id, bool is_nullable, bool is_bf_column,

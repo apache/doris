@@ -17,7 +17,18 @@
 
 #include "data_type_nullable_serde.h"
 
+#include <gen_cpp/types.pb.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <memory>
+
+#include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/data_types/serde/data_type_serde.h"
 
 namespace doris {
 

@@ -17,9 +17,24 @@
 
 #include "vec/exprs/vexpr_context.h"
 
+#include <algorithm>
+#include <ostream>
+#include <string>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/object_pool.h"
+#include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "udf/udf.h"
 #include "util/stack_util.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
 #include "vec/exprs/vexpr.h"
+
+namespace doris {
+class RowDescriptor;
+} // namespace doris
 
 namespace doris::vectorized {
 VExprContext::VExprContext(VExpr* expr)

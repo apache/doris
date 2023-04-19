@@ -20,14 +20,12 @@
 #include <arrow/result.h>
 #include <arrow/status.h>
 #include <arrow/type.h>
-#include <opentelemetry/common/threadlocal.h>
 #include <parquet/exception.h>
 #include <parquet/file_reader.h>
 #include <parquet/metadata.h>
 #include <parquet/properties.h>
 #include <parquet/schema.h>
 
-#include <algorithm>
 #include <atomic>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
@@ -38,6 +36,8 @@
 #include <ostream>
 #include <thread>
 
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
 #include "common/status.h"
 #include "util/string_util.h"

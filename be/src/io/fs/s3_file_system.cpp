@@ -17,25 +17,57 @@
 
 #include "io/fs/s3_file_system.h"
 
+#include <aws/core/client/AWSError.h>
+#include <aws/core/http/HttpResponse.h>
+#include <aws/core/utils/Outcome.h>
+#include <aws/core/utils/memory/stl/AWSAllocator.h>
+#include <aws/core/utils/memory/stl/AWSMap.h>
+#include <aws/core/utils/memory/stl/AWSStreamFwd.h>
+#include <aws/core/utils/memory/stl/AWSString.h>
+#include <aws/core/utils/memory/stl/AWSStringStream.h>
+#include <aws/core/utils/memory/stl/AWSVector.h>
 #include <aws/core/utils/threading/Executor.h>
 #include <aws/s3/S3Client.h>
+#include <aws/s3/S3Errors.h>
 #include <aws/s3/model/CopyObjectRequest.h>
+#include <aws/s3/model/CopyObjectResult.h>
+#include <aws/s3/model/Delete.h>
 #include <aws/s3/model/DeleteObjectRequest.h>
+#include <aws/s3/model/DeleteObjectResult.h>
 #include <aws/s3/model/DeleteObjectsRequest.h>
+#include <aws/s3/model/DeleteObjectsResult.h>
+#include <aws/s3/model/Error.h>
+#include <aws/s3/model/GetObjectRequest.h>
+#include <aws/s3/model/GetObjectResult.h>
 #include <aws/s3/model/HeadObjectRequest.h>
+#include <aws/s3/model/HeadObjectResult.h>
 #include <aws/s3/model/ListObjectsV2Request.h>
+#include <aws/s3/model/ListObjectsV2Result.h>
+#include <aws/s3/model/Object.h>
+#include <aws/s3/model/ObjectIdentifier.h>
 #include <aws/s3/model/PutObjectRequest.h>
+#include <aws/s3/model/PutObjectResult.h>
+#include <aws/transfer/TransferHandle.h>
 #include <aws/transfer/TransferManager.h>
-#include <opentelemetry/common/threadlocal.h>
+#include <fmt/format.h>
+#include <stddef.h>
 
+#include <algorithm>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
 #include <filesystem>
-#include <fstream>
+#include <fstream> // IWYU pragma: keep
 #include <memory>
+#include <sstream>
 
 #include "common/config.h"
+#include "common/logging.h"
 #include "common/status.h"
-#include "gutil/strings/stringpiece.h"
-#include "io/cache/block/cached_remote_file_reader.h"
+#include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/remote_file_system.h"
 #include "io/fs/s3_file_reader.h"
 #include "io/fs/s3_file_writer.h"

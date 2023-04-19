@@ -19,14 +19,13 @@
 
 #include <memory>
 
-#include "gen_cpp/FrontendService_types.h"
-
 namespace doris {
 
 class ExecEnv;
 class StreamLoadContext;
 class Status;
 class TTxnCommitAttachment;
+class TLoadTxnCommitRequest;
 
 class StreamLoadExecutor {
 public:

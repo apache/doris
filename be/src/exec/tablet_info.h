@@ -32,12 +32,9 @@
 
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "olap/tablet_schema.h"
-#include "runtime/descriptors.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
-#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 class MemTracker;

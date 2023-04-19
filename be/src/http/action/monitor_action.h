@@ -25,7 +25,6 @@
 namespace doris {
 
 class HttpRequest;
-class HttpChannel;
 class RestMonitorIface;
 
 class MonitorAction : public HttpHandler {

@@ -17,8 +17,22 @@
 
 #pragma once
 
-#include "vec/columns/column.h"
+#include <stddef.h>
+
+#include <algorithm>
+
+#include "common/status.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/data_types/data_type.h"
 #include "vec/exprs/table_function/table_function.h"
+
+namespace doris {
+namespace vectorized {
+class Block;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

@@ -20,19 +20,43 @@
 
 #include "io/cache/block/block_lru_file_cache.h"
 
+#include <fmt/format.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <stdint.h>
+
+#include <algorithm>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <cstring>
 #include <filesystem>
+#include <iterator>
+#include <list>
+#include <ostream>
 #include <random>
 #include <system_error>
 #include <utility>
 
 #include "common/status.h"
 #include "io/cache/block/block_file_cache.h"
-#include "io/cache/block/block_file_cache_settings.h"
+#include "io/cache/block/block_file_cache_fwd.h"
+#include "io/fs/file_reader.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "olap/iterators.h"
-#include "util/time.h"
+#include "io/fs/path.h"
+#include "util/slice.h"
 #include "vec/common/hex.h"
-#include "vec/common/sip_hash.h"
+
+namespace doris {
+namespace io {
+struct FileCacheSettings;
+} // namespace io
+} // namespace doris
 
 namespace fs = std::filesystem;
 

@@ -15,10 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#pragma once
+
+#include "common/status.h"
 #include "data_type_serde.h"
+
 namespace doris {
+class PValues;
 
 namespace vectorized {
+class IColumn;
 
 class DataTypeHLLSerDe : public DataTypeSerDe {
 public:

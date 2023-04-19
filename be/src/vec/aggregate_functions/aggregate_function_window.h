@@ -20,16 +20,34 @@
 
 #pragma once
 
-#include "factory_helpers.h"
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <memory>
+#include <ostream>
+
+#include "gutil/integral_types.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_reader_first_last.h"
-#include "vec/aggregate_functions/helpers.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/data_types/data_type_decimal.h"
-#include "vec/data_types/data_type_nullable.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_string.h"
-#include "vec/io/io_helper.h"
+
+namespace doris {
+namespace vectorized {
+class Arena;
+class BufferReadable;
+class BufferWritable;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

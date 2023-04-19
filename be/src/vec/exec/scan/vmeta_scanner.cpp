@@ -17,14 +17,42 @@
 
 #include "vmeta_scanner.h"
 
+#include <fmt/format.h>
+#include <gen_cpp/FrontendService.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/HeartbeatService_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
 
-#include "gen_cpp/FrontendService.h"
+#include <ostream>
+#include <string>
+#include <utility>
+
+#include "common/logging.h"
 #include "runtime/client_cache.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
+#include "runtime/runtime_state.h"
+#include "runtime/types.h"
 #include "util/thrift_rpc_helper.h"
-#include "vec/runtime/vdatetime_value.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/exec/scan/vmeta_scan_node.h"
+
+namespace doris {
+class RuntimeProfile;
+namespace vectorized {
+class VExprContext;
+class VScanNode;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

@@ -21,16 +21,22 @@
 #include "vec/data_types/data_type_decimal.h"
 
 #include <fmt/format.h>
+#include <gen_cpp/data.pb.h>
+#include <string.h>
 
 #include <utility>
 
-#include "gen_cpp/data.pb.h"
+#include "runtime/decimalv2_value.h"
+#include "util/string_parser.hpp"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/int_exp.h"
+#include "vec/common/string_buffer.hpp"
 #include "vec/common/typeid_cast.h"
 #include "vec/io/io_helper.h"
+#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 

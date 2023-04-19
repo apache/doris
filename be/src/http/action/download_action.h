@@ -21,9 +21,7 @@
 #include <vector>
 
 #include "common/status.h"
-#include "exec/scan_node.h"
 #include "http/http_handler.h"
-#include "runtime/descriptors.h"
 
 namespace doris {
 

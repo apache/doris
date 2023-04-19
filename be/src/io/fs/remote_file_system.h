@@ -17,10 +17,21 @@
 
 #pragma once
 
+#include <stdint.h>
+
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "common/status.h"
+#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
+#include "io/fs/path.h"
 
 namespace doris {
 namespace io {
+class FileReaderOptions;
 
 class RemoteFileSystem : public FileSystem {
 public:

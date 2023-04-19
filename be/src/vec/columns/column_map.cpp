@@ -20,6 +20,20 @@
 
 #include "vec/columns/column_map.h"
 
+#include <string.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <limits>
+#include <memory>
+#include <vector>
+
+#include "vec/common/arena.h"
+#include "vec/common/typeid_cast.h"
+#include "vec/common/unaligned.h"
+
+class SipHash;
+
 namespace doris::vectorized {
 
 /** A column of map values.

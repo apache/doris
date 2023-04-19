@@ -18,19 +18,32 @@
 #include "olap/tablet_meta_manager.h"
 
 #include <fmt/format.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <rocksdb/db.h>
 
 #include <boost/algorithm/string/trim.hpp>
 #include <fstream>
-#include <sstream>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "common/logging.h"
 #include "json2pb/json_to_pb.h"
 #include "json2pb/pb_to_json.h"
+#include "olap/data_dir.h"
 #include "olap/olap_define.h"
 #include "olap/olap_meta.h"
-#include "olap/storage_engine.h"
+#include "olap/utils.h"
+
+namespace rocksdb {
+class Iterator;
+class Slice;
+class Status;
+struct ColumnFamilyOptions;
+struct DBOptions;
+struct ReadOptions;
+struct WriteOptions;
+} // namespace rocksdb
 
 using rocksdb::DB;
 using rocksdb::DBOptions;

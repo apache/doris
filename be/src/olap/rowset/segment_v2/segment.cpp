@@ -17,30 +17,53 @@
 
 #include "olap/rowset/segment_v2/segment.h"
 
+#include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/olap_file.pb.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <string.h>
 
 #include <memory>
 #include <utility>
 
-#include "common/config.h"
-#include "common/logging.h" // LOG
-#include "io/cache/file_cache_manager.h"
-#include "io/fs/file_reader_options.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
+#include "io/io_common.h"
+#include "olap/block_column_predicate.h"
+#include "olap/column_predicate.h"
 #include "olap/iterators.h"
+#include "olap/primary_key_index.h"
 #include "olap/rowset/segment_v2/empty_segment_iterator.h"
+#include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/rowset/segment_v2/page_io.h"
+#include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/rowset/segment_v2/segment_iterator.h"
 #include "olap/rowset/segment_v2/segment_writer.h" // k_segment_magic_length
+#include "olap/short_key_index.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_schema.h"
+#include "olap/types.h"
+#include "olap/utils.h"
+#include "runtime/memory/mem_tracker.h"
+#include "runtime/query_fragments_ctx.h"
+#include "runtime/runtime_predicate.h"
+#include "runtime/runtime_state.h"
+#include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/slice.h" // Slice
+#include "vec/columns/column.h"
+#include "vec/common/string_ref.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/olap/vgeneric_iterators.h"
 
 namespace doris {
+namespace io {
+class FileCacheManager;
+class FileReaderOptions;
+} // namespace io
+
 namespace segment_v2 {
+class InvertedIndexIterator;
 
 using io::FileCacheManager;
 

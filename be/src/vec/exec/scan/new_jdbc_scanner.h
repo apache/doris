@@ -17,13 +17,27 @@
 
 #pragma once
 
-#include "runtime/runtime_state.h"
+#include <gen_cpp/Types_types.h>
+#include <stdint.h>
+
+#include <memory>
+#include <string>
+
+#include "common/global_types.h"
+#include "common/status.h"
 #include "util/runtime_profile.h"
-#include "vec/exec/scan/new_jdbc_scan_node.h"
 #include "vec/exec/scan/vscanner.h"
 #include "vec/exec/vjdbc_connector.h"
+
 namespace doris {
+class RuntimeState;
+class TupleDescriptor;
+
 namespace vectorized {
+class Block;
+class NewJdbcScanNode;
+class VExprContext;
+
 class NewJdbcScanner : public VScanner {
 public:
     friend class JdbcConnector;

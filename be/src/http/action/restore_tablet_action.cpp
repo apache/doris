@@ -21,6 +21,7 @@
 #include <gen_cpp/AgentService_types.h>
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <memory>

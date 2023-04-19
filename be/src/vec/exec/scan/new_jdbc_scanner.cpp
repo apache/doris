@@ -17,8 +17,23 @@
 
 #include "new_jdbc_scanner.h"
 
+#include <new>
+#include <ostream>
+#include <utility>
+#include <vector>
+
+#include "common/logging.h"
+#include "runtime/descriptors.h"
+#include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
+#include "vec/columns/column.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
+#include "vec/exec/scan/new_jdbc_scan_node.h"
+#include "vec/exec/scan/vscan_node.h"
 #include "vec/exec/vjdbc_connector.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
 NewJdbcScanner::NewJdbcScanner(RuntimeState* state, NewJdbcScanNode* parent, int64_t limit,

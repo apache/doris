@@ -17,11 +17,35 @@
 
 #include "vec/exec/join/vjoin_node_base.h"
 
-#include <sstream>
+#include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <glog/logging.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+#include <opentelemetry/trace/span.h>
+#include <opentelemetry/trace/tracer.h>
+#include <stddef.h>
 
-#include "gen_cpp/PlanNodes_types.h"
+#include <sstream>
+#include <system_error>
+
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
+#include "util/telemetry/telemetry.h"
+#include "util/threadpool.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/utils/util.hpp"
+
+namespace doris {
+class ObjectPool;
+} // namespace doris
 
 namespace doris::vectorized {
 

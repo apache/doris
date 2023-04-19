@@ -12,10 +12,23 @@
 
 #include "mustache.h"
 
+#include <rapidjson/allocators.h>
+#include <rapidjson/document.h>
+#include <rapidjson/encodings.h>
 #include <rapidjson/prettywriter.h>
+#include <rapidjson/rapidjson.h>
+#include <strings.h>
 
-#include <boost/algorithm/string.hpp>
-#include <fstream>
+#include <algorithm>
+#include <boost/algorithm/string/classification.hpp>
+#include <boost/algorithm/string/detail/classification.hpp>
+#include <boost/algorithm/string/join.hpp>
+#include <boost/algorithm/string/predicate_facade.hpp>
+#include <boost/algorithm/string/split.hpp>
+#include <boost/algorithm/string/trim.hpp>
+#include <boost/iterator/iterator_facade.hpp>
+#include <boost/type_index/type_index_facade.hpp>
+#include <fstream> // IWYU pragma: keep
 #include <iostream>
 #include <stack>
 #include <vector>

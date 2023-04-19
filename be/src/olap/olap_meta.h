@@ -18,11 +18,15 @@
 #pragma once
 
 #include <functional>
-#include <map>
 #include <string>
+#include <vector>
 
-#include "olap/olap_define.h"
-#include "rocksdb/db.h"
+#include "common/status.h"
+
+namespace rocksdb {
+class ColumnFamilyHandle;
+class DB;
+} // namespace rocksdb
 
 namespace doris {
 

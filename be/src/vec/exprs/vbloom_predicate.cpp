@@ -17,9 +17,34 @@
 
 #include "vec/exprs/vbloom_predicate.h"
 
+#include <stddef.h>
+
+#include <utility>
+#include <vector>
+
 #include "common/status.h"
 #include "exprs/bloom_filter_func.h"
+#include "gutil/integral_types.h"
+#include "runtime/runtime_state.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
+
+namespace doris {
+class RowDescriptor;
+class TExprNode;
+
+namespace vectorized {
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

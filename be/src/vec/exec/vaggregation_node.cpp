@@ -17,15 +17,38 @@
 
 #include "vec/exec/vaggregation_node.h"
 
+#include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+
+#include <array>
+#include <atomic>
 #include <memory>
 
 #include "exec/exec_node.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/descriptors.h"
+#include "runtime/memory/mem_tracker.h"
+#include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
+#include "util/telemetry/telemetry.h"
+#include "vec/common/hash_table/hash_table_key_holder.h"
+#include "vec/common/hash_table/hash_table_utils.h"
+#include "vec/common/hash_table/string_hash_table.h"
+#include "vec/common/string_buffer.hpp"
 #include "vec/core/block.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/utils/util.hpp"
+
+namespace doris {
+class ObjectPool;
+} // namespace doris
 
 namespace doris::vectorized {
 

@@ -17,10 +17,31 @@
 
 #pragma once
 
+#include <fmt/format.h>
+#include <glog/logging.h>
+#include <stddef.h>
+
+#include <memory>
+#include <ostream>
+#include <string>
+#include <utility>
+
+#include "common/status.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/pod_array_fwd.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
-#include "vec/data_types/data_type_number.h"
 #include "vec/functions/function.h"
+
+namespace doris {
+class FunctionContext;
+} // namespace doris
 
 namespace doris::vectorized {
 

@@ -15,9 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gen_cpp/PlanNodes_types.h>
+#include <stdint.h>
+
+#include <string>
+
 #include "common/status.h"
 #include "exec/exec_node.h"
-#include "gen_cpp/PlanNodes_types.h"
+
+namespace doris {
+class DescriptorTbl;
+class ObjectPool;
+class RuntimeState;
+} // namespace doris
 
 namespace doris::vectorized {
 class Block;

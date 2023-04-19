@@ -21,8 +21,10 @@
 
 #include "olap/rowset/rowset_tree.h"
 
+#include <gen_cpp/olap_file.pb.h>
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <functional>
 #include <iterator>
@@ -36,6 +38,7 @@
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
 #include "util/interval_tree-inl.h"
+#include "util/interval_tree.h"
 #include "util/slice.h"
 
 using std::shared_ptr;

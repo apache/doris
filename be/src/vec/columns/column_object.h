@@ -19,16 +19,36 @@
 // and modified by Doris
 
 #pragma once
-#include <vec/columns/column.h>
-#include <vec/columns/subcolumn_tree.h>
-#include <vec/common/hash_table/hash_map.h>
-#include <vec/common/pod_array.h>
-#include <vec/core/field.h>
-#include <vec/core/names.h>
-#include <vec/data_types/data_type.h>
-#include <vec/json/json_parser.h>
+#include <glog/logging.h>
+#include <sys/types.h>
+
+#include <algorithm>
+#include <memory>
+#include <ostream>
+#include <string>
+#include <string_view>
+#include <unordered_set>
+#include <utility>
+#include <vector>
 
 #include "common/status.h"
+#include "vec/columns/column.h"
+#include "vec/columns/subcolumn_tree.h"
+#include "vec/common/cow.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/json/path_in_data.h"
+
+class SipHash;
+
+namespace doris {
+namespace vectorized {
+class Arena;
+} // namespace vectorized
+} // namespace doris
+
 namespace doris::vectorized {
 
 /// Info that represents a scalar or array field in a decomposed view.
