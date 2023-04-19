@@ -213,7 +213,7 @@ public class JdbcExecutor {
             do {
                 for (int i = 0; i < columnCount; ++i) {
                     if (isGraph()) {
-                        block.get(i)[curBlockRows] = tranferToDorisObject((ValueWrapper) resultSet.getObject(i + 1));
+                        block.get(i)[curBlockRows] = transferToObject((ValueWrapper) resultSet.getObject(i + 1));
                     } else {
                         block.get(i)[curBlockRows] = resultSet.getObject(i + 1);
                     }
@@ -1544,7 +1544,8 @@ public class JdbcExecutor {
     }
 
     // only used by nebula-graph
-    public static Object tranferToDorisObject(ValueWrapper value) {
+    // transfer to an object that can copy to the block
+    public static Object tranferToObject(ValueWrapper value) {
         try {
             if (value.isLong()) {
                 return value.asLong();
