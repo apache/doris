@@ -67,10 +67,11 @@ namespace vectorized {
 class MutableBlock;
 
 class Block {
+    DISALLOW_EXPILICT_NEW(Block);
+
 private:
     using Container = ColumnsWithTypeAndName;
     using IndexByName = phmap::flat_hash_map<String, size_t>;
-
     Container data;
     IndexByName index_by_name;
     std::vector<bool> row_same_bit;
@@ -397,6 +398,8 @@ using BlocksPtr = std::shared_ptr<Blocks>;
 using BlocksPtrs = std::shared_ptr<std::vector<BlocksPtr>>;
 
 class MutableBlock {
+    DISALLOW_EXPILICT_NEW(MutableBlock);
+
 private:
     MutableColumns _columns;
     DataTypes _data_types;
