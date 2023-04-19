@@ -153,7 +153,7 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     std::string filter_id = std::to_string(runtime_filter_desc->filter_id);
     // LOG(INFO) << "entity filter id:" << filter_id;
     cntVal->filter->init_with_desc(&cntVal->runtime_filter_desc, query_options,
-                                   _fragment_instance_id);
+                                   _fragment_instance_id, -1, false);
     _filter_map.emplace(filter_id, cntVal);
     return Status::OK();
 }
