@@ -81,7 +81,7 @@ public class InsertIntoSelectCommand extends Command implements ForwardWithSync 
         }
         String label = this.labelName;
         if (label == null) {
-            label = "label-" + ctx.queryId().toString();
+            label = String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo);
         }
         Transaction txn = new Transaction(ctx, database, table, label, planner);
         txn.executeInsertIntoSelectCommand(this);
