@@ -70,6 +70,7 @@ public class SessionVariablesTest extends TestWithFeService {
 
     @Test
     public void testExperimentalSessionVariables() throws Exception {
+        connectContext.setThreadLocalInfo();
         // 1. set without experimental
         SessionVariable sessionVar = connectContext.getSessionVariable();
         boolean enableNereids = sessionVar.isEnableNereidsPlanner();
@@ -202,6 +203,7 @@ public class SessionVariablesTest extends TestWithFeService {
     @Test
     public void testDisableProfile() {
         try {
+            connectContext.setThreadLocalInfo();
             SetStmt setStmt = (SetStmt) parseAndAnalyzeStmt("set enable_profile=false", connectContext);
             SetExecutor setExecutor = new SetExecutor(connectContext, setStmt);
             setExecutor.execute();
