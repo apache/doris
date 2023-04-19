@@ -171,7 +171,7 @@ public class HMSExternalTable extends ExternalTable {
 
     @Override
     public String getMysqlType() {
-        return type.name();
+        return type.toMysqlType();
     }
 
     @Override

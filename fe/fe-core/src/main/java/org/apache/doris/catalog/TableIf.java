@@ -177,13 +177,6 @@ public interface TableIf {
         public String toMysqlType() {
             switch (this) {
                 case OLAP:
-                    return "BASE TABLE";
-                case SCHEMA:
-                    return "SYSTEM VIEW";
-                case INLINE_VIEW:
-                case VIEW:
-                case MATERIALIZED_VIEW:
-                    return "VIEW";
                 case MYSQL:
                 case ODBC:
                 case BROKER:
@@ -196,7 +189,13 @@ public interface TableIf {
                 case HMS_EXTERNAL_TABLE:
                 case ES_EXTERNAL_TABLE:
                 case ICEBERG_EXTERNAL_TABLE:
-                    return "EXTERNAL TABLE";
+                    return "BASE TABLE";
+                case SCHEMA:
+                    return "SYSTEM VIEW";
+                case INLINE_VIEW:
+                case VIEW:
+                case MATERIALIZED_VIEW:
+                    return "VIEW";
                 default:
                     return null;
             }
