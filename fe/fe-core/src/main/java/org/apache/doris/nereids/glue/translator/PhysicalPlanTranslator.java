@@ -1854,14 +1854,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         return leftFragment;
     }
 
-    private PlanFragment constructBucketShuffleJoin(AbstractPhysicalJoin<PhysicalPlan, PhysicalPlan> physicalHashJoin,
+    private PlanFragment constructBucketShuffleJoin(PhysicalHashJoin<PhysicalPlan, PhysicalPlan> physicalHashJoin,
             HashJoinNode hashJoinNode, PlanFragment leftFragment,
             PlanFragment rightFragment, PlanTranslatorContext context) {
         // according to left partition to generate right partition expr list
         DistributionSpecHash leftDistributionSpec
                 = (DistributionSpecHash) physicalHashJoin.left().getPhysicalProperties().getDistributionSpec();
 
-        Pair<List<ExprId>, List<ExprId>> onClauseUsedSlots = JoinUtils.getOnClauseUsedSlots(physicalHashJoin);
+        Pair<List<ExprId>, List<ExprId>> onClauseUsedSlots = physicalHashJoin.getHashConjunctsExprIds();
         List<ExprId> rightPartitionExprIds = Lists.newArrayList(leftDistributionSpec.getOrderedShuffledColumns());
         for (int i = 0; i < leftDistributionSpec.getOrderedShuffledColumns().size(); i++) {
             int idx = leftDistributionSpec.getExprIdToEquivalenceSet()
