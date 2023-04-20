@@ -244,13 +244,6 @@ public class Transaction {
         return entry.getRowsInTransaction();
     }
 
-    private void check() throws TException {
-        TTxnParams txnConf = ctx.getTxnEntry().getTxnConf();
-        if (!txnConf.getDb().equals(database.getFullName()) || !txnConf.getTbl().equals(table.getName())) {
-            throw new TException("only one table in one transaction");
-        }
-    }
-
     private void handleTransactionForNotInTxnModel() throws Exception {
         coordinator.setLoadZeroTolerance(ctx.getSessionVariable().getEnableInsertStrict());
         coordinator.setQueryType(TQueryType.LOAD);
