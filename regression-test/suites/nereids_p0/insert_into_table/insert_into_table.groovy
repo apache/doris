@@ -68,51 +68,52 @@ suite("nereids_insert_into_table") {
 
     sql 'insert into target select * from src'
     test {
-        sql 'select * from target'
+        sql 'select * from target order by k1'
         result([
+                [null, null, null, null, null],
                 [1, 2, 3, '4', '5'],
                 [4, 5, 6, '7', '8'],
-                [12, 13, 14, '15', '16'],
-                [null, null, null, null, null]
+                [12, 13, 14, '15', '16']
         ])
     }
     sql 'truncate table target'
 
     test {
         sql '''insert into target select 'x', 'x', 'x', 1, 2'''
-        exception ''
     }
 
     test {
         sql '''insert into target select 1, 2, 3'''
-        exception ''
+        exception 'insert target table contains 5 slots, but source table contains 3 slots'
     }
 
     sql 'insert into target partition (p10, p5) select * from src where k1 < 10 and k1 > 2'
     test {
-        sql 'select * from target'
+        sql 'select * from target order by k1'
         result([
+                [null, null, null, '1', '2'],
                 [4, 5, 6, '7', '8']
         ])
     }
 
-    sql 'insert into target partition (p10, p5) (k1, k3, k5) select k1, k2, k4 from src where k1 < 10 and k1 > 2'
+    sql 'insert into target partition (p10, p5) (k1, k2, k3, k4, k5) select k1, \'100\', k2, 0, k4 from src where k1 < 10 and k1 > 2'
     test {
-        sql 'select * from target'
+        sql 'select * from target order by k1, k2'
         result([
+                [null, null, null, '1', '2'],
                 [4, 5, 6, '7', '8'],
-                [4, null, 5, null, '7']
+                [4, 100, 5, '0', '7']
         ])
     }
 
-    sql 'insert into target partition (p10, p5) with label `test` (k1, k3, k5) select k2, k4, k5 from src where k1 < 10 and k1 > 2'
+    sql 'insert into target partition (p10, p5) (k1, k2, k3, k4, k5) with cte as (select 9, k2, k4, 0, k5 from src where k1 < 10 and k1 > 2) select * from cte'
     test {
-        sql 'select * from target'
+        sql 'select * from target order by k1, k2'
         result([
+                [null, null, null, '1', '2'],
                 [4, 5, 6, '7', '8'],
-                [4, null, 5, null, '7'],
-                [5, null, 7, null, '8']
+                [4, 100, 5, '0', '7'],
+                [9, 5, 7, '0', '8']
         ])
     }
-    sql 'truncate table target'
 }
