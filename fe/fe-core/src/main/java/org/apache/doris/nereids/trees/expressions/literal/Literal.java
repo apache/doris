@@ -137,39 +137,7 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
      */
     @Override
     public int compareTo(Literal other) {
-        if (isNullLiteral() && other.isNullLiteral()) {
-            return 0;
-        } else if (isNullLiteral() || other.isNullLiteral()) {
-            return isNullLiteral() ? -1 : 1;
-        }
-
-        DataType oType = other.getDataType();
-        DataType type = getDataType();
-
-        if ((type.isIntegerLikeType() || type.isLargeIntType())
-                && (oType.isIntegerLikeType() || oType.isLargeIntType())) {
-            // e.g. tinyint compare to int
-            return new BigInteger(getStringValue()).compareTo(new BigInteger(other.getStringValue()));
-        } else if (type.isStringLikeType() && oType.isStringLikeType()) {
-            // VarChar type can be different, e.g., VarChar(1) = VarChar(2)
-            return StringUtils.compare((String) getValue(), (String) other.getValue());
-        } else if (type.isBooleanType() && oType.isBooleanType()) {
-            return Boolean.compare((Boolean) getValue(), (Boolean) other.getValue());
-        } else if (type.isDateLikeType() || oType.isDateLikeType()) {
-            return Long.compare((Long) getValue(), (Long) other.getValue());
-        } else if ((type.isBooleanType() || type.isNumericType() || type.isStringLikeType())
-                || (oType.isBooleanType() || oType.isNumericType() || oType.isStringLikeType())) {
-            // e.g. int compare to double, or boolean compare to int
-            BigDecimal left = type.isBooleanType()
-                    ? new BigDecimal(Boolean.TRUE.equals(getValue()) ? 1 : 0)
-                    : new BigDecimal(getStringValue());
-            BigDecimal right = oType.isBooleanType()
-                    ? new BigDecimal(Boolean.TRUE.equals(other.getValue()) ? 1 : 0)
-                    : new BigDecimal(other.getStringValue());
-            return left.compareTo(right);
-        } else {
-            throw new RuntimeException("data type can not compare: " + type + " and " + oType);
-        }
+        return toLegacyLiteral().compareLiteral(other.toLegacyLiteral());
     }
 
     /**
