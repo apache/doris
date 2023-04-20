@@ -173,6 +173,7 @@ public class Transaction {
             throws Exception {
         if (ctx.isTxnModel()) {
             Preconditions.checkArgument(!command.checkIfScanData(), "insert into select in txn model is not supported");
+            txnStatus = TransactionStatus.PREPARE;
             beginTxn();
             loadedRows = executeForTxn(ImmutableList.of());
         } else {
