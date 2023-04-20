@@ -35,13 +35,13 @@ import java.util.List;
 public class LambdaFunctionCallExpr extends FunctionCallExpr {
     public static final ImmutableSet<String> LAMBDA_FUNCTION_SET = new ImmutableSortedSet.Builder(
             String.CASE_INSENSITIVE_ORDER).add("array_map").add("array_filter").add("array_exists").add("array_sortby")
-            .add("array_first_index").add("array_last").build();
+            .add("array_first_index")..add("array_last").add("array_count").build();
     // The functions in this set are all normal array functions when implemented initially.
     // and then wants add lambda expr as the input param, so we rewrite it to contains an array_map lambda function
     // rather than reimplementing a lambda function, this will be reused the implementation of normal array function
     public static final ImmutableSet<String> LAMBDA_MAPPED_FUNCTION_SET = new ImmutableSortedSet.Builder(
             String.CASE_INSENSITIVE_ORDER).add("array_exists").add("array_sortby")
-            .add("array_first_index").add("array_last")
+            .add("array_first_index").add("array_last").add("array_count")
             .build();
 
     private static final Logger LOG = LogManager.getLogger(LambdaFunctionCallExpr.class);
@@ -84,7 +84,8 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
             if (fnParams.exprs() == null || fnParams.exprs().size() < 2) {
                 throw new AnalysisException("The " + fnName.getFunction() + " function must have at least two params");
             }
-            // we always put the lambda expr at last position during the parser to get param type first,
+            // we always put the lambda expr at last position during the parser to get param
+            // type first,
             // so here need change the lambda expr to the first args position for BE.
             // array_map(x->x>1,[1,2,3]) ---> array_map([1,2,3], x->x>1) --->
             // array_map(x->x>1, [1,2,3])
@@ -108,7 +109,8 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
             }
             fn.setReturnType(ArrayType.create(lambda.getChild(0).getType(), true));
         } else if (fnName.getFunction().equalsIgnoreCase("array_exists")
-                || fnName.getFunction().equalsIgnoreCase("array_first_index")) {
+                || fnName.getFunction().equalsIgnoreCase("array_first_index")
+                || fnName.getFunction().equalsIgnoreCase("array_count")) {
             if (fnParams.exprs() == null || fnParams.exprs().size() < 1) {
                 throw new AnalysisException("The " + fnName.getFunction() + " function must have at least one param");
             }
