@@ -354,7 +354,7 @@ public class EditLog {
                 case OperationType.OP_EXPORT_UPDATE_STATE:
                     ExportJob.StateTransfer op = (ExportJob.StateTransfer) journal.getData();
                     ExportMgr exportMgr = env.getExportMgr();
-                    exportMgr.replayUpdateJobState(op.getJobId(), op.getState());
+                    exportMgr.replayUpdateJobState(op);
                     break;
                 case OperationType.OP_FINISH_DELETE: {
                     DeleteInfo info = (DeleteInfo) journal.getData();

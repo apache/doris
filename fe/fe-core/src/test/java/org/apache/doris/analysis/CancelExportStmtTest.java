@@ -156,7 +156,7 @@ public class CancelExportStmtTest extends TestWithFeService {
         ExportJob job2 = new ExportJob();
         job2.updateState(ExportJob.JobState.CANCELLED, true);
         ExportJob job3 = new ExportJob();
-        job3.updateState(ExportJob.JobState.EXPORTING, true);
+        job3.updateState(ExportJob.JobState.EXPORTING, false);
         ExportJob job4 = new ExportJob();
         exportJobList1.add(job1);
         exportJobList1.add(job2);
