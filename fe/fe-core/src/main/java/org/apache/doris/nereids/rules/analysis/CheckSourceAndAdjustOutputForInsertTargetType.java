@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -27,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.types.DataType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -34,7 +36,7 @@ import java.util.List;
 /**
  * adjust output for insert target type
  */
-public class AdjustOutputForInsertTargetType implements CustomRewriter {
+public class CheckSourceAndAdjustOutputForInsertTargetType implements CustomRewriter {
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
         List<DataType> insertTargetTypes = jobContext.getCascadesContext()
@@ -42,7 +44,7 @@ public class AdjustOutputForInsertTargetType implements CustomRewriter {
         List<Slot> outputs = plan.getOutput();
         List<NamedExpression> newSlots = Lists.newArrayListWithCapacity(outputs.size());
         for (int i = 0; i < insertTargetTypes.size(); ++i) {
-            if (insertTargetTypes.get(i).acceptsType(outputs.get(i).getDataType())) {
+            if (insertTargetTypes.get(i).equals(outputs.get(i).getDataType())) {
                 newSlots.add(outputs.get(i));
             } else {
                 Slot slot = outputs.get(i);
@@ -50,5 +52,18 @@ public class AdjustOutputForInsertTargetType implements CustomRewriter {
             }
         }
         return new LogicalProject<>(newSlots, plan);
+    }
+
+    private void check(List<DataType> targetType, List<Slot> slots) {
+        Preconditions.checkArgument(targetType.size() == slots.size(),
+                String.format("insert target table contains %d slots, but source table contains %d slots",
+                        targetType.size(), slots.size()));
+        for (int i = 0; i < targetType.size(); i++) {
+            if (!targetType.get(i).acceptsType(slots.get(i).getDataType())) {
+                throw new AnalysisException(String.format("%s cannot be cast to %s",
+                        slots.get(i).getDataType(), targetType.get(i)));
+            }
+        }
+
     }
 }
