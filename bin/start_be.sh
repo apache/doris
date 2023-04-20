@@ -145,7 +145,7 @@ export ODBCSYSINI="${DORIS_HOME}/conf"
 export NLS_LANG='AMERICAN_AMERICA.AL32UTF8'
 
 # filter known leak.
-export LSAN_OPTIONS="suppressions=${DORIS_HOME}/conf/asan_suppr.conf"
+export LSAN_OPTIONS="suppressions=${DORIS_HOME}/conf/lsan_suppr.conf"
 export ASAN_OPTIONS="suppressions=${DORIS_HOME}/conf/asan_suppr.conf"
 
 while read -r line; do
