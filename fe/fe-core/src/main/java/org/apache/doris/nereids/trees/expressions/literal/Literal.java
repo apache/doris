@@ -153,21 +153,20 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
         } else if (type.isStringLikeType() && oType.isStringLikeType()) {
             // VarChar type can be different, e.g., VarChar(1) = VarChar(2)
             return StringUtils.compare((String) getValue(), (String) other.getValue());
-        } else if (type.isNumericType() && oType.isNumericType()) {
-            // e.g. float compare to double
-            return new BigDecimal(getStringValue()).compareTo(new BigDecimal(other.getStringValue()));
-        } else if (type.isBooleanType() && oType.isNumericType()) {
-            return new BigDecimal(getValue().equals(Boolean.TRUE) ? 1 : 0)
-                    .compareTo(new BigDecimal(other.getStringValue()));
-        } else if (type.isNumericType() && oType.isBooleanType()) {
-            return new BigDecimal(getStringValue())
-                    .compareTo(new BigDecimal(other.getValue().equals(Boolean.TRUE) ? 1 : 0));
-        } else if (!type.equals(oType)) {
-            throw new RuntimeException("data type not equal!");
-        } else if (type.isBooleanType()) {
-            return Boolean.compare((boolean) getValue(), (boolean) other.getValue());
+        } else if (type.isBooleanType() && oType.isBooleanType()) {
+            return Boolean.compare((Boolean) getValue(), (Boolean) other.getValue());
+        } else if ((type.isBooleanType() || type.isNumericType() || type.isStringLikeType())
+                || (oType.isBooleanType() || oType.isNumericType() || oType.isStringLikeType())) {
+            // e.g. int compare to double, or boolean compare to int
+            BigDecimal left = type.isBooleanType()
+                    ? new BigDecimal(Boolean.TRUE.equals(getValue()) ? 1 : 0)
+                    : new BigDecimal(getStringValue());
+            BigDecimal right = oType.isBooleanType()
+                    ? new BigDecimal(Boolean.TRUE.equals(other.getValue()) ? 1 : 0)
+                    : new BigDecimal(other.getStringValue());
+            return left.compareTo(right);
         } else {
-            throw new RuntimeException(String.format("Literal {} is not supported!", type.toString()));
+            throw new RuntimeException("data type can not compare: " + type + " and " + oType);
         }
     }
 
