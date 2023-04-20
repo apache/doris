@@ -20,8 +20,6 @@ set -eo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
-echo "Build Auditloader..."
-echo "ROOT: ${ROOT}"
 export DORIS_HOME="${ROOT}/../../.."
 
 echo "DORIS_HOME: ${DORIS_HOME}"
@@ -30,8 +28,6 @@ echo "DORIS_HOME: ${DORIS_HOME}"
 export AUDITLOADER_HOME="${ROOT}"
 
 "${MVN_CMD}" clean package -DskipTests
-
-echo "Install auditloader..."
 
 AUDITLOADER_OUTPUT="${AUDITLOADER_HOME}/output"
 rm -rf "${AUDITLOADER_OUTPUT}"

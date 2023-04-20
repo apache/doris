@@ -20,11 +20,7 @@ set -eo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
-echo "Build broker..."
-echo "ROOT: ${ROOT}"
-
 export DORIS_HOME="${ROOT}/../../.."
-echo "DORIS_HOME: ${DORIS_HOME}"
 . "${DORIS_HOME}/env.sh"
 
 export BROKER_HOME="${ROOT}"
@@ -36,7 +32,6 @@ cp "${BROKER_HOME}/../../../gensrc/thrift/PaloBrokerService.thrift" "${BROKER_HO
 
 "${MVN_CMD}" package -DskipTests
 
-echo "Install broker..."
 BROKER_OUTPUT="${BROKER_HOME}/output/apache_hdfs_broker"
 rm -rf "${BROKER_OUTPUT}"
 
