@@ -126,6 +126,24 @@ struct TypeDescriptor {
         return ret;
     }
 
+    static TypeDescriptor create_decimalv3_type(int precision, int scale) {
+        DCHECK_LE(precision, MAX_PRECISION);
+        DCHECK_LE(scale, MAX_SCALE);
+        DCHECK_GE(precision, 0);
+        DCHECK_LE(scale, precision);
+        TypeDescriptor ret;
+        if (precision <= MAX_DECIMAL4_PRECISION) {
+            ret.type = TYPE_DECIMAL32;
+        } else if (precision <= MAX_DECIMAL8_PRECISION) {
+            ret.type = TYPE_DECIMAL64;
+        } else {
+            ret.type = TYPE_DECIMAL128I;
+        }
+        ret.precision = precision;
+        ret.scale = scale;
+        return ret;
+    }
+
     static TypeDescriptor from_thrift(const TTypeDesc& t) {
         int idx = 0;
         TypeDescriptor result(t.types, &idx);
