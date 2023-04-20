@@ -216,13 +216,13 @@ public class AlterLightSchChangeHelper {
         info.getIndexIdToColumnInfo().forEach((indexId, colNameToId) -> {
             final List<Column> columns = olapTable.getSchemaByIndexId(indexId, true);
             Preconditions.checkState(columns.size() == colNameToId.size(),
-                    "size mismatch for columns meta from BE");
+                    "size mismatch for original columns meta and that in change info");
             int maxColId = Column.COLUMN_UNIQUE_ID_INIT_VALUE;
             final List<Column> newSchema = new ArrayList<>();
             for (Column column : columns) {
                 final String columnName = column.getName();
                 final int columnId = Preconditions.checkNotNull(colNameToId.get(columnName),
-                        "failed to fetch column id of column:{" + columnName + "} from BE");
+                        "failed to fetch column id of column:{" + columnName + "}");
                 final Column newColumn = new Column(column);
                 newColumn.setUniqueId(columnId);
                 newSchema.add(newColumn);
