@@ -59,6 +59,7 @@ import org.apache.doris.analysis.StmtRewriter;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.SwitchStmt;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.TableRenameClause;
 import org.apache.doris.analysis.TransactionBeginStmt;
 import org.apache.doris.analysis.TransactionCommitStmt;
 import org.apache.doris.analysis.TransactionRollbackStmt;
@@ -897,6 +898,10 @@ public class StmtExecutor implements ProfileWriter {
                 CreateTableAsSelectStmt parsedStmt = (CreateTableAsSelectStmt) this.parsedStmt;
                 queryStmt = parsedStmt.getQueryStmt();
                 queryStmt.getTables(analyzer, false, tableMap, parentViewNameSet);
+            } else if (parsedStmt instanceof InsertOverwriteTableStmt) {
+                InsertOverwriteTableStmt parsedStmt = (InsertOverwriteTableStmt) this.parsedStmt;
+                queryStmt = parsedStmt.getQueryStmt();
+                queryStmt.getTables(analyzer, false, tableMap, parentViewNameSet);
             } else if (parsedStmt instanceof InsertStmt) {
                 InsertStmt insertStmt = (InsertStmt) parsedStmt;
                 insertStmt.getTables(analyzer, tableMap, parentViewNameSet);
@@ -986,6 +991,15 @@ public class StmtExecutor implements ProfileWriter {
     }
 
     private void analyzeAndGenerateQueryPlan(TQueryOptions tQueryOptions) throws UserException {
+        if (parsedStmt instanceof InsertOverwriteTableStmt) {
+            parsedStmt.analyze(analyzer);
+            plannerProfile.setQueryAnalysisFinishTime();
+            planner = new OriginalPlanner(analyzer);
+            plannerProfile.setQueryPlanFinishTime();
+            return;
+        }
+
+
         if (parsedStmt instanceof QueryStmt || parsedStmt instanceof InsertStmt) {
             QueryStmt queryStmt = null;
             if (parsedStmt instanceof QueryStmt) {
@@ -2143,7 +2157,7 @@ public class StmtExecutor implements ProfileWriter {
     private void handleIotStmt() {
         InsertOverwriteTableStmt iotStmt = (InsertOverwriteTableStmt) this.parsedStmt;
         UUID uuid = UUID.randomUUID();
-        TableName tmpTableName = new TableName(null, null, "tmp_" + uuid);
+        TableName tmpTableName = new TableName(null, iotStmt.getDb(), "tmp_" + uuid);
         TableName targetTableName = new TableName(null, iotStmt.getDb(),
                 iotStmt.getTbl());
         try {
@@ -2161,7 +2175,8 @@ public class StmtExecutor implements ProfileWriter {
         // after success create table insert data
         if (MysqlStateType.OK.equals(context.getState().getStateType())) {
             try {
-                parsedStmt = iotStmt;
+                // clone query to avoid duplicate registrations of table/colRefs,
+                parsedStmt = new InsertStmt(tmpTableName, iotStmt.getOriginQueryStmt());
                 parsedStmt.setUserInfo(context.getCurrentUserIdentity());
                 execute();
                 if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
@@ -2183,8 +2198,8 @@ public class StmtExecutor implements ProfileWriter {
             List<AlterClause> ops = new ArrayList<>();
             Map<String, String> properties = new HashMap<>();
             properties.put("swap", "false");
-            ops.add(new ReplaceTableClause(targetTableName.getTbl(), properties));
-            AlterTableStmt alterTableStmt = new AlterTableStmt(tmpTableName, ops);
+            ops.add(new ReplaceTableClause(tmpTableName.getTbl(), properties));
+            AlterTableStmt alterTableStmt = new AlterTableStmt(targetTableName, ops);
             DdlExecutor.execute(context.getEnv(), alterTableStmt);
         } catch (Exception e) {
             // Maybe our bug

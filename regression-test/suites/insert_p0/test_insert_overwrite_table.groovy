@@ -16,9 +16,17 @@
 // under the License.
 
 suite("test_iot") {
-    sql """
+   def dbname = "test_iot_db";
+    sql """drop database if exists ${dbname}"""
+    sql """create database ${dbname}"""
+    sql """use ${dbname}"""
+    sql """clean label from ${dbname}"""
+
+    try {
+        sql """
     CREATE TABLE IF NOT EXISTS `test_iot` (
       `test_varchar` varchar(150) NULL,
+      `test_text` text NULL,
       `test_datetime` datetime NULL,
       `test_default_timestamp` datetime DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=OLAP
@@ -31,11 +39,10 @@ suite("test_iot") {
     )
     """
 
-    sql """ INSERT INTO test_iot(test_varchar, test_datetime) VALUES ('test1','2023-04-18 16:00:33'),('test2','2023-04-18 16:00:54') """
-
-    sql """ 
+       sql """ 
     CREATE TABLE IF NOT EXISTS `test_iot1` (
       `test_varchar` varchar(150) NULL,
+      `test_text` text NULL,
       `test_datetime` datetime NULL,
       `test_default_timestamp` datetime DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=OLAP
@@ -45,15 +52,20 @@ suite("test_iot") {
       "replication_allocation" = "tag.location.default: 1",
       "in_memory" = "false",
       "storage_format" = "V2"
-    ) 
+    )
     """
 
-    sql """ INSERT overwrite test_iot1 select * from test_iot """
+        sql """ INSERT INTO test_iot1(test_varchar, test_text, test_datetime) VALUES ('test1','test11','2023-04-20 16:00:33'),('test2','test22','2023-04-20 16:00:54') """
+        sql """INSERT OVERWRITE test_iot select * from test_iot1"""
+	test{
+        	sql """select count(*) from test_iot"""
+		rowNum 2
+	}
+	
+    } finally {
+        sql """ DROP TABLE IF EXISTS test_iot """
 
-    qt_select """ select count(*) from test_iot1 """
-
-    sql """ DROP TABLE IF EXISTS test_iot """
-
-    sql """ DROP TABLE IF EXISTS test_iot1 """
+        sql """ DROP TABLE IF EXISTS test_iot1 """
+    }
 
 }

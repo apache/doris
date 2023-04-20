@@ -19,18 +19,23 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.UserException;
 
+import lombok.Getter;
+
 import java.util.List;
 
 public class InsertOverwriteTableStmt extends InsertStmt {
 
+    @Getter
+    private final QueryStmt originQueryStmt;
+
     public InsertOverwriteTableStmt(InsertTarget target, String label, List<String> cols, InsertSource source,
                                       List<String> hints) {
         super(target, label, cols, source, hints);
+        this.originQueryStmt = source.getQueryStmt().clone();
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
-        Analyzer dummyRootAnalyzer = new Analyzer(analyzer.getEnv(), analyzer.getContext());
-        super.analyze(dummyRootAnalyzer);
+        super.analyze(analyzer);
     }
 }
