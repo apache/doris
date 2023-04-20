@@ -28,10 +28,6 @@ under the License.
     </parent>
     <artifactId>fe-common</artifactId>
     <packaging>jar</packaging>
-    <properties>
-        <doris.home>${basedir}/../../</doris.home>
-        <doris.thirdparty>${basedir}/../../thirdparty</doris.thirdparty>
-    </properties>
     <profiles>
         <profile>
             <id>thirdparty</id>

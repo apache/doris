@@ -33,7 +33,9 @@ import java.util.HashMap;
 import java.util.Map;
 
 import junit.framework.TestCase;
+import org.junit.jupiter.api.Disabled;
 
+@Disabled("This test case is not ready yet, need real hdfs cluster")
 public class TestHDFSBrokerService extends TestCase {
 
     private final String testHdfsHost = "hdfs://host:port";
@@ -61,6 +63,7 @@ public class TestHDFSBrokerService extends TestCase {
         request.setProperties(properties);
         request.setVersion(TBrokerVersion.VERSION_ONE);
         TBrokerListResponse response = client.listPath(request);
+        //todo check response and remove this print
         System.out.println(response);
     }
 }

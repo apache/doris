@@ -183,7 +183,10 @@ under the License.
         <module>fs-brokers</module>
     </modules>
     <properties>
-        <doris.home>${basedir}/../</doris.home>
+        <!--suppress UnresolvedMavenProperty -->
+        <doris.thirdparty>${fe.dir}/../thirdparty</doris.thirdparty>
+        <!--suppress UnresolvedMavenProperty -->
+        <doris.home>${fe.dir}/../</doris.home>
         <revision>1.2-SNAPSHOT</revision>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <doris.hive.catalog.shade.version>1.0.3-SNAPSHOT</doris.hive.catalog.shade.version>
@@ -191,8 +194,6 @@ under the License.
         <maven.compiler.target>1.8</maven.compiler.target>
         <!--plugin parameters-->
         <skip.plugin>false</skip.plugin>
-        <!--suppress UnresolvedMavenProperty -->
-        <doris.thirdparty>${fe.dir}/../thirdparty</doris.thirdparty>
         <sonar.organization>apache</sonar.organization>
         <sonar.host.url>https://sonarcloud.io</sonar.host.url>
         <aspectj.version>1.9.7</aspectj.version>

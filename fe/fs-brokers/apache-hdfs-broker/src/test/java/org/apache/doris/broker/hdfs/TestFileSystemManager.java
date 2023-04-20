@@ -22,6 +22,7 @@ import org.apache.doris.thrift.TBrokerFD;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TBrokerOperationStatusCode;
 import org.junit.Test;
+import org.junit.jupiter.api.Disabled;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -29,6 +30,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+@Disabled("This test case is not ready yet, need real hdfs cluster")
 public class TestFileSystemManager extends TestCase {
 
     private final String testHdfsHost = "hdfs://host:port";
