@@ -401,7 +401,7 @@ suite("modify_replica_use_partition") {
             PARTITION BY RANGE(`L_SHIPDATE`)
             (
                 PARTITION `p202301` VALUES LESS THAN ("2017-02-01") ("replication_num" = "3"),
-                PARTITION `p202302` VALUES LESS THAN ("2017-03-01") ("replication_num" = "1"),
+                PARTITION `p202302` VALUES LESS THAN ("2017-03-01") ("replication_num" = "1")
             )
             DISTRIBUTED BY HASH(L_ORDERKEY) BUCKETS 3
             PROPERTIES (
