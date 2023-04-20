@@ -30,13 +30,13 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.txn.Transaction;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
@@ -54,7 +54,6 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
     private final String tableName;
     private final List<String> colNames;
     private final LogicalPlan logicalQuery;
-    private final PhysicalPlan physicalQuery;
     private final String labelName;
     private Database database;
     private Table table;
@@ -69,7 +68,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
      * constructor
      */
     public InsertIntoTableCommand(String tableName, String labelName, List<String> colNames, List<String> partitions,
-            List<String> hints, LogicalPlan logicalQuery, PhysicalPlan physicalQuery) {
+            List<String> hints, LogicalPlan logicalQuery) {
         super(PlanType.INSERT_INTO_SELECT_COMMAND);
         Preconditions.checkArgument(tableName != null, "tableName cannot be null in insert-into-select command");
         Preconditions.checkArgument(logicalQuery != null, "logicalQuery cannot be null in insert-into-select command");
@@ -79,12 +78,6 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
         this.partitions = partitions;
         this.hints = hints;
         this.logicalQuery = logicalQuery;
-        this.physicalQuery = physicalQuery;
-    }
-
-    public InsertIntoTableCommand(String tableName, String labelName, List<String> colNames, List<String> partitions,
-            List<String> hints, LogicalPlan logicalQuery) {
-        this(tableName, labelName, colNames, partitions, hints, logicalQuery, null);
     }
 
     @Override
@@ -124,10 +117,6 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
         root.resetSink(olapTableSink);
 
         txn.executeInsertIntoSelectCommand(this);
-    }
-
-    public PhysicalPlan getPhysicalQuery() {
-        return physicalQuery;
     }
 
     private void checkDatabaseAndTable(ConnectContext ctx) {
@@ -195,6 +184,12 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
             }
             return p.getId();
         }).collect(Collectors.toList());
+    }
+
+    public boolean checkIfScanData() {
+        List<PlanFragment> fragments = planner.getFragments();
+        Preconditions.checkArgument(fragments != null, "should get plan fragment before check");
+        return fragments.stream().anyMatch(fragment -> fragment.getPlanRoot().contains(ScanNode.class));
     }
 
     @Override

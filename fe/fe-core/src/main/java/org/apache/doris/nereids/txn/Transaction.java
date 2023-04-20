@@ -174,9 +174,7 @@ public class Transaction {
     public void executeInsertIntoSelectCommand(InsertIntoTableCommand command)
             throws Exception {
         if (ctx.isTxnModel()) {
-            PhysicalPlan physicalPlan = command.getPhysicalQuery();
-            Preconditions.checkArgument(physicalPlan instanceof PhysicalOneRowRelation,
-                    "insert into select in txn model is not supported");
+            Preconditions.checkArgument(command. "insert into select in txn model is not supported");
             beginTxn();
             loadedRows = executeInsertIntoValuesCommand(null);
         } else {
