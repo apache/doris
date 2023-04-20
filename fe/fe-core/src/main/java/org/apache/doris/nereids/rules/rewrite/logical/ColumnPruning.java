@@ -34,6 +34,8 @@ import org.apache.doris.nereids.trees.plans.logical.OutputPrunable;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -41,6 +43,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -51,27 +54,32 @@ import java.util.stream.IntStream;
 
 /**
  * ColumnPruning.
- *
+ * <p>
  * you should implement OutputPrunable for your plan to provide the ability of column pruning
- *
+ * <p>
  * functions:
- *
+ * <p>
  * 1. prune/shrink output field for OutputPrunable, e.g.
- *
- *            project(projects=[k1, sum(v1)])                              project(projects=[k1, sum(v1)])
- *                      |                                 ->                      |
- *    agg(groupBy=[k1], output=[k1, sum(v1), sum(v2)]                  agg(groupBy=[k1], output=[k1, sum(v1)])
- *
+ * <pre>
+ *    project(projects=[k1, sum(v1)])
+ *               |
+ *    agg(groupBy=[k1], output=[k1, sum(v1), sum(v2)]
+ * ->
+ *    project(projects=[k1, sum(v1)])
+ *               |
+ *    agg(groupBy=[k1], output=[k1, sum(v1)])
+ * </pre>
  * 2. add project for the plan which prune children's output failed, e.g. the filter not record
- *    the output, and we can not prune/shrink output field for the filter, so we should add project on filter.
- *
- *          agg(groupBy=[a])                              agg(groupBy=[a])
- *                |                                              |
- *           filter(b > 10)                ->                project(a)
- *                |                                              |
- *              plan                                       filter(b > 10)
- *                                                               |
- *                                                              plan
+ * the output, and we can not prune/shrink output field for the filter, so we should add project on filter.
+ * <pre>
+ *    agg(groupBy=[a])                   agg(groupBy=[a])
+ *          |                                  |
+ *     filter(b > 10)        ->            project(a)
+ *          |                                  |
+ *        plan                            filter(b > 10)
+ *                                             |
+ *                                            plan
+ * </pre>
  */
 public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements CustomRewriter {
     @Override
@@ -166,7 +174,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         return pruneAggregate(repeat, context);
     }
 
-    private Plan pruneAggregate(Aggregate agg, PruneContext context) {
+    private Plan pruneAggregate(Aggregate<? extends Plan> agg, PruneContext context) {
         // first try to prune group by and aggregate functions
         Aggregate prunedOutputAgg = pruneOutput(agg, agg.getOutputs(), agg::pruneOutputs, context);
 
@@ -192,7 +200,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
     private static Optional<List<NamedExpression>> fillUpGroupByToOutput(
             List<Expression> groupBy, List<NamedExpression> output) {
 
-        if (output.containsAll(groupBy)) {
+        if (new HashSet<>(output).containsAll(groupBy)) {
             return Optional.empty();
         }
 
@@ -205,7 +213,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
                 .build());
     }
 
-    public static final <P extends Plan> P pruneOutput(P plan, List<NamedExpression> originOutput,
+    public static <P extends Plan> P pruneOutput(P plan, List<NamedExpression> originOutput,
             Function<List<NamedExpression>, P> withPrunedOutput, PruneContext context) {
         Optional<List<NamedExpression>> prunedOutputs = pruneOutput(originOutput, context);
         return prunedOutputs.map(withPrunedOutput).orElse(plan);
@@ -228,11 +236,11 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
                 : Optional.of(prunedOutputs);
     }
 
-    private final <P extends Plan> P pruneChildren(P plan) {
+    private <P extends Plan> P pruneChildren(P plan) {
         return pruneChildren(plan, ImmutableSet.of());
     }
 
-    private final <P extends Plan> P pruneChildren(P plan, Set<Slot> parentRequiredSlots) {
+    private <P extends Plan> P pruneChildren(P plan, Set<Slot> parentRequiredSlots) {
         if (plan.arity() == 0) {
             // leaf
             return plan;
@@ -247,20 +255,17 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
                         .build();
 
         List<Plan> newChildren = new ArrayList<>();
-        boolean hasNewChildren = false;
         for (Plan child : plan.children()) {
-            Set<Slot> childOutputSet = child.getOutputSet();
-            Set<Slot> childRequiredSlots = Sets.intersection(childrenRequiredSlots, childOutputSet);
-            if (childRequiredSlots.isEmpty()) {
-                childRequiredSlots = ImmutableSet.of(ExpressionUtils.selectMinimumColumn(childOutputSet));
-            }
+            Set<Slot> childRequiredSlots = Sets.intersection(childrenRequiredSlots, child.getOutputSet());
             Plan prunedChild = doPruneChild(plan, child, childRequiredSlots);
-            if (prunedChild != child) {
-                hasNewChildren = true;
+            // When childRequiredSlots is empty, we prune child previously to ensure child outputs have been pruned.
+            if (childRequiredSlots.isEmpty()) {
+                prunedChild = PlanUtils.projectOrSelf(
+                        ImmutableList.of(ExpressionUtils.selectMinimumColumn(prunedChild.getOutput())), prunedChild);
             }
             newChildren.add(prunedChild);
         }
-        return hasNewChildren ? (P) plan.withChildren(newChildren) : plan;
+        return Utils.identityEquals(plan.children(), newChildren) ? plan : (P) plan.withChildren(newChildren);
     }
 
     private Plan doPruneChild(Plan plan, Plan child, Set<Slot> childRequiredSlots) {
@@ -269,7 +274,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
 
         // the case 2 in the class comment, prune child's output failed
         if (!isProject && !Sets.difference(prunedChild.getOutputSet(), childRequiredSlots).isEmpty()) {
-            prunedChild = new LogicalProject<>(ImmutableList.copyOf(childRequiredSlots), prunedChild);
+            prunedChild = PlanUtils.projectOrSelf(ImmutableList.copyOf(childRequiredSlots), prunedChild);
         }
         return prunedChild;
     }

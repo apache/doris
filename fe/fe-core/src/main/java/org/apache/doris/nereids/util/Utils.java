@@ -257,6 +257,21 @@ public class Utils {
         Preconditions.checkState(false, "item not found in list");
     }
 
+    /**
+     * Judge if two lists are equal without equals method.
+     */
+    public static <T> boolean identityEquals(List<T> lhs, List<T> rhs) {
+        if (lhs.size() != rhs.size()) {
+            return false;
+        }
+        for (int i = 0; i < lhs.size(); ++i) {
+            if (lhs.get(i) != rhs.get(i)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     /** allCombinations */
     public static <T> List<List<T>> allCombinations(List<List<T>> lists) {
         int size = lists.size();
