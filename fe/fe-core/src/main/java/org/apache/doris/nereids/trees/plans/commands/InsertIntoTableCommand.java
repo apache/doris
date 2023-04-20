@@ -61,6 +61,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
     private TupleDescriptor olapTuple;
     private List<String> partitions;
     private List<String> hints;
+    private List<Column> targetColumns;
 
     /**
      * constructor
@@ -87,16 +88,18 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         checkDatabaseAndTable(ctx);
-        getTupleDesc();
+        getColumns();
 
-        ctx.getStatementContext().setInsertTargetSchema(olapTuple.getSlots()
-                .stream().map(slot -> DataType.fromCatalogType(slot.getType())).collect(Collectors.toList()));
+        ctx.getStatementContext().setInsertTargetSchema(targetColumns.stream()
+                .map(col -> DataType.fromCatalogType(col.getOriginType()))
+                .collect(Collectors.toList()));
 
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
         executor.setParsedStmt(logicalPlanAdapter);
         planner = new NereidsPlanner(ctx.getStatementContext());
         planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
 
+        getTupleDesc();
         if (ctx.getMysqlChannel() != null) {
             ctx.getMysqlChannel().reset();
         }
@@ -154,23 +157,27 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
         return dataSink;
     }
 
-    private void getTupleDesc() {
-        // create insert target table's tupledesc.
-        olapTuple = planner.getDescTable().createTupleDescriptor();
-        List<Column> columns = Lists.newArrayList();
+    private void getColumns() {
         if (colNames == null) {
-            columns = table.getFullSchema();
+            this.targetColumns = table.getFullSchema();
         } else {
+            this.targetColumns = Lists.newArrayList();
             for (String colName : colNames) {
                 Column col = table.getColumn(colName);
                 if (col == null) {
                     throw new AnalysisException(String.format("Column: %s is not in table: %s",
                             colName, table.getName()));
                 }
-                columns.add(col);
+                this.targetColumns.add(col);
             }
         }
-        for (Column col : columns) {
+    }
+
+    private void getTupleDesc() {
+        // create insert target table's tupledesc.
+        olapTuple = planner.getDescTable().createTupleDescriptor();
+
+        for (Column col : targetColumns) {
             SlotDescriptor slotDesc = planner.getDescTable().addSlotDescriptor(olapTuple);
             slotDesc.setIsMaterialized(true);
             slotDesc.setType(col.getType());
