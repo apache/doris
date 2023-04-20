@@ -1239,9 +1239,6 @@ void TaskWorkerPool::_check_consistency_worker_thread_callback() {
 void TaskWorkerPool::_report_task_worker_thread_callback() {
     StorageEngine::instance()->register_report_listener(this);
     TReportRequest request;
-    request.__set_backend(BackendOptions::get_localBackend());
-    LOG(INFO)
-            << "zdtest===============" << BackendOptions::get_localBackend().host;
     while (_is_work) {
         _is_doing_work = false;
         {
@@ -1268,6 +1265,9 @@ void TaskWorkerPool::_report_task_worker_thread_callback() {
         {
             std::lock_guard<std::mutex> task_signatures_lock(_s_task_signatures_lock);
             request.__set_tasks(_s_task_signatures);
+            request.__set_backend(BackendOptions::get_localBackend());
+            LOG(INFO)
+                    << "zdtest===============" << BackendOptions::get_localBackend().host;
         }
         _handle_report(request, ReportType::TASK);
     }
