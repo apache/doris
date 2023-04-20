@@ -34,7 +34,6 @@ import org.apache.doris.task.ExportExportingTask;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.utframe.TestWithFeService;
 
-import com.google.common.collect.Lists;
 import mockit.Expectations;
 import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
@@ -71,6 +70,7 @@ public class SessionVariablesTest extends TestWithFeService {
 
     @Test
     public void testExperimentalSessionVariables() throws Exception {
+        connectContext.setThreadLocalInfo();
         // 1. set without experimental
         SessionVariable sessionVar = connectContext.getSessionVariable();
         boolean enableNereids = sessionVar.isEnableNereidsPlanner();
@@ -179,10 +179,6 @@ public class SessionVariablesTest extends TestWithFeService {
                     job.getState();
                     minTimes = 0;
                     result = ExportJob.JobState.EXPORTING;
-
-                    job.getCoordList();
-                    minTimes = 0;
-                    result = Lists.newArrayList();
                 }
             };
 
@@ -207,6 +203,7 @@ public class SessionVariablesTest extends TestWithFeService {
     @Test
     public void testDisableProfile() {
         try {
+            connectContext.setThreadLocalInfo();
             SetStmt setStmt = (SetStmt) parseAndAnalyzeStmt("set enable_profile=false", connectContext);
             SetExecutor setExecutor = new SetExecutor(connectContext, setStmt);
             setExecutor.execute();
@@ -221,10 +218,6 @@ public class SessionVariablesTest extends TestWithFeService {
                     job.getState();
                     minTimes = 0;
                     result = ExportJob.JobState.EXPORTING;
-
-                    job.getCoordList();
-                    minTimes = 0;
-                    result = Lists.newArrayList();
                 }
             };
 
