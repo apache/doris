@@ -68,7 +68,7 @@ namespace vectorized {
 class MutableBlock;
 
 class Block {
-    ENABLE_FACTORY_CREATOR(Block)
+    ENABLE_FACTORY_CREATOR(Block);
 
 private:
     using Container = ColumnsWithTypeAndName;
@@ -399,7 +399,7 @@ using BlocksPtr = std::shared_ptr<Blocks>;
 using BlocksPtrs = std::shared_ptr<std::vector<BlocksPtr>>;
 
 class MutableBlock {
-    ENABLE_FACTORY_CREATOR(MutableBlock)
+    ENABLE_FACTORY_CREATOR(MutableBlock);
 
 private:
     MutableColumns _columns;
