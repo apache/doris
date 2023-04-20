@@ -1693,7 +1693,7 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
     for (int i = 0, new_schema_size = new_tablet->tablet_schema()->num_columns();
          i < new_schema_size; ++i) {
         const TabletColumn& new_column = new_tablet->tablet_schema()->column(i);
-        const string& column_name = new_column.name();
+        const std::string& column_name = new_column.name();
         ColumnMapping* column_mapping = changer->get_mutable_column_mapping(i);
         column_mapping->new_column = &new_column;
 
@@ -1712,13 +1712,13 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
             }
         }
 
-        int32_t column_index = base_tablet_schema->field_index(std::string_view(column_name));
+        int32_t column_index = base_tablet_schema->field_index(column_name);
         if (column_index >= 0) {
             column_mapping->ref_column = column_index;
             continue;
         }
 
-        if (column_name.starts_with("__doris_shadow_")) {
+        if (column_name.find_first_of("__doris_shadow_") == 0) {
             // Should delete in the future, just a protection for bug.
             return Status::InternalError("failed due to operate on shadow");
         }
