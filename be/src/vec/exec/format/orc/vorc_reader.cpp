@@ -580,8 +580,8 @@ TypeDescriptor OrcReader::_convert_to_doris_type(const orc::Type* orc_type) {
     case orc::TypeKind::TIMESTAMP:
         return TypeDescriptor(PrimitiveType::TYPE_DATETIMEV2);
     case orc::TypeKind::DECIMAL:
-        // TODO: using decimal v3 instead
-        return TypeDescriptor(PrimitiveType::TYPE_DECIMALV2);
+        return TypeDescriptor::create_decimalv3_type(orc_type->getPrecision(),
+                                                     orc_type->getScale());
     case orc::TypeKind::DATE:
         return TypeDescriptor(PrimitiveType::TYPE_DATEV2);
     case orc::TypeKind::VARCHAR:
