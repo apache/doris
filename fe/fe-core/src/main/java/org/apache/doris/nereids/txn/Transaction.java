@@ -174,7 +174,7 @@ public class Transaction {
         if (ctx.isTxnModel()) {
             Preconditions.checkArgument(!command.checkIfScanData(), "insert into select in txn model is not supported");
             beginTxn();
-            loadedRows = executeInsertIntoValuesCommand(null);
+            loadedRows = executeInsertIntoValuesCommand(ImmutableList.of());
         } else {
             LOG.info("Do insert [{}] with query id: {}", labelName, DebugUtil.printId(ctx.queryId()));
             try {
