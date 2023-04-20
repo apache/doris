@@ -155,6 +155,8 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
             return StringUtils.compare((String) getValue(), (String) other.getValue());
         } else if (type.isBooleanType() && oType.isBooleanType()) {
             return Boolean.compare((Boolean) getValue(), (Boolean) other.getValue());
+        } else if (type.isDateLikeType() || oType.isDateLikeType()) {
+            return Long.compare((Long) getValue(), (Long) other.getValue());
         } else if ((type.isBooleanType() || type.isNumericType() || type.isStringLikeType())
                 || (oType.isBooleanType() || oType.isNumericType() || oType.isStringLikeType())) {
             // e.g. int compare to double, or boolean compare to int
