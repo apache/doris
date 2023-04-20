@@ -16,9 +16,30 @@
 // under the License.
 
 #pragma once
-#include <queue>
+#include <gen_cpp/Metrics_types.h>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <memory>
+#include <queue>
+#include <utility>
+#include <vector>
+
+#include "common/status.h"
+#include "util/runtime_profile.h"
 #include "vec/common/sort/sorter.h"
+#include "vec/core/block.h"
+#include "vec/core/field.h"
+#include "vec/core/sort_cursor.h"
+
+namespace doris {
+class ObjectPool;
+class RowDescriptor;
+class RuntimeState;
+namespace vectorized {
+class VSortExecExprs;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

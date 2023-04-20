@@ -17,13 +17,20 @@
 
 #pragma once
 
+#include <stdint.h>
+#include <stdlib.h>
+
+#include <memory>
+#include <string>
+
+#include "common/status.h"
 #include "olap/field.h"
-#include "olap/olap_define.h"
 #include "olap/row_cursor_cell.h"
 #include "olap/tablet_schema.h"
-#include "util/hash_util.hpp"
+#include "util/slice.h"
 
 namespace doris {
+enum class FieldType;
 
 class WrapperField {
 public:

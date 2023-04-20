@@ -17,19 +17,22 @@
 
 #pragma once
 
-#include <memory>
+#include <stdint.h>
 
-#include "runtime/descriptors.h"
+#include <vector>
+
+#include "common/global_types.h"
 #include "vec/exec/data_gen_functions/vdata_gen_function_inf.h"
 
 namespace doris {
 
-class TextConverter;
 class TupleDescriptor;
 class RuntimeState;
 class Status;
+class TScanRangeParams;
 
 namespace vectorized {
+class Block;
 
 class VNumbersTVF : public VDataGenFunctionInf {
 public:

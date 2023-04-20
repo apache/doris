@@ -17,8 +17,25 @@
 
 #pragma once
 
+#include <gen_cpp/PaloInternalService_types.h>
+
+#include <list>
+#include <memory>
+#include <vector>
+
+#include "common/status.h"
 #include "vec/exec/format/format_common.h"
 #include "vec/exec/scan/vscan_node.h"
+
+namespace doris {
+class DescriptorTbl;
+class ObjectPool;
+class RuntimeState;
+class TPlanNode;
+namespace vectorized {
+class VScanner;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

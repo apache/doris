@@ -20,9 +20,12 @@
 
 #include "vec/aggregate_functions/aggregate_function_distinct.h"
 
+#include <ostream>
+
 #include "vec/aggregate_functions/aggregate_function_combinator.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/helpers.h"
+#include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
 

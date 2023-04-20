@@ -93,7 +93,6 @@ import org.apache.doris.thrift.TQueryGlobals;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TReportExecStatusParams;
-import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TResourceLimit;
 import org.apache.doris.thrift.TRuntimeFilterParams;
 import org.apache.doris.thrift.TRuntimeFilterTargetParams;
@@ -139,6 +138,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
@@ -236,7 +236,6 @@ public class Coordinator {
     // Input parameter
     private long jobId = -1; // job which this task belongs to
     private TUniqueId queryId;
-    private final TResourceInfo tResourceInfo;
     private final boolean needReport;
 
     // parallel execute
@@ -342,8 +341,6 @@ public class Coordinator {
         } else {
             this.queryGlobals.setTimeZone(context.getSessionVariable().getTimeZone());
         }
-        this.tResourceInfo = new TResourceInfo(context.getQualifiedUser(),
-                context.getSessionVariable().getResourceGroup());
         this.needReport = context.getSessionVariable().enableProfile();
         this.nextInstanceId = new TUniqueId();
         nextInstanceId.setHi(queryId.hi);
@@ -368,7 +365,6 @@ public class Coordinator {
         this.queryGlobals.setTimeZone(timezone);
         this.queryGlobals.setLoadZeroTolerance(loadZeroTolerance);
         this.queryOptions.setBeExecVersion(Config.be_exec_version);
-        this.tResourceInfo = new TResourceInfo("", "");
         this.needReport = true;
         this.nextInstanceId = new TUniqueId();
         nextInstanceId.setHi(queryId.hi);
@@ -1631,7 +1627,6 @@ public class Coordinator {
                 bucketShuffleJoinController.computeInstanceParam(fragment.getFragmentId(),
                         parallelExecInstanceNum, params);
             } else {
-                params.sharedScanOpt = true;
                 // case A
                 for (Entry<TNetworkAddress, Map<Integer, List<TScanRangeParams>>> entry : fragmentExecParamsMap.get(
                         fragment.getFragmentId()).scanRangeAssignment.entrySet()) {
@@ -1641,7 +1636,14 @@ public class Coordinator {
                     for (Integer planNodeId : value.keySet()) {
                         List<TScanRangeParams> perNodeScanRanges = value.get(planNodeId);
                         List<List<TScanRangeParams>> perInstanceScanRanges = Lists.newArrayList();
-                        if (!enablePipelineEngine) {
+                        List<Boolean> sharedScanOpts = Lists.newArrayList();
+
+                        Optional<ScanNode> node = scanNodes.stream().filter(scanNode -> {
+                            return scanNode.getId().asInt() == planNodeId;
+                        }).findFirst();
+
+                        if (!enablePipelineEngine || perNodeScanRanges.size() > parallelExecInstanceNum
+                                || (node.isPresent() && node.get().getShouldColoScan())) {
                             int expectedInstanceNum = 1;
                             if (parallelExecInstanceNum > 1) {
                                 //the scan instance num should not larger than the tablets num
@@ -1649,19 +1651,24 @@ public class Coordinator {
                             }
                             perInstanceScanRanges = ListUtil.splitBySize(perNodeScanRanges,
                                     expectedInstanceNum);
+                            sharedScanOpts = Collections.nCopies(perInstanceScanRanges.size(), false);
                         } else {
                             int expectedInstanceNum = Math.min(parallelExecInstanceNum,
                                     leftMostNode.getNumInstances());
-                            for (int j = 0; j < Math.max(expectedInstanceNum, 1); j++) {
-                                perInstanceScanRanges.add(perNodeScanRanges);
-                            }
+                            expectedInstanceNum = Math.max(expectedInstanceNum, 1);
+                            perInstanceScanRanges = Collections.nCopies(expectedInstanceNum, perNodeScanRanges);
+                            sharedScanOpts = Collections.nCopies(perInstanceScanRanges.size(), true);
                         }
 
                         LOG.debug("scan range number per instance is: {}", perInstanceScanRanges.size());
 
-                        for (List<TScanRangeParams> scanRangeParams : perInstanceScanRanges) {
+                        for (int j = 0; j < perInstanceScanRanges.size(); j++) {
+                            List<TScanRangeParams> scanRangeParams = perInstanceScanRanges.get(j);
+                            boolean sharedScan = sharedScanOpts.get(j);
+
                             FInstanceExecParam instanceParam = new FInstanceExecParam(null, key, 0, params);
                             instanceParam.perNodeScanRanges.put(planNodeId, scanRangeParams);
+                            instanceParam.perNodeSharedScans.put(planNodeId, sharedScan);
                             params.instanceExecParams.add(instanceParam);
                         }
                     }
@@ -3059,8 +3066,6 @@ public class Coordinator {
         public List<FInstanceExecParam> instanceExecParams = Lists.newArrayList();
         public FragmentScanRangeAssignment scanRangeAssignment = new FragmentScanRangeAssignment();
 
-        public boolean sharedScanOpt = false;
-
         public FragmentExecParams(PlanFragment fragment) {
             this.fragment = fragment;
         }
@@ -3075,7 +3080,6 @@ public class Coordinator {
                 params.setFragment(fragment.toThrift());
                 params.setDescTbl(descTable);
                 params.setParams(new TPlanFragmentExecParams());
-                params.setResourceInfo(tResourceInfo);
                 params.setBuildHashTableForBroadcastJoin(instanceExecParam.buildHashTableForBroadcastJoin);
                 params.params.setQueryId(queryId);
                 params.params.setFragmentInstanceId(instanceExecParam.instanceId);
@@ -3139,7 +3143,6 @@ public class Coordinator {
                     // Set global param
                     params.setProtocolVersion(PaloInternalServiceVersion.V1);
                     params.setDescTbl(descTable);
-                    params.setResourceInfo(tResourceInfo);
                     params.setQueryId(queryId);
                     params.setPerExchNumSenders(perExchNumSenders);
                     params.setDestinations(destinations);
@@ -3152,7 +3155,6 @@ public class Coordinator {
                             fragment.isTransferQueryStatisticsWithEveryBatch());
                     params.setFragment(fragment.toThrift());
                     params.setLocalParams(Lists.newArrayList());
-                    params.setSharedScanOpt(sharedScanOpt);
                     if (tResourceGroups != null) {
                         params.setResourceGroups(tResourceGroups);
                     }
@@ -3164,10 +3166,13 @@ public class Coordinator {
                 localParams.setBuildHashTableForBroadcastJoin(instanceExecParam.buildHashTableForBroadcastJoin);
                 localParams.setFragmentInstanceId(instanceExecParam.instanceId);
                 Map<Integer, List<TScanRangeParams>> scanRanges = instanceExecParam.perNodeScanRanges;
+                Map<Integer, Boolean> perNodeSharedScans = instanceExecParam.perNodeSharedScans;
                 if (scanRanges == null) {
                     scanRanges = Maps.newHashMap();
+                    perNodeSharedScans = Maps.newHashMap();
                 }
                 localParams.setPerNodeScanRanges(scanRanges);
+                localParams.setPerNodeSharedScans(perNodeSharedScans);
                 localParams.setSenderId(i);
                 localParams.setBackendNum(backendNum++);
                 localParams.setRuntimeFilterParams(new TRuntimeFilterParams());
@@ -3265,6 +3270,7 @@ public class Coordinator {
         TUniqueId instanceId;
         TNetworkAddress host;
         Map<Integer, List<TScanRangeParams>> perNodeScanRanges = Maps.newHashMap();
+        Map<Integer, Boolean> perNodeSharedScans = Maps.newHashMap();
 
         int perFragmentInstanceIdx;
 

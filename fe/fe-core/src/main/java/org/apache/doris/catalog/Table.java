@@ -35,8 +35,8 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.commons.lang.NotImplementedException;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.NotImplementedException;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -481,7 +481,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     }
 
     public CreateTableStmt toCreateTableStmt(String dbName) {
-        throw new NotImplementedException();
+        throw new NotImplementedException("toCreateTableStmt not implemented");
     }
 
     @Override
@@ -522,7 +522,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
 
     @Override
     public BaseAnalysisTask createAnalysisTask(AnalysisTaskInfo info) {
-        throw new NotImplementedException();
+        throw new NotImplementedException("createAnalysisTask not implemented");
     }
 
     /**

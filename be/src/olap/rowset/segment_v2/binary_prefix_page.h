@@ -17,20 +17,20 @@
 
 #pragma once
 
+#include <glog/logging.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <string.h>
 
-#include <map>
-#include <string>
 #include <vector>
 
+#include "common/status.h"
 #include "olap/rowset/segment_v2/options.h"
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
 #include "util/coding.h"
 #include "util/faststring.h"
 #include "util/slice.h"
+#include "vec/columns/column.h"
 
 namespace doris {
 namespace segment_v2 {

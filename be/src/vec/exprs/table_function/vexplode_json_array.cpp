@@ -17,8 +17,18 @@
 
 #include "vec/exprs/table_function/vexplode_json_array.h"
 
+#include <inttypes.h>
+#include <rapidjson/rapidjson.h>
+#include <stdio.h>
+
+#include <algorithm>
+
 #include "common/status.h"
+#include "vec/columns/column.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
 

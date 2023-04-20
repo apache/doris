@@ -8,6 +8,8 @@ PhysicalQuickSort
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN](customer.c_nationkey = supplier.s_nationkey)(customer.c_custkey = orders.o_custkey)
+----------------PhysicalProject
+------------------PhysicalOlapScan[customer]
 ----------------PhysicalDistribute
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN](lineitem.l_suppkey = supplier.s_suppkey)
@@ -30,6 +32,4 @@ PhysicalQuickSort
 ----------------------------------PhysicalProject
 ------------------------------------filter((region.r_name = 'ASIA'))
 --------------------------------------PhysicalOlapScan[region]
-----------------PhysicalProject
-------------------PhysicalOlapScan[customer]
 

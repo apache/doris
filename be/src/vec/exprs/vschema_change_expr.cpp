@@ -17,9 +17,28 @@
 
 #include "vec/exprs/vschema_change_expr.h"
 
+#include <fmt/format.h>
+#include <glog/logging.h>
+
+#include <memory>
+#include <vector>
+
+#include "runtime/descriptors.h"
+#include "runtime/runtime_state.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_object.h"
+#include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
+#include "vec/json/path_in_data.h"
+
+namespace doris {
+namespace vectorized {
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

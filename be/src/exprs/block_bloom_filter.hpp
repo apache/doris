@@ -78,13 +78,6 @@ public:
         }
     }
 
-    // This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
-    void insert_crc32_hash(const Slice& key) noexcept {
-        if (key.data) {
-            insert(HashUtil::crc_hash(key.data, key.size, _hash_seed));
-        }
-    }
-
 #ifdef __AVX2__
 
     static inline ATTRIBUTE_ALWAYS_INLINE __attribute__((__target__("avx2"))) __m256i make_mark(
@@ -131,14 +124,6 @@ public:
         }
     }
 
-    // This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
-    bool find_crc32_hash(const Slice& key) const noexcept {
-        if (key.data) {
-            return find(HashUtil::crc_hash(key.data, key.size, _hash_seed));
-        } else {
-            return false;
-        }
-    }
     // Computes the logical OR of this filter with 'other' and stores the result in this
     // filter.
     // Notes:

@@ -315,6 +315,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     @Override
     public List<Column> getTableColumns() throws AnalysisException {
+        if (FeConstants.runningUnitTest) {
+            return Lists.newArrayList();
+        }
         if (!csvSchema.isEmpty()) {
             return csvSchema;
         }
@@ -377,7 +380,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 // only support ScalarType.
                 PScalarType scalarType = typeNode.getScalarType();
                 TPrimitiveType tPrimitiveType = TPrimitiveType.findByValue(scalarType.getType());
-                columns.add(new Column(colName, PrimitiveType.fromThrift(tPrimitiveType), true));
+                columns.add(new Column(colName, PrimitiveType.fromThrift(tPrimitiveType),
+                        scalarType.getLen() <= 0 ? -1 : scalarType.getLen(), scalarType.getPrecision(),
+                        scalarType.getScale(), true));
             }
         }
     }
@@ -423,3 +428,4 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 .setFileScanRange(ByteString.copyFrom(new TSerializer().serialize(fileScanRange))).build();
     }
 }
+

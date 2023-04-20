@@ -17,22 +17,61 @@
 
 #pragma once
 
-#include <functional>
-#include <variant>
+#include <assert.h>
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#include "common/object_pool.h"
+#include <algorithm>
+#include <functional>
+#include <memory>
+#include <ostream>
+#include <string>
+#include <type_traits>
+#include <utility>
+#include <variant>
+#include <vector>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/global_types.h"
+#include "common/status.h"
 #include "exec/exec_node.h"
+#include "util/runtime_profile.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector_helper.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/aggregation_common.h"
+#include "vec/common/allocator.h"
+#include "vec/common/arena.h"
+#include "vec/common/assert_cast.h"
 #include "vec/common/columns_hashing.h"
 #include "vec/common/hash_table/fixed_hash_map.h"
+#include "vec/common/hash_table/fixed_hash_table.h"
+#include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/partitioned_hash_map.h"
+#include "vec/common/hash_table/ph_hash_map.h"
 #include "vec/common/hash_table/string_hash_map.h"
+#include "vec/common/pod_array.h"
+#include "vec/common/string_ref.h"
+#include "vec/common/uint128.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
 #include "vec/exprs/vectorized_agg_fn.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vslot_ref.h"
 
 namespace doris {
 class TPlanNode;
 class DescriptorTbl;
+class ObjectPool;
+class RuntimeState;
+class TupleDescriptor;
 
 namespace pipeline {
 class AggSinkOperator;
@@ -42,7 +81,6 @@ class StreamingAggSourceOperator;
 } // namespace pipeline
 
 namespace vectorized {
-class VExprContext;
 
 /** Aggregates by concatenating serialized key values.
   * The serialized value differs in that it uniquely allows to deserialize it, having only the position with which it starts.

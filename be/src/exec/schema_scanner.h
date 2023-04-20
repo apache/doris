@@ -17,20 +17,25 @@
 
 #pragma once
 
-#include <string>
+#include <gen_cpp/Descriptors_types.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#include "common/object_pool.h"
+#include <memory>
+#include <string>
+#include <vector>
+
 #include "common/status.h"
-#include "gen_cpp/Descriptors_types.h"
-#include "gen_cpp/Types_types.h"
+#include "runtime/define_primitive_type.h"
 #include "util/runtime_profile.h"
-#include "vec/core/block.h"
 
 namespace doris {
 
 // forehead declare class, because jni function init in DorisServer.
 class DorisServer;
 class RuntimeState;
+class ObjectPool;
+class TUserIdentity;
 
 namespace vectorized {
 class Block;

@@ -17,13 +17,33 @@
 
 #include "vec/exec/vsort_node.h"
 
-#include "common/config.h"
-#include "pipeline/pipeline.h"
+#include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+
+#include <atomic>
+#include <functional>
+#include <ostream>
+#include <string>
+#include <utility>
+
+#include "runtime/descriptors.h"
+#include "runtime/memory/mem_tracker.h"
+#include "runtime/query_fragments_ctx.h"
+#include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
-#include "util/debug_util.h"
+#include "runtime/types.h"
+#include "util/telemetry/telemetry.h"
 #include "vec/common/sort/heap_sorter.h"
 #include "vec/common/sort/topn_sorter.h"
-#include "vec/core/sort_block.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/sort_description.h"
+
+namespace doris {
+class ObjectPool;
+} // namespace doris
 
 namespace doris::vectorized {
 

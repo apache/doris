@@ -42,8 +42,7 @@ suite("sql_create_time_range_table") {
 	properties(
 		"replication_num"="1",
 		"light_schema_change"="true",
-		"compression"="zstd",
-		"enable_unique_key_merge_on_write" = "true"
+		"compression"="zstd"
 	);
 		"""
 

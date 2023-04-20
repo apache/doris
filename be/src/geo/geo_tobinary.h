@@ -15,11 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#pragma once
+
 //#include "geo_types.h"
 
-#include "geo/geo_common.h"
-#include "geo/geo_tobinary_type.h"
-#include "geo/wkt_parse_type.h"
+#include <string>
+
+struct ToBinaryContext;
 
 namespace doris {
 
@@ -27,6 +29,8 @@ class GeoShape;
 class GeoPoint;
 class GeoLine;
 class GeoPolygon;
+struct GeoCoordinate;
+struct GeoCoordinateList;
 
 class toBinary {
 public:

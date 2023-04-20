@@ -17,16 +17,42 @@
 
 #include "base_scanner.h"
 
+#include <assert.h>
 #include <fmt/format.h>
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <glog/logging.h>
+#include <parallel_hashmap/phmap.h>
+#include <stddef.h>
 
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <iterator>
+#include <map>
+#include <string>
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/consts.h"
-#include "common/utils.h"
-#include "exec/exec_node.h"
+#include "gutil/casts.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
+#include "runtime/types.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_number.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
+class TColumn;
+class TNetworkAddress;
 
 BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
                          const TBrokerScanRangeParams& params,
@@ -170,6 +196,7 @@ Status BaseScanner::init_expr_ctxes() {
     return Status::OK();
 }
 
+// need exception safety
 Status BaseScanner::_filter_src_block() {
     auto origin_column_num = _src_block.columns();
     // filter block
@@ -324,6 +351,7 @@ Status BaseScanner::_init_src_block() {
     return Status::OK();
 }
 
+// need exception safety
 Status BaseScanner::_fill_dest_block(vectorized::Block* dest_block, bool* eof) {
     *eof = _scanner_eof;
     _fill_columns_from_path();

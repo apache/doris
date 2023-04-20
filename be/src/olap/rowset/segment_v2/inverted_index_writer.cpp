@@ -17,20 +17,33 @@
 
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
 
-#include <CLucene.h>
+#include <CLucene.h> // IWYU pragma: keep
 #include <CLucene/analysis/LanguageBasedAnalyzer.h>
 #include <CLucene/util/bkd/bkd_writer.h>
+#include <glog/logging.h>
 
+#include <algorithm>
+#include <cstdint>
+#include <limits>
 #include <memory>
+#include <ostream>
+#include <roaring/roaring.hh>
+#include <vector>
 
+#include "common/config.h"
 #include "olap/field.h"
+#include "olap/inverted_index_parser.h"
+#include "olap/key_coder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/tablet_schema.h"
+#include "olap/types.h"
+#include "runtime/collection_value.h"
 #include "util/faststring.h"
+#include "util/slice.h"
 #include "util/string_util.h"
 
 #define FINALIZE_OUTPUT(x) \

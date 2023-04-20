@@ -17,9 +17,27 @@
 
 #pragma once
 
+#include <gen_cpp/parquet_types.h>
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <memory>
+#include <ostream>
+#include <string>
+#include <type_traits>
+#include <utility>
+#include <vector>
+
+#include "common/status.h"
+#include "gutil/port.h"
 #include "util/bit_stream_utils.h"
-#include "vec/exec/format/parquet/byte_array_plain_decoder.h"
+#include "util/bit_stream_utils.inline.h"
+#include "util/slice.h"
+#include "vec/data_types/data_type.h"
+#include "vec/exec/format/parquet/decoder.h"
 #include "vec/exec/format/parquet/fix_length_plain_decoder.h"
+#include "vec/exec/format/parquet/parquet_common.h"
 
 namespace doris::vectorized {
 

@@ -17,14 +17,13 @@
 
 #pragma once
 
-#include <parallel_hashmap/phmap.h>
-
 #include "common/object_pool.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
+#include "vec/common/hash_table/phmap_fwd_decl.h"
 #include "vec/common/string_ref.h"
 
 namespace doris {
@@ -149,7 +148,7 @@ template <typename T>
 class DynamicContainer {
 public:
     using Self = DynamicContainer;
-    using Iterator = typename phmap::flat_hash_set<T>::iterator;
+    using Iterator = typename vectorized::flat_hash_set<T>::iterator;
     using ElementType = T;
 
     DynamicContainer() = default;
@@ -168,7 +167,7 @@ public:
     size_t size() const { return _set.size(); }
 
 private:
-    phmap::flat_hash_set<T> _set;
+    vectorized::flat_hash_set<T> _set;
 };
 
 // TODO Maybe change void* parameter to template parameter better.

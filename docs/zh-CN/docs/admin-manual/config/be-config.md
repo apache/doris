@@ -7,7 +7,7 @@
 }
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -178,7 +178,7 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 * 描述：当BE启动时，会检查``storage_root_path`` 配置下的所有路径。
 
   - `ignore_broken_disk=true`
-  
+
   如果路径不存在或路径下无法进行读写文件(坏盘)，将忽略此路径，如果有其他可用路径则不中断启动。
 
   - `ignore_broken_disk=false`
@@ -630,8 +630,8 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 #### `enable_segcompaction`
 
 * 类型：bool
-* 描述：在导入时进行 segment compaction 来减少 segment 数量
-* 默认值：false
+* 描述：在导入时进行 segment compaction 来减少 segment 数量, 以避免出现写入时的 -238 错误
+* 默认值：true
 
 #### `segcompaction_threshold_segment_num`
 
@@ -1284,7 +1284,7 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 #### `jvm_max_heap_size`
 
 * 类型：string
-* 描述：BE 使用 JVM 堆内存的最大值，即 JVM 的 -Xmx 参数 
+* 描述：BE 使用 JVM 堆内存的最大值，即 JVM 的 -Xmx 参数
 * 默认值：1024M
 
 </version>

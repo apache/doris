@@ -18,9 +18,39 @@
 #pragma once
 
 #include <jni.h>
+#include <string.h>
 
-#include "runtime/runtime_state.h"
-#include "util/jni-util.h"
+#include <map>
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <utility>
+#include <vector>
+
+#include "common/status.h"
+#include "exec/olap_common.h"
+#include "exec/olap_utils.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
+#include "runtime/types.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/common/string_ref.h"
+#include "vec/data_types/data_type.h"
+
+namespace doris {
+class RuntimeProfile;
+class RuntimeState;
+
+namespace vectorized {
+class Block;
+template <typename T>
+class ColumnDecimal;
+template <typename T>
+class ColumnVector;
+template <typename T>
+struct Decimal;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

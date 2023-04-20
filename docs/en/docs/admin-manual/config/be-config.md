@@ -7,7 +7,7 @@
 }
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -234,7 +234,7 @@ There are two ways to configure BE configuration items:
 
 * Description: This configuration is mainly used to modify the parameter `socket_max_unwritten_bytes` of brpc.
   - Sometimes the query fails and an error message of `The server is overcrowded` will appear in the BE log. This means there are too many messages to buffer at the sender side, which may happen when the SQL needs to send large bitmap value. You can avoid this error by increasing the configuration.
-    
+
 #### `transfer_large_data_by_brpc`
 
 * Type: bool
@@ -267,7 +267,7 @@ There are two ways to configure BE configuration items:
 
 * Type: string
 * Description:This configuration indicates the service model used by FE's Thrift service. The type is string and is case-insensitive. This parameter needs to be consistent with the setting of fe's thrift_server_type parameter. Currently there are two values for this parameter, `THREADED` and `THREAD_POOL`.
-  
+
     - If the parameter is `THREADED`, the model is a non-blocking I/O model.
 
     - If the parameter is `THREAD_POOL`, the model is a blocking I/O model.
@@ -616,8 +616,8 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 #### `enable_segcompaction`
 
 * Type: bool
-* Description: Enable to use segment compaction during loading
-* Default value: false
+* Description: Enable to use segment compaction during loading to avoid -238 error
+* Default value: true
 
 #### `segcompaction_threshold_segment_num`
 

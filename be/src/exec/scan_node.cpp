@@ -20,9 +20,18 @@
 
 #include "exec/scan_node.h"
 
+#include <gen_cpp/Metrics_types.h>
+
+#include <memory>
+
+#include "vec/exprs/vexpr_context.h"
 #include "vec/utils/util.hpp"
 
 namespace doris {
+class RuntimeState;
+namespace vectorized {
+class VExpr;
+} // namespace vectorized
 
 const std::string ScanNode::_s_bytes_read_counter = "BytesRead";
 const std::string ScanNode::_s_rows_read_counter = "RowsRead";

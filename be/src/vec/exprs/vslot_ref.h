@@ -16,13 +16,22 @@
 // under the License.
 
 #pragma once
-#include "runtime/runtime_state.h"
+#include <string>
+
+#include "common/object_pool.h"
+#include "common/status.h"
 #include "vec/exprs/vexpr.h"
-#include "vec/functions/function.h"
 
 namespace doris {
 class SlotDescriptor;
+class RowDescriptor;
+class RuntimeState;
+class TExprNode;
+
 namespace vectorized {
+class Block;
+class VExprContext;
+
 class VSlotRef final : public VExpr {
 public:
     VSlotRef(const doris::TExprNode& node);

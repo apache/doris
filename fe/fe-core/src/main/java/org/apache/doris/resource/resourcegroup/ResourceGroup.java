@@ -28,7 +28,7 @@ import org.apache.doris.thrift.TPipelineResourceGroup;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -65,7 +65,7 @@ public class ResourceGroup implements Writable {
         this.version = 0;
     }
 
-    public static ResourceGroup createResourceGroup(String name, Map<String, String> properties) throws DdlException {
+    public static ResourceGroup create(String name, Map<String, String> properties) throws DdlException {
         checkProperties(properties);
         return new ResourceGroup(Env.getCurrentEnv().getNextId(), name, properties);
     }

@@ -17,48 +17,54 @@
 
 #pragma once
 
-#include <pthread.h>
-#include <rapidjson/document.h>
+#include <butil/macros.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <stdint.h>
 
+#include <atomic>
 #include <condition_variable>
 #include <ctime>
-#include <list>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <set>
 #include <string>
-#include <thread>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/AgentService_types.h"
-#include "gen_cpp/BackendService_types.h"
-#include "gen_cpp/MasterService_types.h"
 #include "gutil/ref_counted.h"
 #include "olap/compaction_permit_limiter.h"
 #include "olap/olap_common.h"
-#include "olap/olap_define.h"
-#include "olap/olap_meta.h"
 #include "olap/options.h"
+#include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_id_generator.h"
-#include "olap/tablet_manager.h"
-#include "olap/task/engine_task.h"
-#include "olap/txn_manager.h"
+#include "olap/rowset/segment_v2/segment.h"
+#include "olap/tablet.h"
 #include "runtime/heartbeat_flags.h"
-#include "runtime/stream_load/stream_load_recorder.h"
 #include "util/countdown_latch.h"
-#include "util/thread.h"
-#include "util/threadpool.h"
 
 namespace doris {
 
 class DataDir;
 class EngineTask;
-class BlockManager;
 class MemTableFlushExecutor;
-class Tablet;
 class TaskWorkerPool;
 class BetaRowsetWriter;
+class BaseCompaction;
+class CumulativeCompaction;
+class CumulativeCompactionPolicy;
+class MemTracker;
+class PriorityThreadPool;
+class StreamLoadRecorder;
+class TCloneReq;
+class TCreateTabletReq;
+class TabletManager;
+class Thread;
+class ThreadPool;
+class TxnManager;
 
 using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
 using SegCompactionCandidatesSharedPtr = std::shared_ptr<SegCompactionCandidates>;

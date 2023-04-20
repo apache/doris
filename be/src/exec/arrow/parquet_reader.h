@@ -17,43 +17,30 @@
 
 #pragma once
 
-#include <arrow/api.h>
-#include <arrow/buffer.h>
-#include <arrow/io/api.h>
-#include <arrow/io/file.h>
-#include <arrow/io/interfaces.h>
-#include <arrow/status.h>
-#include <parquet/api/reader.h>
-#include <parquet/api/writer.h>
+#include <arrow/type_fwd.h>
 #include <parquet/arrow/reader.h>
-#include <parquet/arrow/writer.h>
-#include <parquet/exception.h>
 #include <stdint.h>
 
-#include <atomic>
-#include <condition_variable>
-#include <list>
-#include <map>
-#include <mutex>
+#include <memory>
 #include <string>
-#include <thread>
+#include <vector>
 
-#include "common/config.h"
 #include "common/status.h"
 #include "exec/arrow/arrow_reader.h"
-#include "gen_cpp/PaloBrokerService_types.h"
-#include "gen_cpp/PlanNodes_types.h"
-#include "gen_cpp/Types_types.h"
+#include "io/fs/file_reader_writer_fwd.h"
+
+namespace arrow {
+class RecordBatch;
+} // namespace arrow
+namespace parquet {
+class FileMetaData;
+} // namespace parquet
 
 namespace doris {
 
-class ExecEnv;
-class TBrokerRangeDesc;
-class TNetworkAddress;
 class RuntimeState;
 class SlotDescriptor;
-class FileReader;
-class RowGroupReader;
+class TupleDescriptor;
 
 // Reader of parquet file
 class ParquetReaderWrap final : public ArrowReaderWrap {

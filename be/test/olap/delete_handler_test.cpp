@@ -17,6 +17,7 @@
 
 #include "olap/delete_handler.h"
 
+#include <gen_cpp/Descriptors_types.h>
 #include <gtest/gtest.h>
 #include <unistd.h>
 
@@ -31,8 +32,10 @@
 #include "olap/olap_define.h"
 #include "olap/options.h"
 #include "olap/push_handler.h"
+#include "olap/row_cursor.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet_manager.h"
 #include "olap/utils.h"
 #include "util/cpu_info.h"
 

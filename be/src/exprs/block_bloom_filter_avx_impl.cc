@@ -20,10 +20,14 @@
 
 #ifdef __AVX2__
 
+#include <glog/logging.h>
 #include <immintrin.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <ostream>
 
 #include "exprs/block_bloom_filter.hpp"
-#include "gutil/macros.h"
 
 namespace doris {
 

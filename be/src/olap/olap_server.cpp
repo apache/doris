@@ -15,28 +15,55 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gperftools/profiler.h>
-#include <sys/socket.h>
-#include <unistd.h>
+#include <gen_cpp/Types_types.h>
+#include <stdint.h>
 
-#include <boost/algorithm/string.hpp>
+#include <algorithm>
+#include <atomic>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
 #include <cmath>
+#include <condition_variable>
 #include <ctime>
+#include <functional>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <ostream>
 #include <random>
 #include <string>
+#include <type_traits>
+#include <unordered_set>
+#include <utility>
+#include <vector>
 
 #include "common/config.h"
+#include "common/logging.h"
 #include "common/status.h"
-#include "gutil/strings/substitute.h"
+#include "gutil/ref_counted.h"
 #include "io/cache/file_cache_manager.h"
+#include "io/fs/file_writer.h" // IWYU pragma: keep
+#include "io/fs/path.h"
 #include "olap/cold_data_compaction.h"
-#include "olap/cumulative_compaction.h"
+#include "olap/compaction_permit_limiter.h"
+#include "olap/cumulative_compaction_policy.h"
+#include "olap/data_dir.h"
 #include "olap/olap_common.h"
-#include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset_writer.h"
+#include "olap/rowset/segcompaction.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet.h"
+#include "olap/tablet_manager.h"
+#include "olap/tablet_meta.h"
+#include "olap/tablet_schema.h"
 #include "service/point_query_executor.h"
+#include "util/countdown_latch.h"
+#include "util/doris_metrics.h"
+#include "util/priority_thread_pool.hpp"
+#include "util/thread.h"
+#include "util/threadpool.h"
 #include "util/time.h"
+#include "util/uid_util.h"
 
 using std::string;
 

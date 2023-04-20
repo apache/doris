@@ -17,9 +17,10 @@
 
 #pragma once
 
+#include <stddef.h>
+
 #include <memory>
 #include <string>
-#include <vector>
 
 #include "geo/geo_common.h"
 #include "geo/wkt_parse_type.h"
@@ -28,7 +29,6 @@ class S2Polyline;
 class S2Polygon;
 class S2Cap;
 class S2Loop;
-
 template <typename T>
 class Vector3;
 

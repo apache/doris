@@ -17,17 +17,31 @@
 
 #pragma once
 
+#include <stddef.h>
 #include <stdint.h>
 
-#include <map>
+#include <memory>
 #include <orc/OrcFile.hh>
 #include <string>
+#include <vector>
 
 #include "common/status.h"
-#include "io/fs/file_writer.h"
+#include "orc/Type.hh"
+#include "orc/Writer.hh"
 #include "vec/core/block.h"
-#include "vec/exprs/vexpr_context.h"
-#include "vec/runtime/vfile_result_writer.h"
+#include "vec/runtime/vparquet_writer.h"
+
+namespace doris {
+namespace io {
+class FileWriter;
+} // namespace io
+namespace vectorized {
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
+namespace orc {
+struct ColumnVectorBatch;
+} // namespace orc
 
 namespace doris::vectorized {
 

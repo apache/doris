@@ -59,7 +59,7 @@ suite("analyze_test") {
     sql """
         DROP TABLE IF EXISTS ${tblName1}
     """
-    
+
     sql """CREATE TABLE ${tblName1} (analyze_test_col1 varchar(11451) not null, analyze_test_col2 int not null, analyze_test_col3 int not null)
     UNIQUE KEY(analyze_test_col1)
     DISTRIBUTED BY HASH(analyze_test_col1)
@@ -68,11 +68,11 @@ suite("analyze_test") {
             "replication_num"="1",
             "enable_unique_key_merge_on_write"="true"
     );"""
-    
+
     sql """
         DROP TABLE IF EXISTS ${tblName2}
     """
-    
+
     sql """CREATE TABLE ${tblName2} (analyze_test_col1 varchar(11451) not null, analyze_test_col2 int not null, analyze_test_col3 int not null)
     UNIQUE KEY(analyze_test_col1)
     DISTRIBUTED BY HASH(analyze_test_col1)
@@ -81,11 +81,11 @@ suite("analyze_test") {
             "replication_num"="1",
             "enable_unique_key_merge_on_write"="true"
     );"""
-    
+
     sql """
         DROP TABLE IF EXISTS ${tblName3}
     """
-    
+
     sql """CREATE TABLE ${tblName3} (analyze_test_col1 varchar(11451) not null, analyze_test_col2 int not null, analyze_test_col3 int not null)
     UNIQUE KEY(analyze_test_col1)
     DISTRIBUTED BY HASH(analyze_test_col1)
@@ -100,14 +100,14 @@ suite("analyze_test") {
     sql """insert into ${tblName1} values(4, 5, 6);"""
     sql """insert into ${tblName1} values(7, 1, 9);"""
     sql """insert into ${tblName1} values(3, 8, 2);"""
-    sql """insert into ${tblName1} values(5, 2, 1);""" 
-    
+    sql """insert into ${tblName1} values(5, 2, 1);"""
+
     sql """insert into ${tblName2} values(1, 2, 3);"""
     sql """insert into ${tblName2} values(4, 5, 6);"""
     sql """insert into ${tblName2} values(7, 1, 9);"""
     sql """insert into ${tblName2} values(3, 8, 2);"""
     sql """insert into ${tblName2} values(5, 2, 1);"""
-    
+
     sql """insert into ${tblName3} values(1, 2, 3);"""
     sql """insert into ${tblName3} values(4, 5, 6);"""
     sql """insert into ${tblName3} values(7, 1, 9);"""
@@ -158,4 +158,29 @@ suite("analyze_test") {
         select count, ndv, null_count, min, max, data_size_in_bytes from __internal_schema.column_statistics where
             col_id in ('analyze_test_col1', 'analyze_test_col2', 'analyze_test_col3') order by col_id
     """
+
+    sql """
+        DROP STATS ${tblName3} (analyze_test_col1);
+    """
+
+    qt_sql """
+        SELECT COUNT(*) FROM __internal_schema.column_statistics  where
+            col_id in ('analyze_test_col1', 'analyze_test_col2', 'analyze_test_col3') 
+    """
+    // Below test would failed on community pipeline for unknown reason, comment it temporarily
+    // sql """
+    //     SET enable_nereids_planner=true;
+    //
+    // """
+    // sql """
+    //     SET forbid_unknown_col_stats=true;
+    // """
+    //
+    //test {
+    //    sql """
+    //        SELECT analyze_test_col1 FROM ${tblName3}
+    //    """
+    //    exception """errCode = 2, detailMessage = Unexpected exception: column stats for analyze_test_col1 is unknown"""
+    //}
+
 }

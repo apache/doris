@@ -194,14 +194,18 @@ public class TypeDef implements ParseNode {
                 int precision = scalarType.decimalPrecision();
                 int scale = scalarType.decimalScale();
                 // precision: [1, 27]
-                if (precision < 1 || precision > 27) {
+                if (precision < 1 || precision > ScalarType.MAX_DECIMALV2_PRECISION) {
                     throw new AnalysisException("Precision of decimal must between 1 and 27."
                             + " Precision was set to: " + precision + ".");
                 }
                 // scale: [0, 9]
-                if (scale < 0 || scale > 9) {
+                if (scale < 0 || scale > ScalarType.MAX_DECIMALV2_SCALE) {
                     throw new AnalysisException(
                             "Scale of decimal must between 0 and 9." + " Scale was set to: " + scale + ".");
+                }
+                if (precision - scale > ScalarType.MAX_DECIMALV2_PRECISION - ScalarType.MAX_DECIMALV2_SCALE) {
+                    throw new AnalysisException("Invalid decimal type with precision = " + precision + ", scale = "
+                            + scale);
                 }
                 // scale < precision
                 if (scale > precision) {

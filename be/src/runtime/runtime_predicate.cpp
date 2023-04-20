@@ -17,7 +17,12 @@
 
 #include "runtime/runtime_predicate.h"
 
+#include <stdint.h>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "olap/accept_null_predicate.h"
+#include "olap/column_predicate.h"
 #include "olap/predicate_creator.h"
 
 namespace doris {

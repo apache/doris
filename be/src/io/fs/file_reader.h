@@ -17,9 +17,12 @@
 
 #pragma once
 
+#include <butil/macros.h>
+#include <stddef.h>
+
+#include <memory>
+
 #include "common/status.h"
-#include "gutil/macros.h"
-#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/path.h"
 #include "util/slice.h"
 

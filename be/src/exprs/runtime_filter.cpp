@@ -17,27 +17,46 @@
 
 #include "runtime_filter.h"
 
-#include <memory>
+#include <gen_cpp/Opcodes_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <stddef.h>
 
+#include <algorithm>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <map>
+#include <memory>
+#include <mutex>
+#include <ostream>
+#include <utility>
+
+#include "common/logging.h"
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "exprs/bitmapfilter_predicate.h"
+#include "exprs/bloom_filter_func.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
 #include "exprs/minmax_predicate.h"
-#include "gen_cpp/internal_service.pb.h"
+#include "gutil/strings/substitute.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/large_int_value.h"
 #include "runtime/primitive_type.h"
 #include "runtime/runtime_filter_mgr.h"
+#include "util/bitmap_value.h"
 #include "util/runtime_profile.h"
 #include "util/string_parser.hpp"
 #include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
+#include "vec/common/assert_cast.h"
 #include "vec/exprs/vbitmap_predicate.h"
 #include "vec/exprs/vbloom_predicate.h"
 #include "vec/exprs/vdirect_in_predicate.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
 #include "vec/runtime/shared_hash_table_controller.h"
@@ -334,8 +353,7 @@ public:
               _fragment_instance_id(params->fragment_instance_id),
               _filter_id(params->filter_id),
               _use_batch(IRuntimeFilter::enable_use_batch(_state->be_exec_version(),
-                                                          _column_return_type)),
-              _use_new_hash(_state->be_exec_version() >= 2) {}
+                                                          _column_return_type)) {}
     // for a 'tmp' runtime predicate wrapper
     // only could called assign method or as a param for merge
     RuntimePredicateWrapper(RuntimeState* state, ObjectPool* pool, PrimitiveType column_type,
@@ -348,8 +366,7 @@ public:
               _fragment_instance_id(fragment_instance_id),
               _filter_id(filter_id),
               _use_batch(IRuntimeFilter::enable_use_batch(_state->be_exec_version(),
-                                                          _column_return_type)),
-              _use_new_hash(_state->be_exec_version() >= 2) {}
+                                                          _column_return_type)) {}
     // init runtime filter wrapper
     // alloc memory to init runtime filter function
     Status init(const RuntimeFilterParams* params) {
@@ -367,6 +384,7 @@ public:
             _is_bloomfilter = true;
             _context.bloom_filter_func.reset(create_bloom_filter(_column_return_type));
             _context.bloom_filter_func->set_length(params->bloom_filter_size);
+            _context.bloom_filter_func->set_build_bf_exactly(params->build_bf_exactly);
             return Status::OK();
         }
         case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
@@ -394,6 +412,11 @@ public:
         insert_to_bloom_filter(_context.bloom_filter_func.get());
         // release in filter
         _context.hybrid_set.reset(create_set(_column_return_type));
+    }
+
+    Status init_bloom_filter(const size_t build_bf_cardinality) {
+        DCHECK(_filter_type == RuntimeFilterType::BLOOM_FILTER);
+        return _context.bloom_filter_func->init_with_cardinality(build_bf_cardinality);
     }
 
     void insert_to_bloom_filter(BloomFilterFuncBase* bloom_filter) const {
@@ -435,11 +458,7 @@ public:
         }
         case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
             if (_is_bloomfilter) {
-                if (_use_new_hash) {
-                    _context.bloom_filter_func->insert_crc32_hash(data);
-                } else {
-                    _context.bloom_filter_func->insert(data);
-                }
+                _context.bloom_filter_func->insert(data);
             } else {
                 _context.hybrid_set->insert(data);
             }
@@ -1017,19 +1036,16 @@ private:
 
     // When _column_return_type is invalid, _use_batch will be always false.
     bool _use_batch;
-
-    // When _use_new_hash is set to true, use the new hash method.
-    // This is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
-    const bool _use_new_hash;
 };
 
 Status IRuntimeFilter::create(RuntimeState* state, ObjectPool* pool, const TRuntimeFilterDesc* desc,
                               const TQueryOptions* query_options, const RuntimeFilterRole role,
-                              int node_id, IRuntimeFilter** res) {
+                              int node_id, IRuntimeFilter** res, bool build_bf_exactly) {
     *res = pool->add(new IRuntimeFilter(state, pool));
     (*res)->set_role(role);
     UniqueId fragment_instance_id(state->fragment_instance_id());
-    return (*res)->init_with_desc(desc, query_options, fragment_instance_id, node_id);
+    return (*res)->init_with_desc(desc, query_options, fragment_instance_id, node_id,
+                                  build_bf_exactly);
 }
 
 void IRuntimeFilter::copy_to_shared_context(vectorized::SharedRuntimeFilterContext& context) {
@@ -1232,7 +1248,8 @@ BloomFilterFuncBase* IRuntimeFilter::get_bloomfilter() const {
 }
 
 Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options,
-                                      UniqueId fragment_instance_id, int node_id) {
+                                      UniqueId fragment_instance_id, int node_id,
+                                      bool build_bf_exactly) {
     // if node_id == -1 , it shouldn't be a consumer
     DCHECK(node_id >= 0 || (node_id == -1 && !is_consumer()));
 
@@ -1264,6 +1281,8 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     params.filter_type = _runtime_filter_type;
     params.column_return_type = build_ctx->root()->type().type;
     params.max_in_num = options->runtime_filter_max_in_num;
+    params.build_bf_exactly = build_bf_exactly && !_has_remote_target &&
+                              _runtime_filter_type == RuntimeFilterType::BLOOM_FILTER;
     if (desc->__isset.bloom_filter_size_bytes) {
         params.bloom_filter_size = desc->bloom_filter_size_bytes;
     }
@@ -1325,6 +1344,10 @@ void IRuntimeFilter::change_to_bloom_filter() {
     if (origin_type != _wrapper->get_real_type()) {
         update_runtime_filter_type_to_profile();
     }
+}
+
+Status IRuntimeFilter::init_bloom_filter(const size_t build_bf_cardinality) {
+    return _wrapper->init_bloom_filter(build_bf_cardinality);
 }
 
 template <class T>

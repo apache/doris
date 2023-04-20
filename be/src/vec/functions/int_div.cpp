@@ -20,6 +20,8 @@
 
 #include "vec/functions/int_div.h"
 
+#include <utility>
+
 #include "vec/functions/function_binary_arithmetic.h"
 #include "vec/functions/simple_function_factory.h"
 

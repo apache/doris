@@ -17,36 +17,54 @@
 
 #pragma once
 
-#include <memory>
+#include <brpc/controller.h>
+#include <butil/errno.h>
+#include <fmt/format.h>
+#include <gen_cpp/Partitions_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/data.pb.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <gen_cpp/types.pb.h>
+#include <stdint.h>
 
+#include <atomic>
+#include <memory>
+#include <ostream>
+#include <string>
+#include <vector>
+
+#include "common/config.h"
 #include "common/global_types.h"
+#include "common/logging.h"
+#include "common/status.h"
 #include "exec/data_sink.h"
-#include "gen_cpp/PaloInternalService_types.h"
-#include "gen_cpp/data.pb.h"
-#include "gen_cpp/internal_service.pb.h"
 #include "pipeline/exec/exchange_sink_buffer.h"
-#include "runtime/descriptors.h"
 #include "service/backend_options.h"
 #include "util/ref_count_closure.h"
+#include "util/runtime_profile.h"
 #include "util/uid_util.h"
-#include "vec/exprs/vexpr.h"
+#include "vec/core/block.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/runtime/vdata_stream_recvr.h"
 
 namespace doris {
 class ObjectPool;
 class RuntimeState;
-class RuntimeProfile;
-class BufferControlBlock;
 class MemTracker;
+class RowDescriptor;
+class TDataSink;
+class TDataStreamSink;
+class TPlanFragmentDestination;
+
+namespace segment_v2 {
+enum CompressionTypePB : int;
+} // namespace segment_v2
 
 namespace pipeline {
 class ExchangeSinkOperator;
 }
 
 namespace vectorized {
-class VExprContext;
 class Channel;
 
 template <typename T>

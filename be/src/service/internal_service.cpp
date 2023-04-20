@@ -17,60 +17,104 @@
 
 #include "service/internal_service.h"
 
+#include <assert.h>
+#include <brpc/closure_guard.h>
+#include <brpc/controller.h>
+#include <bthread/bthread.h>
+#include <bthread/types.h>
+#include <butil/errno.h>
 #include <butil/iobuf.h>
+#include <fcntl.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Status_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <gen_cpp/types.pb.h>
+#include <google/protobuf/stubs/callback.h>
+#include <stddef.h>
 #include <stdint.h>
+#include <sys/stat.h>
 
 #include <algorithm>
+#include <filesystem>
+#include <memory>
 #include <set>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "common/config.h"
-#include "common/consts.h"
-#include "gen_cpp/BackendService.h"
-#include "gen_cpp/PaloInternalService_types.h"
-#include "gen_cpp/internal_service.pb.h"
+#include "common/logging.h"
+#include "gutil/integral_types.h"
 #include "http/http_client.h"
+#include "io/fs/stream_load_pipe.h"
+#include "io/io_common.h"
+#include "olap/data_dir.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/beta_rowset.h"
+#include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
+#include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/segment_v2/column_reader.h"
+#include "olap/rowset/segment_v2/common.h"
+#include "olap/rowset/segment_v2/segment.h"
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "olap/tablet_manager.h"
 #include "olap/tablet_schema.h"
+#include "olap/txn_manager.h"
+#include "olap/utils.h"
 #include "runtime/buffer_control_block.h"
+#include "runtime/cache/result_cache.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/fold_constant_executor.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/load_channel_mgr.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/routine_load/routine_load_task_executor.h"
-#include "runtime/runtime_state.h"
+#include "runtime/stream_load/new_load_stream_mgr.h"
+#include "runtime/stream_load/stream_load_context.h"
 #include "runtime/thread_context.h"
-#include "service/brpc.h"
+#include "runtime/types.h"
 #include "service/point_query_executor.h"
 #include "util/async_io.h"
 #include "util/brpc_client_cache.h"
-#include "util/defer_op.h"
+#include "util/doris_metrics.h"
 #include "util/md5.h"
+#include "util/metrics.h"
 #include "util/proto_util.h"
 #include "util/ref_count_closure.h"
-#include "util/s3_uri.h"
+#include "util/runtime_profile.h"
+#include "util/stopwatch.hpp"
 #include "util/string_util.h"
 #include "util/telemetry/brpc_carrier.h"
 #include "util/telemetry/telemetry.h"
 #include "util/thrift_util.h"
+#include "util/time.h"
 #include "util/uid_util.h"
+#include "vec/columns/column.h"
 #include "vec/core/block.h"
-#include "vec/data_types/data_type_string.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
 #include "vec/exec/format/csv/csv_reader.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/format/json/new_json_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/runtime/vdata_stream_mgr.h"
+
+namespace google {
+namespace protobuf {
+class RpcController;
+} // namespace protobuf
+} // namespace google
 
 namespace doris {
 using namespace ErrorCode;

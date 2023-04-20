@@ -16,9 +16,28 @@
 // under the License.
 
 #pragma once
-#include "runtime/runtime_state.h"
+#include <stddef.h>
+
+#include <string>
+#include <vector>
+
+#include "common/object_pool.h"
+#include "common/status.h"
+#include "udf/udf.h"
+#include "vec/core/column_numbers.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/functions/function.h"
+
+namespace doris {
+class RowDescriptor;
+class RuntimeState;
+class TExprNode;
+
+namespace vectorized {
+class Block;
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 class VectorizedFnCall : public VExpr {

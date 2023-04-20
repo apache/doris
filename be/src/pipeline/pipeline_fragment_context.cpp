@@ -18,12 +18,28 @@
 #include "pipeline_fragment_context.h"
 
 #include <gen_cpp/DataSinks_types.h>
-#include <thrift/protocol/TDebugProtocol.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Planner_types.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+#include <opentelemetry/trace/span.h>
+#include <opentelemetry/trace/span_context.h>
+#include <opentelemetry/trace/tracer.h>
+#include <pthread.h>
+#include <stdlib.h>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <map>
+#include <ostream>
+#include <typeinfo>
+#include <utility>
 
+#include "common/config.h"
+#include "common/logging.h"
 #include "exec/data_sink.h"
+#include "exec/exec_node.h"
 #include "exec/scan_node.h"
-#include "gen_cpp/FrontendService.h"
-#include "gen_cpp/HeartbeatService_types.h"
+#include "io/fs/stream_load_pipe.h"
 #include "pipeline/exec/aggregation_sink_operator.h"
 #include "pipeline/exec/aggregation_source_operator.h"
 #include "pipeline/exec/analytic_sink_operator.h"
@@ -38,7 +54,7 @@
 #include "pipeline/exec/exchange_source_operator.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
-#include "pipeline/exec/mysql_scan_operator.h"
+#include "pipeline/exec/mysql_scan_operator.h" // IWYU pragma: keep
 #include "pipeline/exec/nested_loop_join_build_operator.h"
 #include "pipeline/exec/nested_loop_join_probe_operator.h"
 #include "pipeline/exec/olap_table_sink_operator.h"
@@ -49,9 +65,9 @@
 #include "pipeline/exec/scan_operator.h"
 #include "pipeline/exec/schema_scan_operator.h"
 #include "pipeline/exec/select_operator.h"
-#include "pipeline/exec/set_probe_sink_operator.h"
-#include "pipeline/exec/set_sink_operator.h"
-#include "pipeline/exec/set_source_operator.h"
+#include "pipeline/exec/set_probe_sink_operator.h" // IWYU pragma: keep
+#include "pipeline/exec/set_sink_operator.h"       // IWYU pragma: keep
+#include "pipeline/exec/set_source_operator.h"     // IWYU pragma: keep
 #include "pipeline/exec/sort_sink_operator.h"
 #include "pipeline/exec/sort_source_operator.h"
 #include "pipeline/exec/streaming_aggregation_sink_operator.h"
@@ -61,32 +77,41 @@
 #include "pipeline/exec/union_sink_operator.h"
 #include "pipeline/exec/union_source_operator.h"
 #include "pipeline_task.h"
-#include "runtime/client_cache.h"
+#include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
+#include "runtime/thread_context.h"
+#include "service/backend_options.h"
 #include "task_scheduler.h"
 #include "util/container_util.hpp"
+#include "util/debug_util.h"
+#include "util/telemetry/telemetry.h"
+#include "util/uid_util.h"
+#include "vec/common/assert_cast.h"
 #include "vec/exec/join/vhash_join_node.h"
-#include "vec/exec/join/vnested_loop_join_node.h"
 #include "vec/exec/scan/new_es_scan_node.h"
 #include "vec/exec/scan/new_file_scan_node.h"
-#include "vec/exec/scan/new_jdbc_scan_node.h"
 #include "vec/exec/scan/new_odbc_scan_node.h"
 #include "vec/exec/scan/new_olap_scan_node.h"
 #include "vec/exec/scan/vmeta_scan_node.h"
 #include "vec/exec/scan/vscan_node.h"
 #include "vec/exec/vaggregation_node.h"
 #include "vec/exec/vexchange_node.h"
-#include "vec/exec/vrepeat_node.h"
-#include "vec/exec/vschema_scan_node.h"
-#include "vec/exec/vset_operation_node.h"
-#include "vec/exec/vsort_node.h"
 #include "vec/exec/vunion_node.h"
 #include "vec/runtime/vdata_stream_mgr.h"
-#include "vec/sink/vresult_file_sink.h"
-#include "vec/sink/vresult_sink.h"
+
+namespace apache {
+namespace thrift {
+class TException;
+
+namespace transport {
+class TTransportException;
+} // namespace transport
+} // namespace thrift
+} // namespace apache
 
 using apache::thrift::transport::TTransportException;
 using apache::thrift::TException;
@@ -206,9 +231,6 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     if (request.__isset.load_job_id) {
         _runtime_state->set_load_job_id(request.load_job_id);
     }
-    if (request.__isset.shared_scan_opt) {
-        _runtime_state->set_shared_scan_opt(request.shared_scan_opt);
-    }
 
     if (request.query_options.__isset.is_report_success) {
         fragment_context->set_is_report_success(request.query_options.is_report_success);
@@ -258,7 +280,10 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
             auto* scan_node = static_cast<vectorized::VScanNode*>(scan_nodes[i]);
             const std::vector<TScanRangeParams>& scan_ranges = find_with_default(
                     local_params.per_node_scan_ranges, scan_node->id(), no_scan_ranges);
+            const bool shared_scan =
+                    find_with_default(local_params.per_node_shared_scans, scan_node->id(), false);
             scan_node->set_scan_ranges(scan_ranges);
+            scan_node->set_shared_scan(_runtime_state.get(), shared_scan);
         } else {
             ScanNode* scan_node = static_cast<ScanNode*>(node);
             const std::vector<TScanRangeParams>& scan_ranges = find_with_default(

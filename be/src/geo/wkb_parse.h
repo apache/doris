@@ -15,13 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#pragma once
+
+#include <stdint.h>
+
+#include <iosfwd>
+
 #include "geo/geo_common.h"
-#include "geo/geo_types.h"
-#include "wkb_parse_ctx.h"
+#include "geo/wkt_parse_type.h"
+
+struct WkbParseContext;
 
 namespace doris {
 
 class GeoShape;
+class GeoLine;
+class GeoPoint;
+class GeoPolygon;
 
 class WkbParse {
 public:

@@ -21,8 +21,6 @@
 
 namespace doris {
 
-class Webserver;
-class ExecEnv;
 class HttpRequest;
 class MetricRegistry;
 

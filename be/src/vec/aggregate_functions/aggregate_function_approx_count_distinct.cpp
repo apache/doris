@@ -17,7 +17,16 @@
 
 #include "vec/aggregate_functions/aggregate_function_approx_count_distinct.h"
 
+#include "util/bitmap_value.h"
 #include "vec/aggregate_functions/helpers.h"
+#include "vec/columns/column_array.h"
+#include "vec/columns/column_decimal.h"
+#include "vec/columns/column_map.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_struct.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/utils/template_helpers.hpp"
 
 namespace doris::vectorized {
 

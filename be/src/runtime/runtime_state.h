@@ -20,14 +20,24 @@
 
 #pragma once
 
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <stdint.h>
+
+#include <atomic>
 #include <fstream>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "cctz/time_zone.h"
-#include "common/global_types.h"
-#include "common/object_pool.h"
-#include "gen_cpp/PaloInternalService_types.h" // for TQueryOptions
-#include "gen_cpp/Types_types.h"               // for TUniqueId
-#include "runtime/query_fragments_ctx.h"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/status.h"
 #include "util/runtime_profile.h"
 #include "util/telemetry/telemetry.h"
 
@@ -35,15 +45,10 @@ namespace doris {
 
 class DescriptorTbl;
 class ObjectPool;
-class Status;
 class ExecEnv;
-class DateTimeValue;
-class MemTracker;
-class DataStreamRecvr;
-class ResultBufferMgr;
-class BufferedBlockMgr;
-class RowDescriptor;
 class RuntimeFilterMgr;
+class MemTrackerLimiter;
+class QueryFragmentsCtx;
 
 // A collection of items that are part of the global state of a
 // query and shared across all execution nodes of that query.
@@ -200,10 +205,6 @@ public:
     void set_load_job_id(int64_t job_id) { _load_job_id = job_id; }
 
     int64_t load_job_id() const { return _load_job_id; }
-
-    void set_shared_scan_opt(bool shared_scan_opt) { _shared_scan_opt = shared_scan_opt; }
-
-    bool shared_scan_opt() const { return _shared_scan_opt; }
 
     const std::string get_error_log_file_path() const { return _error_log_file_path; }
 
@@ -376,6 +377,8 @@ public:
         return 0;
     }
 
+    void set_be_exec_version(int32_t version) noexcept { _query_options.be_exec_version = version; }
+
 private:
     Status create_error_log_file();
 
@@ -458,7 +461,6 @@ private:
     std::string _db_name;
     std::string _load_dir;
     int64_t _load_job_id;
-    bool _shared_scan_opt = false;
 
     // mini load
     int64_t _normal_row_number;

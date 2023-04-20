@@ -17,8 +17,14 @@
 
 #include "olap/rowset/segment_v2/bloom_filter_index_reader.h"
 
+#include <gen_cpp/segment_v2.pb.h>
+#include <glog/logging.h>
+
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/types.h"
+#include "vec/columns/column.h"
+#include "vec/common/string_ref.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {

@@ -17,11 +17,15 @@
 
 #pragma once
 
-#include "gen_cpp/AgentService_types.h"
-#include "olap/olap_define.h"
+#include <memory>
+
+#include "common/status.h"
 #include "olap/task/engine_task.h"
 
 namespace doris {
+class MemTrackerLimiter;
+class TAlterInvertedIndexReq;
+class TAlterTabletReqV2;
 
 // base class for storage engine
 // add "Engine" as task prefix to prevent duplicate name with agent task
