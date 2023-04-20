@@ -193,7 +193,7 @@ public class Backend implements Writable {
     }
 
     public String getIp() {
-        return ip;
+        return hostName;
     }
 
     public String getHostName() {

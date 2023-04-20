@@ -28,6 +28,7 @@ import org.apache.commons.validator.routines.InetAddressValidator;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.net.Inet4Address;
 import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
@@ -53,40 +54,79 @@ public class FrontendOptions {
             return;
         }
 
-        analyzePriorityCidrs();
-
-        // if not set frontend_address, get a non-loopback ip
         List<InetAddress> hosts = new ArrayList<>();
         NetUtils.getHosts(hosts);
         if (hosts.isEmpty()) {
             LOG.error("fail to get localhost");
             System.exit(-1);
         }
+        if (Config.enable_fqdn_mode) {
+            initAddrUseFqdn(hosts);
+        } else {
+            initAddrUseIp(hosts);
+        }
+    }
 
+
+    static void initAddrUseIp(List<InetAddress> hosts) {
+        analyzePriorityCidrs();
+        // if not set frontend_address, get a non-loopback ip
         InetAddress loopBack = null;
+        boolean hasMatchedIp = false;
         for (InetAddress addr : hosts) {
-            LOG.info("check ip address: {}", addr);
-            if (addr.isLoopbackAddress()) {
-                loopBack = addr;
-            } else if (!priorityCidrs.isEmpty()) {
-                if (isInPriorNetwork(addr.getHostAddress())) {
+            LOG.debug("check ip address: {}", addr);
+            if (addr instanceof Inet4Address) {
+                if (addr.isLoopbackAddress()) {
+                    loopBack = addr;
+                } else if (!priorityCidrs.isEmpty()) {
+                    if (isInPriorNetwork(addr.getHostAddress())) {
+                        localAddr = addr;
+                        hasMatchedIp = true;
+                        break;
+                    }
+                } else {
                     localAddr = addr;
                     break;
                 }
-            } else {
-                localAddr = addr;
-                break;
             }
         }
-
+        //if all ips not match the priority_networks then print the warning log
+        if (!priorityCidrs.isEmpty() && !hasMatchedIp) {
+            LOG.warn("ip address range configured for priority_networks does not include the current IP address");
+        }
         // nothing found, use loopback addr
         if (localAddr == null) {
             localAddr = loopBack;
         }
-
-        checkHostName();
         LOG.info("local address: {}.", localAddr);
     }
+
+    static void initAddrUseFqdn(List<InetAddress> hosts) throws UnknownHostException {
+        InetAddress uncheckedLocalAddr = InetAddress.getLocalHost();
+        if (null == uncheckedLocalAddr) {
+            LOG.error("get a null localhost when start fe use fqdn");
+            System.exit(-1);
+        }
+        String uncheckedFqdn = uncheckedLocalAddr.getCanonicalHostName();
+        if (null == uncheckedFqdn) {
+            LOG.error("get a null canonicalHostName when start fe use fqdn");
+            System.exit(-1);
+        }
+        String uncheckeddIp = InetAddress.getByName(uncheckedFqdn).getHostAddress();
+        boolean hasInetAddr = false;
+        for (InetAddress addr : hosts) {
+            if (uncheckeddIp.equals(addr.getHostAddress())) {
+                hasInetAddr = true;
+            }
+        }
+        if (hasInetAddr) {
+            localAddr = uncheckedLocalAddr;
+        } else {
+            LOG.error("fail to find right localhost when start fe use fqdn");
+            System.exit(-1);
+        }
+    }
+
 
     public static InetAddress getLocalHost() {
         return localAddr;
@@ -98,19 +138,6 @@ public class FrontendOptions {
 
     public static String getHostName() {
         return localAddr.getHostName();
-    }
-
-    private static void checkHostName() throws UnknownHostException {
-        if (Config.enable_fqdn_mode) {
-            if (getHostName().equals(getLocalHostAddress())) {
-                LOG.error("Can't get hostname in FQDN mode. Please check your network configuration."
-                                + " got hostname: {}, ip: {}",
-                        getHostName(), getLocalHostAddress());
-                throw new UnknownHostException("Can't get hostname in FQDN mode."
-                        + " Please check your network configuration."
-                        + " got hostname: " + getHostName() + ", ip: " + getLocalHostAddress());
-            }
-        }
     }
 
     private static void analyzePriorityCidrs() {

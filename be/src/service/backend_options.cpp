@@ -91,6 +91,10 @@ const std::string& BackendOptions::get_localhost() {
     return _s_localhost;
 }
 
+void BackendOptions::set_localhost(const std::string& host) {
+    _s_localhost = host;
+}
+
 bool BackendOptions::is_bind_ipv6() {
     return _bind_ipv6;
 }
