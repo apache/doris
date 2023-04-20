@@ -2852,7 +2852,8 @@ public class Env {
             // keys
             String keySql = olapTable.getKeysType().toSql();
             if (olapTable.getDuplicateNoKeys() == true) {
-                sb.append("\n").append("DUPLICATE ").append("NO_KEYS");
+                // after #18621, use can create a DUP_KEYS olap table without key columns
+                // and get a ddl schema without key type and key columns
             } else {
                 sb.append("\n").append(table.getType() == TableType.OLAP
                     ? keySql

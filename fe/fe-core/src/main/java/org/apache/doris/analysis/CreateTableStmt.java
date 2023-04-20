@@ -335,7 +335,6 @@ public class CreateTableStmt extends DdlStmt {
             // olap table
             if (keysDesc == null) {
                 List<String> keysColumnNames = Lists.newArrayList();
-                int keyLength = 0;
                 boolean hasAggregate = false;
                 for (ColumnDef columnDef : columnDefs) {
                     if (columnDef.getAggregateType() != null) {
@@ -353,40 +352,9 @@ public class CreateTableStmt extends DdlStmt {
                     }
                     keysDesc = new KeysDesc(KeysType.AGG_KEYS, keysColumnNames);
                 } else {
-                    for (ColumnDef columnDef : columnDefs) {
-                        keyLength += columnDef.getType().getIndexSize();
-                        if (keysColumnNames.size() >= FeConstants.shortkey_max_column_count
-                                || keyLength > FeConstants.shortkey_maxsize_bytes) {
-                            if (keysColumnNames.size() == 0
-                                    && columnDef.getType().getPrimitiveType().isCharFamily()) {
-                                keysColumnNames.add(columnDef.getName());
-                            }
-                            break;
-                        }
-                        if (columnDef.getType().isFloatingPointType()) {
-                            break;
-                        }
-                        if (columnDef.getType().getPrimitiveType() == PrimitiveType.STRING) {
-                            break;
-                        }
-                        if (columnDef.getType().getPrimitiveType() == PrimitiveType.JSONB) {
-                            break;
-                        }
-                        if (columnDef.getType().isComplexType()) {
-                            break;
-                        }
-                        if (columnDef.getType().getPrimitiveType() == PrimitiveType.VARCHAR) {
-                            keysColumnNames.add(columnDef.getName());
-                            break;
-                        }
-                        keysColumnNames.add(columnDef.getName());
-                    }
-                    // The OLAP table must have at least one short key and the float and double should not be short key.
-                    // So the float and double could not be the first column in OLAP table.
-                    if (keysColumnNames.isEmpty()) {
-                        throw new AnalysisException("The olap table first column could not be float, double, string"
-                                + " or array, struct, map, please use decimal or varchar instead.");
-                    }
+                    // before #18621, use can define default DUP_KEYS and some head columns for keys
+                    // after #18621, if user create table without set key type and key columns, will
+                    // create a DUP_KEYS olap table without key columns
                     keysDesc = new KeysDesc(KeysType.DUP_KEYS, keysColumnNames);
                 }
             }
