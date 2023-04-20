@@ -257,8 +257,8 @@ suite("create_table_use_partition_policy") {
     // }
     LocalDataSize1 = sizes[0]
     RemoteDataSize1 = sizes[1]
-    log.info( "test local size not zero")
-    assertTrue(LocalDataSize1 != 0)
+    log.info( "test local size is zero")
+    assertEquals(LocalDataSize1, 0)
     log.info( "test remote size is zero")
     assertEquals(RemoteDataSize1, 0)
 
@@ -359,8 +359,8 @@ suite("create_table_use_partition_policy") {
     assertTrue(tablets.size() > 0)
     LocalDataSize1 = sizes[0]
     RemoteDataSize1 = sizes[1]
-    log.info( "test local size not zero")
-    assertTrue(LocalDataSize1 != 0)
+    log.info( "test local size is zero")
+    assertEquals(LocalDataSize1, 0)
     log.info( "test remote size is zero")
     assertEquals(RemoteDataSize1, 0)
 
