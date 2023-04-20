@@ -43,7 +43,7 @@ public:                                                                         
     void* operator new(std::size_t count, void* ptr) { return ::operator new(count, ptr); }      \
     void operator delete(void* ptr, std::size_t size) { return ::operator delete(ptr, size); }   \
     void operator delete[](void* ptr, std::size_t size) { return ::operator delete(ptr, size); } \
-    void operator delete(void* ptr, void* place) { return ::operator delete(ptr, place) }        \
+    void operator delete(void* ptr, void* place) { return ::operator delete(ptr, place); }       \
     template <typename... Args>                                                                  \
     static std::shared_ptr<TypeName> create_shared(Args&&... args) {                             \
         return std::make_shared<TypeName>(std::forward<Args>(args)...);                          \
