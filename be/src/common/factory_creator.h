@@ -48,6 +48,4 @@ public:                                                                         
     template <typename... Args>                                                             \
     static std::unique_ptr<TypeName> create_unique(Args&&... args) {                        \
         return std::unique_ptr<TypeName>(new TypeName(std::forward<Args>(args)...));        \
-    }                                                                                       \
-    template <class T, class... Args>                                                       \
-    friend std::unique_ptr<T> std::make_unique(Args&&... args);\
+    }
