@@ -19,9 +19,9 @@
 namespace doris {
 
 namespace vectorized {
-Status DataTypeStructSerDe::write_column_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                                  Arena* mem_pool, const int32_t col_id,
-                                                  const int row_num) const {
+void DataTypeStructSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
+                                                  Arena* mem_pool, int32_t col_id,
+                                                  int row_num) const {
     result.writeKey(col_id);
     const char* begin = nullptr;
     // maybe serialize_value_into_arena should move to here later.
@@ -29,13 +29,11 @@ Status DataTypeStructSerDe::write_column_to_jsonb(const IColumn& column, JsonbWr
     result.writeStartBinary();
     result.writeBinary(value.data, value.size);
     result.writeEndBinary();
-    return Status::OK();
 }
 
-Status DataTypeStructSerDe::read_column_from_jsonb(IColumn& column, const JsonbValue* arg) const {
+void DataTypeStructSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
     auto blob = static_cast<const JsonbBlobVal*>(arg);
     column.deserialize_and_insert_from_arena(blob->getBlob());
-    return Status::OK();
 }
 } // namespace vectorized
 } // namespace doris

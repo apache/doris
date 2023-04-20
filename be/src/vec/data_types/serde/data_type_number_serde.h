@@ -32,10 +32,10 @@ public:
                               int end) const override;
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
 
-    Status write_column_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
-                                 const int32_t col_id, const int row_num) const override;
+    void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
+                                 int32_t col_id, int row_num) const override;
 
-    Status read_column_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
+    void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
 };
 
 template <typename T>
@@ -163,32 +163,32 @@ Status DataTypeNumberSerDe<T>::write_column_to_pb(const IColumn& column, PValues
 }
 
 template <typename T>
-Status DataTypeNumberSerDe<T>::read_column_from_jsonb(IColumn& column,
+void DataTypeNumberSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
                                                       const JsonbValue* arg) const {
+    auto& col = reinterpret_cast<ColumnType&>(column);
     if constexpr (std::is_same_v<T, Int8>) {
-        column.insert(static_cast<const JsonbInt8Val*>(arg)->val());
+        col.insert_value(static_cast<const JsonbInt8Val*>(arg)->val());
     } else if constexpr (std::is_same_v<T, Int16> || std::is_same_v<T, UInt16>) {
-        column.insert(static_cast<const JsonbInt16Val*>(arg)->val());
+        col.insert_value(static_cast<const JsonbInt16Val*>(arg)->val());
     } else if constexpr (std::is_same_v<T, Int32> || std::is_same_v<T, UInt32>) {
-        column.insert(static_cast<const JsonbInt32Val*>(arg)->val());
+        col.insert_value(static_cast<const JsonbInt32Val*>(arg)->val());
     } else if constexpr (std::is_same_v<T, Int64> || std::is_same_v<T, UInt64>) {
-        column.insert(static_cast<const JsonbInt64Val*>(arg)->val());
+        col.insert_value(static_cast<const JsonbInt64Val*>(arg)->val());
     } else if constexpr (std::is_same_v<T, Int128>) {
-        column.insert(static_cast<const JsonbInt128Val*>(arg)->val());
+        col.insert_value(static_cast<const JsonbInt128Val*>(arg)->val());
     } else if constexpr (std::is_same_v<T, float>) {
-        column.insert(static_cast<const JsonbFloatVal*>(arg)->val());
+        col.insert_value(static_cast<const JsonbFloatVal*>(arg)->val());
     } else if constexpr (std::is_same_v<T, double>) {
-        column.insert(static_cast<const JsonbDoubleVal*>(arg)->val());
+        col.insert_value(static_cast<const JsonbDoubleVal*>(arg)->val());
     } else {
-        return Status::NotSupported("unknown jsonb type '{}' for writing to column", arg->type());
+        LOG(FATAL) << "unknown jsonb type " << arg->typeName() << " for writing to column";
     }
-    return Status::OK();
 }
 template <typename T>
-Status DataTypeNumberSerDe<T>::write_column_to_jsonb(const IColumn& column,
+void DataTypeNumberSerDe<T>::write_one_cell_to_jsonb(const IColumn& column,
                                                      JsonbWriterT<JsonbOutStream>& result,
-                                                     Arena* mem_pool, const int32_t col_id,
-                                                     const int row_num) const {
+                                                     Arena* mem_pool, int32_t col_id,
+                                                     int row_num) const {
     result.writeKey(col_id);
     StringRef data_ref = column.get_data_at(row_num);
     if constexpr (std::is_same_v<T, Int8>) {
@@ -213,10 +213,8 @@ Status DataTypeNumberSerDe<T>::write_column_to_jsonb(const IColumn& column,
         double val = *reinterpret_cast<const double*>(data_ref.data);
         result.writeDouble(val);
     } else {
-        return Status::NotSupported("unknown column type '{}' for writing to jsonb",
-                                    column.get_name());
+        LOG(FATAL) << "unknown column type " << column.get_name() << " for writing to jsonb";
     }
-    return Status::OK();
 }
 
 } // namespace vectorized

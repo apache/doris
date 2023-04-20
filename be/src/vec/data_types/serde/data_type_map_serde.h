@@ -32,10 +32,10 @@ public:
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override {
         LOG(FATAL) << "Not support read from pb to map";
     }
-    Status write_column_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
-                                 const int32_t col_id, const int row_num) const override;
+    void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
+                                 int32_t col_id, int row_num) const override;
 
-    Status read_column_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
+    void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
 
 private:
     DataTypeSerDeSPtr key_serde;

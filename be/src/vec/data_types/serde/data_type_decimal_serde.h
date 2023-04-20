@@ -31,10 +31,10 @@ public:
                               int end) const override;
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
 
-    Status write_column_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
-                                 const int32_t col_id, const int row_num) const override;
+    void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
+                                 int32_t col_id, int row_num) const override;
 
-    Status read_column_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
+    void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
 };
 
 template <typename T>
@@ -78,9 +78,9 @@ Status DataTypeDecimalSerDe<T>::read_column_from_pb(IColumn& column, const PValu
 }
 
 template <typename T>
-Status DataTypeDecimalSerDe<T>::write_column_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                                      Arena* mem_pool, const int32_t col_id,
-                                                      const int row_num) const {
+void DataTypeDecimalSerDe<T>::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
+                                                      Arena* mem_pool, int32_t col_id,
+                                                      int row_num) const {
     StringRef data_ref = column.get_data_at(row_num);
     result.writeKey(col_id);
     if constexpr (std::is_same_v<T, Decimal<Int128>>) {
@@ -97,26 +97,25 @@ Status DataTypeDecimalSerDe<T>::write_column_to_jsonb(const IColumn& column, Jso
         Decimal64::NativeType val = *reinterpret_cast<const Decimal64::NativeType*>(data_ref.data);
         result.writeInt64(val);
     } else {
-        return Status::NotSupported("unknown Column '{}' for writing to jsonb", column.get_name());
+        LOG(FATAL) << "unknown Column " << column.get_name() << " for writing to jsonb";
     }
-    return Status::OK();
 }
 
 template <typename T>
-Status DataTypeDecimalSerDe<T>::read_column_from_jsonb(IColumn& column,
+void DataTypeDecimalSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
                                                        const JsonbValue* arg) const {
+    auto& col = reinterpret_cast<ColumnDecimal<T>&>(column);
     if constexpr (std::is_same_v<T, Decimal<Int128>>) {
-        column.insert(static_cast<const JsonbInt128Val*>(arg)->val());
+        col.insert_value(static_cast<const JsonbInt128Val*>(arg)->val());
     } else if constexpr (std::is_same_v<T, Decimal<Int128I>>) {
-        column.insert(static_cast<const JsonbInt128Val*>(arg)->val());
+        col.insert_value(static_cast<const JsonbInt128Val*>(arg)->val());
     } else if constexpr (std::is_same_v<T, Decimal<Int32>>) {
-        column.insert(static_cast<const JsonbInt32Val*>(arg)->val());
+        col.insert_value(static_cast<const JsonbInt32Val*>(arg)->val());
     } else if constexpr (std::is_same_v<T, Decimal<Int64>>) {
-        column.insert(static_cast<const JsonbInt64Val*>(arg)->val());
+        col.insert_value(static_cast<const JsonbInt64Val*>(arg)->val());
     } else {
-        return Status::NotSupported("unknown jsonb '{}' for writing to column", arg->type());
+        LOG(FATAL) << "unknown jsonb " << arg->typeName() << " for writing to column";
     }
-    return Status::OK();
 }
 } // namespace vectorized
 } // namespace doris

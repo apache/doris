@@ -30,10 +30,10 @@ public:
                               int end) const override;
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
 
-    Status write_column_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
-                                 const int32_t col_id, const int row_num) const override;
+    void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
+                                 int32_t col_id, int row_num) const override;
 
-    Status read_column_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
+    void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
 };
 
 template <typename T>
@@ -58,10 +58,9 @@ Status DataTypeQuantileStateSerDe<T>::read_column_from_pb(IColumn& column,
 }
 
 template <typename T>
-Status DataTypeQuantileStateSerDe<T>::write_column_to_jsonb(const IColumn& column,
+void DataTypeQuantileStateSerDe<T>::write_one_cell_to_jsonb(const IColumn& column,
                                                             JsonbWriter& result, Arena* mem_pool,
-                                                            const int32_t col_id,
-                                                            const int row_num) const {
+                                                            int32_t col_id, int row_num) const {
     auto& col = reinterpret_cast<const ColumnQuantileState<T>&>(column);
     auto& val = const_cast<QuantileState<T>&>(col.get_element(row_num));
     size_t actual_size = val.get_serialized_size();
@@ -70,18 +69,16 @@ Status DataTypeQuantileStateSerDe<T>::write_column_to_jsonb(const IColumn& colum
     result.writeStartBinary();
     result.writeBinary(reinterpret_cast<const char*>(ptr), actual_size);
     result.writeEndBinary();
-    return Status::OK();
 }
 
 template <typename T>
-Status DataTypeQuantileStateSerDe<T>::read_column_from_jsonb(IColumn& column,
+void DataTypeQuantileStateSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
                                                              const JsonbValue* arg) const {
     auto& col = reinterpret_cast<ColumnQuantileState<T>&>(column);
     auto blob = static_cast<const JsonbBlobVal*>(arg);
     QuantileState<T> val;
     val.deserialize(Slice(blob->getBlob()));
     col.insert_value(val);
-    return Status::OK();
 }
 
 } // namespace vectorized
