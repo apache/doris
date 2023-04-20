@@ -97,8 +97,12 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
             ctx.getMysqlChannel().reset();
         }
         String label = this.labelName;
-        if (label == null) {
-            label = String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo);
+        if (!ctx.isTxnModel()) {
+            if (label == null) {
+                label = String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo);
+            }
+        } else {
+            label = ctx.getTxnEntry().getLabel();
         }
 
         PhysicalOlapTableSink<?> physicalOlapTableSink = ((PhysicalOlapTableSink) planner.getPhysicalPlan());
