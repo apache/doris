@@ -1240,7 +1240,8 @@ void TaskWorkerPool::_report_task_worker_thread_callback() {
     StorageEngine::instance()->register_report_listener(this);
     TReportRequest request;
     request.__set_backend(BackendOptions::get_localBackend());
-
+    LOG(INFO)
+            << "zdtest===============" << BackendOptions::get_localBackend().host;
     while (_is_work) {
         _is_doing_work = false;
         {
