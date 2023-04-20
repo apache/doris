@@ -47,7 +47,7 @@ import java.util.Optional;
 /**
  * insert into select command
  */
-public class InsertIntoSelectCommand extends Command implements ForwardWithSync {
+public class InsertIntoTableCommand extends Command implements ForwardWithSync {
     private final String tableName;
     private final List<String> colNames;
     private final LogicalPlan logicalQuery;
@@ -61,7 +61,7 @@ public class InsertIntoSelectCommand extends Command implements ForwardWithSync 
     /**
      * constructor
      */
-    public InsertIntoSelectCommand(String tableName, String labelName, List<String> colNames,
+    public InsertIntoTableCommand(String tableName, String labelName, List<String> colNames,
             LogicalPlan logicalQuery, PhysicalPlan physicalQuery) {
         super(PlanType.INSERT_INTO_SELECT_COMMAND);
         Preconditions.checkArgument(tableName != null, "tableName cannot be null in insert-into-select command");
@@ -73,7 +73,7 @@ public class InsertIntoSelectCommand extends Command implements ForwardWithSync 
         this.physicalQuery = physicalQuery;
     }
 
-    public InsertIntoSelectCommand(String tableName, String labelName, List<String> colNames,
+    public InsertIntoTableCommand(String tableName, String labelName, List<String> colNames,
             LogicalPlan logicalQuery) {
         this(tableName, labelName, colNames, logicalQuery, null);
     }

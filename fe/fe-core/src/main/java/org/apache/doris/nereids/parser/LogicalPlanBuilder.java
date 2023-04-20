@@ -209,7 +209,7 @@ import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
-import org.apache.doris.nereids.trees.plans.commands.InsertIntoSelectCommand;
+import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
@@ -312,7 +312,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (insertCtx.identifierList() != null) {
             colNames = visitIdentifierList(insertCtx.identifierList());
         }
-        InsertIntoSelectCommand cmd = new InsertIntoSelectCommand(ctx.identifier().getText(), label, colNames,
+        InsertIntoTableCommand cmd = new InsertIntoTableCommand(ctx.identifier().getText(), label, colNames,
                 withCte(visitQuery(insertCtx.query()), insertCtx.cte()));
         if (ctx.explain() != null) {
             return withExplain(cmd.getLogicalQuery(), ctx.explain());

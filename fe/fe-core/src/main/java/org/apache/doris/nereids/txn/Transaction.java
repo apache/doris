@@ -30,7 +30,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.nereids.NereidsPlanner;
-import org.apache.doris.nereids.trees.plans.commands.InsertIntoSelectCommand;
+import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.proto.InternalService;
@@ -171,7 +171,7 @@ public class Transaction {
     /**
      * execute insert txn for insert into select command.
      */
-    public void executeInsertIntoSelectCommand(InsertIntoSelectCommand command)
+    public void executeInsertIntoSelectCommand(InsertIntoTableCommand command)
             throws Exception {
         if (ctx.isTxnModel()) {
             PhysicalPlan physicalPlan = command.getPhysicalQuery();
