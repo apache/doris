@@ -282,6 +282,10 @@ int main(int argc, char** argv) {
         fprintf(stderr, "you need set DORIS_HOME environment variable.\n");
         exit(-1);
     }
+    if (getenv("PID_DIR") == nullptr) {
+        fprintf(stderr, "you need set PID_DIR environment variable.\n");
+        exit(-1);
+    }
 
     using doris::Status;
     using std::string;
