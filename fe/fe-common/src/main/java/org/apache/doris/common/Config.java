@@ -2017,7 +2017,7 @@ public class Config extends ConfigBase {
      * otherwise it will throw an AnalysisException.
      */
     @ConfField(mutable = true, expType = ExperimentalType.EXPERIMENTAL)
-    public static boolean enable_query_hive_views;
+    public static boolean enable_query_hive_views = false;
 
     /**
      * If set to true, doris will automatically synchronize hms metadata to the cache in fe.

@@ -548,6 +548,14 @@ public class Analyzer {
         return new Analyzer(parentAnalyzer, globalState, new InferPredicateState());
     }
 
+    public void setExternalCtl(String externalCtl) {
+        globalState.externalCtl = externalCtl;
+    }
+
+    public String getExternalCtl() {
+        return globalState.externalCtl;
+    }
+
     public void setIsExplain() {
         globalState.isExplain = true;
     }
@@ -822,13 +830,14 @@ public class Analyzer {
             if (Config.enable_query_hive_views) {
                 if (((HMSExternalTable) table).isView()
                         && StringUtils.isNotEmpty(((HMSExternalTable) table).getViewText())) {
-                    if (StringUtils.isNotEmpty(tableName.getCtl())) {
-                        this.globalState.externalCtl = tableName.getCtl();
-                    }
                     View hmsView = new View(table.getId(), table.getName(), table.getFullSchema());
                     hmsView.setInlineViewDefWithSqlMode(((HMSExternalTable) table).getViewText(),
                             ConnectContext.get().getSessionVariable().getSqlMode());
-                    return new InlineViewRef(hmsView, tableRef);
+                    InlineViewRef inlineViewRef = new InlineViewRef(hmsView, tableRef);
+                    if (StringUtils.isNotEmpty(tableName.getCtl())) {
+                        inlineViewRef.setExternalCtl(tableName.getCtl());
+                    }
+                    return inlineViewRef;
                 }
             }
         }
