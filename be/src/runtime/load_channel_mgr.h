@@ -48,6 +48,8 @@ public:
     // open a new load channel if not exist
     Status open(const PTabletWriterOpenRequest& request);
 
+    Status open_delta_writer(const DeltaWriterOpenRequest& params);
+
     template <typename TabletWriterAddRequest, typename TabletWriterAddResult>
     Status add_batch(const TabletWriterAddRequest& request, TabletWriterAddResult* response);
 

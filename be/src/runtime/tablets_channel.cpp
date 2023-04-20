@@ -69,8 +69,6 @@ Status TabletsChannel::open(const PTabletWriterOpenRequest& request) {
     _next_seqs.resize(_num_remaining_senders, 0);
     _closed_senders.Reset(_num_remaining_senders);
 
-    RETURN_IF_ERROR(_open_all_writers(request));
-
     _state = kOpened;
     return Status::OK();
 }

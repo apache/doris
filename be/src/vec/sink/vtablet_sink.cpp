@@ -296,6 +296,7 @@ void VNodeChannel::open() {
     if (config::tablet_writer_ignore_eovercrowded) {
         _open_closure->cntl.ignore_eovercrowded();
     }
+    // Lazy open delter writer
     _stub->tablet_writer_open(&_open_closure->cntl, &request, &_open_closure->result,
                               _open_closure);
     request.release_id();
@@ -1183,6 +1184,22 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
         }
         // each row
         _generate_row_distribution_payload(channel_to_payload, partition, tablet_index, i, 1);
+        // Lazy open partition
+        const std::vector<OlapTableIndexTablets>& indexs = partition->indexes;
+        std::set<int64_t> index_channels;
+        for (const auto& index : indexs){
+            const auto index_id = index.index_id;
+            index_channels.insert(index_id);
+        }
+        const auto& id = partition->id;
+        // If opened
+        continue;
+        // If opening;
+        // open_wait();
+        // If not open
+        for (int j = 0; j < partition->indexes.size(); ++j) {
+
+        }
     }
     // Random distribution and the block belongs to a single tablet, we could optimize to append the whole
     // block into node channel.

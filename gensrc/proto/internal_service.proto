@@ -89,6 +89,14 @@ message PTabletWriterOpenResult {
     required PStatus status = 1;
 };
 
+message DeltaWriterOpenRequest{
+    repeated int64 index_ids = 1;
+}
+
+message DeltaWriterOpenResult {
+    required PStatus status = 1;
+}
+
 // add batch to tablet writer
 message PTabletWriterAddBatchRequest {
     required PUniqueId id = 1;

@@ -244,6 +244,28 @@ void PInternalServiceImpl::tablet_writer_open(google::protobuf::RpcController* c
     }
 }
 
+void PInternalServiceImpl::delta_writer_open(google::protobuf::RpcController* controller,
+                                              const DeltaWriterOpenRequest* request,
+                                              DeltaWriterOpenResult* response,
+                                              google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+        VLOG_RPC << "delta writer open" << ", index_id=" << request->index_ids();
+        brpc::ClosureGuard closure_guard(done);
+        auto st = _exec_env->load_channel_mgr()->open_delta_writer(*request);
+        if (!st.ok()) {
+            LOG(WARNING) << "load channel open failed, message=" << st
+                         << ", index_ids=" << request->index_ids();
+        }
+        st.to_protobuf(response->mutable_status());
+    });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+    }
+}
+
 void PInternalServiceImpl::exec_plan_fragment(google::protobuf::RpcController* controller,
                                               const PExecPlanFragmentRequest* request,
                                               PExecPlanFragmentResult* response,

@@ -91,6 +91,11 @@ public:
                             PTabletWriterOpenResult* response,
                             google::protobuf::Closure* done) override;
 
+    void delta_writer_open(google::protobuf::RpcController* controller,
+                            const DeltaWriterOpenRequest* request,
+                            DeltaWriterOpenResult* response,
+                            google::protobuf::Closure* done) override;
+
     void tablet_writer_add_block(google::protobuf::RpcController* controller,
                                  const PTabletWriterAddBlockRequest* request,
                                  PTabletWriterAddBlockResult* response,

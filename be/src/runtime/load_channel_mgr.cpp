@@ -120,6 +120,10 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
     return Status::OK();
 }
 
+Status LoadChannelMgr::open_delta_writer(const DeltaWriterOpenRequest& params) {
+    return Status::OK();
+}
+
 static void dummy_deleter(const CacheKey& key, void* value) {}
 
 void LoadChannelMgr::_finish_load_channel(const UniqueId load_id) {
