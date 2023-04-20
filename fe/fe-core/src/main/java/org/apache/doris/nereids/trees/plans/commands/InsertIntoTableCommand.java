@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -62,6 +63,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
     private List<String> partitions;
     private List<String> hints;
     private List<Column> targetColumns;
+    private List<Long> partitionIds = null;
 
     /**
      * constructor
@@ -89,6 +91,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         checkDatabaseAndTable(ctx);
         getColumns();
+        getPartition();
 
         ctx.getStatementContext().setInsertTargetSchema(targetColumns.stream()
                 .map(col -> DataType.fromCatalogType(col.getOriginType()))
@@ -127,10 +130,6 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
         return physicalQuery;
     }
 
-    public String getLabelName() {
-        return labelName;
-    }
-
     private void checkDatabaseAndTable(ConnectContext ctx) {
         Optional<Database> database = Env.getCurrentInternalCatalog().getDb(ctx.getDatabase());
         if (!database.isPresent()) {
@@ -148,8 +147,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
             throws org.apache.doris.common.AnalysisException {
         DataSink dataSink;
         if (table instanceof OlapTable) {
-            dataSink = new OlapTableSink((OlapTable) table, olapTuple,
-                    ((OlapTable) table).getPartitionIds(),
+            dataSink = new OlapTableSink((OlapTable) table, olapTuple, partitionIds,
                     ctx.getSessionVariable().isEnableSingleReplicaInsert());
         } else {
             dataSink = DataSink.createDataSink(table);
@@ -184,6 +182,19 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
             slotDesc.setColumn(col);
             slotDesc.setIsNullable(col.isAllowNull());
         }
+    }
+
+    private void getPartition() {
+        if (partitions == null) {
+            return;
+        }
+        partitionIds = partitions.stream().map(pn -> {
+            Partition p = table.getPartition(pn);
+            if (p == null) {
+                throw new AnalysisException(String.format("Unknown partition: %s in table: %s", pn, table.getName()));
+            }
+            return p.getId();
+        }).collect(Collectors.toList());
     }
 
     @Override
