@@ -765,7 +765,6 @@ public class EditLog {
                 }
                 case OperationType.OP_DYNAMIC_PARTITION:
                 case OperationType.OP_MODIFY_IN_MEMORY:
-                case OperationType.OP_ALTER_LIGHT_SCHEMA_CHANGE:
                 case OperationType.OP_MODIFY_REPLICATION_NUM: {
                     ModifyTablePropertyOperationLog log = (ModifyTablePropertyOperationLog) journal.getData();
                     env.replayModifyTableProperty(opCode, log);
@@ -895,6 +894,11 @@ public class EditLog {
                 case OperationType.OP_MODIFY_TABLE_LIGHT_SCHEMA_CHANGE: {
                     final TableAddOrDropColumnsInfo info = (TableAddOrDropColumnsInfo) journal.getData();
                     env.getSchemaChangeHandler().replayModifyTableLightSchemaChange(info);
+                    break;
+                }
+                case OperationType.OP_ALTER_LIGHT_SCHEMA_CHANGE: {
+                    final AlterLightSchemaChangeInfo info = (AlterLightSchemaChangeInfo) journal.getData();
+                    env.getSchemaChangeHandler().replayAlterLightSchChange(info);
                     break;
                 }
                 case OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES: {
@@ -1607,7 +1611,7 @@ public class EditLog {
         logEdit(OperationType.OP_MODIFY_IN_MEMORY, info);
     }
 
-    public void logAlterLightSchemaChange(ModifyTablePropertyOperationLog info) {
+    public void logAlterLightSchemaChange(AlterLightSchemaChangeInfo info) {
         logEdit(OperationType.OP_ALTER_LIGHT_SCHEMA_CHANGE, info);
     }
 
