@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
@@ -82,7 +83,10 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             CHILD_TYPE child, boolean isDistinct) {
         super(PlanType.LOGICAL_PROJECT, groupExpression, logicalProperties, child);
-        this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
+        Preconditions.checkArgument(projects != null, "projects can not be null");
+        this.projects = projects.isEmpty()
+                ? ImmutableList.of(ExpressionUtils.selectMinimumColumn(child.getOutput()))
+                : projects;
         this.excepts = ImmutableList.copyOf(excepts);
         this.canEliminate = canEliminate;
         this.isDistinct = isDistinct;
