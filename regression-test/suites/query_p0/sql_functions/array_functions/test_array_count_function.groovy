@@ -15,35 +15,53 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_array_functions_of_array_count") {
-    def tableName = "test_array_functions_of_array_count"
-    // array functions only supported in vectorized engine
-    sql """DROP TABLE IF EXISTS ${tableName}"""
-    sql """ 
-            CREATE TABLE IF NOT EXISTS ${tableName} (
-              `k1` int(11) NULL COMMENT "",
-              `k2` ARRAY<int(11)> NULL COMMENT ""
-            ) ENGINE=OLAP
-            DUPLICATE KEY(`k1`)
-            DISTRIBUTED BY HASH(`k1`) BUCKETS 1
-            PROPERTIES (
-            "replication_allocation" = "tag.location.default: 1",
-            "storage_format" = "V2"
-            )
-        """
-    sql """ INSERT INTO ${tableName} VALUES(1, []) """
-    sql """ INSERT INTO ${tableName} VALUES(2, [0,0]) """
-    sql """ INSERT INTO ${tableName} VALUES(3, [1,2,3]) """
-    sql """ INSERT INTO ${tableName} VALUES(4, [0,0,0,3,3,1]) """
-    sql """ INSERT INTO ${tableName} VALUES(5, [1,2,3,4,5,4,3,2,1]) """
-    sql """ INSERT INTO ${tableName} VALUES(6, [1111,12324,8674,123,3434,435,45,53,54,2,0]) """
-    sql """ INSERT INTO ${tableName} VALUES(7, [0, 0, 0, 1000004]) """
-    sql """ INSERT INTO ${tableName} VALUES(8, [0, 0, 0, 5, 5, 5]) """
-    sql """ INSERT INTO ${tableName} VALUES(9, [0, 1, 2, 3, NULL]) """
-    sql """ INSERT INTO ${tableName} VALUES(10, NULL) """
-    sql """ INSERT INTO ${tableName} VALUES(11, [NULL,NULL,NULL]) """
+suite("test_array_count_function") {
 
-    qt_select "select *, array_count(k2) from ${tableName} order by k1;"
-    
+    def tableName = "test_array_count_function"
+
+    sql "DROP TABLE IF EXISTS ${tableName}"
+
+    sql """
+        CREATE TABLE IF NOT EXISTS `${tableName}` (
+            `id` int(11) NULL,
+            `c_array1` array<int(11)> NULL,
+            `c_array2` array<int(11)> NULL
+        ) ENGINE=OLAP
+    DUPLICATE KEY(`id`)
+    DISTRIBUTED BY HASH(`id`) BUCKETS 1
+    PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "storage_format" = "V2"
+    )
+    """
+
+
+    sql """
+        INSERT INTO ${tableName} values
+        (1, [1,2,3,4,5], [10,20,-40,80,-100]),
+        (2, [6,7,8],[10,12,13]), (3, [1],[-100]), 
+        (4, [1, null, 2], [null, 3, 1]), (5, [], []), (6, null, null)
+    """
+
+
+    qt_select "select array_count(x -> x > 1, []);"
+    qt_select "select array_count(x -> x > 1, [null]);"
+    qt_select "select array_count(x -> x > 1, [0, 1, 2, 3])"
+    qt_select "select array_count(x -> x + 1 > 1, [0, 1, 2, 3])"
+    qt_select "select array_count(x -> x is null, [null, null, null, 0, 1, 2]);"
+    qt_select "select array_count(x -> x > 2, array_map(x->power(x,2),[1,2,3]));"
+
+    qt_select "select *, array_count(x -> x>2, [1,2,3]) from ${tableName} order by id;"
+    qt_select "select *, array_count(x -> x+1, [1,2,3]) from ${tableName} order by id;"
+    qt_select "select *, array_count(x -> x%2=0, [1,2,3]) from ${tableName} order by id;"
+
+    qt_select "select c_array1, array_count(x -> x, c_array1) from ${tableName} order by id;"
+    qt_select "select c_array1, array_count(x -> x>3, c_array1) from ${tableName} order by id;"
+    qt_select "select c_array2, array_count(x -> power(x,2)>100, c_array2) from ${tableName} order by id;"
+
+    qt_select "select c_array1, c_array2, array_count((x,y) -> x>y, c_array1, c_array2) from ${tableName} order by id;"
+    qt_select "select c_array1, c_array2, array_count((x,y) -> x+y, c_array1, c_array2) from ${tableName} order by id;"
+    qt_select "select c_array1, c_array2, array_count((x,y) -> x*abs(y)>10, c_array1, c_array2) from ${tableName} order by id;"
+
     sql "DROP TABLE IF EXISTS ${tableName}"
 }
