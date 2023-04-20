@@ -52,9 +52,6 @@ mysql> select k1 from example1 order by k1;
 |    1 |
 |    2 |
 |    3 |
-|    4 |
-|    5 |
-|    6 |
 +------+
 ```
 
