@@ -59,7 +59,6 @@ import org.apache.doris.analysis.StmtRewriter;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.SwitchStmt;
 import org.apache.doris.analysis.TableName;
-import org.apache.doris.analysis.TableRenameClause;
 import org.apache.doris.analysis.TransactionBeginStmt;
 import org.apache.doris.analysis.TransactionCommitStmt;
 import org.apache.doris.analysis.TransactionRollbackStmt;

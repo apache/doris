@@ -57,10 +57,8 @@ suite("test_iot") {
 
         sql """ INSERT INTO test_iot1(test_varchar, test_text, test_datetime) VALUES ('test1','test11','2023-04-20 16:00:33'),('test2','test22','2023-04-20 16:00:54') """
         sql """INSERT OVERWRITE test_iot select * from test_iot1"""
-	test{
-        	sql """select count(*) from test_iot"""
-		rowNum 2
-	}
+	
+        qt_select """select count(*) from test_iot"""
 	
     } finally {
         sql """ DROP TABLE IF EXISTS test_iot """
