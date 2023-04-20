@@ -54,8 +54,7 @@ import org.apache.doris.nereids.DorisParser.HintStatementContext;
 import org.apache.doris.nereids.DorisParser.IdentifierListContext;
 import org.apache.doris.nereids.DorisParser.IdentifierOrTextContext;
 import org.apache.doris.nereids.DorisParser.IdentifierSeqContext;
-import org.apache.doris.nereids.DorisParser.InsertContext;
-import org.apache.doris.nereids.DorisParser.InsertIntoContext;
+import org.apache.doris.nereids.DorisParser.InsertIntoQueryContext;
 import org.apache.doris.nereids.DorisParser.IntegerLiteralContext;
 import org.apache.doris.nereids.DorisParser.IntervalContext;
 import org.apache.doris.nereids.DorisParser.Is_not_null_predContext;
@@ -302,22 +301,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public LogicalPlan visitInsertInto(InsertIntoContext ctx) {
-        InsertContext insertCtx = ctx.insert();
-        String label = null;
-        if (insertCtx.labelName != null) {
-            label = insertCtx.labelName.getText();
-        }
-        List<String> colNames = null;
-        if (insertCtx.identifierList() != null) {
-            colNames = visitIdentifierList(insertCtx.identifierList());
-        }
-        InsertIntoTableCommand cmd = new InsertIntoTableCommand(ctx.identifier().getText(), label, colNames,
-                withCte(visitQuery(insertCtx.query()), insertCtx.cte()));
+    public LogicalPlan visitInsertIntoQuery(InsertIntoQueryContext ctx) {
         if (ctx.explain() != null) {
-            return withExplain(cmd.getLogicalQuery(), ctx.explain());
+            return withExplain(visitQuery(ctx.query()), ctx.explain());
         }
-        return cmd;
+        String tableName = ctx.tableName.getText();
+        String labelName = ctx.labelName == null ? null : ctx.labelName.getText();
+        List<String> colNames = ctx.cols == null ? null : visitIdentifierList(ctx.cols);
+        List<String> partitions = ctx.partition == null ? null : visitIdentifierList(ctx.partition);
+        List<String> hints = ctx.hints == null ? null : visitIdentifierSeq(ctx.hints);
+        return new InsertIntoTableCommand(tableName, labelName, colNames,
+                partitions, hints, visitQuery(ctx.query()));
     }
 
     /**

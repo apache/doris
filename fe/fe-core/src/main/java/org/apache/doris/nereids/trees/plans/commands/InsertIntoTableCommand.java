@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.txn.Transaction;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PlanFragment;
@@ -43,6 +44,7 @@ import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * insert into select command
@@ -57,30 +59,39 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
     private Table table;
     private NereidsPlanner planner;
     private TupleDescriptor olapTuple;
+    private List<String> partitions;
+    private List<String> hints;
 
     /**
      * constructor
      */
-    public InsertIntoTableCommand(String tableName, String labelName, List<String> colNames,
-            LogicalPlan logicalQuery, PhysicalPlan physicalQuery) {
+    public InsertIntoTableCommand(String tableName, String labelName, List<String> colNames, List<String> partitions,
+            List<String> hints, LogicalPlan logicalQuery, PhysicalPlan physicalQuery) {
         super(PlanType.INSERT_INTO_SELECT_COMMAND);
         Preconditions.checkArgument(tableName != null, "tableName cannot be null in insert-into-select command");
         Preconditions.checkArgument(logicalQuery != null, "logicalQuery cannot be null in insert-into-select command");
         this.tableName = tableName;
         this.labelName = labelName;
         this.colNames = colNames;
+        this.partitions = partitions;
+        this.hints = hints;
         this.logicalQuery = logicalQuery;
         this.physicalQuery = physicalQuery;
     }
 
-    public InsertIntoTableCommand(String tableName, String labelName, List<String> colNames,
-            LogicalPlan logicalQuery) {
-        this(tableName, labelName, colNames, logicalQuery, null);
+    public InsertIntoTableCommand(String tableName, String labelName, List<String> colNames, List<String> partitions,
+            List<String> hints, LogicalPlan logicalQuery) {
+        this(tableName, labelName, colNames, partitions, hints, logicalQuery, null);
     }
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         checkDatabaseAndTable(ctx);
+        getTupleDesc();
+
+        ctx.getStatementContext().setInsertTargetSchema(olapTuple.getSlots()
+                .stream().map(slot -> DataType.fromCatalogType(slot.getType())).collect(Collectors.toList()));
+
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
         executor.setParsedStmt(logicalPlanAdapter);
         planner = new NereidsPlanner(ctx.getStatementContext());
@@ -92,29 +103,6 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
         String label = this.labelName;
         if (label == null) {
             label = String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo);
-        }
-
-        // create insert target table's tupledesc.
-        olapTuple = planner.getDescTable().createTupleDescriptor();
-        List<Column> columns = Lists.newArrayList();
-        if (colNames == null) {
-            columns = table.getFullSchema();
-        } else {
-            for (String colName : colNames) {
-                Column col = table.getColumn(colName);
-                if (col == null) {
-                    throw new AnalysisException(String.format("Column: %s is not in table: %s",
-                            colName, table.getName()));
-                }
-                columns.add(col);
-            }
-        }
-        for (Column col : columns) {
-            SlotDescriptor slotDesc = planner.getDescTable().addSlotDescriptor(olapTuple);
-            slotDesc.setIsMaterialized(true);
-            slotDesc.setType(col.getType());
-            slotDesc.setColumn(col);
-            slotDesc.setIsNullable(col.isAllowNull());
         }
 
         PlanFragment root = planner.getFragments().get(0);
@@ -130,10 +118,6 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
         root.resetSink(olapTableSink);
 
         txn.executeInsertIntoSelectCommand(this);
-    }
-
-    public LogicalPlan getLogicalQuery() {
-        return logicalQuery;
     }
 
     public PhysicalPlan getPhysicalQuery() {
@@ -168,6 +152,31 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
             dataSink = DataSink.createDataSink(table);
         }
         return dataSink;
+    }
+
+    private void getTupleDesc() {
+        // create insert target table's tupledesc.
+        olapTuple = planner.getDescTable().createTupleDescriptor();
+        List<Column> columns = Lists.newArrayList();
+        if (colNames == null) {
+            columns = table.getFullSchema();
+        } else {
+            for (String colName : colNames) {
+                Column col = table.getColumn(colName);
+                if (col == null) {
+                    throw new AnalysisException(String.format("Column: %s is not in table: %s",
+                            colName, table.getName()));
+                }
+                columns.add(col);
+            }
+        }
+        for (Column col : columns) {
+            SlotDescriptor slotDesc = planner.getDescTable().addSlotDescriptor(olapTuple);
+            slotDesc.setIsMaterialized(true);
+            slotDesc.setType(col.getType());
+            slotDesc.setColumn(col);
+            slotDesc.setIsNullable(col.isAllowNull());
+        }
     }
 
     @Override

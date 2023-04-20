@@ -41,9 +41,9 @@ statement
         TO user=userIdentify
         USING LEFT_PAREN booleanExpression RIGHT_PAREN                 #createRowPolicy
     | explain? INSERT INTO tableName=identifier
-        (PARTITION identifierList)?  // partition define
+        (PARTITION partition=identifierList)?  // partition define
         (WITH LABEL labelName=identifier)? cols=identifierList?  // label and columns define
-        (LEFT_BRACKET identifierSeq RIGHT_BRACKET)?  // hint define
+        (LEFT_BRACKET hints=identifierSeq RIGHT_BRACKET)?  // hint define
         query                                                          #insertIntoQuery
     ;
 

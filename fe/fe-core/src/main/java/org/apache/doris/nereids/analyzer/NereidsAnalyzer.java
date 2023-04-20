@@ -20,7 +20,9 @@ package org.apache.doris.nereids.analyzer;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.RewriteJob;
 import org.apache.doris.nereids.jobs.batch.BatchRewriteJob;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
+import org.apache.doris.nereids.rules.analysis.AdjustOutputForInsertTargetType;
 import org.apache.doris.nereids.rules.analysis.BindExpression;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
@@ -78,6 +80,7 @@ public class NereidsAnalyzer extends BatchRewriteJob {
             ),
             bottomUp(new SubqueryToApply()),
             bottomUp(new AdjustAggregateNullableForEmptySet()),
+            custom(RuleType.ADJUST_OUTPUT_FOR_INSERT_TARGET_TYPE, AdjustOutputForInsertTargetType::new),
             bottomUp(new CheckAnalysis())
     );
 
