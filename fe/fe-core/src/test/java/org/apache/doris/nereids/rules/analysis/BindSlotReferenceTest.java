@@ -54,7 +54,7 @@ class BindSlotReferenceTest {
                 new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student));
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                 () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(project));
-        Assertions.assertEquals("unbounded object foo.", exception.getMessage());
+        Assertions.assertEquals("unbounded object foo in PROJECT clause.", exception.getMessage());
     }
 
     @Test

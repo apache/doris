@@ -23,53 +23,31 @@ import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 
 import com.google.common.collect.ImmutableList;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Check analysis rule to check semantic correct after analysis by Nereids.
+ * Check bound rule to check semantic correct after bounding of expression by Nereids.
+ * Also give operator information without LOGICAL_
  */
-public class CheckAnalysis implements AnalysisRuleFactory {
+public class CheckBound implements AnalysisRuleFactory {
 
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-            RuleType.CHECK_ANALYSIS.build(
+            RuleType.CHECK_BOUND.build(
                 any().then(plan -> {
                     checkBound(plan);
-                    checkExpressionInputTypes(plan);
                     return null;
-                })
-            ),
-            RuleType.CHECK_AGGREGATE_ANALYSIS.build(
-                logicalAggregate().then(agg -> {
-                    checkAggregate(agg);
-                    return agg;
                 })
             )
         );
-    }
-
-    private void checkExpressionInputTypes(Plan plan) {
-        final Optional<TypeCheckResult> firstFailed = plan.getExpressions().stream()
-                .map(Expression::checkInputDataTypes)
-                .filter(TypeCheckResult::failed)
-                .findFirst();
-
-        if (firstFailed.isPresent()) {
-            throw new AnalysisException(firstFailed.get().getMessage());
-        }
     }
 
     private void checkBound(Plan plan) {
@@ -89,29 +67,8 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                         return unbound.toString();
                     })
                     .collect(Collectors.toSet()), ", "),
-                plan.getType().toString().substring("LOGICAL_".length())
+                    plan.getType().toString().substring("LOGICAL_".length())
             ));
-        }
-    }
-
-    private void checkAggregate(LogicalAggregate<? extends Plan> aggregate) {
-        Set<AggregateFunction> aggregateFunctions = aggregate.getAggregateFunctions();
-        boolean distinctMultiColumns = aggregateFunctions.stream()
-                .anyMatch(fun -> fun.isDistinct() && fun.arity() > 1);
-        long distinctFunctionNum = aggregateFunctions.stream()
-                .filter(AggregateFunction::isDistinct)
-                .count();
-
-        if (distinctMultiColumns && distinctFunctionNum > 1) {
-            throw new AnalysisException(
-                    "The query contains multi count distinct or sum distinct, each can't have multi columns");
-        }
-        Optional<Expression> expr = aggregate.getGroupByExpressions().stream()
-                .filter(expression -> expression.containsType(AggregateFunction.class)).findFirst();
-        if (expr.isPresent()) {
-            throw new AnalysisException(
-                    "GROUP BY expression must not contain aggregate functions: "
-                            + expr.get().toSql());
         }
     }
 }
