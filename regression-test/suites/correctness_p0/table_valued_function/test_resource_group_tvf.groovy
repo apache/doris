@@ -18,9 +18,13 @@
 // This suit test the `resource_groups` tvf
 // TO DO
 suite("test_resource_groups_tvf") {
+    sql """ADMIN SET FRONTEND CONFIG ("experimental_enable_resource_group" = "true");"""
+
     def name1 = "test";
 	sql "create resource group if not exists ${name1} properties('cpu_share'='10');"
     List<List<Object>> table =  sql """ select * from resource_groups(); """
     assertTrue(table.size() > 0)
     assertTrue(table[0].size == 4) // column should be 4
+
+    sql """ADMIN SET FRONTEND CONFIG ("experimental_enable_resource_group" = "false");"""
 }

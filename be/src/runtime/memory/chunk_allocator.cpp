@@ -17,18 +17,21 @@
 
 #include "runtime/memory/chunk_allocator.h"
 
+#include <glog/logging.h>
 #include <sanitizer/asan_interface.h>
+#include <stdlib.h>
 
-#include <list>
 #include <mutex>
 
+#include "common/config.h"
+#include "common/status.h"
 #include "runtime/memory/chunk.h"
-#include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/system_allocator.h"
 #include "runtime/thread_context.h"
 #include "util/bit_util.h"
 #include "util/cpu_info.h"
 #include "util/doris_metrics.h"
+#include "util/metrics.h"
 #include "util/runtime_profile.h"
 #include "util/spinlock.h"
 

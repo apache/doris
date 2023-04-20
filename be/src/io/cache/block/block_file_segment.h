@@ -20,20 +20,28 @@
 
 #pragma once
 
+#include <fmt/format.h>
+#include <stddef.h>
+
+#include <atomic>
 #include <condition_variable>
 #include <list>
 #include <memory>
 #include <mutex>
+#include <string>
+#include <utility>
 
 #include "common/status.h"
 #include "io/cache/block/block_file_cache.h"
-#include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
+#include "util/slice.h"
 
 namespace doris {
 namespace io {
 
 class FileBlock;
+class FileReader;
+
 using FileBlockSPtr = std::shared_ptr<FileBlock>;
 using FileBlocks = std::list<FileBlockSPtr>;
 

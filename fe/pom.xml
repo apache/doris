@@ -133,6 +133,10 @@ under the License.
                         <failsOnError>true</failsOnError>
                         <linkXRef>false</linkXRef>
                         <includeTestSourceDirectory>true</includeTestSourceDirectory>
+                        <excludes>
+                            **/apache/doris/thrift/*,
+                            **/apache/parquet/**/*
+                        </excludes>
                     </configuration>
                     <executions>
                         <execution>

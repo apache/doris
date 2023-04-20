@@ -17,15 +17,29 @@
 
 #pragma once
 
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <stdint.h>
+
 #include <atomic>
+// IWYU pragma: no_include <bits/std_abs.h>
+#include <cmath> // IWYU pragma: keep
+#include <list>
+#include <memory>
+#include <ostream>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 #include "common/config.h"
+#include "common/status.h"
 #include "runtime/memory/mem_tracker.h"
+#include "util/runtime_profile.h"
 #include "util/string_util.h"
+#include "util/uid_util.h"
 
 namespace doris {
-
-class RuntimeState;
 
 // Track and limit the memory usage of process and query.
 // Contains an limit, arranged into a tree structure.

@@ -17,16 +17,24 @@
 
 #include "util/mysql_row_buffer.h"
 
+#include <assert.h>
 #include <fmt/format.h>
-#include <stdio.h>
-#include <stdlib.h>
+#include <string.h>
+#include <sys/types.h>
+
+#include <algorithm>
+#include <new>
+#include <ostream>
+#include <string>
 
 #include "common/logging.h"
 #include "date_func.h"
 #include "gutil/strings/numbers.h"
+#include "olap/olap_common.h"
+#include "runtime/decimalv2_value.h"
 #include "runtime/large_int_value.h"
 #include "util/mysql_global.h"
-#include "vec/runtime/vdatetime_value.h"
+#include "vec/runtime/vdatetime_value.h" // IWYU pragma: keep
 
 namespace doris {
 

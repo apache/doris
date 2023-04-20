@@ -19,6 +19,7 @@
 
 #include "io/fs/local_file_system.h"
 #include "runtime/block_spill_manager.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_decimal.h"

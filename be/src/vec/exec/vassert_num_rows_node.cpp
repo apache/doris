@@ -17,10 +17,26 @@
 
 #include "vec/exec/vassert_num_rows_node.h"
 
-#include "gen_cpp/PlanNodes_types.h"
+#include <gen_cpp/PlanNodes_types.h>
+#include <glog/logging.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+
+#include <functional>
+#include <map>
+#include <memory>
+#include <ostream>
+#include <utility>
+#include <vector>
+
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
+#include "util/telemetry/telemetry.h"
 #include "vec/core/block.h"
+
+namespace doris {
+class DescriptorTbl;
+class ObjectPool;
+} // namespace doris
 
 namespace doris::vectorized {
 

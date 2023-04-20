@@ -17,26 +17,54 @@
 
 #include "csv_reader.h"
 
+#include <fmt/format.h>
 #include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
+#include <glog/logging.h>
 
+#include <algorithm>
+#include <map>
+#include <new>
+#include <ostream>
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/consts.h"
 #include "common/status.h"
 #include "exec/decompressor.h"
+#include "exec/line_reader.h"
 #include "exec/text_converter.h"
 #include "exec/text_converter.hpp"
 #include "io/file_factory.h"
 #include "io/fs/broker_file_reader.h"
 #include "io/fs/buffered_reader.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/s3_file_reader.h"
-#include "olap/iterators.h"
-#include "olap/olap_common.h"
+#include "runtime/descriptors.h"
+#include "runtime/runtime_state.h"
+#include "runtime/types.h"
 #include "util/string_util.h"
 #include "util/utf8_check.h"
+#include "vec/common/typeid_cast.h"
 #include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/exec/format/file_reader/new_plain_binary_line_reader.h"
 #include "vec/exec/format/file_reader/new_plain_text_line_reader.h"
 #include "vec/exec/scan/vscanner.h"
+
+namespace doris {
+class RuntimeProfile;
+namespace vectorized {
+class IColumn;
+} // namespace vectorized
+
+namespace io {
+class IOContext;
+enum class FileCachePolicy : uint8_t;
+} // namespace io
+} // namespace doris
 
 namespace doris::vectorized {
 

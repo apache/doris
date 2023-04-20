@@ -20,7 +20,13 @@
 
 #include "vec/data_types/data_type_number_base.h"
 
+#include <fmt/format.h>
+#include <glog/logging.h>
+#include <string.h>
+
+#include <limits>
 #include <type_traits>
+#include <utility>
 
 #include "gutil/strings/numbers.h"
 #include "util/mysql_global.h"
@@ -28,7 +34,9 @@
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/string_buffer.hpp"
 #include "vec/io/io_helper.h"
+#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 

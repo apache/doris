@@ -17,9 +17,23 @@
 
 #include "vec/aggregate_functions/aggregate_function_sequence_match.h"
 
+#include <boost/iterator/iterator_facade.hpp>
+
 #include "common/logging.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/helpers.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
+
+namespace doris {
+namespace vectorized {
+class VecDateTimeValue;
+struct DateTimeV2ValueType;
+struct DateV2ValueType;
+template <typename T>
+class DateV2Value;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

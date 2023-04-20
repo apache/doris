@@ -17,16 +17,18 @@
 
 #include "vec/runtime/vdatetime_value.h"
 
+#include <cctz/civil_time.h>
+#include <cctz/time_zone.h>
 #include <ctype.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
-
-#include <limits>
-#include <sstream>
-#include <valarray>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+// IWYU pragma: no_include <bits/std_abs.h>
+#include <cmath>
 
 #include "common/config.h"
-#include "runtime/datetime_value.h"
 #include "util/timezone_utils.h"
 
 namespace doris::vectorized {

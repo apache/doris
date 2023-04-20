@@ -17,10 +17,30 @@
 
 #pragma once
 
+#include <stdint.h>
+
+#include <map>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/global_types.h"
+#include "common/status.h"
 #include "exec/es/es_scan_reader.h"
 #include "exec/es/es_scroll_parser.h"
-#include "runtime/runtime_state.h"
+#include "vec/data_types/data_type.h"
 #include "vec/exec/scan/vscanner.h"
+
+namespace doris {
+class RuntimeProfile;
+class RuntimeState;
+class TupleDescriptor;
+
+namespace vectorized {
+class Block;
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

@@ -17,13 +17,26 @@
 
 #include "vec/core/block_spill_reader.h"
 
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/data.pb.h>
+#include <glog/logging.h>
+#include <unistd.h>
+
+#include <algorithm>
+
 #include "io/file_factory.h"
-#include "io/fs/file_system.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/local_file_system.h"
-#include "olap/iterators.h"
 #include "runtime/block_spill_manager.h"
+#include "runtime/exec_env.h"
+#include "util/slice.h"
+#include "vec/core/block.h"
 
 namespace doris {
+namespace io {
+class FileSystem;
+} // namespace io
+
 namespace vectorized {
 void BlockSpillReader::_init_profile() {
     read_time_ = ADD_TIMER(profile_, "ReadTime");

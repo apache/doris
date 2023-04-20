@@ -17,16 +17,37 @@
 
 #include "vec/exprs/vectorized_agg_fn.h"
 
-#include "fmt/format.h"
-#include "fmt/ranges.h"
-#include "runtime/descriptors.h"
+#include <fmt/format.h>
+#include <fmt/ranges.h> // IWYU pragma: keep
+#include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <glog/logging.h>
+
+#include <memory>
+#include <ostream>
+#include <string_view>
+
+#include "common/config.h"
+#include "common/object_pool.h"
 #include "vec/aggregate_functions/aggregate_function_java_udaf.h"
 #include "vec/aggregate_functions/aggregate_function_rpc.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/aggregate_function_sort.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/core/materialize_block.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
+
+namespace doris {
+class RowDescriptor;
+namespace vectorized {
+class Arena;
+class BufferWritable;
+class IColumn;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

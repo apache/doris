@@ -174,9 +174,8 @@ public class StatisticsCleaner extends MasterDaemon {
 
     public ExpiredStats findExpiredStats(OlapTable statsTbl) {
         ExpiredStats expiredStats = new ExpiredStats();
-        long rowCount = statsTbl.getRowCount();
         long pos = 0;
-        while (pos < rowCount
+        while (pos < statsTbl.getRowCount()
                 && !expiredStats.isFull()) {
             List<ResultRow> rows = StatisticsRepository.fetchStatsFullName(StatisticConstants.FETCH_LIMIT, pos);
             pos += StatisticConstants.FETCH_LIMIT;
@@ -226,6 +225,11 @@ public class StatisticsCleaner extends MasterDaemon {
                 } catch (Exception e) {
                     LOG.warn("Error occurred when retrieving expired stats", e);
                 }
+            }
+            try {
+                Thread.sleep(StatisticConstants.FETCH_INTERVAL_IN_MS);
+            } catch (InterruptedException t) {
+                // IGNORE
             }
         }
         return expiredStats;

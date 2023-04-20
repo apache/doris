@@ -21,22 +21,24 @@
 #include "runtime/runtime_state.h"
 
 #include <fmt/format.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/Types_types.h>
 
-#include <boost/algorithm/string/join.hpp>
-#include <sstream>
 #include <string>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "exec/exec_node.h"
 #include "runtime/exec_env.h"
 #include "runtime/load_path_mgr.h"
-#include "runtime/memory/mem_tracker.h"
+#include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/memory/thread_mem_tracker_mgr.h"
 #include "runtime/runtime_filter_mgr.h"
-#include "util/pretty_printer.h"
+#include "runtime/thread_context.h"
 #include "util/timezone_utils.h"
 #include "util/uid_util.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 using namespace ErrorCode;

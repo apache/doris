@@ -82,6 +82,19 @@ set(VEC_FILES
   core/field.cpp
   core/sort_block.cpp
   core/materialize_block.cpp
+  data_types/serde/data_type_serde.cpp
+  data_types/serde/data_type_map_serde.cpp
+  data_types/serde/data_type_array_serde.cpp
+  data_types/serde/data_type_struct_serde.cpp
+  data_types/serde/data_type_number_serde.cpp
+  data_types/serde/data_type_string_serde.cpp
+  data_types/serde/data_type_decimal_serde.cpp
+  data_types/serde/data_type_object_serde.cpp
+  data_types/serde/data_type_fixedlengthobject_serde.cpp
+  data_types/serde/data_type_hll_serde.cpp
+  data_types/serde/data_type_bitmap_serde.cpp
+  data_types/serde/data_type_quantilestate_serde.cpp
+  data_types/serde/data_type_nullable_serde.cpp
   data_types/data_type.cpp
   data_types/data_type_array.cpp
   data_types/data_type_struct.cpp

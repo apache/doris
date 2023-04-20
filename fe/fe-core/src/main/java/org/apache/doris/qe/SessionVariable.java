@@ -843,7 +843,7 @@ public class SessionVariable implements Serializable, Writable {
             // this.enableFoldConstantByBe = true;
             // this.enableTwoPhaseReadOpt = false;
         } else {
-            this.enablePipelineEngine = false;
+            // this.enablePipelineEngine = false;
             // this.enableFoldConstantByBe = false;
             // this.enableTwoPhaseReadOpt = true;
         }

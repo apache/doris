@@ -20,13 +20,18 @@
 
 #include "vec/columns/column_string.h"
 
-#include "vec/columns/column_impl.h"
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <ostream>
+
+#include "util/simd/bits.h"
 #include "vec/columns/columns_common.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/memcmp_small.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/sort_block.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
 
@@ -377,9 +382,7 @@ void ColumnString::get_permutation(bool reverse, size_t limit, int /*nan_directi
 
 ColumnPtr ColumnString::replicate(const Offsets& replicate_offsets) const {
     size_t col_size = size();
-    if (col_size != replicate_offsets.size()) {
-        LOG(FATAL) << "Size of offsets doesn't match size of column.";
-    }
+    column_match_offsets_size(col_size, replicate_offsets.size());
 
     auto res = ColumnString::create();
 

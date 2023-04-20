@@ -35,31 +35,21 @@
 #include "common/global_types.h"
 #include "common/status.h"
 #include "runtime/descriptors.h"
-#include "runtime/query_statistics.h"
-#include "service/backend_options.h"
-#include "util/blocking_queue.hpp"
 #include "util/runtime_profile.h"
 #include "util/telemetry/telemetry.h"
 #include "vec/core/block.h"
-#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 class ObjectPool;
-class Counters;
 class RuntimeState;
-class TPlan;
 class MemTracker;
 class QueryStatistics;
 
 namespace vectorized {
-class Block;
-class VExpr;
 class VExprContext;
 } // namespace vectorized
 
 namespace pipeline {
-class PipelineFragmentContext;
-class Pipeline;
 class OperatorBase;
 } // namespace pipeline
 

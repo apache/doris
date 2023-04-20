@@ -37,7 +37,6 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.text.StringSubstitutor;
 import org.apache.logging.log4j.LogManager;
@@ -53,7 +52,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.stream.Collectors;
 
 public class AnalysisManager {
 
@@ -98,23 +96,10 @@ public class AnalysisManager {
         TableName tbl = analyzeStmt.getTblName();
         StatisticsUtil.convertTableNameToObjects(tbl);
         Set<String> colNames = analyzeStmt.getColumnNames();
-        Set<String> partitionNames = analyzeStmt.getPartitionNames();
         Map<Long, AnalysisTaskInfo> analysisTaskInfos = new HashMap<>();
         long jobId = Env.getCurrentEnv().getNextId();
-        // If the analysis is not incremental, need to delete existing statistics.
-        // we cannot collect histograms incrementally and do not support it
-        if (!analyzeStmt.isIncrement && !analyzeStmt.isHistogram) {
-            long dbId = analyzeStmt.getDbId();
-            TableIf table = analyzeStmt.getTable();
-            Set<Long> tblIds = Sets.newHashSet(table.getId());
-            Set<Long> partIds = partitionNames.stream()
-                    .map(p -> table.getPartition(p).getId())
-                    .collect(Collectors.toSet());
-            StatisticsRepository.dropStatistics(dbId, tblIds, colNames, partIds);
-        }
-
-        createTaskForEachColumns(analyzeStmt, catalogName, db, tbl, colNames, partitionNames, analysisTaskInfos, jobId);
-        createTaskForMVIdx(analyzeStmt, catalogName, db, tbl, partitionNames, analysisTaskInfos, jobId);
+        createTaskForEachColumns(analyzeStmt, catalogName, db, tbl, colNames, analysisTaskInfos, jobId);
+        createTaskForMVIdx(analyzeStmt, catalogName, db, tbl, analysisTaskInfos, jobId);
         persistAnalysisJob(catalogName, db, tbl, jobId);
 
         if (analyzeStmt.isSync()) {
@@ -143,7 +128,7 @@ public class AnalysisManager {
     }
 
     private void createTaskForMVIdx(AnalyzeStmt analyzeStmt, String catalogName, String db, TableName tbl,
-            Set<String> partitionNames, Map<Long, AnalysisTaskInfo> analysisTaskInfos, long jobId) throws DdlException {
+            Map<Long, AnalysisTaskInfo> analysisTaskInfos, long jobId) throws DdlException {
         if (!(analyzeStmt.isWholeTbl && analyzeStmt.getTable().getType().equals(TableType.OLAP))) {
             return;
         }
@@ -158,7 +143,7 @@ public class AnalysisManager {
                 AnalysisTaskInfo analysisTaskInfo = new AnalysisTaskInfoBuilder().setJobId(
                                 jobId).setTaskId(taskId)
                         .setCatalogName(catalogName).setDbName(db)
-                        .setTblName(tbl.getTbl()).setPartitionNames(partitionNames)
+                        .setTblName(tbl.getTbl())
                         .setIndexId(meta.getIndexId()).setJobType(JobType.MANUAL)
                         .setAnalysisMethod(AnalysisMethod.FULL).setAnalysisType(AnalysisType.INDEX)
                         .setScheduleType(ScheduleType.ONCE).build();
@@ -175,7 +160,7 @@ public class AnalysisManager {
     }
 
     private void createTaskForEachColumns(AnalyzeStmt analyzeStmt, String catalogName, String db, TableName tbl,
-            Set<String> colNames, Set<String> partitionNames, Map<Long, AnalysisTaskInfo> analysisTaskInfos,
+            Set<String> colNames, Map<Long, AnalysisTaskInfo> analysisTaskInfos,
             long jobId) throws DdlException {
         for (String colName : colNames) {
             long taskId = Env.getCurrentEnv().getNextId();
@@ -183,7 +168,7 @@ public class AnalysisManager {
             AnalysisTaskInfo analysisTaskInfo = new AnalysisTaskInfoBuilder().setJobId(jobId)
                     .setTaskId(taskId).setCatalogName(catalogName).setDbName(db)
                     .setTblName(tbl.getTbl()).setColName(colName)
-                    .setPartitionNames(partitionNames).setJobType(JobType.MANUAL)
+                    .setJobType(JobType.MANUAL)
                     .setAnalysisMethod(AnalysisMethod.FULL).setAnalysisType(analType)
                     .setState(AnalysisState.PENDING)
                     .setScheduleType(ScheduleType.ONCE).build();
@@ -271,12 +256,17 @@ public class AnalysisManager {
         }
     }
 
-    public void dropStats(DropStatsStmt dropStatsStmt) {
+    public void dropStats(DropStatsStmt dropStatsStmt) throws DdlException {
         if (dropStatsStmt.dropExpired) {
             Env.getCurrentEnv().getStatisticsCleaner().clear();
             return;
         }
-        StatisticsRepository.dropTableStatistics(dropStatsStmt);
+        Set<String> cols = dropStatsStmt.getColumnNames();
+        long tblId = dropStatsStmt.getTblId();
+        StatisticsRepository.dropStatistics(tblId, cols);
+        for (String col : cols) {
+            Env.getCurrentEnv().getStatisticsCache().invidate(tblId, -1L, col);
+        }
     }
 
 }

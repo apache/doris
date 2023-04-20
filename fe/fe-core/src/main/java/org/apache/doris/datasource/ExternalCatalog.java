@@ -82,6 +82,7 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     protected boolean invalidCacheInInit = true;
 
     private ExternalSchemaCache schemaCache;
+    private String comment;
 
     public ExternalCatalog(long catalogId, String name) {
         this.id = catalogId;
@@ -252,6 +253,15 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     }
 
     @Override
+    public String getComment() {
+        return comment;
+    }
+
+    public void setComment(String comment) {
+        this.comment = comment;
+    }
+
+    @Override
     public List<String> getDbNames() {
         return listDatabaseNames(null);
     }
@@ -321,8 +331,14 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
 
     @Override
     public void modifyCatalogProps(Map<String, String> props) {
+        modifyComment(props);
         catalogProperty.modifyCatalogProps(props);
         notifyPropertiesUpdated(props);
+    }
+
+    private void modifyComment(Map<String, String> props) {
+        setComment(props.getOrDefault("comment", comment));
+        props.remove("comment");
     }
 
     @Override

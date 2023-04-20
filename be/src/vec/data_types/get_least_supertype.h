@@ -21,9 +21,15 @@
 #pragma once
 
 #include <parallel_hashmap/phmap.h>
-#include <vec/data_types/data_type.h>
 
 #include "common/status.h"
+#include "vec/data_types/data_type.h"
+
+namespace doris {
+namespace vectorized {
+enum class TypeIndex;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

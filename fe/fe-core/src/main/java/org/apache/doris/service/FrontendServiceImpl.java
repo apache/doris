@@ -843,9 +843,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return masterImpl.report(request);
     }
 
+    // This interface is used for keeping backward compatible
     @Override
     public TFetchResourceResult fetchResource() throws TException {
-        return masterImpl.fetchResource();
+        throw new TException("not supported");
     }
 
     @Override

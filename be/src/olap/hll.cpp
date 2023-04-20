@@ -17,12 +17,14 @@
 
 #include "olap/hll.h"
 
-#include <algorithm>
+#include <cmath>
 #include <map>
+#include <new>
+#include <ostream>
 
 #include "common/logging.h"
 #include "util/coding.h"
-#include "vec/common/string_ref.h"
+#include "util/slice.h"
 
 using std::map;
 using std::nothrow;

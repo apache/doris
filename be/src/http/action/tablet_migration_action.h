@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <gen_cpp/Status_types.h>
 #include <stdint.h>
 
 #include <deque>
@@ -29,10 +28,8 @@
 #include <utility>
 
 #include "common/status.h"
-#include "gutil/stringprintf.h"
-#include "gutil/strings/numbers.h"
+#include "gutil/strings/substitute.h"
 #include "http/http_handler.h"
-#include "olap/data_dir.h"
 #include "olap/tablet.h"
 #include "util/threadpool.h"
 

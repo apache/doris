@@ -22,16 +22,18 @@
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <glog/logging.h>
-#include <opentelemetry/common/threadlocal.h>
 #include <parallel_hashmap/phmap.h>
 #include <stddef.h>
 
+#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <iterator>
 #include <map>
 #include <string>
 #include <utility>
 
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/consts.h"
 #include "gutil/casts.h"
 #include "runtime/define_primitive_type.h"
@@ -194,6 +196,7 @@ Status BaseScanner::init_expr_ctxes() {
     return Status::OK();
 }
 
+// need exception safety
 Status BaseScanner::_filter_src_block() {
     auto origin_column_num = _src_block.columns();
     // filter block
@@ -348,6 +351,7 @@ Status BaseScanner::_init_src_block() {
     return Status::OK();
 }
 
+// need exception safety
 Status BaseScanner::_fill_dest_block(vectorized::Block* dest_block, bool* eof) {
     *eof = _scanner_eof;
     _fill_columns_from_path();

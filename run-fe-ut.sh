@@ -112,8 +112,8 @@ else
     if [[ "${RUN}" -eq 1 ]]; then
         echo "Run the specified class: $1"
         # eg:
-        # sh run-fe-ut.sh --run org.apache.doris.utframe.Demo
-        # sh run-fe-ut.sh --run org.apache.doris.utframe.Demo#testCreateDbAndTable+test2
+        # sh run-fe-ut.sh --run org.apache.doris.utframe.DemoTest
+        # sh run-fe-ut.sh --run org.apache.doris.utframe.DemoTest#testCreateDbAndTable+test2
         "${MVN_CMD}" test -Dcheckstyle.skip=true -DfailIfNoTests=false -D test="$1"
     else
         echo "Run Frontend UT"

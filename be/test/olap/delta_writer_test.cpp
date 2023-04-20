@@ -33,9 +33,12 @@
 #include "olap/rowset/beta_rowset.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "olap/tablet_manager.h"
 #include "olap/tablet_meta_manager.h"
+#include "olap/txn_manager.h"
 #include "olap/utils.h"
 #include "runtime/descriptor_helper.h"
+#include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 
 namespace doris {

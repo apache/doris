@@ -17,17 +17,23 @@
 
 #pragma once
 
-#include <future>
-#include <memory>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <filesystem>
 #include <queue>
+#include <vector>
 
 #include "common/status.h"
 #include "io/cache/file_cache.h"
+#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
 #include "io/fs/path.h"
+#include "util/slice.h"
 
 namespace doris {
 namespace io {
+class IOContext;
 
 // Only used for GC
 class DummyFileCache final : public FileCache {

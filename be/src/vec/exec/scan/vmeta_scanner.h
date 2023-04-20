@@ -17,9 +17,31 @@
 
 #pragma once
 
-#include "runtime/runtime_state.h"
+#include <gen_cpp/Data_types.h>
+#include <stdint.h>
+
+#include <vector>
+
+#include "common/global_types.h"
+#include "common/status.h"
+#include "vec/data_types/data_type.h"
 #include "vec/exec/scan/vscanner.h"
-#include "vmeta_scan_node.h"
+
+namespace doris {
+class RuntimeProfile;
+class RuntimeState;
+class TFetchSchemaTableDataRequest;
+class TMetaScanRange;
+class TScanRange;
+class TScanRangeParams;
+class TupleDescriptor;
+
+namespace vectorized {
+class Block;
+class VExprContext;
+class VMetaScanNode;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

@@ -17,25 +17,14 @@
 
 #pragma once
 
-#include <cstdint>
+#include <stddef.h>
 
-#include "common/status.h"
-#include "gen_cpp/parquet_types.h"
-#include "gutil/endian.h"
-#include "schema_desc.h"
-#include "util/bit_stream_utils.inline.h"
-#include "util/coding.h"
-#include "util/rle_encoding.h"
-#include "util/simd/bits.h"
-#include "vec/columns/column_array.h"
-#include "vec/columns/column_dictionary.h"
+#include <cstdint>
+#include <ostream>
+#include <string>
+#include <vector>
+
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/column_string.h"
-#include "vec/common/int_exp.h"
-#include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_decimal.h"
-#include "vec/data_types/data_type_nullable.h"
-#include "vec/exec/format/format_common.h"
 
 namespace doris::vectorized {
 

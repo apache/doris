@@ -17,6 +17,19 @@
 
 #include "olap/cumulative_compaction.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <memory>
+#include <mutex>
+#include <ostream>
+
+#include "common/config.h"
+#include "common/logging.h"
+#include "olap/cumulative_compaction_policy.h"
+#include "olap/olap_define.h"
+#include "olap/rowset/rowset_meta.h"
+#include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
 #include "util/time.h"
 #include "util/trace.h"

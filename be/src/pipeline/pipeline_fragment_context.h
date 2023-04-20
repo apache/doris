@@ -17,26 +17,42 @@
 
 #pragma once
 
-#include <future>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/types.pb.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#include "io/fs/stream_load_pipe.h"
+#include <atomic>
+#include <condition_variable>
+#include <functional>
+#include <future>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_task.h"
+#include "runtime/query_fragments_ctx.h"
 #include "runtime/runtime_state.h"
+#include "util/runtime_profile.h"
+#include "util/stopwatch.hpp"
 
 namespace doris {
 class ExecNode;
 class DataSink;
 struct ReportStatusRequest;
+class ExecEnv;
+class RuntimeFilterMergeControllerEntity;
+class TDataSink;
+class TPipelineFragmentParams;
 
-namespace vectorized {
-template <bool is_intersect>
-class VSetOperationNode;
-}
+namespace taskgroup {
+class TaskGroup;
+} // namespace taskgroup
 
 namespace pipeline {
-
-class PipelineTask;
 
 class PipelineFragmentContext : public std::enable_shared_from_this<PipelineFragmentContext> {
 public:

@@ -17,21 +17,22 @@
 
 #pragma once
 
+#include <stdint.h>
+
 #include <atomic>
+#include <iosfwd>
 #include <memory>
+#include <utility>
 #include <vector>
 
-#include "gen_cpp/olap_file.pb.h"
-#include "olap/olap_define.h"
+#include "common/status.h"
 #include "util/threadpool.h"
 
 namespace doris {
 
 class DataDir;
-class DeltaWriter;
-class ExecEnv;
 class MemTable;
-class MemTrackerLimiter;
+enum RowsetTypePB : int;
 
 // the statistic of a certain flush handler.
 // use atomic because it may be updated by multi threads

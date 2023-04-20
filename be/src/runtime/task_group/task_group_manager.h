@@ -16,6 +16,8 @@
 // under the License.
 #pragma once
 
+#include <stdint.h>
+
 #include <shared_mutex>
 #include <unordered_map>
 

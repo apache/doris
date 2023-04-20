@@ -17,11 +17,17 @@
 
 #include "olap/rowset/segment_v2/column_writer.h"
 
-#include <cstddef>
+#include <assert.h>
+#include <gen_cpp/segment_v2.pb.h>
 
+#include <algorithm>
+#include <filesystem>
+
+#include "common/config.h"
 #include "common/logging.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/file_writer.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/bitmap_index_writer.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/bloom_filter_index_writer.h"
@@ -31,10 +37,15 @@
 #include "olap/rowset/segment_v2/ordinal_page_index.h"
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_io.h"
+#include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/rowset/segment_v2/zone_map_index.h"
+#include "olap/tablet_schema.h"
+#include "olap/types.h"
+#include "runtime/collection_value.h"
 #include "util/block_compression.h"
 #include "util/faststring.h"
 #include "util/rle_encoding.h"
+#include "vec/core/types.h"
 
 namespace doris {
 namespace segment_v2 {
