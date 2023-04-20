@@ -146,33 +146,20 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
         DataType oType = other.getDataType();
         DataType type = getDataType();
 
-        if (type.isStringLikeType() && oType.isStringLikeType()) {
+        if ((type.isIntegerLikeType() || type.isLargeIntType())
+                && (oType.isIntegerLikeType() || oType.isLargeIntType())) {
+            // e.g. tinyint compare to int
+            return new BigInteger(getStringValue()).compareTo(new BigInteger(other.getStringValue()));
+        } else if (type.isStringLikeType() && oType.isStringLikeType()) {
             // VarChar type can be different, e.g., VarChar(1) = VarChar(2)
             return StringUtils.compare((String) getValue(), (String) other.getValue());
+        } else if (type.isFloatLikeType() && oType.isFloatLikeType()) {
+            // e.g. float compare to double
+            return new BigDecimal(getStringValue()).compareTo(new BigDecimal(other.getStringValue()));
         } else if (!type.equals(oType)) {
             throw new RuntimeException("data type not equal!");
         } else if (type.isBooleanType()) {
             return Boolean.compare((boolean) getValue(), (boolean) other.getValue());
-        } else if (type.isTinyIntType()) {
-            return Byte.compare((byte) getValue(), (byte) other.getValue());
-        } else if (type.isSmallIntType()) {
-            return Short.compare((short) getValue(), (short) other.getValue());
-        } else if (type.isIntegerType()) {
-            return Integer.compare((int) getValue(), (int) other.getValue());
-        } else if (type.isBigIntType()) {
-            return Long.compare((long) getValue(), (long) other.getValue());
-        } else if (type.isLargeIntType()) {
-            return ((BigInteger) getValue()).compareTo((BigInteger) other.getValue());
-        } else if (type.isFloatType()) {
-            return Float.compare((float) getValue(), (float) other.getValue());
-        } else if (type.isDoubleType()) {
-            return Double.compare((double) getValue(), (double) other.getValue());
-        } else if (type.isDateLikeType()) {
-            return Long.compare((Long) getValue(), (Long) other.getValue());
-        } else if (type.isDecimalV2Type()) {
-            return ((BigDecimal) getValue()).compareTo((BigDecimal) other.getValue());
-        } else if (type.isStringLikeType()) {
-            return StringUtils.compare((String) getValue(), (String) other.getValue());
         } else {
             throw new RuntimeException(String.format("Literal {} is not supported!", type.toString()));
         }
