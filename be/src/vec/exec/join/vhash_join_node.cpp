@@ -217,12 +217,14 @@ struct ProcessHashTableBuild {
                     if (emplace_result.is_inserted()) {
                         new (&emplace_result.get_mapped()) Mapped({k, _offset});
                         inserted_rows.push_back(k);
+                        _join_node->_build_bf_cardinality++;
                     } else { _skip_rows++; });
         } else if (has_runtime_filter && !build_unique) {
             EMPLACE_IMPL(
                     if (emplace_result.is_inserted()) {
                         new (&emplace_result.get_mapped()) Mapped({k, _offset});
                         inserted_rows.push_back(k);
+                        _join_node->_build_bf_cardinality++;
                     } else {
                         emplace_result.get_mapped().insert({k, _offset}, *(_join_node->_arena));
                         inserted_rows.push_back(k);
@@ -278,7 +280,7 @@ struct ProcessRuntimeFilterBuild {
                                         _join_node->_runtime_filter_descs));
 
         RETURN_IF_ERROR(_join_node->_runtime_filter_slots->init(
-                state, hash_table_ctx.hash_table.get_size()));
+                state, hash_table_ctx.hash_table.get_size(), _join_node->_build_bf_cardinality));
 
         if (!_join_node->_runtime_filter_slots->empty() && !_join_node->_inserted_rows.empty()) {
             {
@@ -374,7 +376,8 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     _runtime_filters.resize(_runtime_filter_descs.size());
     for (size_t i = 0; i < _runtime_filter_descs.size(); i++) {
         RETURN_IF_ERROR(state->runtime_filter_mgr()->register_filter(
-                RuntimeFilterRole::PRODUCER, _runtime_filter_descs[i], state->query_options()));
+                RuntimeFilterRole::PRODUCER, _runtime_filter_descs[i], state->query_options(), -1,
+                _probe_expr_ctxs.size() == 1));
         RETURN_IF_ERROR(state->runtime_filter_mgr()->get_producer_filter(
                 _runtime_filter_descs[i].filter_id, &_runtime_filters[i]));
     }
@@ -912,7 +915,7 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
                                           _runtime_filter_descs));
 
                                   RETURN_IF_ERROR(_runtime_filter_slots->init(
-                                          state, arg.hash_table.get_size()));
+                                          state, arg.hash_table.get_size(), 0));
                                   RETURN_IF_ERROR(_runtime_filter_slots->copy_from_shared_context(
                                           _shared_hash_table_context));
                                   _runtime_filter_slots->publish();

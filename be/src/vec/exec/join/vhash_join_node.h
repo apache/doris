@@ -383,6 +383,7 @@ private:
     std::unordered_map<const Block*, std::vector<int>> _inserted_rows;
 
     std::vector<IRuntimeFilter*> _runtime_filters;
+    size_t _build_bf_cardinality = 0;
 };
 } // namespace vectorized
 } // namespace doris
