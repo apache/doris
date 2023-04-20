@@ -174,7 +174,7 @@ public class Transaction {
     public void executeInsertIntoSelectCommand(InsertIntoTableCommand command)
             throws Exception {
         if (ctx.isTxnModel()) {
-            Preconditions.checkArgument(command. "insert into select in txn model is not supported");
+            Preconditions.checkArgument(command.checkIfScanData(), "insert into select in txn model is not supported");
             beginTxn();
             loadedRows = executeInsertIntoValuesCommand(null);
         } else {
