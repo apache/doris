@@ -548,7 +548,12 @@ public class OutFileClause {
         } else {
             isLocalOutput = false;
         }
-
+        String namePrefix = properties.containsKey(PROP_BROKER_NAME)
+                    ? BROKER_PROP_PREFIX + HdfsResource.DSF_NAMESERVICES : HdfsResource.DSF_NAMESERVICES;
+        String dfsNameServices = properties.getOrDefault(namePrefix, "");
+        if (!Strings.isNullOrEmpty(dfsNameServices) && !filePath.contains(dfsNameServices)) {
+            filePath = filePath.replace(HDFS_FILE_PREFIX, HDFS_FILE_PREFIX + dfsNameServices);
+        }
         if (Strings.isNullOrEmpty(filePath)) {
             throw new AnalysisException("Must specify file in OUTFILE clause");
         }

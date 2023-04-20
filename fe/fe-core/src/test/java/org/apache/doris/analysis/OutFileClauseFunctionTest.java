@@ -78,8 +78,13 @@ public class OutFileClauseFunctionTest extends TestWithFeService {
 
     @Test
     public void testHdfsFile() throws Exception {
+        String loc1 = "'hdfs://hacluster/data/test/'";
+        String loc2 = "'hdfs:///data/test/'";
+
         String query1 = "select * from db1.test \n"
-                + "into outfile 'hdfs://hacluster/data/test/'\n"
+                + "into outfile "
+                + loc1
+                + "\n"
                 + "format as csv\n"
                 + "properties(\n"
                 + "'column_separator' = ',',\n"
@@ -99,9 +104,13 @@ public class OutFileClauseFunctionTest extends TestWithFeService {
         boolean isOutFileClauseAnalyzed = Deencapsulation.getField(outFileClause, "isAnalyzed");
         Assertions.assertTrue(isOutFileClauseAnalyzed);
 
+        QueryStmt analyzedOutStmtLoc2 = createStmt(query1.replace(loc1, loc2));
+        Assertions.assertTrue(analyzedOutStmtLoc2.hasOutFileClause());
 
         String query2 = "select * from db1.test \n"
-                + "into outfile 'hdfs://hacluster/data/test/'\n"
+                + "into outfile "
+                + loc1
+                + "\n"
                 + "format as csv\n"
                 + "properties(\n"
                 + "'column_separator' = ',',\n"
@@ -119,5 +128,8 @@ public class OutFileClauseFunctionTest extends TestWithFeService {
         OutFileClause outFileClause2 = analyzedOutStmt2.getOutFileClause();
         boolean isOutFileClauseAnalyzed2 = Deencapsulation.getField(outFileClause2, "isAnalyzed");
         Assertions.assertTrue(isOutFileClauseAnalyzed2);
+
+        QueryStmt analyzedOutStmt2Loc2 = createStmt(query2.replace(loc1, loc2));
+        Assertions.assertTrue(analyzedOutStmt2Loc2.hasOutFileClause());
     }
 }
