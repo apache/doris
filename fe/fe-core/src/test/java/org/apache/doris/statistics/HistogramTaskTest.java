@@ -75,7 +75,7 @@ public class HistogramTaskTest extends TestWithFeService {
 
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         StmtExecutor executor = getSqlStmtExecutor(
-                "ANALYZE TABLE t1 UPDATE HISTOGRAM ON col1 PARTITION (p_201701)");
+                "ANALYZE TABLE t1(col1) UPDATE HISTOGRAM");
         Assertions.assertNotNull(executor);
 
         ConcurrentMap<Long, Map<Long, AnalysisTaskInfo>> taskMap =
