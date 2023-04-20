@@ -66,11 +66,6 @@ Status VRuntimeFilterWrapper::open(RuntimeState* state, VExprContext* context,
     return _impl->open(state, context, scope);
 }
 
-void VRuntimeFilterWrapper::close(RuntimeState* state, VExprContext* context,
-                                  FunctionContext::FunctionStateScope scope) {
-    _impl->close(state, context, scope);
-}
-
 bool VRuntimeFilterWrapper::is_constant() const {
     return _impl->is_constant();
 }

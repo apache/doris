@@ -304,7 +304,7 @@ Status JavaFunctionCall::execute(FunctionContext* context, Block& block,
     }
     return JniUtil::GetJniExceptionMsg(env);
 }
-
+/*
 Status JavaFunctionCall::close(FunctionContext* context,
                                FunctionContext::FunctionStateScope scope) {
     JniContext* jni_ctx = reinterpret_cast<JniContext*>(
@@ -316,4 +316,5 @@ Status JavaFunctionCall::close(FunctionContext* context,
     }
     return Status::OK();
 }
+*/
 } // namespace doris::vectorized

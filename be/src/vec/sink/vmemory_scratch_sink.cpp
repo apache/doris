@@ -99,7 +99,6 @@ Status MemoryScratchSink::close(RuntimeState* state, Status exec_status) {
     if (_queue != nullptr) {
         _queue->blocking_put(nullptr);
     }
-    VExpr::close(_output_vexpr_ctxs, state);
     return DataSink::close(state, exec_status);
 }
 

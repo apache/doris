@@ -320,12 +320,6 @@ void VUnionNode::release_resource(RuntimeState* state) {
         return;
     }
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VUnionNode::close");
-    for (auto& exprs : _const_expr_lists) {
-        VExpr::close(exprs, state);
-    }
-    for (auto& exprs : _child_expr_lists) {
-        VExpr::close(exprs, state);
-    }
     return ExecNode::release_resource(state);
 }
 

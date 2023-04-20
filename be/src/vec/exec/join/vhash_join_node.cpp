@@ -755,12 +755,6 @@ Status HashJoinNode::alloc_resource(doris::RuntimeState* state) {
 
 void HashJoinNode::release_resource(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "HashJoinNode::release_resources");
-    VExpr::close(_build_expr_ctxs, state);
-    VExpr::close(_probe_expr_ctxs, state);
-
-    if (_vother_join_conjunct_ptr) {
-        (*_vother_join_conjunct_ptr)->close(state);
-    }
     _release_mem();
     VJoinNodeBase::release_resource(state);
 }

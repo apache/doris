@@ -836,40 +836,6 @@ Status VFileScanner::close(RuntimeState* state) {
         return Status::OK();
     }
 
-    for (auto ctx : _dest_vexpr_ctx) {
-        if (ctx != nullptr) {
-            ctx->close(state);
-        }
-    }
-
-    for (auto it : _col_default_value_ctx) {
-        if (it.second != nullptr) {
-            it.second->close(state);
-        }
-    }
-
-    if (_pre_conjunct_ctx_ptr) {
-        (*_pre_conjunct_ctx_ptr)->close(state);
-    }
-
-    if (_push_down_expr) {
-        _push_down_expr->close(state);
-    }
-
-    for (auto& [k, v] : _slot_id_to_filter_conjuncts) {
-        for (auto& ctx : v) {
-            if (ctx != nullptr) {
-                ctx->close(state);
-            }
-        }
-    }
-
-    for (auto* ctx : _not_single_slot_filter_conjuncts) {
-        if (ctx != nullptr) {
-            ctx->close(state);
-        }
-    }
-
     if (config::enable_file_cache && _state->query_options().enable_file_cache) {
         io::FileCacheProfileReporter cache_profile(_profile);
         cache_profile.update(_file_cache_statistics.get());

@@ -101,12 +101,6 @@ doris::Status VectorizedFnCall::open(doris::RuntimeState* state, VExprContext* c
     return Status::OK();
 }
 
-void VectorizedFnCall::close(doris::RuntimeState* state, VExprContext* context,
-                             FunctionContext::FunctionStateScope scope) {
-    VExpr::close_function_context(context, scope, _function);
-    VExpr::close(state, context, scope);
-}
-
 doris::Status VectorizedFnCall::execute(VExprContext* context, doris::vectorized::Block* block,
                                         int* result_column_id) {
     // TODO: not execute const expr again, but use the const column in function context

@@ -143,8 +143,6 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t /*input_rows_count*/) override;
 
-    Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
-
 protected:
     Status vector_const(const ColumnString& values, const StringRef* pattern_val,
                         ColumnUInt8::Container& result, const LikeFn& function,

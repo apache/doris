@@ -48,8 +48,6 @@ public:
                            VExprContext* context) override;
     virtual Status open(RuntimeState* state, VExprContext* context,
                         FunctionContext::FunctionStateScope scope) override;
-    virtual void close(RuntimeState* state, VExprContext* context,
-                       FunctionContext::FunctionStateScope scope) override;
     virtual VExpr* clone(ObjectPool* pool) const override {
         return pool->add(new VCaseExpr(*this));
     }

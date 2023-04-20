@@ -42,14 +42,9 @@ VExprContext::VExprContext(VExpr* expr)
           _is_clone(false),
           _prepared(false),
           _opened(false),
-          _closed(false),
           _last_result_column_id(-1) {}
 
-VExprContext::~VExprContext() {
-    // Do not delete this code, this code here is used to check if forget to close the opened context
-    // Or there will be memory leak
-    DCHECK(!_prepared || _closed) << get_stack_trace();
-}
+VExprContext::~VExprContext() {}
 
 doris::Status VExprContext::execute(doris::vectorized::Block* block, int* result_column_id) {
     Status st;
@@ -77,14 +72,6 @@ doris::Status VExprContext::open(doris::RuntimeState* state) {
     FunctionContext::FunctionStateScope scope =
             _is_clone ? FunctionContext::THREAD_LOCAL : FunctionContext::FRAGMENT_LOCAL;
     return _root->open(state, this, scope);
-}
-
-void VExprContext::close(doris::RuntimeState* state) {
-    DCHECK(!_closed);
-    FunctionContext::FunctionStateScope scope =
-            _is_clone ? FunctionContext::THREAD_LOCAL : FunctionContext::FRAGMENT_LOCAL;
-    _root->close(state, this, scope);
-    _closed = true;
 }
 
 doris::Status VExprContext::clone(RuntimeState* state, VExprContext** new_ctx) {

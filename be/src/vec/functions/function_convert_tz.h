@@ -210,10 +210,6 @@ public:
         return Status::OK();
     }
 
-    Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        return Status::OK();
-    }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);

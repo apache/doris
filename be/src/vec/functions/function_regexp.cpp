@@ -474,10 +474,6 @@ public:
                 ColumnNullable::create(std::move(result_data_column), std::move(result_null_map));
         return Status::OK();
     }
-
-    Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        return Status::OK();
-    }
 };
 
 void register_function_regexp_extract(SimpleFunctionFactory& factory) {

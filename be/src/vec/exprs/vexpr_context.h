@@ -41,7 +41,6 @@ public:
     ~VExprContext();
     [[nodiscard]] Status prepare(RuntimeState* state, const RowDescriptor& row_desc);
     [[nodiscard]] Status open(RuntimeState* state);
-    void close(RuntimeState* state);
     [[nodiscard]] Status clone(RuntimeState* state, VExprContext** new_ctx);
     [[nodiscard]] Status execute(Block* block, int* result_column_id);
 
@@ -94,7 +93,6 @@ private:
     /// Variables keeping track of current state.
     bool _prepared;
     bool _opened;
-    bool _closed;
 
     /// FunctionContexts for each registered expression. The FunctionContexts are created
     /// and owned by this VExprContext.

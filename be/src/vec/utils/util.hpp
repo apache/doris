@@ -98,7 +98,6 @@ public:
 
         if (is_leaf(expr)) {
             if (checker(leaf_index++)) {
-                expr->close(state, context, context->get_function_state_scope());
                 return nullptr;
             }
             return expr;
@@ -114,7 +113,6 @@ public:
             } else {
                 // here only close the and expr self, do not close the child
                 expr->set_children({});
-                expr->close(state, context, context->get_function_state_scope());
             }
 
             return left_child != nullptr ? left_child : right_child;

@@ -47,8 +47,6 @@ public:
                                   VExprContext* context) override;
     virtual doris::Status open(doris::RuntimeState* state, VExprContext* context,
                                FunctionContext::FunctionStateScope scope) override;
-    virtual void close(doris::RuntimeState* state, VExprContext* context,
-                       FunctionContext::FunctionStateScope scope) override;
     virtual VExpr* clone(doris::ObjectPool* pool) const override {
         return pool->add(new VCastExpr(*this));
     }

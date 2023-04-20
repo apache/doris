@@ -87,14 +87,6 @@ public:
             return Status::OK();
         }
     }
-
-    Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if constexpr (Impl::NEED_CONTEXT) {
-            return Impl::close(context, scope);
-        } else {
-            return Status::OK();
-        }
-    }
 };
 
 } // namespace doris::vectorized

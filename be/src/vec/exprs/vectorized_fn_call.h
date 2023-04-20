@@ -47,8 +47,6 @@ public:
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
-    void close(RuntimeState* state, VExprContext* context,
-               FunctionContext::FunctionStateScope scope) override;
     VExpr* clone(ObjectPool* pool) const override { return pool->add(new VectorizedFnCall(*this)); }
     const std::string& expr_name() const override;
     std::string debug_string() const override;

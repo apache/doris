@@ -73,11 +73,6 @@ Status VSchemaChangeExpr::open(doris::RuntimeState* state, VExprContext* context
     return Status::OK();
 }
 
-void VSchemaChangeExpr::close(doris::RuntimeState* state, VExprContext* context,
-                              FunctionContext::FunctionStateScope scope) {
-    VExpr::close(state, context, scope);
-}
-
 Status VSchemaChangeExpr::execute(VExprContext* context, doris::vectorized::Block* block,
                                   int* result_column_id) {
     // Send schema change RPC

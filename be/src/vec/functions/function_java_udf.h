@@ -70,8 +70,6 @@ public:
     Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                    size_t result, size_t input_rows_count, bool dry_run = false) override;
 
-    Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
-
     bool is_deterministic() const override { return false; }
 
     bool is_deterministic_in_scope_of_query() const override { return false; }

@@ -100,10 +100,6 @@ public:
         block.replace_by_position(result, std::move(res_column));
         return Status::OK();
     }
-
-    Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        return Status::OK();
-    }
 };
 
 void register_function_random(SimpleFunctionFactory& factory) {

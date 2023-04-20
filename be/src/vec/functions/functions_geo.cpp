@@ -450,10 +450,6 @@ struct StCircle {
     static Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
         return Status::OK();
     }
-
-    static Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
 };
 
 struct StContains {
@@ -495,10 +491,6 @@ struct StContains {
     }
 
     static Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
-
-    static Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
         return Status::OK();
     }
 }; // namespace doris::vectorized
@@ -573,10 +565,6 @@ struct StGeoFromText {
     static Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
         return Status::OK();
     }
-
-    static Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
 };
 
 struct StGeometryFromWKB {
@@ -623,10 +611,6 @@ struct StGeoFromWkb {
     static Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
         return Status::OK();
     }
-
-    static Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
 };
 
 struct StAsBinary {
@@ -665,10 +649,6 @@ struct StAsBinary {
     }
 
     static Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
-
-    static Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
         return Status::OK();
     }
 };

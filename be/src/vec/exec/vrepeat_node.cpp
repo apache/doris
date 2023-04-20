@@ -285,7 +285,6 @@ Status VRepeatNode::close(RuntimeState* state) {
 
 void VRepeatNode::release_resource(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSortNode::close");
-    VExpr::close(_expr_ctxs, state);
     ExecNode::release_resource(state);
 }
 

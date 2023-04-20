@@ -64,7 +64,7 @@ public:
                 const std::vector<TNetworkAddress>& broker_addresses,
                 const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
 
-    virtual ~BaseScanner() { vectorized::VExpr::close(_dest_vexpr_ctx, _state); }
+    virtual ~BaseScanner() {}
 
     virtual Status init_expr_ctxes();
     // Open this scanner, will initialize information need to

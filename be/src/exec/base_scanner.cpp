@@ -363,11 +363,7 @@ Status BaseScanner::_fill_dest_block(vectorized::Block* dest_block, bool* eof) {
     return Status::OK();
 }
 
-void BaseScanner::close() {
-    if (_vpre_filter_ctx_ptr) {
-        (*_vpre_filter_ctx_ptr)->close(_state);
-    }
-}
+void BaseScanner::close() {}
 
 void BaseScanner::_fill_columns_from_path() {
     const TBrokerRangeDesc& range = _ranges.at(_next_range - 1);

@@ -69,11 +69,6 @@ Status VBloomPredicate::open(RuntimeState* state, VExprContext* context,
     return Status::OK();
 }
 
-void VBloomPredicate::close(RuntimeState* state, VExprContext* context,
-                            FunctionContext::FunctionStateScope scope) {
-    VExpr::close(state, context, scope);
-}
-
 Status VBloomPredicate::execute(VExprContext* context, Block* block, int* result_column_id) {
     doris::vectorized::ColumnNumbers arguments(_children.size());
     for (int i = 0; i < _children.size(); ++i) {

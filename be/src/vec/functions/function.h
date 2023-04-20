@@ -171,12 +171,6 @@ public:
                 ->execute(context, block, arguments, result, input_rows_count, dry_run);
     }
 
-    /// Do cleaning work when function is finished, i.e., release state variables in the
-    /// `FunctionContext` which are registered in `prepare` phase.
-    virtual Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
-
     virtual bool is_stateful() const { return false; }
 
     virtual bool can_fast_execute() const { return false; }
@@ -527,10 +521,6 @@ public:
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         return function->open(context, scope);
-    }
-
-    Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        return function->close(context, scope);
     }
 
     bool is_suitable_for_constant_folding() const override {

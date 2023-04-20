@@ -46,8 +46,6 @@ public:
                           VExprContext* context) override;
     doris::Status open(doris::RuntimeState* state, VExprContext* context,
                        FunctionContext::FunctionStateScope scope) override;
-    void close(doris::RuntimeState* state, VExprContext* context,
-               FunctionContext::FunctionStateScope scope) override;
     VExpr* clone(doris::ObjectPool* pool) const override {
         return pool->add(new VInPredicate(*this));
     }

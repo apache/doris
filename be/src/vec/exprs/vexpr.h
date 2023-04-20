@@ -102,14 +102,6 @@ public:
     virtual Status execute(VExprContext* context, vectorized::Block* block,
                            int* result_column_id) = 0;
 
-    /// Subclasses overriding this function should call VExpr::Close().
-    //
-    /// If scope if FRAGMENT_LOCAL, both fragment- and thread-local state should be torn
-    /// down. Otherwise, if scope is THREAD_LOCAL, only thread-local state should be torn
-    /// down.
-    virtual void close(RuntimeState* state, VExprContext* context,
-                       FunctionContext::FunctionStateScope scope);
-
     DataTypePtr& data_type() { return _data_type; }
 
     TypeDescriptor type() { return _type; }
@@ -136,8 +128,6 @@ public:
 
     static Status clone_if_not_exists(const std::vector<VExprContext*>& ctxs, RuntimeState* state,
                                       std::vector<VExprContext*>* new_ctxs);
-
-    static void close(const std::vector<VExprContext*>& ctxs, RuntimeState* state);
 
     bool is_nullable() const { return _data_type->is_nullable(); }
 
@@ -217,11 +207,6 @@ protected:
     /// thread-local according the input `FunctionStateScope` argument.
     Status init_function_context(VExprContext* context, FunctionContext::FunctionStateScope scope,
                                  const FunctionBasePtr& function) const;
-
-    /// Helper function to close function context, fragment-local or thread-local according
-    /// the input `FunctionStateScope` argument. Called in `close` phase of VExpr.
-    void close_function_context(VExprContext* context, FunctionContext::FunctionStateScope scope,
-                                const FunctionBasePtr& function) const;
 
     TExprNodeType::type _node_type;
     // Used to check what opcode

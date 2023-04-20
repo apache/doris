@@ -124,13 +124,6 @@ Status VExpr::open(RuntimeState* state, VExprContext* context,
     return Status::OK();
 }
 
-void VExpr::close(doris::RuntimeState* state, VExprContext* context,
-                  FunctionContext::FunctionStateScope scope) {
-    for (int i = 0; i < _children.size(); ++i) {
-        _children[i]->close(state, context, scope);
-    }
-}
-
 Status VExpr::create_expr(doris::ObjectPool* pool, const doris::TExprNode& texpr_node,
                           VExpr** expr) {
     try {
@@ -316,12 +309,6 @@ Status VExpr::prepare(const std::vector<VExprContext*>& ctxs, RuntimeState* stat
     return Status::OK();
 }
 
-void VExpr::close(const std::vector<VExprContext*>& ctxs, RuntimeState* state) {
-    for (auto ctx : ctxs) {
-        ctx->close(state);
-    }
-}
-
 Status VExpr::open(const std::vector<VExprContext*>& ctxs, RuntimeState* state) {
     for (int i = 0; i < ctxs.size(); ++i) {
         RETURN_IF_ERROR(ctxs[i]->open(state));
@@ -443,17 +430,6 @@ Status VExpr::init_function_context(VExprContext* context,
     }
     RETURN_IF_ERROR(function->open(fn_ctx, FunctionContext::THREAD_LOCAL));
     return Status::OK();
-}
-
-void VExpr::close_function_context(VExprContext* context, FunctionContext::FunctionStateScope scope,
-                                   const FunctionBasePtr& function) const {
-    if (_fn_context_index != -1) {
-        FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
-        function->close(fn_ctx, FunctionContext::THREAD_LOCAL);
-        if (scope == FunctionContext::FRAGMENT_LOCAL) {
-            function->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
-        }
-    }
 }
 
 } // namespace doris::vectorized

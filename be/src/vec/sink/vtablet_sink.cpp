@@ -89,11 +89,7 @@ class TExpr;
 
 namespace stream_load {
 
-IndexChannel::~IndexChannel() {
-    if (_where_clause != nullptr) {
-        _where_clause->close(_parent->_state);
-    }
-}
+IndexChannel::~IndexChannel() {}
 
 Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPartition>& tablets) {
     SCOPED_CONSUME_MEM_TRACKER(_index_channel_tracker.get());
@@ -1266,7 +1262,6 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
         return _close_status;
     }
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOlapTableSink::close");
-    vectorized::VExpr::close(_output_vexpr_ctxs, state);
     Status status = exec_status;
     if (status.ok()) {
         // only if status is ok can we call this _profile->total_time_counter().
