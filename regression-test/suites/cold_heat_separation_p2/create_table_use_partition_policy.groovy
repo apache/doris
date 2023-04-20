@@ -247,7 +247,7 @@ suite("create_table_use_partition_policy") {
     """
     log.info( "test tablets not empty")
     assertTrue(tablets.size() > 0)
-    fetchDataSize(sizes, tbalets[0])
+    fetchDataSize(sizes, tablets[0])
     // while (tablets[0][8] == 0) {
     //     log.info( "test local size is zero, sleep 10s")
     //     sleep(10000)
