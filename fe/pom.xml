@@ -275,7 +275,7 @@ under the License.
         <spring.version>2.7.9</spring.version>
         <zookeeper.version>3.4.14</zookeeper.version>
         <ojdbc8.version>12.2.0.1</ojdbc8.version>
-        <doris.shade.version>1.0.1-SNAPSHOT</doris.shade.version>
+        <doris.shade.version>1.0.2-SNAPSHOT</doris.shade.version>
     </properties>
     <profiles>
         <!-- for custom internal repository -->
@@ -976,6 +976,11 @@ under the License.
                         <groupId>javax.servlet</groupId>
                     </exclusion>
                 </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.hadoop</groupId>
+                <artifactId>hadoop-mapreduce-client-core</artifactId>
+                <version>${hadoop.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.hadoop</groupId>
