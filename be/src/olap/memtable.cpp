@@ -247,10 +247,11 @@ void MemTable::_collect_vskiplist_results() {
         _vec_row_comparator->set_block(&mutable_block);
         std::sort(_row_in_blocks.begin(), _row_in_blocks.end(),
                   [this](const RowInBlock* l, const RowInBlock* r) -> bool {
-                      if ((*(this->_vec_row_comparator))(l, r) == 0) {
-                          return l->_row_pos - r->_row_pos > 0;
+                      auto value = (*(this->_vec_row_comparator))(l, r);
+                      if (value == 0) {
+                          return l->_row_pos > r->_row_pos;
                       } else {
-                          return (*(this->_vec_row_comparator))(l, r) < 0;
+                          return value < 0;
                       }
                   });
         std::vector<int> row_pos_vec;
