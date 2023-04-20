@@ -236,7 +236,7 @@ ADMIN_PRIV and GRANT_PRIV have the authority of **"grant authority"** at the sam
 
 5. Forget passwords
 
-	If you forget your password and cannot log in to Doris, you can add `skip_auth_check` in fe config so that logging to Doris without a password.
+	If you forget your password and cannot log in to Doris, you can add `skip_auth_check` in fe config so that logging to Doris without a password in localhost.
 
 	`skip_auth_check = true`
 
