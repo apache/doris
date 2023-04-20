@@ -83,7 +83,7 @@ jobs:
           # cd thirdparty/installed/bin/ && ln -s /usr/bin/thrift thrift
       - name: Build broker
         run: |
-          cd fs_brokers/apache_hdfs_broker/ && /bin/bash build.sh
+          cd fe/fs-brokers/apache-hdfs-broker/ && /bin/bash build.sh
   build-docs:
     name: Build Documents
     needs: changes
