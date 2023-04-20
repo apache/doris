@@ -156,6 +156,12 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
         } else if (type.isNumericType() && oType.isNumericType()) {
             // e.g. float compare to double
             return new BigDecimal(getStringValue()).compareTo(new BigDecimal(other.getStringValue()));
+        } else if (type.isBooleanType() && oType.isNumericType()) {
+            return new BigDecimal(getValue().equals(Boolean.TRUE) ? 1 : 0)
+                    .compareTo(new BigDecimal(other.getStringValue()));
+        } else if (type.isNumericType() && oType.isBooleanType()) {
+            return new BigDecimal(getStringValue())
+                    .compareTo(new BigDecimal(other.getValue().equals(Boolean.TRUE) ? 1 : 0));
         } else if (!type.equals(oType)) {
             throw new RuntimeException("data type not equal!");
         } else if (type.isBooleanType()) {
