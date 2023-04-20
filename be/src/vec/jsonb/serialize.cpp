@@ -39,8 +39,8 @@ void JsonbSerializeUtil::block_to_jsonb(const TabletSchema& schema, const Block&
                 // ignore dst row store column
                 continue;
             }
-             block.get_data_type(j)->get_serde()->write_one_cell_to_jsonb(
-                        *column, jsonb_writer, &pool, tablet_column.unique_id(), i);
+            block.get_data_type(j)->get_serde()->write_one_cell_to_jsonb(
+                    *column, jsonb_writer, &pool, tablet_column.unique_id(), i);
         }
         jsonb_writer.writeEndObject();
         dst.insert_data(jsonb_writer.getOutput()->getBuffer(), jsonb_writer.getOutput()->getSize());
