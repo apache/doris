@@ -19,7 +19,6 @@
 
 #include <butil/macros.h>
 #include <gen_cpp/AgentService_types.h>
-#include <gen_cpp/HeartbeatService_types.h>
 #include <gen_cpp/Types_types.h>
 #include <stdint.h>
 
@@ -33,11 +32,8 @@
 #include <set>
 #include <shared_mutex>
 #include <string>
-#include <utility>
-#include <vector>
 
 #include "common/status.h"
-#include "olap/data_dir.h"
 #include "olap/tablet.h"
 #include "util/countdown_latch.h"
 #include "util/metrics.h"

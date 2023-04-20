@@ -19,8 +19,17 @@
 
 #include <common/status.h>
 #include <gen_cpp/parquet_types.h>
+#include <limits.h>
+#include <sys/types.h>
 
+#include <algorithm>
+#include <utility>
+
+#include "runtime/define_primitive_type.h"
+#include "runtime/types.h"
 #include "schema_desc.h"
+#include "util/runtime_profile.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
@@ -29,7 +38,20 @@
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_struct.h"
+#include "vec/exec/format/parquet/level_decoder.h"
 #include "vparquet_column_chunk_reader.h"
+
+namespace cctz {
+class time_zone;
+} // namespace cctz
+namespace doris {
+namespace io {
+class IOContext;
+} // namespace io
+namespace vectorized {
+class ColumnString;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

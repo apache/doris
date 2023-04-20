@@ -29,9 +29,9 @@
 
 #include "city.h"
 
+// IWYU pragma: no_include <crc32intrin.h>
 #include <string.h> // for memcpy and memset
-
-#include <algorithm>
+#include <sys/types.h>
 
 #include "config.h"
 
@@ -44,12 +44,14 @@
 
 #ifdef _MSC_VER
 #include <stdlib.h>
+
 #define bswap_32(x) _byteswap_ulong(x)
 #define bswap_64(x) _byteswap_uint64(x)
 
 #elif defined(__APPLE__)
 // Mac OS X / Darwin features
 #include <libkern/OSByteOrder.h>
+
 #define bswap_32(x) OSSwapInt32(x)
 #define bswap_64(x) OSSwapInt64(x)
 
@@ -346,7 +348,7 @@ uint128 CityHash128(const char* s, size_t len) {
 
 #if defined(__SSE4_2__) || defined(__aarch64__)
 #include "citycrc.h"
-#include "util/sse_util.hpp"
+#include "util/sse_util.hpp" // IWYU pragma: keep
 
 namespace CityHash_v1_0_2 {
 

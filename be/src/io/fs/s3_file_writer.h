@@ -17,12 +17,19 @@
 
 #pragma once
 
+#include <aws/core/utils/memory/stl/AWSStringStream.h>
+
 #include <cstddef>
 #include <list>
+#include <memory>
+#include <string>
 
+#include "common/status.h"
+#include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
-#include "io/fs/s3_file_system.h"
+#include "io/fs/path.h"
 #include "util/s3_util.h"
+#include "util/slice.h"
 
 namespace Aws::S3 {
 namespace Model {

@@ -18,11 +18,11 @@
 #pragma once
 
 #include <common/status.h>
+#include <gen_cpp/parquet_types.h>
 
 #include <cstdint>
 
 #include "common/logging.h"
-#include "gen_cpp/parquet_types.h"
 #include "io/fs/file_reader.h"
 #include "io/io_common.h"
 #include "olap/iterators.h"

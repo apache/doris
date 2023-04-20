@@ -17,6 +17,8 @@
 
 #include <cctz/time_zone.h>
 #include <gtest/gtest.h>
+#include <rapidjson/prettywriter.h>
+#include <rapidjson/stringbuffer.h>
 
 #include <filesystem>
 #include <fstream>

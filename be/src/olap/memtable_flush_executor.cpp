@@ -17,11 +17,16 @@
 
 #include "olap/memtable_flush_executor.h"
 
-#include <functional>
+#include <gen_cpp/olap_file.pb.h>
+#include <stddef.h>
 
+#include <algorithm>
+#include <ostream>
+
+#include "common/config.h"
+#include "common/logging.h"
 #include "olap/memtable.h"
-#include "runtime/thread_context.h"
-#include "util/scoped_cleanup.h"
+#include "util/stopwatch.hpp"
 #include "util/time.h"
 
 namespace doris {

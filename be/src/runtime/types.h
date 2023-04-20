@@ -20,20 +20,20 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/types.pb.h>
+#include <glog/logging.h>
+
+#include <iosfwd>
 #include <string>
 #include <vector>
 
 #include "common/config.h"
-#include "gen_cpp/Types_types.h"
-#include "gen_cpp/types.pb.h"
-#include "olap/olap_define.h"
 #include "runtime/define_primitive_type.h"
 
 namespace doris {
 
 extern const int HLL_COLUMN_DEFAULT_LEN;
-
-struct TPrimitiveType;
 
 // Describes a type. Includes the enum, children types, and any type-specific metadata
 // (e.g. precision and scale for decimals).

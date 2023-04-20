@@ -20,9 +20,16 @@
 
 #include "runtime/types.h"
 
-#include <ostream>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/types.pb.h>
+#include <stddef.h>
 
+#include <ostream>
+#include <utility>
+
+#include "olap/olap_define.h"
 #include "runtime/primitive_type.h"
+
 namespace doris {
 
 TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)

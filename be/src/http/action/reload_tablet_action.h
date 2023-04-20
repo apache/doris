@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <gen_cpp/AgentService_types.h>
 #include <stdint.h>
 
 #include <string>

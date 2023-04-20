@@ -17,8 +17,10 @@
 
 #include "common/daemon.h"
 
-#include <bthread/errno.h>
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
 #include <gflags/gflags.h>
+#include <gperftools/malloc_extension.h> // IWYU pragma: keep
 // IWYU pragma: no_include <bits/std_abs.h>
 #include <math.h>
 #include <signal.h>
@@ -30,7 +32,6 @@
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <map>
-#include <memory>
 #include <ostream>
 #include <set>
 #include <string>

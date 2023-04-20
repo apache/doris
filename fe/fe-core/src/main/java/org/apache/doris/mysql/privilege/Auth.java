@@ -58,7 +58,6 @@ import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.thrift.TFetchResourceResult;
 import org.apache.doris.thrift.TPrivilegeStatus;
 
 import com.google.common.base.Joiner;
@@ -457,7 +456,7 @@ public class Auth implements Writable {
                 userRoleManager.addUserRole(userIdent, roleName);
             }
             // other user properties
-            propertyMgr.addUserResource(userIdent.getQualifiedUser(), false);
+            propertyMgr.addUserResource(userIdent.getQualifiedUser());
 
             // 5. update password policy
             passwdPolicyManager.updatePolicy(userIdent, password, passwordOptions);
@@ -1243,15 +1242,6 @@ public class Auth implements Writable {
                     false /* ignore if exists */, PasswordOptions.UNSET_OPTION, true /* is replay */);
         } catch (DdlException e) {
             LOG.error("should not happened", e);
-        }
-    }
-
-    public TFetchResourceResult toResourceThrift() {
-        readLock();
-        try {
-            return propertyMgr.toResourceThrift();
-        } finally {
-            readUnlock();
         }
     }
 

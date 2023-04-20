@@ -17,25 +17,63 @@
 
 #include "olap/rowset/segment_v2/segment_iterator.h"
 
+#include <assert.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/olap_file.pb.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
 #include <memory>
+#include <numeric>
 #include <set>
 #include <utility>
 
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/consts.h"
+#include "common/logging.h"
+#include "common/object_pool.h"
 #include "common/status.h"
+#include "io/io_common.h"
 #include "olap/column_predicate.h"
 #include "olap/like_column_predicate.h"
 #include "olap/olap_common.h"
+#include "olap/primary_key_index.h"
+#include "olap/rowset/segment_v2/bitmap_index_reader.h"
 #include "olap/rowset/segment_v2/column_reader.h"
+#include "olap/rowset/segment_v2/indexed_column_reader.h"
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
+#include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/short_key_index.h"
+#include "olap/tablet_schema.h"
+#include "olap/types.h"
+#include "olap/utils.h"
+#include "runtime/query_fragments_ctx.h"
+#include "runtime/runtime_predicate.h"
+#include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
+#include "util/defer_op.h"
 #include "util/doris_metrics.h"
 #include "util/key_util.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/string_ref.h"
+#include "vec/common/typeid_cast.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_number.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vslot_ref.h"
 
@@ -1601,13 +1639,8 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
 }
 
 Status SegmentIterator::next_batch(vectorized::Block* block) {
-    Status st;
-    try {
-        st = _next_batch_internal(block);
-    } catch (const doris::Exception& e) {
-        st = Status::Error(e.code(), e.to_string());
-    }
-    return st;
+    RETURN_IF_CATCH_EXCEPTION({ return _next_batch_internal(block); });
+    return Status::OK();
 }
 
 Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
@@ -1882,7 +1915,8 @@ Status SegmentIterator::_execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
         }
 
         selected_size = _evaluate_common_expr_filter(sel_rowid_idx, selected_size, filter);
-        vectorized::Block::filter_block_internal(block, _columns_to_filter, filter);
+        RETURN_IF_CATCH_EXCEPTION(
+                vectorized::Block::filter_block_internal(block, _columns_to_filter, filter));
     } else if (auto* const_column =
                        vectorized::check_and_get_column<vectorized::ColumnConst>(*filter_column)) {
         bool ret = const_column->get_bool(0);
@@ -1898,7 +1932,8 @@ Status SegmentIterator::_execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
                         *filter_column)
                         .get_data();
         selected_size = _evaluate_common_expr_filter(sel_rowid_idx, selected_size, filter);
-        vectorized::Block::filter_block_internal(block, _columns_to_filter, filter);
+        RETURN_IF_CATCH_EXCEPTION(
+                vectorized::Block::filter_block_internal(block, _columns_to_filter, filter));
     }
     return Status::OK();
 }

@@ -17,16 +17,30 @@
 
 #pragma once
 
+#include <fmt/format.h>
+#include <glog/logging.h>
+#include <stdint.h>
+
+#include <functional>
+#include <memory>
+#include <ostream>
+#include <string>
+#include <type_traits>
 #include <utility>
+#include <vector>
 
 #include "common/status.h"
-#include "exec/data_sink.h"
 #include "exec/exec_node.h"
-#include "runtime/runtime_state.h"
+#include "runtime/memory/mem_tracker.h"
+#include "util/runtime_profile.h"
 #include "vec/core/block.h"
-#include "vec/exec/vdata_gen_scan_node.h"
-#include "vec/exec/vselect_node.h"
-#include "vec/exec/vunion_node.h"
+
+namespace doris {
+class DataSink;
+class RowDescriptor;
+class RuntimeState;
+class TDataSink;
+} // namespace doris
 
 #define OPERATOR_CODE_GENERATOR(NAME, SUBCLASS)                                                 \
     NAME##Builder::NAME##Builder(int32_t id, ExecNode* exec_node)                               \

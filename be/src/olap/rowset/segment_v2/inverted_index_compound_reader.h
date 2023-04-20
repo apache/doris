@@ -17,13 +17,27 @@
 
 #pragma once
 
-#include <CLucene.h>
+#include <CLucene.h> // IWYU pragma: keep
+#include <CLucene/SharedHeader.h>
+#include <CLucene/store/Directory.h>
+#include <CLucene/store/IndexInput.h>
+#include <CLucene/store/IndexOutput.h>
+#include <CLucene/util/Equators.h>
+#include <CLucene/util/VoidMap.h>
+#include <stdint.h>
 
-#include <iostream>
 #include <map>
-#include <memory>
 #include <mutex>
+#include <string>
 #include <vector>
+
+class CLuceneError;
+
+namespace lucene {
+namespace store {
+class RAMDirectory;
+} // namespace store
+} // namespace lucene
 
 namespace doris {
 
@@ -32,6 +46,7 @@ namespace segment_v2 {
 class CLUCENE_EXPORT DorisCompoundReader : public lucene::store::Directory {
 private:
     class ReaderFileEntry;
+
     friend class DorisCompoundReader::ReaderFileEntry;
 
     int32_t readBufferSize;

@@ -20,17 +20,19 @@
 
 #include "util/runtime_profile.h"
 
+#include <gen_cpp/RuntimeProfile_types.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+#include <opentelemetry/trace/span.h>
+#include <opentelemetry/trace/tracer.h>
+#include <rapidjson/encodings.h>
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
+
 #include <iomanip>
 #include <iostream>
-#include <thread>
 
-#include "common/config.h"
 #include "common/object_pool.h"
 #include "util/container_util.hpp"
-#include "util/cpu_info.h"
-#include "util/debug_util.h"
-#include "util/thrift_util.h"
-#include "util/url_coding.h"
 
 namespace doris {
 

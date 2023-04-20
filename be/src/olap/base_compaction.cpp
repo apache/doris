@@ -17,7 +17,21 @@
 
 #include "olap/base_compaction.h"
 
+#include <gen_cpp/olap_file.pb.h>
+#include <stdint.h>
+#include <time.h>
+
+#include <memory>
+#include <mutex>
+#include <ostream>
+
+#include "common/config.h"
+#include "common/logging.h"
+#include "olap/olap_define.h"
+#include "olap/rowset/rowset_meta.h"
+#include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
+#include "util/thread.h"
 #include "util/trace.h"
 
 namespace doris {

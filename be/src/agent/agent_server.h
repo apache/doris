@@ -25,8 +25,6 @@
 #include <string>
 #include <vector>
 
-#include "runtime/exec_env.h"
-
 namespace doris {
 
 class TaskWorkerPool;

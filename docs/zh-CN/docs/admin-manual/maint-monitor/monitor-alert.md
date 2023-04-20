@@ -28,9 +28,11 @@ under the License.
 
 本文档主要介绍 Doris 的监控项及如何采集、展示监控项。以及如何配置报警（TODO）
 
-[Dashboard 模板点击下载](https://grafana.com/api/dashboards/9734/revisions/5/download)
+Dashboard 模板点击下载
 
-> 注：0.9.0（不含）之前的版本请使用 revision 1。0.9.x 版本请使用 revision 2。0.10.x 版本请使用 revision 3。1.1.x 版本请使用 revision 4 。1.2.x 版本请使用 revision 5
+| Doris 版本    | Dashboard 版本                                                               |
+|--------------|----------------------------------------------------------------------------|
+| 1.2.x        | [revision 5](https://grafana.com/api/dashboards/9734/revisions/5/download) |
 
 Dashboard 模板会不定期更新。更新模板的方式见最后一小节。
 
@@ -62,59 +64,60 @@ Doris 的监控数据通过 Frontend 和 Backend 的 http 接口向外暴露。�
 
 用户将看到如下监控项结果（示例为 FE 部分监控项）：
 
-    ```
-    # HELP  jvm_heap_size_bytes jvm heap stat
-    # TYPE  jvm_heap_size_bytes gauge
-    jvm_heap_size_bytes{type="max"} 41661235200
-    jvm_heap_size_bytes{type="committed"} 19785285632
-    jvm_heap_size_bytes{type="used"} 10113221064
-    # HELP  jvm_non_heap_size_bytes jvm non heap stat
-    # TYPE  jvm_non_heap_size_bytes gauge
-    jvm_non_heap_size_bytes{type="committed"} 105295872
-    jvm_non_heap_size_bytes{type="used"} 103184784
-    # HELP  jvm_young_size_bytes jvm young mem pool stat
-    # TYPE  jvm_young_size_bytes gauge
-    jvm_young_size_bytes{type="used"} 6505306808
-    jvm_young_size_bytes{type="peak_used"} 10308026368
-    jvm_young_size_bytes{type="max"} 10308026368
-    # HELP  jvm_old_size_bytes jvm old mem pool stat
-    # TYPE  jvm_old_size_bytes gauge
-    jvm_old_size_bytes{type="used"} 3522435544
-    jvm_old_size_bytes{type="peak_used"} 6561017832
-    jvm_old_size_bytes{type="max"} 30064771072
-    # HELP  jvm_direct_buffer_pool_size_bytes jvm direct buffer pool stat
-    # TYPE  jvm_direct_buffer_pool_size_bytes gauge
-    jvm_direct_buffer_pool_size_bytes{type="count"} 91
-    jvm_direct_buffer_pool_size_bytes{type="used"} 226135222
-    jvm_direct_buffer_pool_size_bytes{type="capacity"} 226135221
-    # HELP  jvm_young_gc jvm young gc stat
-    # TYPE  jvm_young_gc gauge
-    jvm_young_gc{type="count"} 2186
-    jvm_young_gc{type="time"} 93650
-    # HELP  jvm_old_gc jvm old gc stat
-    # TYPE  jvm_old_gc gauge
-    jvm_old_gc{type="count"} 21
-    jvm_old_gc{type="time"} 58268
-    # HELP  jvm_thread jvm thread stat
-    # TYPE  jvm_thread gauge
-    jvm_thread{type="count"} 767
-    jvm_thread{type="peak_count"} 831
-    ...
-    ```
+```
+# HELP  jvm_heap_size_bytes jvm heap stat
+# TYPE  jvm_heap_size_bytes gauge
+jvm_heap_size_bytes{type="max"} 8476557312
+jvm_heap_size_bytes{type="committed"} 1007550464
+jvm_heap_size_bytes{type="used"} 156375280
+# HELP  jvm_non_heap_size_bytes jvm non heap stat
+# TYPE  jvm_non_heap_size_bytes gauge
+jvm_non_heap_size_bytes{type="committed"} 194379776
+jvm_non_heap_size_bytes{type="used"} 188201864
+# HELP  jvm_young_size_bytes jvm young mem pool stat
+# TYPE  jvm_young_size_bytes gauge
+jvm_young_size_bytes{type="used"} 40652376
+jvm_young_size_bytes{type="peak_used"} 277938176
+jvm_young_size_bytes{type="max"} 907345920
+# HELP  jvm_old_size_bytes jvm old mem pool stat
+# TYPE  jvm_old_size_bytes gauge
+jvm_old_size_bytes{type="used"} 114633448
+jvm_old_size_bytes{type="peak_used"} 114633448
+jvm_old_size_bytes{type="max"} 7455834112
+# HELP  jvm_young_gc jvm young gc stat
+# TYPE  jvm_young_gc gauge
+jvm_young_gc{type="count"} 247
+jvm_young_gc{type="time"} 860
+# HELP  jvm_old_gc jvm old gc stat
+# TYPE  jvm_old_gc gauge
+jvm_old_gc{type="count"} 3
+jvm_old_gc{type="time"} 211
+# HELP  jvm_thread jvm thread stat
+# TYPE  jvm_thread gauge
+jvm_thread{type="count"} 162
+jvm_thread{type="peak_count"} 205
+jvm_thread{type="new_count"} 0
+jvm_thread{type="runnable_count"} 48
+jvm_thread{type="blocked_count"} 1
+jvm_thread{type="waiting_count"} 41
+jvm_thread{type="timed_waiting_count"} 72
+jvm_thread{type="terminated_count"} 0
+...
+```
 
 这是一个以 [Prometheus 格式](https://prometheus.io/docs/practices/naming/) 呈现的监控数据。我们以其中一个监控项为例进行说明：
 
 ```
 # HELP  jvm_heap_size_bytes jvm heap stat
 # TYPE  jvm_heap_size_bytes gauge
-jvm_heap_size_bytes{type="max"} 41661235200
-jvm_heap_size_bytes{type="committed"} 19785285632
-jvm_heap_size_bytes{type="used"} 10113221064
+jvm_heap_size_bytes{type="max"} 8476557312
+jvm_heap_size_bytes{type="committed"} 1007550464
+jvm_heap_size_bytes{type="used"} 156375280
 ```
 
 1. "#" 开头的行为注释行。其中 HELP 为该监控项的描述说明；TYPE 表示该监控项的数据类型，示例中为 Gauge，即标量数据。还有 Counter、Histogram 等数据类型。具体可见 [Prometheus 官方文档](https://prometheus.io/docs/practices/instrumentation/#counter-vs.-gauge,-summary-vs.-histogram) 。
 2. `jvm_heap_size_bytes` 即监控项的名称（Key）；`type="max"` 即为一个名为 `type` 的 Label，值为 `max`。一个监控项可以有多个 Label。
-3. 最后的数字，如 `41661235200`，即为监控数值。
+3. 最后的数字，如 `8476557312`，即为监控数值。
 
 ## 监控架构
 
@@ -133,10 +136,10 @@ jvm_heap_size_bytes{type="used"} 10113221064
 
 ### Prometheus
 
-1. 在 [Prometheus 官网](https://prometheus.io/download/) 下载最新版本的 Prometheus。这里我们以 2.3.2-linux-amd64 版本为例。
+1. 在 [Prometheus 官网](https://prometheus.io/download/) 下载最新版本的 Prometheus 或者直接[点击下载](https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/monitor/prometheus-2.43.0.linux-amd64.tar.gz)。这里我们以 2.43.0-linux-amd64 版本为例。
 2. 在准备运行监控服务的机器上，解压下载后的 tar 文件。
 3. 打开配置文件 prometheus.yml。这里我们提供一个示例配置并加以说明（配置文件为 yml 格式，一定注意统一的缩进和空格）：
- 
+
     这里我们使用最简单的静态文件的方式进行监控配置。Prometheus 支持多种 [服务发现](https://prometheus.io/docs/prometheus/latest/configuration/configuration/) 方式，可以动态的感知节点的加入和删除。
  
     ```
@@ -156,7 +159,7 @@ jvm_heap_size_bytes{type="used"} 10113221064
     # Here it's Prometheus itself.
     scrape_configs:
       # The job name is added as a label `job=<job_name>` to any timeseries scraped from this config.
-      - job_name: 'PALO_CLUSTER' # 每一个 Doris 集群，我们称为一个 job。这里可以给 job 取一个名字，作为 Doris 集群在监控系统中的名字。
+      - job_name: 'DORIS_CLUSTER' # 每一个 Doris 集群，我们称为一个 job。这里可以给 job 取一个名字，作为 Doris 集群在监控系统中的名字。
         metrics_path: '/metrics' # 这里指定获取监控项的 restful api。配合下面的 targets 中的 host:port，Prometheus 最终会通过 host:port/metrics_path 来采集监控项。
         static_configs: # 这里开始分别配置 FE 和 BE 的目标地址。所有的 FE 和 BE 都分别写入各自的 group 中。
           - targets: ['fe_host1:8030', 'fe_host2:8030', 'fe_host3:8030']
@@ -167,7 +170,7 @@ jvm_heap_size_bytes{type="used"} 10113221064
             labels:
               group: be # 这里配置了 be 的 group，该 group 中包含了 3 个 Backends
     
-      - job_name: 'PALO_CLUSTER_2' # 我们可以在一个 Prometheus 中监控多个 Doris 集群，这里开始另一个 Doris 集群的配置。配置同上，以下略。
+      - job_name: 'DORIS_CLUSTER_2' # 我们可以在一个 Prometheus 中监控多个 Doris 集群，这里开始另一个 Doris 集群的配置。配置同上，以下略。
         metrics_path: '/metrics'
         static_configs: 
           - targets: ['fe_host1:8030', 'fe_host2:8030', 'fe_host3:8030']
@@ -200,7 +203,7 @@ jvm_heap_size_bytes{type="used"} 10113221064
 
 ### Grafana
 
-1. 在 [Grafana 官网](https://grafana.com/grafana/download) 下载最新版本的 Grafana。这里我们以 5.2.1.linux-amd64 版本为例。
+1. 在 [Grafana 官网](https://grafana.com/grafana/download) 下载最新版本的 Grafana 或者直接[点击下载](https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/monitor/grafana-enterprise-8.5.22.linux-amd64.tar.gz)。这里我们以 8.5.22.linux-amd64 版本为例。
 
 2. 在准备运行监控服务的机器上，解压下载后的 tar 文件。
 

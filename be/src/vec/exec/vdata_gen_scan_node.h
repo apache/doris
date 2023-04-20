@@ -18,19 +18,24 @@
 #pragma once
 
 #include <memory>
+#include <vector>
 
+#include "common/global_types.h"
 #include "exec/scan_node.h"
-#include "runtime/descriptors.h"
-#include "vec/exec/data_gen_functions/vdata_gen_function_inf.h"
 
 namespace doris {
 
-class TextConverter;
 class TupleDescriptor;
 class RuntimeState;
 class Status;
+class DescriptorTbl;
+class ObjectPool;
+class TPlanNode;
+class TScanRangeParams;
 
 namespace vectorized {
+class Block;
+class VDataGenFunctionInf;
 
 class VDataGenFunctionScanNode : public ScanNode {
 public:

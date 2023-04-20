@@ -17,19 +17,46 @@
 
 #pragma once
 
-#include <queue>
+#include <stddef.h>
+#include <stdint.h>
 
-#include "io/io_common.h"
+#include <string>
+#include <tuple>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+
+#include "common/status.h"
+#include "exec/olap_common.h"
 #include "table_format_reader.h"
+#include "util/runtime_profile.h"
 #include "vec/columns/column_dictionary.h"
-#include "vec/exec/format/format_common.h"
-#include "vec/exec/format/generic_reader.h"
-#include "vec/exec/format/parquet/parquet_common.h"
-#include "vec/exprs/vexpr.h"
+
+namespace tparquet {
+class KeyValue;
+} // namespace tparquet
 
 namespace doris {
+class RowDescriptor;
+class RuntimeState;
+class SlotDescriptor;
+class TFileRangeDesc;
+class TFileScanRangeParams;
+class TIcebergDeleteFileDesc;
+class TupleDescriptor;
+
+namespace io {
+class IOContext;
+} // namespace io
+struct TypeDescriptor;
 
 namespace vectorized {
+class Block;
+class ColumnString;
+class GenericReader;
+class ShardedKVCache;
+class VExprContext;
 
 class IcebergTableReader : public TableFormatReader {
 public:

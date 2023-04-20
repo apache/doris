@@ -17,34 +17,66 @@
 
 #pragma once
 
-#include <iconv.h>
-#include <stddef.h>
+#include <glog/logging.h>
+#include <limits.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/types.h>
 
 #include <algorithm>
+#include <array>
+#include <boost/iterator/iterator_facade.hpp>
+#include <cstddef>
 #include <memory>
+#include <ostream>
+#include <tuple>
+#include <utility>
+#include <vector>
 
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/status.h"
+#include "gutil/strings/numbers.h"
+#include "gutil/strings/substitute.h"
+#include "runtime/decimalv2_value.h"
+#include "runtime/runtime_state.h"
+#include "runtime/string_search.hpp"
 #include "util/string_util.h"
+#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_vector.h"
+#include "vec/common/int_exp.h"
+#include "vec/common/memcmp_small.h"
+#include "vec/common/memcpy_small.h"
+#include "vec/common/pod_array.h"
+#include "vec/common/pod_array_fwd.h"
+#include "vec/common/typeid_cast.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/io/io_helper.h"
 #ifndef USE_LIBCPP
 #include <memory_resource>
+
 #define PMR std::pmr
 #else
 #include <boost/container/pmr/monotonic_buffer_resource.hpp>
 #include <boost/container/pmr/vector.hpp>
+
 #define PMR boost::container::pmr
 #endif
 
-#include <fmt/core.h>
 #include <fmt/format.h>
-#include <fmt/ranges.h>
 
 #include <cstdint>
 #include <string>
 #include <string_view>
 
 #include "exprs/math_functions.h"
-#include "exprs/string_functions.h"
 #include "udf/udf.h"
 #include "util/md5.h"
 #include "util/simd/vstring_function.h"
@@ -140,7 +172,7 @@ struct SubstringUtil {
         default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block, arguments);
 
         for (int i = 0; i < 3; i++) {
-            check_set_nullable(argument_columns[i], null_map);
+            check_set_nullable(argument_columns[i], null_map, col_const[i]);
         }
 
         auto specific_str_column = assert_cast<const ColumnString*>(argument_columns[0].get());
@@ -315,6 +347,7 @@ struct Substr2Impl {
 
 template <bool Reverse>
 class FunctionMaskPartial;
+
 class FunctionMask : public IFunction {
 public:
     static constexpr auto name = "mask";

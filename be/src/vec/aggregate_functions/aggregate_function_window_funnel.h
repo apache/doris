@@ -21,11 +21,35 @@
 
 #pragma once
 
-#include "common/logging.h"
+#include <stddef.h>
+#include <stdint.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <iterator>
+#include <memory>
+#include <optional>
+#include <utility>
+#include <vector>
+
+#include "util/binary_cast.hpp"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
-#include "vec/data_types/data_type_decimal.h"
+#include "vec/common/assert_cast.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/io/var_int.h"
+#include "vec/runtime/vdatetime_value.h"
+
+namespace doris {
+namespace vectorized {
+class Arena;
+class BufferReadable;
+class BufferWritable;
+class IColumn;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

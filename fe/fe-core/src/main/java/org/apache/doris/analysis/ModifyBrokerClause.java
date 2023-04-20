@@ -25,7 +25,7 @@ import org.apache.doris.system.SystemInfoService;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Sets;
-import org.apache.commons.lang.NotImplementedException;
+import org.apache.commons.lang3.NotImplementedException;
 
 import java.util.List;
 import java.util.Map;
@@ -97,11 +97,11 @@ public class ModifyBrokerClause extends AlterClause {
 
     @Override
     public String toSql() {
-        throw new NotImplementedException();
+        throw new NotImplementedException("toSql not implemented");
     }
 
     @Override
     public Map<String, String> getProperties() {
-        throw new NotImplementedException();
+        throw new NotImplementedException("getProperties not implemented");
     }
 }

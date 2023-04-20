@@ -17,9 +17,17 @@
 
 #pragma once
 
-#include "io/fs/local_file_writer.h"
+#include <stddef.h>
+#include <stdint.h>
+
+#include <memory>
+#include <string>
+
+#include "common/status.h"
+#include "io/fs/file_writer.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
+
 namespace doris {
 namespace vectorized {
 

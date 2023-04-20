@@ -17,14 +17,32 @@
 
 #include "runtime/tablets_channel.h"
 
+#include <fmt/format.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <gen_cpp/types.pb.h>
+#include <time.h>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <initializer_list>
+#include <set>
+#include <thread>
+#include <utility>
+
+#include "common/logging.h"
 #include "exec/tablet_info.h"
 #include "olap/delta_writer.h"
-#include "olap/memtable.h"
 #include "olap/storage_engine.h"
+#include "olap/txn_manager.h"
 #include "runtime/load_channel.h"
 #include "util/doris_metrics.h"
+#include "util/metrics.h"
+#include "vec/core/block.h"
 
 namespace doris {
+class SlotDescriptor;
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_writer_count, MetricUnit::NOUNIT);
 

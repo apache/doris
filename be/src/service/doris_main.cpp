@@ -15,10 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <bthread/errno.h>
 #include <butil/macros.h>
-#include <errno.h>
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
 #include <fcntl.h>
+#include <gperftools/malloc_extension.h> // IWYU pragma: keep
 #include <libgen.h>
 #include <setjmp.h>
 #include <signal.h>
@@ -27,7 +28,6 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-#include <algorithm>
 #include <cstring>
 #include <ostream>
 #include <string>

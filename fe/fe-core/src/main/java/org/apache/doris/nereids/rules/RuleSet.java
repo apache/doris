@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.rules;
 
+import org.apache.doris.nereids.rules.exploration.AggSemiJoinTranspose;
+import org.apache.doris.nereids.rules.exploration.AggSemiJoinTransposeProject;
 import org.apache.doris.nereids.rules.exploration.MergeProjectsCBO;
 import org.apache.doris.nereids.rules.exploration.PushdownFilterThroughProjectCBO;
 import org.apache.doris.nereids.rules.exploration.join.InnerJoinLAsscom;
@@ -98,6 +100,8 @@ public class RuleSet {
             .add(LogicalJoinSemiJoinTransposeProject.INSTANCE)
             .add(PushdownProjectThroughInnerJoin.INSTANCE)
             .add(PushdownProjectThroughSemiJoin.INSTANCE)
+            .add(AggSemiJoinTranspose.INSTANCE)
+            .add(AggSemiJoinTransposeProject.INSTANCE)
             .build();
 
     public static final List<RuleFactory> PUSH_DOWN_FILTERS = ImmutableList.of(

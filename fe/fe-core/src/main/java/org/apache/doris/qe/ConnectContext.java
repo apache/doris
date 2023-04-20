@@ -36,7 +36,6 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.resource.Tag;
-import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionStatus;
@@ -323,10 +322,6 @@ public class ConnectContext {
 
     public void setTxnEntry(TransactionEntry txnEntry) {
         this.txnEntry = txnEntry;
-    }
-
-    public TResourceInfo toResourceCtx() {
-        return new TResourceInfo(qualifiedUser, sessionVariable.getResourceGroup());
     }
 
     public void setEnv(Env env) {

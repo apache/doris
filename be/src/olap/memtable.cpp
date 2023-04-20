@@ -17,18 +17,41 @@
 
 #include "olap/memtable.h"
 
+#include <fmt/format.h>
+#include <gen_cpp/olap_file.pb.h>
+
+#include <algorithm>
+#include <limits>
+#include <shared_mutex>
+#include <string>
+#include <utility>
+
+#include "common/config.h"
+#include "common/consts.h"
 #include "common/logging.h"
+#include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_writer.h"
+#include "olap/rowset/segment_v2/segment.h"
 #include "olap/schema.h"
 #include "olap/schema_change.h"
+#include "olap/tablet_schema.h"
+#include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
 #include "runtime/load_channel_mgr.h"
+#include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
+#include "util/runtime_profile.h"
+#include "util/stopwatch.hpp"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_object.h"
-#include "vec/core/columns_with_type_and_name.h"
-#include "vec/core/field.h"
+#include "vec/columns/column_string.h"
+#include "vec/common/assert_cast.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
+#include "vec/json/path_in_data.h"
 #include "vec/jsonb/serialize.h"
 
 namespace doris {

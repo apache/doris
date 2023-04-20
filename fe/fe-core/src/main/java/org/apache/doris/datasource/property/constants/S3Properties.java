@@ -97,7 +97,7 @@ public class S3Properties extends BaseProperties {
         public static final String DEFAULT_MAX_CONNECTIONS = "50";
         public static final String DEFAULT_REQUEST_TIMEOUT_MS = "3000";
         public static final String DEFAULT_CONNECTION_TIMEOUT_MS = "1000";
-        public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT, REGION, ACCESS_KEY, SECRET_KEY);
+        public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT, ACCESS_KEY, SECRET_KEY);
         public static final List<String> FS_KEYS = Arrays.asList(ENDPOINT, REGION, ACCESS_KEY, SECRET_KEY, TOKEN,
                 ROOT_PATH, BUCKET, MAX_CONNECTIONS, REQUEST_TIMEOUT_MS, CONNECTION_TIMEOUT_MS);
     }
@@ -155,8 +155,17 @@ public class S3Properties extends BaseProperties {
     }
 
     public static void requiredS3Properties(Map<String, String> properties) throws DdlException {
-        for (String field : S3Properties.REQUIRED_FIELDS) {
-            checkRequiredProperty(properties, field);
+        // Try to convert env properties to uniform properties
+        // compatible with old version
+        S3Properties.convertToStdProperties(properties);
+        if (properties.containsKey(S3Properties.Env.ENDPOINT)) {
+            for (String field : S3Properties.Env.REQUIRED_FIELDS) {
+                checkRequiredProperty(properties, field);
+            }
+        } else {
+            for (String field : S3Properties.REQUIRED_FIELDS) {
+                checkRequiredProperty(properties, field);
+            }
         }
     }
 

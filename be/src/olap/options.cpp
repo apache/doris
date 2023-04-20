@@ -17,16 +17,23 @@
 
 #include "olap/options.h"
 
+#include <ctype.h>
 #include <rapidjson/document.h>
+#include <rapidjson/encodings.h>
+#include <rapidjson/rapidjson.h>
+#include <stdlib.h>
 
 #include <algorithm>
+#include <memory>
+#include <ostream>
 
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "gutil/strings/split.h"
-#include "gutil/strings/substitute.h"
+#include "gutil/strings/strip.h"
 #include "io/fs/local_file_system.h"
+#include "olap/olap_define.h"
 #include "olap/utils.h"
 #include "util/path_util.h"
 

@@ -17,11 +17,17 @@
 
 #pragma once
 
+#include "common/status.h"
 #include "vec/exprs/vliteral.h"
 
 namespace doris {
+class RowDescriptor;
+class RuntimeState;
+class TExprNode;
 
 namespace vectorized {
+class VExprContext;
+
 class VStructLiteral : public VLiteral {
 public:
     VStructLiteral(const TExprNode& node) : VLiteral(node, false) {}

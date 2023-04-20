@@ -24,7 +24,7 @@ import org.apache.doris.common.PatternMatcherException;
 import org.apache.doris.common.io.Text;
 
 import com.google.common.base.Preconditions;
-import org.apache.commons.lang.NotImplementedException;
+import org.apache.commons.lang3.NotImplementedException;
 
 import java.io.DataInput;
 import java.io.IOException;
@@ -170,7 +170,7 @@ public abstract class PrivEntry implements Comparable<PrivEntry> {
 
     @Override
     public int compareTo(PrivEntry o) {
-        throw new NotImplementedException();
+        throw new NotImplementedException("should be implemented by derived class");
     }
 
     /**

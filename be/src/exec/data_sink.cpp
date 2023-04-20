@@ -34,6 +34,7 @@
 #include "vec/sink/vdata_stream_sender.h"
 #include "vec/sink/vjdbc_table_sink.h"
 #include "vec/sink/vmemory_scratch_sink.h"
+#include "vec/sink/vmysql_table_sink.h" // IWYU pragma: keep
 #include "vec/sink/vodbc_table_sink.h"
 #include "vec/sink/vresult_file_sink.h"
 #include "vec/sink/vresult_sink.h"
@@ -118,8 +119,8 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         if (!thrift_sink.__isset.mysql_table_sink) {
             return Status::InternalError("Missing data buffer sink.");
         }
-        doris::vectorized::VMysqlTableSink* vmysql_tbl_sink =
-                new doris::vectorized::VMysqlTableSink(pool, row_desc, output_exprs);
+        vectorized::VMysqlTableSink* vmysql_tbl_sink =
+                new vectorized::VMysqlTableSink(pool, row_desc, output_exprs);
         sink->reset(vmysql_tbl_sink);
         break;
 #else
@@ -259,8 +260,8 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         if (!thrift_sink.__isset.mysql_table_sink) {
             return Status::InternalError("Missing data buffer sink.");
         }
-        doris::vectorized::VMysqlTableSink* vmysql_tbl_sink =
-                new doris::vectorized::VMysqlTableSink(pool, row_desc, output_exprs);
+        vectorized::VMysqlTableSink* vmysql_tbl_sink =
+                new vectorized::VMysqlTableSink(pool, row_desc, output_exprs);
         sink->reset(vmysql_tbl_sink);
         break;
 #else

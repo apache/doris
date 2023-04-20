@@ -19,7 +19,9 @@
 
 #include "common/status.h"
 #include "process_hash_table_probe.h"
+#include "runtime/thread_context.h" // IWYU pragma: keep
 #include "util/simd/bits.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vhash_join_node.h"
 
 namespace doris::vectorized {
@@ -392,7 +394,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
     if constexpr (JoinOpType != TJoinOp::RIGHT_SEMI_JOIN &&
                   JoinOpType != TJoinOp::RIGHT_ANTI_JOIN) {
         SCOPED_TIMER(_probe_side_output_timer);
-        RETURN_IF_CATCH_BAD_ALLOC(
+        RETURN_IF_CATCH_EXCEPTION(
                 probe_side_output_column(mcol, _join_node->_left_output_slot_flags, current_offset,
                                          last_probe_index, probe_size, all_match_one, false));
     }
@@ -665,7 +667,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
         }
         {
             SCOPED_TIMER(_probe_side_output_timer);
-            RETURN_IF_CATCH_BAD_ALLOC(probe_side_output_column(
+            RETURN_IF_CATCH_EXCEPTION(probe_side_output_column(
                     mcol, _join_node->_left_output_slot_flags, current_offset, last_probe_index,
                     probe_size, all_match_one, true));
         }

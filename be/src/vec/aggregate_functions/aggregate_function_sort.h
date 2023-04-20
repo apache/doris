@@ -17,15 +17,36 @@
 
 #pragma once
 
+#include <fmt/format.h>
+#include <gen_cpp/data.pb.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <glog/logging.h>
+#include <stddef.h>
+
+#include <memory>
+#include <new>
+#include <ostream>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "runtime/runtime_state.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/core/sort_block.h"
 #include "vec/core/sort_description.h"
+#include "vec/core/types.h"
 #include "vec/io/io_helper.h"
+
+namespace doris {
+namespace vectorized {
+class Arena;
+class BufferReadable;
+class BufferWritable;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

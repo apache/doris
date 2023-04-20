@@ -17,10 +17,35 @@
 
 #include "vec/exec/scan/new_odbc_scanner.h"
 
+#include <gen_cpp/PlanNodes_types.h>
+#include <sql.h>
+
+#include <algorithm>
+#include <new>
+#include <ostream>
+#include <utility>
+#include <vector>
+
+#include "common/logging.h"
 #include "common/status.h"
 #include "exec/text_converter.hpp"
+#include "runtime/descriptors.h"
+#include "runtime/runtime_state.h"
+#include "runtime/types.h"
+#include "vec/columns/column.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
 #include "vec/exec/scan/new_odbc_scan_node.h"
 #include "vec/exec/scan/vscanner.h"
+#include "vec/exprs/vexpr_context.h"
+
+namespace doris {
+class RuntimeProfile;
+namespace vectorized {
+class VScanNode;
+} // namespace vectorized
+} // namespace doris
 
 static const std::string NEW_SCANNER_TYPE = "NewOdbcScanner";
 

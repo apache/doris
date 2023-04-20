@@ -17,8 +17,13 @@
 
 #include "util/url_parser.h"
 
+#include <ctype.h>
+#include <stdint.h>
+
+#include <algorithm>
 #include <string>
 
+#include "runtime/string_search.hpp"
 #include "vec/common/string_ref.h"
 
 namespace doris {

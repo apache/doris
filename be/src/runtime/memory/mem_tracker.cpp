@@ -22,9 +22,10 @@
 
 #include <fmt/format.h>
 
+#include <mutex>
+
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
-#include "util/string_util.h"
-#include "util/time.h"
 
 namespace doris {
 

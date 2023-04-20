@@ -37,7 +37,7 @@ import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
-import org.apache.commons.lang.NotImplementedException;
+import org.apache.commons.lang3.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -309,7 +309,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
 
     @Override
     public BaseAnalysisTask createAnalysisTask(AnalysisTaskInfo info) {
-        throw new NotImplementedException();
+        throw new NotImplementedException("createAnalysisTask not implemented");
     }
 
     @Override

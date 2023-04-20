@@ -17,21 +17,64 @@
 
 #include "vorc_reader.h"
 
+#include <cctz/civil_time_detail.h>
+#include <ctype.h>
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+
+#include <algorithm>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <exception>
+#include <iterator>
+#include <map>
+#include <ostream>
 #include <tuple>
+#include <variant>
 
 #include "cctz/civil_time.h"
 #include "cctz/time_zone.h"
+#include "common/exception.h"
+#include "exec/olap_utils.h"
+#include "gutil/casts.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/file_reader.h"
-#include "olap/iterators.h"
+#include "orc/Exceptions.hh"
+#include "orc/Int128.hh"
+#include "orc/MemoryPool.hh"
+#include "orc/OrcFile.hh"
+#include "orc/sargs/Literal.hh"
+#include "orc/sargs/SearchArgument.hh"
+#include "runtime/decimalv2_value.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
 #include "util/slice.h"
+#include "util/timezone_utils.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_map.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/columns/column_struct.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_struct.h"
+#include "vec/runtime/vdatetime_value.h"
+
+namespace doris {
+class RuntimeState;
+
+namespace io {
+class IOContext;
+enum class FileCachePolicy : uint8_t;
+} // namespace io
+} // namespace doris
 
 namespace doris::vectorized {
 

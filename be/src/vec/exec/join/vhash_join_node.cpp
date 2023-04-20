@@ -17,12 +17,52 @@
 
 #include "vec/exec/join/vhash_join_node.h"
 
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/Opcodes_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <glog/logging.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+
+#include <algorithm>
+#include <array>
+#include <boost/iterator/iterator_facade.hpp>
+#include <functional>
+#include <map>
+#include <new>
+#include <ostream>
+#include <type_traits>
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
+#include "common/object_pool.h"
+#include "exec/exec_node.h"
 #include "exprs/bloom_filter_func.h"
+#include "exprs/runtime_filter.h"
 #include "exprs/runtime_filter_slots.h"
-#include "gen_cpp/PlanNodes_types.h"
 #include "gutil/strings/substitute.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/descriptors.h"
+#include "runtime/query_fragments_ctx.h"
+#include "runtime/runtime_filter_mgr.h"
+#include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "util/defer_op.h"
+#include "util/telemetry/telemetry.h"
+#include "util/uid_util.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/hash_table/hash_map.h"
+#include "vec/common/uint128.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/exec/join/join_op.h"
+#include "vec/exec/join/process_hash_table_probe.h"
+#include "vec/exec/join/vjoin_node_base.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/runtime/shared_hash_table_controller.h"
@@ -106,7 +146,7 @@ struct ProcessHashTableBuild {
         // the hash table build bucket, which may waste a lot of memory.
         // TODO, use the NDV expansion of the key column in the optimizer statistics
         if (!_join_node->_build_unique) {
-            RETURN_IF_CATCH_BAD_ALLOC(hash_table_ctx.hash_table.expanse_for_add_elem(
+            RETURN_IF_CATCH_EXCEPTION(hash_table_ctx.hash_table.expanse_for_add_elem(
                     std::min<int>(_rows, config::hash_table_pre_expanse_max_rows)));
         }
 
@@ -479,7 +519,7 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
     Status st;
     if (_probe_index < _probe_block.rows()) {
         DCHECK(_has_set_need_null_map_for_probe);
-        try {
+        RETURN_IF_CATCH_EXCEPTION({
             std::visit(
                     [&](auto&& arg, auto&& process_hashtable_ctx, auto need_null_map_for_probe,
                         auto ignore_null) {
@@ -516,9 +556,7 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
                     *_hash_table_variants, *_process_hashtable_ctx_variants,
                     make_bool_variant(_need_null_map_for_probe),
                     make_bool_variant(_probe_ignore_null));
-        } catch (const doris::Exception& e) {
-            return Status::Error(e.code(), e.to_string());
-        }
+        });
     } else if (_probe_eos) {
         if (_is_right_semi_anti || (_is_outer_join && _join_op != TJoinOp::LEFT_OUTER_JOIN)) {
             std::visit(
@@ -774,7 +812,7 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
 
         if (in_block->rows() != 0) {
             SCOPED_TIMER(_build_side_merge_block_timer);
-            RETURN_IF_CATCH_BAD_ALLOC(_build_side_mutable_block.merge(*in_block));
+            RETURN_IF_CATCH_EXCEPTION(_build_side_mutable_block.merge(*in_block));
         }
 
         if (UNLIKELY(_build_side_mem_used - _build_side_last_mem_used > BUILD_BLOCK_MAX_SIZE)) {

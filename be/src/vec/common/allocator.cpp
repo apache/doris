@@ -17,7 +17,18 @@
 
 #include "vec/common/allocator.h"
 
+#include <glog/logging.h>
+
+#include <atomic>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <memory>
+#include <new>
+#include <thread>
+
 // Allocator is used by too many files. For compilation speed, put dependencies in `.cpp` as much as possible.
+#include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/memory/thread_mem_tracker_mgr.h"
 #include "runtime/thread_context.h"
 #include "util/mem_info.h"
 

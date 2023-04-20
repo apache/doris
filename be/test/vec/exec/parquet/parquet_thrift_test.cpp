@@ -22,6 +22,7 @@
 
 #include <string>
 
+#include "common/object_pool.h"
 #include "exec/schema_scanner.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/local_file_system.h"

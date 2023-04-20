@@ -17,17 +17,15 @@
 
 #pragma once
 
+#include <stdint.h>
+
+#include <string>
+
 #include "common/status.h"
-#include "gen_cpp/PlanNodes_types.h"
 
 namespace doris {
 
-class Status;
 class RuntimeState;
-
-namespace vectorized {
-class Block;
-}
 
 // abstract class of the result writer
 class ResultWriter {

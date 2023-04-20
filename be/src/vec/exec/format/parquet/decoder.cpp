@@ -17,8 +17,9 @@
 
 #include "vec/exec/format/parquet/decoder.h"
 
-#include "vec/data_types/data_type_decimal.h"
-#include "vec/data_types/data_type_nullable.h"
+#include <cctz/time_zone.h>
+#include <gen_cpp/parquet_types.h>
+
 #include "vec/exec/format/parquet/bool_plain_decoder.h"
 #include "vec/exec/format/parquet/bool_rle_decoder.h"
 #include "vec/exec/format/parquet/byte_array_dict_decoder.h"
@@ -26,6 +27,7 @@
 #include "vec/exec/format/parquet/delta_bit_pack_decoder.h"
 #include "vec/exec/format/parquet/fix_length_dict_decoder.hpp"
 #include "vec/exec/format/parquet/fix_length_plain_decoder.h"
+#include "vec/exec/format/parquet/schema_desc.h"
 
 namespace doris::vectorized {
 

@@ -20,14 +20,16 @@
 
 #include "util/threadpool.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <limits>
 #include <ostream>
 #include <thread>
+#include <utility>
 
 #include "common/logging.h"
-#include "gutil/macros.h"
 #include "gutil/map-util.h"
+#include "gutil/port.h"
 #include "gutil/strings/substitute.h"
 #include "util/debug/sanitizer_scopes.h"
 #include "util/scoped_cleanup.h"

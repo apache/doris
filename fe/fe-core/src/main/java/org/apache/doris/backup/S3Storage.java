@@ -97,11 +97,6 @@ public class S3Storage extends BlobStorage {
     public void setProperties(Map<String, String> properties) {
         super.setProperties(properties);
         caseInsensitiveProperties.putAll(properties);
-        if (!caseInsensitiveProperties.containsKey(S3Properties.ENDPOINT)) {
-            // try to get new properties from old version
-            // compatible with old version
-            S3Properties.convertToStdProperties(caseInsensitiveProperties);
-        }
         try {
             S3Properties.requiredS3Properties(caseInsensitiveProperties);
         } catch (DdlException e) {
@@ -136,7 +131,6 @@ public class S3Storage extends BlobStorage {
     @Override
     public FileSystem getFileSystem(String remotePath) throws UserException {
         if (dfsFileSystem == null) {
-            S3Properties.requiredS3Properties(caseInsensitiveProperties);
             Configuration conf = new Configuration();
             System.setProperty("com.amazonaws.services.s3.enableV4", "true");
             PropertyConverter.convertToHadoopFSProperties(caseInsensitiveProperties).forEach(conf::set);
@@ -151,7 +145,6 @@ public class S3Storage extends BlobStorage {
 
     private S3Client getClient(String bucket) throws UserException {
         if (client == null) {
-            S3Properties.requiredS3Properties(caseInsensitiveProperties);
             URI tmpEndpoint = URI.create(caseInsensitiveProperties.get(S3Properties.ENDPOINT));
             StaticCredentialsProvider scp;
             if (!caseInsensitiveProperties.containsKey(S3Properties.SESSION_TOKEN)) {

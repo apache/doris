@@ -17,20 +17,24 @@
 
 #include "olap/delete_handler.h"
 
-#include <errno.h>
-#include <json2pb/pb_to_json.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/olap_file.pb.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
+#include <algorithm>
 #include <limits>
 #include <regex>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
-#include "gen_cpp/olap_file.pb.h"
+#include "common/config.h"
+#include "common/logging.h"
+#include "olap/block_column_predicate.h"
+#include "olap/column_predicate.h"
 #include "olap/olap_common.h"
 #include "olap/predicate_creator.h"
-#include "olap/tablet.h"
 #include "olap/utils.h"
 
 using apache::thrift::ThriftDebugString;

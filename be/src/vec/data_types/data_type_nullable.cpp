@@ -20,16 +20,24 @@
 
 #include "vec/data_types/data_type_nullable.h"
 
-#include <gen_cpp/Opcodes_types.h>
+#include <fmt/format.h>
+#include <gen_cpp/data.pb.h>
+#include <glog/logging.h>
+#include <string.h>
 
-#include "gen_cpp/data.pb.h"
+#include <utility>
+#include <vector>
+
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/string_buffer.hpp"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type_nothing.h"
+#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 

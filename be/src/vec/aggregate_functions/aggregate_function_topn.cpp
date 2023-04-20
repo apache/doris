@@ -15,10 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <vec/aggregate_functions/aggregate_function_topn.h>
+#include "vec/aggregate_functions/aggregate_function_topn.h"
+
+#include <fmt/format.h>
+#include <glog/logging.h>
 
 #include "vec/aggregate_functions/helpers.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+
 namespace doris::vectorized {
 
 AggregateFunctionPtr create_aggregate_function_topn(const std::string& name,

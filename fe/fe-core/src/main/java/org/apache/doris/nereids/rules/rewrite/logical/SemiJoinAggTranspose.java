@@ -20,14 +20,12 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
-import java.util.HashSet;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Pushdown semi-join through agg
@@ -39,26 +37,20 @@ public class SemiJoinAggTranspose extends OneRewriteRuleFactory {
                 .when(join -> join.getJoinType().isLeftSemiOrAntiJoin())
                 .then(join -> {
                     LogicalAggregate<Plan> aggregate = join.left();
-                    Set<Slot> canPushDownSlots = new HashSet<>();
-                    if (aggregate.hasRepeat()) {
-                        // When there is a repeat, the push-down condition is consistent with the repeat
-                        canPushDownSlots.addAll(aggregate.getSourceRepeat().get().getCommonGroupingSetExpressions());
-                    } else {
-                        for (Expression groupByExpression : aggregate.getGroupByExpressions()) {
-                            if (groupByExpression instanceof Slot) {
-                                canPushDownSlots.add((Slot) groupByExpression);
-                            }
-                        }
-                    }
-                    Set<Slot> leftOutputSet = join.left().getOutputSet();
-                    Set<Slot> conditionSlot = join.getConditionSlot()
-                            .stream()
-                            .filter(leftOutputSet::contains)
-                            .collect(Collectors.toSet());
-                    if (!canPushDownSlots.containsAll(conditionSlot)) {
+                    if (!canTranspose(aggregate, join)) {
                         return null;
                     }
                     return aggregate.withChildren(join.withChildren(aggregate.child(), join.right()));
                 }).toRule(RuleType.LOGICAL_SEMI_JOIN_AGG_TRANSPOSE);
+    }
+
+    /**
+     * check if we can transpose agg and semi join
+     */
+    public static boolean canTranspose(LogicalAggregate<? extends Plan> aggregate,
+            LogicalJoin<? extends Plan, ? extends Plan> join) {
+        Set<Slot> canPushDownSlots = PushdownFilterThroughAggregation.getCanPushDownSlots(aggregate);
+        Set<Slot> leftConditionSlot = join.getLeftConditionSlot();
+        return canPushDownSlots.containsAll(leftConditionSlot);
     }
 }

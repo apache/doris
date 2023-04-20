@@ -17,12 +17,21 @@
 
 #pragma once
 
-#include "io/fs/file_reader.h"
+#include <stddef.h>
+#include <stdint.h>
+
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
+#include "io/fs/file_reader_writer_fwd.h"
 #include "util/runtime_profile.h"
-#include "vec/core/block.h"
 
 namespace doris {
 namespace vectorized {
+class Block;
+
 // Read data spilled to local file.
 class BlockSpillReader {
 public:

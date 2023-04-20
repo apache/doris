@@ -24,6 +24,7 @@
 #include "gtest/gtest.h"
 #include "io/fs/local_file_system.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet_manager.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/txn_manager.h"
 

@@ -81,7 +81,7 @@ public class HistogramTask extends BaseAnalysisTask {
         params.put("percentValue", String.valueOf((int) (info.sampleRate * 100)));
 
         String histogramSql;
-        Set<String> partitionNames = info.partitionNames;
+        Set<String> partitionNames = tbl.getPartitionNames();
 
         if (partitionNames.isEmpty()) {
             StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
