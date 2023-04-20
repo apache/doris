@@ -68,8 +68,9 @@ public:
         const ColumnConst& rhs_value_column =
                 static_cast<const ColumnConst&>(*block.get_by_position(arguments[2]).column.get());
         ColumnPtr result_ptr;
-        RETURN_IF_ERROR(_execute(*src_nested_column, nested_type, src_offsets, condition,
-                                 rhs_value_column, &result_ptr));
+        RETURN_IF_CATCH_EXCEPTION(
+                RETURN_IF_ERROR(_execute(*src_nested_column, nested_type, src_offsets, condition,
+                                         rhs_value_column, &result_ptr)));
         block.replace_by_position(result, std::move(result_ptr));
         return Status::OK();
     }
@@ -107,6 +108,7 @@ private:
         __builtin_unreachable();
     }
 
+    // need exception safety
     template <typename T, ApplyOp op>
     ColumnPtr _apply_internal(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
                               const ColumnConst& cmp) {
@@ -144,6 +146,7 @@ private:
         return ColumnArray::create(filtered, std::move(column_offsets));
     }
 
+// need exception safety
 #define APPLY_ALL_TYPES(src_column, src_offsets, OP, cmp, dst)                     \
     do {                                                                           \
         WhichDataType which(remove_nullable(nested_type));                         \
@@ -186,6 +189,7 @@ private:
         }                                                                          \
     } while (0)
 
+    // need exception safety
     Status _execute(const IColumn& nested_src, DataTypePtr nested_type,
                     const ColumnArray::Offsets64& offsets, const std::string& condition,
                     const ColumnConst& rhs_value_column, ColumnPtr* dst) {

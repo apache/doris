@@ -65,7 +65,7 @@ public class ResourceGroup implements Writable {
         this.version = 0;
     }
 
-    public static ResourceGroup createResourceGroup(String name, Map<String, String> properties) throws DdlException {
+    public static ResourceGroup create(String name, Map<String, String> properties) throws DdlException {
         checkProperties(properties);
         return new ResourceGroup(Env.getCurrentEnv().getNextId(), name, properties);
     }

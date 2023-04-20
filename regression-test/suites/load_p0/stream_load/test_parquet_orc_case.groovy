@@ -211,7 +211,7 @@ suite("test_parquet_orc_case", "p0") {
     sql """ DROP TABLE IF EXISTS ${arrayParquetTbl} """
 
     sql """
-    CREATE TABLE ${arrayParquetTbl} ( 
+    CREATE TABLE ${arrayParquetTbl} (
         k1 int NULL, 
         a1 array<boolean> NULL, 
         a2 array<tinyint> NULL, 
@@ -219,7 +219,7 @@ suite("test_parquet_orc_case", "p0") {
         a4 array<int> NULL, 
         a5 array<bigint> NULL, 
         a6 array<largeint> NULL,
-        a7 array<decimal(27, 7)> NULL, 
+        a7 array<decimal(25, 7)> NULL,
         a8 array<float> NULL, 
         a9 array<double> NULL, 
         a10 array<date> NULL, 

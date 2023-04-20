@@ -123,8 +123,7 @@ public class StatisticsCache {
         return Optional.empty();
     }
 
-    // TODO: finish this method.
-    public void eraseExpiredCache(long tblId, long idxId, String colName) {
+    public void invidate(long tblId, long idxId, String colName) {
         columnStatisticsCache.synchronous().invalidate(new StatisticsCacheKey(tblId, idxId, colName));
     }
 

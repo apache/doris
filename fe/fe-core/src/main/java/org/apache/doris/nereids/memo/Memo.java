@@ -38,7 +38,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
-import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 
@@ -472,7 +471,7 @@ public class Memo {
         for (GroupExpression reinsertGroupExpr : needReplaceChild) {
             // After change GroupExpression children, hashcode will change, so need to reinsert into map.
             groupExpressions.remove(reinsertGroupExpr);
-            Utils.replaceList(reinsertGroupExpr.children(), source, destination);
+            reinsertGroupExpr.replaceChild(source, destination);
 
             GroupExpression existGroupExpr = groupExpressions.get(reinsertGroupExpr);
             if (existGroupExpr != null) {

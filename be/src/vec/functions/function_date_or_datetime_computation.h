@@ -270,7 +270,7 @@ TIME_DIFF_FUNCTION_IMPL(HoursDiffImpl, hours_diff, HOUR);
 TIME_DIFF_FUNCTION_IMPL(MintueSDiffImpl, minutes_diff, MINUTE);
 TIME_DIFF_FUNCTION_IMPL(SecondsDiffImpl, seconds_diff, SECOND);
 
-#define TIME_FUNCTION_TWO_ARGS_IMPL(CLASS, NAME, FUNCTION)                                        \
+#define TIME_FUNCTION_TWO_ARGS_IMPL(CLASS, NAME, FUNCTION, RETURN_TYPE)                           \
     template <typename DateType>                                                                  \
     struct CLASS {                                                                                \
         using ArgType = std::conditional_t<                                                       \
@@ -280,7 +280,7 @@ TIME_DIFF_FUNCTION_IMPL(SecondsDiffImpl, seconds_diff, SECOND);
                 std::is_same_v<DateType, DataTypeDateV2>, DateV2Value<DateV2ValueType>,           \
                 std::conditional_t<std::is_same_v<DateType, DataTypeDateTimeV2>,                  \
                                    DateV2Value<DateTimeV2ValueType>, VecDateTimeValue>>;          \
-        using ReturnType = DataTypeInt32;                                                         \
+        using ReturnType = RETURN_TYPE;                                                           \
         static constexpr auto name = #NAME;                                                       \
         static constexpr auto is_nullable = false;                                                \
         static inline ReturnType::FieldType execute(const ArgType& t0, const Int32 mode,          \
@@ -294,8 +294,11 @@ TIME_DIFF_FUNCTION_IMPL(SecondsDiffImpl, seconds_diff, SECOND);
         }                                                                                         \
     }
 
-TIME_FUNCTION_TWO_ARGS_IMPL(ToYearWeekTwoArgsImpl, yearweek, year_week(mysql_week_mode(mode)));
-TIME_FUNCTION_TWO_ARGS_IMPL(ToWeekTwoArgsImpl, week, week(mysql_week_mode(mode)));
+TIME_FUNCTION_TWO_ARGS_IMPL(ToYearWeekTwoArgsImpl, yearweek, year_week(mysql_week_mode(mode)),
+                            DataTypeInt32);
+TIME_FUNCTION_TWO_ARGS_IMPL(ToWeekTwoArgsImpl, week, week(mysql_week_mode(mode)), DataTypeInt8);
+/// @TEMPORARY: for be_exec_version=2
+TIME_FUNCTION_TWO_ARGS_IMPL(ToWeekTwoArgsImplOld, week, week(mysql_week_mode(mode)), DataTypeInt32);
 
 template <typename FromType1, typename FromType2, typename ToType, typename Transform>
 struct DateTimeOp {

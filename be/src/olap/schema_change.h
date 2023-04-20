@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 #include "common/status.h"
 #include "gen_cpp/AgentService_types.h"
 #include "olap/column_mapping.h"
@@ -48,6 +50,8 @@ public:
 
     void set_type(AlterTabletType type) { _type = type; }
 
+    void set_compatible_version(int32_t version) noexcept { _fe_compatible_version = version; }
+
     bool has_where() const { return _where_expr != nullptr; }
 
 private:
@@ -62,6 +66,8 @@ private:
     std::shared_ptr<TExpr> _where_expr;
 
     AlterTabletType _type;
+
+    int32_t _fe_compatible_version = -1;
 };
 
 class SchemaChange {
@@ -263,6 +269,7 @@ private:
         std::unordered_map<std::string, AlterMaterializedViewParam> materialized_params_map;
         DescriptorTbl* desc_tbl = nullptr;
         ObjectPool pool;
+        int32_t be_exec_version;
     };
 
     static Status _do_process_alter_tablet_v2(const TAlterTabletReqV2& request);

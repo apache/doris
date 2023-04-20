@@ -17,11 +17,6 @@
 
 package org.apache.doris.nereids.stats;
 
-import org.apache.commons.collections.CollectionUtils;
-
-import java.util.Collections;
-import java.util.List;
-
 /**
  * Math util for statistics derivation
  */
@@ -64,21 +59,4 @@ public class StatsMathUtil {
         return a / nonZeroDivisor(b);
     }
 
-    /**
-     * compute the multi columns unite ndv
-     */
-    public static double jointNdv(List<Double> ndvs) {
-        if (CollectionUtils.isEmpty(ndvs)) {
-            return -1;
-        }
-        if (ndvs.stream().anyMatch(n -> n <= 0)) {
-            return -1;
-        }
-        ndvs.sort(Collections.reverseOrder());
-        double multiNdv = 1;
-        for (int i = 0; i < ndvs.size(); i++) {
-            multiNdv = multiNdv * Math.pow(ndvs.get(i), 1 / Math.pow(2, i));
-        }
-        return multiNdv;
-    }
 }

@@ -106,6 +106,7 @@ public:
     TypeIndex get_data_type() const override { return TypeIndex::Array; }
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override;
+    void resize(size_t n) override;
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
     StringRef get_data_at(size_t n) const override;

@@ -387,10 +387,7 @@ void ColumnVector<T>::insert_indices_from(const IColumn& src, const int* indices
 template <typename T>
 ColumnPtr ColumnVector<T>::filter(const IColumn::Filter& filt, ssize_t result_size_hint) const {
     size_t size = data.size();
-    if (size != filt.size()) {
-        LOG(FATAL) << "Size of filter doesn't match size of column. data size: " << size
-                   << ", filter size: " << filt.size() << get_stack_trace();
-    }
+    column_match_filter_size(size, filt.size());
 
     auto res = this->create();
     if constexpr (std::is_same_v<T, vectorized::Int64>) {
@@ -444,10 +441,7 @@ ColumnPtr ColumnVector<T>::filter(const IColumn::Filter& filt, ssize_t result_si
 template <typename T>
 size_t ColumnVector<T>::filter(const IColumn::Filter& filter) {
     size_t size = data.size();
-    if (size != filter.size()) {
-        LOG(FATAL) << "Size of filter doesn't match size of column. data size: " << size
-                   << ", filter size: " << filter.size() << get_stack_trace();
-    }
+    column_match_filter_size(size, filter.size());
 
     const UInt8* filter_pos = filter.data();
     const UInt8* filter_end = filter_pos + size;
@@ -523,9 +517,7 @@ ColumnPtr ColumnVector<T>::permute(const IColumn::Permutation& perm, size_t limi
 template <typename T>
 ColumnPtr ColumnVector<T>::replicate(const IColumn::Offsets& offsets) const {
     size_t size = data.size();
-    if (size != offsets.size()) {
-        LOG(FATAL) << "Size of offsets doesn't match size of column.";
-    }
+    column_match_offsets_size(size, offsets.size());
 
     auto res = this->create();
     if constexpr (std::is_same_v<T, vectorized::Int64>) {

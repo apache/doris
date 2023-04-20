@@ -1115,7 +1115,7 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
             _agg_data->_aggregated_method_variant));
 
     if (!ret_flag) {
-        RETURN_IF_CATCH_BAD_ALLOC(_emplace_into_hash_table(_places.data(), key_columns, rows));
+        RETURN_IF_CATCH_EXCEPTION(_emplace_into_hash_table(_places.data(), key_columns, rows));
 
         for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
             RETURN_IF_ERROR(_aggregate_evaluators[i]->execute_batch_add(
