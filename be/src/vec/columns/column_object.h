@@ -39,8 +39,8 @@
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
-#include "vec/json/path_in_data.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/json/path_in_data.h"
 
 class SipHash;
 
