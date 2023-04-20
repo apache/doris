@@ -475,6 +475,16 @@ Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExpr** output
                 *output_expr = conjunct_expr_root;
                 return Status::OK();
             } else {
+                if (left_child == nullptr) {
+                    conjunct_expr_root->children()[0]->close(
+                            _state, *_vconjunct_ctx_ptr,
+                            (*_vconjunct_ctx_ptr)->get_function_state_scope());
+                }
+                if (right_child == nullptr) {
+                    conjunct_expr_root->children()[1]->close(
+                            _state, *_vconjunct_ctx_ptr,
+                            (*_vconjunct_ctx_ptr)->get_function_state_scope());
+                }
                 // here only close the and expr self, do not close the child
                 conjunct_expr_root->set_children({});
                 conjunct_expr_root->close(_state, *_vconjunct_ctx_ptr,
