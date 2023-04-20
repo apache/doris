@@ -31,6 +31,7 @@
 // <http://creativecommons.org/publicdomain/zero/1.0/>.
 ///
 
+// clang-format off
 // NOLINTBEGIN
 #ifndef TL_EXPECTED_HPP
 #define TL_EXPECTED_HPP
@@ -2462,3 +2463,4 @@ void swap(expected<T, E> &lhs,
 
 #endif
 // NOLINTEND
+// clang-format on
