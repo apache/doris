@@ -34,7 +34,7 @@
 // Not use template like cowhelper to implements this feature because it has problem
 // during inherits
 // TODO try to allow make_unique
-#define DISALLOW_EXPILICT_NEW(TypeName)                                                     \
+#define ENABLE_FACTORY_CREATOR(TypeName)                                                    \
 private:                                                                                    \
     void* operator new(std::size_t size) { return ::operator new(size); }                   \
     void* operator new[](std::size_t size) { return ::operator new(size); }                 \
@@ -48,4 +48,6 @@ public:                                                                         
     template <typename... Args>                                                             \
     static std::unique_ptr<TypeName> create_unique(Args&&... args) {                        \
         return std::unique_ptr<TypeName>(new TypeName(std::forward<Args>(args)...));        \
-    }
+    }                                                                                       \
+    template <class T, class... Args>                                                       \
+    friend std::unique_ptr<T> std::make_unique(Args&&... args);\

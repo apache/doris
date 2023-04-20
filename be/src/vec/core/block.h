@@ -34,6 +34,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/factory_creator.h"
 #include "common/status.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
@@ -67,7 +68,7 @@ namespace vectorized {
 class MutableBlock;
 
 class Block {
-    DISALLOW_EXPILICT_NEW(Block);
+    ENABLE_FACTORY_CREATOR(Block);
 
 private:
     using Container = ColumnsWithTypeAndName;
@@ -398,7 +399,7 @@ using BlocksPtr = std::shared_ptr<Blocks>;
 using BlocksPtrs = std::shared_ptr<std::vector<BlocksPtr>>;
 
 class MutableBlock {
-    DISALLOW_EXPILICT_NEW(MutableBlock);
+    ENABLE_FACTORY_CREATOR(MutableBlock);
 
 private:
     MutableColumns _columns;
