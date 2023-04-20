@@ -116,4 +116,18 @@ suite("nereids_insert_into_table") {
                 [9, 5, 7, '0', '8']
         ])
     }
+
+    // test txn model.
+    sql 'truncate table t2'
+    sql 'begin'
+    sql 'insert into target select 1, 2, 3, \'4\', \'5\';'
+    test {
+        sql 'select * from target'
+        result([[1, 2, 3, '4', '5']])
+    }
+
+    test {
+        sql 'insert into target select * from src'
+    }
+    sql 'commit'
 }
