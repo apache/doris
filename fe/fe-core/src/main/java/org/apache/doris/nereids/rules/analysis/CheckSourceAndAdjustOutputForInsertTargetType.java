@@ -47,6 +47,7 @@ public class CheckSourceAndAdjustOutputForInsertTargetType implements CustomRewr
         }
         List<Slot> outputs = plan.getOutput();
         List<NamedExpression> newSlots = Lists.newArrayListWithCapacity(outputs.size());
+        check(insertTargetTypes, outputs);
         for (int i = 0; i < insertTargetTypes.size(); ++i) {
             if (insertTargetTypes.get(i).equals(outputs.get(i).getDataType())) {
                 newSlots.add(outputs.get(i));
