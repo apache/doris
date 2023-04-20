@@ -142,8 +142,6 @@ public class BackupJobTest {
 
     @Before
     public void setUp() {
-        FeConstants.runningUnitTest = true;
-
         repoMgr = new MockRepositoryMgr();
         backupHandler = new MockBackupHandler(env);
 
@@ -173,6 +171,10 @@ public class BackupJobTest {
                 env.getEditLog();
                 minTimes = 0;
                 result = editLog;
+
+                Env.getCurrentEnv();
+                minTimes = 0;
+                result = env;
             }
         };
 

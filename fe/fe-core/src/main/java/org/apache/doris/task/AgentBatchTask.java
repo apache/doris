@@ -74,11 +74,7 @@ public class AgentBatchTask implements Runnable {
     private final Map<Long, List<AgentTask>> backendIdToTasks;
 
     public AgentBatchTask() {
-        if (FeConstants.runningUnitTest) {
-            this.batchId = 1L;
-        } else {
-            this.batchId = Env.getCurrentEnv().getNextId();
-        }
+        this.batchId = Env.getCurrentEnv().getNextId();
         this.backendIdToTasks = new HashMap<>();
     }
 
