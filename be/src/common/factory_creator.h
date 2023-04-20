@@ -34,6 +34,7 @@
 // Not use template like cowhelper to implements this feature because it has problem
 // during inherits
 // TODO try to allow make_unique
+//
 #define ENABLE_FACTORY_CREATOR(TypeName)                                                    \
 private:                                                                                    \
     void* operator new(std::size_t size) { return ::operator new(size); }                   \
@@ -41,8 +42,8 @@ private:                                                                        
                                                                                             \
 public:                                                                                     \
     void* operator new(std::size_t count, void* ptr) { return ::operator new(count, ptr); } \
-    void operator delete(void* ptr, std::size_t size) { ::operator delete(ptr, size); }     \
-    void operator delete[](void* ptr, std::size_t size) { ::operator delete[](ptr, size); } \
+    void operator delete(void* ptr) { ::operator delete(ptr); }                             \
+    void operator delete[](void* ptr) { ::operator delete[](ptr); }                         \
     void operator delete(void* ptr, void* place) { ::operator delete(ptr, place); }         \
     template <typename... Args>                                                             \
     static std::shared_ptr<TypeName> create_shared(Args&&... args) {                        \
