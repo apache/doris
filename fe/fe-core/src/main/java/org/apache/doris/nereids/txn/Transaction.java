@@ -65,6 +65,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
 
@@ -174,7 +175,7 @@ public class Transaction {
         if (ctx.isTxnModel()) {
             Preconditions.checkArgument(!command.checkIfScanData(), "insert into select in txn model is not supported");
             beginTxn();
-            loadedRows = executeInsertIntoValuesCommand(ImmutableList.of());
+            loadedRows = executeForTxn(ImmutableList.of());
         } else {
             LOG.info("Do insert [{}] with query id: {}", labelName, DebugUtil.printId(ctx.queryId()));
             try {
@@ -194,6 +195,7 @@ public class Transaction {
             // 2. transaction failed but Config.using_old_load_usage_pattern is true.
             // we will record the load job info for these 2 cases
             try {
+                Preconditions.checkArgument(coordinator != null, "coordinator is null, this is a bug");
                 ctx.getEnv().getLoadManager().recordFinishedLoadJob(
                         labelName, txnId, database.getFullName(), table.getId(),
                         EtlJobType.INSERT, createAt, errMsg,
@@ -210,14 +212,16 @@ public class Transaction {
     /**
      * execute insert txn for insert into select literal list command and insert into values command.
      */
-    public long executeInsertIntoValuesCommand(List<List<Expr>> values)
+    public long executeForTxn(List<List<Expr>> values)
             throws TException, UserException, ExecutionException, InterruptedException, TimeoutException {
-        // TODO
-        // TransactionStatus status = TransactionStatus.PREPARE;
         if (ctx.isTxnIniting()) {
             beginTxn();
         }
         TransactionEntry entry = ctx.getTxnEntry();
+        if (!entry.getTxnConf().getDb().equals(database.getFullName())
+                || !entry.getTxnConf().getTbl().equals(table.getName())) {
+            throw new TException("Only one table can be inserted in one transaction.");
+        }
         int schemaSize = entry.getTable().getBaseSchema().size();
         for (List<Expr> valueList : values) {
             if (schemaSize != valueList.size()) {
