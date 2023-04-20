@@ -428,7 +428,7 @@ void TaskWorkerPool::_create_tablet_worker_thread_callback() {
 
         TFinishTaskRequest finish_task_request;
         finish_task_request.__set_finish_tablet_infos(finish_tablet_infos);
-        finish_task_request.__set_backend(_backend);
+        finish_task_request.__set_backend(BackendOptions::get_localBackend());
         finish_task_request.__set_report_version(_s_report_version);
         finish_task_request.__set_task_type(agent_task_req.task_type);
         finish_task_request.__set_signature(agent_task_req.signature);
@@ -482,7 +482,7 @@ void TaskWorkerPool::_drop_tablet_worker_thread_callback() {
         }
 
         TFinishTaskRequest finish_task_request;
-        finish_task_request.__set_backend(_backend);
+        finish_task_request.__set_backend(BackendOptions::get_localBackend());
         finish_task_request.__set_task_type(agent_task_req.task_type);
         finish_task_request.__set_signature(agent_task_req.signature);
         finish_task_request.__set_task_status(status.to_thrift());
@@ -574,7 +574,7 @@ void TaskWorkerPool::_alter_inverted_index(const TAgentTaskRequest& alter_invert
     }
 
     // Return result to fe
-    finish_task_request->__set_backend(_backend);
+    finish_task_request->__set_backend(BackendOptions::get_localBackend());
     finish_task_request->__set_report_version(_s_report_version);
     finish_task_request->__set_task_type(task_type);
     finish_task_request->__set_signature(signature);
@@ -685,7 +685,7 @@ void TaskWorkerPool::_alter_tablet(const TAgentTaskRequest& agent_task_req, int6
     }
 
     // Return result to fe
-    finish_task_request->__set_backend(_backend);
+    finish_task_request->__set_backend(BackendOptions::get_localBackend());
     finish_task_request->__set_report_version(_s_report_version);
     finish_task_request->__set_task_type(task_type);
     finish_task_request->__set_signature(signature);
@@ -770,7 +770,7 @@ void TaskWorkerPool::_push_worker_thread_callback() {
 
         // Return result to fe
         TFinishTaskRequest finish_task_request;
-        finish_task_request.__set_backend(_backend);
+        finish_task_request.__set_backend(BackendOptions::get_localBackend());
         finish_task_request.__set_task_type(agent_task_req.task_type);
         finish_task_request.__set_signature(agent_task_req.signature);
         if (push_req.push_type == TPushType::DELETE) {
@@ -899,7 +899,7 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
         }
 
         status.to_thrift(&finish_task_request.task_status);
-        finish_task_request.__set_backend(_backend);
+        finish_task_request.__set_backend(BackendOptions::get_localBackend());
         finish_task_request.__set_task_type(agent_task_req.task_type);
         finish_task_request.__set_signature(agent_task_req.signature);
         finish_task_request.__set_report_version(_s_report_version);
@@ -953,7 +953,7 @@ void TaskWorkerPool::_clear_transaction_task_worker_thread_callback() {
 
         TFinishTaskRequest finish_task_request;
         finish_task_request.__set_task_status(status.to_thrift());
-        finish_task_request.__set_backend(_backend);
+        finish_task_request.__set_backend(BackendOptions::get_localBackend());
         finish_task_request.__set_task_type(agent_task_req.task_type);
         finish_task_request.__set_signature(agent_task_req.signature);
 
@@ -1029,7 +1029,7 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
 
         TFinishTaskRequest finish_task_request;
         finish_task_request.__set_task_status(status.to_thrift());
-        finish_task_request.__set_backend(_backend);
+        finish_task_request.__set_backend(BackendOptions::get_localBackend());
         finish_task_request.__set_task_type(agent_task_req.task_type);
         finish_task_request.__set_signature(agent_task_req.signature);
 
@@ -1065,7 +1065,7 @@ void TaskWorkerPool::_clone_worker_thread_callback() {
         auto status = _env->storage_engine()->execute_task(&engine_task);
         // Return result to fe
         TFinishTaskRequest finish_task_request;
-        finish_task_request.__set_backend(_backend);
+        finish_task_request.__set_backend(BackendOptions::get_localBackend());
         finish_task_request.__set_task_type(agent_task_req.task_type);
         finish_task_request.__set_signature(agent_task_req.signature);
         finish_task_request.__set_task_status(status.to_thrift());
@@ -1126,7 +1126,7 @@ void TaskWorkerPool::_storage_medium_migrate_worker_thread_callback() {
         }
 
         TFinishTaskRequest finish_task_request;
-        finish_task_request.__set_backend(_backend);
+        finish_task_request.__set_backend(BackendOptions::get_localBackend());
         finish_task_request.__set_task_type(agent_task_req.task_type);
         finish_task_request.__set_signature(agent_task_req.signature);
         finish_task_request.__set_task_status(status.to_thrift());
@@ -1224,7 +1224,7 @@ void TaskWorkerPool::_check_consistency_worker_thread_callback() {
         }
 
         TFinishTaskRequest finish_task_request;
-        finish_task_request.__set_backend(_backend);
+        finish_task_request.__set_backend(BackendOptions::get_localBackend());
         finish_task_request.__set_task_type(agent_task_req.task_type);
         finish_task_request.__set_signature(agent_task_req.signature);
         finish_task_request.__set_task_status(status.to_thrift());
@@ -1239,7 +1239,7 @@ void TaskWorkerPool::_check_consistency_worker_thread_callback() {
 void TaskWorkerPool::_report_task_worker_thread_callback() {
     StorageEngine::instance()->register_report_listener(this);
     TReportRequest request;
-    request.__set_backend(_backend);
+    request.__set_backend(BackendOptions::get_localBackend());
 
     while (_is_work) {
         _is_doing_work = false;
@@ -1304,7 +1304,7 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
         _random_sleep(5);
 
         TReportRequest request;
-        request.__set_backend(_backend);
+        request.__set_backend(BackendOptions::get_localBackend());
         request.__isset.disks = true;
 
         std::vector<DataDirInfo> data_dir_infos;
@@ -1357,7 +1357,7 @@ void TaskWorkerPool::_report_tablet_worker_thread_callback() {
         _random_sleep(5);
 
         TReportRequest request;
-        request.__set_backend(_backend);
+        request.__set_backend(BackendOptions::get_localBackend());
         request.__isset.tablets = true;
 
         uint64_t report_version = _s_report_version;
@@ -1444,7 +1444,7 @@ void TaskWorkerPool::_upload_worker_thread_callback() {
         }
 
         TFinishTaskRequest finish_task_request;
-        finish_task_request.__set_backend(_backend);
+        finish_task_request.__set_backend(BackendOptions::get_localBackend());
         finish_task_request.__set_task_type(agent_task_req.task_type);
         finish_task_request.__set_signature(agent_task_req.signature);
         finish_task_request.__set_task_status(status.to_thrift());
@@ -1500,7 +1500,7 @@ void TaskWorkerPool::_download_worker_thread_callback() {
         }
 
         TFinishTaskRequest finish_task_request;
-        finish_task_request.__set_backend(_backend);
+        finish_task_request.__set_backend(BackendOptions::get_localBackend());
         finish_task_request.__set_task_type(agent_task_req.task_type);
         finish_task_request.__set_signature(agent_task_req.signature);
         finish_task_request.__set_task_status(status.to_thrift());
@@ -1564,7 +1564,7 @@ void TaskWorkerPool::_make_snapshot_thread_callback() {
         }
 
         TFinishTaskRequest finish_task_request;
-        finish_task_request.__set_backend(_backend);
+        finish_task_request.__set_backend(BackendOptions::get_localBackend());
         finish_task_request.__set_task_type(agent_task_req.task_type);
         finish_task_request.__set_signature(agent_task_req.signature);
         finish_task_request.__set_snapshot_path(snapshot_path);
@@ -1608,7 +1608,7 @@ void TaskWorkerPool::_release_snapshot_thread_callback() {
         }
 
         TFinishTaskRequest finish_task_request;
-        finish_task_request.__set_backend(_backend);
+        finish_task_request.__set_backend(BackendOptions::get_localBackend());
         finish_task_request.__set_task_type(agent_task_req.task_type);
         finish_task_request.__set_signature(agent_task_req.signature);
         finish_task_request.__set_task_status(status.to_thrift());
@@ -1662,7 +1662,7 @@ void TaskWorkerPool::_move_dir_thread_callback() {
         }
 
         TFinishTaskRequest finish_task_request;
-        finish_task_request.__set_backend(_backend);
+        finish_task_request.__set_backend(BackendOptions::get_localBackend());
         finish_task_request.__set_task_type(agent_task_req.task_type);
         finish_task_request.__set_signature(agent_task_req.signature);
         finish_task_request.__set_task_status(status.to_thrift());

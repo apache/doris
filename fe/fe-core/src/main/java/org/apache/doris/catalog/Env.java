@@ -1449,7 +1449,7 @@ public class Env {
         getInternalCatalog().getIcebergTableCreationRecordMgr().start();
         new InternalSchemaInitializer().start();
         if (Config.enable_fqdn_mode) {
-            fqdnManager.start();
+//            fqdnManager.start();
         }
         if (Config.enable_hms_events_incremental_sync) {
             metastoreEventsProcessor.start();
