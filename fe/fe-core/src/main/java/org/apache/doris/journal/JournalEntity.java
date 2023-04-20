@@ -82,6 +82,7 @@ import org.apache.doris.persist.DropDbInfo;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropLinkDbAndUpdateDbInfo;
 import org.apache.doris.persist.DropPartitionInfo;
+import org.apache.doris.persist.DropResourceGroupOperationLog;
 import org.apache.doris.persist.DropResourceOperationLog;
 import org.apache.doris.persist.DropSqlBlockRuleOperationLog;
 import org.apache.doris.persist.GlobalVarPersistInfo;
@@ -805,6 +806,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_CREATE_RESOURCE_GROUP: {
                 data = ResourceGroup.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_DROP_RESOURCE_GROUP: {
+                data = DropResourceGroupOperationLog.read(in);
                 isRead = true;
                 break;
             }

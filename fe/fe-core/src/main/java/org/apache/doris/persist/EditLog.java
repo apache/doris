@@ -1008,6 +1008,12 @@ public class EditLog {
                     env.getResourceGroupMgr().replayCreateResourceGroup(resourceGroup);
                     break;
                 }
+                case OperationType.OP_DROP_RESOURCE_GROUP: {
+                    final DropResourceGroupOperationLog operationLog =
+                            (DropResourceGroupOperationLog) journal.getData();
+                    env.getResourceGroupMgr().replayDropResourceGroup(operationLog);
+                    break;
+                }
                 case OperationType.OP_INIT_EXTERNAL_TABLE: {
                     // Do nothing.
                     break;
@@ -1556,6 +1562,10 @@ public class EditLog {
 
     public void logCreateResourceGroup(ResourceGroup resourceGroup) {
         logEdit(OperationType.OP_CREATE_RESOURCE_GROUP, resourceGroup);
+    }
+
+    public void logDropResourceGroup(DropResourceGroupOperationLog operationLog) {
+        logEdit(OperationType.OP_DROP_RESOURCE_GROUP, operationLog);
     }
 
     public void logAlterStoragePolicy(StoragePolicy storagePolicy) {

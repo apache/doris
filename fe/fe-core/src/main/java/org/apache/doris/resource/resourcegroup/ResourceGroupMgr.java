@@ -18,6 +18,7 @@
 package org.apache.doris.resource.resourcegroup;
 
 import org.apache.doris.analysis.CreateResourceGroupStmt;
+import org.apache.doris.analysis.DropResourceGroupStmt;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -27,6 +28,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
+import org.apache.doris.persist.DropResourceGroupOperationLog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TPipelineResourceGroup;
@@ -149,11 +151,50 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
         LOG.info("Create resource group success: {}", resourceGroup);
     }
 
+    public void dropResourceGroup(DropResourceGroupStmt stmt) throws DdlException {
+        if (!Config.enable_resource_group) {
+            throw new DdlException("unsupported feature now, coming soon.");
+        }
+
+        String resourceGroupName = stmt.getResourceGroupName();
+        writeLock();
+        try {
+            if (!nameToResourceGroup.containsKey(resourceGroupName)) {
+                if (stmt.isIfExists()) {
+                    return;
+                }
+                throw new DdlException("Resource group " + resourceGroupName + " does not exist");
+            }
+            ResourceGroup resourceGroup = nameToResourceGroup.get(resourceGroupName);
+            idToResourceGroup.remove(resourceGroup.getId());
+            nameToResourceGroup.remove(resourceGroupName);
+            Env.getCurrentEnv().getEditLog().logDropResourceGroup(new DropResourceGroupOperationLog(resourceGroupName));
+        } finally {
+            writeUnlock();
+        }
+        LOG.info("Drop resource group success: {}", resourceGroupName);
+    }
+
     public void replayCreateResourceGroup(ResourceGroup resourceGroup) {
         writeLock();
         try {
             nameToResourceGroup.put(resourceGroup.getName(), resourceGroup);
             idToResourceGroup.put(resourceGroup.getId(), resourceGroup);
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    public void replayDropResourceGroup(DropResourceGroupOperationLog operationLog) {
+        String resourceGroupName = operationLog.getName();
+        writeLock();
+        try {
+            if (!nameToResourceGroup.containsKey(resourceGroupName)) {
+                return;
+            }
+            ResourceGroup resourceGroup = nameToResourceGroup.get(resourceGroupName);
+            idToResourceGroup.remove(resourceGroup.getId());
+            nameToResourceGroup.remove(resourceGroupName);
         } finally {
             writeUnlock();
         }
