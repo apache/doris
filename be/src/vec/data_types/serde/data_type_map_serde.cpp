@@ -17,8 +17,14 @@
 
 #include "data_type_map_serde.h"
 
+#include "util/jsonb_document.h"
+#include "vec/columns/column.h"
+#include "vec/common/string_ref.h"
+
 namespace doris {
 namespace vectorized {
+class Arena;
+
 void DataTypeMapSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
     auto blob = static_cast<const JsonbBlobVal*>(arg);
     column.deserialize_and_insert_from_arena(blob->getBlob());

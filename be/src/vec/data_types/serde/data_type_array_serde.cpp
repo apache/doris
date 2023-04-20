@@ -17,9 +17,14 @@
 
 #include "data_type_array_serde.h"
 
+#include "util/jsonb_document.h"
+#include "vec/columns/column.h"
+#include "vec/common/string_ref.h"
+
 namespace doris {
 
 namespace vectorized {
+class Arena;
 
 void DataTypeArraySerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
                                                  Arena* mem_pool, int32_t col_id,

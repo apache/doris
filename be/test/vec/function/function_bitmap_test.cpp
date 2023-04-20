@@ -14,11 +14,22 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#include <gtest/gtest.h>
+#include <stdint.h>
 
+#include <limits>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
 #include "function_test_util.h"
+#include "gtest/gtest_pred_impl.h"
+#include "gutil/integral_types.h"
+#include "testutil/any_type.h"
 #include "util/bitmap_value.h"
-#include "vec/functions/function_totype.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_string.h"
 
 namespace doris::vectorized {
 

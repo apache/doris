@@ -16,15 +16,3 @@
 // under the License.
 
 #include "runtime/user_function_cache.h"
-
-#include <gtest/gtest.h>
-
-#include <cstdio>
-#include <cstdlib>
-
-#include "common/logging.h"
-#include "http/ev_http_server.h"
-#include "http/http_channel.h"
-#include "http/http_handler.h"
-#include "http/http_request.h"
-#include "util/md5.h"

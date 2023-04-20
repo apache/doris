@@ -17,6 +17,8 @@
 
 #include "testutil/function_utils.h"
 
+#include <gen_cpp/PaloInternalService_types.h>
+
 #include <vector>
 
 #include "runtime/runtime_state.h"

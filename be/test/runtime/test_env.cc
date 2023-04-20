@@ -17,14 +17,25 @@
 
 #include "runtime/test_env.h"
 
-#include <gtest/gtest.h>
-#include <sys/stat.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
 #include <memory>
+#include <ostream>
 
+#include "common/config.h"
+#include "common/status.h"
+#include "gtest/gtest_pred_impl.h"
+#include "olap/olap_define.h"
+#include "olap/options.h"
 #include "olap/storage_engine.h"
+#include "runtime/exec_env.h"
 #include "runtime/result_queue_mgr.h"
-#include "util/disk_info.h"
+#include "runtime/runtime_state.h"
+#include "util/uid_util.h"
 
 namespace doris {
 

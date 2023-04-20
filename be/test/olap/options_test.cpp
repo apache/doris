@@ -17,10 +17,15 @@
 
 #include "olap/options.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stdlib.h>
 
 #include <filesystem>
 #include <string>
+
+#include "gtest/gtest_pred_impl.h"
+#include "olap/olap_define.h"
 
 namespace doris {
 

@@ -18,7 +18,6 @@
 #pragma once
 #include <stddef.h>
 
-#include "runtime/descriptors.h"
 #include "vec/core/block.h"
 
 namespace doris {
