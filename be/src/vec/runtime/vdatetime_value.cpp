@@ -1583,7 +1583,10 @@ bool VecDateTimeValue::date_add_interval(const TimeInterval& interval) {
         if (_year > 9999) {
             return false;
         }
-        _month = (months % 12) + 1;
+        if (_year < MIN_YEAR || _year > MAX_YEAR) {
+            return false;
+        }
+        _month = ((_month + 11 + sign * interval.month + 12) % 12) + 1;
         if (_day > s_days_in_month[_month]) {
             _day = s_days_in_month[_month];
             if (_month == 2 && doris::is_leap(_year)) {
