@@ -28,7 +28,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
-import org.apache.doris.persist.ModifyTablePropertyOperationLog;
+import org.apache.doris.persist.AlterLightSchemaChangeInfo;
 import org.apache.doris.proto.InternalService.PFetchColIdsRequest;
 import org.apache.doris.proto.InternalService.PFetchColIdsRequest.Builder;
 import org.apache.doris.proto.InternalService.PFetchColIdsRequest.PFetchColIdParam;
@@ -42,6 +42,8 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.base.Preconditions;
+import org.apache.log4j.LogManager;
+import org.apache.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -59,13 +61,15 @@ import java.util.concurrent.TimeoutException;
 /**
  * For alter light_schema_change table property
  */
-public class AlterLSCHelper {
+public class AlterLightSchChangeHelper {
+
+    private static final Logger LOG = LogManager.getLogger(AlterLightSchChangeHelper.class);
 
     private final Database db;
 
     private final OlapTable olapTable;
 
-    public AlterLSCHelper(Database db, OlapTable olapTable) {
+    public AlterLightSchChangeHelper(Database db, OlapTable olapTable) {
         this.db = db;
         this.olapTable = olapTable;
     }
@@ -77,9 +81,10 @@ public class AlterLSCHelper {
      */
     public void enableLightSchemaChange() throws DdlException {
         final Map<Long, PFetchColIdsRequest> params = initParams();
-        final PFetchColIdsResponse response = callForColumnIds(params);
-        updateTableMeta(response);
-        modifyTableProperty();
+        final AlterLightSchemaChangeInfo info = callForColumnsInfo(params);
+        updateTableMeta(info);
+        Env.getCurrentEnv().getEditLog().logAlterLightSchemaChange(info);
+        LOG.info("successfully enable `light_schema_change`");
     }
 
     /**
@@ -133,10 +138,12 @@ public class AlterLSCHelper {
 
     /**
      * @param beIdToRequest rpc param for corresponding BEs
-     * @return indexIds to each tablet schema info which consists of columnName to corresponding column unique id pairs
+     * @return contains indexIds to each tablet schema info which consists of columnName to corresponding
+     * column unique id pairs
      * @throws DdlException as a wrapper for rpc failures
      */
-    private PFetchColIdsResponse callForColumnIds(Map<Long, PFetchColIdsRequest> beIdToRequest) throws DdlException {
+    private AlterLightSchemaChangeInfo callForColumnsInfo(Map<Long, PFetchColIdsRequest> beIdToRequest)
+            throws DdlException {
         final List<Future<PFetchColIdsResponse>> futureList = new ArrayList<>();
         // start a rpc in a pipeline way
         try {
@@ -173,14 +180,14 @@ public class AlterLSCHelper {
         } catch (TimeoutException e) {
             throw new DdlException("fetch columnIds RPC result timeout", e);
         }
-        return compactToUniqResp(resultList);
+        return compactToAlterLscInfo(resultList);
     }
 
     /**
      * Since the result collected from several BEs may contain repeated indexes in distributed storage scenarios,
      * we should do consistency check for the result for the same index, and get the unique result.
      */
-    private PFetchColIdsResponse compactToUniqResp(List<PFetchColIdsResponse> resultList) {
+    private AlterLightSchemaChangeInfo compactToAlterLscInfo(List<PFetchColIdsResponse> resultList) {
         final PFetchColIdsResponse.Builder builder = PFetchColIdsResponse.newBuilder();
         Map<Long, Map<String, Integer>> indexIdToTabletInfo = new HashMap<>();
         resultList.forEach(response -> {
@@ -197,27 +204,25 @@ public class AlterLSCHelper {
                         "index: " + indexId + "got inconsistent schema in storage");
             }
         });
-        return builder.build();
+        return new AlterLightSchemaChangeInfo(db.getId(), olapTable.getId(), indexIdToTabletInfo);
     }
 
-    private void updateTableMeta(PFetchColIdsResponse response) throws DdlException {
-        Preconditions.checkState(response.isInitialized());
+    public void updateTableMeta(AlterLightSchemaChangeInfo info) throws DdlException {
+        Preconditions.checkNotNull(info, "passed in info should be not null");
         // update index-meta once and for all
         // schema pair: <maxColId, columns>
         final List<Pair<Integer, List<Column>>> schemaPairs = new ArrayList<>();
         final List<Long> indexIds = new ArrayList<>();
-        response.getEntriesList().forEach(entry -> {
-            final long indexId = entry.getIndexId();
+        info.getIndexIdToColumnInfo().forEach((indexId, colNameToId) -> {
             final List<Column> columns = olapTable.getSchemaByIndexId(indexId, true);
-            final Map<String, Integer> colNameToId = entry.getColNameToIdMap();
             Preconditions.checkState(columns.size() == colNameToId.size(),
-                    "size mismatch for columns meta from BE");
+                    "size mismatch for original columns meta and that in change info");
             int maxColId = Column.COLUMN_UNIQUE_ID_INIT_VALUE;
             final List<Column> newSchema = new ArrayList<>();
             for (Column column : columns) {
                 final String columnName = column.getName();
                 final int columnId = Preconditions.checkNotNull(colNameToId.get(columnName),
-                        "failed to fetch column id of column:{" + columnName + "} from BE");
+                        "failed to fetch column id of column:{" + columnName + "}");
                 final Column newColumn = new Column(column);
                 newColumn.setUniqueId(columnId);
                 newSchema.add(newColumn);
@@ -226,7 +231,8 @@ public class AlterLSCHelper {
             schemaPairs.add(Pair.of(maxColId, newSchema));
             indexIds.add(indexId);
         });
-        Preconditions.checkState(schemaPairs.size() == indexIds.size());
+        Preconditions.checkState(schemaPairs.size() == indexIds.size(),
+                "impossible state, size of schemaPairs and indexIds should be the same");
         // update index-meta once and for all
         try {
             for (int i = 0; i < indexIds.size(); i++) {
@@ -238,14 +244,8 @@ public class AlterLSCHelper {
         } catch (IOException e) {
             throw new DdlException("fail to reset index schema", e);
         }
-    }
-
-    private void modifyTableProperty() {
         // write table property
         olapTable.setEnableLightSchemaChange(true);
-        //write edit log
-        ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), olapTable.getId(),
-                olapTable.getTableProperty().getProperties());
-        Env.getCurrentEnv().getEditLog().logAlterLightSchemaChange(info);
+        LOG.info("successfully update table meta for `light_schema_change`");
     }
 }
