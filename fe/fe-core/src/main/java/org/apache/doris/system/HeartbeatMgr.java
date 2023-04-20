@@ -84,7 +84,7 @@ public class HeartbeatMgr extends MasterDaemon {
 
     public void setMaster(int clusterId, String token, long epoch) {
         TMasterInfo tMasterInfo = new TMasterInfo(
-                new TNetworkAddress(FrontendOptions.getLocalHostAddress(), Config.rpc_port), clusterId, epoch);
+                new TNetworkAddress(FrontendOptions.getHostName(), Config.rpc_port), clusterId, epoch);
         tMasterInfo.setToken(token);
         tMasterInfo.setHttpPort(Config.http_port);
         long flags = heartbeatFlags.getHeartbeatFlags();
