@@ -17,29 +17,38 @@
 
 #pragma once
 
+#include <butil/macros.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <stddef.h>
+
 #include <cstdint>
+#include <functional>
 #include <memory> // unique_ptr
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "common/status.h" // Status
-#include "gen_cpp/segment_v2.pb.h"
-#include "gutil/macros.h"
+#include "gutil/strings/substitute.h"
+#include "olap/olap_define.h"
+#include "olap/rowset/segment_v2/column_writer.h"
 #include "olap/tablet_schema.h"
 #include "util/faststring.h"
-#include "vec/core/block.h"
-#include "vec/olap/olap_data_convertor.h"
+#include "util/slice.h"
 
 namespace doris {
+namespace vectorized {
+class Block;
+class IOlapColumnDataAccessor;
+class OlapBlockDataConvertor;
+} // namespace vectorized
 
 // TODO(lingbin): Should be a conf that can be dynamically adjusted, or a member in the context
 const uint32_t MAX_SEGMENT_SIZE = static_cast<uint32_t>(OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE *
                                                         OLAP_COLUMN_FILE_SEGMENT_SIZE_SCALE);
 class DataDir;
 class MemTracker;
-class RowCursor;
-class TabletSchema;
-class TabletColumn;
 class ShortKeyIndexBuilder;
 class PrimaryKeyIndexBuilder;
 class KeyCoder;
@@ -50,8 +59,6 @@ class FileWriter;
 } // namespace io
 
 namespace segment_v2 {
-
-class ColumnWriter;
 
 extern const char* k_segment_magic;
 extern const uint32_t k_segment_magic_length;

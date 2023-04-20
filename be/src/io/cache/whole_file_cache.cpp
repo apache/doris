@@ -17,9 +17,19 @@
 
 #include "io/cache/whole_file_cache.h"
 
+#include <fmt/format.h>
+#include <glog/logging.h>
+
+#include <filesystem>
+#include <future>
+#include <mutex>
+#include <ostream>
+#include <string>
+
 #include "io/fs/local_file_system.h"
-#include "olap/iterators.h"
-#include "util/async_io.h"
+#include "io/io_common.h"
+#include "runtime/exec_env.h"
+#include "util/threadpool.h"
 
 namespace doris {
 using namespace ErrorCode;

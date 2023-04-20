@@ -18,6 +18,7 @@
 #include "util/easy_json.h"
 
 #include <glog/logging.h>
+#include <rapidjson/allocators.h>
 #include <rapidjson/document.h>
 #include <rapidjson/rapidjson.h>
 #include <rapidjson/stringbuffer.h>

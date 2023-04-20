@@ -33,7 +33,10 @@
 #include "olap/storage_engine.h"
 #include "olap/storage_policy.h"
 #include "olap/tablet.h"
+#include "olap/tablet_manager.h"
+#include "olap/txn_manager.h"
 #include "runtime/descriptor_helper.h"
+#include "runtime/descriptors.h"
 #include "util/s3_util.h"
 
 namespace doris {

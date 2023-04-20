@@ -17,15 +17,31 @@
 
 #include "vec/sink/vresult_sink.h"
 
+#include <fmt/format.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+#include <time.h>
+
+#include <new>
+
+#include "common/config.h"
+#include "common/object_pool.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/exec_env.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/runtime_state.h"
+#include "util/runtime_profile.h"
+#include "util/telemetry/telemetry.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/sink/vmysql_result_writer.h"
+#include "vec/sink/vresult_writer.h"
 
 namespace doris {
+class QueryStatistics;
+class RowDescriptor;
+class TExpr;
+
 namespace vectorized {
+class Block;
 
 VResultSink::VResultSink(const RowDescriptor& row_desc, const std::vector<TExpr>& t_output_expr,
                          const TResultSink& sink, int buffer_size)

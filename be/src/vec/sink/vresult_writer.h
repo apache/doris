@@ -21,6 +21,9 @@
 
 namespace doris {
 namespace vectorized {
+
+class Block;
+
 class VResultWriter : public ResultWriter {
 public:
     VResultWriter() : ResultWriter() {}

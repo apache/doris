@@ -17,11 +17,20 @@
 
 #include "runtime/buffer_control_block.h"
 
-#include "gen_cpp/PaloInternalService_types.h"
-#include "gen_cpp/internal_service.pb.h"
+#include <gen_cpp/Data_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <glog/logging.h>
+#include <google/protobuf/stubs/callback.h>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <ostream>
+#include <string>
+#include <utility>
+#include <vector>
+
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
-#include "service/brpc.h"
 #include "util/thrift_util.h"
 
 namespace doris {

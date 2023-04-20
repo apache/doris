@@ -17,38 +17,32 @@
 
 #include "txn_manager.h"
 
-#include <rapidjson/document.h>
-#include <signal.h>
 #include <thrift/protocol/TDebugProtocol.h>
+#include <time.h>
 
-#include <algorithm>
-#include <boost/algorithm/string.hpp>
-#include <boost/algorithm/string/classification.hpp>
-#include <boost/algorithm/string/split.hpp>
-#include <cstdio>
 #include <filesystem>
+#include <iterator>
+#include <list>
 #include <new>
+#include <ostream>
 #include <queue>
-#include <random>
 #include <set>
+#include <string>
 
-#include "olap/base_compaction.h"
-#include "olap/cumulative_compaction.h"
+#include "common/config.h"
+#include "common/logging.h"
 #include "olap/data_dir.h"
 #include "olap/delta_writer.h"
-#include "olap/lru_cache.h"
-#include "olap/push_handler.h"
-#include "olap/reader.h"
+#include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
-#include "olap/schema_change.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
-#include "olap/tablet_meta_manager.h"
-#include "olap/utils.h"
-#include "rowset/beta_rowset.h"
-#include "util/doris_metrics.h"
-#include "util/pretty_printer.h"
 #include "util/time.h"
+
+namespace doris {
+class OlapMeta;
+} // namespace doris
 
 using apache::thrift::ThriftDebugString;
 using std::filesystem::canonical;
@@ -64,7 +58,6 @@ using std::nothrow;
 using std::pair;
 using std::priority_queue;
 using std::set;
-using std::set_difference;
 using std::string;
 using std::stringstream;
 using std::vector;

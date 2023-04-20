@@ -18,7 +18,6 @@
 #include "vec/aggregate_functions/aggregate_function_percentile_approx.h"
 
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-#include "vec/aggregate_functions/factory_helpers.h"
 #include "vec/aggregate_functions/helpers.h"
 
 namespace doris::vectorized {

@@ -20,23 +20,26 @@
 
 #include "vec/columns/column_vector.h"
 
+#include <fmt/format.h>
 #include <pdqsort.h>
-#include <vec/common/radix_sort.h>
 
-#include <cmath>
-#include <cstring>
+#include <limits>
+#include <ostream>
+#include <string>
 
+#include "util/hash_util.hpp"
 #include "util/simd/bits.h"
-#include "util/stack_util.h"
 #include "vec/columns/column_impl.h"
 #include "vec/columns/columns_common.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/bit_cast.h"
 #include "vec/common/nan_utils.h"
+#include "vec/common/radix_sort.h"
 #include "vec/common/sip_hash.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/sort_block.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
 

@@ -17,17 +17,25 @@
 
 #pragma once
 
-#include "gutil/macros.h"
+#include <stddef.h>
+#include <stdint.h>
+
+#include <memory>
+#include <string>
+#include <utility>
+
+#include "common/status.h"
 #include "io/cache/block/block_file_cache.h"
-#include "io/cache/block/block_file_cache_fwd.h"
-#include "io/cache/block/block_file_cache_profile.h"
-#include "io/cache/block/block_file_segment.h"
 #include "io/fs/file_reader.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "io/fs/file_system.h"
 #include "io/fs/path.h"
-#include "io/fs/s3_file_system.h"
+#include "util/slice.h"
 
 namespace doris {
 namespace io {
+class IOContext;
+struct FileCacheStatistics;
 
 class CachedRemoteFileReader final : public FileReader {
 public:

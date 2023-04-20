@@ -16,17 +16,31 @@
 // under the License.
 
 #pragma once
-#include <queue>
+#include <gen_cpp/Metrics_types.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#include "common/consts.h"
+#include <deque>
+#include <memory>
+#include <queue>
+#include <vector>
+
 #include "common/status.h"
+#include "runtime/runtime_state.h"
+#include "util/runtime_profile.h"
 #include "vec/common/sort/vsort_exec_exprs.h"
 #include "vec/core/block.h"
 #include "vec/core/block_spill_reader.h"
-#include "vec/core/sort_block.h"
+#include "vec/core/field.h"
 #include "vec/core/sort_cursor.h"
+#include "vec/core/sort_description.h"
 #include "vec/runtime/vsorted_run_merger.h"
 #include "vec/utils/util.hpp"
+
+namespace doris {
+class ObjectPool;
+class RowDescriptor;
+} // namespace doris
 
 namespace doris::vectorized {
 

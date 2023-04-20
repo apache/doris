@@ -20,28 +20,41 @@
 
 #pragma once
 
+#include <glog/logging.h>
 #include <parallel_hashmap/phmap.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #include <initializer_list>
 #include <list>
+#include <memory>
+#include <ostream>
 #include <set>
+#include <string>
 #include <utility>
 #include <vector>
 
-#include "gen_cpp/data.pb.h"
-#include "runtime/descriptors.h"
+#include "common/status.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/core/names.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
+
+class SipHash;
 
 namespace doris {
 
-class RowDescriptor;
-class Status;
 class TupleDescriptor;
+class PBlock;
+class SlotDescriptor;
+
+namespace segment_v2 {
+enum CompressionTypePB : int;
+} // namespace segment_v2
 
 namespace vectorized {
 
@@ -52,6 +65,7 @@ namespace vectorized {
   * Allows to insert, remove columns in arbitrary position, to change order of columns.
   */
 class MutableBlock;
+
 class Block {
 private:
     using Container = ColumnsWithTypeAndName;

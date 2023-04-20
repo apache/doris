@@ -23,6 +23,7 @@
 namespace doris {
 
 namespace vectorized {
+class IColumn;
 
 Status DataTypeHLLSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
                                             int end) const {

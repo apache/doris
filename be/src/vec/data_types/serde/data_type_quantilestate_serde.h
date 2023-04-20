@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#pragma once
+
 #include "data_type_serde.h"
 #include "vec/columns/column_complex.h"
 #include "vec/common/arena.h"

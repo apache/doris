@@ -17,9 +17,40 @@
 
 #include "vec/exec/vset_operation_node.h"
 
+#include <fmt/format.h>
+#include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <glog/logging.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+
+#include <array>
+#include <atomic>
+#include <ostream>
+#include <string>
+#include <type_traits>
+#include <utility>
+
+#include "runtime/define_primitive_type.h"
+#include "runtime/runtime_state.h"
 #include "util/defer_op.h"
+#include "util/telemetry/telemetry.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/common/aggregation_common.h"
+#include "vec/common/columns_hashing.h"
+#include "vec/common/uint128.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/materialize_block.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/exec/join/join_op.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
+
 namespace doris {
+class DescriptorTbl;
+class ObjectPool;
+
 namespace vectorized {
 
 //build hash table for operation node, intersect/except node

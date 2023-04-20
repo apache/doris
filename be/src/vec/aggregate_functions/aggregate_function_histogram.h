@@ -17,9 +17,39 @@
 
 #pragma once
 
+#include <rapidjson/stringbuffer.h>
+#include <stddef.h>
+
+#include <iterator>
+#include <map>
+#include <memory>
+#include <string>
+#include <type_traits>
+#include <utility>
+#include <vector>
+
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_decimal.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type_string.h"
+#include "vec/io/io_helper.h"
 #include "vec/utils/histogram_helpers.hpp"
+
+namespace doris {
+namespace vectorized {
+class Arena;
+class BufferReadable;
+class BufferWritable;
+template <typename>
+class ColumnVector;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

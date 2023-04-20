@@ -17,19 +17,34 @@
 
 #pragma once
 
+#include <glog/logging.h>
 #include <parallel_hashmap/phmap.h>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <memory>
+#include <utility>
+#include <vector>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/status.h"
+#include "olap/iterators.h"
 #include "olap/reader.h"
-#include "olap/rowset/rowset_reader.h"
+#include "olap/tablet.h"
+#include "olap/utils.h"
 #include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/olap/vcollect_iterator.h"
-#include "vec/olap/vertical_merge_iterator.h"
+#include "vec/columns/column.h"
+#include "vec/core/block.h"
+#include "vec/data_types/data_type.h"
 
 #pragma once
 
 namespace doris {
+struct RowsetId;
 
 namespace vectorized {
+class RowSourcesBuffer;
 
 class VerticalBlockReader final : public TabletReader {
 public:

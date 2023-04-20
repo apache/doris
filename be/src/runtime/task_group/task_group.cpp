@@ -17,10 +17,16 @@
 
 #include "task_group.h"
 
-#include <charconv>
+#include <fmt/format.h>
+#include <gen_cpp/PaloInternalService_types.h>
 
-#include "gen_cpp/PaloInternalService_types.h"
-#include "pipeline/pipeline_task.h"
+#include <charconv>
+#include <map>
+#include <mutex>
+#include <ostream>
+#include <utility>
+
+#include "common/logging.h"
 
 namespace doris {
 namespace taskgroup {

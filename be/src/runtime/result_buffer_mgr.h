@@ -17,24 +17,26 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+
+#include <ctime>
 #include <map>
+#include <memory>
 #include <mutex>
-#include <thread>
 #include <unordered_map>
 #include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/Types_types.h"
 #include "gutil/ref_counted.h"
+#include "util/countdown_latch.h"
 #include "util/hash_util.hpp"
-#include "util/thread.h"
 
 namespace doris {
 
-class TFetchDataResult;
 class BufferControlBlock;
 struct GetResultBatchCtx;
 class PUniqueId;
+class Thread;
 
 // manage all result buffer control block in one backend
 class ResultBufferMgr {

@@ -17,8 +17,24 @@
 
 #pragma once
 
+#include <string>
+
+#include "common/object_pool.h"
+#include "common/status.h"
+#include "udf/udf.h"
 #include "vec/exprs/vexpr.h"
-#include "vec/functions/function_case.h"
+#include "vec/functions/function.h"
+
+namespace doris {
+class RowDescriptor;
+class RuntimeState;
+class TExprNode;
+
+namespace vectorized {
+class Block;
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

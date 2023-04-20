@@ -17,21 +17,39 @@
 
 #pragma once
 
+#include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/Opcodes_types.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <stddef.h>
+
 #include <memory>
+#include <ostream>
+#include <string>
+#include <utility>
 #include <vector>
 
 #include "common/status.h"
-#include "exprs/bitmapfilter_predicate.h"
-#include "exprs/hybrid_set.h"
-#include "gen_cpp/Exprs_types.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/types.h"
 #include "udf/udf.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
-#include "vec/exprs/vexpr_context.h"
 #include "vec/functions/function.h"
 
 namespace doris {
+class BitmapFilterFuncBase;
+class BloomFilterFuncBase;
+class HybridSetBase;
+class ObjectPool;
+class RowDescriptor;
+class RuntimeState;
+
 namespace vectorized {
+class VExprContext;
 
 #define RETURN_IF_ERROR_OR_PREPARED(stmt) \
     if (_prepared) {                      \

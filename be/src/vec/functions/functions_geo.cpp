@@ -17,9 +17,21 @@
 
 #include "vec/functions/functions_geo.h"
 
+#include <glog/logging.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <utility>
+
+#include "geo/geo_common.h"
 #include "geo/geo_types.h"
-#include "gutil/strings/substitute.h"
-#include "vec/columns/column_const.h"
+#include "vec/columns/column.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/field.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {

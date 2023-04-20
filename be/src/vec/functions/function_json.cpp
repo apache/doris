@@ -15,29 +15,60 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <rapidjson/allocators.h>
 #include <rapidjson/document.h>
+#include <rapidjson/encodings.h>
+#include <rapidjson/rapidjson.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
+#include <re2/re2.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
 
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
 #include <boost/token_functions.hpp>
+#include <boost/tokenizer.hpp>
+#include <memory>
+#include <string>
 #include <string_view>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/status.h"
 #include "exprs/json_functions.h"
+#include "util/jsonb_parser_simd.h"
 #include "util/string_parser.hpp"
 #include "util/string_util.h"
+#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/functions/function.h"
 #include "vec/functions/function_string.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/utils/template_helpers.hpp"
+
+namespace doris {
+class FunctionContext;
+} // namespace doris
 
 namespace doris::vectorized {
 static const re2::RE2 JSON_PATTERN("^([^\\\"\\[\\]]*)(?:\\[([0-9]+|\\*)\\])?");

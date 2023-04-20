@@ -17,7 +17,12 @@
 
 #include "data_type_string_serde.h"
 
+#include <gen_cpp/types.pb.h>
+#include <stddef.h>
+
+#include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 namespace vectorized {

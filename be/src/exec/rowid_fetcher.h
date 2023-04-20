@@ -23,7 +23,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris {

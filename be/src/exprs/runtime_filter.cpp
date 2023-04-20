@@ -384,6 +384,7 @@ public:
             _is_bloomfilter = true;
             _context.bloom_filter_func.reset(create_bloom_filter(_column_return_type));
             _context.bloom_filter_func->set_length(params->bloom_filter_size);
+            _context.bloom_filter_func->set_build_bf_exactly(params->build_bf_exactly);
             return Status::OK();
         }
         case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
@@ -411,6 +412,11 @@ public:
         insert_to_bloom_filter(_context.bloom_filter_func.get());
         // release in filter
         _context.hybrid_set.reset(create_set(_column_return_type));
+    }
+
+    Status init_bloom_filter(const size_t build_bf_cardinality) {
+        DCHECK(_filter_type == RuntimeFilterType::BLOOM_FILTER);
+        return _context.bloom_filter_func->init_with_cardinality(build_bf_cardinality);
     }
 
     void insert_to_bloom_filter(BloomFilterFuncBase* bloom_filter) const {
@@ -1034,11 +1040,12 @@ private:
 
 Status IRuntimeFilter::create(RuntimeState* state, ObjectPool* pool, const TRuntimeFilterDesc* desc,
                               const TQueryOptions* query_options, const RuntimeFilterRole role,
-                              int node_id, IRuntimeFilter** res) {
+                              int node_id, IRuntimeFilter** res, bool build_bf_exactly) {
     *res = pool->add(new IRuntimeFilter(state, pool));
     (*res)->set_role(role);
     UniqueId fragment_instance_id(state->fragment_instance_id());
-    return (*res)->init_with_desc(desc, query_options, fragment_instance_id, node_id);
+    return (*res)->init_with_desc(desc, query_options, fragment_instance_id, node_id,
+                                  build_bf_exactly);
 }
 
 void IRuntimeFilter::copy_to_shared_context(vectorized::SharedRuntimeFilterContext& context) {
@@ -1241,7 +1248,8 @@ BloomFilterFuncBase* IRuntimeFilter::get_bloomfilter() const {
 }
 
 Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options,
-                                      UniqueId fragment_instance_id, int node_id) {
+                                      UniqueId fragment_instance_id, int node_id,
+                                      bool build_bf_exactly) {
     // if node_id == -1 , it shouldn't be a consumer
     DCHECK(node_id >= 0 || (node_id == -1 && !is_consumer()));
 
@@ -1273,6 +1281,8 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     params.filter_type = _runtime_filter_type;
     params.column_return_type = build_ctx->root()->type().type;
     params.max_in_num = options->runtime_filter_max_in_num;
+    params.build_bf_exactly = build_bf_exactly && !_has_remote_target &&
+                              _runtime_filter_type == RuntimeFilterType::BLOOM_FILTER;
     if (desc->__isset.bloom_filter_size_bytes) {
         params.bloom_filter_size = desc->bloom_filter_size_bytes;
     }
@@ -1334,6 +1344,10 @@ void IRuntimeFilter::change_to_bloom_filter() {
     if (origin_type != _wrapper->get_real_type()) {
         update_runtime_filter_type_to_profile();
     }
+}
+
+Status IRuntimeFilter::init_bloom_filter(const size_t build_bf_cardinality) {
+    return _wrapper->init_bloom_filter(build_bf_cardinality);
 }
 
 template <class T>

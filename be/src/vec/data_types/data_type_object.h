@@ -19,11 +19,29 @@
 // and modified by Doris
 
 #pragma once
-#include <vec/columns/column_object.h>
-#include <vec/core/field.h>
-#include <vec/data_types/data_type.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <memory>
+#include <ostream>
+#include <string>
+
+#include "runtime/define_primitive_type.h"
 #include "serde/data_type_object_serde.h"
+#include "vec/columns/column_object.h"
+#include "vec/common/assert_cast.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/serde/data_type_serde.h"
+
+namespace doris {
+namespace vectorized {
+class IColumn;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 class DataTypeObject : public IDataType {

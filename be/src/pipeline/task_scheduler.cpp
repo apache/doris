@@ -17,9 +17,30 @@
 
 #include "task_scheduler.h"
 
+#include <fmt/format.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/types.pb.h>
+#include <glog/logging.h>
+#include <sched.h>
+
+#include <algorithm>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <functional>
+#include <ostream>
+#include <string>
+#include <thread>
+
 #include "common/signal_handler.h"
+#include "pipeline/pipeline_task.h"
+#include "pipeline/task_queue.h"
 #include "pipeline_fragment_context.h"
+#include "runtime/query_fragments_ctx.h"
+#include "util/sse_util.hpp"
 #include "util/thread.h"
+#include "util/threadpool.h"
+#include "util/uid_util.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris::pipeline {
 

@@ -20,8 +20,10 @@
 
 #pragma once
 
-#include <gperftools/malloc_extension.h>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <atomic>
 #include <string>
 
 #include "common/logging.h"
@@ -31,7 +33,6 @@
 #include <gperftools/malloc_extension.h>
 #endif
 #include "util/perf_counters.h"
-#include "util/pretty_printer.h"
 
 namespace doris {
 

@@ -17,15 +17,61 @@
 
 #include "vparquet_group_reader.h"
 
+#include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/Opcodes_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/parquet_types.h>
+#include <string.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <ostream>
+
+#include "common/config.h"
+#include "common/logging.h"
+#include "common/object_pool.h"
+#include "common/status.h"
 #include "exprs/create_predicate_function.h"
+#include "exprs/hybrid_set.h"
+#include "gutil/stringprintf.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/descriptors.h"
+#include "runtime/thread_context.h"
+#include "runtime/types.h"
 #include "schema_desc.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/pod_array.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_string.h"
 #include "vec/exprs/vdirect_in_predicate.h"
 #include "vec/exprs/vectorized_fn_call.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vparquet_column_reader.h"
+
+namespace cctz {
+class time_zone;
+} // namespace cctz
+namespace doris {
+class RuntimeState;
+
+namespace io {
+class IOContext;
+} // namespace io
+} // namespace doris
 
 namespace doris::vectorized {
 

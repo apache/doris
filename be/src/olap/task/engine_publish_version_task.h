@@ -18,13 +18,25 @@
 #ifndef DORIS_BE_SRC_OLAP_TASK_ENGINE_PUBLISH_VERSION_TASK_H
 #define DORIS_BE_SRC_OLAP_TASK_ENGINE_PUBLISH_VERSION_TASK_H
 
-#include "gen_cpp/AgentService_types.h"
-#include "olap/olap_define.h"
+#include <gen_cpp/Types_types.h>
+#include <stdint.h>
+
+#include <atomic>
+#include <condition_variable>
+#include <mutex>
+#include <vector>
+
+#include "common/status.h"
+#include "olap/olap_common.h"
+#include "olap/rowset/rowset.h"
+#include "olap/tablet.h"
 #include "olap/task/engine_task.h"
 
 namespace doris {
 
 class EnginePublishVersionTask;
+class TPublishVersionRequest;
+
 class TabletPublishTxnTask {
 public:
     TabletPublishTxnTask(EnginePublishVersionTask* engine_task, TabletSharedPtr tablet,

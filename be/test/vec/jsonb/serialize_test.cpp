@@ -16,10 +16,12 @@
 // under the License.
 #include "vec/jsonb/serialize.h"
 
+#include <gen_cpp/Descriptors_types.h>
 #include <gtest/gtest.h>
 
 #include "gen_cpp/descriptors.pb.h"
 #include "olap/tablet_schema.h"
+#include "runtime/descriptors.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
@@ -36,6 +38,7 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_time_v2.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {

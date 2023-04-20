@@ -15,7 +15,8 @@
 #include <string_view>
 #include <utility>
 
-#include "common/compiler_util.h"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #ifdef ENABLE_STACKTRACE
 #include "util/stack_util.h"
 #endif

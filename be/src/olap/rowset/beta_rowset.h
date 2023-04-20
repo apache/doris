@@ -18,22 +18,29 @@
 #ifndef DORIS_SRC_OLAP_ROWSET_BETA_ROWSET_H_
 #define DORIS_SRC_OLAP_ROWSET_BETA_ROWSET_H_
 
-#include <cstdint>
-#include <string>
+#include <stddef.h>
 
-#include "olap/olap_common.h"
-#include "olap/olap_define.h"
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/segment_v2/segment.h"
+#include "olap/tablet_schema.h"
 
 namespace doris {
 
-class BetaRowsetReader;
-class RowsetFactory;
-
 class BetaRowset;
+
+namespace io {
+class RemoteFileSystem;
+} // namespace io
+struct RowsetId;
+
 using BetaRowsetSharedPtr = std::shared_ptr<BetaRowset>;
 
 class BetaRowset : public Rowset {

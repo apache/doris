@@ -21,10 +21,6 @@
 
 #include <string>
 
-#include "geo/geo_common.h"
-#include "geo/geo_tobinary_type.h"
-#include "geo/wkt_parse_type.h"
-
 struct ToBinaryContext;
 
 namespace doris {
