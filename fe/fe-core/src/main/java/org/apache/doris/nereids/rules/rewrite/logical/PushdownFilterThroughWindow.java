@@ -79,7 +79,7 @@ public class PushdownFilterThroughWindow extends OneRewriteRuleFactory {
 
             if (window.getPartitionLimit() > 0) {
                 // The window already has the partition limit, so return directly.
-                return filter;
+                return null;
             }
 
             // Check the filter conditions. Now, we currently only support
@@ -87,19 +87,19 @@ public class PushdownFilterThroughWindow extends OneRewriteRuleFactory {
             // TODO: Support more complex situations in filter conditions.
             Set<Expression> conjuncts = filter.getConjuncts();
             if (conjuncts.size() != 1) {
-                return filter;
+                return null;
             }
 
             Expression conjunct = conjuncts.iterator().next();
             if (!(conjunct instanceof LessThan || conjunct instanceof LessThanEqual)) {
-                return filter;
+                return null;
             }
 
             BinaryOperator op = (BinaryOperator) conjunct;
             Expression leftChild = op.children().get(0);
             Expression rightChild = op.children().get(1);
             if (!(leftChild instanceof SlotReference) || !(rightChild instanceof IntegerLikeLiteral)) {
-                return filter;
+                return null;
             }
 
             // Adjust the value for 'limitVal' based on the comparison operators.
@@ -118,29 +118,29 @@ public class PushdownFilterThroughWindow extends OneRewriteRuleFactory {
             // 4. The window frame should be 'UNBOUNDED' to 'CURRENT'.
             List<NamedExpression> windowExprs = window.getWindowExpressions();
             if (windowExprs.size() != 1) {
-                return filter;
+                return null;
             }
             NamedExpression windowExpr = windowExprs.get(0);
             if (windowExpr.children().size() != 1 || !(windowExpr.child(0) instanceof WindowExpression)) {
-                return filter;
+                return null;
             }
 
             // Check the column in filter conditions.
             // The column used in the filter condition must match the slot
             // reference for the window function result used as the alias.
             if (!checkSlotReferenceMatch(leftChild, windowExpr)) {
-                return filter;
+                return null;
             }
 
             WindowExpression windowFunc = (WindowExpression) windowExpr.child(0);
             // Check the window function name.
             if (!checkWindowFuncName(windowFunc)) {
-                return filter;
+                return null;
             }
 
             // Check the window type and window frame.
             if (!checkWindowFrame(windowFunc)) {
-                return filter;
+                return null;
             }
 
             // Embedded the limit value to the window.
