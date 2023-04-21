@@ -107,7 +107,7 @@ public:
         }
     }
 
-    InListPredicateBase(uint32_t column_id, const std::shared_ptr<HybridSetBase>& hybrid_set,
+    InListPredicateBase(uint32_t column_id, const std::shared_ptr<HybridSetType>& hybrid_set,
                         size_t char_length = 0)
             : ColumnPredicate(column_id, false),
               _min_value(type_limit<T>::max()),
