@@ -516,6 +516,12 @@ const ColumnPtr& ColumnObject::Subcolumn::get_finalized_column_ptr() const {
     return data[0];
 }
 
+void ColumnObject::Subcolumn::remove_nullable() {
+    assert(is_finalized());
+    data[0] = doris::vectorized::remove_nullable(data[0]);
+    least_common_type.remove_nullable();
+}
+
 ColumnObject::Subcolumn::LeastCommonType::LeastCommonType(DataTypePtr type_)
         : type(std::move(type_)),
           base_type(getBaseTypeOfArray(type)),
@@ -903,7 +909,6 @@ void align_variant_by_name_and_type(ColumnObject& dst, const ColumnObject& src, 
     // if src and dst is empty, we just increase the num_rows of dst and fill
     // num_rows of default values when meet new data
     size_t num_rows = dst.rows();
-    bool need_inc_row_num = true;
     for (auto& entry : dst.get_subcolumns()) {
         const auto* src_subcol = src.get_subcolumn(entry->path);
         if (src_subcol == nullptr) {
@@ -915,6 +920,7 @@ void align_variant_by_name_and_type(ColumnObject& dst, const ColumnObject& src, 
             const auto& src_column = src_subcol->get_finalized_column();
             inserter(src_column, &entry->data.get_finalized_column());
         }
+        dst.set_num_rows(entry->data.get_finalized_column().size());
     }
     for (const auto& entry : src.get_subcolumns()) {
         // encounter a new column
@@ -924,15 +930,12 @@ void align_variant_by_name_and_type(ColumnObject& dst, const ColumnObject& src, 
             auto new_column = type->create_column();
             new_column->insert_many_defaults(num_rows);
             inserter(entry->data.get_finalized_column(), new_column.get());
-            if (dst.empty()) {
-                // add_sub_column updated num_rows of dst object
-                need_inc_row_num = false;
-            }
+            dst.set_num_rows(new_column->size());
             dst.add_sub_column(entry->path, std::move(new_column));
         }
     }
     num_rows += row_cnt;
-    if (need_inc_row_num) {
+    if (dst.empty()) {
         dst.incr_num_rows(row_cnt);
     }
 #ifndef NDEBUG
