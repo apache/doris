@@ -77,12 +77,18 @@ public class Transaction {
         this.database = database;
         this.table = table;
         this.planner = planner;
-        this.coordinator = new Coordinator(ctx, null, planner, ctx.getStatsErrorEstimator());
-        this.txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
-                database.getId(), ImmutableList.of(table.getId()), labelName,
-                new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
-                LoadJobSourceType.INSERT_STREAMING, ctx.getExecTimeout());
-        this.createAt = System.currentTimeMillis();
+        if (!ctx.isTxnModel()) {
+            this.coordinator = new Coordinator(ctx, null, planner, ctx.getStatsErrorEstimator());
+            this.txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
+                    database.getId(), ImmutableList.of(table.getId()), labelName,
+                    new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                    LoadJobSourceType.INSERT_STREAMING, ctx.getExecTimeout());
+            this.createAt = System.currentTimeMillis();
+        } else {
+            this.coordinator = null;
+            this.txnId = ctx.getTxnEntry().getTxnConf().getTxnId();
+            this.createAt = -1;
+        }
     }
 
     public long getTxnId() {
