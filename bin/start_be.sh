@@ -71,6 +71,10 @@ if [[ "$(uname -s)" != 'Darwin' ]]; then
     fi
 fi
 
+if [ "$(cat /proc/swaps | wc -l)" -ne 1 ]; then
+    echo "Please disable swap partitioning before installation"
+fi
+
 # add java libs
 for f in "${DORIS_HOME}/lib"/*.jar; do
     if [[ -z "${DORIS_CLASSPATH}" ]]; then
