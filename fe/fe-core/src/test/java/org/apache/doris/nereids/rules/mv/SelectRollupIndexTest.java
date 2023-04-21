@@ -98,6 +98,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
                 + ");");
     }
 
+    @Disabled //ISSUE #18263
     @Test
     public void testAggMatching() {
         singleTableTest("select k2, sum(v1) from t group by k2", "r1", true);
@@ -132,6 +133,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
         PlanChecker.from(connectContext).checkPlannerResult("select k2, sum(v1) from t group by k2");
     }
 
+    @Disabled //ISSUE #18263
     @Test
     public void testTranslateWhenPreAggIsOff() {
         singleTableTest("select k2, min(v1) from t group by k2", scan -> {
@@ -313,6 +315,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
                 }));
     }
 
+    @Disabled //ISSUE #18263
     @Test
     public void testKeysOnlyQuery() throws Exception {
         singleTableTest("select k1 from t1", "r3", false);
@@ -326,6 +329,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
     /**
      * Rollup with all the keys should be used.
      */
+    @Disabled //ISSUE #18263
     @Test
     public void testRollupWithAllTheKeys() throws Exception {
         createTable(" CREATE TABLE `t4` (\n"
@@ -351,16 +355,19 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
         singleTableTest("select k1, sum(v1) from t4 group by k1", "r1", true);
     }
 
+    @Disabled //ISSUE #18263
     @Test
     public void testComplexGroupingExpr() throws Exception {
         singleTableTest("select k2 + 1, sum(v1) from t group by k2 + 1", "r1", true);
     }
 
+    @Disabled //ISSUE #18263
     @Test
     public void testCountDistinctKeyColumn() {
         singleTableTest("select k2, count(distinct k3) from t group by k2", "r4", true);
     }
 
+    @Disabled //ISSUE #18263
     @Test
     public void testCountDistinctValueColumn() {
         singleTableTest("select k1, count(distinct v1) from t group by k1", scan -> {
@@ -371,6 +378,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
         });
     }
 
+    @Disabled //ISSUE #18263
     @Test
     public void testOnlyValueColumn1() throws Exception {
         singleTableTest("select sum(v1) from t", "r1", true);

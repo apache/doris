@@ -52,9 +52,13 @@ public:
 
     Status read(Block* block, bool* eos);
 
+    void seek(size_t block_index);
+
     int64_t get_id() const { return stream_id_; }
 
     std::string get_path() const { return file_path_; }
+
+    size_t block_count() const { return block_count_; }
 
 private:
     void _init_profile();
@@ -73,6 +77,8 @@ private:
     RuntimeProfile* profile_ = nullptr;
     RuntimeProfile::Counter* read_time_;
     RuntimeProfile::Counter* deserialize_time_;
+    RuntimeProfile::Counter* read_bytes_;
+    RuntimeProfile::Counter* read_block_num_;
 };
 
 using BlockSpillReaderUPtr = std::unique_ptr<BlockSpillReader>;

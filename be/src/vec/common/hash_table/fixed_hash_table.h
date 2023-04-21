@@ -201,7 +201,7 @@ public:
         free();
 
         std::swap(buf, rhs.buf);
-        this->setSize(rhs.size());
+        this->set_size(rhs.size());
 
         Allocator::operator=(std::move(rhs));
         Cell::State::operator=(std::move(rhs));
