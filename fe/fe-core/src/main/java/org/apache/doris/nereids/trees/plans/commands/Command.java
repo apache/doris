@@ -104,6 +104,11 @@ public abstract class Command extends AbstractPlan implements LogicalPlan {
     }
 
     @Override
+    public boolean isCommand() {
+        return true;
+    }
+
+    @Override
     public List<Slot> getOutput() {
         throw new RuntimeException("Command do not implement getOutput");
     }
