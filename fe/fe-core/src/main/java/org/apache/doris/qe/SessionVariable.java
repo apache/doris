@@ -863,10 +863,12 @@ public class SessionVariable implements Serializable, Writable {
             this.enablePipelineEngine = true;
             // this.enableFoldConstantByBe = true;
             // this.enableTwoPhaseReadOpt = false;
+            this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
         } else {
             // this.enablePipelineEngine = false;
             // this.enableFoldConstantByBe = false;
             // this.enableTwoPhaseReadOpt = true;
+            this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
         }
 
         if (Config.fuzzy_test_type.equals("p0")) {
