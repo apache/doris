@@ -340,7 +340,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         createTableAsSelect(createSql);
         ShowResultSet showResultSet = showCreateTableByName("test_use_key_type");
         Assertions.assertEquals(
-                "CREATE TABLE `test_use_key_type` (\n" + "  `userId` varchar(65533) NOT NULL,\n"
+                "CREATE TABLE `test_use_key_type` (\n" + "  `userId` varchar(255) NOT NULL,\n"
                         + "  `username` text NOT NULL\n" + ") ENGINE=OLAP\n" + "UNIQUE KEY(`userId`)\n"
                         + "COMMENT 'OLAP'\n" + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n" + "PROPERTIES (\n"
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n" + "\"in_memory\" = \"false\",\n"
