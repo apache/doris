@@ -101,7 +101,7 @@ public:
                const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
                TabletUid tablet_uid, TTabletType::type tabletType,
                TCompressionType::type compression_type, int64_t storage_policy_id = 0,
-               bool enable_unique_key_merge_on_write = false, bool duplicate_no_keys = false);
+               bool enable_unique_key_merge_on_write = false);
     // If need add a filed in TableMeta, filed init copy in copy construct function
     TabletMeta(const TabletMeta& tablet_meta);
     TabletMeta(TabletMeta&& tablet_meta) = delete;
@@ -216,7 +216,9 @@ public:
     DeleteBitmap& delete_bitmap() { return *_delete_bitmap; }
 
     bool enable_unique_key_merge_on_write() const { return _enable_unique_key_merge_on_write; }
-    bool duplicate_no_keys() const { return _duplicate_no_keys; }
+    bool duplicate_no_keys() const {
+        return _schema->keys_type() == KeysType::DUP_KEYS && _schema->num_key_columns() == 0;
+    }
 
     bool is_dropped() const;
     void set_is_dropped(bool is_dropped);
@@ -262,7 +264,6 @@ private:
     // which can avoid the merging cost in read stage, and accelerate the aggregation
     // query performance significantly.
     bool _enable_unique_key_merge_on_write = false;
-    bool _duplicate_no_keys = false;
     std::shared_ptr<DeleteBitmap> _delete_bitmap;
 
     // _is_dropped is true means that the table has been dropped, and the tablet will not be compacted

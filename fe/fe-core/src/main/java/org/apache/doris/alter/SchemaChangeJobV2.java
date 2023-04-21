@@ -297,8 +297,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     tbl.getEnableUniqueKeyMergeOnWrite(), tbl.getStoragePolicy(),
                                     tbl.disableAutoCompaction(),
                                     tbl.storeRowColumn(),
-                                    tbl.isDynamicSchema(),
-                                    tbl.getDuplicateNoKeys());
+                                    tbl.isDynamicSchema());
 
                             createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdxId)
                                     .get(shadowTabletId), originSchemaHash);

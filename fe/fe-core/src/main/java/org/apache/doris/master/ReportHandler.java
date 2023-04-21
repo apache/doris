@@ -784,8 +784,7 @@ public class ReportHandler extends Daemon {
                                             olapTable.getCompressionType(),
                                             olapTable.getEnableUniqueKeyMergeOnWrite(), olapTable.getStoragePolicy(),
                                             olapTable.disableAutoCompaction(),
-                                            olapTable.storeRowColumn(), olapTable.isDynamicSchema(),
-                                            olapTable.getDuplicateNoKeys());
+                                            olapTable.storeRowColumn(), olapTable.isDynamicSchema());
 
                                     createReplicaTask.setIsRecoverTask(true);
                                     createReplicaBatchTask.addTask(createReplicaTask);

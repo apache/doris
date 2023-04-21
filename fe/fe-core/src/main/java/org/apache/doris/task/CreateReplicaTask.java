@@ -102,8 +102,6 @@ public class CreateReplicaTask extends AgentTask {
 
     private boolean storeRowColumn;
 
-    private boolean duplicateNoKeys = false;
-
     public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
                              long replicaId, short shortKeyColumnCount, int schemaHash, long version,
                              KeysType keysType, TStorageType storageType,
@@ -117,8 +115,7 @@ public class CreateReplicaTask extends AgentTask {
                              boolean enableUniqueKeyMergeOnWrite,
                              String storagePolicy, boolean disableAutoCompaction,
                              boolean storeRowColumn,
-                             boolean isDynamicSchema,
-                             boolean duplicateNoKeys) {
+                             boolean isDynamicSchema) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
         this.replicaId = replicaId;
@@ -154,7 +151,6 @@ public class CreateReplicaTask extends AgentTask {
         }
         this.disableAutoCompaction = disableAutoCompaction;
         this.storeRowColumn = storeRowColumn;
-        this.duplicateNoKeys = (keysType == keysType.DUP_KEYS && duplicateNoKeys);
     }
 
     public void setIsRecoverTask(boolean isRecoverTask) {
@@ -288,7 +284,6 @@ public class CreateReplicaTask extends AgentTask {
         createTabletReq.setTabletType(tabletType);
         createTabletReq.setCompressionType(compressionType);
         createTabletReq.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
-        createTabletReq.setDuplicateNoKeys(duplicateNoKeys);
         return createTabletReq;
     }
 }
