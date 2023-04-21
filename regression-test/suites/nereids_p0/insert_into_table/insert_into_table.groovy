@@ -102,7 +102,7 @@ suite("nereids_insert_into_table") {
         ])
     }
 
-    sql 'insert into target partition (p10, p5) (k1, k2, k3) with cte as (select 9, k2, k4 from src where k1 < 10 and k1 > 2) select * from cte'
+    sql 'insert into target partition (p10, p5) (k1, k2, k3) with cte as (select 9, k2, k3 from src where k1 < 10 and k1 > 2) select * from cte'
     test {
         sql 'select * from target order by k1, k2'
         result([
