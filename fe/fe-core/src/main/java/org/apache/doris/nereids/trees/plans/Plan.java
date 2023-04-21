@@ -170,4 +170,8 @@ public interface Plan extends TreeNode<Plan> {
     default String shapeInfo() {
         return this.getClass().getSimpleName();
     }
+
+    default boolean isCommand() {
+        return false;
+    }
 }

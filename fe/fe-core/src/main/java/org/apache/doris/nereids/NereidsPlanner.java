@@ -46,7 +46,6 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -515,7 +514,7 @@ public class NereidsPlanner extends Planner {
     }
 
     public static PhysicalProperties buildInitRequireProperties(Plan initPlan) {
-        boolean isQuery = !(initPlan instanceof Command) || (initPlan instanceof ExplainCommand);
+        boolean isQuery = !initPlan.isCommand() || (initPlan instanceof ExplainCommand);
         return isQuery ? PhysicalProperties.GATHER : PhysicalProperties.ANY;
     }
 
