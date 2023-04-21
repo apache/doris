@@ -394,7 +394,7 @@ public class OlapTableSink extends DataSink {
             DatabaseTransactionMgr mgr = Env.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(dbId);
             mgr.registerTxnReplicas(txnId, replicaNum);
         } catch (Exception e) {
-            LOG.error("register txn replica failed, txnId={}, dbId={}", txnId, dbId);
+            LOG.error("register txn replica failed, txnId={}, dbId={}, err={}", txnId, dbId, e.getMessage());
         }
         return Arrays.asList(locationParam, slaveLocationParam);
     }

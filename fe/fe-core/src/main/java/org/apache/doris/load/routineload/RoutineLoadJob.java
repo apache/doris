@@ -1332,10 +1332,14 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         List<List<String>> rows = Lists.newArrayList();
         routineLoadTaskInfoList.forEach(entity -> {
             try {
-                entity.setTxnStatus(Env.getCurrentEnv().getGlobalTransactionMgr().getDatabaseTransactionMgr(dbId)
-                        .getTransactionState(entity.getTxnId()).getTransactionStatus());
+                TransactionState transactionState = Env.getCurrentEnv().getGlobalTransactionMgr()
+                        .getDatabaseTransactionMgr(dbId).getTransactionState(entity.getTxnId());
+                if (transactionState == null) {
+                    throw new UserException("transaction [" + entity.getTxnId() + "] not found");
+                }
+                entity.setTxnStatus(transactionState.getTransactionStatus());
                 rows.add(entity.getTaskShowInfo());
-            } catch (AnalysisException e) {
+            } catch (UserException e) {
                 LOG.warn("failed to setTxnStatus db: {}, txnId: {}, err: {}", dbId, entity.getTxnId(), e.getMessage());
             }
         });
