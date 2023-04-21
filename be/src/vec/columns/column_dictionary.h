@@ -288,7 +288,9 @@ public:
     }
 
     uint32_t get_hash_value(uint32_t idx) const { return _dict.get_hash_value(_codes[idx], _type); }
-    uint32_t get_crc32_hash_value(uint32_t idx) const { return _dict.get_crc32_hash_value(_codes[idx], _type); }
+    uint32_t get_crc32_hash_value(uint32_t idx) const {
+        return _dict.get_crc32_hash_value(_codes[idx], _type);
+    }
     template <typename HybridSetType>
     void find_codes(const HybridSetType* values, std::vector<vectorized::UInt8>& selected) const {
         return _dict.find_codes(values, selected);
@@ -396,7 +398,7 @@ public:
             }
         }
 
-         inline uint32_t get_crc32_hash_value(T code, FieldType type) const {
+        inline uint32_t get_crc32_hash_value(T code, FieldType type) const {
             if (_compute_hash_value_flags[code]) {
                 return _hash_values[code];
             } else {
@@ -420,7 +422,6 @@ public:
                 return _hash_values[code];
             }
         }
-
 
         // For > , code takes upper_bound - 1; For >= , code takes upper_bound
         // For < , code takes upper_bound; For <=, code takes upper_bound - 1
