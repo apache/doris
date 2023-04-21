@@ -212,6 +212,9 @@ public class ExpressionUtils {
                 minSlot = slot;
             } else {
                 int slotDataTypeWidth = slot.getDataType().width();
+                if (slotDataTypeWidth < 0) {
+                    continue;
+                }
                 minSlot = minSlot.getDataType().width() > slotDataTypeWidth ? slot : minSlot;
             }
         }
