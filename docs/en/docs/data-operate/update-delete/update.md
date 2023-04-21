@@ -123,6 +123,9 @@ Since the table order is a UNIQUE model, the rows with the same Key, after which
   |---|---|---| 
   | 1 | 100 | Pending shipments |
 
+## Update primary key column data
+When using FlinkCDC to synchronize data, the modification of upstream business primary key column data can automatically update the data in Doris. For details, see [Using FlinkCDC to update key column data synchronously](../../ecosystem/flink-doris-connector.md#Use-FlinkCDC-to-update-Key-column-data-synchronously)
+
 ## More Help
 
 For more detailed syntax used by **data update**, please refer to the [update](../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/UPDATE.md) command manual , you can also enter `HELP UPDATE` in the Mysql client command line to get more help information.
