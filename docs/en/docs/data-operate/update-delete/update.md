@@ -124,7 +124,7 @@ Since the table order is a UNIQUE model, the rows with the same Key, after which
   | 1 | 100 | Pending shipments |
 
 ## Update primary key column data
-When using FlinkCDC to synchronize data, the modification of upstream business primary key column data can automatically update the data in Doris. For details, see [Using FlinkCDC to update key column data synchronously](../../ecosystem/flink-doris-connector.md#Use-FlinkCDC-to-update-Key-column-data-synchronously)
+Currently, the Update operation only supports updating the Value column, and the update of the Key column can refer to [Using FlinkCDC to update key column data synchronously](../../ecosystem/flink-doris-connector.md#Use-FlinkCDC-to-update-Key-column-data-synchronously)
 
 ## More Help
 

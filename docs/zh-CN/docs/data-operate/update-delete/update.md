@@ -121,7 +121,7 @@ Query OK, 1 row affected (0.11 sec)
   | 1 | 100 | 待发货 |
 
 ## 更新主键列数据
-在使用FlinkCDC同步数据时，上游业务主键列数据的修改，可自动更新Doris中的数据，具体可见[使用FlinkCDC同步更新Key列数据](../../ecosystem/flink-doris-connector.md#使用FlinkCDC同步更新Key列数据)
+目前Update操作只支持更新Value列，Key列的更新可参考[使用FlinkCDC同步更新Key列数据](../../ecosystem/flink-doris-connector.md#使用FlinkCDC同步更新Key列数据)
 
 ## 更多帮助
 
