@@ -53,8 +53,6 @@ struct PrefetchRange {
     PrefetchRange(size_t start_offset, size_t end_offset)
             : start_offset(start_offset), end_offset(end_offset) {}
 
-    PrefetchRange(const PrefetchRange& other) = default;
-
     PrefetchRange() : start_offset(0), end_offset(0) {}
 };
 
