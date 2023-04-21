@@ -56,6 +56,8 @@ public class StatementContext {
     @GuardedBy("this")
     private final Map<String, Supplier<Object>> contextCacheMap = Maps.newLinkedHashMap();
 
+    // NOTICE: we set the plan parsed by DorisParser to parsedStatement and if the plan is command, create a
+    // LogicalPlanAdapter with the logical plan in the command.
     private StatementBase parsedStatement;
 
     private Set<String> columnNames;

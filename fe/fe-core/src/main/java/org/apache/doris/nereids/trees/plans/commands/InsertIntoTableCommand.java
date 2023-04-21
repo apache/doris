@@ -91,7 +91,6 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
                 .collect(Collectors.toList()));
 
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
-        executor.setParsedStmt(logicalPlanAdapter);
         planner = new NereidsPlanner(ctx.getStatementContext());
         planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
 

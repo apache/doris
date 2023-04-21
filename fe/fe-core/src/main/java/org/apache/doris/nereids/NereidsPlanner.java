@@ -118,6 +118,8 @@ public class NereidsPlanner extends Planner {
         NereidsTracer.logImportantTime("EndParsePlan");
         setParsedPlan(parsedPlan);
         PhysicalProperties requireProperties = buildInitRequireProperties(parsedPlan);
+        PhysicalProperties requireProperties = buildInitRequireProperties(
+                ((LogicalPlanAdapter) statementContext.getParsedStatement()).getLogicalPlan());
         Plan resultPlan = plan(parsedPlan, requireProperties, explainLevel);
         setOptimizedPlan(resultPlan);
         if (explainLevel.isPlanLevel) {
