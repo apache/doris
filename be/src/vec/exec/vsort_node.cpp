@@ -38,6 +38,7 @@ Status VSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
     _is_asc_order = tnode.sort_node.sort_info.is_asc_order;
     _nulls_first = tnode.sort_node.sort_info.nulls_first;
     const auto& row_desc = child(0)->row_desc();
+
     // If `limit` is smaller than HEAP_SORT_THRESHOLD, we consider using heap sort in priority.
     // To do heap sorting, each income block will be filtered by heap-top row. There will be some
     // `memcpy` operations. To ensure heap sort will not incur performance fallback, we should
@@ -49,30 +50,6 @@ Status VSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
         _sorter.reset(new HeapSorter(_vsort_exec_exprs, _limit, _offset, _pool, _is_asc_order,
                                      _nulls_first, row_desc));
         _reuse_mem = false;
-        _use_topn_opt = tnode.sort_node.use_topn_opt;
-        // init runtime predicate
-        if (_use_topn_opt) {
-            auto query_ctx = state->get_query_fragments_ctx();
-            auto first_sort_expr_node = tnode.sort_node.sort_info.sort_tuple_slot_exprs[0].nodes[0];
-            if (first_sort_expr_node.node_type == TExprNodeType::SLOT_REF) {
-                auto first_sort_slot = first_sort_expr_node.slot_ref;
-                for (auto tuple_desc : row_desc.tuple_descriptors()) {
-                    if (tuple_desc->id() != first_sort_slot.tuple_id) {
-                        continue;
-                    }
-                    for (auto slot : tuple_desc->slots()) {
-                        if (slot->id() == first_sort_slot.slot_id) {
-                            RETURN_IF_ERROR(
-                                    query_ctx->get_runtime_predicate().init(slot->type().type));
-                            break;
-                        }
-                    }
-                }
-            }
-            if (!query_ctx->get_runtime_predicate().inited()) {
-                return Status::InternalError("runtime predicate is not properly initialized");
-            }
-        }
     } else if (_limit > 0 && row_desc.has_varlen_slots() &&
                _limit + _offset < TopNSorter::TOPN_SORT_THRESHOLD) {
         _sorter.reset(new TopNSorter(_vsort_exec_exprs, _limit, _offset, _pool, _is_asc_order,
@@ -80,6 +57,30 @@ Status VSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
     } else {
         _sorter.reset(new FullSorter(_vsort_exec_exprs, _limit, _offset, _pool, _is_asc_order,
                                      _nulls_first, row_desc, state, _runtime_profile.get()));
+    }
+    // init runtime predicate
+    _use_topn_opt = tnode.sort_node.use_topn_opt;
+    if (_use_topn_opt) {
+        auto query_ctx = state->get_query_fragments_ctx();
+        auto first_sort_expr_node = tnode.sort_node.sort_info.ordering_exprs[0].nodes[0];
+        if (first_sort_expr_node.node_type == TExprNodeType::SLOT_REF) {
+            auto first_sort_slot = first_sort_expr_node.slot_ref;
+            for (auto tuple_desc : this->row_desc().tuple_descriptors()) {
+                if (tuple_desc->id() != first_sort_slot.tuple_id) {
+                    continue;
+                }
+                for (auto slot : tuple_desc->slots()) {
+                    if (slot->id() == first_sort_slot.slot_id) {
+                        RETURN_IF_ERROR(query_ctx->get_runtime_predicate().init(slot->type().type,
+                                                                                _nulls_first[0]));
+                        break;
+                    }
+                }
+            }
+        }
+        if (!query_ctx->get_runtime_predicate().inited()) {
+            return Status::InternalError("runtime predicate is not properly initialized");
+        }
     }
 
     _sorter->init_profile(_runtime_profile.get());
