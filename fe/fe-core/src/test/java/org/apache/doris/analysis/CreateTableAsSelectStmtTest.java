@@ -473,7 +473,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         ShowResultSet showResultSet = showCreateTableByName("test_use_key_type");
         Assertions.assertEquals(
                 "CREATE TABLE `test_use_key_type` (\n"
-                        + "  `userId` varchar(65533) NOT NULL,\n"
+                        + "  `userId` varchar(255) NOT NULL,\n"
                         + "  `username` text NOT NULL\n"
                         + ") ENGINE=OLAP\n"
                         + "UNIQUE KEY(`userId`)\n"
