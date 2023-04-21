@@ -171,6 +171,8 @@ PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
         return PGenericType::JSONB;
     case TypeIndex::Map:
         return PGenericType::MAP;
+    case TypeIndex::Time:
+        return PGenericType::TIME;
     default:
         return PGenericType::UNKNOWN;
     }
