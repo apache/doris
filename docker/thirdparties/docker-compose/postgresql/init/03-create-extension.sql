@@ -15,4 +15,4 @@
 -- specific language governing permissions and limitations
 -- under the License.
 
-CREATE EXTENSION postgis;
+CREATE EXTENSION IF NOT EXISTS postgis;
