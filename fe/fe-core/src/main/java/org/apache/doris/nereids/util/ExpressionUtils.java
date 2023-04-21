@@ -111,12 +111,6 @@ public class ExpressionUtils {
         }
     }
 
-    public static Set<Expression> extractToSet(Expression predicate) {
-        Set<Expression> result = Sets.newHashSet();
-        extract(predicate.getClass(), predicate, result);
-        return result;
-    }
-
     public static Optional<Expression> optionalAnd(List<Expression> expressions) {
         if (expressions.isEmpty()) {
             return Optional.empty();

@@ -60,6 +60,10 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
         super(Optional.empty(), children);
     }
 
+    public Alias alias(String alias) {
+        return new Alias(this, alias);
+    }
+
     /**
      * check input data types
      */
