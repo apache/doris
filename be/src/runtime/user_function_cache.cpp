@@ -153,11 +153,9 @@ Status UserFunctionCache::_load_entry_from_lib(const std::string& dir, const std
         return Status::InternalError("duplicate function id");
     }
     // create a cache entry and put it into entry map
-    UserFunctionCacheEntry* entry =
-            new UserFunctionCacheEntry(function_id, checksum, dir + "/" + file, lib_type);
+    std::shared_ptr<UserFunctionCacheEntry> entry = UserFunctionCacheEntry::create_shared(
+            function_id, checksum, dir + "/" + file, lib_type);
     entry->is_downloaded = true;
-
-    entry->ref();
     _entry_map[function_id] = entry;
 
     return Status::OK();
