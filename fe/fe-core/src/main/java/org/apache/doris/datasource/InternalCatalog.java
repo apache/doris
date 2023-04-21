@@ -2011,7 +2011,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         // set in memory
         boolean isInMemory = PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_INMEMORY,
                 false);
-        olapTable.setIsInMemory(isInMemory);
+        if (isInMemory == true) {
+            throw new AnalysisException("Not support set 'in_memory'='true' now!");
+        }
+        olapTable.setIsInMemory(false);
 
         boolean storeRowColumn = false;
         try {
