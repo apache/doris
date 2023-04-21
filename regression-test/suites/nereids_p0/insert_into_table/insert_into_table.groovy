@@ -27,10 +27,10 @@ suite("nereids_insert_into_table") {
             k4 varchar(20),
             k5 varchar(20)
         ) engine=OLAP
-        DUPLICATE KEY(k1)
-        DISTRIBUTED BY HASH(k5) BUCKETS 4
-        PROPERTIES (
-        "replication_num" = "1"
+        duplicate key(k1)
+        distributed by hash(k5) buckets 4
+        properties (
+            "replication_num" = "1"
         )
     '''
 
@@ -42,7 +42,7 @@ suite("nereids_insert_into_table") {
             k4 varchar(20),
             k5 varchar(20)
         ) engine=OLAP
-        DUPLICATE KEY(k1, k2)
+        duplicate key(k1, k2)
         PARTITION BY RANGE(k1)
         (
             PARTITION `p2` VALUES LESS THAN ("2"),
@@ -50,9 +50,9 @@ suite("nereids_insert_into_table") {
             PARTITION `p10` VALUES LESS THAN ("10"),
             PARTITION `p20` VALUES LESS THAN ("20")
         )
-        DISTRIBUTED BY HASH(k5) BUCKETS 4
-        PROPERTIES (
-        "replication_num" = "1"
+        distributed by hash(k5) buckets 4
+        properties (
+            "replication_num" = "1"
         )
     '''
 
