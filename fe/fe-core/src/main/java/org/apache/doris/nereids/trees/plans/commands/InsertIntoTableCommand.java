@@ -205,7 +205,8 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
     public boolean checkIfScanData() {
         List<PlanFragment> fragments = planner.getFragments();
         Preconditions.checkArgument(fragments != null, "should get plan fragment before check");
-        return fragments.stream().anyMatch(fragment -> fragment.getPlanRoot().contains(ScanNode.class));
+        return fragments.stream().anyMatch(fragment -> fragment.getPlanRoot()
+                .contains(node -> node instanceof ScanNode));
     }
 
     @Override
