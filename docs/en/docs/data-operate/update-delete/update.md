@@ -63,6 +63,7 @@ The main reason for this is that Doris currently supports row updates, which mea
 This presents a problem in that if two Update operations update the same row at the same time, the behavior may be indeterminate. That is, there may be dirty data.
 
 However, in practice, the concurrency limit can be turned on manually if the user himself can guarantee that even if concurrent updates are performed, they will not operate on the same row at the same time. This is done by modifying the FE configuration ``enable_concurrent_update``. When the configuration value is true, there is no limit on concurrent updates.
+> Note: After enabling the configuration, there will be certain performance risks. You can refer to the performance section above to improve update efficiency.
 
 ## Risks of use
 
