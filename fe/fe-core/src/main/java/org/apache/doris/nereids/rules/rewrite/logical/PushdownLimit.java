@@ -21,6 +21,8 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
 import org.apache.doris.nereids.trees.UnaryNode;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Limit;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
@@ -31,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -57,6 +60,47 @@ public class PushdownLimit implements RewriteRuleFactory {
                             return limit.withChildren(newJoin);
                         })
                         .toRule(RuleType.PUSH_LIMIT_THROUGH_JOIN),
+
+                // limit -> window
+                logicalLimit(logicalWindow()).whenNot(Limit::hasValidOffset)
+                .then(limit -> {
+                    LogicalWindow<Plan> window = limit.child();
+
+                    if (window.getPartitionLimit() > 0) {
+                        return null;
+                    }
+
+                    List<NamedExpression> windowExprs = window.getWindowExpressions();
+                    if (windowExprs.size() != 1) {
+                        return null;
+                    }
+                    NamedExpression windowExpr = windowExprs.get(0);
+                    if (windowExpr.children().size() != 1 || !(windowExpr.child(0) instanceof WindowExpression)) {
+                        return null;
+                    }
+
+                    WindowExpression windowFunc = (WindowExpression) windowExpr.child(0);
+                    // Check the window function name.
+                    if (!LogicalWindow.checkWindowFuncName4PartitionLimit(windowFunc)) {
+                        return null;
+                    }
+
+                    // Check the 'Partition By' and 'Order By' item.
+                    // The window only contain the order keys can use this rule.
+                    if (windowFunc.getPartitionKeys().size() > 0 || windowFunc.getOrderKeys().size() == 0) {
+                        return null;
+                    }
+
+                    // Check the window type and window frame.
+                    if (!LogicalWindow.checkWindowFrame4PartitionLimit(windowFunc)) {
+                        return null;
+                    }
+
+                    // Embedded the partition limit to the window.
+                    Plan newWindow = window.withPartitionLimit(limit.getLimit());
+                    return limit.withChildren(newWindow);
+                })
+                .toRule(RuleType.PUSH_LIMIT_THROUGH_JOIN),
 
                 // limit -> project -> join
                 logicalLimit(logicalProject(logicalJoin(any(), any()))).whenNot(Limit::hasValidOffset)

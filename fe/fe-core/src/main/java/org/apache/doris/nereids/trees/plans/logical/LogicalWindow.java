@@ -22,6 +22,11 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.WindowFrame;
+import org.apache.doris.nereids.trees.expressions.functions.window.DenseRank;
+import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
+import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Window;
@@ -170,5 +175,28 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     @Override
     public int hashCode() {
         return Objects.hash(windowExpressions, isChecked);
+    }
+
+    public static boolean checkWindowFuncName4PartitionLimit(WindowExpression windowFunc) {
+        return windowFunc.getFunction() instanceof RowNumber
+            || windowFunc.getFunction() instanceof Rank
+            || windowFunc.getFunction() instanceof DenseRank;
+    }
+
+    /**
+     * Check if the window frame for the partition limit is valid.
+     * @param windowFunc the window expression to be checked
+     * @return true if the window frame is valid, false otherwise
+     */
+    public static boolean checkWindowFrame4PartitionLimit(WindowExpression windowFunc) {
+        Optional<WindowFrame> windowFrame = windowFunc.getWindowFrame();
+        if (windowFrame.isPresent()) {
+            WindowFrame frame = windowFrame.get();
+            return frame.getFrameUnits() == WindowFrame.FrameUnitsType.ROWS
+                && frame.getLeftBoundary().getFrameBoundType() == WindowFrame.FrameBoundType.UNBOUNDED_PRECEDING
+                && frame.getRightBoundary().getFrameBoundType() == WindowFrame.FrameBoundType.CURRENT_ROW;
+        } else {
+            return false;
+        }
     }
 }

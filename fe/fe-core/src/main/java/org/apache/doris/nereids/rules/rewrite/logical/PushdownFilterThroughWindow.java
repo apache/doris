@@ -28,17 +28,12 @@ import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
-import org.apache.doris.nereids.trees.expressions.WindowFrame;
-import org.apache.doris.nereids.trees.expressions.functions.window.DenseRank;
-import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
-import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -134,20 +129,18 @@ public class PushdownFilterThroughWindow extends OneRewriteRuleFactory {
 
             WindowExpression windowFunc = (WindowExpression) windowExpr.child(0);
             // Check the window function name.
-            if (!checkWindowFuncName(windowFunc)) {
+            if (!LogicalWindow.checkWindowFuncName4PartitionLimit(windowFunc)) {
                 return null;
             }
 
             // Check the window type and window frame.
-            if (!checkWindowFrame(windowFunc)) {
+            if (!LogicalWindow.checkWindowFrame4PartitionLimit(windowFunc)) {
                 return null;
             }
 
-            // Embedded the limit value to the window.
-            window = window.withPartitionLimit(limitVal);
-            Plan newFilter = filter.withChildren(window);
-
-            return newFilter;
+            // Embedded the partition limit to the window.
+            Plan newWindow = window.withPartitionLimit(limitVal);
+            return filter.withChildren(newWindow);
         }).toRule(RuleType.PUSHDOWN_FILTER_THROUGH_WINDOW);
     }
 
@@ -155,23 +148,5 @@ public class PushdownFilterThroughWindow extends OneRewriteRuleFactory {
         ExprId filterExprID = ((SlotReference) slotRefInFilterExpr).getExprId();
         ExprId windowExprID = windowExpr.getExprId();
         return filterExprID == windowExprID;
-    }
-
-    private boolean checkWindowFuncName(WindowExpression windowFunc) {
-        return windowFunc.getFunction() instanceof RowNumber
-            || windowFunc.getFunction() instanceof Rank
-            || windowFunc.getFunction() instanceof DenseRank;
-    }
-
-    private boolean checkWindowFrame(WindowExpression windowFunc) {
-        Optional<WindowFrame> windowFrame = windowFunc.getWindowFrame();
-        if (windowFrame.isPresent()) {
-            WindowFrame frame = windowFrame.get();
-            return frame.getFrameUnits() == WindowFrame.FrameUnitsType.ROWS
-                && frame.getLeftBoundary().getFrameBoundType() == WindowFrame.FrameBoundType.UNBOUNDED_PRECEDING
-                && frame.getRightBoundary().getFrameBoundType() == WindowFrame.FrameBoundType.CURRENT_ROW;
-        } else {
-            return false;
-        }
     }
 }
