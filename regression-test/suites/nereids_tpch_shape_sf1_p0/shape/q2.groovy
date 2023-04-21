@@ -31,7 +31,7 @@ suite("q2") {
         print("backends num: ${result.size()}");
         return;
     }
-    sql "select * from t;"
+
     qt_select """
     explain shape plan
     select 
