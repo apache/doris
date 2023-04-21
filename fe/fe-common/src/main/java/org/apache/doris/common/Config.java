@@ -858,11 +858,15 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean disable_storage_medium_check = false;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_select_backend_roundrobin = true;
     /**
      * When create a table(or partition), you can specify its storage medium(HDD or SSD).
      * If not set, this specifies the default medium when created.
      */
-    @ConfField public static String default_storage_medium = "HDD";
+    @ConfField
+    public static String default_storage_medium = "HDD";
     /**
      * After dropping database(table/partition), you can recover it by using RECOVER stmt.
      * And this specifies the maximal data retention time. After time, the data will be deleted permanently.

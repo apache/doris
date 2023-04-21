@@ -2526,6 +2526,20 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (chooseBackendsArbitrary) {
             backendsPerBucketSeq = Maps.newHashMap();
         }
+        int curIdx = 0;
+        List<Long> rrBeIds = Lists.newArrayList();
+        if (Config.enable_select_backend_roundrobin && replicaAlloc.getAllocMap().size() == 1
+                && replicaAlloc.getAllocMap().containsKey(Tag.DEFAULT_BACKEND_TAG)) {
+            List<Backend> backends = Env.getCurrentSystemInfo()
+                    .getBackendsByTagInCluster(SystemInfoService.DEFAULT_CLUSTER, Tag.DEFAULT_BACKEND_TAG);
+            // Only if the bucket num are multiples
+            if (distributionInfo.getBucketNum() % backends.size() == 0) {
+                for (int i = 0; i < distributionInfo.getBucketNum() * replicaAlloc.getTotalReplicaNum(); ++i) {
+                    // list backend id one by one, and then choose from it.
+                    rrBeIds.add(backends.get(i % backends.size()).getId());
+                }
+            }
+        }
         for (int i = 0; i < distributionInfo.getBucketNum(); ++i) {
             // create a new tablet with random chosen backends
             Tablet tablet = new Tablet(idGeneratorBuffer.getNextId());
@@ -2535,17 +2549,23 @@ public class InternalCatalog implements CatalogIf<Database> {
             tabletIdSet.add(tablet.getId());
 
             // get BackendIds
-            Map<Tag, List<Long>> chosenBackendIds;
+            Map<Tag, List<Long>> chosenBackendIds = Maps.newHashMap();
             if (chooseBackendsArbitrary) {
                 // This is the first colocate table in the group, or just a normal table,
                 // randomly choose backends
-                if (!Config.disable_storage_medium_check) {
-                    chosenBackendIds = Env.getCurrentSystemInfo()
-                            .selectBackendIdsForReplicaCreation(replicaAlloc, clusterName,
-                                    tabletMeta.getStorageMedium());
+                if (Config.enable_select_backend_roundrobin && !rrBeIds.isEmpty()) {
+                    chosenBackendIds.put(Tag.DEFAULT_BACKEND_TAG,
+                            rrBeIds.subList(curIdx, curIdx + replicaAlloc.getTotalReplicaNum()));
+                    curIdx += replicaAlloc.getTotalReplicaNum();
                 } else {
-                    chosenBackendIds = Env.getCurrentSystemInfo()
-                            .selectBackendIdsForReplicaCreation(replicaAlloc, clusterName, null);
+                    if (!Config.disable_storage_medium_check) {
+                        chosenBackendIds = Env.getCurrentSystemInfo()
+                                .selectBackendIdsForReplicaCreation(replicaAlloc, clusterName,
+                                        tabletMeta.getStorageMedium());
+                    } else {
+                        chosenBackendIds = Env.getCurrentSystemInfo()
+                                .selectBackendIdsForReplicaCreation(replicaAlloc, clusterName, null);
+                    }
                 }
 
                 for (Map.Entry<Tag, List<Long>> entry : chosenBackendIds.entrySet()) {
