@@ -46,8 +46,6 @@ public class WindowExpression extends Expression {
 
     private final Optional<WindowFrame> windowFrame;
 
-    private long limitVal = -1;
-
     /** constructor of Window*/
     public WindowExpression(Expression function, List<Expression> partitionKeys, List<OrderExpression> orderKeys) {
         super(new ImmutableList.Builder<Expression>()
@@ -112,14 +110,6 @@ public class WindowExpression extends Expression {
         return windowFrame;
     }
 
-    public long getLimitVal() {
-        return limitVal;
-    }
-
-    public void setLimitVal(long limitVal) {
-        this.limitVal = limitVal;
-    }
-
     public WindowExpression withWindowFrame(WindowFrame windowFrame) {
         return new WindowExpression(function, partitionKeys, orderKeys, windowFrame);
     }
@@ -176,13 +166,12 @@ public class WindowExpression extends Expression {
         return Objects.equals(function, window.function)
             && Objects.equals(partitionKeys, window.partitionKeys)
             && Objects.equals(orderKeys, window.orderKeys)
-            && Objects.equals(windowFrame, window.windowFrame)
-            && limitVal == window.getLimitVal();
+            && Objects.equals(windowFrame, window.windowFrame);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(function, partitionKeys, orderKeys, windowFrame, limitVal);
+        return Objects.hash(function, partitionKeys, orderKeys, windowFrame);
     }
 
     @Override

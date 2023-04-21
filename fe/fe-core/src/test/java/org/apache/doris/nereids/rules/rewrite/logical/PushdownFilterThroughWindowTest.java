@@ -97,10 +97,8 @@ public class PushdownFilterThroughWindowTest implements MemoPatternMatchSupporte
                             logicalWindow(
                                 logicalOlapScan()
                             ).when(logicalWindow -> {
-                                List<NamedExpression> outputs = logicalWindow.getWindowExpressions();
-                                WindowExpression windowExpr = (WindowExpression) outputs.get(0).child(0);
-                                long limitVal = windowExpr.getLimitVal();
-                                return limitVal == 100;
+                                long partitionLimit = logicalWindow.getPartitionLimit();
+                                return partitionLimit == 100;
                             })
                         ).when(filter -> filter.getConjuncts().equals(ImmutableSet.of(filterPredicate)))
                     )

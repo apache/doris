@@ -80,6 +80,8 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
         //  Only add this variable in PhysicalWindow
         List<NamedExpression> windowList = logicalWindow.getWindowExpressions();
 
+        long partitionLimit = logicalWindow.getPartitionLimit();
+
         /////////// create three kinds of groups and compute tupleSize of each
         // windowFrameGroup
         List<WindowFrameGroup> windowFrameGroupList = createWindowFrameGroups(windowList);
@@ -103,7 +105,7 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
             for (OrderKeyGroup orderKeyGroup : partitionKeyGroup.groups) {
                 // in OrderKeyGroup, create PhysicalWindow for each WindowFrameGroup;
                 // each PhysicalWindow contains the same windowExpressions as WindowFrameGroup.groups
-                newRoot = createPhysicalPlanNodeForWindowFrameGroup(newRoot, orderKeyGroup);
+                newRoot = createPhysicalPlanNodeForWindowFrameGroup(newRoot, orderKeyGroup, partitionLimit);
             }
         }
         return (PhysicalWindow) newRoot;
@@ -113,7 +115,8 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
      * create PhysicalWindow and PhysicalSort
      * ******************************************************************************************** */
 
-    private Plan createPhysicalPlanNodeForWindowFrameGroup(Plan root, OrderKeyGroup orderKeyGroup) {
+    private Plan createPhysicalPlanNodeForWindowFrameGroup(Plan root, OrderKeyGroup orderKeyGroup,
+                   long partitionLimit) {
         // PhysicalSort node for orderKeys; if there exists no orderKey, newRoot = root
         // Plan newRoot = createPhysicalSortNode(root, orderKeyGroup, ctx);
         Plan newRoot = root;
@@ -124,7 +127,7 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
 
         // PhysicalWindow nodes for each different window frame, so at least one PhysicalWindow node will be added
         for (WindowFrameGroup windowFrameGroup : orderKeyGroup.groups) {
-            newRoot = createPhysicalWindow(newRoot, windowFrameGroup, requiredOrderKeys);
+            newRoot = createPhysicalWindow(newRoot, windowFrameGroup, requiredOrderKeys, partitionLimit);
         }
 
         return newRoot;
@@ -153,13 +156,14 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
     }
 
     private PhysicalWindow<Plan> createPhysicalWindow(Plan root, WindowFrameGroup windowFrameGroup,
-                                                      List<OrderKey> requiredOrderKeys) {
+                                                      List<OrderKey> requiredOrderKeys, long partitionLimit) {
         // requiredProperties:
         //  Distribution: partitionKeys
         //  Order: requiredOrderKeys
-        LogicalWindow<Plan> tempLogicalWindow = new LogicalWindow<>(windowFrameGroup.groups, root);
+        LogicalWindow<Plan> tempLogicalWindow = new LogicalWindow<>(windowFrameGroup.groups, partitionLimit, root);
         PhysicalWindow<Plan> physicalWindow = new PhysicalWindow<>(
                 windowFrameGroup,
+                partitionLimit,
                 RequireProperties.followParent(),
                 tempLogicalWindow.getLogicalProperties(),
                 root);
@@ -373,8 +377,6 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
         private final List<OrderExpression> orderKeys;
         private final WindowFrame windowFrame;
 
-        private final long limitVal;
-
         /**
          * Creates a new WindowFrameGroup for the given window alias.
          *
@@ -386,7 +388,6 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
             orderKeys = window.getOrderKeys();
             windowFrame = window.getWindowFrame().get();
             groups.add(windowAlias);
-            limitVal = window.getLimitVal();
         }
 
         @Override
@@ -428,7 +429,6 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
                     .map(OrderExpression::toString)
                     .collect(Collectors.joining(", ", "[", "], ")));
             sb.append("WindowFrame=").append(windowFrame);
-            sb.append("LimitValue=").append(limitVal);
             return sb + ")";
         }
 
@@ -442,10 +442,6 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
 
         public WindowFrame getWindowFrame() {
             return windowFrame;
-        }
-
-        public Long getLimitVal() {
-            return limitVal;
         }
 
     }

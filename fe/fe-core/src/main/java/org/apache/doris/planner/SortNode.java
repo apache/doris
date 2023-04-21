@@ -74,6 +74,8 @@ public class SortNode extends PlanNode {
 
     private ArrayList<Boolean> nullabilityChangedFlags = Lists.newArrayList();
 
+    private long partitionLimit = -1;
+
     /**
      * Constructor.
      */
@@ -113,6 +115,10 @@ public class SortNode extends PlanNode {
      */
     public void setDefaultLimit(boolean defaultLimit) {
         isDefaultLimit = defaultLimit;
+    }
+
+    public void setPartitionLimit(long limitVal) {
+        partitionLimit = limitVal;
     }
 
     public void setIsAnalyticSort(boolean v) {
@@ -189,6 +195,9 @@ public class SortNode extends PlanNode {
             output.append(detailPrefix + "OPT TWO PHASE\n");
         }
         output.append(detailPrefix).append("offset: ").append(offset).append("\n");
+        if (partitionLimit > 0) {
+            output.append(detailPrefix).append("partition limit: ").append(partitionLimit).append("\n");
+        }
         return output.toString();
     }
 

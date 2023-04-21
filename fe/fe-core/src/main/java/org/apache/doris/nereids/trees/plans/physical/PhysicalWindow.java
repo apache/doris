@@ -47,23 +47,26 @@ public class PhysicalWindow<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     private final WindowFrameGroup windowFrameGroup;
     private final RequireProperties requireProperties;
 
-    public PhysicalWindow(WindowFrameGroup windowFrameGroup, RequireProperties requireProperties,
+    private final long partitionLimit;
+
+    public PhysicalWindow(WindowFrameGroup windowFrameGroup, long partitionLimit, RequireProperties requireProperties,
                           LogicalProperties logicalProperties, CHILD_TYPE child) {
-        this(windowFrameGroup, requireProperties, Optional.empty(), logicalProperties, child);
+        this(windowFrameGroup, partitionLimit, requireProperties, Optional.empty(), logicalProperties, child);
     }
 
     /** constructor for PhysicalWindow */
-    public PhysicalWindow(WindowFrameGroup windowFrameGroup, RequireProperties requireProperties,
+    public PhysicalWindow(WindowFrameGroup windowFrameGroup, long partitionLimit, RequireProperties requireProperties,
                           Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
                           CHILD_TYPE child) {
         super(PlanType.PHYSICAL_WINDOW, groupExpression, logicalProperties, child);
         this.windowFrameGroup = Objects.requireNonNull(windowFrameGroup, "windowFrameGroup in PhysicalWindow"
                 + "cannot be null");
+        this.partitionLimit = partitionLimit;
         this.requireProperties = requireProperties;
     }
 
     /** constructor for PhysicalWindow */
-    public PhysicalWindow(WindowFrameGroup windowFrameGroup, RequireProperties requireProperties,
+    public PhysicalWindow(WindowFrameGroup windowFrameGroup, long partitionLimit, RequireProperties requireProperties,
                           Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
                           PhysicalProperties physicalProperties, Statistics statistics,
                           CHILD_TYPE child) {
@@ -71,12 +74,18 @@ public class PhysicalWindow<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
                 statistics, child);
         this.windowFrameGroup = Objects.requireNonNull(windowFrameGroup, "windowFrameGroup in PhysicalWindow"
             + "cannot be null");
+        this.partitionLimit = partitionLimit;
         this.requireProperties = requireProperties;
     }
 
     @Override
     public List<NamedExpression> getWindowExpressions() {
         return windowFrameGroup.getGroups();
+    }
+
+    @Override
+    public long getPartitionLimit() {
+        return partitionLimit;
     }
 
     public WindowFrameGroup getWindowFrameGroup() {
@@ -111,6 +120,7 @@ public class PhysicalWindow<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
         }
         PhysicalWindow<?> that = (PhysicalWindow<?>) o;
         return Objects.equals(windowFrameGroup, that.windowFrameGroup)
+            && partitionLimit == that.partitionLimit
             && Objects.equals(requireProperties, that.requireProperties);
     }
 
@@ -127,26 +137,26 @@ public class PhysicalWindow<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkState(children.size() == 1);
-        return new PhysicalWindow<>(windowFrameGroup, requireProperties, Optional.empty(),
+        return new PhysicalWindow<>(windowFrameGroup, partitionLimit, requireProperties, Optional.empty(),
                 getLogicalProperties(), children.get(0));
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalWindow<>(windowFrameGroup, requireProperties, groupExpression,
+        return new PhysicalWindow<>(windowFrameGroup, partitionLimit, requireProperties, groupExpression,
                 getLogicalProperties(), child());
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalWindow<>(windowFrameGroup, requireProperties, Optional.empty(),
+        return new PhysicalWindow<>(windowFrameGroup, partitionLimit, requireProperties, Optional.empty(),
                 logicalProperties.get(), child());
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
                                                        Statistics statistics) {
-        return new PhysicalWindow<>(windowFrameGroup, requireProperties, groupExpression,
+        return new PhysicalWindow<>(windowFrameGroup, partitionLimit, requireProperties, groupExpression,
                 getLogicalProperties(), physicalProperties, statistics, child());
     }
 
@@ -158,7 +168,7 @@ public class PhysicalWindow<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
 
     public <C extends Plan> PhysicalWindow<C> withRequirePropertiesAndChild(RequireProperties requireProperties,
                                                                             C newChild) {
-        return new PhysicalWindow<>(windowFrameGroup, requireProperties, Optional.empty(),
+        return new PhysicalWindow<>(windowFrameGroup, partitionLimit, requireProperties, Optional.empty(),
                 getLogicalProperties(), physicalProperties, statistics, newChild);
     }
 }

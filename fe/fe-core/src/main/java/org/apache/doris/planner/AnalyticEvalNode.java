@@ -61,8 +61,6 @@ public class AnalyticEvalNode extends PlanNode {
 
     private final AnalyticWindow analyticWindow;
 
-    private final long localLimitVal;
-
     // Physical tuples used/produced by this analytic node.
     private final TupleDescriptor intermediateTupleDesc;
     private final TupleDescriptor outputTupleDesc;
@@ -91,7 +89,6 @@ public class AnalyticEvalNode extends PlanNode {
         this.partitionExprs = partitionExprs;
         this.orderByElements = orderByElements;
         this.analyticWindow = analyticWindow;
-        this.localLimitVal = -1;
         this.intermediateTupleDesc = intermediateTupleDesc;
         this.outputTupleDesc = outputTupleDesc;
         this.logicalToPhysicalSmap = logicalToPhysicalSmap;
@@ -106,7 +103,7 @@ public class AnalyticEvalNode extends PlanNode {
     public AnalyticEvalNode(
             PlanNodeId id, PlanNode input, List<Expr> analyticFnCalls,
             List<Expr> partitionExprs, List<OrderByElement> orderByElements,
-            AnalyticWindow analyticWindow, long localLimitVal, TupleDescriptor intermediateTupleDesc,
+            AnalyticWindow analyticWindow, TupleDescriptor intermediateTupleDesc,
             TupleDescriptor outputTupleDesc, Expr partitionByEq, Expr orderByEq,
             TupleDescriptor bufferedTupleDesc) {
         super(id,
@@ -122,7 +119,6 @@ public class AnalyticEvalNode extends PlanNode {
         this.substitutedPartitionExprs = partitionExprs;
         this.orderByElements = orderByElements;
         this.analyticWindow = analyticWindow;
-        this.localLimitVal = localLimitVal;
         this.intermediateTupleDesc = intermediateTupleDesc;
         this.outputTupleDesc = outputTupleDesc;
         this.logicalToPhysicalSmap = new ExprSubstitutionMap();

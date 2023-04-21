@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
 import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 
 import java.util.List;
@@ -97,13 +98,12 @@ public class PushdownFilterThroughWindow extends OneRewriteRuleFactory {
             }
 
             // Adjust the value for 'limitVal' based on the comparison operators.
-            int limitVal = ((IntegerLikeLiteral) rightChild).getIntValue();
+            long limitVal = ((IntegerLikeLiteral) rightChild).getLongValue();
             if (conjunct instanceof LessThan) {
                 limitVal--;
             }
             if (limitVal < 0) {
-                // TODO: The window can be removed.
-                return filter;
+                return new LogicalEmptyRelation(filter.getOutput());
             }
 
             // Check the window function. There are some restrictions for window function:
@@ -138,13 +138,11 @@ public class PushdownFilterThroughWindow extends OneRewriteRuleFactory {
                 return filter;
             }
 
-            // Embedded the limit value to the window function.
-            windowFunc.setLimitVal(limitVal);
+            // Embedded the limit value to the window.
+            window = window.withPartitionLimit(limitVal);
+            Plan newFilter = filter.withChildren(window);
 
-            // Now, we are not support the limit operation in the window
-            // operator in the BE side. So we shouldn't remove the filter.
-            // TODO: return the 'window' directly in some situations.
-            return filter;
+            return newFilter;
         }).toRule(RuleType.PUSHDOWN_FILTER_THROUGH_WINDOW);
     }
 
