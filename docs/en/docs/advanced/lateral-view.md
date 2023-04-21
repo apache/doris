@@ -68,7 +68,7 @@ PROPERTIES (
 "disable_auto_compaction" = "false"
 );
 
-NSERT INTO person VALUES
+INSERT INTO person VALUES
     (100, 'John', 30, 1, 'Street 1'),
     (200, 'Mary', NULL, 1, 'Street 2'),
     (300, 'Mike', 80, 3, 'Street 3'),
