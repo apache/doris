@@ -73,10 +73,6 @@ Status Channel::init(RuntimeState* state) {
         return Status::InternalError(msg);
     }
 
-    if (state->query_options().__isset.enable_local_exchange) {
-        _is_local &= state->query_options().enable_local_exchange;
-    }
-
     if (_is_local) {
         _local_recvr = _parent->state()->exec_env()->vstream_mgr()->find_recvr(
                 _fragment_instance_id, _dest_node_id);

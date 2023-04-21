@@ -676,9 +676,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_COMMON_EXPR_PUSHDOWN, fuzzy = true)
     public boolean enableCommonExprPushdown = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE, fuzzy = true)
-    public boolean enableLocalExchange = true;
-
     /**
      * For debug purpose, don't merge unique key and agg key when reading data.
      */
@@ -809,7 +806,6 @@ public class SessionVariable implements Serializable, Writable {
         Random random = new Random(System.currentTimeMillis());
         this.parallelExecInstanceNum = random.nextInt(8) + 1;
         this.enableCommonExprPushdown = random.nextBoolean();
-        this.enableLocalExchange = random.nextBoolean();
         // This will cause be dead loop, disable it first
         // this.disableJoinReorder = random.nextBoolean();
         this.disableStreamPreaggregations = random.nextBoolean();
@@ -1372,10 +1368,6 @@ public class SessionVariable implements Serializable, Writable {
         forbidUnknownColStats = forbid;
     }
 
-    public boolean getEnableLocalExchange() {
-        return enableLocalExchange;
-    }
-
     public boolean getEnableCboStatistics() {
         return enableCboStatistics;
     }
@@ -1674,7 +1666,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableCommonExprPushdown(enableCommonExprPushdown);
         tResult.setCheckOverflowForDecimal(checkOverflowForDecimal);
         tResult.setFragmentTransmissionCompressionCodec(fragmentTransmissionCompressionCodec);
-        tResult.setEnableLocalExchange(enableLocalExchange);
         tResult.setEnableNewShuffleHashMethod(enableNewShuffleHashMethod);
 
         tResult.setSkipStorageEngineMerge(skipStorageEngineMerge);
