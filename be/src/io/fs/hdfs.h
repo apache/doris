@@ -17,26 +17,8 @@
 
 #pragma once
 
-#include <map>
-#include <memory>
-#include <string>
-
-#include "common/status.h"
-#include "io/fs/hdfs.h"
-#include "io/hdfs_builder.h"
-
-namespace doris {
-
-class HDFSHandle {
-public:
-    ~HDFSHandle() {}
-
-    static HDFSHandle& instance();
-
-    hdfsFS create_hdfs_fs(HDFSCommonBuilder& builder);
-
-private:
-    HDFSHandle() {}
-};
-
-} // namespace doris
+#ifdef USE_HADOOP_HDFS
+#include <hadoop_hdfs/hdfs.h>
+#else
+#include <hdfs/hdfs.h>
+#endif
