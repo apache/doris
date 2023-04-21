@@ -168,7 +168,7 @@ public:
             }
         } else {
             // shared from the caller, so it needs to be shared ptr
-            _values = hybrid_set;
+            _values = reinterpret_cast<std::shared_ptr<HybridSetType>>(hybrid_set);
         }
         HybridSetBase::IteratorBase* iter = _values->begin();
         while (iter->has_next()) {
