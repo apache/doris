@@ -304,17 +304,5 @@ Status JavaFunctionCall::execute(FunctionContext* context, Block& block,
     }
     return JniUtil::GetJniExceptionMsg(env);
 }
-/*
-Status JavaFunctionCall::close(FunctionContext* context,
-                               FunctionContext::FunctionStateScope scope) {
-    JniContext* jni_ctx = reinterpret_cast<JniContext*>(
-            context->get_function_state(FunctionContext::THREAD_LOCAL));
-    // JNIContext own some resource and its release method depend on JavaFunctionCall
-    // has to release the resource before JavaFunctionCall is deconstructed.
-    if (jni_ctx) {
-        jni_ctx->close();
-    }
-    return Status::OK();
-}
-*/
+
 } // namespace doris::vectorized

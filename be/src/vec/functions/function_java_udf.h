@@ -132,10 +132,7 @@ private:
                   batch_size_ptr(new int32_t()),
                   output_intermediate_state_ptr(new IntermediateState()) {}
 
-        void close() {
-            if (is_closed) {
-                return;
-            }
+        ~JniContext() {
             VLOG_DEBUG << "Free resources for JniContext";
             JNIEnv* env;
             Status status = JniUtil::GetJNIEnv(&env);
@@ -148,7 +145,6 @@ private:
             Status s = JniUtil::GetJniExceptionMsg(env);
             if (!s.ok()) LOG(WARNING) << s;
             env->DeleteGlobalRef(executor);
-            is_closed = true;
         }
 
         /// These functions are cross-compiled to IR and used by codegen.
