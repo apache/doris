@@ -60,7 +60,18 @@ public:
 #endif
 
     std::shared_ptr<T> get_client(const std::string& host, int port) {
-        std::string host_port = get_host_port(host, port);
+        LOG(WARNING) << "zdtest================get_client,host:" << host;
+        std::string realhost;
+        realhost = host;
+        if (!is_valid_ip(host)) {
+            realhost = hostname_to_ip(host);
+            if (realhost == "") {
+                LOG(WARNING) << "failed to get ip from host";
+                return nullptr;
+            }
+        }
+        LOG(WARNING) << "zdtest================get_client,realhost:" << realhost;
+        std::string host_port = get_host_port(realhost, port);
         return get_client(host_port);
     }
 
