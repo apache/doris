@@ -853,7 +853,7 @@ public class SessionVariable implements Serializable, Writable {
         }
 
         // set random 1, 10, 100, 1000, 10000
-        this.topnOptLimitThreshold = 10 ^ (random.nextInt(5));
+        this.topnOptLimitThreshold = (int) Math.pow(10, random.nextInt(5));
     }
 
     public String printFuzzyVariables() {

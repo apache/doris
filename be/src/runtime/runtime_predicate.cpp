@@ -119,6 +119,10 @@ Status RuntimePredicate::update(const Field& value, const String& col_name, bool
         return Status::OK();
     }
 
+    if (!_inited) {
+        return Status::OK();
+    }
+
     std::unique_lock<std::shared_mutex> wlock(_rwlock);
 
     // TODO why null
