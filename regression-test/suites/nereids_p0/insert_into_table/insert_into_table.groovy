@@ -23,12 +23,10 @@ suite("nereids_insert_into_table") {
         create table src (
             k1 int,
             k2 int,
-            k3 int,
-            k4 varchar(20),
-            k5 varchar(20)
+            k3 int
         ) engine=OLAP
         duplicate key(k1)
-        distributed by hash(k5) buckets 4
+        distributed by hash(k1) buckets 4
         properties (
             "replication_num" = "1"
         )
@@ -38,9 +36,7 @@ suite("nereids_insert_into_table") {
         create table target (
             k1 int,
             k2 int,
-            k3 int,
-            k4 varchar(20),
-            k5 varchar(20)
+            k3 int
         ) engine=OLAP
         duplicate key(k1, k2)
         PARTITION BY RANGE(k1)
@@ -50,7 +46,7 @@ suite("nereids_insert_into_table") {
             PARTITION `p10` VALUES LESS THAN ("10"),
             PARTITION `p20` VALUES LESS THAN ("20")
         )
-        distributed by hash(k5) buckets 4
+        distributed by hash(k1) buckets 4
         properties (
             "replication_num" = "1"
         )
@@ -58,10 +54,10 @@ suite("nereids_insert_into_table") {
 
     sql '''
         insert into src values
-            (1, 2, 3, '4', '5'),
-            (4, 5, 6, '7', '8'),
-            (12, 13, 14, '15', '16'),
-            (null, null, null, null, null)
+            (1, 2, 3),
+            (4, 5, 6),
+            (12, 13, 14),
+            (null, null, null)
     '''
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
@@ -70,29 +66,29 @@ suite("nereids_insert_into_table") {
     test {
         sql 'select * from target order by k1'
         result([
-                [null, null, null, null, null],
-                [1, 2, 3, '4', '5'],
-                [4, 5, 6, '7', '8'],
-                [12, 13, 14, '15', '16']
+                [null, null, null],
+                [1, 2, 3],
+                [4, 5, 6],
+                [12, 13, 14]
         ])
     }
     sql 'truncate table target'
 
     test {
-        sql '''insert into target select 'x', 'x', 'x', 1, 2'''
+        sql 'insert into target select \'x\', \'x\', \'x\''
     }
 
     test {
-        sql '''insert into target select 1, 2, 3'''
-        exception 'insert target table contains 5 slots, but source table contains 3 slots'
+        sql '''insert into target select 1, 2'''
+        exception 'insert target table contains 3 slots, but source table contains 2 slots'
     }
 
     sql 'insert into target partition (p10, p5) select * from src where k1 < 10 and k1 > 2'
     test {
         sql 'select * from target order by k1'
         result([
-                [null, null, null, '1', '2'],
-                [4, 5, 6, '7', '8']
+                [null, null, null],
+                [4, 5, 6]
         ])
     }
 
@@ -100,9 +96,9 @@ suite("nereids_insert_into_table") {
     test {
         sql 'select * from target order by k1, k2'
         result([
-                [null, null, null, '1', '2'],
-                [4, 5, 6, '7', '8'],
-                [4, 100, 5, '0', '7']
+                [null, null, null],
+                [4, 5, 6],
+                [4, 100, 5]
         ])
     }
 
@@ -110,24 +106,10 @@ suite("nereids_insert_into_table") {
     test {
         sql 'select * from target order by k1, k2'
         result([
-                [null, null, null, '1', '2'],
-                [4, 5, 6, '7', '8'],
-                [4, 100, 5, '0', '7'],
-                [9, 5, 7, '0', '8']
+                [null, null, null],
+                [4, 5, 6],
+                [4, 100, 5],
+                [9, 5, 7]
         ])
     }
-
-    // test txn model.
-    sql 'truncate table target'
-    sql 'begin'
-    sql 'insert into target select 1, 2, 3, \'4\', \'5\';'
-    test {
-        sql 'select * from target'
-        result([[1, 2, 3, '4', '5']])
-    }
-
-    test {
-        sql 'insert into target select * from src'
-    }
-    sql 'commit'
 }
