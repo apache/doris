@@ -246,15 +246,19 @@ std::string AggFnEvaluator::debug_string() const {
 
 Status AggFnEvaluator::_calc_argment_columns(Block* block) {
     SCOPED_TIMER(_expr_timer);
-    _agg_columns.resize(_input_exprs_ctxs.size());
-    int column_ids[_input_exprs_ctxs.size()];
-    for (int i = 0; i < _input_exprs_ctxs.size(); ++i) {
+    auto expr_size = _input_exprs_ctxs.size();
+    if (UNLIKELY(expr_size == 0)) {
+        return Status::OK();
+    }
+    _agg_columns.resize(expr_size);
+    int column_ids[expr_size];
+    for (int i = 0; i < expr_size; ++i) {
         int column_id = -1;
         RETURN_IF_ERROR(_input_exprs_ctxs[i]->execute(block, &column_id));
         column_ids[i] = column_id;
     }
-    materialize_block_inplace(*block, column_ids, column_ids + _input_exprs_ctxs.size());
-    for (int i = 0; i < _input_exprs_ctxs.size(); ++i) {
+    materialize_block_inplace(*block, column_ids, column_ids + expr_size);
+    for (int i = 0; i < expr_size; ++i) {
         _agg_columns[i] = block->get_by_position(column_ids[i]).column.get();
     }
     return Status::OK();

@@ -905,7 +905,15 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_LARGEINT>
             uint128_t abs_value = value;
             if (value < 0) {
                 *(current++) = '-';
-                abs_value = -value;
+                if (value == std::numeric_limits<int128_t>::min()) {
+                    //runtime error: negation of 0x 80000000 00000000 00000000 00000000 cannot be represented in type '__int128';
+                    //cast to an unsigned type to negate this value to itself
+                    //so if value is the minimum of negative, Unable to directly convert to positive numbers
+                    abs_value = std::numeric_limits<int128_t>::max();
+                    abs_value = abs_value + 1;
+                } else {
+                    abs_value = -value;
+                }
             }
 
             // the max value of uint64_t is 18446744073709551615UL,

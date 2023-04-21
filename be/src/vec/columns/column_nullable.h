@@ -385,7 +385,7 @@ private:
     WrappedPtr null_map;
 
     bool _need_update_has_null = true;
-    bool _has_null;
+    bool _has_null = true;
 
     void _update_has_null();
     template <bool negative>
