@@ -44,8 +44,8 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/path.h"
 #include "io/fs/s3_file_write_bufferpool.h"
-#include "util/runtime_profile.h"
 #include "util/doris_metrics.h"
+#include "util/runtime_profile.h"
 
 namespace Aws {
 namespace S3 {
