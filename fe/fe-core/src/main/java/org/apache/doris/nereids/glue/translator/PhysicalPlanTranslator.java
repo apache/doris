@@ -1454,24 +1454,43 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             tableFunctionNode.setOutputSlotIds(Lists.newArrayList(requiredSlotIdSet));
         }
 
-        TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, null, context);
-        inputPlanNode.setProjectList(execExprList);
-        inputPlanNode.setOutputTupleDesc(tupleDescriptor);
-        // TODO: this is a temporary scheme to support two phase read when has project.
-        //  we need to refactor all topn opt into rbo stage.
-        if (inputPlanNode instanceof OlapScanNode) {
-            ArrayList<SlotDescriptor> slots = context.getTupleDesc(inputPlanNode.getTupleIds().get(0)).getSlots();
-            SlotDescriptor lastSlot = slots.get(slots.size() - 1);
-            if (lastSlot.getColumn() != null && lastSlot.getColumn().getName().equals(Column.ROWID_COL)) {
-                inputPlanNode.getProjectList().add(new SlotRef(lastSlot));
-                injectRowIdColumnSlot(tupleDescriptor);
-                requiredSlotIdSet.add(lastSlot.getId());
-            }
-        }
-
         if (inputPlanNode instanceof ScanNode) {
-            updateChildSlotsMaterialization(inputPlanNode, requiredSlotIdSet, requiredByProjectSlotIdSet, context);
-            return inputFragment;
+            TupleDescriptor tupleDescriptor = null;
+            if (requiredByProjectSlotIdSet.size() != requiredSlotIdSet.size()
+                    || execExprList.stream().anyMatch(expr -> !(expr instanceof SlotRef))) {
+                tupleDescriptor = generateTupleDesc(slotList, null, context);
+                inputPlanNode.setProjectList(execExprList);
+                inputPlanNode.setOutputTupleDesc(tupleDescriptor);
+            } else {
+                for (int i = 0; i < slotList.size(); ++i) {
+                    context.addExprIdSlotRefPair(slotList.get(i).getExprId(),
+                            (SlotRef) execExprList.get(i));
+                }
+            }
+
+            // TODO: this is a temporary scheme to support two phase read when has project.
+            //  we need to refactor all topn opt into rbo stage.
+            if (inputPlanNode instanceof OlapScanNode) {
+                ArrayList<SlotDescriptor> slots =
+                        context.getTupleDesc(inputPlanNode.getTupleIds().get(0)).getSlots();
+                SlotDescriptor lastSlot = slots.get(slots.size() - 1);
+                if (lastSlot.getColumn() != null
+                        && lastSlot.getColumn().getName().equals(Column.ROWID_COL)) {
+                    if (tupleDescriptor != null) {
+                        injectRowIdColumnSlot(tupleDescriptor);
+                        SlotRef slotRef = new SlotRef(lastSlot);
+                        inputPlanNode.getProjectList().add(slotRef);
+                        requiredByProjectSlotIdSet.add(lastSlot.getId());
+                    }
+                    requiredSlotIdSet.add(lastSlot.getId());
+                }
+            }
+            updateChildSlotsMaterialization(inputPlanNode, requiredSlotIdSet,
+                    requiredByProjectSlotIdSet, context);
+        } else {
+            TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, null, context);
+            inputPlanNode.setProjectList(execExprList);
+            inputPlanNode.setOutputTupleDesc(tupleDescriptor);
         }
         return inputFragment;
     }
