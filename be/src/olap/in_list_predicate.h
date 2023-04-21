@@ -168,7 +168,7 @@ public:
             }
         } else {
             // shared from the caller, so it needs to be shared ptr
-            _values = std::dynamic_pointer_cast<HybridSetType>(hybrid_set);
+            _values = hybrid_set;
         }
         HybridSetBase::IteratorBase* iter = _values->begin();
         while (iter->has_next()) {
@@ -566,7 +566,7 @@ private:
         }
     }
 
-    std::shared_ptr<HybridSetType> _values;
+    std::shared_ptr<HybridSetBase> _values;
     mutable std::map<std::pair<RowsetId, uint32_t>, std::vector<vectorized::UInt8>>
             _segment_id_to_value_in_dict_flags;
     T _min_value;
