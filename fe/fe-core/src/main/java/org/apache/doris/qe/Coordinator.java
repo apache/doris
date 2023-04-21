@@ -62,6 +62,7 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SetOperationNode;
 import org.apache.doris.planner.UnionNode;
 import org.apache.doris.planner.external.ExternalScanNode;
+import org.apache.doris.planner.external.FederationBackendPolicy;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentResult;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentStartRequest;
@@ -2035,8 +2036,9 @@ public class Coordinator {
             FragmentScanRangeAssignment assignment,
             Map<TNetworkAddress, Long> assignedBytesPerHost,
             Map<TNetworkAddress, Long> replicaNumPerHost) throws Exception {
-        Collection<Backend> aliveBEs = idToBackend.values().stream().filter(SimpleScheduler::isAvailable)
-                .collect(Collectors.toList());
+        FederationBackendPolicy federationBackendPolicy = new FederationBackendPolicy();
+        federationBackendPolicy.init();
+        Collection<Backend> aliveBEs = federationBackendPolicy.getBackends();
         if (aliveBEs.isEmpty()) {
             throw new UserException("No available backends");
         }
