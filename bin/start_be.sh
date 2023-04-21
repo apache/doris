@@ -71,7 +71,7 @@ if [[ "$(uname -s)" != 'Darwin' ]]; then
     fi
 fi
 
-if [[ "$(cat /proc/swaps | wc -l)" -ne 1 ]]; then
+if [[ "$(swapon -s | wc -l)" -gt 1 ]]; then
     echo "Please disable swap partitioning before installation."
 fi
 
