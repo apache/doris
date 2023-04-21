@@ -156,7 +156,7 @@ public class ResourceGroupMgrTest {
         resourceGroupMgr.createResourceGroup(createStmt);
         Assert.assertEquals(1, resourceGroupMgr.getResourceGroup(name).size());
 
-	DropResourceGroupStmt dropStmt = new DropResourceGroupStmt(false, name);
+        DropResourceGroupStmt dropStmt = new DropResourceGroupStmt(false, name);
         resourceGroupMgr.dropResourceGroup(dropStmt);
         try {
             resourceGroupMgr.getResourceGroup(name);
