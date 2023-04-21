@@ -475,13 +475,13 @@ public class TempPartitionTest {
 
         // for now, we have 2 partitions: p2, tp3, [min, 20), [20, 30). 0 temp partition.
         stmtStr = "alter table db2.tbl2 add temporary partition tp4 values less than('20') "
-                + "('in_memory' = 'true') distributed by hash(k1) buckets 3";
+                + "('in_memory' = 'false') distributed by hash(k1) buckets 3";
         alterTable(stmtStr, true);
         stmtStr = "alter table db2.tbl2 add temporary partition tp4 values less than('20') "
-                + "('in_memory' = 'true', 'replication_num' = '2') distributed by hash(k2) buckets 3";
+                + "('in_memory' = 'false', 'replication_num' = '2') distributed by hash(k2) buckets 3";
         alterTable(stmtStr, true);
         stmtStr = "alter table db2.tbl2 add temporary partition tp4 values less than('20') "
-                + "('in_memory' = 'true', 'replication_num' = '1') distributed by hash(k2) buckets 3";
+                + "('in_memory' = 'false', 'replication_num' = '1') distributed by hash(k2) buckets 3";
         alterTable(stmtStr, false);
 
         Partition p2 = tbl2.getPartition("p2");
@@ -493,10 +493,10 @@ public class TempPartitionTest {
         alterTable(stmtStr, false);
 
         // for now, we have 2 partitions: p2, tp3, [min, 20), [20, 30). 0 temp partition.
-        // and p2 bucket is 3, 'in_memory' is true.
+        // and p2 bucket is 3, 'in_memory' is false.
         p2 = tbl2.getPartition("p2");
         Assert.assertNotNull(p2);
-        Assert.assertTrue(tbl2.getPartitionInfo().getIsInMemory(p2.getId()));
+        Assert.assertFalse(tbl2.getPartitionInfo().getIsInMemory(p2.getId()));
         Assert.assertEquals(3, p2.getDistributionInfo().getBucketNum());
     }
 
@@ -847,13 +847,13 @@ public class TempPartitionTest {
 
         // for now, we have 2 partitions: p2, tp3, ('1', '2', '3', '4', '5', '6'), ('7', '8', '9'). 0 temp partition.
         stmtStr = "alter table db4.tbl4 add temporary partition tp4 values in ('1', '2', '3', '4', '5', '6')"
-                + " ('in_memory' = 'true') distributed by hash(k1) buckets 3";
+                + " ('in_memory' = 'false') distributed by hash(k1) buckets 3";
         alterTable(stmtStr, true);
         stmtStr = "alter table db4.tbl4 add temporary partition tp4 values in ('1', '2', '3', '4', '5', '6')"
-                + " ('in_memory' = 'true', 'replication_num' = '2') distributed by hash(k2) buckets 3";
+                + " ('in_memory' = 'false', 'replication_num' = '2') distributed by hash(k2) buckets 3";
         alterTable(stmtStr, true);
         stmtStr = "alter table db4.tbl4 add temporary partition tp4 values in ('1', '2', '3', '4', '5', '6')"
-                + " ('in_memory' = 'true', 'replication_num' = '1') distributed by hash(k2) buckets 3";
+                + " ('in_memory' = 'false', 'replication_num' = '1') distributed by hash(k2) buckets 3";
         alterTable(stmtStr, false);
 
         Partition p2 = tbl4.getPartition("p2");
@@ -865,10 +865,10 @@ public class TempPartitionTest {
         alterTable(stmtStr, false);
 
         // for now, we have 2 partitions: p2, tp3, ('1', '2', '3', '4', '5', '6'),
-        // ('7', '8', '9'). 0 temp partition. and p2 bucket is 3, 'in_memory' is true.
+        // ('7', '8', '9'). 0 temp partition. and p2 bucket is 3, 'in_memory' is false.
         p2 = tbl4.getPartition("p2");
         Assert.assertNotNull(p2);
-        Assert.assertTrue(tbl4.getPartitionInfo().getIsInMemory(p2.getId()));
+        Assert.assertFalse(tbl4.getPartitionInfo().getIsInMemory(p2.getId()));
         Assert.assertEquals(3, p2.getDistributionInfo().getBucketNum());
 
         stmtStr = "alter table db4.tbl4 add temporary partition tp1 values in ('1', '2', '3');";
@@ -1216,15 +1216,15 @@ public class TempPartitionTest {
         // 0 temp partition.
         stmtStr = "alter table db5.tbl5 add temporary partition tp4 values in"
                 + " ((\"1\",\"beijing\"), (\"1\", \"shanghai\"), (\"2\",\"beijing\"), (\"2\", \"shanghai\"))"
-                + " ('in_memory' = 'true') distributed by hash(k1) buckets 3";
+                + " ('in_memory' = 'false') distributed by hash(k1) buckets 3";
         alterTable(stmtStr, true);
         stmtStr = "alter table db5.tbl5 add temporary partition tp4 values in"
                 + " ((\"1\",\"beijing\"), (\"1\", \"shanghai\"), (\"2\",\"beijing\"), (\"2\", \"shanghai\"))"
-                + " ('in_memory' = 'true', 'replication_num' = '2') distributed by hash(k2) buckets 3";
+                + " ('in_memory' = 'false', 'replication_num' = '2') distributed by hash(k2) buckets 3";
         alterTable(stmtStr, true);
         stmtStr = "alter table db5.tbl5 add temporary partition tp4 values in"
                 + " ((\"1\",\"beijing\"), (\"1\", \"shanghai\"), (\"2\",\"beijing\"), (\"2\", \"shanghai\"))"
-                + " ('in_memory' = 'true', 'replication_num' = '1') distributed by hash(k2) buckets 3";
+                + " ('in_memory' = 'false', 'replication_num' = '1') distributed by hash(k2) buckets 3";
         alterTable(stmtStr, false);
 
         Partition p2 = tbl5.getPartition("p2");
@@ -1237,10 +1237,10 @@ public class TempPartitionTest {
 
         // for now, we have 2 partitions: p2, tp3,
         // (("1","beijing"), ("1", "shanghai"), ("2","beijing"), ("2", "shanghai")), ('7', '8', '9').
-        // 0 temp partition. and p2 bucket is 3, 'in_memory' is true.
+        // 0 temp partition. and p2 bucket is 3, 'in_memory' is false.
         p2 = tbl5.getPartition("p2");
         Assert.assertNotNull(p2);
-        Assert.assertTrue(tbl5.getPartitionInfo().getIsInMemory(p2.getId()));
+        Assert.assertFalse(tbl5.getPartitionInfo().getIsInMemory(p2.getId()));
         Assert.assertEquals(3, p2.getDistributionInfo().getBucketNum());
 
         stmtStr = "alter table db5.tbl5 add temporary partition tp1"
