@@ -17,9 +17,18 @@
 
 #include "olap/task/engine_alter_tablet_task.h"
 
+#include <fmt/format.h>
+#include <gen_cpp/AgentService_types.h>
+#include <glog/logging.h>
+
+#include <ostream>
+#include <string>
+
+#include "common/config.h"
 #include "olap/schema_change.h"
-#include "runtime/memory/mem_tracker.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
+#include "util/doris_metrics.h"
 
 namespace doris {
 

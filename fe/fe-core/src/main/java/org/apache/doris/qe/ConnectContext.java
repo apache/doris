@@ -156,6 +156,8 @@ public class ConnectContext {
 
     private StatsErrorEstimator statsErrorEstimator;
 
+    private Map<String, String> resultAttachedInfo;
+
     public void setUserQueryTimeout(int queryTimeout) {
         if (queryTimeout > 0) {
             sessionVariable.setQueryTimeoutS(queryTimeout);
@@ -364,6 +366,10 @@ public class ConnectContext {
 
     public SessionVariable getSessionVariable() {
         return sessionVariable;
+    }
+
+    public void setSessionVariable(SessionVariable sessionVariable) {
+        this.sessionVariable = sessionVariable;
     }
 
     public ConnectScheduler getConnectScheduler() {
@@ -649,6 +655,14 @@ public class ConnectContext {
             // normal query stmt
             return sessionVariable.getQueryTimeoutS();
         }
+    }
+
+    public void setResultAttachedInfo(Map<String, String> resultAttachedInfo) {
+        this.resultAttachedInfo = resultAttachedInfo;
+    }
+
+    public Map<String, String> getResultAttachedInfo() {
+        return resultAttachedInfo;
     }
 
     public class ThreadInfo {

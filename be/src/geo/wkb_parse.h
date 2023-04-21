@@ -22,9 +22,7 @@
 #include <iosfwd>
 
 #include "geo/geo_common.h"
-#include "geo/geo_types.h"
 #include "geo/wkt_parse_type.h"
-#include "wkb_parse_ctx.h"
 
 struct WkbParseContext;
 

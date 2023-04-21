@@ -17,9 +17,18 @@
 
 #pragma once
 
+#include <gen_cpp/parquet_types.h>
+#include <stdint.h>
+
 #include "common/status.h"
-#include "gen_cpp/parquet_types.h"
-#include "io/fs/buffered_reader.h"
+
+namespace doris {
+namespace io {
+class BufferedStreamReader;
+class IOContext;
+} // namespace io
+struct Slice;
+} // namespace doris
 
 namespace doris::vectorized {
 

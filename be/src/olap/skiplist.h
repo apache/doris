@@ -26,10 +26,11 @@
 //
 // ... prev vs. next pointer ordering ...
 
+#include <gen_cpp/olap_file.pb.h>
+
 #include <atomic>
 
 #include "common/logging.h"
-#include "gen_cpp/olap_file.pb.h"
 #include "util/random.h"
 #include "vec/common/arena.h"
 

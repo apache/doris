@@ -17,18 +17,19 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+
 #include <condition_variable>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <vector>
 
-#include "vec/core/block.h"
+#include "common/status.h"
 
 namespace doris {
 
 class RuntimeState;
-class TUniqueId;
 class MinMaxFuncBase;
 class HybridSetBase;
 class BloomFilterFuncBase;
@@ -36,7 +37,8 @@ class BitmapFilterFuncBase;
 
 namespace vectorized {
 
-class VExprContext;
+class Arena;
+class Block;
 
 struct SharedRuntimeFilterContext {
     std::shared_ptr<MinMaxFuncBase> minmax_func;

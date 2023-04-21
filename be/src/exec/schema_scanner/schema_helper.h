@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <gen_cpp/FrontendService_types.h>
 #include <stdint.h>
 
 #include <string>

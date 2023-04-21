@@ -17,6 +17,17 @@
 
 #include "delta_bit_pack_decoder.h"
 
+#include <string.h>
+
+#include <algorithm>
+#include <string_view>
+
+#include "vec/columns/column.h"
+#include "vec/common/arithmetic_overflow.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type_nullable.h"
+
 namespace doris::vectorized {
 
 Status DeltaDecoder::decode_byte_array(const std::vector<Slice>& decoded_vals,

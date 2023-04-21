@@ -17,20 +17,32 @@
 
 #pragma once
 
+#include <gen_cpp/Descriptors_types.h>
 #include <parallel_hashmap/phmap.h>
-#include <vec/columns/column_object.h>
-#include <vec/common/field_visitors.h>
-#include <vec/core/block.h>
-#include <vec/core/column_with_type_and_name.h>
-#include <vec/data_types/data_type_number.h>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <map>
+#include <mutex>
+#include <string>
+
+#include "common/status.h"
 #include "olap/tablet_schema.h"
-#include "runtime/descriptors.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/core/field.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris {
 class LocalSchemaChangeRecorder;
-}
+enum class FieldType;
+
+namespace vectorized {
+class Block;
+class IColumn;
+struct ColumnWithTypeAndName;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized::schema_util {
 /// Returns number of dimensions in Array type. 0 if type is not array.

@@ -17,12 +17,13 @@
 
 #pragma once
 
-#include <memory>
+#include <stdint.h>
+
 #include <string>
 
-#include "olap/olap_common.h"
-
 namespace doris {
+struct RowsetId;
+
 namespace segment_v2 {
 
 class InvertedIndexDescriptor {

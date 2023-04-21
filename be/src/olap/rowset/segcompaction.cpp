@@ -17,30 +17,50 @@
 
 #include "segcompaction.h"
 
-#include <fmt/core.h>
+#include <fmt/format.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <limits.h>
 
+#include <algorithm>
+#include <atomic>
+#include <condition_variable>
 #include <filesystem>
-#include <iostream>
+#include <map>
 #include <mutex>
-#include <thread>
+#include <sstream>
+#include <string>
+#include <utility>
 
 #include "beta_rowset_writer.h"
-#include "common/config.h"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
+#include "gutil/stringprintf.h"
 #include "gutil/strings/substitute.h"
+#include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
-#include "olap/memtable.h"
+#include "io/io_common.h"
+#include "olap/data_dir.h"
+#include "olap/iterators.h"
 #include "olap/merger.h"
+#include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/row_cursor.h" // RowCursor
+#include "olap/reader.h"
 #include "olap/rowset/beta_rowset.h"
+#include "olap/rowset/rowset_meta.h"
+#include "olap/rowset/rowset_writer_context.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
+#include "olap/rowset/segment_v2/segment.h"
+#include "olap/rowset/segment_v2/segment_writer.h"
+#include "olap/schema.h"
 #include "olap/storage_engine.h"
-#include "runtime/exec_env.h"
+#include "olap/tablet_schema.h"
 #include "runtime/memory/mem_tracker_limiter.h"
-#include "vec/common/schema_util.h" // LocalSchemaChangeRecorder
-#include "vec/jsonb/serialize.h"
+#include "runtime/thread_context.h"
+#include "util/time.h"
+#include "vec/olap/vertical_block_reader.h"
+#include "vec/olap/vertical_merge_iterator.h"
 
 namespace doris {
 using namespace ErrorCode;

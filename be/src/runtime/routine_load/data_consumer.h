@@ -17,19 +17,27 @@
 
 #pragma once
 
-#include <ctime>
-#include <mutex>
-#include <unordered_map>
+#include <stdint.h>
 
+#include <ctime>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <ostream>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+#include "common/logging.h"
+#include "common/status.h"
 #include "librdkafka/rdkafkacpp.h"
 #include "runtime/stream_load/stream_load_context.h"
-#include "util/blocking_queue.hpp"
 #include "util/uid_util.h"
 
 namespace doris {
 
-class KafkaConsumerPipe;
-class Status;
+template <typename T>
+class BlockingQueue;
 
 class DataConsumer {
 public:
@@ -77,6 +85,7 @@ protected:
 };
 
 class PIntegerPair;
+
 class KafkaEventCb : public RdKafka::EventCb {
 public:
     void event_cb(RdKafka::Event& event) {

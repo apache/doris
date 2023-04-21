@@ -21,6 +21,8 @@
 
 #include <iostream>
 
+#include "olap/uint24.h"
+
 namespace doris {
 
 class DateFuncTest : public testing::Test {

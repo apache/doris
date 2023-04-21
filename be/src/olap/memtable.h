@@ -17,16 +17,22 @@
 
 #pragma once
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <memory>
 #include <ostream>
+#include <vector>
 
 #include "common/object_pool.h"
-#include "olap/olap_define.h"
+#include "common/status.h"
+#include "olap/olap_common.h"
 #include "olap/skiplist.h"
 #include "olap/tablet.h"
+#include "olap/tablet_meta.h"
 #include "runtime/memory/mem_tracker.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/arena.h"
-#include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 
 namespace doris {
@@ -36,6 +42,7 @@ class Schema;
 class SlotDescriptor;
 class TabletSchema;
 class TupleDescriptor;
+enum KeysType : int;
 
 class MemTable {
 public:

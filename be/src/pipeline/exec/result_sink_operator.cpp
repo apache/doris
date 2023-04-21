@@ -17,8 +17,15 @@
 
 #include "result_sink_operator.h"
 
+#include <memory>
+
+#include "pipeline/exec/operator.h"
 #include "runtime/buffer_control_block.h"
 #include "vec/sink/vresult_sink.h"
+
+namespace doris {
+class DataSink;
+} // namespace doris
 
 namespace doris::pipeline {
 

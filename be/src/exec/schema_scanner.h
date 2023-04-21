@@ -18,7 +18,6 @@
 #pragma once
 
 #include <gen_cpp/Descriptors_types.h>
-#include <gen_cpp/Types_types.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -26,11 +25,9 @@
 #include <string>
 #include <vector>
 
-#include "common/object_pool.h"
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "util/runtime_profile.h"
-#include "vec/core/block.h"
 
 namespace doris {
 

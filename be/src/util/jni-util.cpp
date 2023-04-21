@@ -17,20 +17,22 @@
 
 #include "util/jni-util.h"
 
+#include <fmt/format.h>
+#include <glog/logging.h>
 #include <jni.h>
 #include <jni_md.h>
-#include <stdlib.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
+#include <iterator>
+#include <memory>
 #include <mutex>
 #include <sstream>
 #include <string>
 #include <vector>
 
-#include "common/config.h"
 #include "gutil/strings/substitute.h"
-#include "util/defer_op.h"
 #include "util/jni_native_method.h"
 #include "util/libjvm_loader.h"
 

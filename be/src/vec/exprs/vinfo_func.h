@@ -17,17 +17,20 @@
 
 #pragma once
 
-#include <iostream>
 #include <string>
 
-#include "vec/columns/column.h"
-#include "vec/columns/column_const.h"
+#include "common/object_pool.h"
+#include "common/status.h"
+#include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr.h"
 
 namespace doris {
 class TExprNode;
 
 namespace vectorized {
+class Block;
+class VExprContext;
+
 class VInfoFunc : public VExpr {
 public:
     VInfoFunc(const TExprNode& node);

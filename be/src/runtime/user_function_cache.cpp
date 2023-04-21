@@ -17,17 +17,27 @@
 
 #include "runtime/user_function_cache.h"
 
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
+#include <glog/logging.h>
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+
 #include <atomic>
+#include <memory>
+#include <ostream>
 #include <regex>
+#include <utility>
 #include <vector>
 
 #include "common/config.h"
 #include "common/status.h"
 #include "gutil/strings/split.h"
 #include "http/http_client.h"
+#include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "util/dynamic_util.h"
-#include "util/jni-util.h"
 #include "util/md5.h"
 #include "util/spinlock.h"
 #include "util/string_util.h"

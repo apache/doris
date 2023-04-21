@@ -17,11 +17,30 @@
 
 #pragma once
 
-#include <cstdint>
+#include <string.h>
 
+#include <cstdint>
+#include <memory>
+#include <unordered_map>
+#include <vector>
+
+#include "common/status.h"
 #include "gutil/endian.h"
-#include "util/rle_encoding.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/exec/format/format_common.h"
 #include "vec/exec/format/parquet/decoder.h"
+#include "vec/exec/format/parquet/parquet_common.h"
+
+namespace doris {
+namespace vectorized {
+class ColumnString;
+template <typename T>
+class ColumnDecimal;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

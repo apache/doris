@@ -17,16 +17,23 @@
 
 #include "olap/rowset/beta_rowset.h"
 
-#include <fmt/core.h>
-#include <glog/logging.h>
-#include <stdio.h>  // for remove()
-#include <unistd.h> // for link()
+#include <ctype.h>
+#include <fmt/format.h>
 
+#include <algorithm>
+#include <ostream>
+#include <utility>
+
+#include "common/config.h"
+#include "common/logging.h"
 #include "common/status.h"
-#include "gutil/strings/substitute.h"
 #include "io/cache/file_cache_manager.h"
-#include "io/fs/fs_utils.h"
-#include "io/fs/s3_file_system.h"
+#include "io/fs/file_reader_options.h"
+#include "io/fs/file_system.h"
+#include "io/fs/local_file_system.h"
+#include "io/fs/path.h"
+#include "io/fs/remote_file_system.h"
+#include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"

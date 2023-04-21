@@ -53,11 +53,13 @@ public class CreateCatalogStmtTest {
         Map<String, String> props = Maps.newHashMap();
         props.put("type", "hms");
         props.put("hive.metastore.uris", "thrift://localhost:9083");
-        CreateCatalogStmt stmt = new CreateCatalogStmt(false, "testCatalog", null, props);
+        CreateCatalogStmt stmt = new CreateCatalogStmt(false, "testCatalog", null, props, "comment");
         stmt.analyze(analyzer);
         Assert.assertEquals("testCatalog", stmt.getCatalogName());
+        Assert.assertNotNull(stmt.getComment());
         Assert.assertNotNull(stmt.getProperties());
-        Assert.assertEquals(2, stmt.getProperties().size());
+        Assert.assertTrue(stmt.getProperties().containsKey("create_time"));
+        Assert.assertEquals(3, stmt.getProperties().size());
     }
 
     @Test(expected = AnalysisException.class)
@@ -65,7 +67,7 @@ public class CreateCatalogStmtTest {
         Map<String, String> props = Maps.newHashMap();
         props.put("type", "hms");
         props.put("hive.metastore.uris", "thrift://localhost:9083");
-        CreateCatalogStmt stmt = new CreateCatalogStmt(false, "", null, props);
+        CreateCatalogStmt stmt = new CreateCatalogStmt(false, "", null, props, "comment");
         stmt.analyze(analyzer);
         Assert.fail("no exception");
     }
@@ -75,7 +77,7 @@ public class CreateCatalogStmtTest {
         Map<String, String> props = Maps.newHashMap();
         props.put("type", "hms");
         props.put("hive.metastore.uris", "thrift://localhost:9083");
-        CreateCatalogStmt stmt = new CreateCatalogStmt(false, InternalCatalog.INTERNAL_CATALOG_NAME, null, props);
+        CreateCatalogStmt stmt = new CreateCatalogStmt(false, InternalCatalog.INTERNAL_CATALOG_NAME, null, props, "comment");
         stmt.analyze(analyzer);
         Assert.fail("no exception");
     }
@@ -84,7 +86,7 @@ public class CreateCatalogStmtTest {
     public void testPropsTypeException() throws UserException {
         Map<String, String> props = Maps.newHashMap();
         props.put("hive.metastore.uris", "thrift://localhost:9083");
-        CreateCatalogStmt stmt = new CreateCatalogStmt(false, InternalCatalog.INTERNAL_CATALOG_NAME, null, props);
+        CreateCatalogStmt stmt = new CreateCatalogStmt(false, InternalCatalog.INTERNAL_CATALOG_NAME, null, props, "comment");
         stmt.analyze(analyzer);
         Assert.fail("no exception");
     }

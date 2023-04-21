@@ -17,7 +17,20 @@
 
 #include "streaming_aggregation_sink_operator.h"
 
+#include <gen_cpp/Metrics_types.h>
+
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "pipeline/exec/data_queue.h"
+#include "pipeline/exec/operator.h"
 #include "vec/exec/vaggregation_node.h"
+
+namespace doris {
+class ExecNode;
+class RuntimeState;
+} // namespace doris
 
 namespace doris::pipeline {
 

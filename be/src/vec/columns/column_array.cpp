@@ -20,12 +20,28 @@
 
 #include "vec/columns/column_array.h"
 
+#include <assert.h>
+#include <string.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <limits>
+#include <memory>
+#include <vector>
+
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/columns_common.h"
 #include "vec/columns/columns_number.h"
+#include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/memcpy_small.h"
+#include "vec/common/typeid_cast.h"
+#include "vec/common/unaligned.h"
+#include "vec/data_types/data_type.h"
+
+class SipHash;
 
 namespace doris::vectorized {
 

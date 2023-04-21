@@ -20,15 +20,24 @@
 
 #include "vec/columns/column_decimal.h"
 
-#include "common/config.h"
+#include <fmt/format.h>
+
+#include <limits>
+#include <ostream>
+#include <string>
+
+#include "olap/decimal12.h"
+#include "runtime/decimalv2_value.h"
+#include "util/hash_util.hpp"
 #include "util/simd/bits.h"
-#include "vec/columns/column_impl.h"
 #include "vec/columns/columns_common.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/int_exp.h"
 #include "vec/common/sip_hash.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/sort_block.h"
+#include "vec/data_types/data_type.h"
 
 template <typename T>
 bool decimal_less(T x, T y, doris::vectorized::UInt32 x_scale, doris::vectorized::UInt32 y_scale);

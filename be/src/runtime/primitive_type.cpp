@@ -17,13 +17,11 @@
 
 #include "runtime/primitive_type.h"
 
-#include "gen_cpp/Types_types.h"
-#include "runtime/collection_value.h"
+#include <gen_cpp/Types_types.h>
+
+#include <vector>
+
 #include "runtime/define_primitive_type.h"
-#include "runtime/jsonb_value.h"
-#include "runtime/map_value.h"
-#include "runtime/struct_value.h"
-#include "vec/common/string_ref.h"
 
 namespace doris {
 

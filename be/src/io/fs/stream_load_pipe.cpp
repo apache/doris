@@ -17,12 +17,22 @@
 
 #include "stream_load_pipe.h"
 
-#include "olap/iterators.h"
+#include <glog/logging.h>
+
+#include <algorithm>
+#include <ostream>
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "util/bit_util.h"
 
 namespace doris {
 namespace io {
+class IOContext;
+
 StreamLoadPipe::StreamLoadPipe(size_t max_buffered_bytes, size_t min_chunk_size,
                                int64_t total_length, bool use_proto)
         : _buffered_bytes(0),

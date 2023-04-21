@@ -17,12 +17,23 @@
 
 #include "io/fs/local_file_writer.h"
 
-#include <fmt/core.h>
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
+#include <fcntl.h>
+#include <glog/logging.h>
+#include <limits.h>
+#include <stdint.h>
 #include <sys/uio.h>
+#include <unistd.h>
 
-#include <cerrno>
+#include <algorithm>
+#include <cstring>
+#include <memory>
+#include <ostream>
+#include <utility>
 
-#include "common/compiler_util.h"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "gutil/macros.h"
 #include "io/fs/file_writer.h"

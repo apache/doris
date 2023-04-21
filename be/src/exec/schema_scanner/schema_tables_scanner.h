@@ -23,7 +23,6 @@
 
 #include "common/status.h"
 #include "exec/schema_scanner.h"
-#include "vec/core/block.h"
 
 namespace doris {
 class RuntimeState;

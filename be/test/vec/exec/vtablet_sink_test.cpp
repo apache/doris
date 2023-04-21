@@ -27,6 +27,7 @@
 #include "gen_cpp/internal_service.pb.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/descriptor_helper.h"
+#include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/result_queue_mgr.h"
 #include "runtime/runtime_state.h"

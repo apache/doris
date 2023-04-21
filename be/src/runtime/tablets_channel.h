@@ -17,23 +17,44 @@
 
 #pragma once
 
+#include <glog/logging.h>
+
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <mutex>
+#include <ostream>
 #include <shared_mutex>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
-#include <utility>
 #include <vector>
 
-#include "gen_cpp/PaloInternalService_types.h"
-#include "gen_cpp/Types_types.h"
-#include "gen_cpp/internal_service.pb.h"
-#include "runtime/descriptors.h"
+#include "common/status.h"
 #include "util/bitmap.h"
+#include "util/spinlock.h"
 #include "util/uid_util.h"
 
+namespace google {
+namespace protobuf {
+template <typename Element>
+class RepeatedField;
+template <typename Key, typename T>
+class Map;
+template <typename T>
+class RepeatedPtrField;
+} // namespace protobuf
+} // namespace google
+
 namespace doris {
+class PSlaveTabletNodes;
+class PSuccessSlaveTabletNodeIds;
+class PTabletError;
+class PTabletInfo;
+class PTabletWriterOpenRequest;
+class PUniqueId;
+class TupleDescriptor;
 
 struct TabletsChannelKey {
     UniqueId id;

@@ -17,14 +17,16 @@
 
 #include "olap/match_predicate.h"
 
-#include <string.h>
-
-#include <memory>
-#include <sstream>
+#include <roaring/roaring.hh>
 
 #include "exec/olap_utils.h"
-#include "exprs/string_functions.h"
+#include "olap/field.h"
+#include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/inverted_index_cache.h"
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/schema.h"
+#include "olap/types.h"
+#include "olap/utils.h"
 #include "vec/common/string_ref.h"
 
 namespace doris {

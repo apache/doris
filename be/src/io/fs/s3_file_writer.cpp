@@ -17,28 +17,40 @@
 
 #include "io/fs/s3_file_writer.h"
 
-#include <aws/core/Aws.h>
+#include <aws/core/http/HttpResponse.h>
+#include <aws/core/utils/Array.h>
 #include <aws/core/utils/HashingUtils.h>
+#include <aws/core/utils/Outcome.h>
+#include <aws/core/utils/memory/stl/AWSAllocator.h>
 #include <aws/s3/S3Client.h>
+#include <aws/s3/S3Errors.h>
 #include <aws/s3/model/AbortMultipartUploadRequest.h>
+#include <aws/s3/model/AbortMultipartUploadResult.h>
 #include <aws/s3/model/CompleteMultipartUploadRequest.h>
+#include <aws/s3/model/CompleteMultipartUploadResult.h>
+#include <aws/s3/model/CompletedMultipartUpload.h>
+#include <aws/s3/model/CompletedPart.h>
 #include <aws/s3/model/CreateMultipartUploadRequest.h>
-#include <aws/s3/model/DeleteObjectRequest.h>
-#include <aws/s3/model/DeleteObjectsRequest.h>
-#include <aws/s3/model/GetObjectRequest.h>
+#include <aws/s3/model/CreateMultipartUploadResult.h>
 #include <aws/s3/model/UploadPartRequest.h>
-#include <fmt/core.h>
-#include <sys/uio.h>
+#include <aws/s3/model/UploadPartResult.h>
+#include <glog/logging.h>
 
-#include <cerrno>
+#include <sstream>
+#include <utility>
 
-#include "common/compiler_util.h"
 #include "common/status.h"
-#include "gutil/macros.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/path.h"
-#include "io/fs/s3_file_system.h"
 #include "util/doris_metrics.h"
+
+namespace Aws {
+namespace S3 {
+namespace Model {
+class DeleteObjectRequest;
+} // namespace Model
+} // namespace S3
+} // namespace Aws
 
 using Aws::S3::Model::AbortMultipartUploadRequest;
 using Aws::S3::Model::CompletedPart;

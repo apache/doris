@@ -17,10 +17,29 @@
 
 #pragma once
 
+#include <stdint.h>
+
+#include <memory>
+#include <string>
+
+#include "common/global_types.h"
+#include "common/status.h"
 #include "exec/odbc_connector.h"
 #include "exec/text_converter.h"
-#include "vec/exec/scan/new_odbc_scan_node.h"
 #include "vec/exec/scan/vscanner.h"
+
+namespace doris {
+class RuntimeProfile;
+class RuntimeState;
+class TOdbcScanNode;
+class TupleDescriptor;
+
+namespace vectorized {
+class Block;
+class NewOdbcScanNode;
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 class NewOdbcScanner : public VScanner {

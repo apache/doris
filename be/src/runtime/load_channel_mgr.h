@@ -17,24 +17,30 @@
 
 #pragma once
 
-#include <ctime>
+#include <stdint.h>
+
+#include <condition_variable>
 #include <memory>
 #include <mutex>
-#include <thread>
 #include <unordered_map>
+#include <utility>
 
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
-#include "gen_cpp/internal_service.pb.h"
 #include "gutil/ref_counted.h"
 #include "olap/lru_cache.h"
 #include "runtime/load_channel.h"
+#include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/thread_context.h"
 #include "util/countdown_latch.h"
-#include "util/thread.h"
 #include "util/uid_util.h"
 
 namespace doris {
 
-class Cache;
+class PTabletWriterCancelRequest;
+class PTabletWriterOpenRequest;
+class Thread;
 
 // LoadChannelMgr -> LoadChannel -> TabletsChannel -> DeltaWriter
 // All dispatched load data for this backend is routed from this class
