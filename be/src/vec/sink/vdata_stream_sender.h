@@ -426,6 +426,9 @@ public:
     // rpc (or OK if there wasn't one that hasn't been reported yet).
     // if batch is nullptr, send the eof packet
     Status send_block(PBlock* block, bool eos = false) override {
+        std::unique_ptr<PBlock> pblock_ptr;
+        pblock_ptr.reset(block);
+
         if (eos) {
             if (_eos_send) {
                 return Status::OK();
@@ -434,8 +437,7 @@ public:
             }
         }
         if (eos || block->column_metas_size()) {
-            RETURN_IF_ERROR(_buffer->add_block(
-                    {this, block ? std::make_unique<PBlock>(*block) : nullptr, eos}));
+            RETURN_IF_ERROR(_buffer->add_block({this, std::move(pblock_ptr), eos}));
         }
         return Status::OK();
     }
@@ -460,15 +462,14 @@ public:
             return send_local_block(eos);
         }
 
-        PBlock* block_ptr = nullptr;
+        auto block_ptr = std::make_unique<PBlock>();
         if (_mutable_block) {
-            block_ptr = new PBlock(); // TODO: need a pool of PBlock()
             auto block = _mutable_block->to_block();
-            RETURN_IF_ERROR(_parent->serialize_block(&block, block_ptr));
+            RETURN_IF_ERROR(_parent->serialize_block(&block, block_ptr.get()));
             block.clear_column_data();
             _mutable_block->set_muatable_columns(block.mutate_columns());
         }
-        RETURN_IF_ERROR(send_block(block_ptr, eos));
+        RETURN_IF_ERROR(send_block(block_ptr.release(), eos));
         return Status::OK();
     }
 
