@@ -24,7 +24,9 @@
 #include "http/ev_http_server.h"
 #include "http/http_channel.h"
 #include "http/http_handler.h"
+#include "http/http_headers.h"
 #include "http/http_request.h"
+#include "http/utils.h"
 
 namespace doris {
 

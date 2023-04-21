@@ -17,15 +17,18 @@
 
 #include "pipeline/exec/union_source_operator.h"
 
-#include <opentelemetry/common/threadlocal.h>
+#include <functional>
+#include <utility>
 
 #include "common/status.h"
 #include "pipeline/exec/data_queue.h"
+#include "pipeline/exec/operator.h"
+#include "runtime/descriptors.h"
+#include "vec/core/block.h"
 
 namespace doris {
-namespace vectorized {
-class Block;
-}
+class ExecNode;
+class RuntimeState;
 
 namespace pipeline {
 

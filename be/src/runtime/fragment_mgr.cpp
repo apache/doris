@@ -18,44 +18,75 @@
 #include "runtime/fragment_mgr.h"
 
 #include <bvar/latency_recorder.h>
+#include <fmt/format.h>
+#include <gen_cpp/DorisExternalService_types.h>
+#include <gen_cpp/FrontendService.h>
+#include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/HeartbeatService_types.h>
-#include <gperftools/profiler.h>
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Planner_types.h>
+#include <gen_cpp/QueryPlanExtra_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+#include <opentelemetry/trace/span.h>
+#include <opentelemetry/trace/tracer.h>
+#include <pthread.h>
+#include <stddef.h>
+#include <thrift/Thrift.h>
 #include <thrift/protocol/TDebugProtocol.h>
+#include <thrift/transport/TTransportException.h>
 
+#include <atomic>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <map>
 #include <memory>
 #include <sstream>
+#include <utility>
 
+#include "common/config.h"
+#include "common/logging.h"
 #include "common/object_pool.h"
-#include "gen_cpp/FrontendService.h"
-#include "gen_cpp/PaloInternalService_types.h"
-#include "gen_cpp/PlanNodes_types.h"
-#include "gen_cpp/QueryPlanExtra_types.h"
-#include "gen_cpp/Types_types.h"
+#include "common/utils.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/stream_load_pipe.h"
 #include "opentelemetry/trace/scope.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "pipeline/task_scheduler.h"
 #include "runtime/client_cache.h"
-#include "runtime/datetime_value.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/plan_fragment_executor.h"
+#include "runtime/primitive_type.h"
+#include "runtime/query_fragments_ctx.h"
 #include "runtime/runtime_filter_mgr.h"
+#include "runtime/runtime_state.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
+#include "runtime/stream_load/stream_load_executor.h"
+#include "runtime/task_group/task_group.h"
 #include "runtime/task_group/task_group_manager.h"
 #include "runtime/thread_context.h"
+#include "runtime/types.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
+#include "util/hash_util.hpp"
 #include "util/mem_info.h"
 #include "util/network_util.h"
-#include "util/stopwatch.hpp"
+#include "util/pretty_printer.h"
+#include "util/runtime_profile.h"
 #include "util/telemetry/telemetry.h"
+#include "util/thread.h"
 #include "util/threadpool.h"
 #include "util/thrift_util.h"
 #include "util/uid_util.h"
 #include "util/url_coding.h"
+#include "vec/runtime/shared_hash_table_controller.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 
@@ -78,7 +109,6 @@ std::string to_load_error_http_path(const std::string& file_name) {
 using apache::thrift::TException;
 using apache::thrift::transport::TTransportException;
 
-class RuntimeProfile;
 class FragmentExecState {
 public:
     using report_status_callback_impl = std::function<void(const ReportStatusRequest)>;

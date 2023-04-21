@@ -17,15 +17,22 @@
 
 #include "io/fs/buffered_reader.h"
 
-#include <algorithm>
-#include <sstream>
+#include <bvar/reducer.h>
+#include <bvar/window.h>
+#include <string.h>
 
+#include <algorithm>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
-#include "olap/iterators.h"
-#include "olap/olap_define.h"
+#include "runtime/exec_env.h"
+#include "util/runtime_profile.h"
+#include "util/threadpool.h"
 
 namespace doris {
 namespace io {
+class IOContext;
 
 // add bvar to capture the download bytes per second by buffered reader
 bvar::Adder<uint64_t> g_bytes_downloaded("buffered_reader", "bytes_downloaded");

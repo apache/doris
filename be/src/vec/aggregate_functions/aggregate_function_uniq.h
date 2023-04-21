@@ -20,18 +20,41 @@
 
 #pragma once
 
-#include <type_traits>
+#include <stddef.h>
 
-#include "gutil/hash/city.h"
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <memory>
+#include <type_traits>
+#include <vector>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/columns/column_decimal.h"
-#include "vec/common/aggregation_common.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/bit_cast.h"
-#include "vec/common/hash_table/hash_set.h"
 #include "vec/common/hash_table/phmap_fwd_decl.h"
-#include "vec/common/typeid_cast.h"
+#include "vec/common/sip_hash.h"
+#include "vec/common/string_ref.h"
+#include "vec/common/uint128.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/io/io_helper.h"
+#include "vec/io/var_int.h"
+
+namespace doris {
+namespace vectorized {
+class Arena;
+class BufferReadable;
+class BufferWritable;
+template <typename T>
+class ColumnDecimal;
+} // namespace vectorized
+} // namespace doris
+template <typename T>
+struct HashCRC32;
 
 namespace doris::vectorized {
 

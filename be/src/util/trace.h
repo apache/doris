@@ -16,14 +16,16 @@
 // under the License.
 #pragma once
 
+#include <butil/macros.h>
+#include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
+#include <stdint.h>
 
 #include <iosfwd>
-#include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
-#include "gutil/macros.h"
 #include "gutil/ref_counted.h"
 #include "gutil/strings/stringpiece.h"
 #include "gutil/strings/substitute.h"

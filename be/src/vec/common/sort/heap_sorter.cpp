@@ -17,7 +17,25 @@
 
 #include "vec/common/sort/heap_sorter.h"
 
+#include <glog/logging.h>
+
+#include <algorithm>
+
+#include "runtime/thread_context.h"
 #include "util/defer_op.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/common/sort/vsort_exec_exprs.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/sort_description.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/exprs/vexpr_context.h"
+
+namespace doris {
+class ObjectPool;
+class RowDescriptor;
+class RuntimeState;
+} // namespace doris
 
 namespace doris::vectorized {
 HeapSorter::HeapSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offset,

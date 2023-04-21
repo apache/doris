@@ -20,11 +20,21 @@
 
 #include "vec/columns/columns_common.h"
 
+#include <string.h>
+
+#include <boost/iterator/iterator_facade.hpp>
+
 #include "util/simd/bits.h"
 #include "util/sse_util.hpp"
 #include "vec/columns/column.h"
-#include "vec/columns/column_array.h"
-#include "vec/columns/column_vector.h"
+#include "vec/columns/column_array.h" // IWYU pragma: keep
+
+namespace doris {
+namespace vectorized {
+template <typename T>
+class ColumnVector;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

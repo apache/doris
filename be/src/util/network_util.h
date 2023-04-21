@@ -20,10 +20,13 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+#include <sys/un.h>
+
+#include <string>
 #include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/Types_types.h"
 
 namespace doris {
 

@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "gen_cpp/Types_types.h"
+#include <gen_cpp/Types_types.h>
 
 namespace doris {
 

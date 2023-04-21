@@ -17,42 +17,76 @@
 
 #include "vec/sink/vtablet_sink.h"
 
+#include <brpc/http_header.h>
+#include <brpc/http_method.h>
+#include <brpc/uri.h>
+#include <bthread/bthread.h>
+#include <butil/iobuf_inl.h>
 #include <fmt/format.h>
+#include <gen_cpp/DataSinks_types.h>
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/data.pb.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+#include <sys/param.h>
+#include <sys/types.h>
 
+#include <algorithm>
+#include <iterator>
 #include <mutex>
-#include <sstream>
 #include <string>
 #include <unordered_map>
 
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
+#include "common/object_pool.h"
 #include "common/status.h"
 #include "exec/tablet_info.h"
-#include "olap/hll.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
+#include "util/binary_cast.hpp"
 #include "util/brpc_client_cache.h"
 #include "util/debug/sanitizer_scopes.h"
 #include "util/defer_op.h"
 #include "util/doris_metrics.h"
+#include "util/network_util.h"
 #include "util/proto_util.h"
+#include "util/ref_count_closure.h"
+#include "util/telemetry/telemetry.h"
+#include "util/thread.h"
 #include "util/threadpool.h"
 #include "util/time.h"
 #include "util/uid_util.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
+#include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/pod_array.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris {
+class TExpr;
+
 namespace stream_load {
 
 IndexChannel::~IndexChannel() {
@@ -452,7 +486,7 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
     }
 
     if (UNLIKELY(!_cur_mutable_block)) {
-        _cur_mutable_block.reset(new vectorized::MutableBlock(block->clone_empty()));
+        _cur_mutable_block = vectorized::MutableBlock::create_unique(block->clone_empty());
     }
 
     std::unique_ptr<Payload> temp_payload = nullptr;
@@ -536,7 +570,7 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
                        << " jobid:" << std::to_string(_state->load_job_id())
                        << " loadinfo:" << _load_info;
         }
-        _cur_mutable_block.reset(new vectorized::MutableBlock(block->clone_empty()));
+        _cur_mutable_block = vectorized::MutableBlock::create_unique(block->clone_empty());
         _cur_add_block_request.clear_tablet_ids();
     }
 
@@ -824,7 +858,7 @@ void VNodeChannel::mark_close() {
         std::lock_guard<std::mutex> l(_pending_batches_lock);
         if (!_cur_mutable_block) {
             // add a dummy block
-            _cur_mutable_block.reset(new vectorized::MutableBlock());
+            _cur_mutable_block = vectorized::MutableBlock::create_unique();
         }
         _pending_blocks.emplace(std::move(_cur_mutable_block), _cur_add_block_request);
         _pending_batches_num++;

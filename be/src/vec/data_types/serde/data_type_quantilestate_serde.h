@@ -15,7 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#pragma once
+
+#include <gen_cpp/types.pb.h>
+#include <stddef.h>
+
+#include "common/status.h"
 #include "data_type_serde.h"
+#include "vec/columns/column.h"
+#include "vec/common/string_ref.h"
+
 namespace doris {
 
 namespace vectorized {

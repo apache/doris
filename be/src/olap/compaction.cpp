@@ -17,14 +17,39 @@
 
 #include "olap/compaction.h"
 
+#include <fmt/format.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <glog/logging.h>
+
+#include <algorithm>
+#include <cstdlib>
+#include <list>
+#include <map>
+#include <mutex>
+#include <ostream>
+#include <set>
+#include <shared_mutex>
+#include <utility>
+
+#include "common/config.h"
 #include "common/status.h"
-#include "gutil/strings/substitute.h"
+#include "io/fs/file_system.h"
+#include "io/fs/remote_file_system.h"
+#include "olap/cumulative_compaction_policy.h"
+#include "olap/data_dir.h"
+#include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
+#include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
+#include "olap/storage_engine.h"
+#include "olap/storage_policy.h"
 #include "olap/tablet.h"
+#include "olap/tablet_meta.h"
 #include "olap/task/engine_checksum_task.h"
+#include "olap/utils.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "util/time.h"
 #include "util/trace.h"
 

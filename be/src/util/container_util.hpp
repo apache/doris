@@ -20,10 +20,11 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+
 #include <map>
 #include <unordered_map>
 
-#include "gen_cpp/Types_types.h"
 #include "util/hash_util.hpp"
 
 namespace doris {

@@ -19,7 +19,9 @@
 
 #include "common/status.h"
 #include "process_hash_table_probe.h"
+#include "runtime/thread_context.h" // IWYU pragma: keep
 #include "util/simd/bits.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vhash_join_node.h"
 
 namespace doris::vectorized {

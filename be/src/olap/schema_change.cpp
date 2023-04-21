@@ -17,37 +17,66 @@
 
 #include "olap/schema_change.h"
 
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/olap_file.pb.h>
 
-#include "common/config.h"
+#include <algorithm>
+#include <exception>
+#include <map>
+#include <mutex>
+#include <roaring/roaring.hh>
+#include <tuple>
+
+#include "common/logging.h"
 #include "common/status.h"
+#include "gutil/hash/hash.h"
 #include "gutil/integral_types.h"
+#include "gutil/strings/numbers.h"
+#include "io/fs/file_system.h"
+#include "io/io_common.h"
+#include "olap/data_dir.h"
+#include "olap/delete_handler.h"
+#include "olap/field.h"
+#include "olap/iterators.h"
 #include "olap/merger.h"
 #include "olap/olap_common.h"
-#include "olap/row_cursor.h"
+#include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
-#include "olap/rowset/rowset_id_generator.h"
+#include "olap/rowset/rowset_meta.h"
+#include "olap/rowset/rowset_reader_context.h"
+#include "olap/rowset/rowset_writer_context.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
+#include "olap/rowset/segment_v2/segment.h"
+#include "olap/schema.h"
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "olap/tablet_manager.h"
+#include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
 #include "olap/utils.h"
 #include "olap/wrapper_field.h"
 #include "runtime/memory/mem_tracker.h"
+#include "runtime/runtime_state.h"
 #include "util/defer_op.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
-#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/olap/olap_data_convertor.h"
 
 namespace doris {
+class CollectionValue;
+
 using namespace ErrorCode;
 
 constexpr int ALTER_TABLE_BATCH_SIZE = 4096;
@@ -430,8 +459,8 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
                                              TabletSchemaSPtr base_tablet_schema) {
     do {
         auto new_block =
-                std::make_unique<vectorized::Block>(new_tablet->tablet_schema()->create_block());
-        auto ref_block = std::make_unique<vectorized::Block>(base_tablet_schema->create_block());
+                vectorized::Block::create_unique(new_tablet->tablet_schema()->create_block());
+        auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
 
         rowset_reader->next_block(ref_block.get());
         if (ref_block->rows() == 0) {
@@ -502,11 +531,10 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
         return Status::OK();
     };
 
-    auto new_block =
-            std::make_unique<vectorized::Block>(new_tablet->tablet_schema()->create_block());
+    auto new_block = vectorized::Block::create_unique(new_tablet->tablet_schema()->create_block());
 
     do {
-        auto ref_block = std::make_unique<vectorized::Block>(base_tablet_schema->create_block());
+        auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
         rowset_reader->next_block(ref_block.get());
         if (ref_block->rows() == 0) {
             break;
@@ -528,7 +556,7 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
 
         // move unique ptr
         blocks.push_back(
-                std::make_unique<vectorized::Block>(new_tablet->tablet_schema()->create_block()));
+                vectorized::Block::create_unique(new_tablet->tablet_schema()->create_block()));
         swap(blocks.back(), new_block);
     } while (true);
 

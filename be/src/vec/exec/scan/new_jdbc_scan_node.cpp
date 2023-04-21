@@ -17,8 +17,24 @@
 
 #include "vec/exec/scan/new_jdbc_scan_node.h"
 
+#include <fmt/format.h>
+#include <gen_cpp/PlanNodes_types.h>
+
+#include <memory>
+#include <ostream>
+
+#include "common/logging.h"
+#include "common/object_pool.h"
+#include "runtime/runtime_state.h"
 #include "vec/exec/scan/new_jdbc_scanner.h"
-#include "vec/exec/scan/vscanner.h"
+
+namespace doris {
+class DescriptorTbl;
+namespace vectorized {
+class VScanner;
+} // namespace vectorized
+} // namespace doris
+
 namespace doris::vectorized {
 NewJdbcScanNode::NewJdbcScanNode(ObjectPool* pool, const TPlanNode& tnode,
                                  const DescriptorTbl& descs)

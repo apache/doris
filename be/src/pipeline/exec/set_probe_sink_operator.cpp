@@ -17,7 +17,21 @@
 
 #include "set_probe_sink_operator.h"
 
+#include <glog/logging.h>
+
+#include <memory>
+
+#include "pipeline/exec/operator.h"
 #include "vec/exec/vset_operation_node.h"
+
+namespace doris {
+class ExecNode;
+class RuntimeState;
+
+namespace vectorized {
+class Block;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::pipeline {
 

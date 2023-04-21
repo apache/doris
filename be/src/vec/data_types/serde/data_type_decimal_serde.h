@@ -15,12 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#pragma once
+
+#include <gen_cpp/types.pb.h>
+#include <stddef.h>
+
+#include "common/status.h"
 #include "data_type_serde.h"
-#include "vec/columns/column_decimal.h"
+#include "olap/olap_common.h"
+#include "vec/columns/column.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/types.h"
 
 namespace doris {
 
 namespace vectorized {
+template <typename T>
+class ColumnDecimal;
 
 template <typename T>
 class DataTypeDecimalSerDe : public DataTypeSerDe {

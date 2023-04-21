@@ -18,13 +18,17 @@
 #include "runtime/memory/mem_tracker_limiter.h"
 
 #include <fmt/format.h>
+#include <gen_cpp/types.pb.h>
+#include <stdlib.h>
 
-#include <boost/stacktrace.hpp>
+#include <functional>
+#include <mutex>
 #include <queue>
+#include <utility>
 
+#include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/load_channel_mgr.h"
-#include "runtime/runtime_state.h"
 #include "service/backend_options.h"
 #include "util/mem_info.h"
 #include "util/perf_counters.h"

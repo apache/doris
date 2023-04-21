@@ -16,12 +16,15 @@
 // under the License.
 #pragma once
 
+#include <stdint.h>
+
+#include "common/status.h"
 #include "operator.h"
+#include "vec/exec/vaggregation_node.h"
 
 namespace doris {
-namespace vectorized {
-class AggregationNode;
-}
+class ExecNode;
+class RuntimeState;
 
 namespace pipeline {
 

@@ -17,15 +17,39 @@
 
 #include "olap/merger.h"
 
+#include <gen_cpp/olap_file.pb.h>
+#include <gen_cpp/types.pb.h>
+#include <stddef.h>
+
+#include <algorithm>
+#include <iterator>
 #include <memory>
+#include <numeric>
+#include <ostream>
+#include <shared_mutex>
+#include <string>
+#include <utility>
 #include <vector>
 
+#include "common/config.h"
+#include "common/logging.h"
+#include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/row_cursor.h"
+#include "olap/reader.h"
+#include "olap/rowid_conversion.h"
+#include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_meta.h"
+#include "olap/rowset/rowset_writer.h"
+#include "olap/rowset/segment_v2/segment_writer.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "olap/utils.h"
+#include "util/slice.h"
 #include "util/trace.h"
+#include "vec/core/block.h"
 #include "vec/olap/block_reader.h"
+#include "vec/olap/vertical_block_reader.h"
+#include "vec/olap/vertical_merge_iterator.h"
 
 namespace doris {
 

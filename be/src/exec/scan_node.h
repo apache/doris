@@ -20,8 +20,6 @@
 
 #pragma once
 
-#include <gen_cpp/PaloInternalService_types.h>
-
 #include <functional>
 #include <string>
 #include <vector>
@@ -32,7 +30,6 @@
 
 namespace doris {
 
-class TScanRange;
 class DescriptorTbl;
 class ObjectPool;
 class RuntimeState;

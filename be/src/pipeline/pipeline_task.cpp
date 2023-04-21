@@ -17,8 +17,28 @@
 
 #include "pipeline_task.h"
 
+#include <fmt/format.h>
+#include <gen_cpp/Metrics_types.h>
+#include <glog/logging.h>
+#include <stddef.h>
+
+#include <ostream>
+
+#include "pipeline/exec/operator.h"
+#include "pipeline/pipeline.h"
 #include "pipeline_fragment_context.h"
+#include "runtime/descriptors.h"
+#include "runtime/query_fragments_ctx.h"
+#include "runtime/thread_context.h"
 #include "task_queue.h"
+#include "util/defer_op.h"
+
+namespace doris {
+class RuntimeState;
+namespace taskgroup {
+class TaskGroup;
+} // namespace taskgroup
+} // namespace doris
 
 namespace doris::pipeline {
 
@@ -78,7 +98,7 @@ Status PipelineTask::prepare(RuntimeState* state) {
     fmt::format_to(operator_ids_str, "]");
     _task_profile->add_info_string("OperatorIds(source2root)", fmt::to_string(operator_ids_str));
 
-    _block.reset(new doris::vectorized::Block());
+    _block = doris::vectorized::Block::create_unique();
 
     // We should make sure initial state for task are runnable so that we can do some preparation jobs (e.g. initialize runtime filters).
     set_state(PipelineTaskState::RUNNABLE);

@@ -17,9 +17,20 @@
 
 #pragma once
 
+#include <glog/logging.h>
+
+#include <memory>
+#include <vector>
+
 #include "common/status.h"
-#include "runtime/runtime_state.h"
+#include "runtime/types.h"
+#include "udf/udf.h"
 #include "vec/core/block.h"
+
+namespace doris {
+class RowDescriptor;
+class RuntimeState;
+} // namespace doris
 
 namespace doris::vectorized {
 class VExpr;

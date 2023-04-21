@@ -17,14 +17,16 @@
 
 #include "data_queue.h"
 
-#include <mutex>
+#include <glog/logging.h>
 
+#include <algorithm>
+#include <mutex>
+#include <utility>
+
+#include "gutil/integral_types.h"
 #include "vec/core/block.h"
 
 namespace doris {
-namespace vectorized {
-class Block;
-}
 namespace pipeline {
 
 DataQueue::DataQueue(int child_count) {
@@ -58,7 +60,7 @@ std::unique_ptr<vectorized::Block> DataQueue::get_free_block(int child_idx) {
         }
     }
 
-    return std::make_unique<vectorized::Block>();
+    return vectorized::Block::create_unique();
 }
 
 void DataQueue::push_free_block(std::unique_ptr<vectorized::Block> block, int child_idx) {

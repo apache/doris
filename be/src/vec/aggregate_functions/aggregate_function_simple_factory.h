@@ -21,13 +21,13 @@
 #pragma once
 
 #include <functional>
-#include <iostream>
 #include <memory>
-#include <mutex>
+#include <string>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 #include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/core/field.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {

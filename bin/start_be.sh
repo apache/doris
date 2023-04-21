@@ -144,8 +144,9 @@ export ODBCSYSINI="${DORIS_HOME}/conf"
 # support utf8 for oracle database
 export NLS_LANG='AMERICAN_AMERICA.AL32UTF8'
 
-#filter known leak for lsan.
-export LSAN_OPTIONS="suppressions=${DORIS_HOME}/conf/asan_suppr.conf"
+# filter known leak.
+export LSAN_OPTIONS="suppressions=${DORIS_HOME}/conf/lsan_suppr.conf"
+export ASAN_OPTIONS="suppressions=${DORIS_HOME}/conf/asan_suppr.conf"
 
 while read -r line; do
     envline="$(echo "${line}" |

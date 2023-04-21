@@ -17,24 +17,40 @@
 
 #include "olap/rowset/segment_v2/segment_writer.h"
 
+#include <assert.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <parallel_hashmap/phmap.h>
+
+#include <algorithm>
+#include <ostream>
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
-#include "common/consts.h"
 #include "common/logging.h" // LOG
+#include "gutil/port.h"
 #include "io/fs/file_writer.h"
 #include "olap/data_dir.h"
+#include "olap/key_coder.h"
+#include "olap/olap_common.h"
 #include "olap/primary_key_index.h"
-#include "olap/row_cursor.h"                      // RowCursor
+#include "olap/row_cursor.h"                      // IWYU pragma: keep
 #include "olap/rowset/rowset_writer_context.h"    // RowsetWriterContext
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
 #include "olap/rowset/segment_v2/page_io.h"
-#include "olap/schema.h"
+#include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/short_key_index.h"
 #include "runtime/memory/mem_tracker.h"
 #include "service/point_query_executor.h"
+#include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/faststring.h"
 #include "util/key_util.h"
 #include "vec/common/schema_util.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/olap/olap_data_convertor.h"
 
 namespace doris {
 namespace segment_v2 {
