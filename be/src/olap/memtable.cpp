@@ -191,7 +191,7 @@ void MemTable::_insert_one_row_from_block(RowInBlock* row_in_block) {
     _rows++;
     bool overwritten = false;
     if (_keys_type == KeysType::DUP_KEYS) {
-        // dup keys store in vector _row_in_blocks and sort it on flush stage
+        // for dup keys, already store row_in_block in vector and will sort it on flush stage.
         DCHECK(!overwritten) << "Duplicate key model meet overwrite in SkipList";
         return;
     }
