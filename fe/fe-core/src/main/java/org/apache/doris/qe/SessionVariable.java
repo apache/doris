@@ -863,10 +863,12 @@ public class SessionVariable implements Serializable, Writable {
             this.enablePipelineEngine = true;
             // this.enableFoldConstantByBe = true;
             // this.enableTwoPhaseReadOpt = false;
+            this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
         } else {
             // this.enablePipelineEngine = false;
             // this.enableFoldConstantByBe = false;
             // this.enableTwoPhaseReadOpt = true;
+            this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
         }
 
         if (Config.fuzzy_test_type.equals("p0")) {
@@ -878,7 +880,7 @@ public class SessionVariable implements Serializable, Writable {
         }
 
         // set random 1, 10, 100, 1000, 10000
-        this.topnOptLimitThreshold = 10 ^ (random.nextInt(5));
+        this.topnOptLimitThreshold = (int) Math.pow(10, random.nextInt(5));
     }
 
     public String printFuzzyVariables() {
