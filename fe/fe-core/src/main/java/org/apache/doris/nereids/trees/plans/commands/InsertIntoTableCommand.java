@@ -80,6 +80,10 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
         this.logicalQuery = logicalQuery;
     }
 
+    public NereidsPlanner getPlanner() {
+        return planner;
+    }
+
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         checkDatabaseAndTable(ctx);
@@ -108,17 +112,22 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
             label = ctx.getTxnEntry().getLabel();
         }
 
-        PlanFragment root = planner.getFragments().get(0);
-        DataSink sink = createDataSink(ctx, root);
-        Preconditions.checkArgument(sink instanceof OlapTableSink, "olap table sink is expected when"
-                + " running insert into select");
-        Transaction txn = new Transaction(ctx, database, table, label, planner);
+        Transaction txn;
+        if (!ctx.isTxnModel()) {
+            PlanFragment root = planner.getFragments().get(0);
+            DataSink sink = createDataSink(ctx, root);
+            Preconditions.checkArgument(sink instanceof OlapTableSink, "olap table sink is expected when"
+                    + " running insert into select");
+            txn = new Transaction(ctx, database, table, label, planner);
 
-        OlapTableSink olapTableSink = ((OlapTableSink) sink);
-        olapTableSink.init(ctx.queryId(), txn.getTxnId(), database.getId(), ctx.getExecTimeout(),
-                ctx.getSessionVariable().getSendBatchParallelism(), false);
-        olapTableSink.complete();
-        root.resetSink(olapTableSink);
+            OlapTableSink olapTableSink = ((OlapTableSink) sink);
+            olapTableSink.init(ctx.queryId(), txn.getTxnId(), database.getId(), ctx.getExecTimeout(),
+                    ctx.getSessionVariable().getSendBatchParallelism(), false);
+            olapTableSink.complete();
+            root.resetSink(olapTableSink);
+        } else {
+            txn = new Transaction(ctx, database, table, ctx.getTxnEntry().getLabel(), planner);
+        }
 
         txn.executeInsertIntoSelectCommand(this);
     }
