@@ -26,7 +26,7 @@ under the License.
 
 <version since="1.2">
 
-## char
+## function char
 ### description
 #### Syntax
 

@@ -1450,7 +1450,7 @@ public class FunctionCallExpr extends Expr {
                         fnName.getFunction() + " charset name must be a constant: " + this
                                 .toSql());
             }
-            LiteralExpr literal = (LiteralExpr)getChild(0);
+            LiteralExpr literal = (LiteralExpr) getChild(0);
             if (!literal.getStringValue().equalsIgnoreCase("utf8")) {
                 throw new AnalysisException(
                         fnName.getFunction() + " function currently only support charset name 'utf8': " + this
