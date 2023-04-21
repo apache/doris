@@ -303,6 +303,25 @@ public:
         LowerUpperImpl<'a', 'z'> lowerUpper;
         lowerUpper.transfer(src, src + len, dst);
     }
+
+    static inline size_t get_char_len(const uint8_t* src, int64_t len, std::vector<size_t>* str_index) {
+        size_t char_len = 0;
+        for (size_t i = 0, char_size = 0; i < str.length(); i += char_size) {
+            char_size = UTF8_BYTE_LENGTH[(unsigned char)str[i]];
+            str_index->push_back(i);
+            ++char_len;
+        }
+        return char_len;
+    }
+
+    static inline size_t get_char_len(const StringRef& str, size_t end_pos) {
+        size_t char_len = 0;
+        for (size_t i = 0, char_size = 0; i < std::min(str.size, end_pos); i += char_size) {
+            char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.data)[i]];
+            ++char_len;
+        }
+        return char_len;
+    }
 };
 } // namespace simd
 } // namespace doris
