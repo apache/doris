@@ -266,9 +266,6 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
         EXPECT_EQ(Status::OK(), st);
     }
 
-    func->close(fn_ctx, FunctionContext::THREAD_LOCAL);
-    func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
-
     // 3. check the result of function
     ColumnPtr column = block.get_columns()[result];
     EXPECT_TRUE(column != nullptr);
