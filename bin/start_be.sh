@@ -72,7 +72,7 @@ if [[ "$(uname -s)" != 'Darwin' ]]; then
 fi
 
 if [[ "$(swapon -s | wc -l)" -gt 1 ]]; then
-    echo "Please disable swap partitioning before installation."
+    echo "Please disable swap memory before installation."
 fi
 
 # add java libs
