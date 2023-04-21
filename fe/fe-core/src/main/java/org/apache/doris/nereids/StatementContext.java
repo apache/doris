@@ -22,7 +22,7 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.plans.ObjectId;
-import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.txn.InsertIntoContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 
@@ -31,7 +31,6 @@ import com.google.common.base.Suppliers;
 import com.google.common.collect.Maps;
 
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import javax.annotation.concurrent.GuardedBy;
@@ -63,7 +62,7 @@ public class StatementContext {
     private Set<String> columnNames;
 
     private ColumnAliasGenerator columnAliasGenerator;
-    private List<DataType> insertTargetSchema = null;
+    private InsertIntoContext insertIntoContext = new InsertIntoContext();
 
     public StatementContext() {
         this.connectContext = ConnectContext.get();
@@ -148,11 +147,7 @@ public class StatementContext {
         return getColumnAliasGenerator().getNextAlias();
     }
 
-    public void setInsertTargetSchema(List<DataType> insertTargetSchema) {
-        this.insertTargetSchema = insertTargetSchema;
-    }
-
-    public List<DataType> getInsertTargetSchema() {
-        return insertTargetSchema;
+    public InsertIntoContext getInsertIntoContext() {
+        return insertIntoContext;
     }
 }

@@ -41,7 +41,7 @@ public class CheckSourceAndAdjustOutputForInsertTargetType implements CustomRewr
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
         List<DataType> insertTargetTypes = jobContext.getCascadesContext()
-                .getStatementContext().getInsertTargetSchema();
+                .getStatementContext().getInsertIntoContext().getTargetSchema();
         if (insertTargetTypes == null) {
             // not insert into command, skip.
             return plan;

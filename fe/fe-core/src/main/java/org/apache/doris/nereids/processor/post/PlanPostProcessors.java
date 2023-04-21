@@ -67,6 +67,7 @@ public class PlanPostProcessors {
                 builder.add(new RuntimeFilterPruner());
             }
         }
+        builder.add(new AddDistributionSpecForInsertIntoCommand());
         builder.add(new Validator());
         builder.add(new TopNScanOpt());
         builder.add(new TwoPhaseReadOpt());

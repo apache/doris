@@ -86,9 +86,10 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
         getColumns();
         getPartition();
 
-        ctx.getStatementContext().setInsertTargetSchema(targetColumns.stream()
+        ctx.getStatementContext().getInsertIntoContext().setTargetSchema(targetColumns.stream()
                 .map(col -> DataType.fromCatalogType(col.getOriginType()))
                 .collect(Collectors.toList()));
+        ctx.getStatementContext().getInsertIntoContext().setKeyNums(((OlapTable) table).getKeysNum());
 
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
         planner = new NereidsPlanner(ctx.getStatementContext());
@@ -132,6 +133,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
         if (!table.isPresent()) {
             throw new AnalysisException("Unknown table: " + tableName);
         }
+        // TODO: support more table type.
         if (!(table.get() instanceof OlapTable)) {
             throw new AnalysisException("Only support OlapTable");
         }
