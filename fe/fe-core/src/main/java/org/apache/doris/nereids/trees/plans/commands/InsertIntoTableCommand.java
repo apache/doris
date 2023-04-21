@@ -130,7 +130,10 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
         this.database = database.get();
         Optional<Table> table = this.database.getTable(tableName);
         if (!table.isPresent()) {
-            throw new AnalysisException("Unknown table: " + ctx.getDatabase());
+            throw new AnalysisException("Unknown table: " + tableName);
+        }
+        if (!(table.get() instanceof OlapTable)) {
+            throw new AnalysisException("Only support OlapTable");
         }
         this.table = table.get();
     }
