@@ -77,6 +77,11 @@ public class PushdownFilterThroughWindow extends OneRewriteRuleFactory {
         return logicalFilter(logicalWindow()).then(filter -> {
             LogicalWindow<Plan> window = filter.child();
 
+            if (window.getPartitionLimit() > 0) {
+                // The window already has the partition limit, so return directly.
+                return filter;
+            }
+
             // Check the filter conditions. Now, we currently only support
             // simple conditions of the form 'column </<= constant'.
             // TODO: Support more complex situations in filter conditions.
