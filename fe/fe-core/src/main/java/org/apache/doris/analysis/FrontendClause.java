@@ -48,7 +48,7 @@ public class FrontendClause extends AlterClause {
     }
 
     public String getIp() {
-        return ip;
+        return hostName;
     }
 
     public String getHostName() {

@@ -77,7 +77,7 @@ public class Frontend implements Writable {
     }
 
     public String getIp() {
-        return this.ip;
+        return this.hostName;
     }
 
     public String getVersion() {
