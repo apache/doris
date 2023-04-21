@@ -130,11 +130,9 @@ public class ResourceGroupMgrTest {
         String name1 = "g1";
         CreateResourceGroupStmt stmt1 = new CreateResourceGroupStmt(false, name1, properties1);
         resourceGroupMgr.createResourceGroup(stmt1);
-        List<TPipelineResourceGroup> tResourceGroups1 = resourceGroupMgr.getResourceGroup(name1);
-        Assert.assertEquals(1, tResourceGroups1.size());
-        TPipelineResourceGroup tResourceGroup1 = tResourceGroups1.get(0);
-        Assert.assertEquals(name1, tResourceGroup1.getName());
-        Assert.assertTrue(tResourceGroup1.getProperties().containsKey(ResourceGroup.CPU_SHARE));
+        ResourceGroup resourceGroup = resourceGroupMgr.getResourceGroup(name1);
+        Assert.assertEquals(name1, resourceGroup.getName());
+        Assert.assertTrue(resourceGroup.getProperties().containsKey(ResourceGroup.CPU_SHARE));
 
         try {
             resourceGroupMgr.getResourceGroup("g2");

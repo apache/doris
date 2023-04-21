@@ -17,6 +17,7 @@
 
 package org.apache.doris.resource.resourcegroup;
 
+import org.apache.doris.analysis.AlterResourceGroupStmt;
 import org.apache.doris.analysis.CreateResourceGroupStmt;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
@@ -29,10 +30,8 @@ import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.thrift.TPipelineResourceGroup;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
@@ -89,20 +88,17 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
         }
     }
 
-    public List<TPipelineResourceGroup> getResourceGroup(String groupName) throws UserException {
-        List<TPipelineResourceGroup> resourceGroups = Lists.newArrayList();
+    public ResourceGroup getResourceGroup(String groupName) throws UserException {
         readLock();
         try {
             ResourceGroup resourceGroup = nameToResourceGroup.get(groupName);
             if (resourceGroup == null) {
                 throw new UserException("Resource group " + groupName + " does not exist");
             }
-            // need to check resource group privs
-            resourceGroups.add(resourceGroup.toThrift());
+            return resourceGroup;
         } finally {
             readUnlock();
         }
-        return resourceGroups;
     }
 
     private void checkAndCreateDefaultGroup() {
@@ -149,7 +145,22 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
         LOG.info("Create resource group success: {}", resourceGroup);
     }
 
-    public void replayCreateResourceGroup(ResourceGroup resourceGroup) {
+    public void alterResourceGroup(AlterResourceGroupStmt stmt) throws DdlException {
+        String resourceGroupName = stmt.getResourceGroupName();
+        Map<String, String> properties = stmt.getProperties();
+
+        if (!nameToResourceGroup.containsKey(resourceGroupName)) {
+            throw new DdlException("Resource Group(" + resourceGroupName + ") dose not exist.");
+        }
+
+        ResourceGroup resourceGroup = nameToResourceGroup.get(resourceGroupName);
+        resourceGroup.modifyProperties(properties);
+
+        Env.getCurrentEnv().getEditLog().logAlterResourceGroup(resourceGroup);
+        LOG.info("Alter resource success. Resource Group: {}", resourceGroup);
+    }
+
+    private void insertResourceGroup(ResourceGroup resourceGroup) {
         writeLock();
         try {
             nameToResourceGroup.put(resourceGroup.getName(), resourceGroup);
@@ -157,6 +168,14 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
         } finally {
             writeUnlock();
         }
+    }
+
+    public void replayCreateResourceGroup(ResourceGroup resourceGroup) {
+        insertResourceGroup(resourceGroup);
+    }
+
+    public void replayAlterResourceGroup(ResourceGroup resourceGroup) {
+        insertResourceGroup(resourceGroup);
     }
 
     public List<List<String>> getResourcesInfo() {

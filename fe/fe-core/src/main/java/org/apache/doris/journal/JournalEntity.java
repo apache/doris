@@ -803,7 +803,8 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
-            case OperationType.OP_CREATE_RESOURCE_GROUP: {
+            case OperationType.OP_CREATE_RESOURCE_GROUP:
+            case OperationType.OP_ALTER_RESOURCE_GROUP: {
                 data = ResourceGroup.read(in);
                 isRead = true;
                 break;

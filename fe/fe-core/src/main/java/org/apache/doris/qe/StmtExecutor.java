@@ -120,6 +120,7 @@ import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.cache.Cache;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.CacheAnalyzer.CacheMode;
+import org.apache.doris.resource.resourcegroup.ResourceGroup;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.rpc.RpcException;
@@ -132,6 +133,7 @@ import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TLoadTxnBeginRequest;
 import org.apache.doris.thrift.TLoadTxnBeginResult;
 import org.apache.doris.thrift.TMergeType;
+import org.apache.doris.thrift.TPipelineResourceGroup;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TResultBatch;
@@ -876,8 +878,11 @@ public class StmtExecutor implements ProfileWriter {
                 || parsedStmt instanceof InsertStmt
                 || parsedStmt instanceof CreateTableAsSelectStmt) {
             if (Config.enable_resource_group && context.sessionVariable.enablePipelineEngine()) {
-                analyzer.setResourceGroups(analyzer.getEnv().getResourceGroupMgr()
-                        .getResourceGroup(context.sessionVariable.resourceGroup));
+                ResourceGroup resourceGroup = analyzer.getEnv().getResourceGroupMgr()
+                    .getResourceGroup(context.sessionVariable.resourceGroup);
+                List<TPipelineResourceGroup> resourceGroups = Lists.newArrayList();
+                resourceGroups.add(resourceGroup.toThrift());
+                analyzer.setResourceGroups(resourceGroups);
             }
             Map<Long, TableIf> tableMap = Maps.newTreeMap();
             QueryStmt queryStmt;

@@ -70,7 +70,7 @@ public class ResourceGroup implements Writable {
         return new ResourceGroup(Env.getCurrentEnv().getNextId(), name, properties);
     }
 
-    private static void checkProperties(Map<String, String> properties) throws DdlException {
+    public static void checkProperties(Map<String, String> properties) throws DdlException {
         for (String propertyName : properties.keySet()) {
             if (!ALL_PROPERTIES_NAME.contains(propertyName)) {
                 throw new DdlException("Property " + propertyName + " is not supported.");
@@ -86,6 +86,10 @@ public class ResourceGroup implements Writable {
         if (!StringUtils.isNumeric(cpuSchedulingWeight) || Long.parseLong(cpuSchedulingWeight) <= 0) {
             throw new DdlException(CPU_SHARE + " requires a positive integer.");
         }
+    }
+
+    public void modifyProperties(Map<String, String> properties) throws DdlException {
+        // TBD(zlw)
     }
 
     public long getId() {
