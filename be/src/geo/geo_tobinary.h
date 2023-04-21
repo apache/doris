@@ -38,7 +38,7 @@ struct GeoCoordinateList;
 
 class toBinary {
 public:
-    static bool geo_tobinary(GeoShape* shape, bool isEwkb, std::string* result);
+    static bool geo_tobinary(GeoShape* shape, std::string* result);
 
     static bool write(GeoShape* shape, ToBinaryContext* ctx);
 
@@ -54,8 +54,6 @@ private:
     static void writeGeometryType(int geometryType, ToBinaryContext* ctx);
 
     static void writeInt(int intValue, ToBinaryContext* ctx);
-
-    static void writeSRID(ToBinaryContext* ctx);
 
     static void writeCoordinateList(const GeoCoordinateList& coords, bool sized,
                                     ToBinaryContext* ctx);
