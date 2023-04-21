@@ -113,6 +113,7 @@ public:
 
     // Returns runtime state profile
     RuntimeProfile* runtime_profile() { return &_profile; }
+    RuntimeProfile* load_channel_profile() { return &_load_channel_profile; }
 
     bool enable_function_pushdown() const {
         return _query_options.__isset.enable_function_pushdown &&
@@ -395,6 +396,7 @@ private:
     // put runtime state before _obj_pool, so that it will be deconstructed after
     // _obj_pool. Because some of object in _obj_pool will use profile when deconstructing.
     RuntimeProfile _profile;
+    RuntimeProfile _load_channel_profile;
 
     const DescriptorTbl* _desc_tbl;
     std::shared_ptr<ObjectPool> _obj_pool;

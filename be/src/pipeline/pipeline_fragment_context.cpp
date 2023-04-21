@@ -394,6 +394,10 @@ void PipelineFragmentContext::report_profile() {
             std::stringstream ss;
             _runtime_state->runtime_profile()->compute_time_in_profile();
             _runtime_state->runtime_profile()->pretty_print(&ss);
+            if (_runtime_state->load_channel_profile()) {
+                // _runtime_state->load_channel_profile()->compute_time_in_profile(); // TODO load channel profile add timer
+                _runtime_state->load_channel_profile()->pretty_print(&ss);
+            }
             VLOG_FILE << ss.str();
         }
 
@@ -752,6 +756,7 @@ void PipelineFragmentContext::send_report(bool done) {
 
     _report_status_cb(
             {exec_status, _is_report_success ? _runtime_state->runtime_profile() : nullptr,
+             _is_report_success ? _runtime_state->load_channel_profile() : nullptr,
              done || !exec_status.ok(), _query_ctx->coord_addr, _query_id, _fragment_id,
              _fragment_instance_id, _backend_num, _runtime_state.get(),
              std::bind(&PipelineFragmentContext::update_status, this, std::placeholders::_1),

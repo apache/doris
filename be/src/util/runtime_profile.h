@@ -21,6 +21,7 @@
 #pragma once
 
 #include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/runtime_profile.pb.h>
 #include <glog/logging.h>
 #include <stdint.h>
 
@@ -272,6 +273,14 @@ public:
     // the key has already been registered.
     void update(const TRuntimeProfileTree& thrift_profile);
 
+    // update a subtree of profiles from nodes, rooted at *idx.
+    // On return, *idx points to the node immediately following this subtree.
+    void update(const std::vector<TRuntimeProfileNode>& nodes, int* idx);
+
+    // Used to transfer profile between BE, same behavior as thrift update.
+    void update(const PRuntimeProfileTree& proto_profile);
+    void update(const std::vector<PRuntimeProfileNode>& nodes, int* idx);
+
     // Add a counter with 'name'/'type'.  Returns a counter object that the caller can
     // update.  The counter is owned by the RuntimeProfile object.
     // If parent_counter_name is a non-empty string, the counter is added as a child of
@@ -331,6 +340,10 @@ public:
     void to_thrift(TRuntimeProfileTree* tree);
     void to_thrift(std::vector<TRuntimeProfileNode>* nodes);
 
+    // Used to transfer profile between BE, same behavior as to_thrift.
+    void to_proto(PRuntimeProfileTree* tree);
+    void to_proto(google::protobuf::RepeatedPtrField<PRuntimeProfileNode>* nodes) const;
+
     // Divides all counters by n
     void divide(int n);
 
@@ -351,6 +364,9 @@ public:
 
     int64_t metadata() const { return _metadata; }
     void set_metadata(int64_t md) { _metadata = md; }
+
+    time_t timestamp() const { return _timestamp; }
+    void set_timestamp(time_t ss) { _timestamp = ss; }
 
     // Derived counter function: return measured throughput as input_value/second.
     static int64_t units_per_second(const Counter* total_counter, const Counter* timer);
@@ -409,6 +425,9 @@ private:
 
     // user-supplied, uninterpreted metadata.
     int64_t _metadata;
+
+    // The timestamp when the profile was modified, make sure the update is up to date.
+    time_t _timestamp;
 
     /// True if this profile is an average derived from other profiles.
     /// All counters in this profile must be of unit AveragedCounter.
@@ -484,10 +503,6 @@ private:
         int64_t num_sampled;  // number of samples taken
         // TODO: customize bucketing
     };
-
-    // update a subtree of profiles from nodes, rooted at *idx.
-    // On return, *idx points to the node immediately following this subtree.
-    void update(const std::vector<TRuntimeProfileNode>& nodes, int* idx);
 
     // Helper function to compute compute the fraction of the total time spent in
     // this profile and its children.

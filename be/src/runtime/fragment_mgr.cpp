@@ -172,7 +172,8 @@ public:
     void set_need_wait_execution_trigger() { _need_wait_execution_trigger = true; }
 
 private:
-    void coordinator_callback(const Status& status, RuntimeProfile* profile, bool done);
+    void coordinator_callback(const Status& status, RuntimeProfile* profile,
+                              RuntimeProfile* load_channel_profile, bool done);
 
     // Id of this query
     TUniqueId _query_id;
@@ -215,7 +216,7 @@ FragmentExecState::FragmentExecState(const TUniqueId& query_id,
           _backend_num(backend_num),
           _executor(exec_env, std::bind<void>(std::mem_fn(&FragmentExecState::coordinator_callback),
                                               this, std::placeholders::_1, std::placeholders::_2,
-                                              std::placeholders::_3)),
+                                              std::placeholders::_3, std::placeholders::_4)),
           _set_rsc_info(false),
           _timeout_second(-1),
           _fragments_ctx(std::move(fragments_ctx)),
@@ -298,10 +299,10 @@ Status FragmentExecState::cancel(const PPlanFragmentCancelReason& reason, const 
 // Also, the reported status will always reflect the most recent execution status,
 // including the final status when execution finishes.
 void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfile* profile,
-                                             bool done) {
+                                             RuntimeProfile* load_channel_profile, bool done) {
     _report_status_cb_impl(
-            {status, profile, done, _coord_addr, _query_id, -1, _fragment_instance_id, _backend_num,
-             _executor.runtime_state(),
+            {status, profile, load_channel_profile, done, _coord_addr, _query_id, -1,
+             _fragment_instance_id, _backend_num, _executor.runtime_state(),
              std::bind(&FragmentExecState::update_status, this, std::placeholders::_1),
              std::bind(&PlanFragmentExecutor::cancel, &_executor, std::placeholders::_1,
                        std::placeholders::_2)});
@@ -402,7 +403,10 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             params.__isset.profile = false;
         } else {
             req.profile->to_thrift(&params.profile);
+            if (req.load_channel_profile)
+                req.load_channel_profile->to_thrift(&params.loadChannelProfile);
             params.__isset.profile = true;
+            params.__isset.loadChannelProfile = true;
         }
 
         if (!req.runtime_state->output_files().empty()) {
