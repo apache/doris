@@ -86,6 +86,11 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        if (ctx.isTxnModel()) {
+            // in original planner and in txn model, we can execute sql like: insert into t select 1, 2, 3
+            // but no data will be inserted, now we adjust forbid it.
+            throw new AnalysisException("insert into table command is not supported in txn model");
+        }
         checkDatabaseAndTable(ctx);
         getColumns();
         getPartition();
@@ -103,32 +108,24 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
             ctx.getMysqlChannel().reset();
         }
         String label = this.labelName;
-        if (!ctx.isTxnModel()) {
-            if (label == null) {
-                label = String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo);
-            }
-        } else {
-            label = ctx.getTxnEntry().getLabel();
+        if (label == null) {
+            label = String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo);
         }
 
         Transaction txn;
-        if (!ctx.isTxnModel()) {
-            PlanFragment root = planner.getFragments().get(0);
-            DataSink sink = createDataSink(ctx, root);
-            Preconditions.checkArgument(sink instanceof OlapTableSink, "olap table sink is expected when"
-                    + " running insert into select");
-            txn = new Transaction(ctx, database, table, label, planner);
+        PlanFragment root = planner.getFragments().get(0);
+        DataSink sink = createDataSink(ctx, root);
+        Preconditions.checkArgument(sink instanceof OlapTableSink, "olap table sink is expected when"
+                + " running insert into select");
+        txn = new Transaction(ctx, database, table, label, planner);
 
-            OlapTableSink olapTableSink = ((OlapTableSink) sink);
-            olapTableSink.init(ctx.queryId(), txn.getTxnId(), database.getId(), ctx.getExecTimeout(),
-                    ctx.getSessionVariable().getSendBatchParallelism(), false);
-            olapTableSink.complete();
-            root.resetSink(olapTableSink);
-        } else {
-            txn = new Transaction(ctx, database, table, ctx.getTxnEntry().getLabel(), planner);
-        }
+        OlapTableSink olapTableSink = ((OlapTableSink) sink);
+        olapTableSink.init(ctx.queryId(), txn.getTxnId(), database.getId(), ctx.getExecTimeout(),
+                ctx.getSessionVariable().getSendBatchParallelism(), false);
+        olapTableSink.complete();
+        root.resetSink(olapTableSink);
 
-        txn.executeInsertIntoSelectCommand(this);
+        txn.executeInsertIntoSelectCommand();
     }
 
     private void checkDatabaseAndTable(ConnectContext ctx) {

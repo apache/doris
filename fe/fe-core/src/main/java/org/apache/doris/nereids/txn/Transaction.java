@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.txn;
 
-import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
@@ -30,27 +29,13 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.nereids.NereidsPlanner;
-import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
-import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
-import org.apache.doris.qe.InsertStreamTxnExecutor;
-import org.apache.doris.qe.MasterTxnExecutor;
 import org.apache.doris.qe.QeProcessorImpl;
-import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.task.LoadEtlTask;
-import org.apache.doris.thrift.TFileFormatType;
-import org.apache.doris.thrift.TFileType;
-import org.apache.doris.thrift.TLoadTxnBeginRequest;
-import org.apache.doris.thrift.TLoadTxnBeginResult;
-import org.apache.doris.thrift.TMergeType;
 import org.apache.doris.thrift.TQueryType;
-import org.apache.doris.thrift.TStreamLoadPutRequest;
-import org.apache.doris.thrift.TTxnParams;
 import org.apache.doris.transaction.TabletCommitInfo;
-import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
@@ -62,11 +47,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.thrift.TException;
-
-import java.util.List;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeoutException;
 
 /**
  * transaction wrapper for Nereids
@@ -96,158 +76,51 @@ public class Transaction {
         this.database = database;
         this.table = table;
         this.planner = planner;
-        if (!ctx.isTxnModel()) {
-            this.coordinator = new Coordinator(ctx, null, planner, ctx.getStatsErrorEstimator());
-            this.txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
-                    database.getId(), ImmutableList.of(table.getId()), labelName,
-                    new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
-                    LoadJobSourceType.INSERT_STREAMING, ctx.getExecTimeout());
-            this.createAt = System.currentTimeMillis();
-        } else {
-            this.coordinator = null;
-            this.txnId = ctx.getTxnEntry().getTxnConf().getTxnId();
-            this.createAt = -1;
-        }
+        this.coordinator = new Coordinator(ctx, null, planner, ctx.getStatsErrorEstimator());
+        this.txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
+                database.getId(), ImmutableList.of(table.getId()), labelName,
+                new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                LoadJobSourceType.INSERT_STREAMING, ctx.getExecTimeout());
+        this.createAt = System.currentTimeMillis();
     }
 
     public long getTxnId() {
         return txnId;
     }
 
-    private void beginTxn() throws TException, UserException, ExecutionException, InterruptedException,
-            TimeoutException {
-        TransactionEntry txnEntry = ctx.getTxnEntry();
-        TTxnParams txnConf = txnEntry.getTxnConf();
-        SessionVariable sessionVariable = ctx.getSessionVariable();
-        long timeoutSecond = ctx.getExecTimeout();
-
-        txnConf.setDbId(database.getId()).setTbl(table.getName()).setDb(database.getFullName());
-
-        txnEntry.setTable(table);
-        txnEntry.setDb(database);
-
-        if (Env.getCurrentEnv().isMaster()) {
-            txnConf.setTxnId(txnId);
-            String token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
-            txnConf.setToken(token);
-        } else {
-            String token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
-            MasterTxnExecutor masterTxnExecutor = new MasterTxnExecutor(ctx);
-            TLoadTxnBeginRequest request = new TLoadTxnBeginRequest();
-
-            request.setDb(txnConf.getDb())
-                    .setTbl(txnConf.getTbl())
-                    .setToken(token)
-                    .setCluster(database.getClusterName())
-                    .setLabel(labelName)
-                    .setUser("")
-                    .setUserIp("")
-                    .setPasswd("");
-
-            TLoadTxnBeginResult result = masterTxnExecutor.beginTxn(request);
-            txnConf.setTxnId(result.getTxnId());
-            txnConf.setToken(token);
-        }
-
-        TStreamLoadPutRequest request = new TStreamLoadPutRequest();
-
-        long maxExecMemByte = sessionVariable.getMaxExecMemByte();
-        String timeZone = sessionVariable.getTimeZone();
-        int sendBatchParallelism = sessionVariable.getSendBatchParallelism();
-
-        request.setTxnId(txnConf.getTxnId()).setDb(txnConf.getDb())
-                .setTbl(txnConf.getTbl())
-                .setFileType(TFileType.FILE_STREAM)
-                .setFormatType(TFileFormatType.FORMAT_CSV_PLAIN)
-                .setMergeType(TMergeType.APPEND)
-                .setThriftRpcTimeoutMs(5000)
-                .setLoadId(ctx.queryId())
-                .setExecMemLimit(maxExecMemByte)
-                .setTimeout((int) timeoutSecond)
-                .setTimezone(timeZone)
-                .setSendBatchParallelism(sendBatchParallelism);
-
-        // execute begin txn
-        InsertStreamTxnExecutor executor = new InsertStreamTxnExecutor(txnEntry);
-        executor.beginTransaction(request);
-    }
-
     /**
      * execute insert txn for insert into select command.
      */
-    public void executeInsertIntoSelectCommand(InsertIntoTableCommand command)
-            throws Exception {
-        if (ctx.isTxnModel()) {
-            Preconditions.checkArgument(!command.checkIfScanData(), "insert into select in txn model is not supported");
-            txnStatus = TransactionStatus.PREPARE;
-            beginTxn();
-            loadedRows = executeForTxn(ImmutableList.of());
-        } else {
-            LOG.info("Do insert [{}] with query id: {}", labelName, DebugUtil.printId(ctx.queryId()));
-            try {
-                handleTransactionForNotInTxnModel();
-            } catch (Throwable t) {
-                errMsg = t.getMessage();
-                handleTransactionErrorForNotInTxnModel(t);
-            } finally {
-                if (ctx.getSessionVariable().enableProfile() && coordinator != null) {
-                    coordinator.endProfile(true);
-                }
-                QeProcessorImpl.INSTANCE.unregisterQuery(ctx.queryId());
+    public void executeInsertIntoSelectCommand() {
+        LOG.info("Do insert [{}] with query id: {}", labelName, DebugUtil.printId(ctx.queryId()));
+        try {
+            handleTransactionForNotInTxnModel();
+        } catch (Throwable t) {
+            errMsg = t.getMessage();
+            handleTransactionErrorForNotInTxnModel(t);
+        } finally {
+            if (ctx.getSessionVariable().enableProfile() && coordinator != null) {
+                coordinator.endProfile(true);
             }
+            QeProcessorImpl.INSTANCE.unregisterQuery(ctx.queryId());
+        }
 
-            // Go here, which means:
-            // 1. transaction is finished successfully (COMMITTED or VISIBLE), or
-            // 2. transaction failed but Config.using_old_load_usage_pattern is true.
-            // we will record the load job info for these 2 cases
-            try {
-                Preconditions.checkArgument(coordinator != null, "coordinator is null, this is a bug");
-                ctx.getEnv().getLoadManager().recordFinishedLoadJob(
-                        labelName, txnId, database.getFullName(), table.getId(),
-                        EtlJobType.INSERT, createAt, errMsg,
-                        coordinator.getTrackingUrl(), ctx.getCurrentUserIdentity());
-            } catch (MetaNotFoundException e) {
-                LOG.warn("Record info of insert load with error {}", e.getMessage(), e);
-                errMsg = "Record info of insert load with error " + e.getMessage();
-            }
+        // Go here, which means:
+        // 1. transaction is finished successfully (COMMITTED or VISIBLE), or
+        // 2. transaction failed but Config.using_old_load_usage_pattern is true.
+        // we will record the load job info for these 2 cases
+        try {
+            Preconditions.checkArgument(coordinator != null, "coordinator is null, this is a bug");
+            ctx.getEnv().getLoadManager().recordFinishedLoadJob(
+                    labelName, txnId, database.getFullName(), table.getId(),
+                    EtlJobType.INSERT, createAt, errMsg,
+                    coordinator.getTrackingUrl(), ctx.getCurrentUserIdentity());
+        } catch (MetaNotFoundException e) {
+            LOG.warn("Record info of insert load with error {}", e.getMessage(), e);
+            errMsg = "Record info of insert load with error " + e.getMessage();
         }
 
         setResultString();
-    }
-
-    /**
-     * execute insert txn for insert into select literal list command and insert into values command.
-     */
-    public long executeForTxn(List<List<Expr>> values)
-            throws TException, UserException, ExecutionException, InterruptedException, TimeoutException {
-        if (ctx.isTxnIniting()) {
-            beginTxn();
-        }
-        TransactionEntry entry = ctx.getTxnEntry();
-        if (!entry.getTxnConf().getDb().equals(database.getFullName())
-                || !entry.getTxnConf().getTbl().equals(table.getName())) {
-            throw new TException("Only one table can be inserted in one transaction.");
-        }
-        int schemaSize = entry.getTable().getBaseSchema().size();
-        for (List<Expr> valueList : values) {
-            if (schemaSize != valueList.size()) {
-                throw new TException(String.format("Column count: %d doesn't match value count: %d",
-                        schemaSize, valueList.size()));
-            }
-            InternalService.PDataRow data = StmtExecutor.getRowStringValue(valueList);
-            if (data == null) {
-                continue;
-            }
-            List<InternalService.PDataRow> dataToSend = entry.getDataToSend();
-            dataToSend.add(data);
-            if (dataToSend.size() >= StmtExecutor.MAX_DATA_TO_SEND_FOR_TXN) {
-                // send data
-                InsertStreamTxnExecutor executor = new InsertStreamTxnExecutor(entry);
-                executor.sendData();
-            }
-        }
-        entry.setRowsInTransaction(entry.getRowsInTransaction() + values.size());
-        return entry.getRowsInTransaction();
     }
 
     private void handleTransactionForNotInTxnModel() throws Exception {
