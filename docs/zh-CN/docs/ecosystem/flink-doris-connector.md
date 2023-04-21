@@ -436,7 +436,7 @@ WITH (
 insert into doris_sink select id,name from cdc_mysql_source;
 ```
 
-## 使用FlinkCDC同步更新Key列数据
+## 使用FlinkCDC更新Key列
 一般在业务数据库中，会使用编号来作为表的主键，比如Student表，会使用编号(id)来作为主键，但是随着业务的发展，数据对应的编号有可能是会发生变化的。
 在这种场景下，使用FlinkCDC + Doris Connector同步数据，便可以自动更新Doris主键列的数据。
 ### 原理

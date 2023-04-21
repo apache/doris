@@ -441,7 +441,7 @@ WITH (
 insert into doris_sink select id,name from cdc_mysql_source;
 ```
 
-## Use FlinkCDC to update Key column data synchronously
+## Use FlinkCDC to update Key column
 Generally, in a business database, the number is used as the primary key of the table, such as the Student table, the number (id) is used as the primary key, but with the development of the business, the number corresponding to the data may change.
 In this scenario, using FlinkCDC + Doris Connector to synchronize data can automatically update the data in the Doris primary key column.
 ### Principle
