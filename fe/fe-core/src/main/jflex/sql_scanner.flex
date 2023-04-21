@@ -418,6 +418,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("soname", new Integer(SqlParserSymbols.KW_SONAME));
         keywordMap.put("split", new Integer(SqlParserSymbols.KW_SPLIT));
         keywordMap.put("sql_block_rule", new Integer(SqlParserSymbols.KW_SQL_BLOCK_RULE));
+        keywordMap.put("sample", new Integer(SqlParserSymbols.KW_SAMPLE));
         keywordMap.put("start", new Integer(SqlParserSymbols.KW_START));
         keywordMap.put("stats", new Integer(SqlParserSymbols.KW_STATS));
         keywordMap.put("status", new Integer(SqlParserSymbols.KW_STATUS));

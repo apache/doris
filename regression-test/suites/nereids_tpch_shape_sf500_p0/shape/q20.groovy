@@ -27,8 +27,8 @@ suite("q20") {
     sql "set enable_runtime_filter_prune=true"
     sql 'set exec_mem_limit=21G'
     sql 'set enable_new_cost_model=false'
-    sql 'set global exec_mem_limit = 21G'
-    sql 'set global broadcast_row_count_limit = 30000000'
+    sql 'set exec_mem_limit = 21G'
+    sql 'set broadcast_row_count_limit = 30000000'
     
     qt_select """
     explain shape plan

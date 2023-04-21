@@ -124,7 +124,7 @@ TEST_F(ParquetReaderTest, normal) {
             partition_columns;
     std::unordered_map<std::string, VExprContext*> missing_columns;
     p_reader->set_fill_columns(partition_columns, missing_columns);
-    Block* block = new Block();
+    BlockUPtr block = Block::create_unique();
     for (const auto& slot_desc : tuple_desc->slots()) {
         auto data_type =
                 vectorized::DataTypeFactory::instance().create_data_type(slot_desc->type(), true);
@@ -134,12 +134,11 @@ TEST_F(ParquetReaderTest, normal) {
     }
     bool eof = false;
     size_t read_row = 0;
-    p_reader->get_next_block(block, &read_row, &eof);
+    p_reader->get_next_block(block.get(), &read_row, &eof);
     for (auto& col : block->get_columns_with_type_and_name()) {
         ASSERT_EQ(col.column->size(), 10);
     }
     EXPECT_TRUE(eof);
-    delete block;
     delete p_reader;
 }
 

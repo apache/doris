@@ -83,6 +83,7 @@ private:
     RuntimeProfile::Counter* write_bytes_counter_;
     RuntimeProfile::Counter* serialize_timer_;
     RuntimeProfile::Counter* write_timer_;
+    RuntimeProfile::Counter* write_blocks_num_;
 };
 
 using BlockSpillWriterUPtr = std::unique_ptr<BlockSpillWriter>;
