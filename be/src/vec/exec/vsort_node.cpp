@@ -166,7 +166,7 @@ Status VSortNode::open(RuntimeState* state) {
     // The child has been opened and the sorter created. Sort the input.
     // The final merge is done on-demand as rows are requested in get_next().
     bool eos = false;
-    std::unique_ptr<Block> upstream_block(new Block());
+    std::unique_ptr<Block> upstream_block = Block::create_unique();
     do {
         RETURN_IF_ERROR_AND_CHECK_SPAN(
                 child(0)->get_next_after_projects(

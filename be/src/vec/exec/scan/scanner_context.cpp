@@ -90,8 +90,8 @@ Status ScannerContext::init() {
     // So use _output_tuple_desc;
     int64_t free_blocks_memory_usage = 0;
     for (int i = 0; i < pre_alloc_block_count; ++i) {
-        auto block = std::make_unique<vectorized::Block>(
-                _output_tuple_desc->slots(), real_block_size, true /*ignore invalid slots*/);
+        auto block = vectorized::Block::create_unique(_output_tuple_desc->slots(), real_block_size,
+                                                      true /*ignore invalid slots*/);
         free_blocks_memory_usage += block->allocated_bytes();
         _free_blocks.emplace_back(std::move(block));
     }
@@ -132,8 +132,8 @@ vectorized::BlockUPtr ScannerContext::get_free_block(bool* has_free_block,
     *has_free_block = false;
 
     COUNTER_UPDATE(_newly_create_free_blocks_num, 1);
-    return std::make_unique<vectorized::Block>(_real_tuple_desc->slots(), _batch_size,
-                                               true /*ignore invalid slots*/);
+    return vectorized::Block::create_unique(_real_tuple_desc->slots(), _batch_size,
+                                            true /*ignore invalid slots*/);
 }
 
 void ScannerContext::return_free_block(std::unique_ptr<vectorized::Block> block) {

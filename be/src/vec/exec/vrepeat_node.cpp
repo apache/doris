@@ -202,7 +202,7 @@ Status VRepeatNode::push(RuntimeState* state, vectorized::Block* input_block, bo
     DCHECK(!_expr_ctxs.empty());
 
     if (input_block->rows() > 0) {
-        _intermediate_block.reset(new Block());
+        _intermediate_block = Block::create_unique();
 
         for (auto expr : _expr_ctxs) {
             int result_column_id = -1;

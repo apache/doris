@@ -100,16 +100,24 @@ Status BlockSpillReader::read(Block* block, bool* eos) {
     }
     DCHECK(bytes_read == bytes_to_read);
 
-    PBlock pb_block;
     BlockUPtr new_block = nullptr;
-    {
-        SCOPED_TIMER(deserialize_time_);
-        if (!pb_block.ParseFromArray(result.data, result.size)) {
-            return Status::InternalError("Failed to read spilled block");
+    // COUNTER_UPDATE(read_bytes_, bytes_read);
+    // COUNTER_UPDATE(read_block_num_, 1);
+
+    if (bytes_read > 0) {
+        PBlock pb_block;
+        BlockUPtr new_block = nullptr;
+        {
+            SCOPED_TIMER(deserialize_time_);
+            if (!pb_block.ParseFromArray(result.data, result.size)) {
+                return Status::InternalError("Failed to read spilled block");
+            }
+            new_block = Block::create_unique(pb_block);
         }
-        new_block.reset(new Block(pb_block));
+        block->swap(*new_block);
+    } else {
+        block->clear_column_data();
     }
-    block->swap(*new_block);
 
     ++read_block_index_;
 

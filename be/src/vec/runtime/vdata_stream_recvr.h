@@ -224,7 +224,7 @@ public:
         if (_is_cancelled || !block->rows()) {
             return;
         }
-        BlockUPtr nblock = std::make_unique<Block>(block->get_columns_with_type_and_name());
+        BlockUPtr nblock = Block::create_unique(block->get_columns_with_type_and_name());
 
         // local exchange should copy the block contented if use move == false
         if (use_move) {

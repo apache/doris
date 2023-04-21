@@ -429,8 +429,8 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
                                              TabletSchemaSPtr base_tablet_schema) {
     do {
         auto new_block =
-                std::make_unique<vectorized::Block>(new_tablet->tablet_schema()->create_block());
-        auto ref_block = std::make_unique<vectorized::Block>(base_tablet_schema->create_block());
+                vectorized::Block::create_unique(new_tablet->tablet_schema()->create_block());
+        auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
 
         rowset_reader->next_block(ref_block.get());
         if (ref_block->rows() == 0) {
@@ -501,11 +501,10 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
         return Status::OK();
     };
 
-    auto new_block =
-            std::make_unique<vectorized::Block>(new_tablet->tablet_schema()->create_block());
+    auto new_block = vectorized::Block::create_unique(new_tablet->tablet_schema()->create_block());
 
     do {
-        auto ref_block = std::make_unique<vectorized::Block>(base_tablet_schema->create_block());
+        auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
         rowset_reader->next_block(ref_block.get());
         if (ref_block->rows() == 0) {
             break;
@@ -527,7 +526,7 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
 
         // move unique ptr
         blocks.push_back(
-                std::make_unique<vectorized::Block>(new_tablet->tablet_schema()->create_block()));
+                vectorized::Block::create_unique(new_tablet->tablet_schema()->create_block()));
         swap(blocks.back(), new_block);
     } while (true);
 

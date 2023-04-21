@@ -290,7 +290,7 @@ Block* create_block_from_inputset(const InputTypeSet& input_types, const InputDa
 
     // 1.1 insert data and create block
     auto row_size = input_set.size();
-    std::unique_ptr<Block> block(new Block());
+    std::unique_ptr<Block> block = Block::create_unique();
     for (size_t i = 0; i < descs.size(); ++i) {
         auto& desc = descs[i];
         auto column = desc.data_type->create_column();
@@ -357,7 +357,7 @@ Block* process_table_function(TableFunction* fn, Block* input_block,
         } while (!fn->eos());
     }
 
-    std::unique_ptr<Block> output_block(new Block());
+    std::unique_ptr<Block> output_block = Block::create_unique();
     output_block->insert({std::move(column), descs[0].data_type, descs[0].col_name});
     return output_block.release();
 }

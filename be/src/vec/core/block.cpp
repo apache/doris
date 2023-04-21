@@ -971,7 +971,7 @@ std::string MutableBlock::dump_data(size_t row_limit) const {
 }
 
 std::unique_ptr<Block> Block::create_same_struct_block(size_t size) const {
-    auto temp_block = std::make_unique<Block>();
+    auto temp_block = Block::create_unique();
     for (const auto& d : data) {
         auto column = d.type->create_column();
         column->resize(size);
