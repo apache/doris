@@ -178,7 +178,7 @@ public:
         }
     }
 
-    ~InListPredicateBase() override {}
+    ~InListPredicateBase() override = default;
 
     PredicateType type() const override { return PT; }
 
