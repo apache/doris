@@ -31,7 +31,6 @@ namespace doris {
 class TUniqueId;
 
 namespace io {
-struct FileCacheSettings;
 
 /**
  * Creates a FileCache object for cache_base_path.

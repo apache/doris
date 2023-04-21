@@ -40,8 +40,6 @@ namespace doris {
 class TUniqueId;
 
 namespace io {
-struct FileCacheSettings;
-
 /**
  * Local cache for remote filesystem files, represented as a set of non-overlapping non-empty file segments.
  * Implements LRU eviction policy.

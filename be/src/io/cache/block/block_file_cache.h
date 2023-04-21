@@ -37,6 +37,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "io/cache/block/block_file_cache_fwd.h"
+#include "io/cache/block/block_file_cache_settings.h"
 #include "util/hash_util.hpp"
 #include "vec/common/uint128.h"
 #include "io/io_common.h"
@@ -44,7 +45,6 @@
 namespace doris {
 namespace io {
 class FileBlock;
-struct FileCacheSettings;
 
 using FileBlockSPtr = std::shared_ptr<FileBlock>;
 using FileBlocks = std::list<FileBlockSPtr>;

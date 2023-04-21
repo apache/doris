@@ -52,12 +52,6 @@
 #include "util/slice.h"
 #include "vec/common/hex.h"
 
-namespace doris {
-namespace io {
-struct FileCacheSettings;
-} // namespace io
-} // namespace doris
-
 namespace fs = std::filesystem;
 
 namespace doris {
