@@ -50,7 +50,7 @@ ALTER TABLE tbl1 ADD TEMPORARY PARTITION tp1 VALUES LESS THAN("2020-02-01");
 ALTER TABLE tbl2 ADD TEMPORARY PARTITION tp1 VALUES [("2020-01-01"), ("2020-02-01"));
 
 ALTER TABLE tbl1 ADD TEMPORARY PARTITION tp1 VALUES LESS THAN("2020-02-01")
-("in_memory" = "true", "replication_num" = "1")
+("replication_num" = "1")
 DISTRIBUTED BY HASH(k1) BUCKETS 5;
 
 ALTER TABLE tbl3 ADD TEMPORARY PARTITION tp1 VALUES IN ("Beijing", "Shanghai");
@@ -58,7 +58,7 @@ ALTER TABLE tbl3 ADD TEMPORARY PARTITION tp1 VALUES IN ("Beijing", "Shanghai");
 ALTER TABLE tbl4 ADD TEMPORARY PARTITION tp1 VALUES IN ((1, "Beijing"), (1, "Shanghai"));
 
 ALTER TABLE tbl3 ADD TEMPORARY PARTITION tp1 VALUES IN ("Beijing", "Shanghai")
-("in_memory" = "true", "replication_num" = "1")
+("replication_num" = "1")
 DISTRIBUTED BY HASH(k1) BUCKETS 5;
 ```
 
@@ -67,7 +67,7 @@ DISTRIBUTED BY HASH(k1) BUCKETS 5;
 添加操作的一些说明：
 
 - 临时分区的添加和正式分区的添加操作相似。临时分区的分区范围独立于正式分区。
-- 临时分区可以独立指定一些属性。包括分桶数、副本数、是否是内存表、存储介质等信息。
+- 临时分区可以独立指定一些属性。包括分桶数、副本数、存储介质等信息。
 
 ### 删除临时分区
 
