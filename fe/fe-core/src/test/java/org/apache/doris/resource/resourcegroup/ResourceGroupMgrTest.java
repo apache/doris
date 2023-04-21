@@ -149,20 +149,17 @@ public class ResourceGroupMgrTest {
     public void testDropResourceGroup() throws UserException {
         Config.enable_resource_group = true;
         ResourceGroupMgr resourceGroupMgr = new ResourceGroupMgr();
-        Map<String, String> properties1 = Maps.newHashMap();
-        properties1.put(ResourceGroup.CPU_SHARE, "10");
-        String name1 = "g1";
-        CreateResourceGroupStmt createStmt = new CreateResourceGroupStmt(false, name1, properties1);
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(ResourceGroup.CPU_SHARE, "10");
+        String name = "g1";
+        CreateResourceGroupStmt createStmt = new CreateResourceGroupStmt(false, name, properties);
         resourceGroupMgr.createResourceGroup(createStmt);
-        List<TPipelineResourceGroup> tResourceGroups = resourceGroupMgr.getResourceGroup(name1);
-        Assert.assertEquals(1, tResourceGroups.size());
+        Assert.assertEquals(1, resourceGroupMgr.getResourceGroup(name).size());
 
-        DropResourceGroupStmt dropStmt = new DropResourceGroupStmt(false, name1);
+	DropResourceGroupStmt dropStmt = new DropResourceGroupStmt(false, name);
         resourceGroupMgr.dropResourceGroup(dropStmt);
-        Assert.assertEquals(0, tResourceGroups.size());
-
         try {
-            resourceGroupMgr.dropResourceGroup(dropStmt);
+            resourceGroupMgr.getResourceGroup(name);
             Assert.fail();
         } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("does not exist"));
