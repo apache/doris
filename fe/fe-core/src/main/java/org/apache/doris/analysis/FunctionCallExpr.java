@@ -1526,6 +1526,7 @@ public class FunctionCallExpr extends Expr {
                         || fnName.getFunction().equalsIgnoreCase("array_union")
                         || fnName.getFunction().equalsIgnoreCase("array_intersect")
                         || fnName.getFunction().equalsIgnoreCase("array_compact")
+                        || fnName.getFunction().equalsIgnoreCase("array_contains_any")
                         || fnName.getFunction().equalsIgnoreCase("array_slice")
                         || fnName.getFunction().equalsIgnoreCase("array_popback")
                         || fnName.getFunction().equalsIgnoreCase("array_popfront")
