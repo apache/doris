@@ -17,6 +17,7 @@
 
 #include <string_view>
 
+#include "function_arrays_overlap.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/string_ref.h"
@@ -28,6 +29,7 @@
 
 namespace doris::vectorized {
 
+
 // array_contains_any([1, 2, 3, 10], [2,5]) -> true
 class FunctionArrayContainsAny : public IFunction {
 public:
@@ -35,31 +37,194 @@ public:
     static FunctionPtr create() { return std::make_shared<FunctionArrayContainsAny>(); }
 
     String get_name() const override { return name; }
+
+    bool use_default_implementation_for_nulls() const override { return false; }
+
     bool is_variadic() const override { return false; }
 
+    size_t gget_number_of_arguments() const override {return 2}
+
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DCHECK(arguments.size() > 0)
-                << "function: " << get_name() << ", arguments should not be empty";
-        for (const auto& arg : arguments) {
-            DCHECK(is_array(arg)) << "argument for function array_concat should be DataTypeArray"
-                                  << " and argument is " << arg->get_name();
-        }
-        return arguments[0];
+        auto left_data_type = remove_nullable(arguments[0]);
+        auto right_data_type = remove_nullable(arguments[1]);
+        DCHECK(is_array(left_data_type)) << arguments[0]->get_name();
+        DCHECK(is_array(right_data_type)) << arguments[1]->get_name();
+        auto left_nested_type = remove_nullable(
+                assert_cast<const DataTypeArray&>(*left_data_type).get_nested_type());
+        auto right_nested_type = remove_nullable(
+                assert_cast<const DataTypeArray&>(*right_data_type).get_nested_type());
+        DCHECK(left_nested_type->equals(*right_nested_type))
+                << "data type " << arguments[0]->get_name() << " not equal with "
+                << arguments[1]->get_name();
+        return make_nullable(std::make_shared<DataTypeUInt8>());
     }
 
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& argument,
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        DataTypePtr column_type = block.get_by_position(argument[0]).type;
-        auto nested_type = assert_cast<const DataTypeArray&>(*column_type).get_nested_type();
+        auto left_column =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto right_column =
+                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        ColumnArrayExecutionData left_exec_data;
+        ColumnArrayExecutionData right_exec_data;
 
-        ColumnPtr src_column0 =
-                block.get_by_position(argument[0]).column->convert_to_full_column_if_const();
-        const auto& src_column_array0 = check_and_get_column<ColumnArray>(*src_column0);
+        Status ret = Status::RuntimeError(
+                fmt::format("execute failed, unsupported types for function {}({}, {})", get_name(),
+                            block.get_by_position(arguments[0]).type->get_name(),
+                            block.get_by_position(arguments[1]).type->get_name()));
 
-        ColumnPtr src_column1 =
-                block.get_by_position(argument[1]).column->convert_to_full_column_if_const();
-        const auto& src_column_array1 = check_and_get_column<ColumnArray>(*src_column1);
+        // extract array column
+        if (!extract_column_array_info(*left_column, left_exec_data) ||
+            !extract_column_array_info(*right_column, right_exec_data)) {
+            return ret;
+        }
 
+        // prepare return column
+        auto dst_nested_col = ColumnVector<UInt8>::create(input_rows_count, 0);
+        auto dst_null_map = ColumnVector<UInt8>::create(input_rows_count, 0);
+        UInt8* dst_null_map_data = dst_null_map->get_data().data();
+
+        // any array is null or any elements in array is null, return null
+        RETURN_IF_ERROR(_execute_nullable(left_exec_data, dst_null_map_data));
+        RETURN_IF_ERROR(_execute_nullable(right_exec_data, dst_null_map_data));
+
+        // execute overlap check
+        if (left_exec_data.nested_col->is_column_string()) {
+            ret = _execute_internal<ColumnString>(left_exec_data, right_exec_data,
+                                                  dst_null_map_data,
+                                                  dst_nested_col->get_data().data());
+        } else if (left_exec_data.nested_col->is_date_type()) {
+            ret = _execute_internal<ColumnDate>(left_exec_data, right_exec_data, dst_null_map_data,
+                                                dst_nested_col->get_data().data());
+        } else if (left_exec_data.nested_col->is_datetime_type()) {
+            ret = _execute_internal<ColumnDateTime>(left_exec_data, right_exec_data,
+                                                    dst_null_map_data,
+                                                    dst_nested_col->get_data().data());
+        } else if (check_column<ColumnDateV2>(left_exec_data.nested_col)) {
+            ret = _execute_internal<ColumnDateV2>(left_exec_data, right_exec_data,
+                                                  dst_null_map_data,
+                                                  dst_nested_col->get_data().data());
+        } else if (check_column<ColumnDateTimeV2>(left_exec_data.nested_col)) {
+            ret = _execute_internal<ColumnDateTimeV2>(left_exec_data, right_exec_data,
+                                                      dst_null_map_data,
+                                                      dst_nested_col->get_data().data());
+        } else if (left_exec_data.nested_col->is_numeric()) {
+            if (check_column<ColumnUInt8>(*left_exec_data.nested_col)) {
+                ret = _execute_internal<ColumnUInt8>(left_exec_data, right_exec_data,
+                                                     dst_null_map_data,
+                                                     dst_nested_col->get_data().data());
+            } else if (check_column<ColumnInt8>(*left_exec_data.nested_col)) {
+                ret = _execute_internal<ColumnInt8>(left_exec_data, right_exec_data,
+                                                    dst_null_map_data,
+                                                    dst_nested_col->get_data().data());
+            } else if (check_column<ColumnInt16>(*left_exec_data.nested_col)) {
+                ret = _execute_internal<ColumnInt16>(left_exec_data, right_exec_data,
+                                                     dst_null_map_data,
+                                                     dst_nested_col->get_data().data());
+            } else if (check_column<ColumnInt32>(*left_exec_data.nested_col)) {
+                ret = _execute_internal<ColumnInt32>(left_exec_data, right_exec_data,
+                                                     dst_null_map_data,
+                                                     dst_nested_col->get_data().data());
+            } else if (check_column<ColumnInt64>(*left_exec_data.nested_col)) {
+                ret = _execute_internal<ColumnInt64>(left_exec_data, right_exec_data,
+                                                     dst_null_map_data,
+                                                     dst_nested_col->get_data().data());
+            } else if (check_column<ColumnInt128>(*left_exec_data.nested_col)) {
+                ret = _execute_internal<ColumnInt128>(left_exec_data, right_exec_data,
+                                                      dst_null_map_data,
+                                                      dst_nested_col->get_data().data());
+            } else if (check_column<ColumnFloat32>(*left_exec_data.nested_col)) {
+                ret = _execute_internal<ColumnFloat32>(left_exec_data, right_exec_data,
+                                                       dst_null_map_data,
+                                                       dst_nested_col->get_data().data());
+            } else if (check_column<ColumnFloat64>(*left_exec_data.nested_col)) {
+                ret = _execute_internal<ColumnFloat64>(left_exec_data, right_exec_data,
+                                                       dst_null_map_data,
+                                                       dst_nested_col->get_data().data());
+            }
+        } else if (left_exec_data.nested_col->is_column_decimal()) {
+            if (check_column<ColumnDecimal32>(*left_exec_data.nested_col)) {
+                ret = _execute_internal<ColumnDecimal32>(left_exec_data, right_exec_data,
+                                                         dst_null_map_data,
+                                                         dst_nested_col->get_data().data());
+            } else if (check_column<ColumnDecimal64>(*left_exec_data.nested_col)) {
+                ret = _execute_internal<ColumnDecimal64>(left_exec_data, right_exec_data,
+                                                         dst_null_map_data,
+                                                         dst_nested_col->get_data().data());
+            } else if (check_column<ColumnDecimal128I>(*left_exec_data.nested_col)) {
+                ret = _execute_internal<ColumnDecimal128I>(left_exec_data, right_exec_data,
+                                                           dst_null_map_data,
+                                                           dst_nested_col->get_data().data());
+            } else if (check_column<ColumnDecimal128>(*left_exec_data.nested_col)) {
+                ret = _execute_internal<ColumnDecimal128>(left_exec_data, right_exec_data,
+                                                          dst_null_map_data,
+                                                          dst_nested_col->get_data().data());
+            }
+        }
+
+        if (ret == Status::OK()) {
+            block.replace_by_position(result, ColumnNullable::create(std::move(dst_nested_col),
+                                                                     std::move(dst_null_map)));
+        }
+
+        return ret;
+    }
+
+private:
+    Status _execute_nullable(const ColumnArrayExecutionData& data, UInt8* dst_nullmap_data) {
+        for (ssize_t row = 0; row < data.offsets_ptr->size(); ++row) {
+            if (dst_nullmap_data[row]) {
+                continue;
+            }
+
+            if (data.array_nullmap_data && data.array_nullmap_data[row]) {
+                dst_nullmap_data[row] = 1;
+                continue;
+            }
+
+            // any element inside array is NULL, return NULL
+            if (data.nested_nullmap_data) {
+                ssize_t start = (*data.offsets_ptr)[row - 1];
+                ssize_t size = (*data.offsets_ptr)[row] - start;
+                for (ssize_t i = start; i < start + size; ++i) {
+                    if (data.nested_nullmap_data[i]) {
+                        dst_nullmap_data[row] = 1;
+                        break;
+                    }
+                }
+            }
+        }
+        return Status::OK();
+    }
+
+    template <typename T>
+    Status _execute_internal(const ColumnArrayExecutionData& left_data,
+                             const ColumnArrayExecutionData& right_data,
+                             const UInt8* dst_nullmap_data, UInt8* dst_data) {
+        using ExecutorImpl = OverlapSetImpl<T>;
+        for (ssize_t row = 0; row < left_data.offsets_ptr->size(); ++row) {
+            if (dst_nullmap_data[row]) {
+                continue;
+            }
+
+            ssize_t left_start = (*left_data.offsets_ptr)[row - 1];
+            ssize_t left_size = (*left_data.offsets_ptr)[row] - left_start;
+            ssize_t right_start = (*right_data.offsets_ptr)[row - 1];
+            ssize_t right_size = (*right_data.offsets_ptr)[row] - right_start;
+            if (left_size == 0 || right_size == 0) {
+                dst_data[row] = 0;
+                continue;
+            }
+
+            ExecutorImpl impl;
+            if (right_size < left_size) {
+                impl.insert_array(right_data.nested_col, right_start, right_size);
+                dst_data[row] = impl.find_any(left_data.nested_col, left_start, left_size);
+            } else {
+                impl.insert_array(left_data.nested_col, left_start, left_size);
+                dst_data[row] = impl.find_any(right_data.nested_col, right_start, right_size);
+            }
+        }
         return Status::OK();
     }
 };
