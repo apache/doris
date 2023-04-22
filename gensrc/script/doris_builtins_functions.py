@@ -86,7 +86,9 @@ visible_functions = {
     # struct functions
     "struct": [
         [['struct'], 'STRUCT<TYPES>', ['TYPES'], 'ALWAYS_NOT_NULLABLE', ['TYPES...']],
-        [['named_struct'], 'ANY_TYPE', ['TYPES'], 'ALWAYS_NOT_NULLABLE', ['TYPES...']]
+        [['named_struct'], 'ANY_TYPE', ['TYPES'], 'ALWAYS_NOT_NULLABLE', ['TYPES...']],
+        [['struct_element', '%struct_element_extract%'], 'ANY_TYPE', ['STRUCT<TYPES>', 'VARCHAR'], 'ALWAYS_NULLABLE', ['TYPES...']],
+        [['struct_element', '%struct_element_extract%'], 'ANY_TYPE', ['STRUCT<TYPES>', 'INT'], 'ALWAYS_NULLABLE', ['TYPES...']]
     ],
 
     # array functions

@@ -56,7 +56,9 @@ public class FunctionTypeDeducers {
     public static class ElementAtDeducer implements TypeDeducer {
         @Override
         public Type deduce(Type[] args) {
-            // todo(xy)
+            if (args[0] instanceof StructType) {
+                return Type.ANY_TYPE;
+            }
             return null;
         }
     }

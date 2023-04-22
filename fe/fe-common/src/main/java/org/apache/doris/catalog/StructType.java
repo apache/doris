@@ -46,9 +46,6 @@ public class StructType extends Type {
     @SerializedName(value = "fieldMap")
     private final HashMap<String, StructField> fieldMap = Maps.newHashMap();
 
-    //@SerializedName(value = "positionToField")
-    //private final HashMap<Integer, StructField> positionToField = Maps.newHashMap();
-
     @SerializedName(value = "fields")
     private final ArrayList<StructField> fields;
 
@@ -56,9 +53,8 @@ public class StructType extends Type {
         Preconditions.checkNotNull(fields);
         this.fields = fields;
         for (int i = 0; i < this.fields.size(); ++i) {
-            this.fields.get(i).setPosition(i);
+            this.fields.get(i).setPosition(i + 1);
             fieldMap.put(this.fields.get(i).getName().toLowerCase(), this.fields.get(i));
-            //positionToField.put(this.fields.get(i).getPosition(), this.fields.get(i));
         }
     }
 
@@ -138,7 +134,6 @@ public class StructType extends Type {
         field.setPosition(fields.size());
         fields.add(field);
         fieldMap.put(field.getName().toLowerCase(), field);
-        //positionToField.put(field.getPosition(), field);
     }
 
     public ArrayList<StructField> getFields() {
@@ -149,14 +144,9 @@ public class StructType extends Type {
         return fieldMap.get(fieldName.toLowerCase());
     }
 
-    //public StructField getField(int position) {
-    //    return positionToField.get(position);
-    //}
-
     public void clearFields() {
         fields.clear();
         fieldMap.clear();
-        //positionToField.clear();
     }
 
     @Override
