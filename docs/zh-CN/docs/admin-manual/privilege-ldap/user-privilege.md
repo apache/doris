@@ -228,9 +228,9 @@ ADMIN_PRIV 和 GRANT_PRIV 权限同时拥有**授予权限**的权限，较为�
 
 5. 忘记密码
 
-   如果忘记了密码无法登陆 Doris，可以在 FE 的 config 文件中添加 `skil_auth_check` 参数，从而无密码在本机登陆 Doris：
+   如果忘记了密码无法登陆 Doris，可以在 FE 的 config 文件中添加 `skip_localhost_auth_check` 参数，从而无密码在本机登陆 Doris：
 
-   `skil_auth_check = true`
+   `skip_localhost_auth_check = true`
 
    登陆后，可以通过 SET PASSWORD 命令重置密码。
 

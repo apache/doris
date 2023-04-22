@@ -2122,6 +2122,6 @@ public class Config extends ConfigBase {
      * This is to solve the case that user forgot the password.
      */
     @ConfField(mutable = true)
-    public static boolean skip_auth_check  = false;
+    public static boolean skip_localhost_auth_check  = false;
 }
 
