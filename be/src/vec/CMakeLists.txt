@@ -203,6 +203,7 @@ set(VEC_FILES
   functions/array/function_array_with_constant.cpp
   functions/array/function_array_apply.cpp
   functions/array/function_array_concat.cpp
+  functions/array/function_array_contains_any.cpp
   functions/array/function_array_zip.cpp
   functions/array/function_array_pushfront.cpp
   functions/array/function_array_first_index.cpp
