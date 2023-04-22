@@ -715,29 +715,35 @@ public class InsertStmt extends DdlStmt {
             selectList.set(i, expr);
             exprByName.put(col.getName(), expr);
         }
+        Map<String, Expr> resultExprByName = Maps.newLinkedHashMap();
         // reorder resultExprs in table column order
         for (Column col : targetTable.getFullSchema()) {
             if (exprByName.containsKey(col.getName())) {
-                resultExprs.add(exprByName.get(col.getName()));
+                resultExprByName.put(col.getName(), exprByName.get(col.getName()));
             } else {
                 // process sequence col, map sequence column to other column
                 if (targetTable instanceof OlapTable && ((OlapTable) targetTable).hasSequenceCol()
                         && col.getName().equals(Column.SEQUENCE_COL)
                         && ((OlapTable) targetTable).getSequenceMapCol() != null) {
-                    resultExprs.add(exprByName.get(((OlapTable) targetTable).getSequenceMapCol()));
+                    if (resultExprByName.containsKey(((OlapTable) targetTable).getSequenceMapCol())) {
+                        resultExprByName.put(Column.SEQUENCE_COL,
+                                resultExprByName.getOrDefault(
+                                        ((OlapTable) targetTable).getSequenceMapCol(), null));
+                    }
                 } else if (col.getDefaultValue() == null) {
-                    resultExprs.add(NullLiteral.create(col.getType()));
+                    resultExprByName.put(col.getName(), NullLiteral.create(col.getType()));
                 } else {
                     if (col.getDefaultValueExprDef() != null) {
-                        resultExprs.add(col.getDefaultValueExpr());
+                        resultExprByName.put(col.getName(), col.getDefaultValueExpr());
                     } else {
                         StringLiteral defaultValueExpr;
                         defaultValueExpr = new StringLiteral(col.getDefaultValue());
-                        resultExprs.add(defaultValueExpr.checkTypeCompatibility(col.getType()));
+                        resultExprByName.put(col.getName(), defaultValueExpr.checkTypeCompatibility(col.getType()));
                     }
                 }
             }
         }
+        resultExprs.addAll(resultExprByName.values());
     }
 
     private DataSink createDataSink() throws AnalysisException {
