@@ -28,24 +28,30 @@
 
 namespace doris::vectorized {
 
-class FunctionArrayContainsAny : publc IFunction {
+// array_contains_any([1, 2, 3, 10], [2,5]) -> true
+class FunctionArrayContainsAny : public IFunction {
 public:
-    static const auto name = "arrary_contains_any";
+    static constexpr auto name = "array_contains_any";
     static FunctionPtr create() { return std::make_shared<FunctionArrayContainsAny>(); }
 
     String get_name() const override { return name; }
-    bool is_variadic() const override {return false;}
+    bool is_variadic() const override { return false; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DCHECK(is_array(arguments[0]))
-                << "First argument for function: " << name
-                << " should be DataTypeArray but it has type " << arguments[0]->get_name() << ".";
+        DCHECK(arguments.size() > 0)
+                << "function: " << get_name() << ", arguments should not be empty";
+        for (const auto& arg : arguments) {
+            DCHECK(is_array(arg)) << "argument for function array_concat should be DataTypeArray"
+                                  << " and argument is " << arg->get_name();
+        }
         return arguments[0];
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& argument,
                         size_t result, size_t input_rows_count) override {
+        DataTypePtr column_type = block.get_by_position(argument[0]).type;
 
+        return Status::OK();
     }
 };
 

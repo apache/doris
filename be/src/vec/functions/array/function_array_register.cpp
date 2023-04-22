@@ -80,7 +80,7 @@ void register_function_array(SimpleFunctionFactory& factory) {
     register_function_array_constructor(factory);
     register_function_array_apply(factory);
     register_function_array_concat(factory);
-    register_function_array_contains_anwy(factory);
+    register_function_array_contains_any(factory);
     register_function_array_zip(factory);
     register_function_array_pushfront(factory);
     register_function_array_first_index(factory);
