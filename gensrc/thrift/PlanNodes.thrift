@@ -512,13 +512,6 @@ struct TCsvScanNode {
   10:optional map<string, TMiniLoadEtlFunction> column_function_mapping
 }
 
-struct TSchemaTableStructure {
-  1: optional string column_name
-  2: optional Types.TPrimitiveType type
-  3: optional i64 len
-  4: optional bool is_null;
-}
-
 struct TSchemaScanNode {
   1: required Types.TTupleId tuple_id
 
@@ -533,7 +526,7 @@ struct TSchemaScanNode {
   10: optional string user_ip   // deprecated
   11: optional Types.TUserIdentity current_user_ident   // to replace the user and user_ip
   12: optional bool show_hidden_cloumns = false
-  13: optional list<TSchemaTableStructure> table_structure
+  // 13: optional list<TSchemaTableStructure> table_structure // deprecated
   14: optional string catalog
 }
 
@@ -588,6 +581,7 @@ struct TOlapScanNode {
   13: optional bool use_topn_opt
   14: optional list<Descriptors.TOlapTableIndex> indexes_desc
   15: optional set<i32> output_column_unique_ids
+  16: optional list<i32> distribute_column_ids
 }
 
 struct TEqJoinCondition {

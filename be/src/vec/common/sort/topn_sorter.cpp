@@ -17,6 +17,26 @@
 
 #include "vec/common/sort/topn_sorter.h"
 
+#include <glog/logging.h>
+
+#include <algorithm>
+#include <queue>
+
+#include "common/object_pool.h"
+#include "vec/core/block.h"
+#include "vec/core/sort_cursor.h"
+#include "vec/utils/util.hpp"
+
+namespace doris {
+class RowDescriptor;
+class RuntimeProfile;
+class RuntimeState;
+
+namespace vectorized {
+class VSortExecExprs;
+} // namespace vectorized
+} // namespace doris
+
 namespace doris::vectorized {
 
 TopNSorter::TopNSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offset,

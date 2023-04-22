@@ -17,10 +17,24 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
 #include <jni.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#include "gen_cpp/Exprs_types.h"
+#include <memory>
+#include <ostream>
+
+#include "common/logging.h"
+#include "common/status.h"
+#include "udf/udf.h"
 #include "util/jni-util.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/functions/function.h"
 
 namespace doris {

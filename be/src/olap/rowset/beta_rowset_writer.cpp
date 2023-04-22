@@ -17,34 +17,45 @@
 
 #include "olap/rowset/beta_rowset_writer.h"
 
+#include <assert.h>
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
+#include <stdio.h>
+
 #include <ctime> // time
+#include <filesystem>
 #include <memory>
 #include <sstream>
+#include <utility>
 
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
+#include "gutil/integral_types.h"
 #include "gutil/strings/substitute.h"
+#include "io/fs/file_reader_options.h"
+#include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
-#include "olap/memtable.h"
-#include "olap/merger.h"
+#include "olap/data_dir.h"
 #include "olap/olap_define.h"
-#include "olap/row_cursor.h" // RowCursor
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
+#include "olap/rowset/segment_v2/segment.h"
 #include "olap/rowset/segment_v2/segment_writer.h"
 #include "olap/storage_engine.h"
-#include "runtime/exec_env.h"
-#include "runtime/memory/mem_tracker_limiter.h"
+#include "olap/tablet.h"
+#include "olap/tablet_schema.h"
 #include "segcompaction.h"
+#include "util/slice.h"
+#include "util/time.h"
 #include "vec/common/schema_util.h" // LocalSchemaChangeRecorder
-#include "vec/jsonb/serialize.h"
+#include "vec/core/block.h"
 
 namespace doris {
 using namespace ErrorCode;
-
-class StorageEngine;
 
 BetaRowsetWriter::BetaRowsetWriter()
         : _rowset_meta(nullptr),
@@ -402,7 +413,7 @@ Status BetaRowsetWriter::_add_block(const vectorized::Block* block,
     do {
         auto max_row_add = (*segment_writer)->max_row_to_add(row_avg_size_in_bytes);
         if (UNLIKELY(max_row_add < 1)) {
-            // no space for another signle row, need flush now
+            // no space for another single row, need flush now
             RETURN_NOT_OK(_flush_segment_writer(segment_writer));
             RETURN_NOT_OK(_create_segment_writer(segment_writer, block));
             max_row_add = (*segment_writer)->max_row_to_add(row_avg_size_in_bytes);
@@ -610,10 +621,12 @@ void BetaRowsetWriter::_build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_met
             total_data_size += itr.second.data_size;
             total_index_size += itr.second.index_size;
             segments_encoded_key_bounds.push_back(itr.second.key_bounds);
+#ifndef NDEBUG
             if (_context.enable_unique_key_merge_on_write) {
                 DCHECK(itr.second.key_set.get() != nullptr);
                 key_set.insert(itr.second.key_set->begin(), itr.second.key_set->end());
             }
+#endif
         }
     }
     _num_mow_keys = key_set.size();

@@ -49,6 +49,28 @@ suite("test_date_function") {
     qt_sql """ SELECT convert_tz('2022-02-29 13:21:03', '+08:00', 'America/London') result; """
     qt_sql """ SELECT convert_tz('1900-00-00 13:21:03', '+08:00', 'America/London') result; """
 
+    // bug fix
+    sql """ insert into ${tableName} values 
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03");
+    """
+    qt_sql_convert_tz_null """ SELECT /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ convert_tz(test_datetime, cast(null as varchar), cast(null as varchar)) result from test_date_function; """
+
     sql """ truncate table ${tableName} """
 
     def timezoneCachedTableName = "test_convert_tz_with_timezone_cache"
@@ -608,6 +630,17 @@ suite("test_date_function") {
             DISTRIBUTED BY HASH (birth) BUCKETS 1 
             PROPERTIES( "replication_allocation" = "tag.location.default: 1");
         """
+
+    explain {
+        sql("select * from ${tableName} where date(birth) < timestamp(date '2022-01-01')")
+        contains "`birth` < '2022-01-01 00:00:00'"
+    }
+
+    explain {
+        sql("select * from ${tableName} where date(birth1) < timestamp(date '2022-01-01')")
+        contains "`birth1` < '2022-01-01'"
+    }
+
     sql """
         insert into ${tableName} values 
         ('2022-01-01', '2022-01-01', '2022-01-01 00:00:00', '2022-01-01 00:00:00'), 

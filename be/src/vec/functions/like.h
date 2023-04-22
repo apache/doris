@@ -17,22 +17,37 @@
 
 #pragma once
 
-#include <hs/hs.h>
+#include <hs/hs_common.h>
+#include <hs/hs_runtime.h>
+#include <re2/re2.h>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
 #include <functional>
 #include <memory>
+#include <string>
 
+#include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/string_search.hpp"
-#include "vec/columns/column_const.h"
-#include "vec/columns/column_set.h"
+#include "udf/udf.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column_string.h"
 #include "vec/columns/columns_number.h"
 #include "vec/columns/predicate_column.h"
 #include "vec/common/string_ref.h"
-#include "vec/data_types/data_type_nullable.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/exprs/vexpr.h"
 #include "vec/functions/function.h"
-#include "vec/functions/simple_function_factory.h"
+
+namespace doris {
+namespace vectorized {
+class Block;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

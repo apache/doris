@@ -17,9 +17,23 @@
 
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 
+#include <CLucene/debug/mem.h>
+#include <CLucene/search/IndexSearcher.h>
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
+#include <string.h>
+#include <sys/resource.h>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <iostream>
+
+#include "common/logging.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
+#include "runtime/thread_context.h"
 #include "util/defer_op.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 namespace segment_v2 {

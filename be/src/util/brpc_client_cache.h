@@ -17,19 +17,36 @@
 
 #pragma once
 
+#include <brpc/adaptive_connection_type.h>
+#include <brpc/adaptive_protocol_type.h>
+#include <brpc/channel.h>
+#include <brpc/controller.h>
+#include <butil/endpoint.h>
+#include <fmt/format.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/types.pb.h>
+#include <glog/logging.h>
+#include <google/protobuf/service.h>
 #include <parallel_hashmap/phmap.h>
+#include <stddef.h>
 
+#include <functional>
 #include <memory>
 #include <mutex>
-#include <type_traits>
+#include <ostream>
+#include <string>
+#include <utility>
+#include <vector>
 
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
-#include "gen_cpp/Types_types.h" // TNetworkAddress
-#include "gen_cpp/function_service.pb.h"
-#include "gen_cpp/internal_service.pb.h"
-#include "service/brpc.h"
-#include "util/doris_metrics.h"
 #include "util/network_util.h"
+
+namespace doris {
+class PBackendService_Stub;
+class PFunctionService_Stub;
+} // namespace doris
 
 template <typename T>
 using StubMap = phmap::parallel_flat_hash_map<
@@ -66,14 +83,7 @@ public:
 
     std::shared_ptr<T> get_client(const std::string& host_port) {
         std::shared_ptr<T> stub_ptr;
-        auto get_value = [&stub_ptr](const auto& v) {
-            // remove those compatibility codes when we finish upgrade phmap.
-            if constexpr (std::is_same_v<const typename StubMap<T>::mapped_type&, decltype(v)>) {
-                stub_ptr = v;
-            } else {
-                stub_ptr = v.second;
-            }
-        };
+        auto get_value = [&stub_ptr](const auto& v) { stub_ptr = v.second; };
         if (LIKELY(_stub_map.if_contains(host_port, get_value))) {
             return stub_ptr;
         }
@@ -81,17 +91,7 @@ public:
         // new one stub and insert into map
         auto stub = get_new_client_no_cache(host_port);
         _stub_map.try_emplace_l(
-                host_port,
-                [&stub](const auto& v) {
-                    // remove those compatibility codes when we finish upgrade phmap.
-                    if constexpr (std::is_same_v<const typename StubMap<T>::mapped_type&,
-                                                 decltype(v)>) {
-                        stub = v;
-                    } else {
-                        stub = v.second;
-                    }
-                },
-                stub);
+                host_port, [&stub](const auto& v) { stub = v.second; }, stub);
         return stub;
     }
 

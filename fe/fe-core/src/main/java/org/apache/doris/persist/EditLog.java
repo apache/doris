@@ -79,6 +79,7 @@ import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
+import org.apache.doris.resource.resourcegroup.ResourceGroup;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -353,7 +354,7 @@ public class EditLog {
                 case OperationType.OP_EXPORT_UPDATE_STATE:
                     ExportJob.StateTransfer op = (ExportJob.StateTransfer) journal.getData();
                     ExportMgr exportMgr = env.getExportMgr();
-                    exportMgr.replayUpdateJobState(op.getJobId(), op.getState());
+                    exportMgr.replayUpdateJobState(op);
                     break;
                 case OperationType.OP_FINISH_DELETE: {
                     DeleteInfo info = (DeleteInfo) journal.getData();
@@ -895,6 +896,11 @@ public class EditLog {
                     env.getSchemaChangeHandler().replayModifyTableLightSchemaChange(info);
                     break;
                 }
+                case OperationType.OP_ALTER_LIGHT_SCHEMA_CHANGE: {
+                    final AlterLightSchemaChangeInfo info = (AlterLightSchemaChangeInfo) journal.getData();
+                    env.getSchemaChangeHandler().replayAlterLightSchChange(info);
+                    break;
+                }
                 case OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES: {
                     final TableAddOrDropInvertedIndicesInfo info =
                             (TableAddOrDropInvertedIndicesInfo) journal.getData();
@@ -1001,6 +1007,11 @@ public class EditLog {
                     env.getCatalogMgr().replayRefreshExternalPartitions(log);
                     break;
                 }
+                case OperationType.OP_CREATE_RESOURCE_GROUP: {
+                    final ResourceGroup resourceGroup = (ResourceGroup) journal.getData();
+                    env.getResourceGroupMgr().replayCreateResourceGroup(resourceGroup);
+                    break;
+                }
                 case OperationType.OP_INIT_EXTERNAL_TABLE: {
                     // Do nothing.
                     break;
@@ -1072,7 +1083,6 @@ public class EditLog {
         }
 
         long start = System.currentTimeMillis();
-
         try {
             journal.write(op, writable);
         } catch (Throwable t) {
@@ -1548,6 +1558,10 @@ public class EditLog {
         logEdit(OperationType.OP_ALTER_RESOURCE, resource);
     }
 
+    public void logCreateResourceGroup(ResourceGroup resourceGroup) {
+        logEdit(OperationType.OP_CREATE_RESOURCE_GROUP, resourceGroup);
+    }
+
     public void logAlterStoragePolicy(StoragePolicy storagePolicy) {
         logEdit(OperationType.OP_ALTER_STORAGE_POLICY, storagePolicy);
     }
@@ -1594,6 +1608,10 @@ public class EditLog {
 
     public void logModifyInMemory(ModifyTablePropertyOperationLog info) {
         logEdit(OperationType.OP_MODIFY_IN_MEMORY, info);
+    }
+
+    public void logAlterLightSchemaChange(AlterLightSchemaChangeInfo info) {
+        logEdit(OperationType.OP_ALTER_LIGHT_SCHEMA_CHANGE, info);
     }
 
     public void logReplaceTempPartition(ReplacePartitionOperationLog info) {

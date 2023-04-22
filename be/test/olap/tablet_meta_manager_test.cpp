@@ -25,6 +25,8 @@
 #include <sstream>
 #include <string>
 
+#include "olap/data_dir.h"
+
 using std::string;
 
 namespace doris {

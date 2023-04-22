@@ -20,20 +20,32 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+#include <stdint.h>
+
+#include <cstddef>
 #include <list>
 #include <memory>
+#include <mutex>
+#include <string>
+#include <tuple>
 #include <unordered_map>
+#include <vector>
 
 #include "common/config.h"
+#include "common/status.h"
 #include "io/cache/block/block_file_cache_fwd.h"
+#include "util/hash_util.hpp"
+#include "vec/common/uint128.h"
 
 namespace doris {
 namespace io {
 class FileBlock;
+struct FileCacheSettings;
+
 using FileBlockSPtr = std::shared_ptr<FileBlock>;
 using FileBlocks = std::list<FileBlockSPtr>;
 struct FileBlocksHolder;
-struct ReadSettings;
 
 /**
  * Local cache for remote filesystem files, represented as a set of non-overlapping non-empty file segments.

@@ -17,15 +17,31 @@
 
 #include "vec/sink/vresult_sink.h"
 
+#include <fmt/format.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+#include <time.h>
+
+#include <new>
+
+#include "common/config.h"
+#include "common/object_pool.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/exec_env.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/runtime_state.h"
+#include "util/runtime_profile.h"
+#include "util/telemetry/telemetry.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/sink/vmysql_result_writer.h"
+#include "vec/sink/vresult_writer.h"
 
 namespace doris {
+class QueryStatistics;
+class RowDescriptor;
+class TExpr;
+
 namespace vectorized {
+class Block;
 
 VResultSink::VResultSink(const RowDescriptor& row_desc, const std::vector<TExpr>& t_output_expr,
                          const TResultSink& sink, int buffer_size)
@@ -86,9 +102,6 @@ Status VResultSink::open(RuntimeState* state) {
 
 Status VResultSink::send(RuntimeState* state, Block* block, bool eos) {
     INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VResultSink::send");
-    // The memory consumption in the process of sending the results is not check query memory limit.
-    // Avoid the query being cancelled when the memory limit is reached after the query result comes out.
-    STOP_CHECK_THREAD_MEM_TRACKER_LIMIT();
     return _writer->append_block(*block);
 }
 

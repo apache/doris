@@ -17,12 +17,13 @@
 
 #pragma once
 
+#include <butil/macros.h>
+#include <stdint.h>
+
 #include <cstddef>
 #include <memory>
 
 #include "common/status.h"
-#include "gen_cpp/segment_v2.pb.h"
-#include "gutil/macros.h"
 
 namespace doris {
 
@@ -33,6 +34,7 @@ class FileWriter;
 }
 
 namespace segment_v2 {
+class ColumnIndexMetaPB;
 
 class BitmapIndexWriter {
 public:

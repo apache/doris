@@ -17,15 +17,19 @@
 
 #pragma once
 
+#include <butil/macros.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <memory>
 #include <string>
 #include <vector>
 
-#include "olap/field.h"
-#include "olap/olap_common.h"
-#include "olap/olap_define.h"
+#include "common/status.h"
 #include "olap/olap_tuple.h"
 #include "olap/row_cursor_cell.h"
 #include "olap/schema.h"
+#include "olap/tablet_schema.h"
 
 namespace doris {
 class Field;

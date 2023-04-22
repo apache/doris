@@ -70,6 +70,7 @@ set(IO_TEST_FILES
     io/cache/file_block_cache_test.cpp
     io/fs/local_file_system_test.cpp
     io/fs/remote_file_system_test.cpp
+    io/fs/buffered_reader_test.cpp
 )
 set(OLAP_TEST_FILES
     olap/engine_storage_migration_task_test.cpp
@@ -226,6 +227,8 @@ set(VEC_TEST_FILES
     vec/aggregate_functions/agg_min_max_by_test.cpp
     vec/columns/column_decimal_test.cpp
     vec/columns/column_fixed_length_object_test.cpp
+    vec/data_types/complex_type_test.cpp
+    vec/data_types/serde/data_type_serde_test.cpp
     vec/core/block_test.cpp
     vec/core/block_spill_test.cpp
     vec/core/column_array_test.cpp

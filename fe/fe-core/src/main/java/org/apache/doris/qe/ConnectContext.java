@@ -36,7 +36,6 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.resource.Tag;
-import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionStatus;
@@ -156,6 +155,8 @@ public class ConnectContext {
     private final MysqlSslContext mysqlSslContext = new MysqlSslContext(SSL_PROTOCOL);
 
     private StatsErrorEstimator statsErrorEstimator;
+
+    private Map<String, String> resultAttachedInfo;
 
     public void setUserQueryTimeout(int queryTimeout) {
         if (queryTimeout > 0) {
@@ -325,10 +326,6 @@ public class ConnectContext {
         this.txnEntry = txnEntry;
     }
 
-    public TResourceInfo toResourceCtx() {
-        return new TResourceInfo(qualifiedUser, sessionVariable.getResourceGroup());
-    }
-
     public void setEnv(Env env) {
         this.env = env;
         defaultCatalog = env.getInternalCatalog().getName();
@@ -369,6 +366,10 @@ public class ConnectContext {
 
     public SessionVariable getSessionVariable() {
         return sessionVariable;
+    }
+
+    public void setSessionVariable(SessionVariable sessionVariable) {
+        this.sessionVariable = sessionVariable;
     }
 
     public ConnectScheduler getConnectScheduler() {
@@ -654,6 +655,14 @@ public class ConnectContext {
             // normal query stmt
             return sessionVariable.getQueryTimeoutS();
         }
+    }
+
+    public void setResultAttachedInfo(Map<String, String> resultAttachedInfo) {
+        this.resultAttachedInfo = resultAttachedInfo;
+    }
+
+    public Map<String, String> getResultAttachedInfo() {
+        return resultAttachedInfo;
     }
 
     public class ThreadInfo {

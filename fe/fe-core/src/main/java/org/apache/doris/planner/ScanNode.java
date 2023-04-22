@@ -516,7 +516,7 @@ public abstract class ScanNode extends PlanNode {
             // create a tmpSmap for the later setOutputSmap call
             ExprSubstitutionMap tmpSmap = new ExprSubstitutionMap(
                     Lists.newArrayList(outputTupleDesc.getSlots().stream().map(slot -> new SlotRef(slot)).collect(
-                            Collectors.toList())), Lists.newArrayList(projectList));
+                    Collectors.toList())), Lists.newArrayList(projectList));
             Set<SlotId> allOutputSlotIds = outputTupleDesc.getSlots().stream().map(slot -> slot.getId())
                     .collect(Collectors.toSet());
             List<Expr> newRhs = Lists.newArrayList();
@@ -530,10 +530,14 @@ public abstract class ScanNode extends PlanNode {
                         slotDesc.initFromExpr(rhsExpr);
                         if (rhsExpr instanceof SlotRef) {
                             slotDesc.setSrcColumn(((SlotRef) rhsExpr).getColumn());
+                            slotDesc.setIsMaterialized(((SlotRef) rhsExpr).getDesc().isMaterialized());
+                        } else {
+                            slotDesc.setIsMaterialized(true);
                         }
-                        slotDesc.setIsMaterialized(true);
-                        slotDesc.materializeSrcExpr();
-                        projectList.add(rhsExpr);
+                        if (slotDesc.isMaterialized()) {
+                            slotDesc.materializeSrcExpr();
+                            projectList.add(rhsExpr);
+                        }
                         newRhs.add(new SlotRef(slotDesc));
                         allOutputSlotIds.add(slotDesc.getId());
                     } else {

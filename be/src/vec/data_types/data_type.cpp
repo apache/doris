@@ -21,10 +21,23 @@
 #include "vec/data_types/data_type.h"
 
 #include <fmt/format.h>
+#include <gen_cpp/data.pb.h>
+#include <gen_cpp/types.pb.h>
+
+#include <algorithm>
+#include <utility>
 
 #include "common/logging.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
+#include "vec/core/field.h"
+
+namespace doris {
+namespace vectorized {
+class BufferWritable;
+class ReadBuffer;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -158,6 +171,8 @@ PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
         return PGenericType::JSONB;
     case TypeIndex::Map:
         return PGenericType::MAP;
+    case TypeIndex::Time:
+        return PGenericType::TIME;
     default:
         return PGenericType::UNKNOWN;
     }

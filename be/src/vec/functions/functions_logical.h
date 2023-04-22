@@ -20,11 +20,26 @@
 
 #pragma once
 
-#include <type_traits>
+#include <fmt/format.h>
+#include <stddef.h>
 
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <memory>
+
+#include "common/status.h"
+#include "vec/core/column_numbers.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/functions/function.h"
+
+namespace doris {
+class FunctionContext;
+
+namespace vectorized {
+class Block;
+} // namespace vectorized
+} // namespace doris
 
 /** Logical functions AND, OR and NOT support three-valued (or ternary) logic
   * https://en.wikibooks.org/wiki/Structured_Query_Language/NULLs_and_the_Three_Valued_Logic

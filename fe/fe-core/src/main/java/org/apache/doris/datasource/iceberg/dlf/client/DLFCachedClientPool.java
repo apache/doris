@@ -24,7 +24,7 @@ import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.ClientPool;
 import org.apache.iceberg.util.PropertyUtil;
-import org.apache.thrift.TException;
+import shade.doris.hive.org.apache.thrift.TException;
 
 import java.util.Map;
 import java.util.concurrent.TimeUnit;

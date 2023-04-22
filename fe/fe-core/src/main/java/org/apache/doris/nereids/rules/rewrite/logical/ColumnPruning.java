@@ -251,9 +251,6 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         for (Plan child : plan.children()) {
             Set<Slot> childOutputSet = child.getOutputSet();
             Set<Slot> childRequiredSlots = Sets.intersection(childrenRequiredSlots, childOutputSet);
-            if (childRequiredSlots.isEmpty()) {
-                childRequiredSlots = ImmutableSet.of(ExpressionUtils.selectMinimumColumn(childOutputSet));
-            }
             Plan prunedChild = doPruneChild(plan, child, childRequiredSlots);
             if (prunedChild != child) {
                 hasNewChildren = true;

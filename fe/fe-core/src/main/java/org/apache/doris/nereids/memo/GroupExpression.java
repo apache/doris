@@ -182,7 +182,7 @@ public class GroupExpression {
      */
     public boolean isUnused() {
         if (isUnused) {
-            Preconditions.checkState(children.isEmpty() || ownerGroup == null);
+            Preconditions.checkState(children.isEmpty() && ownerGroup == null);
             return true;
         }
         Preconditions.checkState(ownerGroup != null);

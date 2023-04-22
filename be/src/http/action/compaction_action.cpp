@@ -17,11 +17,16 @@
 
 #include "http/action/compaction_action.h"
 
-#include <sys/syscall.h>
-
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <exception>
 #include <future>
+#include <memory>
+#include <mutex>
 #include <sstream>
 #include <string>
+#include <thread>
+#include <utility>
 
 #include "common/logging.h"
 #include "gutil/strings/substitute.h"
@@ -31,8 +36,12 @@
 #include "http/http_status.h"
 #include "olap/base_compaction.h"
 #include "olap/cumulative_compaction.h"
+#include "olap/cumulative_compaction_policy.h"
 #include "olap/olap_define.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet_manager.h"
+#include "util/doris_metrics.h"
+#include "util/stopwatch.hpp"
 
 namespace doris {
 using namespace ErrorCode;

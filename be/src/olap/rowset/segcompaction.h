@@ -18,18 +18,27 @@
 #pragma once
 #include <stdint.h>
 
-#include <ctime> // time
 #include <memory>
-#include <sstream>
+#include <vector>
 
 #include "common/status.h"
+#include "io/fs/file_reader_writer_fwd.h"
 #include "olap/merger.h"
-#include "olap/rowset/rowset_writer.h"
+#include "olap/tablet.h"
 #include "segment_v2/segment.h"
-#include "segment_v2/segment_writer.h"
-#include "vec/olap/vertical_block_reader.h"
 
 namespace doris {
+class Schema;
+
+namespace segment_v2 {
+class SegmentWriter;
+} // namespace segment_v2
+namespace vectorized {
+class RowSourcesBuffer;
+class VerticalBlockReader;
+} // namespace vectorized
+struct OlapReaderStatistics;
+
 using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
 using SegCompactionCandidatesSharedPtr = std::shared_ptr<SegCompactionCandidates>;
 

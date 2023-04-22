@@ -17,25 +17,54 @@
 
 #pragma once
 
+#include <gen_cpp/parquet_types.h>
+#include <stddef.h>
 #include <stdint.h>
 
-#include <queue>
+#include <list>
+#include <map>
+#include <memory>
 #include <string>
+#include <tuple>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "common/status.h"
 #include "exec/olap_common.h"
-#include "gen_cpp/parquet_types.h"
 #include "io/file_factory.h"
 #include "io/fs/file_reader.h"
-#include "io/fs/file_system.h"
-#include "vec/core/block.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "util/runtime_profile.h"
 #include "vec/exec/format/generic_reader.h"
-#include "vec/exprs/vexpr_context.h"
+#include "vec/exec/format/parquet/parquet_common.h"
 #include "vparquet_column_reader.h"
-#include "vparquet_file_metadata.h"
 #include "vparquet_group_reader.h"
-#include "vparquet_page_index.h"
+
+namespace cctz {
+class time_zone;
+} // namespace cctz
+namespace doris {
+class RowDescriptor;
+class RuntimeState;
+class SlotDescriptor;
+class TFileRangeDesc;
+class TFileScanRangeParams;
+class TupleDescriptor;
+
+namespace io {
+class FileSystem;
+class IOContext;
+} // namespace io
+namespace vectorized {
+class Block;
+class FileMetaData;
+class PageIndex;
+class ShardedKVCache;
+class VExprContext;
+} // namespace vectorized
+struct TypeDescriptor;
+} // namespace doris
 
 namespace doris::vectorized {
 

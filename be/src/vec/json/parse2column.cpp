@@ -15,17 +15,39 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <parallel_hashmap/phmap.h>
-#include <vec/columns/column_object.h>
-#include <vec/common/field_visitors.h>
-#include <vec/common/hash_table/hash_set.h>
-#include <vec/common/schema_util.h>
-#include <vec/common/string_ref.h>
-#include <vec/json/json_parser.h>
-#include <vec/json/parse2column.h>
-#include <vec/json/simd_json_parser.h>
+#include "vec/json/parse2column.h"
 
+#include <assert.h>
+#include <fmt/format.h>
+#include <glog/logging.h>
+#include <parallel_hashmap/phmap.h>
+#include <simdjson/simdjson.h> // IWYU pragma: keep
+#include <stddef.h>
+
+#include <algorithm>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <ostream>
 #include <stack>
+#include <string>
+#include <string_view>
+#include <utility>
+
+#include "common/config.h"
+#include "common/status.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_object.h"
+#include "vec/columns/column_string.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/field_visitors.h"
+#include "vec/common/schema_util.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/field.h"
+#include "vec/data_types/data_type.h"
+#include "vec/json/json_parser.h"
+#include "vec/json/path_in_data.h"
+#include "vec/json/simd_json_parser.h"
 
 namespace doris::vectorized {
 

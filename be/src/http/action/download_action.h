@@ -17,13 +17,16 @@
 
 #pragma once
 
-#include "exec/scan_node.h"
+#include <string>
+#include <vector>
+
+#include "common/status.h"
 #include "http/http_handler.h"
-#include "runtime/descriptors.h"
 
 namespace doris {
 
 class ExecEnv;
+class HttpRequest;
 
 // A simple handler that serves incoming HTTP requests of file-download to send their respective HTTP responses.
 //

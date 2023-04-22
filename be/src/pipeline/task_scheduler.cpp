@@ -17,9 +17,30 @@
 
 #include "task_scheduler.h"
 
+#include <fmt/format.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/types.pb.h>
+#include <glog/logging.h>
+#include <sched.h>
+
+#include <algorithm>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <functional>
+#include <ostream>
+#include <string>
+#include <thread>
+
 #include "common/signal_handler.h"
+#include "pipeline/pipeline_task.h"
+#include "pipeline/task_queue.h"
 #include "pipeline_fragment_context.h"
+#include "runtime/query_fragments_ctx.h"
+#include "util/sse_util.hpp"
 #include "util/thread.h"
+#include "util/threadpool.h"
+#include "util/uid_util.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris::pipeline {
 
@@ -332,6 +353,14 @@ void TaskScheduler::shutdown() {
             _fix_thread_pool->wait();
         }
     }
+}
+
+void TaskScheduler::try_update_task_group(const taskgroup::TaskGroupInfo& task_group_info,
+                                          taskgroup::TaskGroupPtr& task_group) {
+    if (!task_group->check_version(task_group_info._version)) {
+        return;
+    }
+    _task_queue->update_task_group(task_group_info, task_group);
 }
 
 } // namespace doris::pipeline

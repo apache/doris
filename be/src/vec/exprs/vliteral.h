@@ -17,13 +17,21 @@
 
 #pragma once
 
-#include "vec/columns/column.h"
+#include <memory>
+#include <string>
+
+#include "common/object_pool.h"
+#include "common/status.h"
+#include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr.h"
 
 namespace doris {
 class TExprNode;
 
 namespace vectorized {
+class Block;
+class VExprContext;
+
 class VLiteral : public VExpr {
 public:
     VLiteral(const TExprNode& node, bool should_init = true)

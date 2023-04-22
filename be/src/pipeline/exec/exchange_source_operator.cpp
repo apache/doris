@@ -17,7 +17,9 @@
 
 #include "exchange_source_operator.h"
 
-#include "common/status.h"
+#include <memory>
+
+#include "pipeline/exec/operator.h"
 #include "vec/exec/vexchange_node.h"
 #include "vec/runtime/vdata_stream_recvr.h"
 

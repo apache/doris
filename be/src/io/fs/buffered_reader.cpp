@@ -17,15 +17,28 @@
 
 #include "io/fs/buffered_reader.h"
 
-#include <algorithm>
-#include <sstream>
+#include <bvar/reducer.h>
+#include <bvar/window.h>
+#include <string.h>
 
+#include <algorithm>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
-#include "olap/iterators.h"
-#include "olap/olap_define.h"
+#include "runtime/exec_env.h"
+#include "util/runtime_profile.h"
+#include "util/threadpool.h"
 
 namespace doris {
 namespace io {
+class IOContext;
+
+// add bvar to capture the download bytes per second by buffered reader
+bvar::Adder<uint64_t> g_bytes_downloaded("buffered_reader", "bytes_downloaded");
+bvar::PerSecond<bvar::Adder<uint64_t>> g_bytes_downloaded_per_second("buffered_reader",
+                                                                     "bytes_downloaded_per_second",
+                                                                     &g_bytes_downloaded, 60);
 
 // there exists occasions where the buffer is already closed but
 // some prior tasks are still queued in thread pool, so we have to check whether
@@ -69,6 +82,7 @@ void PrefetchBuffer::prefetch_buffer() {
 
     size_t buf_size = _end_offset - _offset > _size ? _size : _end_offset - _offset;
     s = _reader->read_at(_offset, Slice {_buf.data(), buf_size}, &_len);
+    g_bytes_downloaded << _len;
     std::unique_lock lck {_lock};
     _prefetched.wait(lck, [this]() { return _buffer_status == BufferStatus::PENDING; });
     if (!s.ok() && _offset < _reader->size()) {
@@ -133,6 +147,7 @@ PrefetchBufferedReader::PrefetchBufferedReader(io::FileReaderSPtr reader, int64_
     }
     _size = _reader->size();
     _whole_pre_buffer_size = buffer_size;
+    _end_offset = std::min((size_t)_end_offset, _size);
     int buffer_num = buffer_size > s_max_pre_buffer_size ? buffer_size / s_max_pre_buffer_size : 1;
     // set the _cur_offset of this reader as same as the inner reader's,
     // to make sure the buffer reader will start to read at right position.

@@ -444,6 +444,7 @@ public:
         if (place == _exec_place) {
             this->data(_exec_place).destroy();
             this->data(_exec_place).~Data();
+            _first_created = true;
         }
     }
 

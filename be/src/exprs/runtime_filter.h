@@ -17,12 +17,31 @@
 
 #pragma once
 
+#include <fmt/format.h>
+#include <gen_cpp/Exprs_types.h>
+#include <stdint.h>
+
+#include <atomic>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
+#include "runtime/datetime_value.h"
+#include "runtime/decimalv2_value.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/large_int_value.h"
+#include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
+#include "runtime/types.h"
 #include "util/lock.h"
 #include "util/runtime_profile.h"
 #include "util/time.h"
 #include "util/uid_util.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace butil {
 class IOBufAsZeroCopyInputStream;
@@ -31,17 +50,16 @@ class IOBufAsZeroCopyInputStream;
 namespace doris {
 class ObjectPool;
 class RuntimePredicateWrapper;
-class MemTracker;
 class PPublishFilterRequest;
 class PMergeFilterRequest;
 class TRuntimeFilterDesc;
 class RowDescriptor;
 class PInFilter;
 class PMinMaxFilter;
-class HashJoinNode;
-class RuntimeProfile;
 class BloomFilterFuncBase;
 class BitmapFilterFuncBase;
+class TNetworkAddress;
+class TQueryOptions;
 
 namespace vectorized {
 class VExpr;
@@ -99,6 +117,7 @@ struct RuntimeFilterParams {
     int32_t filter_id;
     UniqueId fragment_instance_id;
     bool bitmap_filter_not_in;
+    bool build_bf_exactly;
 };
 
 struct UpdateRuntimeFilterParams {
@@ -151,7 +170,7 @@ public:
 
     static Status create(RuntimeState* state, ObjectPool* pool, const TRuntimeFilterDesc* desc,
                          const TQueryOptions* query_options, const RuntimeFilterRole role,
-                         int node_id, IRuntimeFilter** res);
+                         int node_id, IRuntimeFilter** res, bool build_bf_exactly = false);
 
     void copy_to_shared_context(vectorized::SharedRuntimeFilterContext& context);
     Status copy_from_shared_context(vectorized::SharedRuntimeFilterContext& context);
@@ -207,7 +226,7 @@ public:
 
     // init filter with desc
     Status init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options,
-                          UniqueId fragment_id, int node_id = -1);
+                          UniqueId fragment_id, int node_id = -1, bool build_bf_exactly = false);
 
     BloomFilterFuncBase* get_bloomfilter() const;
 
@@ -226,6 +245,7 @@ public:
                                  ObjectPool* pool,
                                  std::unique_ptr<RuntimePredicateWrapper>* wrapper);
     void change_to_bloom_filter();
+    Status init_bloom_filter(const size_t build_bf_cardinality);
     Status update_filter(const UpdateRuntimeFilterParams* param);
 
     void set_ignored() { _is_ignored = true; }
@@ -339,6 +359,7 @@ protected:
     std::vector<doris::vectorized::VExpr*> _push_down_vexprs;
 
     struct rpc_context;
+
     std::shared_ptr<rpc_context> _rpc_context;
 
     // parent profile

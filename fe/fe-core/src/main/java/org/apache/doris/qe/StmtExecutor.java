@@ -464,14 +464,8 @@ public class StmtExecutor implements ProfileWriter {
     }
 
     private boolean checkBlockRules() throws AnalysisException {
-        try {
-            Env.getCurrentEnv().getSqlBlockRuleMgr().matchSql(
-                    originStmt.originStmt, context.getSqlHash(), context.getQualifiedUser());
-        } catch (AnalysisException e) {
-            LOG.warn(e.getMessage());
-            context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
-            return true;
-        }
+        Env.getCurrentEnv().getSqlBlockRuleMgr().matchSql(
+                originStmt.originStmt, context.getSqlHash(), context.getQualifiedUser());
 
         // limitations: partition_num, tablet_num, cardinality
         List<ScanNode> scanNodeList = planner.getScanNodes();
@@ -789,6 +783,12 @@ public class StmtExecutor implements ProfileWriter {
         masterOpExecutor = new MasterOpExecutor(originStmt, context, redirectStatus, isQuery());
         LOG.debug("need to transfer to Master. stmt: {}", context.getStmtId());
         masterOpExecutor.execute();
+        if (parsedStmt instanceof SetStmt) {
+            SetStmt setStmt = (SetStmt) parsedStmt;
+            setStmt.modifySetVarsForExecute();
+            SetExecutor executor = new SetExecutor(context, setStmt);
+            executor.execute();
+        }
     }
 
     @Override
@@ -875,6 +875,10 @@ public class StmtExecutor implements ProfileWriter {
         if (parsedStmt instanceof QueryStmt
                 || parsedStmt instanceof InsertStmt
                 || parsedStmt instanceof CreateTableAsSelectStmt) {
+            if (Config.enable_resource_group && context.sessionVariable.enablePipelineEngine()) {
+                analyzer.setResourceGroups(analyzer.getEnv().getResourceGroupMgr()
+                        .getResourceGroup(context.sessionVariable.resourceGroup));
+            }
             Map<Long, TableIf> tableMap = Maps.newTreeMap();
             QueryStmt queryStmt;
             Set<String> parentViewNameSet = Sets.newHashSet();
@@ -1361,6 +1365,7 @@ public class StmtExecutor implements ProfileWriter {
                     }
                     plannerProfile.freshWriteResultConsumeTime();
                     context.updateReturnRows(batch.getBatch().getRows().size());
+                    context.setResultAttachedInfo(batch.getBatch().getAttachedInfos());
                 }
                 if (batch.isEos()) {
                     break;
@@ -1862,7 +1867,7 @@ public class StmtExecutor implements ProfileWriter {
         for (Column col : metaData.getColumns()) {
             serializer.reset();
             // TODO(zhaochun): only support varchar type
-            serializer.writeField(col.getName(), col.getType().getPrimitiveType());
+            serializer.writeField(col.getName(), col.getType());
             context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         }
         // send EOF
@@ -1895,7 +1900,7 @@ public class StmtExecutor implements ProfileWriter {
         context.getState().setOk();
     }
 
-    private void sendFields(List<String> colNames, List<PrimitiveType> types) throws IOException {
+    private void sendFields(List<String> colNames, List<Type> types) throws IOException {
         // sends how many columns
         serializer.reset();
         serializer.writeVInt(colNames.size());
@@ -2147,8 +2152,8 @@ public class StmtExecutor implements ProfileWriter {
         return statisticsForAuditLog.build();
     }
 
-    private List<PrimitiveType> exprToType(List<Expr> exprs) {
-        return exprs.stream().map(e -> e.getType().getPrimitiveType()).collect(Collectors.toList());
+    private List<Type> exprToType(List<Expr> exprs) {
+        return exprs.stream().map(e -> e.getType()).collect(Collectors.toList());
     }
 
     public StatementBase setParsedStmt(StatementBase parsedStmt) {

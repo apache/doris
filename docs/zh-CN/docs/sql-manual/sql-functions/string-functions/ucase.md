@@ -31,7 +31,7 @@ under the License.
 `INT ucase(VARCHAR str)`
 
 
-与`upper`一致
+将参数中所有的字符串都转换成大写，此函数的另一个别名为[upper](./upper.md)。
 
 ### keywords
     UCASE

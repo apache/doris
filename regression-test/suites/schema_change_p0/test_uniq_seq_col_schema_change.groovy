@@ -31,7 +31,7 @@ suite("test_uniq_seq_col_schema_change", "schema_change") {
             UNIQUE KEY (k1)
             DISTRIBUTED BY HASH(k1) BUCKETS 1 
             properties("replication_num" = "1",
-                       "light_schema_change" = "true",
+                       "light_schema_change" = "false",
                        "function_column.sequence_type" = 'INT');
         """
         // sequence col equal value3
@@ -41,6 +41,9 @@ suite("test_uniq_seq_col_schema_change", "schema_change") {
         sql "insert into ${tbName1} ${columnWithHidden_1} values(3,3,3,3,0,3);"
         sql "insert into ${tbName1} ${columnWithHidden_1} values(4,4,4,4,0,4);"
         qt_sql "select * from ${tbName1} order by k1;"
+
+        // alter and test light schema change
+        sql """ALTER TABLE ${tbName1} SET ("light_schema_change" = "true");"""
 
         sql "ALTER TABLE ${tbName1} ADD COLUMN value4 INT;"
         qt_sql "select * from ${tbName1} order by k1;"

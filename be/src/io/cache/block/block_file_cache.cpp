@@ -20,7 +20,11 @@
 
 #include "io/cache/block/block_file_cache.h"
 
+#include <glog/logging.h>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
 #include <filesystem>
+#include <utility>
 
 #include "io/cache/block/block_file_cache_fwd.h"
 #include "io/cache/block/block_file_cache_settings.h"

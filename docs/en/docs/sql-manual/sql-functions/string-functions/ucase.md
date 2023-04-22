@@ -31,7 +31,7 @@ under the License.
 `INT ucase(VARCHAR str)`
 
 
-Consistent with `upper`.
+Convert all strings in parameters to uppercase. Another alias for this function is [upper](./upper.md).
 
 ### keywords
     UCASE

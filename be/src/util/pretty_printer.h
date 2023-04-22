@@ -20,12 +20,13 @@
 
 #pragma once
 
+#include <gen_cpp/RuntimeProfile_types.h>
+
 #include <boost/algorithm/string.hpp>
 #include <cmath>
 #include <iomanip>
 #include <sstream>
 
-#include "gen_cpp/RuntimeProfile_types.h"
 #include "util/binary_cast.hpp"
 #include "util/cpu_info.h"
 

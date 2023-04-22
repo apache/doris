@@ -315,6 +315,8 @@ Doris 的权限管理功能提供了对 Catalog 层级的扩展，具体可参�
 
 <version since="1.2.2"></version>
 
+#### Hive Metastore
+
 自动刷新目前仅支持 Hive Metastore 元数据服务。通过让 FE 节点定时读取 HMS 的 notification event 来感知 Hive 表元数据的变更情况，目前支持处理如下event：
 
 |事件 | 事件行为和对应的动作 |
@@ -333,7 +335,7 @@ Doris 的权限管理功能提供了对 Catalog 层级的扩展，具体可参�
 > 
 > 如果绕过HMS直接操作文件系统的话，HMS不会生成对应事件，doris因此也无法感知
 
-该特性被在 fe.conf 中有如下参数：
+该特性在 fe.conf 中有如下参数：
 
 1. `enable_hms_events_incremental_sync`: 是否开启元数据自动增量同步功能,默认关闭。
 2. `hms_events_polling_interval_ms`: 读取 event 的间隔时间，默认值为 10000，单位：毫秒。
@@ -358,3 +360,23 @@ Doris 的权限管理功能提供了对 Catalog 层级的扩展，具体可参�
 ```
 
 > 使用建议： 无论是之前已经创建好的catalog现在想改为自动刷新，还是新创建的 catalog，都只需要把 `enable_hms_events_incremental_sync` 设置为true，重启fe节点，无需重启之前或之后再手动刷新元数据。
+
+#### 定时刷新
+
+在创建catalog时，在properties 中指定刷新时间参数`metadata_refresh_interval_sec` ，以秒为单位，若在创建catalog时设置了该参数，FE 的master节点会根据参数值定时刷新该catalog。目前支持三种类型
+
+- hms：Hive MetaStore
+- es：Elasticsearch
+- jdbc：数据库访问的标准接口(JDBC)
+
+##### Example
+
+```
+-- 设置catalog刷新间隔为20秒
+CREATE CATALOG es PROPERTIES (
+    "type"="es",
+    "hosts"="http://127.0.0.1:9200",
+    "metadata_refresh_interval_sec"="20"
+);
+```
+

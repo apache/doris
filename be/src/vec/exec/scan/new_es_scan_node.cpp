@@ -17,9 +17,26 @@
 
 #include "vec/exec/scan/new_es_scan_node.h"
 
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/Types_types.h>
+
+#include <ostream>
+
+#include "common/logging.h"
+#include "common/object_pool.h"
+#include "exec/es/es_scan_reader.h"
 #include "exec/es/es_scroll_query.h"
+#include "runtime/descriptors.h"
+#include "runtime/runtime_state.h"
+#include "service/backend_options.h"
 #include "vec/exec/scan/new_es_scanner.h"
-#include "vec/utils/util.hpp"
+
+namespace doris {
+namespace vectorized {
+class VScanner;
+} // namespace vectorized
+} // namespace doris
 
 static const std::string NEW_SCAN_NODE_TYPE = "NewEsScanNode";
 

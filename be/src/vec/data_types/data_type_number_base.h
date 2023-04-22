@@ -20,11 +20,35 @@
 
 #pragma once
 
-#include <cstdint>
+#include <gen_cpp/Types_types.h>
+#include <stddef.h>
 
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <type_traits>
+
+#include "common/status.h"
+#include "runtime/define_primitive_type.h"
+#include "serde/data_type_number_serde.h"
 #include "vec/columns/column_vector.h"
+#include "vec/common/uint128.h"
+#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/serde/data_type_serde.h"
+
+namespace doris {
+namespace vectorized {
+class BufferWritable;
+class IColumn;
+class ReadBuffer;
+template <typename T>
+struct TypeId;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -119,6 +143,9 @@ public:
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
     bool is_null_literal() const override { return _is_null_literal; }
     void set_null_literal(bool flag) { _is_null_literal = flag; }
+    DataTypeSerDeSPtr get_serde() const override {
+        return std::make_shared<DataTypeNumberSerDe<T>>();
+    };
 
 private:
     bool _is_null_literal = false;

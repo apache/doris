@@ -17,21 +17,51 @@
 
 #include "vec/exec/scan/vscan_node.h"
 
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/Opcodes_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/Types_types.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+#include <string.h>
+
+#include <algorithm>
+#include <mutex>
+#include <ostream>
+#include <variant>
+
+#include "common/config.h"
 #include "common/consts.h"
+#include "common/logging.h"
 #include "common/status.h"
+#include "exec/olap_utils.h"
 #include "exprs/bloom_filter_func.h"
 #include "exprs/hybrid_set.h"
+#include "exprs/runtime_filter.h"
+#include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
+#include "runtime/primitive_type.h"
 #include "runtime/runtime_filter_mgr.h"
+#include "runtime/types.h"
+#include "udf/udf.h"
 #include "util/defer_op.h"
 #include "util/runtime_profile.h"
+#include "util/telemetry/telemetry.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_vector.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/types.h"
 #include "vec/exec/scan/pip_scanner_context.h"
 #include "vec/exec/scan/scanner_scheduler.h"
-#include "vec/exec/scan/vscanner.h"
 #include "vec/exprs/vcompound_pred.h"
-#include "vec/exprs/vdirect_in_predicate.h"
+#include "vec/exprs/vectorized_fn_call.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
+#include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/functions/in.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
 
@@ -67,7 +97,6 @@ Status VScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
     _state = state;
     _is_pipeline_scan = state->enable_pipeline_exec();
-    _shared_scan_opt = state->shared_scan_opt();
 
     const TQueryOptions& query_options = state->query_options();
     if (query_options.__isset.max_scan_key_num) {
@@ -82,7 +111,6 @@ Status VScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     }
 
     RETURN_IF_ERROR(_register_runtime_filter());
-    RETURN_IF_ERROR(_init_profile());
 
     return Status::OK();
 }
@@ -109,6 +137,17 @@ Status VScanNode::prepare(RuntimeState* state) {
         }
     }
 
+    // 1: running at not pipeline mode will init profile.
+    // 2: the scan node should create scanner at pipeline mode will init profile.
+    // during pipeline mode with more instances, olap scan node maybe not new VScanner object,
+    // so the profile of VScanner and SegmentIterator infos are always empty, could not init those.
+    if (!_is_pipeline_scan || _should_create_scanner) {
+        RETURN_IF_ERROR(_init_profile());
+    }
+    // if you want to add some profile in scan node, even it have not new VScanner object
+    // could add here, not in the _init_profile() function
+    _get_next_timer = ADD_TIMER(_runtime_profile, "GetNextTime");
+    _acquire_runtime_filter_timer = ADD_TIMER(_runtime_profile, "AcuireRuntimeFilterTime");
     return Status::OK();
 }
 
@@ -224,8 +263,6 @@ Status VScanNode::_init_profile() {
     _total_throughput_counter =
             runtime_profile()->add_rate_counter("TotalReadThroughput", _rows_read_counter);
     _num_scanners = ADD_COUNTER(_runtime_profile, "NumScanners", TUnit::UNIT);
-    _get_next_timer = ADD_TIMER(_runtime_profile, "GetNextTime");
-    _acquire_runtime_filter_timer = ADD_TIMER(_runtime_profile, "AcuireRuntimeFilterTime");
 
     // 2. counters for scanners
     _scanner_profile.reset(new RuntimeProfile("VScanner"));
@@ -261,9 +298,9 @@ Status VScanNode::_init_profile() {
 
 Status VScanNode::_start_scanners(const std::list<VScanner*>& scanners) {
     if (_is_pipeline_scan) {
-        _scanner_ctx.reset(new pipeline::PipScannerContext(_state, this, _input_tuple_desc,
-                                                           _output_tuple_desc, scanners, limit(),
-                                                           _state->query_options().mem_limit / 20));
+        _scanner_ctx.reset(new pipeline::PipScannerContext(
+                _state, this, _input_tuple_desc, _output_tuple_desc, scanners, limit(),
+                _state->query_options().mem_limit / 20, _col_distribute_ids));
     } else {
         _scanner_ctx.reset(new ScannerContext(_state, this, _input_tuple_desc, _output_tuple_desc,
                                               scanners, limit(),
@@ -630,6 +667,16 @@ Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExpr** output
                 *output_expr = conjunct_expr_root;
                 return Status::OK();
             } else {
+                if (left_child == nullptr) {
+                    conjunct_expr_root->children()[0]->close(
+                            _state, *_vconjunct_ctx_ptr,
+                            (*_vconjunct_ctx_ptr)->get_function_state_scope());
+                }
+                if (right_child == nullptr) {
+                    conjunct_expr_root->children()[1]->close(
+                            _state, *_vconjunct_ctx_ptr,
+                            (*_vconjunct_ctx_ptr)->get_function_state_scope());
+                }
                 // here only close the and expr self, do not close the child
                 conjunct_expr_root->set_children({});
                 conjunct_expr_root->close(_state, *_vconjunct_ctx_ptr,

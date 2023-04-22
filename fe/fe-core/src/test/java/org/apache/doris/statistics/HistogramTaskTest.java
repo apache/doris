@@ -26,7 +26,6 @@ import org.apache.doris.statistics.AnalysisTaskInfo.JobType;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.utframe.TestWithFeService;
 
-import com.google.common.collect.Sets;
 import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
@@ -76,7 +75,7 @@ public class HistogramTaskTest extends TestWithFeService {
 
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         StmtExecutor executor = getSqlStmtExecutor(
-                "ANALYZE TABLE t1 UPDATE HISTOGRAM ON col1 PARTITION (p_201701)");
+                "ANALYZE TABLE t1(col1) UPDATE HISTOGRAM");
         Assertions.assertNotNull(executor);
 
         ConcurrentMap<Long, Map<Long, AnalysisTaskInfo>> taskMap =
@@ -92,7 +91,6 @@ public class HistogramTaskTest extends TestWithFeService {
                 Assertions.assertEquals(AnalysisType.HISTOGRAM, info.analysisType);
                 Assertions.assertEquals("t1", info.tblName);
                 Assertions.assertEquals("col1", info.colName);
-                Assertions.assertEquals("p_201701", info.partitionNames.iterator().next());
             }
         }
     }
@@ -105,9 +103,8 @@ public class HistogramTaskTest extends TestWithFeService {
                 .setDbName(SystemInfoService.DEFAULT_CLUSTER + ":" + "histogram_task_test").setTblName("t1")
                 .setColName("col1").setJobType(JobType.MANUAL).setAnalysisMethod(AnalysisMethod.FULL)
                 .setAnalysisType(AnalysisType.HISTOGRAM)
-                 .setPartitionNames(Sets.newHashSet("t"))
                 .build();
-        HistogramTask task = new HistogramTask(analysisTaskScheduler, analysisTaskInfo);
+        HistogramTask task = new HistogramTask(analysisTaskInfo);
 
         new MockUp<AnalysisTaskScheduler>() {
             @Mock

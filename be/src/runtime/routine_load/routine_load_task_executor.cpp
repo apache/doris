@@ -17,18 +17,43 @@
 
 #include "runtime/routine_load/routine_load_task_executor.h"
 
-#include <thread>
+#include <gen_cpp/BackendService_types.h>
+#include <gen_cpp/FrontendService_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/Status_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <librdkafka/rdkafkacpp.h>
+#include <stddef.h>
 
+#include <algorithm>
+#include <future>
+#include <map>
+#include <ostream>
+#include <thread>
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
+#include "common/logging.h"
 #include "common/status.h"
-#include "gen_cpp/BackendService_types.h"
-#include "gen_cpp/FrontendService_types.h"
-#include "gen_cpp/Types_types.h"
+#include "common/utils.h"
 #include "io/fs/kafka_consumer_pipe.h"
-#include "olap/iterators.h"
+#include "io/fs/stream_load_pipe.h"
 #include "runtime/exec_env.h"
+#include "runtime/message_body_sink.h"
+#include "runtime/routine_load/data_consumer.h"
 #include "runtime/routine_load/data_consumer_group.h"
+#include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
+#include "runtime/stream_load/stream_load_executor.h"
+#include "service/backend_options.h"
 #include "util/defer_op.h"
+#include "util/doris_metrics.h"
+#include "util/metrics.h"
+#include "util/slice.h"
+#include "util/time.h"
 #include "util/uid_util.h"
 
 namespace doris {

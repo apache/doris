@@ -15,19 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <vec/olap/vgeneric_iterators.h>
+#include "vec/olap/vgeneric_iterators.h"
 
+#include <algorithm>
 #include <memory>
-#include <queue>
 #include <utility>
 
 #include "common/status.h"
+#include "olap/field.h"
 #include "olap/iterators.h"
+#include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/schema.h"
+#include "olap/tablet_schema.h"
+#include "vec/columns/column.h"
 #include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
+class RuntimeProfile;
+
 using namespace ErrorCode;
 
 namespace vectorized {
@@ -201,23 +210,23 @@ public:
                 size_t data_len = 0;
                 const auto* col_schema = _schema.column(j);
                 switch (col_schema->type()) {
-                case OLAP_FIELD_TYPE_SMALLINT:
+                case FieldType::OLAP_FIELD_TYPE_SMALLINT:
                     *(int16_t*)data = _rows_returned + j;
                     data_len = sizeof(int16_t);
                     break;
-                case OLAP_FIELD_TYPE_INT:
+                case FieldType::OLAP_FIELD_TYPE_INT:
                     *(int32_t*)data = _rows_returned + j;
                     data_len = sizeof(int32_t);
                     break;
-                case OLAP_FIELD_TYPE_BIGINT:
+                case FieldType::OLAP_FIELD_TYPE_BIGINT:
                     *(int64_t*)data = _rows_returned + j;
                     data_len = sizeof(int64_t);
                     break;
-                case OLAP_FIELD_TYPE_FLOAT:
+                case FieldType::OLAP_FIELD_TYPE_FLOAT:
                     *(float*)data = _rows_returned + j;
                     data_len = sizeof(float);
                     break;
-                case OLAP_FIELD_TYPE_DOUBLE:
+                case FieldType::OLAP_FIELD_TYPE_DOUBLE:
                     *(double*)data = _rows_returned + j;
                     data_len = sizeof(double);
                     break;

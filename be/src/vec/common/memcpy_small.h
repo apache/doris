@@ -23,11 +23,7 @@
 #include <string.h>
 
 #if defined(__SSE2__) || defined(__aarch64__)
-#ifdef __SSE2__
-#include <emmintrin.h>
-#elif __aarch64__
-#include <sse2neon.h>
-#endif
+#include "util/sse_util.hpp"
 
 /** memcpy function could work suboptimal if all the following conditions are met:
   * 1. Size of memory region is relatively small (approximately, under 50 bytes).

@@ -22,6 +22,7 @@
 
 #include <string>
 
+#include "common/object_pool.h"
 #include "exec/schema_scanner.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/local_file_system.h"
@@ -324,7 +325,7 @@ static void create_block(std::unique_ptr<vectorized::Block>& block) {
     ObjectPool object_pool;
     doris::TupleDescriptor* tuple_desc = create_tuple_desc(&object_pool, column_descs);
     auto tuple_slots = tuple_desc->slots();
-    block.reset(new vectorized::Block());
+    block = vectorized::Block::create_unique();
     for (const auto& slot_desc : tuple_slots) {
         auto data_type = slot_desc->get_data_type_ptr();
         MutableColumnPtr data_column = data_type->create_column();

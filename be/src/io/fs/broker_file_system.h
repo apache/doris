@@ -17,11 +17,25 @@
 
 #pragma once
 
+#include <stdint.h>
+
+#include <map>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
 #include "runtime/client_cache.h"
+
 namespace doris {
+class TNetworkAddress;
 
 namespace io {
+struct FileInfo;
+
 class BrokerFileSystem final : public RemoteFileSystem {
 public:
     static Status create(const TNetworkAddress& broker_addr,

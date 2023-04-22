@@ -17,23 +17,26 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/types.pb.h>
+#include <stdint.h>
+
+#include <condition_variable>
 #include <functional>
+#include <iosfwd>
 #include <memory>
 #include <mutex>
-#include <thread>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/DorisExternalService_types.h"
-#include "gen_cpp/Types_types.h"
-#include "gen_cpp/internal_service.pb.h"
 #include "gutil/ref_counted.h"
 #include "http/rest_monitor_iface.h"
 #include "runtime_filter_mgr.h"
 #include "util/countdown_latch.h"
+#include "util/hash_util.hpp" // IWYU pragma: keep
 #include "util/metrics.h"
-#include "util/thread.h"
 
 namespace butil {
 class IOBufAsZeroCopyInputStream;
@@ -44,20 +47,21 @@ namespace doris {
 namespace pipeline {
 class PipelineFragmentContext;
 }
-
-namespace io {
-class StreamLoadPipe;
-}
-
 class QueryFragmentsCtx;
 class ExecEnv;
 class FragmentExecState;
-class PlanFragmentExecutor;
 class ThreadPool;
 class TExecPlanFragmentParams;
-class TExecPlanFragmentParamsList;
-class TUniqueId;
-class RuntimeFilterMergeController;
+class PExecPlanFragmentStartRequest;
+class PMergeFilterRequest;
+class PPublishFilterRequest;
+class RuntimeProfile;
+class RuntimeState;
+class TPipelineFragmentParams;
+class TPipelineInstanceParams;
+class TScanColumnDesc;
+class TScanOpenParams;
+class Thread;
 
 std::string to_load_error_http_path(const std::string& file_name);
 
@@ -134,13 +138,8 @@ public:
 private:
     void _exec_actual(std::shared_ptr<FragmentExecState> exec_state, const FinishCallback& cb);
 
-    void _set_scan_concurrency(const TExecPlanFragmentParams& params,
-                               QueryFragmentsCtx* fragments_ctx);
-
-    void _set_scan_concurrency(const TPipelineFragmentParams& params,
-                               QueryFragmentsCtx* fragments_ctx);
-
-    bool _is_scan_node(const TPlanNodeType::type& type);
+    template <typename Param>
+    void _set_scan_concurrency(const Param& params, QueryFragmentsCtx* fragments_ctx);
 
     void _setup_shared_hashtable_for_broadcast_join(const TExecPlanFragmentParams& params,
                                                     RuntimeState* state,

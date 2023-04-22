@@ -17,12 +17,62 @@
 
 #include "iceberg_reader.h"
 
+#include <ctype.h>
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/parquet_types.h>
+#include <glog/logging.h>
+#include <parallel_hashmap/phmap.h>
+#include <rapidjson/allocators.h>
+#include <rapidjson/document.h>
+#include <string.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <functional>
+#include <memory>
+#include <mutex>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
-#include "olap/iterators.h"
+#include "olap/olap_common.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
+#include "runtime/runtime_state.h"
+#include "runtime/types.h"
+#include "util/string_util.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/exec/format/format_common.h"
+#include "vec/exec/format/generic_reader.h"
+#include "vec/exec/format/parquet/parquet_common.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
+#include "vec/exec/format/table/table_format_reader.h"
+
+namespace cctz {
+class time_zone;
+} // namespace cctz
+namespace doris {
+class RowDescriptor;
+class SlotDescriptor;
+class TupleDescriptor;
+
+namespace io {
+class IOContext;
+} // namespace io
+namespace vectorized {
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -293,13 +343,7 @@ Status IcebergTableReader::_position_delete(
 
         DeleteFile& delete_file_map = *((DeleteFile*)delete_file_cache);
         auto get_value = [&](const auto& v) {
-            DeleteRows* row_ids;
-            // remove those compatibility codes when we finish upgrade phmap.
-            if constexpr (std::is_same_v<const typename DeleteFile::mapped_type&, decltype(v)>) {
-                row_ids = v.get();
-            } else {
-                row_ids = v.second.get();
-            }
+            DeleteRows* row_ids = v.second.get();
             if (row_ids->size() > 0) {
                 delete_rows_array.emplace_back(row_ids);
                 num_delete_rows += row_ids->size();

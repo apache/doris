@@ -36,6 +36,7 @@ import org.apache.doris.analysis.ShowCatalogRecycleBinStmt;
 import org.apache.doris.analysis.ShowCatalogStmt;
 import org.apache.doris.analysis.ShowClusterStmt;
 import org.apache.doris.analysis.ShowCollationStmt;
+import org.apache.doris.analysis.ShowColumnHistStmt;
 import org.apache.doris.analysis.ShowColumnStatsStmt;
 import org.apache.doris.analysis.ShowColumnStmt;
 import org.apache.doris.analysis.ShowCreateCatalogStmt;
@@ -43,6 +44,7 @@ import org.apache.doris.analysis.ShowCreateDbStmt;
 import org.apache.doris.analysis.ShowCreateFunctionStmt;
 import org.apache.doris.analysis.ShowCreateLoadStmt;
 import org.apache.doris.analysis.ShowCreateMaterializedViewStmt;
+import org.apache.doris.analysis.ShowCreateRepositoryStmt;
 import org.apache.doris.analysis.ShowCreateRoutineLoadStmt;
 import org.apache.doris.analysis.ShowCreateTableStmt;
 import org.apache.doris.analysis.ShowDataSkewStmt;
@@ -74,6 +76,7 @@ import org.apache.doris.analysis.ShowProcStmt;
 import org.apache.doris.analysis.ShowProcesslistStmt;
 import org.apache.doris.analysis.ShowQueryProfileStmt;
 import org.apache.doris.analysis.ShowRepositoriesStmt;
+import org.apache.doris.analysis.ShowResourceGroupsStmt;
 import org.apache.doris.analysis.ShowResourcesStmt;
 import org.apache.doris.analysis.ShowRestoreStmt;
 import org.apache.doris.analysis.ShowRolesStmt;
@@ -183,6 +186,7 @@ import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.mtmv.metadata.MTMVTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.Histogram;
 import org.apache.doris.statistics.StatisticsRepository;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Diagnoser;
@@ -296,6 +300,8 @@ public class ShowExecutor {
             handleShowCreateRoutineLoad();
         } else if (stmt instanceof ShowCreateLoadStmt) {
             handleShowCreateLoad();
+        } else if (stmt instanceof ShowCreateRepositoryStmt) {
+            handleShowCreateRepository();
         } else if (stmt instanceof ShowDeleteStmt) {
             handleShowDelete();
         } else if (stmt instanceof ShowAlterStmt) {
@@ -324,6 +330,8 @@ public class ShowExecutor {
             handleShowBroker();
         } else if (stmt instanceof ShowResourcesStmt) {
             handleShowResources();
+        } else if (stmt instanceof ShowResourceGroupsStmt) {
+            handleShowResourceGroups();
         } else if (stmt instanceof ShowExportStmt) {
             handleShowExport();
         } else if (stmt instanceof ShowBackendsStmt) {
@@ -372,6 +380,8 @@ public class ShowExecutor {
             handleShowSqlBlockRule();
         } else if (stmt instanceof ShowColumnStatsStmt) {
             handleShowColumnStats();
+        } else if (stmt instanceof ShowColumnHistStmt) {
+            handleShowColumnHist();
         } else if (stmt instanceof ShowTableCreationStmt) {
             handleShowTableCreation();
         } else if (stmt instanceof ShowLastInsertStmt) {
@@ -999,8 +1009,6 @@ public class ShowExecutor {
                         ? new ShowResultSet(showStmt.getMetaData(), rows)
                         : new ShowResultSet(ShowCreateTableStmt.getMaterializedViewMetaData(), rows);
             }
-        } catch (MetaNotFoundException e) {
-            throw new AnalysisException(e.getMessage());
         } finally {
             table.readUnlock();
         }
@@ -1796,6 +1804,13 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
+    private void handleShowResourceGroups() {
+        ShowResourceGroupsStmt showStmt = (ShowResourceGroupsStmt) stmt;
+        List<List<String>> resourceGroupsInfos = Env.getCurrentEnv().getResourceGroupMgr().getResourcesInfo();
+
+        resultSet = new ShowResultSet(showStmt.getMetaData(), resourceGroupsInfos);
+    }
+
     private void handleShowExport() throws AnalysisException {
         ShowExportStmt showExportStmt = (ShowExportStmt) stmt;
         Env env = Env.getCurrentEnv();
@@ -1820,9 +1835,6 @@ public class ShowExecutor {
         final ShowBackendsStmt showStmt = (ShowBackendsStmt) stmt;
         List<List<String>> backendInfos = BackendsProcDir.getClusterBackendInfos(showStmt.getClusterName());
 
-        for (List<String> row : backendInfos) {
-            row.remove(BackendsProcDir.HOSTNAME_INDEX);
-        }
         backendInfos.sort(new Comparator<List<String>>() {
             @Override
             public int compare(List<String> o1, List<String> o2) {
@@ -1837,10 +1849,6 @@ public class ShowExecutor {
         final ShowFrontendsStmt showStmt = (ShowFrontendsStmt) stmt;
         List<List<String>> infos = Lists.newArrayList();
         FrontendsProcNode.getFrontendsInfo(Env.getCurrentEnv(), infos);
-
-        for (List<String> row : infos) {
-            row.remove(FrontendsProcNode.HOSTNAME_INDEX);
-        }
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
     }
@@ -1867,7 +1875,7 @@ public class ShowExecutor {
         Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(showStmt.getDbName());
 
         List<AbstractJob> jobs = Env.getCurrentEnv().getBackupHandler()
-                .getJobs(db.getId(), showStmt.getLabelPredicate());
+                .getJobs(db.getId(), showStmt.getSnapshotPredicate());
 
         List<BackupJob> backupJobs = jobs.stream().filter(job -> job instanceof BackupJob)
                 .map(job -> (BackupJob) job).collect(Collectors.toList());
@@ -2091,7 +2099,7 @@ public class ShowExecutor {
             case QUERY_IDS:
                 rows = ProfileManager.getInstance().getQueryWithType(ProfileManager.ProfileType.QUERY);
                 break;
-            case FRAGMETNS: {
+            case FRAGMENTS: {
                 ProfileTreeNode treeRoot = ProfileManager.getInstance().getFragmentProfileTree(showStmt.getQueryId(),
                         showStmt.getQueryId());
                 if (treeRoot == null) {
@@ -2150,12 +2158,22 @@ public class ShowExecutor {
                 rows = ProfileManager.getInstance().getLoadJobTaskList(showStmt.getJobId());
                 break;
             }
+            case FRAGMENTS: {
+                ProfileTreeNode treeRoot = ProfileManager.getInstance().getFragmentProfileTree(showStmt.getJobId(),
+                        showStmt.getJobId());
+                if (treeRoot == null) {
+                    throw new AnalysisException("Failed to get fragment tree for load: " + showStmt.getJobId());
+                }
+                List<String> row = Lists.newArrayList(ProfileTreePrinter.printFragmentTree(treeRoot));
+                rows.add(row);
+                break;
+            }
             case INSTANCES: {
                 // For load profile, there should be only one fragment in each execution profile
                 // And the fragment id is 0.
                 List<Triple<String, String, Long>> instanceList
                         = ProfileManager.getInstance().getFragmentInstanceList(showStmt.getJobId(),
-                        showStmt.getTaskId(), "0");
+                        showStmt.getTaskId(), ((ShowLoadProfileStmt) stmt).getFragmentId());
                 if (instanceList == null) {
                     throw new AnalysisException("Failed to get instance list for task: " + showStmt.getTaskId());
                 }
@@ -2170,7 +2188,7 @@ public class ShowExecutor {
                 // For load profile, there should be only one fragment in each execution profile.
                 // And the fragment id is 0.
                 ProfileTreeNode treeRoot = ProfileManager.getInstance().getInstanceProfileTree(showStmt.getJobId(),
-                        showStmt.getTaskId(), "0", showStmt.getInstanceId());
+                        showStmt.getTaskId(), showStmt.getFragmentId(), showStmt.getInstanceId());
                 if (treeRoot == null) {
                     throw new AnalysisException("Failed to get instance tree for instance: "
                             + showStmt.getInstanceId());
@@ -2184,6 +2202,20 @@ public class ShowExecutor {
         }
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
+    private void handleShowCreateRepository() throws AnalysisException {
+        ShowCreateRepositoryStmt showCreateRepositoryStmt = (ShowCreateRepositoryStmt) stmt;
+
+        String repoName = showCreateRepositoryStmt.getRepoName();
+        List<List<String>> rows = Lists.newArrayList();
+
+        Repository repo = Env.getCurrentEnv().getBackupHandler().getRepoMgr().getRepo(repoName);
+        if (repo == null) {
+            throw new AnalysisException("repository not exist.");
+        }
+        rows.add(Lists.newArrayList(repoName, repo.getCreateStatement()));
+        resultSet = new ShowResultSet(showCreateRepositoryStmt.getMetaData(), rows);
     }
 
     private void handleShowCreateRoutineLoad() throws AnalysisException {
@@ -2273,20 +2305,15 @@ public class ShowExecutor {
         ShowColumnStatsStmt showColumnStatsStmt = (ShowColumnStatsStmt) stmt;
         TableName tableName = showColumnStatsStmt.getTableName();
         TableIf tableIf = showColumnStatsStmt.getTable();
-        if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.SHOW)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "Permission denied",
-                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                    tableName.getDb() + ": " + tableName.getTbl());
-        }
         List<Pair<String, ColumnStatistic>> columnStatistics = new ArrayList<>();
+        Set<String> columnNames = showColumnStatsStmt.getColumnNames();
         PartitionNames partitionNames = showColumnStatsStmt.getPartitionNames();
-        for (Column column : tableIf.getColumns()) {
-            String colName = column.getName();
+
+        for (String colName : columnNames) {
             if (partitionNames == null) {
                 ColumnStatistic columnStatistic =
                         StatisticsRepository.queryColumnStatisticsByName(tableIf.getId(), colName);
-                columnStatistics.add(Pair.of(column.getName(), columnStatistic));
+                columnStatistics.add(Pair.of(colName, columnStatistic));
             } else {
                 columnStatistics.addAll(StatisticsRepository.queryColumnStatisticsByPartitions(tableName,
                                 colName, showColumnStatsStmt.getPartitionNames().getPartitionNames())
@@ -2296,6 +2323,19 @@ public class ShowExecutor {
 
         }
         resultSet = showColumnStatsStmt.constructResultSet(columnStatistics);
+    }
+
+    public void handleShowColumnHist() {
+        ShowColumnHistStmt showColumnHistStmt = (ShowColumnHistStmt) stmt;
+        TableIf tableIf = showColumnHistStmt.getTable();
+        Set<String> columnNames = showColumnHistStmt.getColumnNames();
+
+        List<Pair<String, Histogram>> columnStatistics = columnNames.stream()
+                .map(colName -> Pair.of(colName,
+                        StatisticsRepository.queryColumnHistogramByName(tableIf.getId(), colName)))
+                .collect(Collectors.toList());
+
+        resultSet = showColumnHistStmt.constructResultSet(columnStatistics);
     }
 
     public void handleShowSqlBlockRule() throws AnalysisException {
@@ -2431,10 +2471,8 @@ public class ShowExecutor {
 
     public void handleShowCatalogs() throws AnalysisException {
         ShowCatalogStmt showStmt = (ShowCatalogStmt) stmt;
-        if (ctx.getCurrentCatalog() == null) {
-            throw new AnalysisException("Current catalog is not exist, please switch catalog.");
-        }
-        resultSet = Env.getCurrentEnv().getCatalogMgr().showCatalogs(showStmt, ctx.getCurrentCatalog().getName());
+        resultSet = Env.getCurrentEnv().getCatalogMgr().showCatalogs(showStmt, ctx.getCurrentCatalog() != null
+            ? ctx.getCurrentCatalog().getName() : null);
     }
 
     // Show create catalog
@@ -2651,3 +2689,4 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showMetaData, resultRowSet);
     }
 }
+

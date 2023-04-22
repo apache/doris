@@ -20,6 +20,9 @@
 
 #pragma once
 
+#include <string>
+#include <utility>
+
 #include "vec/core/block.h"
 
 namespace doris::vectorized {

@@ -17,7 +17,17 @@
 
 #include "vec/exec/format/parquet/bool_rle_decoder.h"
 
-#include "util/bit_util.h"
+#include <glog/logging.h>
+
+#include <algorithm>
+#include <ostream>
+#include <string>
+
+#include "util/coding.h"
+#include "util/slice.h"
+#include "vec/columns/column_vector.h"
+#include "vec/core/types.h"
+#include "vec/exec/format/parquet/parquet_common.h"
 
 namespace doris::vectorized {
 void BoolRLEDecoder::set_data(Slice* slice) {

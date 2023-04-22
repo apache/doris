@@ -19,25 +19,38 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropTableStmt;
+import org.apache.doris.analysis.RefreshCatalogStmt;
 import org.apache.doris.analysis.RefreshDbStmt;
 import org.apache.doris.analysis.RefreshTableStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.qe.DdlExecutor;
 
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 // Manager for refresh database and table action
 public class RefreshManager {
     private static final Logger LOG = LogManager.getLogger(RefreshManager.class);
+    private ScheduledThreadPoolExecutor refreshScheduler = ThreadPoolManager.newDaemonScheduledThreadPool(1,
+            "catalog-refresh-timer-pool", true);
+    // Unit:SECONDS
+    private static final int REFRESH_TIME_SEC = 5;
+    // key is the id of a catalog, value is an array of length 2, used to store
+    // the original refresh time and the current remaining time of the catalog
+    private Map<Long, Integer[]> refreshMap = Maps.newConcurrentMap();
 
     public void handleRefreshTable(RefreshTableStmt stmt) throws UserException {
         String catalogName = stmt.getCtl();
@@ -145,5 +158,49 @@ public class RefreshManager {
         CreateTableStmt createTableStmt = new CreateTableStmt(true, true,
                 stmt.getTableName(), "ICEBERG", icebergProperties, "");
         env.createTable(createTableStmt);
+    }
+
+    public void addToRefreshMap(long catalogId, Integer[] sec) {
+        refreshMap.put(catalogId, sec);
+    }
+
+    public void removeFromRefreshMap(long catalogId) {
+        refreshMap.remove(catalogId);
+    }
+
+    public void start() {
+        RefreshTask refreshTask = new RefreshTask();
+        this.refreshScheduler.scheduleAtFixedRate(refreshTask, 0, REFRESH_TIME_SEC,
+                TimeUnit.SECONDS);
+    }
+
+    private class RefreshTask implements Runnable {
+        @Override
+        public void run() {
+            for (Map.Entry<Long, Integer[]> entry : refreshMap.entrySet()) {
+                Long catalogId = entry.getKey();
+                Integer[] timeGroup = entry.getValue();
+                Integer original = timeGroup[0];
+                Integer current = timeGroup[1];
+                if (current - REFRESH_TIME_SEC > 0) {
+                    timeGroup[1] = current - REFRESH_TIME_SEC;
+                    refreshMap.put(catalogId, timeGroup);
+                } else {
+                    CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
+                    if (catalog != null) {
+                        String catalogName = catalog.getName();
+                        RefreshCatalogStmt refreshCatalogStmt = new RefreshCatalogStmt(catalogName, null);
+                        try {
+                            DdlExecutor.execute(Env.getCurrentEnv(), refreshCatalogStmt);
+                        } catch (Exception e) {
+                            LOG.warn("failed to refresh catalog {}", catalogName, e);
+                        }
+                        // reset
+                        timeGroup[1] = original;
+                        refreshMap.put(catalogId, timeGroup);
+                    }
+                }
+            }
+        }
     }
 }

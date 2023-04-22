@@ -17,11 +17,14 @@
 
 #pragma once
 
-#include <gen_cpp/FrontendService.h>
+#include <stddef.h>
 
+#include <map>
+#include <memory>
+#include <string>
 #include <unordered_map>
+#include <vector>
 
-#include "common/config.h"
 #include "common/status.h"
 #include "olap/options.h"
 #include "util/threadpool.h"
@@ -36,12 +39,8 @@ class TaskScheduler;
 }
 class BfdParser;
 class BrokerMgr;
-
 template <class T>
 class BrpcClientCache;
-
-class DataStreamMgr;
-class EvHttpServer;
 class ExternalScanContextMgr;
 class FragmentMgr;
 class ResultCache;
@@ -50,28 +49,22 @@ class NewLoadStreamMgr;
 class MemTrackerLimiter;
 class MemTracker;
 class StorageEngine;
-class PriorityThreadPool;
-class PriorityWorkStealingThreadPool;
 class ResultBufferMgr;
 class ResultQueueMgr;
 class TMasterInfo;
 class LoadChannelMgr;
-class WebPageHandler;
 class StreamLoadExecutor;
 class RoutineLoadTaskExecutor;
 class SmallFileMgr;
-class StoragePolicyMgr;
 class BlockSpillManager;
-
 class BackendServiceClient;
 class TPaloBrokerServiceClient;
 class PBackendService_Stub;
 class PFunctionService_Stub;
-
 template <class T>
 class ClientCache;
-
 class HeartbeatFlags;
+class FrontendServiceClient;
 
 // Execution environment for queries/plan fragments.
 // Contains all required global structures, and handles to
@@ -123,6 +116,8 @@ public:
     std::shared_ptr<MemTrackerLimiter> orphan_mem_tracker() { return _orphan_mem_tracker; }
     MemTrackerLimiter* orphan_mem_tracker_raw() { return _orphan_mem_tracker_raw; }
     MemTrackerLimiter* experimental_mem_tracker() { return _experimental_mem_tracker.get(); }
+    MemTracker* page_no_cache_mem_tracker() { return _page_no_cache_mem_tracker.get(); }
+
     ThreadPool* send_batch_thread_pool() { return _send_batch_thread_pool.get(); }
     ThreadPool* download_cache_thread_pool() { return _download_cache_thread_pool.get(); }
     ThreadPool* buffered_reader_prefetch_thread_pool() {
@@ -213,6 +208,8 @@ private:
     std::shared_ptr<MemTrackerLimiter> _orphan_mem_tracker;
     MemTrackerLimiter* _orphan_mem_tracker_raw;
     std::shared_ptr<MemTrackerLimiter> _experimental_mem_tracker;
+    // page size not in cache, data page/index page/etc.
+    std::shared_ptr<MemTracker> _page_no_cache_mem_tracker;
 
     std::unique_ptr<ThreadPool> _send_batch_thread_pool;
 

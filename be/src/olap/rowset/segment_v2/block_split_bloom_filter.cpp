@@ -17,7 +17,7 @@
 
 #include "olap/rowset/segment_v2/block_split_bloom_filter.h"
 
-#include "util/debug_util.h"
+#include <glog/logging.h>
 
 namespace doris {
 namespace segment_v2 {

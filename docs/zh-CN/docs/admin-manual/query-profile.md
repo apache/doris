@@ -30,6 +30,10 @@ under the License.
 
 本文档主要介绍Doris在查询执行的统计结果。利用这些统计的信息，可以更好的帮助我们了解Doris的执行情况，并有针对性的进行相应**Debug与调优工作**。
 
+也可以参考如下语法在命令行中查看导入和查询的 Profile：
+
+- [SHOW QUERY PROFILE](../sql-manual/sql-reference/Show-Statements/SHOW-QUERY-PROFILE.md)
+- [SHOW LOAD PROFILE](../sql-manual/sql-reference/Show-Statements/SHOW-LOAD-PROFILE.md)
 
 ## 名词解释
 

@@ -17,21 +17,19 @@
 
 #include "http/action/download_action.h"
 
-#include <sys/types.h>
-#include <unistd.h>
-
+#include <algorithm>
+#include <memory>
 #include <sstream>
 #include <string>
+#include <utility>
 
+#include "common/config.h"
+#include "common/logging.h"
 #include "http/http_channel.h"
-#include "http/http_headers.h"
 #include "http/http_request.h"
-#include "http/http_response.h"
-#include "http/http_status.h"
 #include "http/utils.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
-#include "util/path_util.h"
 
 namespace doris {
 

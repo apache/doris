@@ -17,25 +17,39 @@
 
 #pragma once
 
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <stdint.h>
+
 #include <atomic>
 #include <cstddef>
+#include <map>
+#include <memory>
 #include <mutex>
+#include <ostream>
+#include <roaring/roaring.hh>
 #include <shared_mutex>
 #include <string>
+#include <tuple>
+#include <unordered_map>
 #include <vector>
 
 #include "common/logging.h"
-#include "gen_cpp/olap_file.pb.h"
-#include "olap/delete_handler.h"
+#include "common/status.h"
+#include "gutil/stringprintf.h"
+#include "io/fs/file_system.h"
+#include "olap/lru_cache.h"
 #include "olap/olap_common.h"
-#include "olap/olap_define.h"
-#include "olap/rowid_conversion.h"
-#include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/tablet_schema.h"
 #include "util/uid_util.h"
 
+namespace json2pb {
+struct Pb2JsonOptions;
+} // namespace json2pb
+
 namespace doris {
+class TColumn;
 
 // Lifecycle states that a Tablet can be in. Legal state transitions for a
 // Tablet object:
@@ -64,11 +78,10 @@ enum TabletState {
     TABLET_SHUTDOWN
 };
 
-class RowsetMeta;
-class Rowset;
 class DataDir;
 class TabletMeta;
 class DeleteBitmap;
+
 using TabletMetaSharedPtr = std::shared_ptr<TabletMeta>;
 using DeleteBitmapPtr = std::shared_ptr<DeleteBitmap>;
 

@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "configbase.h"
+#include "configbase.h" // IWYU pragma: export
 
 namespace doris {
 namespace config {
@@ -369,6 +369,12 @@ CONF_mInt32(migration_task_timeout_secs, "20480");
 
 // Port to start debug webserver on
 CONF_Int32(webserver_port, "8040");
+// Https enable flag
+CONF_Bool(enable_https, "false");
+// Path of certificate
+CONF_String(ssl_certificate_path, "");
+// Path of private key
+CONF_String(ssl_private_key_path, "");
 // Number of webserver workers
 CONF_Int32(webserver_num_workers, "48");
 // Period to update rate counters and sampling counters in ms.
@@ -869,7 +875,7 @@ CONF_String(be_node_role, "mix");
 // Hide the be config page for webserver.
 CONF_Bool(hide_webserver_config_page, "false");
 
-CONF_Bool(enable_segcompaction, "false"); // currently only support vectorized storage
+CONF_Bool(enable_segcompaction, "true");
 
 // Trigger segcompaction if the num of segments in a rowset exceeds this threshold.
 CONF_Int32(segcompaction_threshold_segment_num, "10");

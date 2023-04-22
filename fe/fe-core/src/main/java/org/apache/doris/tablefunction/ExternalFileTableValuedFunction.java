@@ -31,7 +31,7 @@ import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
-import org.apache.doris.planner.external.ExternalFileScanNode;
+import org.apache.doris.planner.external.FileQueryScanNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PFetchTableSchemaRequest;
 import org.apache.doris.proto.Types.PScalarType;
@@ -310,11 +310,14 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     @Override
     public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc) {
-        return new ExternalFileScanNode(id, desc, false);
+        return new FileQueryScanNode(id, desc, false);
     }
 
     @Override
     public List<Column> getTableColumns() throws AnalysisException {
+        if (FeConstants.runningUnitTest) {
+            return Lists.newArrayList();
+        }
         if (!csvSchema.isEmpty()) {
             return csvSchema;
         }
@@ -377,7 +380,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 // only support ScalarType.
                 PScalarType scalarType = typeNode.getScalarType();
                 TPrimitiveType tPrimitiveType = TPrimitiveType.findByValue(scalarType.getType());
-                columns.add(new Column(colName, PrimitiveType.fromThrift(tPrimitiveType), true));
+                columns.add(new Column(colName, PrimitiveType.fromThrift(tPrimitiveType),
+                        scalarType.getLen() <= 0 ? -1 : scalarType.getLen(), scalarType.getPrecision(),
+                        scalarType.getScale(), true));
             }
         }
     }
@@ -423,3 +428,4 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 .setFileScanRange(ByteString.copyFrom(new TSerializer().serialize(fileScanRange))).build();
     }
 }
+

@@ -17,6 +17,11 @@
 
 #include "vec/exec/format/parquet/byte_array_plain_decoder.h"
 
+#include <algorithm>
+#include <vector>
+
+#include "vec/columns/column.h"
+#include "vec/common/string_ref.h"
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {

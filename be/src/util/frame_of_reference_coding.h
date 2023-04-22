@@ -17,14 +17,13 @@
 
 #pragma once
 
+#include <stdint.h>
+
 #include <cstdlib>
-#include <iostream>
-#include <limits>
+#include <vector>
 
 #include "olap/olap_common.h"
 #include "olap/uint24.h"
-#include "util/bit_stream_utils.h"
-#include "util/bit_stream_utils.inline.h"
 #include "util/faststring.h"
 
 namespace doris {

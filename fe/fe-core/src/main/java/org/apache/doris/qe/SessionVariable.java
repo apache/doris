@@ -17,7 +17,11 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.SetVar;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ExperimentalUtil.ExperimentalType;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
@@ -93,6 +97,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String BATCH_SIZE = "batch_size";
     public static final String DISABLE_STREAMING_PREAGGREGATIONS = "disable_streaming_preaggregations";
     public static final String DISABLE_COLOCATE_PLAN = "disable_colocate_plan";
+    public static final String ENABLE_COLOCATE_SCAN = "enable_colocate_scan";
     public static final String ENABLE_BUCKET_SHUFFLE_JOIN = "enable_bucket_shuffle_join";
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM = "parallel_fragment_exec_instance_num";
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
@@ -171,8 +176,6 @@ public class SessionVariable implements Serializable, Writable {
     // If user set a very small value, use this value instead.
     public static final long MIN_INSERT_VISIBLE_TIMEOUT_MS = 1000;
 
-    public static final String ENABLE_VECTORIZED_ENGINE = "enable_vectorized_engine";
-
     public static final String ENABLE_PIPELINE_ENGINE = "enable_pipeline_engine";
     public static final String ENABLE_RPC_OPT_FOR_PIPELINE = "enable_rpc_opt_for_pipeline";
 
@@ -205,9 +208,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String DISABLE_NEREIDS_RULES = "disable_nereids_rules";
     public static final String ENABLE_NEW_COST_MODEL = "enable_new_cost_model";
     public static final String ENABLE_FALLBACK_TO_ORIGINAL_PLANNER = "enable_fallback_to_original_planner";
+    public static final String ENABLE_NEREIDS_TIMEOUT = "enable_nereids_timeout";
 
-    public static final String ENABLE_NEREIDS_RUNTIME_FILTER = "enable_nereids_runtime_filter";
-
+    public static final String FORBID_UNKNOWN_COLUMN_STATS = "forbid_unknown_col_stats";
     public static final String BROADCAST_RIGHT_TABLE_SCALE_FACTOR = "broadcast_right_table_scale_factor";
     public static final String BROADCAST_ROW_COUNT_LIMIT = "broadcast_row_count_limit";
 
@@ -274,6 +277,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String GROUP_CONCAT_MAX_LEN = "group_concat_max_len";
 
     public static final String EXTERNAL_SORT_BYTES_THRESHOLD = "external_sort_bytes_threshold";
+    public static final String EXTERNAL_AGG_BYTES_THRESHOLD = "external_agg_bytes_threshold";
+    public static final String EXTERNAL_AGG_PARTITION_BITS = "external_agg_partition_bits";
 
     public static final String ENABLE_TWO_PHASE_READ_OPT = "enable_two_phase_read_opt";
     public static final String TOPN_OPT_LIMIT_THRESHOLD = "topn_opt_limit_threshold";
@@ -455,7 +460,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DISABLE_COLOCATE_PLAN)
     public boolean disableColocatePlan = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_BUCKET_SHUFFLE_JOIN)
+    @VariableMgr.VarAttr(name = ENABLE_COLOCATE_SCAN)
+    public boolean enableColocateScan = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_BUCKET_SHUFFLE_JOIN, expType = ExperimentalType.EXPERIMENTAL_ONLINE)
     public boolean enableBucketShuffleJoin = true;
 
     @VariableMgr.VarAttr(name = PREFER_JOIN_METHOD)
@@ -524,10 +532,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = EXTRACT_WIDE_RANGE_EXPR, needForward = true)
     public boolean extractWideRangeExpr = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_VECTORIZED_ENGINE)
-    public boolean enableVectorizedEngine = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_PIPELINE_ENGINE, fuzzy = true)
+    @VariableMgr.VarAttr(name = ENABLE_PIPELINE_ENGINE, fuzzy = true, expType = ExperimentalType.EXPERIMENTAL)
     public boolean enablePipelineEngine = false;
 
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_OUTFILE)
@@ -618,7 +624,7 @@ public class SessionVariable implements Serializable, Writable {
      * the new optimizer is fully developed. I hope that day
      * would be coming soon.
      */
-    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_PLANNER, needForward = true)
+    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_PLANNER, needForward = true, expType = ExperimentalType.EXPERIMENTAL)
     private boolean enableNereidsPlanner = false;
 
     @VariableMgr.VarAttr(name = DISABLE_NEREIDS_RULES, needForward = true)
@@ -638,9 +644,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_TRACE)
     private boolean enableNereidsTrace = false;
-
-    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_RUNTIME_FILTER, needForward = true)
-    private boolean enableNereidsRuntimeFilter = true;
 
     @VariableMgr.VarAttr(name = BROADCAST_RIGHT_TABLE_SCALE_FACTOR)
     private double broadcastRightTableScaleFactor = 10.0;
@@ -662,11 +665,15 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = SESSION_CONTEXT, needForward = true)
     public String sessionContext = "";
 
-    @VariableMgr.VarAttr(name = ENABLE_SINGLE_REPLICA_INSERT, needForward = true)
+    @VariableMgr.VarAttr(name = ENABLE_SINGLE_REPLICA_INSERT,
+            needForward = true, expType = ExperimentalType.EXPERIMENTAL)
     public boolean enableSingleReplicaInsert = false;
 
     @VariableMgr.VarAttr(name = ENABLE_FUNCTION_PUSHDOWN)
     public boolean enableFunctionPushdown = true;
+
+    @VariableMgr.VarAttr(name = FORBID_UNKNOWN_COLUMN_STATS)
+    public boolean forbidUnknownColStats = false;
 
     @VariableMgr.VarAttr(name = ENABLE_COMMON_EXPR_PUSHDOWN, fuzzy = true)
     public boolean enableCommonExprPushdown = true;
@@ -703,6 +710,9 @@ public class SessionVariable implements Serializable, Writable {
     // in nereids for some mistaken modification. You should set it on the
     @VariableMgr.VarAttr(name = ENABLE_FALLBACK_TO_ORIGINAL_PLANNER, needForward = true)
     public boolean enableFallbackToOriginalPlanner = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_TIMEOUT, needForward = true)
+    public boolean enableNereidsTimeout = true;
 
     @VariableMgr.VarAttr(name = ENABLE_NEW_SHUFFLE_HASH_METHOD)
     public boolean enableNewShuffleHashMethod = true;
@@ -741,7 +751,6 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableUnicodeNameSupport = false;
 
     @VariableMgr.VarAttr(name = REPEAT_MAX_NUM, needForward = true)
-
     public int repeatMaxNum = 10000;
 
     @VariableMgr.VarAttr(name = GROUP_CONCAT_MAX_LEN)
@@ -753,6 +762,18 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = EXTERNAL_SORT_BYTES_THRESHOLD,
             checker = "checkExternalSortBytesThreshold", fuzzy = true)
     public long externalSortBytesThreshold = 0;
+
+    // Set to 0 to disable; min: 128M
+    public static final long MIN_EXTERNAL_AGG_BYTES_THRESHOLD = 134217728;
+    @VariableMgr.VarAttr(name = EXTERNAL_AGG_BYTES_THRESHOLD,
+            checker = "checkExternalAggBytesThreshold", fuzzy = true)
+    public long externalAggBytesThreshold = 0;
+
+    public static final int MIN_EXTERNAL_AGG_PARTITION_BITS = 4;
+    public static final int MAX_EXTERNAL_AGG_PARTITION_BITS = 8;
+    @VariableMgr.VarAttr(name = EXTERNAL_AGG_PARTITION_BITS,
+                checker = "checkExternalAggPartitionBits", fuzzy = true)
+    public int externalAggPartitionBits = 8; // means that the hash table will be partitioned into 256 blocks.
 
     // Whether enable two phase read optimization
     // 1. read related rowids along with necessary column data
@@ -819,15 +840,22 @@ public class SessionVariable implements Serializable, Writable {
         switch (randomInt) {
             case 0:
                 this.externalSortBytesThreshold = 0;
+                this.externalAggBytesThreshold = 0;
                 break;
             case 1:
                 this.externalSortBytesThreshold = 1;
+                this.externalAggBytesThreshold = 1;
+                this.externalAggPartitionBits = 6;
                 break;
             case 2:
                 this.externalSortBytesThreshold = 1024 * 1024;
+                this.externalAggBytesThreshold = 1024 * 1024;
+                this.externalAggPartitionBits = 8;
                 break;
             default:
                 this.externalSortBytesThreshold = 100 * 1024 * 1024 * 1024;
+                this.externalAggBytesThreshold = 100 * 1024 * 1024 * 1024;
+                this.externalAggPartitionBits = 4;
                 break;
         }
         // pull_request_id default value is 0
@@ -835,10 +863,12 @@ public class SessionVariable implements Serializable, Writable {
             this.enablePipelineEngine = true;
             // this.enableFoldConstantByBe = true;
             // this.enableTwoPhaseReadOpt = false;
+            this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
         } else {
-            this.enablePipelineEngine = false;
+            // this.enablePipelineEngine = false;
             // this.enableFoldConstantByBe = false;
             // this.enableTwoPhaseReadOpt = true;
+            this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
         }
 
         if (Config.fuzzy_test_type.equals("p0")) {
@@ -850,7 +880,7 @@ public class SessionVariable implements Serializable, Writable {
         }
 
         // set random 1, 10, 100, 1000, 10000
-        this.topnOptLimitThreshold = 10 ^ (random.nextInt(5));
+        this.topnOptLimitThreshold = (int) Math.pow(10, random.nextInt(5));
     }
 
     public String printFuzzyVariables() {
@@ -1103,6 +1133,10 @@ public class SessionVariable implements Serializable, Writable {
         return disableColocatePlan;
     }
 
+    public boolean enableColocateScan() {
+        return enableColocateScan;
+    }
+
     public boolean isEnableBucketShuffleJoin() {
         return enableBucketShuffleJoin;
     }
@@ -1337,14 +1371,6 @@ public class SessionVariable implements Serializable, Writable {
         this.runtimeFilterMaxInNum = runtimeFilterMaxInNum;
     }
 
-    public boolean enableVectorizedEngine() {
-        return enableVectorizedEngine;
-    }
-
-    public void setEnableVectorizedEngine(boolean enableVectorizedEngine) {
-        this.enableVectorizedEngine = enableVectorizedEngine;
-    }
-
     public boolean enablePipelineEngine() {
         return enablePipelineEngine;
     }
@@ -1359,6 +1385,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getEnableFunctionPushdown() {
         return this.enableFunctionPushdown;
+    }
+
+    public boolean getForbidUnknownColStats() {
+        return forbidUnknownColStats;
+    }
+
+    public void setForbidUnownColStats(boolean forbid) {
+        forbidUnknownColStats = forbid;
     }
 
     public boolean getEnableLocalExchange() {
@@ -1550,14 +1584,6 @@ public class SessionVariable implements Serializable, Writable {
         return isEnableNereidsPlanner() && enableNereidsTrace;
     }
 
-    public boolean isEnableNereidsRuntimeFilter() {
-        return enableNereidsRuntimeFilter;
-    }
-
-    public void setEnableNereidsRuntimeFilter(boolean enableNereidsRuntimeFilter) {
-        this.enableNereidsRuntimeFilter = enableNereidsRuntimeFilter;
-    }
-
     public boolean isEnableSingleReplicaInsert() {
         return enableSingleReplicaInsert;
     }
@@ -1595,6 +1621,24 @@ public class SessionVariable implements Serializable, Writable {
         if (value > 0 && value < MIN_EXTERNAL_SORT_BYTES_THRESHOLD) {
             LOG.warn("external sort bytes threshold: {}, min: {}", value, MIN_EXTERNAL_SORT_BYTES_THRESHOLD);
             throw new UnsupportedOperationException("minimum value is " + MIN_EXTERNAL_SORT_BYTES_THRESHOLD);
+        }
+    }
+
+    public void checkExternalAggBytesThreshold(String externalAggBytesThreshold) {
+        long value = Long.valueOf(externalAggBytesThreshold);
+        if (value > 0 && value < MIN_EXTERNAL_AGG_BYTES_THRESHOLD) {
+            LOG.warn("external agg bytes threshold: {}, min: {}", value, MIN_EXTERNAL_AGG_BYTES_THRESHOLD);
+            throw new UnsupportedOperationException("minimum value is " + MIN_EXTERNAL_AGG_BYTES_THRESHOLD);
+        }
+    }
+
+    public void checkExternalAggPartitionBits(String externalAggPartitionBits) {
+        int value = Integer.valueOf(externalAggPartitionBits);
+        if (value < MIN_EXTERNAL_AGG_PARTITION_BITS || value > MAX_EXTERNAL_AGG_PARTITION_BITS) {
+            LOG.warn("external agg bytes threshold: {}, min: {}, max: {}",
+                    value, MIN_EXTERNAL_AGG_PARTITION_BITS, MAX_EXTERNAL_AGG_PARTITION_BITS);
+            throw new UnsupportedOperationException("min value is " + MIN_EXTERNAL_AGG_PARTITION_BITS + " max value is "
+                    + MAX_EXTERNAL_AGG_PARTITION_BITS);
         }
     }
 
@@ -1686,6 +1730,10 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setRepeatMaxNum(repeatMaxNum);
 
         tResult.setExternalSortBytesThreshold(externalSortBytesThreshold);
+
+        tResult.setExternalAggBytesThreshold(externalAggBytesThreshold);
+
+        tResult.setExternalAggPartitionBits(externalAggPartitionBits);
 
         tResult.setEnableFileCache(enableFileCache);
 
@@ -1908,5 +1956,38 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setDumpNereidsMemo(boolean dumpNereidsMemo) {
         this.dumpNereidsMemo = dumpNereidsMemo;
+    }
+
+    public void enableFallbackToOriginalPlannerOnce() throws DdlException {
+        if (enableFallbackToOriginalPlanner) {
+            return;
+        }
+        setIsSingleSetVar(true);
+        VariableMgr.setVar(this,
+                new SetVar(SessionVariable.ENABLE_FALLBACK_TO_ORIGINAL_PLANNER, new StringLiteral("true")));
+    }
+
+    public void disableNereidsPlannerOnce() throws DdlException {
+        if (!enableNereidsPlanner) {
+            return;
+        }
+        setIsSingleSetVar(true);
+        VariableMgr.setVar(this, new SetVar(SessionVariable.ENABLE_NEREIDS_PLANNER, new StringLiteral("false")));
+    }
+
+    // return number of variables by given experimental type
+    public int getVariableNumByExperimentalType(ExperimentalType type) {
+        int num = 0;
+        Field[] fields = SessionVariable.class.getDeclaredFields();
+        for (Field f : fields) {
+            VarAttr varAttr = f.getAnnotation(VarAttr.class);
+            if (varAttr == null) {
+                continue;
+            }
+            if (varAttr.expType() == type) {
+                ++num;
+            }
+        }
+        return num;
     }
 }

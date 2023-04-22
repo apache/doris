@@ -18,22 +18,25 @@
 #include "http/action/jeprofile_actions.h"
 
 #include <jemalloc/jemalloc.h>
+#include <stdlib.h>
+#include <unistd.h>
 
 #include <ctime>
 #include <fstream>
+#include <memory>
 #include <mutex>
-#include <sstream>
+#include <string>
 
 #include "common/config.h"
 #include "common/object_pool.h"
 #include "http/ev_http_server.h"
 #include "http/http_channel.h"
 #include "http/http_handler.h"
-#include "http/http_headers.h"
-#include "http/http_request.h"
+#include "http/http_method.h"
 #include "io/fs/local_file_system.h"
 
 namespace doris {
+class HttpRequest;
 
 static std::mutex kJeprofileActionMutex;
 class JeHeapAction : public HttpHandler {

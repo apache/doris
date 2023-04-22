@@ -22,6 +22,7 @@
 
 #include "io/fs/local_file_system.h"
 #include "olap/merger.h"
+#include "olap/rowid_conversion.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"

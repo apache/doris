@@ -36,6 +36,7 @@
 #include "olap/tablet_meta_manager.h"
 #include "olap/utils.h"
 #include "runtime/descriptor_helper.h"
+#include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 
 namespace doris {

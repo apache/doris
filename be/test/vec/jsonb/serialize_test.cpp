@@ -16,10 +16,12 @@
 // under the License.
 #include "vec/jsonb/serialize.h"
 
+#include <gen_cpp/Descriptors_types.h>
 #include <gtest/gtest.h>
 
 #include "gen_cpp/descriptors.pb.h"
 #include "olap/tablet_schema.h"
+#include "runtime/descriptors.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
@@ -29,11 +31,14 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_hll.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_time_v2.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
@@ -88,10 +93,10 @@ TEST(BlockSerializeTest, Array) {
     TabletColumn c2;
     c1.set_name("k1");
     c1.set_unique_id(1);
-    c1.set_type(OLAP_FIELD_TYPE_ARRAY);
+    c1.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
     c2.set_name("k2");
     c2.set_unique_id(2);
-    c2.set_type(OLAP_FIELD_TYPE_ARRAY);
+    c2.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
     schema.append_column(c1);
     schema.append_column(c2);
     // array int and array string
@@ -138,13 +143,15 @@ TEST(BlockSerializeTest, JsonbBlock) {
     vectorized::Block block;
     TabletSchema schema;
     std::vector<std::tuple<std::string, FieldType, int, PrimitiveType>> cols {
-            {"k1", OLAP_FIELD_TYPE_INT, 1, TYPE_INT},
-            {"k2", OLAP_FIELD_TYPE_STRING, 2, TYPE_STRING},
-            {"k3", OLAP_FIELD_TYPE_DECIMAL128I, 3, TYPE_DECIMAL128I},
-            {"k4", OLAP_FIELD_TYPE_STRING, 4, TYPE_STRING},
-            {"k5", OLAP_FIELD_TYPE_DECIMAL128I, 5, TYPE_DECIMAL128I},
-            {"k6", OLAP_FIELD_TYPE_INT, 6, TYPE_INT},
-            {"k9", OLAP_FIELD_TYPE_DATEV2, 9, TYPE_DATEV2}};
+            {"k1", FieldType::OLAP_FIELD_TYPE_INT, 1, TYPE_INT},
+            {"k2", FieldType::OLAP_FIELD_TYPE_STRING, 2, TYPE_STRING},
+            {"k3", FieldType::OLAP_FIELD_TYPE_DECIMAL128I, 3, TYPE_DECIMAL128I},
+            {"v1", FieldType::OLAP_FIELD_TYPE_OBJECT, 7, TYPE_OBJECT},
+            {"v2", FieldType::OLAP_FIELD_TYPE_HLL, 8, TYPE_HLL},
+            {"k4", FieldType::OLAP_FIELD_TYPE_STRING, 4, TYPE_STRING},
+            {"k5", FieldType::OLAP_FIELD_TYPE_DECIMAL128I, 5, TYPE_DECIMAL128I},
+            {"k6", FieldType::OLAP_FIELD_TYPE_INT, 6, TYPE_INT},
+            {"k9", FieldType::OLAP_FIELD_TYPE_DATEV2, 9, TYPE_DATEV2}};
     for (auto t : cols) {
         TabletColumn c;
         c.set_name(std::get<0>(t));
@@ -188,6 +195,39 @@ TEST(BlockSerializeTest, JsonbBlock) {
         }
         vectorized::ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(),
                                                         decimal_data_type, "test_decimal");
+        block.insert(type_and_name);
+    }
+    // bitmap
+    {
+        vectorized::DataTypePtr bitmap_data_type(std::make_shared<vectorized::DataTypeBitMap>());
+        auto bitmap_column = bitmap_data_type->create_column();
+        std::vector<BitmapValue>& container =
+                ((vectorized::ColumnComplexType<BitmapValue>*)bitmap_column.get())->get_data();
+        for (int i = 0; i < 1024; ++i) {
+            BitmapValue bv;
+            for (int j = 0; j <= i; ++j) {
+                bv.add(j);
+            }
+            container.push_back(bv);
+        }
+        vectorized::ColumnWithTypeAndName type_and_name(bitmap_column->get_ptr(), bitmap_data_type,
+                                                        "test_bitmap");
+        block.insert(type_and_name);
+    }
+    // hll
+    {
+        vectorized::DataTypePtr hll_data_type(std::make_shared<vectorized::DataTypeHLL>());
+        auto hll_column = hll_data_type->create_column();
+        std::vector<HyperLogLog>& container =
+                ((vectorized::ColumnHLL*)hll_column.get())->get_data();
+        for (int i = 0; i < 1024; ++i) {
+            HyperLogLog hll;
+            hll.update(i);
+            container.push_back(hll);
+        }
+        vectorized::ColumnWithTypeAndName type_and_name(hll_column->get_ptr(), hll_data_type,
+                                                        "test_hll");
+
         block.insert(type_and_name);
     }
     // nullable string

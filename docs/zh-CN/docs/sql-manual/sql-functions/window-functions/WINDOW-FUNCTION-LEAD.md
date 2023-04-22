@@ -17,7 +17,7 @@ Unless required by applicable law or agreed to in writing, software distributed 
 LEAD() 方法用来计算当前行向后数若干行的值。
 
 ```sql
-LEAD(expr, offset, default]) OVER (partition_by_clause order_by_clause)
+LEAD(expr, offset, default) OVER (partition_by_clause order_by_clause)
 ```
 
 ### example
