@@ -71,8 +71,10 @@ if [[ "$(uname -s)" != 'Darwin' ]]; then
     fi
 fi
 
-if [[ "$(swapon -s | wc -l)" -gt 1 ]]; then
-    echo "Please disable swap memory before installation."
+MAX_FILE_COUNT="$(ulimit -n)"
+if [[ "${MAX_FILE_COUNT}" -lt 65536 ]]; then
+    echo "Please set the maximum number of open file descriptors to be 65536 using 'ulimit -n 65536'."
+    exit 1
 fi
 
 # add java libs

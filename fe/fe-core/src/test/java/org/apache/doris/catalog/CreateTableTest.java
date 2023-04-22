@@ -714,4 +714,13 @@ public class CreateTableTest {
                             + "distributed by hash(k1) buckets 1 properties('replication_num' = '1');");
                 });
     }
+
+    @Test
+    public void testCreateTableWithInMemory() throws Exception {
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "Not support set 'in_memory'='true' now!",
+                () -> {
+                    createTable("create table test.test_inmemory(k1 INT, k2 INT) duplicate key (k1) "
+                            + "distributed by hash(k1) buckets 1 properties('replication_num' = '1','in_memory'='true');");
+                });
+    }
 }

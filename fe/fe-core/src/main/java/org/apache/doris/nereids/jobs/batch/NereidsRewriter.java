@@ -72,6 +72,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinAggTransposeProjec
 import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinCommute;
 import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinLogicalJoinTranspose;
 import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinLogicalJoinTransposeProject;
+import org.apache.doris.nereids.rules.rewrite.logical.SimplifyAggGroupBy;
 import org.apache.doris.nereids.rules.rewrite.logical.SplitLimit;
 
 import com.google.common.collect.ImmutableList;
@@ -155,6 +156,9 @@ public class NereidsRewriter extends BatchRewriteJob {
                     // e.g. sum(sum(c1)) over(partition by avg(c1))
                     new NormalizeAggregate(),
                     new CheckAndStandardizeWindowFunctionAndFrame()
+                ),
+                topDown(
+                    new SimplifyAggGroupBy()
                 )
             ),
 

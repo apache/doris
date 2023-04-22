@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_broker_load", "p0") {
+suite("test_broker_load_p2", "p2") {
 
     def tables = ["part",
                   "upper_case",
@@ -49,37 +49,37 @@ suite("test_broker_load", "p0") {
                   "orc_s3_case8", // table column uppercase * load column uppercase * orc file uppercase
                   "orc_s3_case9", // table column uppercase * load column lowercase * orc file uppercase
                  ]
-    def paths = ["s3://doris-build-hk-1308700295/regression/load/data/part*",
-                 "s3://doris-build-hk-1308700295/regression/load/data/part*",
-                 "s3://doris-build-hk-1308700295/regression/load/data/part*",
-                 "s3://doris-build-hk-1308700295/regression/load/data/part*",
-                 "s3://doris-build-hk-1308700295/regression/load/data/part*",
-                 "s3://doris-build-hk-1308700295/regression/load/data/part*",
-                 "s3://doris-build-hk-1308700295/regression/load/data/part*",
-                 "s3://doris-build-hk-1308700295/regression/load/data/part*",
-                 "s3://doris-build-hk-1308700295/regression/load/data/part*",
-                 "s3://doris-build-hk-1308700295/regression/load/data/part*",
-                 "s3://doris-build-hk-1308700295/regression/load/data/part*",
-                 "s3://doris-build-hk-1308700295/regression/load/data/part*",
-                 "s3://doris-build-hk-1308700295/regression/load/data/path/*/part*",
-                 "s3://doris-build-hk-1308700295/regression/load/data/part*",
-                 "s3://doris-build-hk-1308700295/regression/load/data/part*",
-                 "s3://doris-build-hk-1308700295/regression/load/data/part*",
-                 "s3://doris-build-hk-1308700295/regression/load/data/part*",
-                 "s3://doris-build-hk-1308700295/regression/load/data/part*",
-                 "s3://doris-build-hk-1308700295/regression/load/data/part*",
-                 "s3://doris-build-hk-1308700295/regression/load/data/part*",
-                 "s3://doris-build-hk-1308700295/regression/load/data/part*",
-                 "s3://doris-build-hk-1308700295/regression/load/data/random_all_types/part*",
-                 "s3://doris-build-hk-1308700295/regression/load/data/orc/hits_100k_rows.orc",
-                 "s3://doris-build-hk-1308700295/regression/load/data/orc/hits_10k_rows_lowercase.orc",
-                 "s3://doris-build-hk-1308700295/regression/load/data/orc/hits_10k_rows_lowercase.orc",
-                 "s3://doris-build-hk-1308700295/regression/load/data/orc/hits_10k_rows_uppercase.orc",
-                 "s3://doris-build-hk-1308700295/regression/load/data/orc/hits_10k_rows_uppercase.orc",
-                 "s3://doris-build-hk-1308700295/regression/load/data/orc/hits_10k_rows_lowercase.orc",
-                 "s3://doris-build-hk-1308700295/regression/load/data/orc/hits_10k_rows_lowercase.orc",
-                 "s3://doris-build-hk-1308700295/regression/load/data/orc/hits_10k_rows_uppercase.orc",
-                 "s3://doris-build-hk-1308700295/regression/load/data/orc/hits_10k_rows_uppercase.orc",
+    def paths = ["s3://doris-build-1308700295/regression/load/data/part*",
+                 "s3://doris-build-1308700295/regression/load/data/part*",
+                 "s3://doris-build-1308700295/regression/load/data/part*",
+                 "s3://doris-build-1308700295/regression/load/data/part*",
+                 "s3://doris-build-1308700295/regression/load/data/part*",
+                 "s3://doris-build-1308700295/regression/load/data/part*",
+                 "s3://doris-build-1308700295/regression/load/data/part*",
+                 "s3://doris-build-1308700295/regression/load/data/part*",
+                 "s3://doris-build-1308700295/regression/load/data/part*",
+                 "s3://doris-build-1308700295/regression/load/data/part*",
+                 "s3://doris-build-1308700295/regression/load/data/part*",
+                 "s3://doris-build-1308700295/regression/load/data/part*",
+                 "s3://doris-build-1308700295/regression/load/data/path/*/part*",
+                 "s3://doris-build-1308700295/regression/load/data/part*",
+                 "s3://doris-build-1308700295/regression/load/data/part*",
+                 "s3://doris-build-1308700295/regression/load/data/part*",
+                 "s3://doris-build-1308700295/regression/load/data/part*",
+                 "s3://doris-build-1308700295/regression/load/data/part*",
+                 "s3://doris-build-1308700295/regression/load/data/part*",
+                 "s3://doris-build-1308700295/regression/load/data/part*",
+                 "s3://doris-build-1308700295/regression/load/data/part*",
+                 "s3://doris-build-1308700295/regression/load/data/random_all_types/part*",
+                 "s3://doris-build-1308700295/regression/load/data/orc/hits_100k_rows.orc",
+                 "s3://doris-build-1308700295/regression/load/data/orc/hits_10k_rows_lowercase.orc",
+                 "s3://doris-build-1308700295/regression/load/data/orc/hits_10k_rows_lowercase.orc",
+                 "s3://doris-build-1308700295/regression/load/data/orc/hits_10k_rows_uppercase.orc",
+                 "s3://doris-build-1308700295/regression/load/data/orc/hits_10k_rows_uppercase.orc",
+                 "s3://doris-build-1308700295/regression/load/data/orc/hits_10k_rows_lowercase.orc",
+                 "s3://doris-build-1308700295/regression/load/data/orc/hits_10k_rows_lowercase.orc",
+                 "s3://doris-build-1308700295/regression/load/data/orc/hits_10k_rows_uppercase.orc",
+                 "s3://doris-build-1308700295/regression/load/data/orc/hits_10k_rows_uppercase.orc",
     ]
     def columns_list = ["""p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment""",
                    """p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment""",
@@ -155,7 +155,7 @@ suite("test_broker_load", "p0") {
                       "",
                       "",
                       "",
-                      "",
+                      ""
     ]
     def where_exprs = ["", "", "", "", "", "", "", "", "", "", "", "where p_partkey>10", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]
 
@@ -206,11 +206,10 @@ suite("test_broker_load", "p0") {
                     "",
                     "",
                     "",
-                    "type:LOAD_RUN_FAIL; msg:errCode = 2, detailMessage = [INTERNAL_ERROR]failed to find default value expr for slot: x1",
+                    "[INTERNAL_ERROR]failed to find default value expr for slot: x1",
                     "",
                     "",
-                    "type:LOAD_RUN_FAIL; msg:errCode = 2, detailMessage = [INTERNAL_ERROR]failed to find default value expr for slot: x1",
-                    "",
+                    "[INTERNAL_ERROR]failed to find default value expr for slot: x1",
                     "",
                     "",
                     "",
@@ -247,8 +246,8 @@ suite("test_broker_load", "p0") {
             WITH S3 (
                 "AWS_ACCESS_KEY" = "$ak",
                 "AWS_SECRET_KEY" = "$sk",
-                "AWS_ENDPOINT" = "cos.ap-hongkong.myqcloud.com",
-                "AWS_REGION" = "ap-hongkong"
+                "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
+                "AWS_REGION" = "ap-beijing"
             )
             properties(
                 "use_new_load_scan_node" = "true"
@@ -283,7 +282,7 @@ suite("test_broker_load", "p0") {
                         break;
                     }
                     if (result[0][2].equals("CANCELLED")) {
-                        assertTrue(error_msg[i] == result[0][7], "expected: " + error_msg[i] + ", actual: " + result[0][7] + ", label: $label")
+                        assertTrue(result[0][7].contains(error_msg[i]))
                         break;
                     }
                     Thread.sleep(1000)

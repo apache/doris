@@ -1509,6 +1509,8 @@ visible_functions = [
     [['sub_replace'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT'], 'ALWAYS_NULLABLE'],
     [['sub_replace'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT', 'INT'], 'ALWAYS_NULLABLE'],
 
+    [['char'], 'VARCHAR', ['VARCHAR', 'INT', '...'], 'ALWAYS_NULLABLE'],
+
     # width_bucket
     [['width_bucket'], 'BIGINT', ['TINYINT','TINYINT','TINYINT','TINYINT'], ''],
     [['width_bucket'], 'BIGINT', ['SMALLINT','SMALLINT','SMALLINT','SMALLINT'], ''],
@@ -1781,14 +1783,8 @@ visible_functions = [
     [['ST_GeometryFromWkb', 'ST_GeomFromWkb'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
     [['ST_GeometryFromWkb', 'ST_GeomFromWkb'], 'VARCHAR', ['STRING'], 'ALWAYS_NULLABLE'],
 
-    [['ST_GeometryFromEwkb', 'ST_GeomFromEwkb'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
-    [['ST_GeometryFromEwkb', 'ST_GeomFromEwkb'], 'VARCHAR', ['STRING'], 'ALWAYS_NULLABLE'],
-
     [['ST_AsBinary'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
     [['ST_AsBinary'], 'VARCHAR', ['STRING'], 'ALWAYS_NULLABLE'],
-
-    [['ST_AsEwkb'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
-    [['ST_AsEwkb'], 'VARCHAR', ['STRING'], 'ALWAYS_NULLABLE'],
 
     [['ST_LineFromText', 'ST_LineStringFromText'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
     [['ST_LineFromText', 'ST_LineStringFromText'], 'VARCHAR', ['STRING'], 'ALWAYS_NULLABLE'],
