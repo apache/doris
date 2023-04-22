@@ -56,19 +56,6 @@ public:
 
     static UserFunctionCache* instance();
 
-    // Return function pointer for given fid and symbol.
-    // If fid is 0, lookup symbol from this doris-be process.
-    // Otherwise find symbol in UserFunction's library.
-    // Found function pointer is returned in fn_ptr, and cache entry
-    // is returned by entry. Client must call release_entry to release
-    // cache entry if didn't need it.
-    // If *entry is not true means that we should find symbol in this
-    // entry.
-    Status get_function_ptr(int64_t fid, const std::string& symbol, const std::string& url,
-                            const std::string& checksum, void** fn_ptr,
-                            UserFunctionCacheEntry** entry);
-    void release_entry(UserFunctionCacheEntry* entry);
-
     Status get_jarpath(int64_t fid, const std::string& url, const std::string& checksum,
                        std::string* libpath);
 
@@ -76,14 +63,14 @@ private:
     Status _load_cached_lib();
     Status _load_entry_from_lib(const std::string& dir, const std::string& file);
     Status _get_cache_entry(int64_t fid, const std::string& url, const std::string& checksum,
-                            UserFunctionCacheEntry** output_entry, LibType type);
-    Status _load_cache_entry(const std::string& url, UserFunctionCacheEntry* entry);
-    Status _download_lib(const std::string& url, UserFunctionCacheEntry* entry);
-    Status _load_cache_entry_internal(UserFunctionCacheEntry* entry);
+                            std::shared_ptr<UserFunctionCacheEntry>& output_entry, LibType type);
+    Status _load_cache_entry(const std::string& url, std::shared_ptr<UserFunctionCacheEntry> entry);
+    Status _download_lib(const std::string& url, std::shared_ptr<UserFunctionCacheEntry> entry);
+    Status _load_cache_entry_internal(std::shared_ptr<UserFunctionCacheEntry> entry);
 
     std::string _make_lib_file(int64_t function_id, const std::string& checksum, LibType type,
                                const std::string& file_name);
-    void _destroy_cache_entry(UserFunctionCacheEntry* entry);
+    void _destroy_cache_entry(std::shared_ptr<UserFunctionCacheEntry> entry);
 
     std::string _get_real_url(const std::string& url);
     std::string _get_file_name_from_url(const std::string& url) const;
@@ -93,7 +80,7 @@ private:
     void* _current_process_handle = nullptr;
 
     std::mutex _cache_lock;
-    std::unordered_map<int64_t, UserFunctionCacheEntry*> _entry_map;
+    std::unordered_map<int64_t, std::shared_ptr<UserFunctionCacheEntry>> _entry_map;
 };
 
 } // namespace doris
