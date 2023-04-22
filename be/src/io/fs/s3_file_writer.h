@@ -94,7 +94,7 @@ private:
             std::unique_lock<std::mutex> lck {_lock};
             _cv.wait_for(lck, std::chrono::seconds(timeout_seconds),
                          [this]() { return _count.load() <= 0; });
-            return false;
+            return _count.load() <= 0;
         }
 
     private:
