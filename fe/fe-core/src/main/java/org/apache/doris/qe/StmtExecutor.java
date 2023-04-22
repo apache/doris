@@ -2172,24 +2172,22 @@ public class StmtExecutor implements ProfileWriter {
             return;
         }
         // after success create table insert data
-        if (MysqlStateType.OK.equals(context.getState().getStateType())) {
-            try {
-                // clone query to avoid duplicate registrations of table/colRefs,
-                parsedStmt = new InsertStmt(tmpTableName, iotStmt.getOriginQueryStmt());
-                parsedStmt.setUserInfo(context.getCurrentUserIdentity());
-                execute();
-                if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
-                    LOG.warn("IOT insert data error, stmt={}", iotStmt.toSql());
-                    handleIotRollback(tmpTableName);
-                    return;
-                }
-                context.getState().setOk();
-            } catch (Exception e) {
-                LOG.warn("IOT insert data error, stmt={}", iotStmt.toSql(), e);
-                context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+        try {
+            // clone query to avoid duplicate registrations of table/colRefs,
+            parsedStmt = new InsertStmt(tmpTableName, iotStmt.getOriginQueryStmt());
+            parsedStmt.setUserInfo(context.getCurrentUserIdentity());
+            execute();
+            if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
+                LOG.warn("IOT insert data error, stmt={}", iotStmt.toSql());
                 handleIotRollback(tmpTableName);
                 return;
             }
+            context.getState().setOk();
+        } catch (Exception e) {
+            LOG.warn("IOT insert data error, stmt={}", iotStmt.toSql(), e);
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+            handleIotRollback(tmpTableName);
+            return;
         }
 
         // overwrite old table with tmp table
