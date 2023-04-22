@@ -178,6 +178,10 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
         return this instanceof Slot;
     }
 
+    public boolean isColumnFromTable() {
+        return (this instanceof SlotReference) && ((SlotReference) this).getColumn().isPresent();
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {

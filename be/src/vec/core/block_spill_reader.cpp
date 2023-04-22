@@ -41,6 +41,8 @@ namespace vectorized {
 void BlockSpillReader::_init_profile() {
     read_time_ = ADD_TIMER(profile_, "ReadTime");
     deserialize_time_ = ADD_TIMER(profile_, "DeserializeTime");
+    read_bytes_ = ADD_COUNTER(profile_, "ReadBytes", TUnit::BYTES);
+    read_block_num_ = ADD_COUNTER(profile_, "ReadBlockNum", TUnit::UNIT);
 }
 
 Status BlockSpillReader::open() {
@@ -53,9 +55,6 @@ Status BlockSpillReader::open() {
 
     RETURN_IF_ERROR(FileFactory::create_file_reader(nullptr, system_properties, file_description,
                                                     &file_system, &file_reader_));
-    if (delete_after_read_) {
-        unlink(file_path_.c_str());
-    }
 
     size_t file_size = file_reader_->size();
 
@@ -89,6 +88,12 @@ Status BlockSpillReader::open() {
     return Status::OK();
 }
 
+void BlockSpillReader::seek(size_t block_index) {
+    DCHECK(file_reader_ != nullptr);
+    DCHECK_LT(block_index, block_count_);
+    read_block_index_ = block_index;
+}
+
 // The returned block is owned by BlockSpillReader and is
 // destroyed when reading next block.
 Status BlockSpillReader::read(Block* block, bool* eos) {
@@ -102,6 +107,12 @@ Status BlockSpillReader::read(Block* block, bool* eos) {
 
     size_t bytes_to_read =
             block_start_offsets_[read_block_index_ + 1] - block_start_offsets_[read_block_index_];
+
+    if (bytes_to_read == 0) {
+        ++read_block_index_;
+        COUNTER_UPDATE(read_block_num_, 1);
+        return Status::OK();
+    }
     Slice result(read_buff_.get(), bytes_to_read);
 
     size_t bytes_read = 0;
@@ -112,17 +123,23 @@ Status BlockSpillReader::read(Block* block, bool* eos) {
                                               &bytes_read));
     }
     DCHECK(bytes_read == bytes_to_read);
+    COUNTER_UPDATE(read_bytes_, bytes_read);
+    COUNTER_UPDATE(read_block_num_, 1);
 
-    PBlock pb_block;
-    BlockUPtr new_block = nullptr;
-    {
-        SCOPED_TIMER(deserialize_time_);
-        if (!pb_block.ParseFromArray(result.data, result.size)) {
-            return Status::InternalError("Failed to read spilled block");
+    if (bytes_read > 0) {
+        PBlock pb_block;
+        BlockUPtr new_block = nullptr;
+        {
+            SCOPED_TIMER(deserialize_time_);
+            if (!pb_block.ParseFromArray(result.data, result.size)) {
+                return Status::InternalError("Failed to read spilled block");
+            }
+            new_block = Block::create_unique(pb_block);
         }
-        new_block.reset(new Block(pb_block));
+        block->swap(*new_block);
+    } else {
+        block->clear_column_data();
     }
-    block->swap(*new_block);
 
     ++read_block_index_;
 

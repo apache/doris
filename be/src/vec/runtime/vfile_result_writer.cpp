@@ -500,6 +500,15 @@ Status VFileResultWriter::_send_result() {
     std::unique_ptr<TFetchDataResult> result = std::make_unique<TFetchDataResult>();
     result->result_batch.rows.resize(1);
     result->result_batch.rows[0].assign(row_buffer.buf(), row_buffer.length());
+
+    std::map<std::string, string> attach_infos;
+    attach_infos.insert(std::make_pair("FileNumber", std::to_string(_file_idx)));
+    attach_infos.insert(
+            std::make_pair("TotalRows", std::to_string(_written_rows_counter->value())));
+    attach_infos.insert(std::make_pair("FileSize", std::to_string(_written_data_bytes->value())));
+    attach_infos.insert(std::make_pair("URL", file_url));
+
+    result->result_batch.__set_attached_infos(attach_infos);
     RETURN_NOT_OK_STATUS_WITH_WARN(_sinker->add_batch(result), "failed to send outfile result");
     return Status::OK();
 }

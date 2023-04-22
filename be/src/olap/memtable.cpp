@@ -416,12 +416,14 @@ void MemTable::unfold_variant_column(vectorized::Block& block) {
     if (block.rows() == 0) {
         return;
     }
-    vectorized::ColumnWithTypeAndName variant_column =
-            block.get_by_name(BeConsts::DYNAMIC_COLUMN_NAME);
+    vectorized::ColumnWithTypeAndName* variant_column =
+            block.try_get_by_name(BeConsts::DYNAMIC_COLUMN_NAME);
+    if (!variant_column) {
+        return;
+    }
     // remove it
-    block.erase(BeConsts::DYNAMIC_COLUMN_NAME);
     vectorized::ColumnObject& object_column =
-            assert_cast<vectorized::ColumnObject&>(variant_column.column->assume_mutable_ref());
+            assert_cast<vectorized::ColumnObject&>(variant_column->column->assume_mutable_ref());
     // extend
     for (auto& entry : object_column.get_subcolumns()) {
         if (entry->path.get_path() == vectorized::ColumnObject::COLUMN_NAME_DUMMY) {
@@ -430,6 +432,7 @@ void MemTable::unfold_variant_column(vectorized::Block& block) {
         block.insert({entry->data.get_finalized_column().get_ptr(),
                       entry->data.get_least_common_type(), entry->path.get_path()});
     }
+    block.erase(BeConsts::DYNAMIC_COLUMN_NAME);
 }
 
 void MemTable::serialize_block_to_row_column(vectorized::Block& block) {

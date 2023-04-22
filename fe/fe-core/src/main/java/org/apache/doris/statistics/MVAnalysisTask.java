@@ -50,11 +50,11 @@ import java.util.Map;
 public class MVAnalysisTask extends BaseAnalysisTask {
 
     private static final String ANALYZE_MV_PART = INSERT_PART_STATISTICS
-            + " FROM (${sql}) mv";
+            + " FROM (${sql}) mv ${sampleExpr}";
 
     private static final String ANALYZE_MV_COL = INSERT_COL_STATISTICS
             + "     (SELECT NDV(`${colName}`) AS ndv "
-            + "     FROM (${sql}) mv) t2\n";
+            + "     FROM (${sql}) mv) t2";
 
     private MaterializedIndexMeta meta;
 
@@ -118,9 +118,11 @@ public class MVAnalysisTask extends BaseAnalysisTask {
                 params.put("colName", colName);
                 params.put("tblName", String.valueOf(info.tblName));
                 params.put("sql", sql);
+                params.put("sampleExpr", getSampleExpression());
                 StatisticsUtil.execUpdate(ANALYZE_MV_PART, params);
             }
             params.remove("partId");
+            params.remove("sampleExpr");
             params.put("type", column.getType().toString());
             StatisticsUtil.execUpdate(ANALYZE_MV_COL, params);
             Env.getCurrentEnv().getStatisticsCache()

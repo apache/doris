@@ -75,4 +75,6 @@ struct TResultBatch {
 
   // packet seq used to check if there has packet lost
   3: required i64 packet_seq
+
+  4: optional map<string,string> attached_infos
 }
