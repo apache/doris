@@ -77,6 +77,11 @@ if [[ "${MAX_FILE_COUNT}" -lt 65536 ]]; then
     exit 1
 fi
 
+if [[ "$(swapon -s | wc -l)" -gt 1 ]]; then
+    echo "Please disable swap memory before installation."
+    exit 1
+fi
+
 # add java libs
 for f in "${DORIS_HOME}/lib"/*.jar; do
     if [[ -z "${DORIS_CLASSPATH}" ]]; then
