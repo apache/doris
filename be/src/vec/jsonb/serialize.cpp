@@ -17,10 +17,35 @@
 
 #include "vec/jsonb/serialize.h"
 
+#include <assert.h>
+#include <glog/logging.h>
+#include <stdint.h>
+
+#include <algorithm>
+#include <ostream>
+#include <vector>
+
+#include "olap/hll.h"
+#include "olap/olap_common.h"
 #include "olap/tablet_schema.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/descriptors.h"
+#include "runtime/primitive_type.h"
+#include "runtime/types.h"
+#include "util/bitmap_value.h"
+#include "util/jsonb_document.h"
 #include "util/jsonb_stream.h"
 #include "util/jsonb_writer.h"
+#include "util/slice.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_string.h"
 #include "vec/common/arena.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
 
