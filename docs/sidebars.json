@@ -939,7 +939,6 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-MIGRATIONS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-PARTITION-ID",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-SNAPSHOT",
-                                "sql-manual/sql-reference/Show-Statements/SHOW-ROLLUP",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-SQL-BLOCK-RULE",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-ROUTINE-LOAD",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-SYNC-JOB",
