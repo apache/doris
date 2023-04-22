@@ -505,3 +505,7 @@ Connector1.1.0版本以前，是攒批写入的，写入均是由数据驱动，
 10. **Flink导入有脏数据，如何跳过？**
 
 Flink在数据导入时，如果有脏数据，比如字段格式、长度等问题，会导致StreamLoad报错，此时Flink会不断的重试。如果需要跳过，可以通过禁用StreamLoad的严格模式(strict_mode=false,max_filter_ratio=1)或者在Sink算子之前对数据做过滤。
+
+11. **源表和Doris表应如何对应？**
+使用Flink Connector导入数据时，要注意两个方面，第一是源表的列和类型跟flink sql中的列和类型要对应上；第二个是flink sql中的列和类型要跟doris表的列和类型对应上，具体可以参考上面的"Doris 和 Flink 列类型映射关系"
+
