@@ -50,6 +50,15 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& argument,
                         size_t result, size_t input_rows_count) override {
         DataTypePtr column_type = block.get_by_position(argument[0]).type;
+        auto nested_type = assert_cast<const DataTypeArray&>(*column_type).get_nested_type();
+
+        ColumnPtr src_column0 =
+                block.get_by_position(argument[0]).column->convert_to_full_column_if_const();
+        const auto& src_column_array0 = check_and_get_column<ColumnArray>(*src_column0);
+
+        ColumnPtr src_column1 =
+                block.get_by_position(argument[1]).column->convert_to_full_column_if_const();
+        const auto& src_column_array1 = check_and_get_column<ColumnArray>(*src_column1);
 
         return Status::OK();
     }
