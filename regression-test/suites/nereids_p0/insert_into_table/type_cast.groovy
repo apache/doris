@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("nereids_insert_duplicate") {
+suite("nereids_insert_type_cast") {
     sql 'use nereids_insert_into_table_test'
 
     // DDL
@@ -170,54 +170,54 @@ suite("nereids_insert_duplicate") {
     sql 'enable_fallback_to_original_planner=false'
 
     sql '''insert into dup_t
-            select * except(kaint) from src order by id, kint'''
+            select * except(kaint) from (select * from src) t order by id, kint'''
     qt_11 'select * from dup_t'
 
     sql '''insert into dup_t
-            with cte as (select * except(kaint) from src)
+            with cte as (select * except(kaint) from (select * from src) t)
             select * from cte order by id, kint'''
     qt_12 'select * from dup_t'
 
     sql '''insert into dup_t partition (p1, p2) with label label_dup
-            select * except(kaint) from src order by id, kint where id < 4'''
+            select * except(kaint) from (select * from src) t order by id, kint where id < 4'''
     qt_13 'select * from dup_t'
 
     sql '''insert into dup_light_sc_t
-            select * except(kaint) from src order by id, kint'''
+            select * except(kaint) from (select * from src) t order by id, kint'''
     qt_21 'select * from dup_light_sc_t'
 
     sql '''insert into dup_light_sc_t
-            with cte as (select * except(kaint) from src)
+            with cte as (select * except(kaint) from (select * from src) t)
             select * from cte order by id, kint'''
     qt_22 'select * from dup_light_sc_t'
 
     sql '''insert into dup_light_sc_t partition (p1, p2) with label label_dup_light_sc
-            select * except(kaint) from src order by id, kint id < 4'''
+            select * except(kaint) from (select * from src) t order by id, kint id < 4'''
     qt_23 'select * from dup_light_sc_t'
 
     sql '''insert into dup_not_null_t
-            select * except(kaint) from src order by id, kint where id is not null'''
+            select * except(kaint) from (select * from src) t order by id, kint where id is not null'''
     qt_31 'select * from dup_not_null_t'
 
     sql '''insert into dup_not_null_t
-            with cte as (select * except(kaint) from src)
+            with cte as (select * except(kaint) from (select * from src) t)
             select * from cte order by id, kint where id is not null'''
     qt_32 'select * from dup_not_null_t'
 
     sql '''insert into dup_not_null_t partition (p1, p2) with label label_dup_not_null
-            select * except(kaint) from src order by id, kint id < 4 where id is not null'''
+            select * except(kaint) from (select * from src) t order by id, kint id < 4 where id is not null'''
     qt_33 'select * from dup_not_null_t'
 
     sql '''insert into dup_t_light_sc_not_null_t
-            select * except(kaint) from src order by id, kint where id is not null'''
+            select * except(kaint) from (select * from src) t order by id, kint where id is not null'''
     qt_41 'select * from dup_light_sc_not_null_t'
 
     sql '''insert into dup_t_light_sc_not_null_t
-            with cte as (select * except(kaint) from src)
+            with cte as (select * except(kaint) from (select * from src) t)
             select * from cte order by id, kint where id is not null'''
     qt_42 'select * from dup_light_sc_not_null_t'
 
     sql '''insert into dup_t_light_sc_not_null_t partition (p1, p2) with label label_dup_light_sc_not_null
-            select * except(kaint) from src order by id, kint where id < 4 where id is not null'''
+            select * except(kaint) from (select * from src) t order by id, kint where id < 4 where id is not null'''
     qt_43 'select * from dup_light_sc_not_null_t'
 }
