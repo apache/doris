@@ -47,7 +47,7 @@ namespace doris {
 namespace pipeline {
 class PipelineFragmentContext;
 }
-class QueryFragmentsCtx;
+class QueryContext;
 class ExecEnv;
 class FragmentExecState;
 class ThreadPool;
@@ -139,20 +139,18 @@ private:
     void _exec_actual(std::shared_ptr<FragmentExecState> exec_state, const FinishCallback& cb);
 
     template <typename Param>
-    void _set_scan_concurrency(const Param& params, QueryFragmentsCtx* fragments_ctx);
+    void _set_scan_concurrency(const Param& params, QueryContext* query_ctx);
 
     void _setup_shared_hashtable_for_broadcast_join(const TExecPlanFragmentParams& params,
-                                                    RuntimeState* state,
-                                                    QueryFragmentsCtx* fragments_ctx);
+                                                    RuntimeState* state, QueryContext* query_ctx);
 
     void _setup_shared_hashtable_for_broadcast_join(const TPipelineFragmentParams& params,
                                                     const TPipelineInstanceParams& local_params,
-                                                    RuntimeState* state,
-                                                    QueryFragmentsCtx* fragments_ctx);
+                                                    RuntimeState* state, QueryContext* query_ctx);
 
     template <typename Params>
     Status _get_query_ctx(const Params& params, TUniqueId query_id, bool pipeline,
-                          std::shared_ptr<QueryFragmentsCtx>& fragments_ctx);
+                          std::shared_ptr<QueryContext>& query_ctx);
 
     // This is input params
     ExecEnv* _exec_env;
@@ -166,8 +164,8 @@ private:
 
     std::unordered_map<TUniqueId, std::shared_ptr<pipeline::PipelineFragmentContext>> _pipeline_map;
 
-    // query id -> QueryFragmentsCtx
-    std::unordered_map<TUniqueId, std::shared_ptr<QueryFragmentsCtx>> _fragments_ctx_map;
+    // query id -> QueryContext
+    std::unordered_map<TUniqueId, std::shared_ptr<QueryContext>> _query_ctx_map;
     std::unordered_map<TUniqueId, std::unordered_map<int, int64_t>> _bf_size_map;
 
     CountDownLatch _stop_background_threads_latch;
