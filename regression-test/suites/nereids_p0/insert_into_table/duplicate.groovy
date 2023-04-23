@@ -18,6 +18,12 @@
 suite("nereids_insert_duplicate") {
     sql 'use nereids_insert_into_table_test'
 
+        def tables = ['dup_t', 'dup_light_sc_t', 'dup_not_null_t', 'dup_light_sc_not_null_t']
+
+    for (t in tables) {
+        sql "drop table if exists ${t}"
+    }
+
     // DDL
     sql '''
         create table dup_t (
@@ -30,7 +36,7 @@ suite("nereids_insert_duplicate") {
             `klint` largeint(40) null,
             `kfloat` float null,
             `kdbl` double null,
-            `kdcml` decimal(9, 3) null,
+            `kdcml` decimal(12, 6) null,
             `kchr` char(10) null,
             `kvchr` varchar(10) null,
             `kstr` string null,
@@ -47,7 +53,7 @@ suite("nereids_insert_duplicate") {
             partition p1 values less than ("3"),
             partition p2 values less than ("5"),
             partition p3 values less than ("7"),
-            partition p4 values less than ("9")
+            partition p4 values less than ("15")
         )
         distributed by hash(id) buckets 4
         properties (
@@ -66,7 +72,7 @@ suite("nereids_insert_duplicate") {
             `klint` largeint(40) null,
             `kfloat` float null,
             `kdbl` double null,
-            `kdcml` decimal(9, 3) null,
+            `kdcml` decimal(12, 6) null,
             `kchr` char(10) null,
             `kvchr` varchar(10) null,
             `kstr` string null,
@@ -83,7 +89,7 @@ suite("nereids_insert_duplicate") {
             partition p1 values less than ("3"),
             partition p2 values less than ("5"),
             partition p3 values less than ("7"),
-            partition p4 values less than ("9")
+            partition p4 values less than ("15")
         )
         distributed by hash(id) buckets 4
         properties (
@@ -103,7 +109,7 @@ suite("nereids_insert_duplicate") {
             `klint` largeint(40) not null,
             `kfloat` float not null,
             `kdbl` double not null,
-            `kdcml` decimal(9, 3) not null,
+            `kdcml` decimal(12, 6) not null,
             `kchr` char(10) not null,
             `kvchr` varchar(10) not null,
             `kstr` string not null,
@@ -120,7 +126,7 @@ suite("nereids_insert_duplicate") {
             partition p1 values less than ("3"),
             partition p2 values less than ("5"),
             partition p3 values less than ("7"),
-            partition p4 values less than ("9")
+            partition p4 values less than ("15")
         )
         distributed by hash(id) buckets 4
         properties (
@@ -139,7 +145,7 @@ suite("nereids_insert_duplicate") {
             `klint` largeint(40) not null,
             `kfloat` float not null,
             `kdbl` double not null,
-            `kdcml` decimal(9, 3) not null,
+            `kdcml` decimal(12, 6) not null,
             `kchr` char(10) not null,
             `kvchr` varchar(10) not null,
             `kstr` string not null,
@@ -156,7 +162,7 @@ suite("nereids_insert_duplicate") {
             partition p1 values less than ("3"),
             partition p2 values less than ("5"),
             partition p3 values less than ("7"),
-            partition p4 values less than ("9")
+            partition p4 values less than ("15")
         )
         distributed by hash(id) buckets 4
         properties (
@@ -170,54 +176,54 @@ suite("nereids_insert_duplicate") {
     sql 'set enable_fallback_to_original_planner=false'
 
     sql '''insert into dup_t
-            select * except(kaint) from src order by id, kint'''
-    qt_11 'select * from dup_t'
+            select * except(kaint) from src'''
+    qt_11 'select * from dup_t order by id, kint'
 
-    sql '''insert into dup_t
+    sql '''insert into dup_t with label label_dup_cte
             with cte as (select * except(kaint) from src)
-            select * from cte order by id, kint'''
-    qt_12 'select * from dup_t'
+            select * from cte'''
+    qt_12 'select * from dup_t order by id, kint'
 
     sql '''insert into dup_t partition (p1, p2) with label label_dup
-            select * except(kaint) from src order by id, kint where id < 4'''
-    qt_13 'select * from dup_t'
+            select * except(kaint) from src where id < 4'''
+    qt_13 'select * from dup_t order by id, kint'
 
     sql '''insert into dup_light_sc_t
-            select * except(kaint) from src order by id, kint'''
-    qt_21 'select * from dup_light_sc_t'
+            select * except(kaint) from src'''
+    qt_21 'select * from dup_light_sc_t order by id, kint'
 
-    sql '''insert into dup_light_sc_t
+    sql '''insert into dup_light_sc_t with label label_dup_light_sc_cte
             with cte as (select * except(kaint) from src)
-            select * from cte order by id, kint'''
-    qt_22 'select * from dup_light_sc_t'
+            select * from cte'''
+    qt_22 'select * from dup_light_sc_t order by id, kint'
 
     sql '''insert into dup_light_sc_t partition (p1, p2) with label label_dup_light_sc
-            select * except(kaint) from src order by id, kint id < 4'''
-    qt_23 'select * from dup_light_sc_t'
+            select * except(kaint) from src where id < 4'''
+    qt_23 'select * from dup_light_sc_t order by id, kint'
 
     sql '''insert into dup_not_null_t
-            select * except(kaint) from src order by id, kint where id is not null'''
-    qt_31 'select * from dup_not_null_t'
+            select * except(kaint) from src where id is not null'''
+    qt_31 'select * from dup_not_null_t order by id, kint'
 
-    sql '''insert into dup_not_null_t
+    sql '''insert into dup_not_null_t with label label_dup_not_null_cte
             with cte as (select * except(kaint) from src)
-            select * from cte order by id, kint where id is not null'''
-    qt_32 'select * from dup_not_null_t'
+            select * from cte where id is not null'''
+    qt_32 'select * from dup_not_null_t order by id, kint'
 
     sql '''insert into dup_not_null_t partition (p1, p2) with label label_dup_not_null
-            select * except(kaint) from src order by id, kint id < 4 where id is not null'''
-    qt_33 'select * from dup_not_null_t'
+            select * except(kaint) from src where id < 4 and id is not null'''
+    qt_33 'select * from dup_not_null_t order by id, kint'
 
     sql '''insert into dup_t_light_sc_not_null_t
-            select * except(kaint) from src order by id, kint where id is not null'''
-    qt_41 'select * from dup_light_sc_not_null_t'
+            select * except(kaint) from src where id is not null'''
+    qt_41 'select * from dup_light_sc_not_null_t order by id, kint'
 
-    sql '''insert into dup_t_light_sc_not_null_t
+    sql '''insert into dup_t_light_sc_not_null_t with label label_dup_light_sc_not_null_cte
             with cte as (select * except(kaint) from src)
-            select * from cte order by id, kint where id is not null'''
-    qt_42 'select * from dup_light_sc_not_null_t'
+            select * from cte where id is not null'''
+    qt_42 'select * from dup_light_sc_not_null_t order by id, kint'
 
     sql '''insert into dup_t_light_sc_not_null_t partition (p1, p2) with label label_dup_light_sc_not_null
-            select * except(kaint) from src order by id, kint where id < 4 where id is not null'''
-    qt_43 'select * from dup_light_sc_not_null_t'
+            select * except(kaint) from src where id < 4 and id is not null'''
+    qt_43 'select * from dup_light_sc_not_null_t order by id, kint'
 }

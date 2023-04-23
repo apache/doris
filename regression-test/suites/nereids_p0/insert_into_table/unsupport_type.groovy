@@ -16,6 +16,10 @@
 // under the License.
 
 suite("nereids_insert_into_table") {
+    sql 'use nereids_insert_into_table_test'
+
+    sql 'drop table if exists arr_t'
+
     sql '''
         create table arr_t (
             `id` int null,
@@ -34,7 +38,7 @@ suite("nereids_insert_into_table") {
 
     test {
         sql 'insert into arr_t select id, kaint from src'
-        exception ''
+        exception 'null'
     }
 
     sql 'enable_fallback_to_original_planner=true'
