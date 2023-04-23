@@ -37,7 +37,7 @@ Usage: $0 <options>
      --stop             stop the specified components
 
   All valid components:
-    mysql,pg,oracle,sqlserver,clickhouse,es,hive,iceberg
+    mysql,pg,oracle,sqlserver,clickhouse,es,hive,iceberg,hudi
   "
     exit 1
 }
@@ -60,7 +60,7 @@ STOP=0
 
 if [[ "$#" == 1 ]]; then
     # default
-    COMPONENTS="mysql,pg,oracle,sqlserver,clickhouse,hive,iceberg"
+    COMPONENTS="mysql,pg,oracle,sqlserver,clickhouse,hive,iceberg,hudi"
 else
     while true; do
         case "$1" in
@@ -92,7 +92,7 @@ else
     done
     if [[ "${COMPONENTS}"x == ""x ]]; then
         if [[ "${STOP}" -eq 1 ]]; then
-            COMPONENTS="mysql,pg,oracle,sqlserver,clickhouse,hive,iceberg"
+            COMPONENTS="mysql,pg,oracle,sqlserver,clickhouse,hive,iceberg,hudi"
         fi
     fi
 fi
@@ -130,6 +130,7 @@ RUN_CLICKHOUSE=0
 RUN_HIVE=0
 RUN_ES=0
 RUN_ICEBERG=0
+RUN_HUDI=0
 for element in "${COMPONENTS_ARR[@]}"; do
     if [[ "${element}"x == "mysql"x ]]; then
         RUN_MYSQL=1
@@ -147,6 +148,8 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_HIVE=1
     elif [[ "${element}"x == "iceberg"x ]]; then
         RUN_ICEBERG=1
+    elif [[ "${element}"x == "hudi"x ]]; then
+        RUN_HUDI=1
     else
         echo "Invalid component: ${element}"
         usage
@@ -266,5 +269,21 @@ if [[ "${RUN_ICEBERG}" -eq 1 ]]; then
         sudo rm -rf "${ROOT}"/docker-compose/iceberg/warehouse
         sudo mkdir "${ROOT}"/docker-compose/iceberg/warehouse
         sudo docker compose -f "${ROOT}"/docker-compose/iceberg/iceberg.yaml --env-file "${ROOT}"/docker-compose/iceberg/iceberg.env up -d
+    fi
+fi
+
+if [[ "${RUN_HUDI}" -eq 1 ]]; then
+    # hudi
+    cp "${ROOT}"/docker-compose/hudi/hudi.yaml.tpl "${ROOT}"/docker-compose/hudi/hudi.yaml
+    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hudi/hudi.yaml
+    sudo docker compose -f "${ROOT}"/docker-compose/hudi/hudi.yaml --env-file "${ROOT}"/docker-compose/hudi/hudi.env down
+    if [[ "${STOP}" -ne 1 ]]; then
+        sudo rm -rf "${ROOT}"/docker-compose/hudi/notebooks
+        sudo mkdir "${ROOT}"/docker-compose/hudi/notebooks
+        sudo rm -rf "${ROOT}"/docker-compose/hudi/spark
+        sudo mkdir "${ROOT}"/docker-compose/hudi/spark
+        sudo rm -rf "${ROOT}"/docker-compose/hudi/warehouse
+        sudo mkdir "${ROOT}"/docker-compose/hudi/warehouse
+        sudo docker compose -f "${ROOT}"/docker-compose/hudi/hudi.yaml --env-file "${ROOT}"/docker-compose/hudi/hudi.env up -d
     fi
 fi
