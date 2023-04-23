@@ -164,5 +164,12 @@ public class ResourceGroupMgrTest {
         } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("does not exist"));
         }
+
+        DropResourceGroupStmt dropDefaultStmt = new DropResourceGroupStmt(false, ResourceGroupMgr.DEFAULT_GROUP_NAME);
+        try {
+            resourceGroupMgr.dropResourceGroup(dropDefaultStmt);
+        } catch (DdlException e) {
+            Assert.assertTrue(e.getMessage().contains("is not allowed"));
+        }
     }
 }
