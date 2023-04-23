@@ -674,7 +674,7 @@ nonterminal describe_command, opt_full, opt_inner, opt_outer, from_or_in, keys_o
             transaction_access_mode, isolation_types;
 
 // String
-nonterminal String user, opt_user;
+nonterminal String user, opt_user, opt_using_charset;
 nonterminal UserIdentity user_identity;
 nonterminal String quantity;
 
@@ -6400,7 +6400,23 @@ non_pred_expr ::=
     exprs.add(new StringLiteral(character));
     RESULT = new FunctionCallExpr("convert_to", new FunctionParams(exprs)); 
   :}
+  | KW_CHAR LPAREN expr_list:exprs opt_using_charset:charset_name RPAREN
+  {: 
+    exprs.add(0, new StringLiteral(charset_name));
+    RESULT = new FunctionCallExpr("char", new FunctionParams(exprs)); 
+  :}
   ;
+
+opt_using_charset ::=
+    /* empty */
+    {:
+        RESULT = "utf8";
+    :}
+    | KW_USING ident:charset_name
+    {:
+        RESULT = charset_name;
+    :}
+    ;
 
 expr_pipe_list ::=
   expr:e1 KW_PIPE expr:e2

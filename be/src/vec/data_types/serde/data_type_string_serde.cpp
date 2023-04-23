@@ -44,5 +44,21 @@ Status DataTypeStringSerDe::read_column_from_pb(IColumn& column, const PValues& 
     }
     return Status::OK();
 }
+
+void DataTypeStringSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
+                                                  Arena* mem_pool, int32_t col_id,
+                                                  int row_num) const {
+    result.writeKey(col_id);
+    const auto& data_ref = column.get_data_at(row_num);
+    result.writeStartBinary();
+    result.writeBinary(reinterpret_cast<const char*>(data_ref.data), data_ref.size);
+    result.writeEndBinary();
+}
+void DataTypeStringSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
+    assert(arg->isBinary());
+    auto& col = reinterpret_cast<ColumnString&>(column);
+    auto blob = static_cast<const JsonbBlobVal*>(arg);
+    col.insert_data(blob->getBlob(), blob->getBlobLen());
+}
 } // namespace vectorized
 } // namespace doris

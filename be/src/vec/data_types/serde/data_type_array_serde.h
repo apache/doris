@@ -42,6 +42,11 @@ public:
         LOG(FATAL) << "Not support read from pb to array";
     }
 
+    void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
+                                 int32_t col_id, int row_num) const override;
+
+    void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
+
 private:
     DataTypeSerDeSPtr nested_serde;
 };
