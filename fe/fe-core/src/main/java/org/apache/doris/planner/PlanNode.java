@@ -20,6 +20,7 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BitmapFilterPredicate;
 import org.apache.doris.analysis.CompoundPredicate;
@@ -719,6 +720,10 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
      * Assign remaining unassigned conjuncts.
      */
     protected void assignConjuncts(Analyzer analyzer) {
+        // we cannot plan conjuncts on exchange node, so we just skip the node.
+        if (this instanceof ExchangeNode) {
+            return;
+        }
         List<Expr> unassigned = analyzer.getUnassignedConjuncts(this);
         for (Expr unassignedConjunct : unassigned) {
             addConjunct(unassignedConjunct);
@@ -831,8 +836,14 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return numInstances;
     }
 
-    public boolean shouldColoAgg() {
-        return true;
+    public boolean shouldColoAgg(AggregateInfo aggregateInfo) {
+        return false;
+    }
+
+    public void setShouldColoScan() {}
+
+    public boolean getShouldColoScan() {
+        return false;
     }
 
     public void setNumInstances(int numInstances) {

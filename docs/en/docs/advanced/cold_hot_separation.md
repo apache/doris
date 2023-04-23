@@ -1,6 +1,6 @@
 ---
 {
-"title": "cold hot separation",
+"title": "Cold hot separation",
 "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# cold hot separation
+# [Experimental] Cold hot separation
 
 ## Demand scenario
 

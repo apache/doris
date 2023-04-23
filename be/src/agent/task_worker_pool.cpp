@@ -17,47 +17,66 @@
 
 #include "agent/task_worker_pool.h"
 
+#include <fmt/format.h>
 #include <gen_cpp/AgentService_types.h>
-#include <pthread.h>
-#include <sys/stat.h>
+#include <gen_cpp/HeartbeatService_types.h>
+#include <gen_cpp/MasterService_types.h>
+#include <gen_cpp/Status_types.h>
+#include <gen_cpp/Types_types.h>
+#include <unistd.h>
 
-#include <boost/lexical_cast.hpp>
-#include <chrono>
-#include <csignal>
+#include <algorithm>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
 #include <ctime>
+#include <functional>
 #include <memory>
+#include <shared_mutex>
 #include <sstream>
 #include <string>
+#include <thread>
+#include <utility>
+#include <vector>
 
 #include "agent/utils.h"
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "env/env.h"
-#include "gen_cpp/Types_types.h"
+#include "gutil/ref_counted.h"
+#include "gutil/strings/numbers.h"
 #include "gutil/strings/substitute.h"
+#include "io/fs/file_system.h"
+#include "io/fs/local_file_system.h"
+#include "io/fs/path.h"
 #include "io/fs/s3_file_system.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/rowset_meta.h"
 #include "olap/snapshot_manager.h"
 #include "olap/storage_engine.h"
 #include "olap/storage_policy.h"
 #include "olap/tablet.h"
+#include "olap/tablet_manager.h"
+#include "olap/tablet_meta.h"
+#include "olap/tablet_schema.h"
 #include "olap/task/engine_alter_tablet_task.h"
 #include "olap/task/engine_batch_load_task.h"
 #include "olap/task/engine_checksum_task.h"
 #include "olap/task/engine_clone_task.h"
 #include "olap/task/engine_publish_version_task.h"
 #include "olap/task/engine_storage_migration_task.h"
+#include "olap/txn_manager.h"
 #include "olap/utils.h"
 #include "runtime/exec_env.h"
 #include "runtime/snapshot_loader.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
-#include "util/file_utils.h"
 #include "util/random.h"
+#include "util/s3_util.h"
 #include "util/scoped_cleanup.h"
 #include "util/stopwatch.hpp"
 #include "util/threadpool.h"
+#include "util/time.h"
 #include "util/trace.h"
 
 namespace doris {
@@ -1519,10 +1538,16 @@ void TaskWorkerPool::_make_snapshot_thread_callback() {
             // list and save all snapshot files
             // snapshot_path like: data/snapshot/20180417205230.1.86400
             // we need to add subdir: tablet_id/schema_hash/
-            std::stringstream ss;
-            ss << snapshot_path << "/" << snapshot_request.tablet_id << "/"
-               << snapshot_request.schema_hash << "/";
-            status = FileUtils::list_files(Env::Default(), ss.str(), &snapshot_files);
+            std::vector<io::FileInfo> files;
+            bool exists = true;
+            io::Path path = fmt::format("{}/{}/{}/", snapshot_path, snapshot_request.tablet_id,
+                                        snapshot_request.schema_hash);
+            status = io::global_local_filesystem()->list(path, true, &files, &exists);
+            if (status.ok()) {
+                for (auto& file : files) {
+                    snapshot_files.push_back(file.file_name);
+                }
+            }
         }
         if (!status.ok()) {
             LOG_WARNING("failed to make snapshot")

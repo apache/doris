@@ -17,17 +17,25 @@
 
 #pragma once
 
-#include "gutil/macros.h"
+#include <stddef.h>
+#include <stdint.h>
+
+#include <memory>
+#include <string>
+#include <utility>
+
+#include "common/status.h"
 #include "io/cache/block/block_file_cache.h"
-#include "io/cache/block/block_file_cache_fwd.h"
-#include "io/cache/block/block_file_cache_profile.h"
-#include "io/cache/block/block_file_segment.h"
 #include "io/fs/file_reader.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "io/fs/file_system.h"
 #include "io/fs/path.h"
-#include "io/fs/s3_file_system.h"
+#include "util/slice.h"
 
 namespace doris {
 namespace io {
+class IOContext;
+struct FileCacheStatistics;
 
 class CachedRemoteFileReader final : public FileReader {
 public:
@@ -58,12 +66,13 @@ private:
     CloudFileCachePtr _disposable_cache;
 
     struct ReadStatistics {
-        bool hit_cache = false;
+        bool hit_cache = true;
+        bool skip_cache = false;
         int64_t bytes_read = 0;
-        int64_t bytes_read_from_file_cache = 0;
-        int64_t bytes_write_in_file_cache = 0;
-        int64_t write_in_file_cache = 0;
-        int64_t bytes_skip_cache = 0;
+        int64_t bytes_write_into_file_cache = 0;
+        int64_t remote_read_timer = 0;
+        int64_t local_read_timer = 0;
+        int64_t local_write_timer = 0;
     };
     void _update_state(const ReadStatistics& stats, FileCacheStatistics* state) const;
 };

@@ -20,17 +20,33 @@
 
 #include "runtime/plan_fragment_executor.h"
 
-#include <thrift/protocol/TDebugProtocol.h>
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Planner_types.h>
+#include <gen_cpp/version.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+#include <opentelemetry/trace/span.h>
+#include <opentelemetry/trace/span_context.h>
+#include <opentelemetry/trace/tracer.h>
+#include <pthread.h>
+#include <stdint.h>
+#include <stdlib.h>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <ostream>
+#include <typeinfo>
+#include <utility>
 
-#include <unordered_map>
-
+#include "common/config.h"
+#include "common/logging.h"
 #include "exec/data_sink.h"
 #include "exec/exec_node.h"
 #include "exec/scan_node.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
-#include "runtime/memory/mem_tracker.h"
-#include "runtime/result_buffer_mgr.h"
+#include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/query_fragments_ctx.h"
+#include "runtime/query_statistics.h"
 #include "runtime/result_queue_mgr.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/thread_context.h"
@@ -38,6 +54,8 @@
 #include "util/defer_op.h"
 #include "util/pretty_printer.h"
 #include "util/telemetry/telemetry.h"
+#include "util/threadpool.h"
+#include "util/time.h"
 #include "util/uid_util.h"
 #include "vec/core/block.h"
 #include "vec/exec/scan/new_es_scan_node.h"
@@ -46,6 +64,7 @@
 #include "vec/exec/scan/new_odbc_scan_node.h"
 #include "vec/exec/scan/new_olap_scan_node.h"
 #include "vec/exec/scan/vmeta_scan_node.h"
+#include "vec/exec/scan/vscan_node.h"
 #include "vec/exec/vexchange_node.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 
@@ -204,7 +223,9 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 
     // set up profile counters
     profile()->add_child(_plan->runtime_profile(), true, nullptr);
+    profile()->add_info_string("DoriBeVersion", DORIS_BUILD_SHORT_HASH);
     _rows_produced_counter = ADD_COUNTER(profile(), "RowsProduced", TUnit::UNIT);
+    _blocks_produced_counter = ADD_COUNTER(profile(), "BlocksProduced", TUnit::UNIT);
     _fragment_cpu_timer = ADD_TIMER(profile(), "FragmentCpuTime");
 
     VLOG_NOTICE << "plan_root=\n" << _plan->debug_string();
@@ -274,35 +295,23 @@ Status PlanFragmentExecutor::open() {
 }
 
 Status PlanFragmentExecutor::open_vectorized_internal() {
+    SCOPED_TIMER(profile()->total_time_counter());
     {
         SCOPED_CPU_TIMER(_fragment_cpu_timer);
-        SCOPED_TIMER(profile()->total_time_counter());
         RETURN_IF_ERROR(_plan->open(_runtime_state.get()));
         RETURN_IF_CANCELLED(_runtime_state);
-    }
-    if (_sink == nullptr) {
-        return Status::OK();
-    }
-    {
-        SCOPED_CPU_TIMER(_fragment_cpu_timer);
+        if (_sink == nullptr) {
+            return Status::OK();
+        }
         RETURN_IF_ERROR(_sink->open(runtime_state()));
-    }
-
-    {
         auto sink_send_span_guard = Defer {[this]() { this->_sink->end_send_span(); }};
         doris::vectorized::Block block;
         bool eos = false;
 
         while (!eos) {
             RETURN_IF_CANCELLED(_runtime_state);
+            RETURN_IF_ERROR(get_vectorized_internal(&block, &eos));
 
-            {
-                SCOPED_CPU_TIMER(_fragment_cpu_timer);
-                RETURN_IF_ERROR(get_vectorized_internal(&block, &eos));
-            }
-
-            SCOPED_TIMER(profile()->total_time_counter());
-            SCOPED_CPU_TIMER(_fragment_cpu_timer);
             // Collect this plan and sub plan statistics, and send to parent plan.
             if (_collect_query_statistics_with_every_batch) {
                 _collect_query_statistics();
@@ -319,7 +328,6 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
     }
 
     {
-        SCOPED_TIMER(profile()->total_time_counter());
         _collect_query_statistics();
         Status status;
         {
@@ -339,7 +347,6 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
 Status PlanFragmentExecutor::get_vectorized_internal(::doris::vectorized::Block* block, bool* eos) {
     while (!_done) {
         block->clear_column_data(_plan->row_desc().num_materialized_slots());
-        SCOPED_TIMER(profile()->total_time_counter());
         RETURN_IF_ERROR_AND_CHECK_SPAN(
                 _plan->get_next_after_projects(
                         _runtime_state.get(), block, &_done,
@@ -351,6 +358,8 @@ Status PlanFragmentExecutor::get_vectorized_internal(::doris::vectorized::Block*
 
         if (block->rows() > 0) {
             COUNTER_UPDATE(_rows_produced_counter, block->rows());
+            // Not very sure, if should contain empty block
+            COUNTER_UPDATE(_blocks_produced_counter, block->rows());
             break;
         }
     }

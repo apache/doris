@@ -17,18 +17,41 @@
 
 #include "olap/memtable.h"
 
+#include <fmt/format.h>
+#include <gen_cpp/olap_file.pb.h>
+
+#include <algorithm>
+#include <limits>
+#include <shared_mutex>
+#include <string>
+#include <utility>
+
+#include "common/config.h"
+#include "common/consts.h"
 #include "common/logging.h"
+#include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_writer.h"
+#include "olap/rowset/segment_v2/segment.h"
 #include "olap/schema.h"
 #include "olap/schema_change.h"
+#include "olap/tablet_schema.h"
+#include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
 #include "runtime/load_channel_mgr.h"
+#include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
+#include "util/runtime_profile.h"
+#include "util/stopwatch.hpp"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_object.h"
-#include "vec/core/columns_with_type_and_name.h"
-#include "vec/core/field.h"
+#include "vec/columns/column_string.h"
+#include "vec/common/assert_cast.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
+#include "vec/json/path_in_data.h"
 #include "vec/jsonb/serialize.h"
 
 namespace doris {
@@ -64,10 +87,10 @@ MemTable::MemTable(TabletSharedPtr tablet, Schema* schema, const TabletSchema* t
     _insert_mem_tracker_use_hook = std::make_unique<MemTracker>(
             fmt::format("MemTableHookInsert:TabletId={}", std::to_string(tablet_id())));
 #endif
-    _table_mem_pool = std::make_unique<MemPool>(_insert_mem_tracker.get());
+    _arena = std::make_unique<vectorized::Arena>();
     _vec_row_comparator = std::make_shared<RowInBlockComparator>(_schema);
     // TODO: Support ZOrderComparator in the future
-    _vec_skip_list = std::make_unique<VecTable>(_vec_row_comparator.get(), _table_mem_pool.get(),
+    _vec_skip_list = std::make_unique<VecTable>(_vec_row_comparator.get(), _arena.get(),
                                                 _keys_type == KeysType::DUP_KEYS);
     _init_columns_offset_by_slot_descs(slot_descs, tuple_desc);
 }
@@ -135,7 +158,6 @@ MemTable::~MemTable() {
     }
     std::for_each(_row_in_blocks.begin(), _row_in_blocks.end(), std::default_delete<RowInBlock>());
     _insert_mem_tracker->release(_mem_usage);
-    _table_mem_pool->free_all();
     _flush_mem_tracker->set_consumption(0);
     DCHECK_EQ(_insert_mem_tracker->consumption(), 0)
             << std::endl
@@ -203,9 +225,8 @@ void MemTable::_insert_one_row_from_block(RowInBlock* row_in_block) {
         _merged_rows++;
         _aggregate_two_row_in_block(row_in_block, _vec_hint.curr->key);
     } else {
-        row_in_block->init_agg_places(
-                (char*)_table_mem_pool->allocate_aligned(_total_size_of_aggregate_states, 16),
-                _offsets_of_aggregate_states.data());
+        row_in_block->init_agg_places(_arena->aligned_alloc(_total_size_of_aggregate_states, 16),
+                                      _offsets_of_aggregate_states.data());
         for (auto cid = _schema->num_key_columns(); cid < _schema->num_columns(); cid++) {
             auto col_ptr = _input_mutable_block.mutable_columns()[cid].get();
             auto data = row_in_block->agg_places(cid);
@@ -350,7 +371,6 @@ Status MemTable::_generate_delete_bitmap(int64_t atomic_num_segments_before_flus
 }
 
 Status MemTable::flush() {
-    SCOPED_CONSUME_MEM_TRACKER(_flush_mem_tracker);
     VLOG_CRITICAL << "begin to flush memtable for tablet: " << tablet_id()
                   << ", memsize: " << memory_usage() << ", rows: " << _rows;
     int64_t duration_ns = 0;
@@ -372,6 +392,7 @@ Status MemTable::flush() {
 }
 
 Status MemTable::_do_flush(int64_t& duration_ns) {
+    SCOPED_CONSUME_MEM_TRACKER(_flush_mem_tracker);
     SCOPED_RAW_TIMER(&duration_ns);
     _collect_vskiplist_results<true>();
     vectorized::Block block = _output_mutable_block.to_block();
@@ -395,12 +416,14 @@ void MemTable::unfold_variant_column(vectorized::Block& block) {
     if (block.rows() == 0) {
         return;
     }
-    vectorized::ColumnWithTypeAndName variant_column =
-            block.get_by_name(BeConsts::DYNAMIC_COLUMN_NAME);
+    vectorized::ColumnWithTypeAndName* variant_column =
+            block.try_get_by_name(BeConsts::DYNAMIC_COLUMN_NAME);
+    if (!variant_column) {
+        return;
+    }
     // remove it
-    block.erase(BeConsts::DYNAMIC_COLUMN_NAME);
     vectorized::ColumnObject& object_column =
-            assert_cast<vectorized::ColumnObject&>(variant_column.column->assume_mutable_ref());
+            assert_cast<vectorized::ColumnObject&>(variant_column->column->assume_mutable_ref());
     // extend
     for (auto& entry : object_column.get_subcolumns()) {
         if (entry->path.get_path() == vectorized::ColumnObject::COLUMN_NAME_DUMMY) {
@@ -409,6 +432,7 @@ void MemTable::unfold_variant_column(vectorized::Block& block) {
         block.insert({entry->data.get_finalized_column().get_ptr(),
                       entry->data.get_least_common_type(), entry->path.get_path()});
     }
+    block.erase(BeConsts::DYNAMIC_COLUMN_NAME);
 }
 
 void MemTable::serialize_block_to_row_column(vectorized::Block& block) {
@@ -424,6 +448,9 @@ void MemTable::serialize_block_to_row_column(vectorized::Block& block) {
             row_column_id = i;
             break;
         }
+    }
+    if (row_column_id == 0) {
+        return;
     }
     vectorized::ColumnString* row_store_column =
             static_cast<vectorized::ColumnString*>(block.get_by_position(row_column_id)

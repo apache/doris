@@ -5,14 +5,18 @@
 #pragma once
 
 #include <fmt/format.h>
+#include <gen_cpp/Status_types.h> // for TStatus
 #include <glog/logging.h>
+#include <stdint.h>
 
 #include <iostream>
+#include <memory>
 #include <string>
 #include <string_view>
+#include <utility>
 
-#include "common/compiler_util.h"
-#include "gen_cpp/Status_types.h" // for TStatus
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #ifdef ENABLE_STACKTRACE
 #include "util/stack_util.h"
 #endif
@@ -71,6 +75,7 @@ E(FILE_FORMAT_ERROR, -119);
 E(EVAL_CONJUNCTS_ERROR, -120);
 E(COPY_FILE_ERROR, -121);
 E(FILE_ALREADY_EXIST, -122);
+E(BAD_CAST, -123);
 E(CALL_SEQUENCE_ERROR, -202);
 E(BUFFER_OVERFLOW, -204);
 E(CONFIG_ERROR, -205);
@@ -205,6 +210,8 @@ E(COLUMN_READ_STREAM, -1706);
 E(COLUMN_STREAM_NOT_EXIST, -1716);
 E(COLUMN_VALUE_NULL, -1717);
 E(COLUMN_SEEK_ERROR, -1719);
+E(COLUMN_NO_MATCH_OFFSETS_SIZE, -1720);
+E(COLUMN_NO_MATCH_FILTER_SIZE, -1721);
 E(DELETE_INVALID_CONDITION, -1900);
 E(DELETE_UPDATE_HEADER_FAILED, -1901);
 E(DELETE_SAVE_HEADER_FAILED, -1902);

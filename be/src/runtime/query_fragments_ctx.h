@@ -17,18 +17,20 @@
 
 #pragma once
 
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/Types_types.h>
+
 #include <atomic>
 #include <memory>
 #include <string>
 
 #include "common/config.h"
 #include "common/object_pool.h"
-#include "gen_cpp/PaloInternalService_types.h" // for TQueryOptions
-#include "gen_cpp/Types_types.h"               // for TUniqueId
 #include "runtime/datetime_value.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/runtime_predicate.h"
+#include "task_group/task_group.h"
 #include "util/pretty_printer.h"
 #include "util/threadpool.h"
 #include "vec/exec/scan/scanner_scheduler.h"
@@ -130,6 +132,10 @@ public:
 
     vectorized::RuntimePredicate& get_runtime_predicate() { return _runtime_predicate; }
 
+    void set_task_group(taskgroup::TaskGroupPtr& tg) { _task_group = tg; }
+
+    taskgroup::TaskGroup* get_task_group() const { return _task_group.get(); }
+
 public:
     TUniqueId query_id;
     DescriptorTbl* desc_tbl;
@@ -175,6 +181,8 @@ private:
     std::shared_ptr<vectorized::SharedHashTableController> _shared_hash_table_controller;
     std::shared_ptr<vectorized::SharedScannerController> _shared_scanner_controller;
     vectorized::RuntimePredicate _runtime_predicate;
+
+    taskgroup::TaskGroupPtr _task_group;
 };
 
 } // namespace doris

@@ -17,9 +17,16 @@
 
 #include "io/fs/hdfs_file_writer.h"
 
+#include <fcntl.h>
+#include <stdint.h>
+
 #include <filesystem>
+#include <ostream>
+#include <string>
+#include <utility>
 
 #include "common/logging.h"
+#include "io/fs/err_utils.h"
 #include "io/fs/hdfs_file_system.h"
 #include "service/backend_options.h"
 #include "util/hdfs_util.h"
@@ -51,8 +58,7 @@ Status HdfsFileWriter::close() {
         std::stringstream ss;
         ss << "failed to flush hdfs file. "
            << "(BE: " << BackendOptions::get_localhost() << ")"
-           << "namenode:" << _hdfs_fs->_namenode << " path:" << _path
-           << ", err: " << hdfsGetLastError();
+           << "namenode:" << _hdfs_fs->_namenode << " path:" << _path << ", err: " << hdfs_error();
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }
@@ -82,8 +88,7 @@ Status HdfsFileWriter::appendv(const Slice* data, size_t data_cnt) {
                     hdfsWrite(_hdfs_fs->_fs_handle->hdfs_fs, _hdfs_file, p, left_bytes);
             if (written_bytes < 0) {
                 return Status::InternalError("write hdfs failed. namenode: {}, path: {}, error: {}",
-                                             _hdfs_fs->_namenode, _path.native(),
-                                             hdfsGetLastError());
+                                             _hdfs_fs->_namenode, _path.native(), hdfs_error());
             }
             left_bytes -= written_bytes;
             p += written_bytes;
@@ -115,7 +120,7 @@ Status HdfsFileWriter::_open() {
             ss << "create dir failed. "
                << "(BE: " << BackendOptions::get_localhost() << ")"
                << " namenode: " << _hdfs_fs->_namenode << " path: " << hdfs_dir
-               << ", err: " << hdfsGetLastError();
+               << ", err: " << hdfs_error();
             LOG(WARNING) << ss.str();
             return Status::InternalError(ss.str());
         }
@@ -126,8 +131,7 @@ Status HdfsFileWriter::_open() {
         std::stringstream ss;
         ss << "open file failed. "
            << "(BE: " << BackendOptions::get_localhost() << ")"
-           << " namenode:" << _hdfs_fs->_namenode << " path:" << _path
-           << ", err: " << hdfsGetLastError();
+           << " namenode:" << _hdfs_fs->_namenode << " path:" << _path << ", err: " << hdfs_error();
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }

@@ -19,10 +19,16 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.Lists;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
@@ -40,7 +46,7 @@ import java.util.concurrent.Executor;
 public class CacheTest extends TestWithFeService {
 
     @Test
-    public void testColumn(@Mocked StatisticsCacheLoader cacheLoader) throws Exception {
+    public void testColumn(@Mocked ColumnStatisticsCacheLoader cacheLoader) throws Exception {
         new Expectations() {
             {
                 cacheLoader.asyncLoad((StatisticsCacheKey) any, (Executor) any);
@@ -130,6 +136,46 @@ public class CacheTest extends TestWithFeService {
 
     @Test
     public void testLoadHistogram() throws Exception {
+        new MockUp<Histogram>() {
+
+            @Mock
+            public Histogram fromResultRow(ResultRow resultRow) {
+                try {
+                    HistogramBuilder histogramBuilder = new HistogramBuilder();
+
+                    Column col = new Column("abc", PrimitiveType.DATETIME);
+
+                    Type dataType = col.getType();
+                    histogramBuilder.setDataType(dataType);
+
+                    double sampleRate = Double.parseDouble(resultRow.getColumnValue("sample_rate"));
+                    histogramBuilder.setSampleRate(sampleRate);
+
+                    String json = resultRow.getColumnValue("buckets");
+                    JsonObject jsonObj = JsonParser.parseString(json).getAsJsonObject();
+
+                    int bucketNum = jsonObj.get("num_buckets").getAsInt();
+                    histogramBuilder.setNumBuckets(bucketNum);
+
+                    List<Bucket> buckets = Lists.newArrayList();
+                    JsonArray jsonArray = jsonObj.getAsJsonArray("buckets");
+                    for (JsonElement element : jsonArray) {
+                        try {
+                            String bucketJson = element.toString();
+                            buckets.add(Bucket.deserializeFromJson(dataType, bucketJson));
+                        } catch (Throwable t) {
+                            t.printStackTrace();
+                        }
+
+                    }
+                    histogramBuilder.setBuckets(buckets);
+
+                    return histogramBuilder.build();
+                } catch (Exception e) {
+                    return null;
+                }
+            }
+        };
         new MockUp<StatisticsUtil>() {
 
             @Mock
@@ -185,7 +231,9 @@ public class CacheTest extends TestWithFeService {
         };
 
         StatisticsCache statisticsCache = new StatisticsCache();
+        statisticsCache.refreshHistogramSync(0, -1, "col");
+        Thread.sleep(10000);
         Histogram histogram = statisticsCache.getHistogram(0, "col");
-        Assertions.assertEquals(null, histogram);
+        Assertions.assertNotNull(histogram);
     }
 }

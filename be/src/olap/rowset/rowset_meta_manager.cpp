@@ -17,17 +17,18 @@
 
 #include "olap/rowset/rowset_meta_manager.h"
 
+#include <gen_cpp/olap_file.pb.h>
+
 #include <boost/algorithm/string/trim.hpp>
 #include <fstream>
-#include <sstream>
+#include <memory>
+#include <new>
 #include <string>
 #include <vector>
 
 #include "common/logging.h"
-#include "json2pb/json_to_pb.h"
-#include "json2pb/pb_to_json.h"
 #include "olap/olap_define.h"
-#include "olap/storage_engine.h"
+#include "olap/olap_meta.h"
 #include "olap/utils.h"
 
 namespace doris {
@@ -40,6 +41,12 @@ bool RowsetMetaManager::check_rowset_meta(OlapMeta* meta, TabletUid tablet_uid,
     std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();
     std::string value;
     return meta->key_may_exist(META_COLUMN_FAMILY_INDEX, key, &value);
+}
+
+Status RowsetMetaManager::exists(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id) {
+    std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();
+    std::string value;
+    return meta->get(META_COLUMN_FAMILY_INDEX, key, &value);
 }
 
 Status RowsetMetaManager::get_rowset_meta(OlapMeta* meta, TabletUid tablet_uid,

@@ -26,12 +26,13 @@
 //
 // ... prev vs. next pointer ordering ...
 
+#include <gen_cpp/olap_file.pb.h>
+
 #include <atomic>
 
 #include "common/logging.h"
-#include "gen_cpp/olap_file.pb.h"
-#include "runtime/mem_pool.h"
 #include "util/random.h"
+#include "vec/common/arena.h"
 
 namespace doris {
 
@@ -63,10 +64,10 @@ public:
     };
 
     // Create a new SkipList object that will use "cmp" for comparing keys,
-    // and will allocate memory using "*mem_pool".
-    // NOTE: Objects allocated in the mem_pool must remain allocated for
+    // and will allocate memory using "*arena".
+    // NOTE: Objects allocated in the arena must remain allocated for
     // the lifetime of the skiplist object.
-    explicit SkipList(Comparator* cmp, MemPool* mem_pool, bool can_dup);
+    explicit SkipList(Comparator* cmp, vectorized::Arena* arena, bool can_dup);
 
     // Insert key into the list.
     void Insert(const Key& key, bool* overwritten);
@@ -123,7 +124,7 @@ private:
     Comparator* const compare_;
     // When value is true, means indicates that duplicate values are allowed.
     bool _can_dup;
-    MemPool* const _mem_pool; // MemPool used for allocations of nodes
+    vectorized::Arena* const _arena; // Arena used for allocations of nodes
 
     Node* const head_;
 
@@ -203,8 +204,7 @@ private:
 template <typename Key, class Comparator>
 typename SkipList<Key, Comparator>::Node* SkipList<Key, Comparator>::NewNode(const Key& key,
                                                                              int height) {
-    char* mem =
-            (char*)_mem_pool->allocate(sizeof(Node) + sizeof(std::atomic<Node*>) * (height - 1));
+    char* mem = _arena->alloc(sizeof(Node) + sizeof(std::atomic<Node*>) * (height - 1));
     return new (mem) Node(key);
 }
 
@@ -342,10 +342,10 @@ typename SkipList<Key, Comparator>::Node* SkipList<Key, Comparator>::FindLast() 
 }
 
 template <typename Key, class Comparator>
-SkipList<Key, Comparator>::SkipList(Comparator* cmp, MemPool* mem_pool, bool can_dup)
+SkipList<Key, Comparator>::SkipList(Comparator* cmp, vectorized::Arena* arena, bool can_dup)
         : compare_(cmp),
           _can_dup(can_dup),
-          _mem_pool(mem_pool),
+          _arena(arena),
           head_(NewNode(0 /* any key will do */, kMaxHeight)),
           max_height_(1),
           rnd_(0xdeadbeef) {

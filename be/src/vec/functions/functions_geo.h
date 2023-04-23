@@ -17,12 +17,27 @@
 
 #pragma once
 
-#include "geo/geo_types.h"
+#include <stddef.h>
+
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
 #include "udf/udf.h"
 #include "vec/core/column_numbers.h"
-#include "vec/data_types/data_type_number.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/function.h"
+
+namespace doris {
+class GeoShape;
+
+namespace vectorized {
+class Block;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

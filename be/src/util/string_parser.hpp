@@ -21,19 +21,31 @@
 #pragma once
 
 #include <fast_float/fast_float.h>
+#include <fast_float/parse_number.h>
+#include <glog/logging.h>
+#include <stdlib.h>
 
-#include <cmath>
+// IWYU pragma: no_include <bits/std_abs.h>
+#include <cmath> // IWYU pragma: keep
 #include <cstdint>
-#include <cstring>
 #include <limits>
+#include <map>
 #include <string>
+#include <system_error>
 #include <type_traits>
+#include <utility>
 
-#include "common/compiler_util.h"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
-#include "runtime/primitive_type.h"
+#include "vec/data_types/data_type_decimal.h"
 
 namespace doris {
+namespace vectorized {
+struct Int128I;
+template <typename T>
+struct Decimal;
+} // namespace vectorized
 
 // Utility functions for doing atoi/atof on non-null terminated strings.  On micro benchmarks,
 // this is significantly faster than libc (atoi/strtol and atof/strtod).
@@ -614,6 +626,13 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
             // an exponent will be made later.
             if (LIKELY(type_precision > precision)) {
                 value = (value * 10) + (c - '0'); // Benchmarks are faster with parenthesis...
+            } else {
+                *result = StringParser::PARSE_OVERFLOW;
+                value = is_negative ? vectorized::min_decimal_value<vectorized::Decimal<T>>(
+                                              type_precision)
+                                    : vectorized::max_decimal_value<vectorized::Decimal<T>>(
+                                              type_precision);
+                return value;
             }
             DCHECK(value >= 0); // For some reason //DCHECK_GE doesn't work with __int128.
             ++precision;
@@ -647,7 +666,6 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
     }
 
     // Find the number of truncated digits before adjusting the precision for an exponent.
-    int truncated_digit_count = precision - type_precision;
     if (exponent > scale) {
         // Ex: 0.1e3 (which at this point would have precision == 1 and scale == 1), the
         //     scale must be set to 0 and the value set to 100 which means a precision of 3.
@@ -679,9 +697,6 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
     } else if (UNLIKELY(scale > type_scale)) {
         *result = StringParser::PARSE_UNDERFLOW;
         int shift = scale - type_scale;
-        if (UNLIKELY(truncated_digit_count > 0)) {
-            shift -= truncated_digit_count;
-        }
         if (shift > 0) {
             T divisor;
             if constexpr (std::is_same_v<T, vectorized::Int128I>) {
@@ -689,14 +704,14 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
             } else {
                 divisor = get_scale_multiplier<T>(shift);
             }
-            if (LIKELY(divisor >= 0)) {
+            if (LIKELY(divisor > 0)) {
                 T remainder = value % divisor;
                 value /= divisor;
                 if ((remainder > 0 ? T(remainder) : T(-remainder)) >= (divisor >> 1)) {
                     value += 1;
                 }
             } else {
-                DCHECK(divisor == -1); // //DCHECK_EQ doesn't work with __int128.
+                DCHECK(divisor == -1 || divisor == 0); // //DCHECK_EQ doesn't work with __int128.
                 value = 0;
             }
         }

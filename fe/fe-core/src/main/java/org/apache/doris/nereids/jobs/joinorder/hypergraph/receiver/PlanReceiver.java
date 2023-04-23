@@ -347,9 +347,6 @@ public class PlanReceiver implements AbstractReceiver {
             }
             // shadow all join order rule
             CopyInResult copyInResult = jobContext.getCascadesContext().getMemo().copyIn(logicalPlan, root, false);
-            for (Rule rule : jobContext.getCascadesContext().getRuleSet().getJoinOrderRule()) {
-                copyInResult.correspondingExpression.setApplied(rule);
-            }
             for (Rule rule : jobContext.getCascadesContext().getRuleSet().getImplementationRules()) {
                 copyInResult.correspondingExpression.setApplied(rule);
             }

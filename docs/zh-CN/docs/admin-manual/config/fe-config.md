@@ -127,7 +127,7 @@ FE 的配置项有两种方式进行配置：
 
 #### `meta_dir`
 
-默认值：PaloFe.DORIS_HOME_DIR + "/doris-meta"
+默认值：DorisFE.DORIS_HOME_DIR + "/doris-meta"
 
 Doris 元数据将保存在这里。 强烈建议将此目录的存储为：
 
@@ -173,7 +173,13 @@ Doris 元数据将保存在这里。 强烈建议将此目录的存储为：
 
 元数据会同步写入到多个 Follower FE，这个参数用于控制 Master FE 等待 Follower FE 发送 ack 的超时时间。当写入的数据较大时，可能 ack 时间较长，如果超时，会导致写元数据失败，FE 进程退出。此时可以适当调大这个参数。
 
-#### `bdbje_lock_timeout_second`
+### grpc_threadmgr_threads_nums
+
+默认值: 4096
+
+在grpc_threadmgr中处理grpc events的线程数量。
+
+#### `bdbje_lock_timeout_second`>>>>>>> 1b46f49ad0 (use customed threadpool instead of the default threadpool of grpc java to get better metrics)
 
 默认值：1
 
@@ -399,6 +405,19 @@ Doris FE 通过 mysql 协议查询连接端口
 默认值：8030
 
 FE http 端口，当前所有 FE http 端口都必须相同
+
+#### `https_port`
+
+默认值：8050
+
+FE https 端口，当前所有 FE https 端口都必须相同
+
+#### `enable_https`
+
+默认值：false
+
+FE https 使能标志位，false 表示支持 http，true 表示同时支持 http 与 https，并且会自动将 http 请求重定向到 https
+如果 enable_https 为 true，需要在 fe.conf 中配置 ssl 证书信息
 
 #### `qe_max_connection`
 
@@ -1596,7 +1615,7 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 
 #### `sys_log_dir`
 
-默认值：PaloFe.DORIS_HOME_DIR + "/log"
+默认值：DorisFE.DORIS_HOME_DIR + "/log"
 
 sys_log_dir:
 
@@ -1657,7 +1676,7 @@ sys_log_dir:
 
 #### `audit_log_dir`
 
-默认值：PaloFe.DORIS_HOME_DIR + "/log"
+默认值：DorisFE.DORIS_HOME_DIR + "/log"
 
 审计日志目录：
 这指定了 FE 审计日志目录。
@@ -2328,6 +2347,16 @@ hive metastore 的默认超时时间
 
 是否为 Master FE 节点独有的配置项：true
 
+#### `max_external_cache_loader_thread_pool_size`
+
+用于 external 外部表的 meta 缓存加载线程池的最大线程数。
+
+默认值：10
+
+是否可以动态配置：false
+
+是否为 Master FE 节点独有的配置项：false
+
 #### `max_external_file_cache_num`
 
 用于 external 外部表的最大文件缓存数量。
@@ -2396,13 +2425,13 @@ FE 会在每隔 es_state_sync_interval_secs 调用 es api 获取 es 索引分片
 
 #### `yarn_config_dir`
 
-默认值：PaloFe.DORIS_HOME_DIR + "/lib/yarn-config"
+默认值：DorisFE.DORIS_HOME_DIR + "/lib/yarn-config"
 
 默认的 Yarn 配置文件目录每次运行 Yarn 命令之前，我们需要检查一下这个路径下是否存在 config 文件，如果不存在，则创建它们。
 
 #### `yarn_client_path`
 
-默认值：PaloFe.DORIS_HOME_DIR + "/lib/yarn-client/hadoop/bin/yarn"
+默认值：DorisFE.DORIS_HOME_DIR + "/lib/yarn-client/hadoop/bin/yarn"
 
 默认 Yarn 客户端路径
 
@@ -2420,7 +2449,7 @@ FE 会在每隔 es_state_sync_interval_secs 调用 es api 获取 es 索引分片
 
 #### `spark_home_default_dir`
 
-默认值：PaloFe.DORIS_HOME_DIR + "/lib/spark2x"
+默认值：DorisFE.DORIS_HOME_DIR + "/lib/spark2x"
 
 默认的 Spark home 路径
 
@@ -2434,13 +2463,13 @@ Spark 默认版本号
 
 #### `tmp_dir`
 
-默认值：PaloFe.DORIS_HOME_DIR + "/temp_dir"
+默认值：DorisFE.DORIS_HOME_DIR + "/temp_dir"
 
 temp dir 用于保存某些过程的中间结果，例如备份和恢复过程。 这些过程完成后，将清除此目录中的文件。
 
 #### `custom_config_dir`
 
-默认值：PaloFe.DORIS_HOME_DIR + "/conf"
+默认值：DorisFE.DORIS_HOME_DIR + "/conf"
 
 自定义配置文件目录
 
@@ -2636,3 +2665,17 @@ show data （其他用法：HELP SHOW DATA）
 
 仅在 `prefer_compute_node_for_external_table` 为 true 时生效。如果计算节点数小于此值，则对外部表的查询将尝试使用一些混合节点，让节点总数达到这个值。
 如果计算节点数大于这个值，外部表的查询将只分配给计算节点。
+
+#### `infodb_support_ext_catalog`
+
+<version since="1.2.4"></version>
+
+默认值：false
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：false
+
+当设置为 false 时，查询 `information_schema` 中的表时，将不再返回 external catalog 中的表的信息。
+
+这个参数主要用于避免因 external catalog 无法访问、信息过多等原因导致的查询 `information_schema` 超时的问题。

@@ -17,26 +17,43 @@
 
 #include "runtime/snapshot_loader.h"
 
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
+#include <fmt/format.h>
+#include <gen_cpp/FrontendService.h>
+#include <gen_cpp/FrontendService_types.h>
+#include <gen_cpp/HeartbeatService_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Status_types.h>
+#include <gen_cpp/Types_types.h>
 #include <stdint.h>
+#include <stdio.h>
+#include <unistd.h>
+
+#include <algorithm>
+#include <cstring>
+#include <filesystem>
+#include <istream>
+#include <utility>
 
 #include "common/logging.h"
-#include "env/env.h"
-#include "gen_cpp/FrontendService.h"
-#include "gen_cpp/FrontendService_types.h"
-#include "gen_cpp/HeartbeatService_types.h"
-#include "gen_cpp/PaloBrokerService_types.h"
-#include "gen_cpp/TPaloBrokerService.h"
 #include "io/fs/broker_file_system.h"
+#include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
+#include "io/fs/local_file_system.h"
+#include "io/fs/path.h"
+#include "io/fs/remote_file_system.h"
 #include "io/fs/s3_file_system.h"
 #include "io/hdfs_builder.h"
+#include "olap/data_dir.h"
 #include "olap/snapshot_manager.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
-#include "runtime/broker_mgr.h"
+#include "olap/tablet_manager.h"
+#include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
-#include "util/file_utils.h"
 #include "util/s3_uri.h"
+#include "util/s3_util.h"
 #include "util/thrift_rpc_helper.h"
 
 namespace doris {
@@ -70,7 +87,7 @@ Status SnapshotLoader::init(TStorageBackendType::type type, const std::string& l
         _remote_fs = std::move(fs);
     } else if (TStorageBackendType::type::BROKER == type) {
         std::shared_ptr<io::BrokerFileSystem> fs;
-        RETURN_IF_ERROR(io::BrokerFileSystem::create(_broker_addr, _prop, 0, &fs));
+        RETURN_IF_ERROR(io::BrokerFileSystem::create(_broker_addr, _prop, &fs));
         _remote_fs = std::move(fs);
     } else {
         return Status::InternalError("Unknown storage tpye: {}", type);
@@ -132,13 +149,8 @@ Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_d
             const std::string& local_file = *it;
             // calc md5sum of localfile
             std::string md5sum;
-            status = FileUtils::md5sum(src_path + "/" + local_file, &md5sum);
-            if (!status.ok()) {
-                std::stringstream ss;
-                ss << "failed to get md5sum of file: " << local_file << ": " << status;
-                LOG(WARNING) << ss.str();
-                return Status::InternalError(ss.str());
-            }
+            RETURN_IF_ERROR(
+                    io::global_local_filesystem()->md5sum(src_path + "/" + local_file, &md5sum));
             VLOG_CRITICAL << "get file checksum: " << local_file << ": " << md5sum;
             local_files_with_checksum.push_back(local_file + "." + md5sum);
 
@@ -263,7 +275,8 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
                 } else {
                     // check checksum
                     std::string local_md5sum;
-                    Status st = FileUtils::md5sum(local_path + "/" + remote_file, &local_md5sum);
+                    Status st = io::global_local_filesystem()->md5sum(
+                            local_path + "/" + remote_file, &local_md5sum);
                     if (!st.ok()) {
                         LOG(WARNING) << "failed to get md5sum of local file: " << remote_file
                                      << ". msg: " << st << ". download it";
@@ -305,13 +318,8 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
 
             // 3. check md5 of the downloaded file
             std::string downloaded_md5sum;
-            status = FileUtils::md5sum(full_local_file, &downloaded_md5sum);
-            if (!status.ok()) {
-                std::stringstream ss;
-                ss << "failed to get md5sum of file: " << full_local_file << ", err: " << status;
-                LOG(WARNING) << ss.str();
-                return Status::InternalError(ss.str());
-            }
+            RETURN_IF_ERROR(
+                    io::global_local_filesystem()->md5sum(full_local_file, &downloaded_md5sum));
             VLOG_CRITICAL << "get downloaded file checksum: " << full_local_file << ": "
                           << downloaded_md5sum;
             if (downloaded_md5sum != file_stat.md5) {
@@ -531,6 +539,7 @@ Status SnapshotLoader::_get_tablet_id_and_schema_hash_from_file_path(const std::
 
 Status SnapshotLoader::_check_local_snapshot_paths(
         const std::map<std::string, std::string>& src_to_dest_path, bool check_src) {
+    bool res = true;
     for (const auto& pair : src_to_dest_path) {
         std::string path;
         if (check_src) {
@@ -538,7 +547,9 @@ Status SnapshotLoader::_check_local_snapshot_paths(
         } else {
             path = pair.second;
         }
-        if (!FileUtils::is_dir(path)) {
+
+        RETURN_IF_ERROR(io::global_local_filesystem()->is_directory(path, &res));
+        if (!res) {
             std::stringstream ss;
             ss << "snapshot path is not directory or does not exist: " << path;
             LOG(WARNING) << ss.str();
@@ -551,12 +562,11 @@ Status SnapshotLoader::_check_local_snapshot_paths(
 
 Status SnapshotLoader::_get_existing_files_from_local(const std::string& local_path,
                                                       std::vector<std::string>* local_files) {
-    Status status = FileUtils::list_files(Env::Default(), local_path, local_files);
-    if (!status.ok()) {
-        std::stringstream ss;
-        ss << "failed to list files in local path: " << local_path << ", msg: " << status;
-        LOG(WARNING) << ss.str();
-        return status;
+    bool exists = true;
+    std::vector<io::FileInfo> files;
+    RETURN_IF_ERROR(io::global_local_filesystem()->list(local_path, true, &files, &exists));
+    for (auto& file : files) {
+        local_files->push_back(file.file_name);
     }
     LOG(INFO) << "finished to list files in local path: " << local_path
               << ", file num: " << local_files->size();

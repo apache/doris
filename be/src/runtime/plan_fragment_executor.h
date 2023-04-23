@@ -20,17 +20,22 @@
 
 #pragma once
 
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/types.pb.h>
+
 #include <condition_variable>
 #include <functional>
 #include <future>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <string>
 #include <vector>
 
-#include "common/object_pool.h"
 #include "common/status.h"
-#include "runtime/query_fragments_ctx.h"
-#include "runtime/query_statistics.h"
 #include "runtime/runtime_state.h"
-#include "vec/core/block.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 
@@ -38,14 +43,14 @@ class QueryFragmentsCtx;
 class ExecNode;
 class RowDescriptor;
 class DataSink;
-class DataStreamMgr;
-class RuntimeProfile;
-class RuntimeState;
-class TNetworkAddress;
-class TPlanExecRequest;
-class TPlanFragment;
-class TPlanFragmentExecParams;
-class TPlanExecParams;
+class DescriptorTbl;
+class ExecEnv;
+class ObjectPool;
+class QueryStatistics;
+
+namespace vectorized {
+class Block;
+} // namespace vectorized
 
 // PlanFragmentExecutor handles all aspects of the execution of a single plan fragment,
 // including setup and tear-down, both in the success and error case.
@@ -184,6 +189,9 @@ private:
 
     // Number of rows returned by this fragment
     RuntimeProfile::Counter* _rows_produced_counter;
+
+    // Number of blocks returned by this fragment
+    RuntimeProfile::Counter* _blocks_produced_counter;
 
     RuntimeProfile::Counter* _fragment_cpu_timer;
 

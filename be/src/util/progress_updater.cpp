@@ -20,6 +20,8 @@
 
 #include "util/progress_updater.h"
 
+#include <ostream>
+
 #include "common/logging.h"
 
 namespace doris {

@@ -17,10 +17,15 @@
 
 #include "olap/cumulative_compaction_policy.h"
 
-#include <boost/algorithm/string.hpp>
+#include <algorithm>
+#include <list>
+#include <ostream>
 #include <string>
 
-#include "util/time.h"
+#include "common/logging.h"
+#include "olap/olap_common.h"
+#include "olap/tablet.h"
+#include "olap/tablet_meta.h"
 
 namespace doris {
 

@@ -228,9 +228,9 @@ message TabletSchemaPB {
     optional int32 schema_version = 14;
     optional bool disable_auto_compaction = 15 [default=false];
     repeated TabletIndexPB index = 16;
-    optional bool store_row_column = 17 [default=false]; // store tuplerow oriented column
-    optional bool is_dynamic_schema = 18 [default=false];
-    optional int32 version_col_idx = 19 [default = -1];
+    optional int32 version_col_idx = 17 [default = -1];
+    optional bool store_row_column = 18 [default=false]; // store tuplerow oriented column
+    optional bool is_dynamic_schema = 19 [default=false];
 }
 
 enum TabletStatePB {

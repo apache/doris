@@ -17,12 +17,26 @@
 
 #pragma once
 
+#include <atomic>
+#include <memory>
+
 #include "common/status.h"
-#include "util/blocking_queue.hpp"
 #include "util/threadpool.h"
-#include "vec/exec/scan/scanner_context.h"
+
+namespace doris {
+class ExecEnv;
+class PriorityThreadPool;
+
+namespace vectorized {
+class VScanner;
+} // namespace vectorized
+template <typename T>
+class BlockingQueue;
+} // namespace doris
 
 namespace doris::vectorized {
+
+class ScannerContext;
 
 // Responsible for the scheduling and execution of all Scanners of a BE node.
 // ScannerScheduler has two types of thread pools:
@@ -41,7 +55,6 @@ namespace doris::vectorized {
 //     Each Scanner will act as a producer, read a group of blocks and put them into
 //     the corresponding block queue.
 //     The corresponding ScanNode will act as a consumer to consume blocks from the block queue.
-class Env;
 class ScannerScheduler {
 public:
     ScannerScheduler();

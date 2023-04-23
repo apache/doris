@@ -27,17 +27,19 @@
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
+#include "io/fs/local_file_system.h"
 #include "olap/field.h"
 #include "olap/options.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "olap/tablet_manager.h"
 #include "olap/tablet_meta_manager.h"
+#include "olap/txn_manager.h"
 #include "olap/utils.h"
 #include "runtime/descriptor_helper.h"
+#include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
-#include "runtime/mem_pool.h"
-#include "util/file_utils.h"
 
 namespace doris {
 
@@ -52,8 +54,7 @@ static void set_up() {
     char buffer[MAX_PATH_LEN];
     EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
     config::storage_root_path = std::string(buffer) + "/data_test";
-    FileUtils::remove_all(config::storage_root_path);
-    FileUtils::create_dir(config::storage_root_path);
+    io::global_local_filesystem()->delete_and_create_directory(config::storage_root_path);
     std::vector<StorePath> paths;
     paths.emplace_back(config::storage_root_path, -1);
 
@@ -74,7 +75,8 @@ static void tear_down() {
         k_engine = nullptr;
     }
     EXPECT_EQ(system("rm -rf ./data_test"), 0);
-    FileUtils::remove_all(std::string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX);
+    io::global_local_filesystem()->delete_directory(std::string(getenv("DORIS_HOME")) + "/" +
+                                                    UNUSED_PREFIX);
 }
 
 static void create_tablet_request(int64_t tablet_id, int32_t schema_hash,
@@ -428,8 +430,6 @@ TEST_F(TestDeltaWriter, vec_write) {
     DeltaWriter::open(&write_req, &delta_writer, TUniqueId());
     ASSERT_NE(delta_writer, nullptr);
 
-    MemPool pool;
-
     vectorized::Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {
         block.insert(vectorized::ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
@@ -574,8 +574,6 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     DeltaWriter* delta_writer = nullptr;
     DeltaWriter::open(&write_req, &delta_writer, TUniqueId());
     ASSERT_NE(delta_writer, nullptr);
-
-    MemPool pool;
 
     vectorized::Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {

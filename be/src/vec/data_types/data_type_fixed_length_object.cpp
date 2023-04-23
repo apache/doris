@@ -17,6 +17,14 @@
 
 #include "vec/data_types/data_type_fixed_length_object.h"
 
+#include <glog/logging.h>
+#include <string.h>
+
+#include <ostream>
+
+#include "vec/columns/column.h"
+#include "vec/common/assert_cast.h"
+
 namespace doris::vectorized {
 
 char* DataTypeFixedLengthObject::serialize(const IColumn& column, char* buf,

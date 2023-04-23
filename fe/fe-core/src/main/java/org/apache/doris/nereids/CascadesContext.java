@@ -93,6 +93,8 @@ public class CascadesContext implements ScheduleContext, PlanSource {
 
     private boolean isRewriteRoot;
 
+    private volatile boolean isTimeout = false;
+
     private Optional<Scope> outerScope = Optional.empty();
 
     public CascadesContext(Plan plan, Memo memo, StatementContext statementContext,
@@ -133,6 +135,14 @@ public class CascadesContext implements ScheduleContext, PlanSource {
     public static CascadesContext newRewriteContext(StatementContext statementContext,
             Plan initPlan, CTEContext cteContext) {
         return new CascadesContext(initPlan, null, statementContext, cteContext, PhysicalProperties.ANY);
+    }
+
+    public synchronized void setIsTimeout(boolean isTimeout) {
+        this.isTimeout = isTimeout;
+    }
+
+    public synchronized boolean isTimeout() {
+        return isTimeout;
     }
 
     public void toMemo() {
@@ -282,7 +292,9 @@ public class CascadesContext implements ScheduleContext, PlanSource {
         this.outerScope = Optional.ofNullable(outerScope);
     }
 
-    /** getAndCacheSessionVariable */
+    /**
+     * getAndCacheSessionVariable
+     */
     public <T> T getAndCacheSessionVariable(String cacheName,
             T defaultValue, Function<SessionVariable, T> variableSupplier) {
         ConnectContext connectContext = getConnectContext();

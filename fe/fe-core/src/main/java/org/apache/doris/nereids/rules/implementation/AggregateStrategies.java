@@ -29,9 +29,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.RequireProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
-import org.apache.doris.nereids.rules.expression.rewrite.rules.FoldConstantRuleOnFE;
-import org.apache.doris.nereids.rules.expression.rewrite.rules.TypeCoercion;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.rules.rewrite.logical.NormalizeAggregate;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -63,6 +61,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate.PushDownAggOp;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
@@ -1229,8 +1228,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
 
     // don't invoke the ExpressionNormalization, because the expression maybe simplified and get rid of some slots
     private If assignNullType(If ifExpr, CascadesContext cascadesContext) {
-        ExpressionRewriteContext context = new ExpressionRewriteContext(cascadesContext);
-        If ifWithCoercion = (If) TypeCoercion.INSTANCE.rewrite(ifExpr, context);
+        If ifWithCoercion = (If) TypeCoercionUtils.processBoundFunction(ifExpr);
         Expression trueValue = ifWithCoercion.getArgument(1);
         if (trueValue instanceof Cast && trueValue.child(0) instanceof NullLiteral) {
             List<Expression> newArgs = Lists.newArrayList(ifWithCoercion.getArguments());

@@ -21,6 +21,7 @@
 
 #include "common/config.h"
 #include "exec/data_sink.h"
+#include "runtime/exec_env.h"
 #include "runtime/plan_fragment_executor.h"
 
 namespace doris {

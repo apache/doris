@@ -20,6 +20,7 @@ package org.apache.doris.nereids.stats;
 import org.apache.doris.nereids.stats.FilterEstimation.EstimationContext;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -29,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
@@ -43,12 +45,12 @@ import org.apache.doris.statistics.Histogram;
 import org.apache.doris.statistics.HistogramBuilder;
 import org.apache.doris.statistics.StatisticRange;
 import org.apache.doris.statistics.Statistics;
-
-import com.google.common.base.Preconditions;
+import org.apache.doris.statistics.StatisticsBuilder;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.function.Predicate;
 
@@ -63,7 +65,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     public static final double DEFAULT_HAVING_COEFFICIENT = 0.01;
 
     public static final double DEFAULT_EQUALITY_COMPARISON_SELECTIVITY = 0.1;
-
+    public static final double DEFAULT_LIKE_COMPARISON_SELECTIVITY = 0.2;
     private Set<Slot> aggSlots;
 
     public FilterEstimation() {
@@ -79,7 +81,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     public Statistics estimate(Expression expression, Statistics statistics) {
         // For a comparison predicate, only when it's left side is a slot and right side is a literal, we would
         // consider is a valid predicate.
-        return expression.accept(this, new EstimationContext(false, statistics));
+        return expression.accept(this, new EstimationContext(statistics));
     }
 
     @Override
@@ -93,7 +95,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         Expression rightExpr = predicate.child(1);
         Statistics leftStats = leftExpr.accept(this, context);
         Statistics andStats = rightExpr.accept(new FilterEstimation(),
-                new EstimationContext(context.isNot, leftStats));
+                new EstimationContext(leftStats));
         if (predicate instanceof And) {
             return andStats;
         } else if (predicate instanceof Or) {
@@ -170,22 +172,26 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     }
 
     private Statistics updateLessThanLiteral(Expression leftExpr, ColumnStatistic statsForLeft,
-            double val, EstimationContext context) {
+            double val, EstimationContext context, boolean contains) {
         if (statsForLeft.histogram != null) {
-            return estimateLessThanLiteralWithHistogram(leftExpr, statsForLeft, val, context);
+            return estimateLessThanLiteralWithHistogram(leftExpr, statsForLeft, val, context, contains);
         }
+        //rightRange.distinctValues should not be used
+        StatisticRange rightRange = new StatisticRange(statsForLeft.minValue, val, statsForLeft.ndv,
+                leftExpr.getDataType());
         return estimateBinaryComparisonFilter(leftExpr,
                 statsForLeft,
-                new StatisticRange(Double.NEGATIVE_INFINITY, val, statsForLeft.ndv), context);
+                rightRange, context);
     }
 
     private Statistics updateGreaterThanLiteral(Expression leftExpr, ColumnStatistic statsForLeft,
-            double val, EstimationContext context) {
+            double val, EstimationContext context, boolean contains) {
         if (statsForLeft.histogram != null) {
-            return estimateGreaterThanLiteralWithHistogram(leftExpr, statsForLeft, val, context);
+            return estimateGreaterThanLiteralWithHistogram(leftExpr, statsForLeft, val, context, contains);
         }
-        StatisticRange rightRange = new StatisticRange(val, Double.POSITIVE_INFINITY,
-                statsForLeft.ndv);
+        //rightRange.distinctValues should not be used
+        StatisticRange rightRange = new StatisticRange(val, statsForLeft.maxValue,
+                statsForLeft.ndv, leftExpr.getDataType());
         return estimateBinaryComparisonFilter(leftExpr, statsForLeft, rightRange, context);
     }
 
@@ -194,66 +200,55 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         if (statsForLeft == ColumnStatistic.UNKNOWN) {
             return context.statistics.withSel(DEFAULT_INEQUALITY_COEFFICIENT);
         }
-        double selectivity;
-        double ndv = statsForLeft.ndv;
-        double val = statsForRight.maxValue;
+
         if (cp instanceof EqualTo || cp instanceof NullSafeEqual) {
-
-            if (val > statsForLeft.maxValue || val < statsForLeft.minValue) {
-                selectivity = 0.0;
-            } else {
-                selectivity = StatsMathUtil.minNonNaN(1.0, 1.0 / ndv);
-            }
-            if (context.isNot) {
-                selectivity = 1 - selectivity;
-            }
-            if (statsForLeft.histogram != null) {
-                return estimateEqualToWithHistogram(cp.left(), statsForLeft, val, context);
-            }
-            // cp.left : func(A), we assume func(A) has same statistics with A
-            // for example: cast(N_NAME as varchar(*)) = 'GERMANY',
-            // we assume cast(N_NAME as varchar(*)) and N_NAME have the same col stats
-            Set<Slot> leftSlots = cp.left().getInputSlots();
-            Preconditions.checkArgument(leftSlots.size() <= 1,
-                    "stats derive: equal condition only support at one column, but we meet "
-                            + leftSlots.size()
-            );
-
-            Statistics equalStats = context.statistics.withSel(selectivity);
-            /*
-            leftSlots could be empty, for example:
-            select * from (select 'jj' as kk1, sum(k2) from ${tableName2} where k10 = '2015-04-02' group by kk1)tt
-            where kk1 in ('jj')
-            kk1 in ('jj') => kk1 = 'jj' => 'jj'='jj
-            TODO const fold could eliminate this equalTo.
-             */
-            if (!leftSlots.isEmpty()) {
-                Slot leftSlot = leftSlots.iterator().next();
-                //update min/max of cp.left
-                ColumnStatistic columnStats = equalStats.findColumnStatistics(leftSlot);
-                ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(columnStats);
-                colStatsBuilder.setMaxValue(val);
-                colStatsBuilder.setMinValue(val);
-                equalStats.addColumnStats(leftSlot, colStatsBuilder.build());
-            }
-            return equalStats;
+            return estimateEqualTo(cp, statsForLeft, statsForRight, context);
         } else {
+            double val = statsForRight.maxValue;
             if (cp instanceof LessThan || cp instanceof LessThanEqual) {
-                if (context.isNot) {
-                    return updateGreaterThanLiteral(cp.left(), statsForLeft, val, context);
-                } else {
-                    return updateLessThanLiteral(cp.left(), statsForLeft, val, context);
-                }
+                return updateLessThanLiteral(cp.left(), statsForLeft, val, context, cp instanceof LessThanEqual);
             } else if (cp instanceof GreaterThan || cp instanceof GreaterThanEqual) {
-                if (context.isNot) {
-                    return updateLessThanLiteral(cp.left(), statsForLeft, val, context);
-                } else {
-                    return updateGreaterThanLiteral(cp.left(), statsForLeft, val, context);
-                }
+
+                return updateGreaterThanLiteral(cp.left(), statsForLeft, val, context,
+                        cp instanceof GreaterThanEqual);
             } else {
                 throw new RuntimeException(String.format("Unexpected expression : %s", cp.toSql()));
             }
         }
+    }
+
+    private Statistics estimateEqualTo(ComparisonPredicate cp, ColumnStatistic statsForLeft,
+            ColumnStatistic statsForRight,
+            EstimationContext context) {
+        double selectivity;
+        double ndv = statsForLeft.ndv;
+        double val = statsForRight.maxValue;
+        if (val > statsForLeft.maxValue || val < statsForLeft.minValue) {
+            selectivity = 0.0;
+        } else {
+            selectivity = StatsMathUtil.minNonNaN(1.0, 1.0 / ndv);
+        }
+        if (statsForLeft.histogram != null) {
+            return estimateEqualToWithHistogram(cp.left(), statsForLeft, val, context);
+        }
+
+        Statistics equalStats = context.statistics.withSel(selectivity);
+        Expression left = cp.left();
+        if (left instanceof Cast) {
+            left = ((Cast) left).child();
+        }
+        if (left instanceof SlotReference) {
+            Slot leftSlot = (SlotReference) left;
+            //update min/max of cp.left
+            ColumnStatistic columnStats = equalStats.findColumnStatistics(leftSlot);
+            ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(columnStats);
+            colStatsBuilder.setMaxValue(val);
+            colStatsBuilder.setMinValue(val);
+            colStatsBuilder.setNdv(1);
+            colStatsBuilder.setNumNulls(0);
+            equalStats.addColumnStats(leftSlot, colStatsBuilder.build());
+        }
+        return equalStats;
     }
 
     private Statistics calculateWhenBothColumn(ComparisonPredicate cp, EstimationContext context,
@@ -274,7 +269,6 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
 
     @Override
     public Statistics visitInPredicate(InPredicate inPredicate, EstimationContext context) {
-        boolean isNotIn = context != null && context.isNot;
         Expression compareExpr = inPredicate.getCompareExpr();
         ColumnStatistic compareExprStats = ExpressionEstimation.estimate(compareExpr, context.statistics);
         if (compareExprStats.isUnKnown || compareExpr instanceof Function) {
@@ -301,30 +295,20 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         double validInOptCount = 0;
         double selectivity = 1.0;
         ColumnStatisticBuilder compareExprStatsBuilder = new ColumnStatisticBuilder(compareExprStats);
-        if (isNotIn) {
-            for (Expression option : options) {
-                ColumnStatistic optionStats = ExpressionEstimation.estimate(option, context.statistics);
-                double validOptionNdv = compareExprStats.ndvIntersection(optionStats);
-                if (validOptionNdv > 0.0) {
-                    validInOptCount += validOptionNdv;
-                }
+
+        for (Expression option : options) {
+            ColumnStatistic optionStats = ExpressionEstimation.estimate(option, context.statistics);
+            double validOptionNdv = compareExprStats.ndvIntersection(optionStats);
+            if (validOptionNdv > 0.0) {
+                validInOptCount += validOptionNdv;
+                maxOption = Math.max(optionStats.maxValue, maxOption);
+                minOption = Math.min(optionStats.minValue, minOption);
             }
-            validInOptCount = Math.max(1, compareExprStats.ndv - validInOptCount);
-        } else {
-            for (Expression option : options) {
-                ColumnStatistic optionStats = ExpressionEstimation.estimate(option, context.statistics);
-                double validOptionNdv = compareExprStats.ndvIntersection(optionStats);
-                if (validOptionNdv > 0.0) {
-                    validInOptCount += validOptionNdv;
-                    maxOption = Math.max(optionStats.maxValue, maxOption);
-                    minOption = Math.min(optionStats.minValue, minOption);
-                }
-            }
-            maxOption = Math.min(maxOption, compareExprStats.maxValue);
-            minOption = Math.max(minOption, compareExprStats.minValue);
-            compareExprStatsBuilder.setMaxValue(maxOption);
-            compareExprStatsBuilder.setMinValue(minOption);
         }
+        maxOption = Math.min(maxOption, compareExprStats.maxValue);
+        minOption = Math.max(minOption, compareExprStats.minValue);
+        compareExprStatsBuilder.setMaxValue(maxOption);
+        compareExprStatsBuilder.setMinValue(minOption);
 
         selectivity = StatsMathUtil.minNonNaN(1.0, validInOptCount / compareExprStats.ndv);
         compareExprStatsBuilder.setNdv(validInOptCount);
@@ -338,22 +322,39 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     }
 
     @Override
-    public Statistics visitNot(Not not, EstimationContext none) {
-        Preconditions.checkState(!(not.child() instanceof Not),
-                "Consecutive Not statement should be merged previously");
-        EstimationContext context = new EstimationContext(true, none.statistics);
-        return not.child().accept(this, context);
+    public Statistics visitNot(Not not, EstimationContext context) {
+        Statistics childStats = new FilterEstimation().estimate(not.child(), context.statistics);
+        //if estimated rowCount is 0, adjust to 1 to make upper join reorder reasonable.
+        double rowCount = Math.max(context.statistics.getRowCount() - childStats.getRowCount(), 1);
+        StatisticsBuilder statisticsBuilder = new StatisticsBuilder(context.statistics).setRowCount(rowCount);
+        for (Entry<Expression, ColumnStatistic> entry : context.statistics.columnStatistics().entrySet()) {
+            Expression expr = entry.getKey();
+            ColumnStatistic originColStats = entry.getValue();
+            ColumnStatistic childColStats = childStats.findColumnStatistics(expr);
+            double originNonNullCount = Math.max(originColStats.count - originColStats.numNulls, 0);
+            double childNonNullCount = Math.max(childColStats.count - childColStats.numNulls, 0);
+            double supersetValuesPerDistinctValue = StatsMathUtil.divide(originNonNullCount, originColStats.ndv);
+            double subsetValuesPerDistinctValue = StatsMathUtil.divide(childNonNullCount, childColStats.ndv);
+            double ndv;
+            if (supersetValuesPerDistinctValue <= subsetValuesPerDistinctValue) {
+                ndv = Math.max(originColStats.ndv - childColStats.ndv, 0);
+            } else {
+                ndv = originColStats.ndv;
+            }
+            double nullCount = Math.max(originColStats.numNulls - childColStats.numNulls, 0);
+            ColumnStatistic columnStatistic = new ColumnStatisticBuilder(originColStats)
+                    .setNdv(ndv)
+                    .setNumNulls(nullCount)
+                    .build();
+            statisticsBuilder.putColumnStatistics(expr, columnStatistic);
+        }
+        return statisticsBuilder.build();
     }
 
     static class EstimationContext {
-        private boolean isNot;
-        private Statistics statistics;
+        private final Statistics statistics;
 
-        public EstimationContext() {
-        }
-
-        public EstimationContext(boolean isNot, Statistics statistics) {
-            this.isNot = isNot;
+        public EstimationContext(Statistics statistics) {
             this.statistics = statistics;
         }
     }
@@ -361,8 +362,8 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     private Statistics estimateBinaryComparisonFilter(Expression leftExpr, ColumnStatistic leftStats,
             StatisticRange rightRange, EstimationContext context) {
         StatisticRange leftRange =
-                new StatisticRange(leftStats.minValue, leftStats.maxValue, leftStats.ndv);
-        StatisticRange intersectRange = leftRange.intersect(rightRange);
+                new StatisticRange(leftStats.minValue, leftStats.maxValue, leftStats.ndv, leftExpr.getDataType());
+        StatisticRange intersectRange = leftRange.cover(rightRange);
         ColumnStatisticBuilder leftColumnStatisticBuilder = new ColumnStatisticBuilder(leftStats)
                 .setMinValue(intersectRange.getLow())
                 .setMaxValue(intersectRange.getHigh())
@@ -370,13 +371,14 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         double sel = leftRange.overlapPercentWith(rightRange);
         Statistics updatedStatistics = context.statistics.withSel(sel);
         updatedStatistics.addColumnStats(leftExpr, leftColumnStatisticBuilder.build());
+        leftExpr.accept(new ColumnStatsAdjustVisitor(), updatedStatistics);
         return updatedStatistics;
     }
 
     private Statistics estimateColumnEqualToColumn(Expression leftExpr, ColumnStatistic leftStats,
             Expression rightExpr, ColumnStatistic rightStats, EstimationContext context) {
-        StatisticRange leftRange = StatisticRange.from(leftStats);
-        StatisticRange rightRange = StatisticRange.from(rightStats);
+        StatisticRange leftRange = StatisticRange.from(leftStats, leftExpr.getDataType());
+        StatisticRange rightRange = StatisticRange.from(rightStats, rightExpr.getDataType());
         StatisticRange leftIntersectRight = leftRange.intersect(rightRange);
         StatisticRange rightIntersectLeft = rightRange.intersect(leftIntersectRight);
         ColumnStatisticBuilder leftBuilder = new ColumnStatisticBuilder(leftStats);
@@ -387,7 +389,22 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         rightBuilder.setNdv(rightIntersectLeft.getDistinctValues());
         rightBuilder.setMinValue(rightIntersectLeft.getLow());
         rightBuilder.setMaxValue(rightIntersectLeft.getDistinctValues());
-        double sel = 1 / StatsMathUtil.nonZeroDivisor(Math.max(leftStats.ndv, rightStats.ndv));
+        double sel;
+        double reduceRatio = 0.25;
+        double bothSideReducedRatio = 0.9;
+        if (leftStats.ndv < leftStats.originalNdv * bothSideReducedRatio
+                && rightStats.ndv < rightStats.originalNdv * bothSideReducedRatio) {
+            double sel1;
+            if (leftStats.ndv > rightStats.ndv) {
+                sel1 = 1 / StatsMathUtil.nonZeroDivisor(leftStats.ndv);
+            } else {
+                sel1 = 1 / StatsMathUtil.nonZeroDivisor(rightStats.ndv);
+            }
+            double sel2 = Math.min(rightStats.ndv / rightStats.originalNdv, leftStats.ndv / leftStats.originalNdv);
+            sel = sel1 * Math.pow(sel2, reduceRatio);
+        } else {
+            sel = 1 / StatsMathUtil.nonZeroDivisor(Math.max(leftStats.ndv, rightStats.ndv));
+        }
         Statistics updatedStatistics = context.statistics.withSel(sel);
         updatedStatistics.addColumnStats(leftExpr, leftBuilder.build());
         updatedStatistics.addColumnStats(rightExpr, rightBuilder.build());
@@ -396,8 +413,8 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
 
     private Statistics estimateColumnLessThanColumn(Expression leftExpr, ColumnStatistic leftStats,
             Expression rightExpr, ColumnStatistic rightStats, EstimationContext context) {
-        StatisticRange leftRange = StatisticRange.from(leftStats);
-        StatisticRange rightRange = StatisticRange.from(rightStats);
+        StatisticRange leftRange = StatisticRange.from(leftStats, leftExpr.getDataType());
+        StatisticRange rightRange = StatisticRange.from(rightStats, rightExpr.getDataType());
         Statistics statistics = null;
         // Left always less than Right
         if (leftRange.getHigh() < rightRange.getLow()) {
@@ -414,7 +431,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             return context.statistics.withRowCount(0.0);
         }
         StatisticRange leftAlwaysLessThanRightRange = new StatisticRange(leftStats.minValue,
-                rightStats.minValue, Double.NaN);
+                rightStats.minValue, Double.NaN, leftExpr.getDataType());
         double leftAlwaysLessThanRightPercent = 0;
         if (leftRange.getLow() < rightRange.getLow()) {
             leftAlwaysLessThanRightPercent = leftRange.overlapPercentWith(leftAlwaysLessThanRightRange);
@@ -429,7 +446,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         double rightAlwaysGreaterRangeFraction = 0;
         if (leftRange.getHigh() < rightRange.getHigh()) {
             rightAlwaysGreaterRangeFraction = rightRange.overlapPercentWith(new StatisticRange(leftRange.getHigh(),
-                    rightRange.getHigh(), Double.NaN));
+                    rightRange.getHigh(), Double.NaN, rightExpr.getDataType()));
         }
         ColumnStatistic rightColumnStatistic = new ColumnStatisticBuilder(rightStats)
                 .setMinValue(Math.max(leftRange.getLow(), rightRange.getLow()))
@@ -446,14 +463,23 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     }
 
     private Statistics estimateLessThanLiteralWithHistogram(Expression leftExpr, ColumnStatistic leftStats,
-            double numVal, EstimationContext context) {
+            double numVal, EstimationContext context, boolean contains) {
         Histogram leftHist = leftStats.histogram;
 
         for (int i = 0; i < leftHist.buckets.size(); i++) {
             Bucket bucket = leftHist.buckets.get(i);
             if (bucket.upper >= numVal && bucket.lower <= numVal) {
-                double overlapPercentInBucket = StatsMathUtil.minNonNaN(1, (numVal - bucket.lower)
-                        / (bucket.upper - bucket.lower));
+                double overlapPercentInBucket;
+                if (numVal == bucket.upper && numVal == bucket.lower) {
+                    if (contains) {
+                        overlapPercentInBucket = 1;
+                    } else {
+                        overlapPercentInBucket = 0;
+                    }
+                } else {
+                    overlapPercentInBucket = StatsMathUtil.minNonNaN(1, (numVal - bucket.lower)
+                            / (bucket.upper - bucket.lower));
+                }
                 double overlapCountInBucket = overlapPercentInBucket * bucket.count;
                 double sel = StatsMathUtil.minNonNaN(1, (bucket.preSum + overlapCountInBucket)
                         / StatsMathUtil.nonZeroDivisor(context.statistics.getRowCount()));
@@ -471,16 +497,26 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     }
 
     private Statistics estimateGreaterThanLiteralWithHistogram(Expression leftExpr, ColumnStatistic leftStats,
-            double numVal, EstimationContext context) {
+            double numVal, EstimationContext context, boolean contains) {
         Histogram leftHist = leftStats.histogram;
 
         for (int i = 0; i < leftHist.buckets.size(); i++) {
             Bucket bucket = leftHist.buckets.get(i);
             if (bucket.upper >= numVal && bucket.lower <= numVal) {
-                double overlapPercentInBucket = StatsMathUtil.minNonNaN(1, ((bucket.upper - numVal)
-                        / (bucket.upper - bucket.lower)));
-                double overlapCountInBucket = (1 - overlapPercentInBucket) * bucket.count;
-                double sel = StatsMathUtil.minNonNaN(1, (leftHist.size() - bucket.preSum - overlapCountInBucket)
+                double overlapPercentInBucket;
+                if (numVal == bucket.upper && numVal == bucket.lower) {
+                    if (contains) {
+                        overlapPercentInBucket = 1;
+                    } else {
+                        overlapPercentInBucket = 0;
+                    }
+                } else {
+                    overlapPercentInBucket = StatsMathUtil.minNonNaN(1, ((bucket.upper - numVal)
+                            / (bucket.upper - bucket.lower)));
+                }
+                double overlapCountInBucket = overlapPercentInBucket * bucket.count;
+                double sel = StatsMathUtil.minNonNaN(1,
+                        (leftHist.size() - bucket.preSum - (bucket.count - overlapCountInBucket))
                         / context.statistics.getRowCount());
                 List<Bucket> updatedBucketList = new ArrayList<>();
                 updatedBucketList.add(new Bucket(numVal, bucket.upper, overlapPercentInBucket * bucket.count,
@@ -499,9 +535,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     private Statistics estimateEqualToWithHistogram(Expression leftExpr, ColumnStatistic leftStats,
             double numVal, EstimationContext context) {
         Histogram histogram = leftStats.histogram;
-        ColumnStatistic columnStatistic = new ColumnStatisticBuilder(leftStats)
-                .setHistogram(null)
-                .build();
+
         double sel = 0;
         for (int i = 0; i < histogram.buckets.size(); i++) {
             Bucket bucket = histogram.buckets.get(i);
@@ -509,6 +543,21 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 sel = (bucket.count / bucket.ndv) / histogram.size();
             }
         }
+        if (sel == 0) {
+            return Statistics.zero(context.statistics);
+        }
+        ColumnStatistic columnStatistic = new ColumnStatisticBuilder(leftStats)
+                .setHistogram(null)
+                .setNdv(1)
+                .setNumNulls(0)
+                .setMaxValue(numVal)
+                .setMinValue(numVal)
+                .build();
         return context.statistics.withSel(sel).addColumnStats(leftExpr, columnStatistic);
+    }
+
+    @Override
+    public Statistics visitLike(Like like, EstimationContext context) {
+        return context.statistics.withSel(DEFAULT_LIKE_COMPARISON_SELECTIVITY);
     }
 }

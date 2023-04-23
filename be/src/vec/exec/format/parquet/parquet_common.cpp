@@ -17,8 +17,10 @@
 
 #include "parquet_common.h"
 
-#include "util/coding.h"
-#include "vec/data_types/data_type_nullable.h"
+#include <glog/logging.h>
+
+#include "util/simd/bits.h"
+#include "vec/core/types.h"
 
 namespace doris::vectorized {
 

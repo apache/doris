@@ -43,6 +43,7 @@ import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.LinkDbStmt;
@@ -74,7 +75,6 @@ import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsTable;
-import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.HiveTable;
 import org.apache.doris.catalog.IcebergTable;
@@ -138,6 +138,7 @@ import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
+import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.external.elasticsearch.EsRepository;
 import org.apache.doris.external.hudi.HudiProperty;
 import org.apache.doris.external.hudi.HudiTable;
@@ -234,6 +235,11 @@ public class InternalCatalog implements CatalogIf<Database> {
     @Override
     public String getType() {
         return "internal";
+    }
+
+    @Override
+    public String getComment() {
+        return "Doris internal catalog";
     }
 
     @Override
@@ -974,7 +980,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
 
-        if (table instanceof MaterializedView && Config.enable_mtmv_scheduler_framework) {
+        if (table instanceof MaterializedView) {
             List<Long> dropIds = Env.getCurrentEnv().getMTMVJobManager().showJobs(db.getFullName(), table.getName())
                     .stream().map(MTMVJob::getId).collect(Collectors.toList());
             Env.getCurrentEnv().getMTMVJobManager().dropJobs(dropIds, isReplay);
@@ -1107,6 +1113,11 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         // check if db exists
         Database db = (Database) getDbOrDdlException(dbName);
+        // InfoSchemaDb can not create table
+        if (db instanceof InfoSchemaDb) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName,
+                    ErrorCode.ERR_CANT_CREATE_TABLE.getCode(), "not supported create table in this database");
+        }
 
         // only internal table should check quota and cluster capacity
         if (!stmt.isExternal()) {
@@ -1211,6 +1222,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             List<String> columnNames = stmt.getColumnNames();
             CreateTableStmt createTableStmt = stmt.getCreateTableStmt();
             QueryStmt queryStmt = stmt.getQueryStmt();
+            KeysDesc keysDesc = createTableStmt.getKeysDesc();
             ArrayList<Expr> resultExprs = queryStmt.getResultExprs();
             ArrayList<String> colLabels = queryStmt.getColLabels();
             int size = resultExprs.size();
@@ -1232,7 +1244,11 @@ public class InternalCatalog implements CatalogIf<Database> {
                 TypeDef typeDef;
                 Expr resultExpr = resultExprs.get(i);
                 Type resultType = resultExpr.getType();
-                if (resultType.isStringType()) {
+                if (resultExpr instanceof FunctionCallExpr
+                        && resultExpr.getType().getPrimitiveType().equals(PrimitiveType.VARCHAR)) {
+                    resultType = ScalarType.createVarchar(65533);
+                }
+                if (resultType.isStringType() && (keysDesc == null || !keysDesc.containsCol(name))) {
                     // Use String for varchar/char/string type,
                     // to avoid char-length-vs-byte-length issue.
                     typeDef = new TypeDef(ScalarType.createStringType());
@@ -1443,7 +1459,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
             // check colocation
             if (Env.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
-                String fullGroupName = db.getId() + "_" + olapTable.getColocateGroup();
+                String fullGroupName = GroupId.getFullGroupName(db.getId(), olapTable.getColocateGroup());
                 ColocateGroupSchema groupSchema = Env.getCurrentColocateIndex().getGroupSchema(fullGroupName);
                 Preconditions.checkNotNull(groupSchema);
                 groupSchema.checkDistribution(distributionInfo);
@@ -1951,11 +1967,13 @@ public class InternalCatalog implements CatalogIf<Database> {
                 keysDesc.keysColumnSize(), storageFormat);
         olapTable.setDataSortInfo(dataSortInfo);
 
-        boolean enableUniqueKeyMergeOnWrite;
-        try {
-            enableUniqueKeyMergeOnWrite = PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(properties);
-        } catch (AnalysisException e) {
-            throw new DdlException(e.getMessage());
+        boolean enableUniqueKeyMergeOnWrite = false;
+        if (keysType == KeysType.UNIQUE_KEYS) {
+            try {
+                enableUniqueKeyMergeOnWrite = PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(properties);
+            } catch (AnalysisException e) {
+                throw new DdlException(e.getMessage());
+            }
         }
         olapTable.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
 
@@ -2066,7 +2084,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 if (defaultDistributionInfo.getType() == DistributionInfoType.RANDOM) {
                     throw new AnalysisException("Random distribution for colocate table is unsupported");
                 }
-                String fullGroupName = db.getId() + "_" + colocateGroup;
+                String fullGroupName = GroupId.getFullGroupName(db.getId(), colocateGroup);
                 ColocateGroupSchema groupSchema = Env.getCurrentColocateIndex().getGroupSchema(fullGroupName);
                 if (groupSchema != null) {
                     // group already exist, check if this table can be added to this group
@@ -2075,7 +2093,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
                 // add table to this group, if group does not exist, create a new one
                 Env.getCurrentColocateIndex()
-                        .addTableToGroup(db.getId(), olapTable, colocateGroup, null /* generate group id inside */);
+                        .addTableToGroup(db.getId(), olapTable, fullGroupName, null /* generate group id inside */);
                 olapTable.setColocateGroup(colocateGroup);
             }
         } catch (AnalysisException e) {
@@ -2175,6 +2193,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         // create partition
         try {
             if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
+                if (storagePolicy.equals("") && properties != null && !properties.isEmpty()) {
+                    // here, all properties should be checked
+                    throw new DdlException("Unknown properties: " + properties);
+                }
                 // this is a 1-level partitioned table
                 // use table name as partition name
                 DistributionInfo partitionDistributionInfo = distributionDesc.toDistributionInfo(baseSchema);
@@ -2277,7 +2299,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
             if (result.second) {
                 if (Env.getCurrentColocateIndex().isColocateTable(tableId)) {
-                    // if this is a colocate join table, its table id is already added to colocate group
+                    // if this is a colocate table, its table id is already added to colocate group
                     // so we should remove the tableId here
                     Env.getCurrentColocateIndex().removeTable(tableId);
                 }
@@ -2314,8 +2336,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw e;
         }
 
-        if (olapTable instanceof MaterializedView && Config.enable_mtmv_scheduler_framework
-                && MTMVJobFactory.isGenerateJob((MaterializedView) olapTable)) {
+        if (olapTable instanceof MaterializedView && MTMVJobFactory.isGenerateJob((MaterializedView) olapTable)) {
             List<MTMVJob> jobs = MTMVJobFactory.buildJob((MaterializedView) olapTable, db.getFullName());
             for (MTMVJob job : jobs) {
                 Env.getCurrentEnv().getMTMVJobManager().createJob(job, false);
@@ -2415,8 +2436,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         hiveTable.setComment(stmt.getComment());
         // check hive table whether exists in hive database
         HiveConf hiveConf = new HiveConf();
-        hiveConf.set(HMSResource.HIVE_METASTORE_URIS,
-                hiveTable.getHiveProperties().get(HMSResource.HIVE_METASTORE_URIS));
+        hiveConf.set(HMSProperties.HIVE_METASTORE_URIS,
+                hiveTable.getHiveProperties().get(HMSProperties.HIVE_METASTORE_URIS));
         PooledHiveMetaStoreClient client = new PooledHiveMetaStoreClient(hiveConf, 1);
         if (!client.tableExists(hiveTable.getHiveDb(), hiveTable.getHiveTable())) {
             throw new DdlException(String.format("Table [%s] dose not exist in Hive.", hiveTable.getHiveDbTable()));
@@ -2438,7 +2459,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         HudiUtils.validateCreateTable(hudiTable);
         // check hudi table whether exists in hive database
         HiveConf hiveConf = new HiveConf();
-        hiveConf.set(HMSResource.HIVE_METASTORE_URIS,
+        hiveConf.set(HMSProperties.HIVE_METASTORE_URIS,
                 hudiTable.getTableProperties().get(HudiProperty.HUDI_HIVE_METASTORE_URIS));
         PooledHiveMetaStoreClient client = new PooledHiveMetaStoreClient(hiveConf, 1);
         if (!client.tableExists(hudiTable.getHmsDatabaseName(), hudiTable.getHmsTableName())) {
@@ -3507,5 +3528,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         getEsRepository().loadTableFromCatalog();
         LOG.info("finished replay databases from image");
         return newChecksum;
+    }
+
+    public ConcurrentHashMap<Long, Database> getIdToDb() {
+        return new ConcurrentHashMap<>(idToDb);
     }
 }

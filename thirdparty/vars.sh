@@ -55,10 +55,10 @@ export TP_JAR_DIR="${TP_INSTALL_DIR}/lib/jar"
 #####################################################
 
 #clucene
-CLUCENE_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/libclucene-v2.4.6.zip"
-CLUCENE_NAME="doris-thirdparty-libclucene-v2.4.6.zip"
-CLUCENE_SOURCE="doris-thirdparty-libclucene-v2.4.6"
-CLUCENE_MD5SUM="3d2432c9dc4b23e4f4fb73605f0e577d"
+CLUCENE_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/libclucene-v2.4.9.tar.gz"
+CLUCENE_NAME="doris-thirdparty-libclucene-v2.4.9.tar.gz"
+CLUCENE_SOURCE="doris-thirdparty-libclucene-v2.4.9"
+CLUCENE_MD5SUM="2d5c48bd24b0757d0fecb74111b9b2ed"
 
 # libevent
 LIBEVENT_DOWNLOAD="https://github.com/libevent/libevent/archive/release-2.1.12-stable.tar.gz"
@@ -179,10 +179,10 @@ RAGEL_SOURCE=ragel-6.10
 RAGEL_MD5SUM="748cae8b50cffe9efcaa5acebc6abf0d"
 
 # boost
-BOOST_DOWNLOAD="https://boostorg.jfrog.io/artifactory/main/release/1.73.0/source/boost_1_73_0.tar.gz"
-BOOST_NAME=boost_1_73_0.tar.gz
-BOOST_SOURCE=boost_1_73_0
-BOOST_MD5SUM="4036cd27ef7548b8d29c30ea10956196"
+BOOST_DOWNLOAD="https://boostorg.jfrog.io/artifactory/main/release/1.81.0/source/boost_1_81_0.tar.gz"
+BOOST_NAME=boost_1_81_0.tar.gz
+BOOST_SOURCE=boost_1_81_0
+BOOST_MD5SUM="4bf02e84afb56dfdccd1e6aec9911f4b"
 
 # mysql
 MYSQL_DOWNLOAD="https://github.com/mysql/mysql-server/archive/mysql-5.7.18.tar.gz"
@@ -203,10 +203,10 @@ LEVELDB_SOURCE=leveldb-1.23
 LEVELDB_MD5SUM="afbde776fb8760312009963f09a586c7"
 
 # brpc
-BRPC_DOWNLOAD="https://github.com/apache/brpc/archive/refs/tags/1.2.0.tar.gz"
-BRPC_NAME="brpc-1.2.0.tar.gz"
-BRPC_SOURCE="brpc-1.2.0"
-BRPC_MD5SUM="c3c148e672dc660ad48d8bd973f95dcf"
+BRPC_DOWNLOAD="https://github.com/apache/brpc/archive/refs/tags/1.4.0.tar.gz"
+BRPC_NAME="brpc-1.4.0.tar.gz"
+BRPC_SOURCE="brpc-1.4.0"
+BRPC_MD5SUM="6af9d50822c33a3abc56a1ec0af0e0bc"
 
 # rocksdb
 ROCKSDB_DOWNLOAD="https://github.com/facebook/rocksdb/archive/v5.14.2.tar.gz"
@@ -245,7 +245,7 @@ FLATBUFFERS_SOURCE=flatbuffers-2.0.0
 FLATBUFFERS_MD5SUM="a27992324c3cbf86dd888268a23d17bd"
 
 # arrow
-ARROW_DOWNLOAD="https://dlcdn.apache.org/arrow/arrow-7.0.0/apache-arrow-7.0.0.tar.gz"
+ARROW_DOWNLOAD="https://archive.apache.org/dist/arrow/arrow-7.0.0/apache-arrow-7.0.0.tar.gz"
 ARROW_NAME="apache-arrow-7.0.0.tar.gz"
 ARROW_SOURCE="apache-arrow-7.0.0"
 ARROW_MD5SUM="316ade159901646849b3b4760fa52816"
@@ -374,10 +374,10 @@ KRB5_SOURCE="krb5-1.19"
 KRB5_MD5SUM="aaf18447a5a014aa3b7e81814923f4c9"
 
 # hdfs3
-HDFS3_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/libhdfs3-v2.3.8.tar.gz"
-HDFS3_NAME="doris-thirdparty-libhdfs3-v2.3.8.tar.gz"
-HDFS3_SOURCE="doris-thirdparty-libhdfs3-v2.3.8"
-HDFS3_MD5SUM="3a9890bb43d0caee183ea7a49df2e4f3"
+HDFS3_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/libhdfs3-v2.3.9.tar.gz"
+HDFS3_NAME="doris-thirdparty-libhdfs3-v2.3.9.tar.gz"
+HDFS3_SOURCE="doris-thirdparty-libhdfs3-v2.3.9"
+HDFS3_MD5SUM="b3eaa03e5b184521e5ad5bf6cabea97e"
 
 #libdivide
 LIBDIVIDE_DOWNLOAD="https://github.com/ridiculousfish/libdivide/archive/5.0.tar.gz"
@@ -435,10 +435,10 @@ LIBBACKTRACE_SOURCE=libbacktrace-2446c66076480ce07a6bd868badcbceb3eeecc2e
 LIBBACKTRACE_MD5SUM="6c79a8012870a24610c0d9c3621b23fe"
 
 # sse2noen
-SSE2NEON_DOWNLOAD="https://github.com/DLTcollab/sse2neon/archive/refs/tags/v1.5.1.tar.gz"
-SSE2NEON_NAME=sse2neon-1.5.1.tar.gz
-SSE2NEON_SOURCE=sse2neon-1.5.1
-SSE2NEON_MD5SUM="9de5dc2970aa7efac7faee59e2826c51"
+SSE2NEON_DOWNLOAD="https://github.com/DLTcollab/sse2neon/archive/refs/tags/v1.6.0.tar.gz"
+SSE2NEON_NAME=sse2neon-1.6.0.tar.gz
+SSE2NEON_SOURCE=sse2neon-1.6.0
+SSE2NEON_MD5SUM="dce28eb6a78f45bf98740d5fad73febb"
 
 # xxhash
 XXHASH_DOWNLOAD="https://github.com/Cyan4973/xxHash/archive/refs/tags/v0.8.1.tar.gz"

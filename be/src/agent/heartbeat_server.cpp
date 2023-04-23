@@ -17,17 +17,30 @@
 
 #include "agent/heartbeat_server.h"
 
-#include <thrift/TProcessor.h>
+#include <gen_cpp/HeartbeatService.h>
+#include <gen_cpp/HeartbeatService_types.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
 
+#include <memory>
+#include <ostream>
+#include <string>
+
+#include "common/config.h"
 #include "common/status.h"
-#include "gen_cpp/HeartbeatService.h"
-#include "gen_cpp/Status_types.h"
 #include "olap/storage_engine.h"
+#include "runtime/exec_env.h"
 #include "runtime/heartbeat_flags.h"
 #include "service/backend_options.h"
 #include "util/debug_util.h"
 #include "util/thrift_server.h"
 #include "util/time.h"
+
+namespace apache {
+namespace thrift {
+class TProcessor;
+} // namespace thrift
+} // namespace apache
 
 namespace doris {
 

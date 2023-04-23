@@ -429,6 +429,8 @@ struct TReportExecStatusParams {
   18: optional list<Types.TErrorTabletInfo> errorTabletInfos
 
   19: optional i32 fragment_id
+
+  20: optional PaloInternalService.TQueryType query_type
 }
 
 struct TFeResult {
@@ -440,6 +442,7 @@ struct TMasterOpRequest {
     1: required string user
     2: required string db
     3: required string sql 
+    // Deprecated
     4: optional Types.TResourceInfo resourceInfo
     5: optional string cluster
     6: optional i64 execMemLimit // deprecated, move into query_options
@@ -570,6 +573,7 @@ struct TStreamLoadPutRequest {
     41: optional i64 file_size // only for stream load with parquet or orc
     42: optional bool trim_double_quotes // trim double quotes for csv
     43: optional i32 skip_lines // csv skip line num, only used when csv header_type is not set.
+    44: optional bool enable_profile
 }
 
 struct TStreamLoadPutResult {
@@ -716,13 +720,14 @@ struct TInitExternalCtlMetaResult {
 }
 
 enum TSchemaTableName {
-  BACKENDS = 0,
+  // BACKENDS = 0,
   METADATA_TABLE = 1,
 }
 
 struct TMetadataTableRequestParams {
   1: optional Types.TMetadataType metadata_type
   2: optional PlanNodes.TIcebergMetadataParams iceberg_metadata_params
+  3: optional PlanNodes.TBackendsMetadataParams backends_metadata_params
 }
 
 struct TFetchSchemaTableDataRequest {
@@ -828,6 +833,7 @@ service FrontendService {
 
     MasterService.TMasterResult finishTask(1: MasterService.TFinishTaskRequest request)
     MasterService.TMasterResult report(1: MasterService.TReportRequest request)
+    // Deprecated
     MasterService.TFetchResourceResult fetchResource()
 
     TMasterOpResult forward(1: TMasterOpRequest params)

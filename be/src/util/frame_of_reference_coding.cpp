@@ -17,8 +17,14 @@
 
 #include "util/frame_of_reference_coding.h"
 
+#include <glog/logging.h>
+#include <sys/types.h>
+
 #include <algorithm>
 #include <cstring>
+#include <iostream>
+#include <iterator>
+#include <limits>
 
 #include "util/bit_util.h"
 #include "util/coding.h"

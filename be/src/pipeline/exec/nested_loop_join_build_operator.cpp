@@ -17,7 +17,9 @@
 
 #include "nested_loop_join_build_operator.h"
 
-#include "vec/exec/join/vnested_loop_join_node.h"
+#include <string>
+
+#include "pipeline/exec/operator.h"
 
 namespace doris::pipeline {
 

@@ -16,15 +16,24 @@
 // under the License.
 #pragma once
 
+#include <stdint.h>
+
+#include <memory>
+
+#include "common/status.h"
 #include "operator.h"
-#include "pipeline/exec/data_queue.h"
+#include "vec/exec/vunion_node.h"
 
 namespace doris {
+class ExecNode;
+class RuntimeState;
+
 namespace vectorized {
-class VUnionNode;
-}
+class Block;
+} // namespace vectorized
 
 namespace pipeline {
+class DataQueue;
 
 class UnionSourceOperatorBuilder final : public OperatorBuilder<vectorized::VUnionNode> {
 public:

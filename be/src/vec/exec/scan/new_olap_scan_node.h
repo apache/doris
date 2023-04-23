@@ -17,7 +17,37 @@
 
 #pragma once
 
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <stdint.h>
+
+#include <list>
+#include <memory>
+#include <set>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
+#include "exec/olap_common.h"
+#include "exec/olap_utils.h"
+#include "olap/olap_common.h"
+#include "util/runtime_profile.h"
 #include "vec/exec/scan/vscan_node.h"
+
+namespace doris {
+class DescriptorTbl;
+class FunctionContext;
+class ObjectPool;
+class QueryStatistics;
+class RuntimeState;
+
+namespace vectorized {
+class VExprContext;
+class VScanner;
+class VectorizedFnCall;
+} // namespace vectorized
+struct StringRef;
+} // namespace doris
 
 namespace doris::pipeline {
 class OlapScanOperator;
@@ -25,7 +55,6 @@ class OlapScanOperator;
 
 namespace doris::vectorized {
 
-class NewOlapScanner;
 class NewOlapScanNode : public VScanNode {
 public:
     NewOlapScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
@@ -65,6 +94,7 @@ private:
 private:
     TOlapScanNode _olap_scan_node;
     std::vector<std::unique_ptr<TPaloScanRange>> _scan_ranges;
+    std::vector<std::unique_ptr<doris::OlapScanRange>> _cond_ranges;
     OlapScanKeys _scan_keys;
     std::vector<TCondition> _olap_filters;
     // _compound_filters store conditions in the one compound relationship in conjunct expr tree except leaf node of `and` node,

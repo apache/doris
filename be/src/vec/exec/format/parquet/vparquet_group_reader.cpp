@@ -17,15 +17,61 @@
 
 #include "vparquet_group_reader.h"
 
+#include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/Opcodes_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/parquet_types.h>
+#include <string.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <ostream>
+
+#include "common/config.h"
+#include "common/logging.h"
+#include "common/object_pool.h"
+#include "common/status.h"
 #include "exprs/create_predicate_function.h"
+#include "exprs/hybrid_set.h"
+#include "gutil/stringprintf.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/descriptors.h"
+#include "runtime/thread_context.h"
+#include "runtime/types.h"
 #include "schema_desc.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/pod_array.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_string.h"
 #include "vec/exprs/vdirect_in_predicate.h"
 #include "vec/exprs/vectorized_fn_call.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vparquet_column_reader.h"
+
+namespace cctz {
+class time_zone;
+} // namespace cctz
+namespace doris {
+class RuntimeState;
+
+namespace io {
+class IOContext;
+} // namespace io
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -34,7 +80,7 @@ const std::vector<int64_t> RowGroupReader::NO_DELETE = {};
 RowGroupReader::RowGroupReader(io::FileReaderSPtr file_reader,
                                const std::vector<ParquetReadColumn>& read_columns,
                                const int32_t row_group_id, const tparquet::RowGroup& row_group,
-                               cctz::time_zone* ctz,
+                               cctz::time_zone* ctz, io::IOContext* io_ctx,
                                const PositionDeleteContext& position_delete_ctx,
                                const LazyReadContext& lazy_read_ctx, RuntimeState* state)
         : _file_reader(file_reader),
@@ -43,6 +89,7 @@ RowGroupReader::RowGroupReader(io::FileReaderSPtr file_reader,
           _row_group_meta(row_group),
           _remaining_rows(row_group.num_rows),
           _ctz(ctz),
+          _io_ctx(io_ctx),
           _position_delete_ctx(position_delete_ctx),
           _lazy_read_ctx(lazy_read_ctx),
           _state(state),
@@ -85,7 +132,8 @@ Status RowGroupReader::init(
         auto field = const_cast<FieldSchema*>(schema.get_column(read_col._file_slot_name));
         std::unique_ptr<ParquetColumnReader> reader;
         RETURN_IF_ERROR(ParquetColumnReader::create(_file_reader, field, _row_group_meta,
-                                                    _read_ranges, _ctz, reader, max_buf_size));
+                                                    _read_ranges, _ctz, _io_ctx, reader,
+                                                    max_buf_size));
         auto col_iter = col_offsets.find(read_col._parquet_col_id);
         if (col_iter != col_offsets.end()) {
             tparquet::OffsetIndex oi = col_iter->second;
@@ -157,7 +205,6 @@ bool RowGroupReader::_can_filter_by_dict(int slot_id,
             }
         }
     }
-
     return true;
 }
 // This function is copied from
@@ -271,11 +318,12 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
             if (_position_delete_ctx.has_filter) {
                 filters.push_back(_pos_delete_filter_ptr.get());
             }
-            RETURN_IF_ERROR(_execute_conjuncts_and_filter_block(_filter_conjuncts, filters, block,
-                                                                columns_to_filter, column_to_keep));
+            RETURN_IF_CATCH_EXCEPTION(RETURN_IF_ERROR(_execute_conjuncts_and_filter_block(
+                    _filter_conjuncts, filters, block, columns_to_filter, column_to_keep)));
             _convert_dict_cols_to_string_cols(block);
         } else {
-            RETURN_IF_ERROR(_filter_block(block, column_to_keep, columns_to_filter));
+            RETURN_IF_CATCH_EXCEPTION(
+                    RETURN_IF_ERROR(_filter_block(block, column_to_keep, columns_to_filter)));
         }
 
         *read_rows = block->rows();
@@ -439,8 +487,8 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
             // generated from next batch, so the filter column is removed ahead.
             DCHECK_EQ(block->rows(), 0);
         } else {
-            RETURN_IF_ERROR(_filter_block_internal(block, _lazy_read_ctx.all_predicate_col_ids,
-                                                   result_filter));
+            RETURN_IF_CATCH_EXCEPTION(RETURN_IF_ERROR(_filter_block_internal(
+                    block, _lazy_read_ctx.all_predicate_col_ids, result_filter)));
             Block::erase_useless_column(block, origin_column_num);
         }
     } else {
@@ -632,6 +680,7 @@ Status RowGroupReader::_build_pos_delete_filter(size_t read_rows) {
     return Status::OK();
 }
 
+// need exception safety
 Status RowGroupReader::_filter_block(Block* block, int column_to_keep,
                                      const std::vector<uint32_t>& columns_to_filter) {
     if (_pos_delete_filter_ptr) {
@@ -643,6 +692,7 @@ Status RowGroupReader::_filter_block(Block* block, int column_to_keep,
     return Status::OK();
 }
 
+// need exception safety
 Status RowGroupReader::_filter_block_internal(Block* block,
                                               const std::vector<uint32_t>& columns_to_filter,
                                               const IColumn::Filter& filter) {
@@ -733,8 +783,8 @@ Status RowGroupReader::_rewrite_dict_predicates() {
             temp_block.get_by_position(0).column->assume_mutable()->resize(dict_value_column_size);
         }
         std::vector<IColumn::Filter*> filters;
-        RETURN_IF_ERROR(_execute_conjuncts_and_filter_block(*ctxs, filters, &temp_block,
-                                                            columns_to_filter, column_to_keep));
+        RETURN_IF_CATCH_EXCEPTION(RETURN_IF_ERROR(_execute_conjuncts_and_filter_block(
+                *ctxs, filters, &temp_block, columns_to_filter, column_to_keep)));
         if (dict_pos != 0) {
             // We have to clean the first column to insert right data.
             temp_block.get_by_position(0).column->assume_mutable()->clear();
@@ -844,7 +894,8 @@ Status RowGroupReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes,
             node.__set_is_nullable(false);
 
             root = _obj_pool->add(new vectorized::VDirectInPredicate(node));
-            std::shared_ptr<HybridSetBase> hybrid_set(create_set(PrimitiveType::TYPE_INT));
+            std::shared_ptr<HybridSetBase> hybrid_set(
+                    create_set(PrimitiveType::TYPE_INT, dict_codes.size()));
             for (int j = 0; j < dict_codes.size(); ++j) {
                 hybrid_set->insert(&dict_codes[j]);
             }
@@ -976,6 +1027,7 @@ Status RowGroupReader::_execute_conjuncts(const std::vector<VExprContext*>& ctxs
 }
 
 // TODO Performance Optimization
+// need exception safety
 Status RowGroupReader::_execute_conjuncts_and_filter_block(
         const std::vector<VExprContext*>& ctxs, const std::vector<IColumn::Filter*>& filters,
         Block* block, std::vector<uint32_t>& columns_to_filter, int column_to_keep) {

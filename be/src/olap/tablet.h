@@ -17,48 +17,66 @@
 
 #pragma once
 
+#include <butil/macros.h>
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
+
 #include <atomic>
 #include <functional>
+#include <list>
+#include <map>
 #include <memory>
 #include <mutex>
+#include <ostream>
 #include <set>
 #include <shared_mutex>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
+#include <utility>
 #include <vector>
 
-#include "gen_cpp/AgentService_types.h"
-#include "gen_cpp/MasterService_types.h"
-#include "gen_cpp/olap_file.pb.h"
-#include "io/fs/file_system.h"
+#include "common/config.h"
+#include "common/status.h"
 #include "olap/base_tablet.h"
-#include "olap/cumulative_compaction_policy.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
-#include "olap/olap_define.h"
-#include "olap/olap_tuple.h"
 #include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/rowset_tree.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet_meta.h"
-#include "olap/utils.h"
+#include "olap/tablet_schema.h"
 #include "olap/version_graph.h"
+#include "util/metrics.h"
 #include "util/once.h"
+#include "util/slice.h"
 
 namespace doris {
 
-class DataDir;
 class Tablet;
-class TabletMeta;
 class CumulativeCompactionPolicy;
 class CumulativeCompaction;
 class BaseCompaction;
 class RowsetWriter;
-
 struct TabletTxnInfo;
 struct RowsetWriterContext;
+class RowIdConversion;
+class TTabletInfo;
+class TabletMetaPB;
+class TupleDescriptor;
+enum CompressKind : int;
+
+namespace io {
+class RemoteFileSystem;
+} // namespace io
+namespace vectorized {
+class Block;
+} // namespace vectorized
+struct RowLocation;
+enum KeysType : int;
+enum SortType : int;
 
 using TabletSharedPtr = std::shared_ptr<Tablet>;
 
@@ -382,7 +400,8 @@ public:
     // Lookup a row with TupleDescriptor and fill Block
     Status lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
                            RowsetSharedPtr rowset, const TupleDescriptor* desc,
-                           vectorized::Block* block, bool write_to_cache = false);
+                           OlapReaderStatistics& stats, vectorized::Block* block,
+                           bool write_to_cache = false);
 
     // calc delete bitmap when flush memtable, use a fake version to calc
     // For example, cur max version is 5, and we use version 6 to calc but
@@ -398,9 +417,10 @@ public:
 
     Status update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset);
     Status update_delete_bitmap(const RowsetSharedPtr& rowset, const TabletTxnInfo* load_info);
-    uint64_t calc_compaction_output_rowset_delete_bitmap(
+    void calc_compaction_output_rowset_delete_bitmap(
             const std::vector<RowsetSharedPtr>& input_rowsets,
             const RowIdConversion& rowid_conversion, uint64_t start_version, uint64_t end_version,
+            std::set<RowLocation>* missed_rows,
             std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>* location_map,
             DeleteBitmap* output_rowset_delete_bitmap);
     void merge_delete_bitmap(const DeleteBitmap& delete_bitmap);

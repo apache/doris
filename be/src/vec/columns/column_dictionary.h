@@ -289,8 +289,8 @@ public:
 
     uint32_t get_hash_value(uint32_t idx) const { return _dict.get_hash_value(_codes[idx], _type); }
 
-    void find_codes(const phmap::flat_hash_set<StringRef>& values,
-                    std::vector<vectorized::UInt8>& selected) const {
+    template <typename HybridSetType>
+    void find_codes(const HybridSetType* values, std::vector<vectorized::UInt8>& selected) const {
         return _dict.find_codes(values, selected);
     }
 
@@ -326,7 +326,7 @@ public:
 
     inline StringRef get_shrink_value(value_type code) const {
         StringRef result = _dict.get_value(code);
-        if (_type == OLAP_FIELD_TYPE_CHAR) {
+        if (_type == FieldType::OLAP_FIELD_TYPE_CHAR) {
             result.size = strnlen(result.data, result.size);
         }
         return result;
@@ -386,7 +386,7 @@ public:
                 // For dictionary data of char type, sv.size is the schema length,
                 // so use strnlen to remove the 0 at the end to get the actual length.
                 int32_t len = sv.size;
-                if (type == OLAP_FIELD_TYPE_CHAR) {
+                if (type == FieldType::OLAP_FIELD_TYPE_CHAR) {
                     len = strnlen(sv.data, sv.size);
                 }
                 uint32_t hash_val = HashUtil::murmur_hash3_32(sv.data, len, 0);
@@ -423,13 +423,14 @@ public:
             return greater ? bound - greater + eq : bound - eq;
         }
 
-        void find_codes(const phmap::flat_hash_set<StringRef>& values,
+        template <typename HybridSetType>
+        void find_codes(const HybridSetType* values,
                         std::vector<vectorized::UInt8>& selected) const {
             size_t dict_word_num = _dict_data->size();
             selected.resize(dict_word_num);
             selected.assign(dict_word_num, false);
             for (size_t i = 0; i < _dict_data->size(); i++) {
-                if (values.find((*_dict_data)[i]) != values.end()) {
+                if (values->find(&((*_dict_data)[i]))) {
                     selected[i] = true;
                 }
             }

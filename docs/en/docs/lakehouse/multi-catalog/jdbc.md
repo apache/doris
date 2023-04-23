@@ -139,7 +139,7 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
     
 6. Doris
 
-<version since="dev"></version>
+<version since="1.2.3"></version>
 
 Jdbc Catalog also support to connect another Doris database:
 
@@ -158,7 +158,7 @@ Currently, Jdbc Catalog only support to use 5.x version of JDBC jar package to c
 
 7. SAP_HANA
 
-<version since="dev"></version>
+<version since="1.2.3"></version>
 
 ```sql
 CREATE CATALOG hana_catalog PROPERTIES (
@@ -177,6 +177,29 @@ CREATE CATALOG hana_catalog PROPERTIES (
 | Database | Schema   |
 | Table    | Table    |
 
+8. Trino
+
+<version since="dev"></version>
+
+```sql
+CREATE CATALOG trino_catalog PROPERTIES (
+    "type"="jdbc",
+    "user"="hadoop",
+    "password"="",
+    "jdbc_url" = "jdbc:trino://localhost:9000/hive",
+    "driver_url" = "trino-jdbc-389.jar",
+    "driver_class" = "io.trino.jdbc.TrinoDriver"
+);
+```
+
+When Trino is mapped, Doris's Database corresponds to a Schema in Trino that specifies Catalog (such as "hive" in the 'jdbc_url' parameter in the example). The Table in Doris's Database corresponds to the Tables in Trino's Schema. That is, the mapping relationship is as follows:
+
+| Doris    | Trino   |
+|----------|---------|
+| Catalog  | Catalog | 
+| Database | Schema  |
+| Table    | Table   |
+
 ### Parameter Description
 
 | Parameter       | Required or Not | Default Value | Description                                        |
@@ -188,6 +211,7 @@ CREATE CATALOG hana_catalog PROPERTIES (
 | `driver_class ` | Yes             |               | JDBC Driver Class                                  |
 | `only_specified_database` | No             |     "false"          | Whether only the database specified to be synchronized.                                  |
 | `lower_case_table_names` | No             |     "false"          | Whether to synchronize jdbc external data source table names in lower case. |
+| `specified_database_list` | No             |     ""          | When only_specified_database=true，only synchronize the specified databases. split with ','. db name is case sensitive.|
 
 > `driver_url` can be specified in three ways:
 >
@@ -199,7 +223,7 @@ CREATE CATALOG hana_catalog PROPERTIES (
 
 > `only_specified_database`:
 >
-> When the JDBC is connected, you can specify which database/schema to connect. For example, you can specify the DataBase in mysql `jdbc_url`; you can specify the CurrentSchema in PG `jdbc_url`. `only_specified_database` specifies whether only the database specified to be synchronized.
+> When the JDBC is connected, you can specify which database/schema to connect. For example, you can specify the DataBase in mysql `jdbc_url`; you can specify the CurrentSchema in PG `jdbc_url`. When `only_specified_database=true` and `specified_database_list` is empty, only the database in jdbc_url specified to be synchronized. When `only_specified_database=true` and `specified_database_list` with some database names，and these names will specified to be synchronized。
 > 
 > If you connect the Oracle database when using this property, please  use the version of the jar package above 8 or more (such as ojdbc8.jar).
 
@@ -329,24 +353,24 @@ The transaction mechanism ensures the atomicity of data writing to JDBC External
 
 ### Clickhouse
 
-| ClickHouse Type                                         | Doris Type               | Comment                                                                                                                              |
-|---------------------------------------------------------|--------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
-| Bool                                                    | BOOLEAN                  |                                                                                                                                      |
-| String                                                  | STRING                   |                                                                                                                                      |
-| Date/Date32                                             | DATEV2                   | JDBC CATLOG uses Datev2 type default when connecting DORIS                                                                           |
-| DateTime/DateTime64                                     | DATETIMEV2               | JDBC CATLOG uses DateTimev2 type default when connecting DORIS                                                                       |
-| Float32                                                 | FLOAT                    |                                                                                                                                      |
-| Float64                                                 | DOUBLE                   |                                                                                                                                      |
-| Int8                                                    | TINYINT                  |                                                                                                                                      |
-| Int16/UInt8                                             | SMALLINT                 | Doris does not support UNSIGNED data types so UInt8 will be mapped to SMALLINT.                                                      |
-| Int32/UInt16                                            | INT                      | Doris does not support UNSIGNED data types so UInt16 will be mapped to INT.                                                          |
-| Int64/Uint32                                            | BIGINT                   | Doris does not support UNSIGNED data types so UInt32 will be mapped to BIGINT.                                                       |
-| Int128/UInt64                                           | LARGEINT                 | Doris does not support UNSIGNED data types so UInt64 will be mapped to LARGEINT.                                                     |
-| Int256/UInt128/UInt256                                  | STRING                   | Doris does not support data types of such orders of magnitude so these will be mapped to STRING.                                     |
-| DECIMAL                                                 | DECIMAL/DECIMALV3/STRING | The Data type is based on the DECIMAL field's (precision, scale) and the `enable_decimal_conversion` configuration.                  |
-| Enum/IPv4/IPv6/UUID                                     | STRING                   | Data of IPv4 and IPv6 type will be displayed with an extra `/` as a prefix. To remove the `/`, you can use the `split_part`function. |
-| <version since="dev" type="inline"> Array(T) </version> | ARRAY\<T\>               | Array internal basic type adaptation logic refers to the preceding types. Nested types are not supported                             |
-| Other                                                   | UNSUPPORTED              |                                                                                                                                      |
+| ClickHouse Type                                      | Doris Type               | Comment                                                                                                                              |
+|------------------------------------------------------|--------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
+| Bool                                                 | BOOLEAN                  |                                                                                                                                      |
+| String                                               | STRING                   |                                                                                                                                      |
+| Date/Date32                                          | DATEV2                   | JDBC CATLOG uses Datev2 type default when connecting ClickHouse                                                                      |
+| DateTime/DateTime64                                  | DATETIMEV2               | JDBC CATLOG uses DateTimev2 type default when connecting ClickHouse                                                                  |
+| Float32                                              | FLOAT                    |                                                                                                                                      |
+| Float64                                              | DOUBLE                   |                                                                                                                                      |
+| Int8                                                 | TINYINT                  |                                                                                                                                      |
+| Int16/UInt8                                          | SMALLINT                 | Doris does not support UNSIGNED data types so UInt8 will be mapped to SMALLINT.                                                      |
+| Int32/UInt16                                         | INT                      | Doris does not support UNSIGNED data types so UInt16 will be mapped to INT.                                                          |
+| Int64/Uint32                                         | BIGINT                   | Doris does not support UNSIGNED data types so UInt32 will be mapped to BIGINT.                                                       |
+| Int128/UInt64                                        | LARGEINT                 | Doris does not support UNSIGNED data types so UInt64 will be mapped to LARGEINT.                                                     |
+| Int256/UInt128/UInt256                               | STRING                   | Doris does not support data types of such orders of magnitude so these will be mapped to STRING.                                     |
+| DECIMAL                                              | DECIMAL/DECIMALV3/STRING | The Data type is based on the DECIMAL field's (precision, scale) and the `enable_decimal_conversion` configuration.                  |
+| Enum/IPv4/IPv6/UUID                                  | STRING                   | Data of IPv4 and IPv6 type will be displayed with an extra `/` as a prefix. To remove the `/`, you can use the `split_part`function. |
+| <version since="dev" type="inline"> Array </version> | ARRAY                    | Array internal basic type adaptation logic refers to the preceding types. Nested types are not supported                             |
+| Other                                                | UNSUPPORTED              |                                                                                                                                      |
 
 ### Doris
 
@@ -373,27 +397,50 @@ The transaction mechanism ensures the atomicity of data writing to JDBC External
 
 ### SAP HANA
 
-| SAP_HANA     | Doris                    | Comment                                                                                                            |
-|--------------|--------------------------|--------------------------------------------------------------------------------------------------------------------|
-| BOOLEAN      | BOOLEAN                  |                                                                                                                    |
-| TINYINT      | TINYINT                  |                                                                                                                    |
-| SMALLINT     | SMALLINT                 |                                                                                                                    |
-| INTERGER     | INT                      |                                                                                                                    |
-| BIGINT       | BIGINT                   |                                                                                                                    |
-| SMALLDECIMAL | DECIMALV3                |                                                                                                                    |
-| DECIMAL      | DECIMAL/DECIMALV3/STRING | The Data type is based on the DECIMAL field's (precision, scale) and the `enable_decimal_conversion` configuration |
-| REAL         | FLOAT                    |                                                                                                                    |
-| DOUBLE       | DOUBLE                   |                                                                                                                    |
-| DATE         | DATEV2                   | JDBC CATLOG uses Datev2 type default when connecting DORIS                                                         |
-| TIME         | TEXT                     |                                                                                                                    |
-| TIMESTAMP    | DATETIMEV2               | JDBC CATLOG uses DATETIMEV2 type default when connecting DORIS                                                     |
-| SECONDDATE   | DATETIMEV2               | JDBC CATLOG uses DATETIMEV2 type default when connecting DORIS                                                     |
-| VARCHAR      | TEXT                     |                                                                                                                    |
-| NVARCHAR     | TEXT                     |                                                                                                                    |
-| ALPHANUM     | TEXT                     |                                                                                                                    |
-| SHORTTEXT    | TEXT                     |                                                                                                                    |
-| CHAR         | CHAR                     |                                                                                                                    |
-| NCHAR        | CHAR                     |                                                                                                                    |
+| SAP HANA Type | Doris Type               | Comment                                                                                                            |
+|---------------|--------------------------|--------------------------------------------------------------------------------------------------------------------|
+| BOOLEAN       | BOOLEAN                  |                                                                                                                    |
+| TINYINT       | TINYINT                  |                                                                                                                    |
+| SMALLINT      | SMALLINT                 |                                                                                                                    |
+| INTERGER      | INT                      |                                                                                                                    |
+| BIGINT        | BIGINT                   |                                                                                                                    |
+| SMALLDECIMAL  | DECIMALV3                |                                                                                                                    |
+| DECIMAL       | DECIMAL/DECIMALV3/STRING | The Data type is based on the DECIMAL field's (precision, scale) and the `enable_decimal_conversion` configuration |
+| REAL          | FLOAT                    |                                                                                                                    |
+| DOUBLE        | DOUBLE                   |                                                                                                                    |
+| DATE          | DATEV2                   | JDBC CATLOG uses Datev2 type default when connecting HANA                                                          |
+| TIME          | TEXT                     |                                                                                                                    |
+| TIMESTAMP     | DATETIMEV2               | JDBC CATLOG uses DATETIMEV2 type default when connecting HANA                                                      |
+| SECONDDATE    | DATETIMEV2               | JDBC CATLOG uses DATETIMEV2 type default when connecting HANA                                                      |
+| VARCHAR       | TEXT                     |                                                                                                                    |
+| NVARCHAR      | TEXT                     |                                                                                                                    |
+| ALPHANUM      | TEXT                     |                                                                                                                    |
+| SHORTTEXT     | TEXT                     |                                                                                                                    |
+| CHAR          | CHAR                     |                                                                                                                    |
+| NCHAR         | CHAR                     |                                                                                                                    |
+| Other         | UNSUPPORTED              |                                                                                                                    |
+
+### Trino
+
+| Trino Type                                           | Doris Type               | Comment                                                                                                            |
+|------------------------------------------------------|--------------------------|--------------------------------------------------------------------------------------------------------------------|
+| boolean                                              | BOOLEAN                  |                                                                                                                    |
+| tinyint                                              | TINYINT                  |                                                                                                                    |
+| smallint                                             | SMALLINT                 |                                                                                                                    |
+| integer                                              | INT                      |                                                                                                                    |
+| bigint                                               | BIGINT                   |                                                                                                                    |
+| decimal                                              | DECIMAL/DECIMALV3/STRING | The Data type is based on the DECIMAL field's (precision, scale) and the `enable_decimal_conversion` configuration |
+| real                                                 | FLOAT                    |                                                                                                                    |
+| double                                               | DOUBLE                   |                                                                                                                    |
+| date                                                 | DATE/DATEV2              | JDBC CATLOG uses Datev2 type default when connecting Trino                                                         |
+| timestamp                                            | DATETIME/DATETIMEV2      | JDBC CATLOG uses DATETIMEV2 type default when connecting Trino                                                     |
+| varchar                                              | TEXT                     |                                                                                                                    |
+| char                                                 | CHAR                     |                                                                                                                    |
+| <version since="dev" type="inline"> array </version> | ARRAY                    | Array internal basic type adaptation logic refers to the preceding types. Nested types are not supported           |
+| others                                               | UNSUPPORTED              |                                                                                                                    |
+
+**Note:**
+Currently, only Hive connected to Trino has been tested. Other data sources connected to Trino have not been tested.
 
 ## FAQ
 
@@ -480,3 +527,13 @@ The transaction mechanism ensures the atomicity of data writing to JDBC External
 7. What to do with errors such as "CAUSED BY: SQLException OutOfMemoryError" when performing JDBC queries?
 
    If you have set `useCursorFetch`  for MySQL, you can increase the JVM memory limit by modifying the value of `jvm_max_heap_size` in be.conf. The current default value is 1024M.
+
+8. When using JDBC to query MySQL large data volume, if the query can occasionally succeed, occasionally report the following errors, and all the MySQL connections are completely disconnected when the error occurs:
+
+   ```
+    ERROR 1105 (HY000): errCode = 2, detailMessage = [INTERNAL_ERROR]UdfRuntimeException: JDBC executor sql has error:
+    CAUSED BY: CommunicationsException: Communications link failure
+    The last packet successfully received from the server was 4,446 milliseconds ago. The last packet sent successfully to the server was 4,446 milliseconds ago.
+    ```
+
+    When the above phenomenon appears, it may be that mysql server's own memory or CPU resources are exhausted and the MySQL service is unavailable. You can try to increase the memory or CPU resources of MySQL Server.

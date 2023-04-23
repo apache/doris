@@ -309,6 +309,7 @@ terminal String
     KW_CROSS,
     KW_CUBE,
     KW_CURRENT,
+    KW_CURRENT_CATALOG,
     KW_CURRENT_TIMESTAMP,
     KW_CURRENT_USER,
     KW_DATA,
@@ -354,6 +355,7 @@ terminal String
     KW_EXCEPT,
     KW_EXCLUDE,
     KW_EXISTS,
+    KW_EXPIRED,
     KW_EXPORT,
     KW_EXTENDED,
     KW_EXTERNAL,
@@ -385,6 +387,7 @@ terminal String
     KW_GRAPH,
     KW_GROUP,
     KW_GROUPING,
+    KW_GROUPS,
     KW_HASH,
     KW_HAVING,
     KW_HDFS,
@@ -398,6 +401,7 @@ terminal String
     KW_IF,
     KW_IMMEDIATE,
     KW_IN,
+    KW_INCREMENTAL,
     KW_INDEX,
     KW_INDEXES,
     KW_INFILE,
@@ -536,6 +540,7 @@ terminal String
     KW_ROW,
     KW_ROWS,
     KW_S3,
+    KW_SAMPLE,
     KW_SCHEMA,
     KW_SCHEMAS,
     KW_SECOND,
@@ -643,7 +648,7 @@ terminal String COMMENTED_PLAN_HINTS;
 nonterminal List<StatementBase> stmts;
 nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     create_routine_load_stmt, pause_routine_load_stmt, resume_routine_load_stmt, stop_routine_load_stmt,
-    show_routine_load_stmt, show_routine_load_task_stmt, show_create_routine_load_stmt, show_create_load_stmt,
+    show_routine_load_stmt, show_routine_load_task_stmt, show_create_routine_load_stmt, show_create_load_stmt, show_create_reporitory_stmt,
     describe_stmt, alter_stmt,
     use_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
     link_stmt, migrate_stmt, switch_stmt, enter_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
@@ -794,7 +799,7 @@ nonterminal SetVar option_value, option_value_follow_option_type, option_value_n
 nonterminal List<SetVar> option_value_list, option_value_list_continued, start_option_value_list,
         start_option_value_list_following_option_type, user_property_list;
 
-nonterminal Map<String, String> key_value_map, opt_key_value_map, opt_properties,
+nonterminal Map<String, String> key_value_map, opt_key_value_map, opt_key_value_map_in_paren, opt_properties,
             opt_ext_properties, opt_enable_feature_properties, properties;
 nonterminal ColumnDef column_definition;
 nonterminal IndexDef index_definition;
@@ -886,6 +891,10 @@ nonterminal PauseSyncJobStmt pause_sync_job_stmt;
 nonterminal StopSyncJobStmt stop_sync_job_stmt;
 nonterminal JobName job_name;
 
+// analyze
+nonterminal Map<String, String> with_analysis_properties;
+nonterminal List<Map<String, String>> opt_with_analysis_properties;
+
 nonterminal String opt_db, procedure_or_function, opt_comment, opt_engine;
 nonterminal ColumnDef.DefaultValue opt_default_value;
 nonterminal Boolean opt_if_exists, opt_if_not_exists;
@@ -915,6 +924,8 @@ nonterminal MVRefreshInfo.RefreshMethod opt_refresh_method;
 nonterminal MVRefreshTriggerInfo opt_refresh_trigger;
 nonterminal MVRefreshInfo opt_mv_refersh_info;
 nonterminal PartitionDesc opt_mv_partition;
+nonterminal Boolean opt_sync;
+
 
 precedence nonassoc COMMA;
 precedence nonassoc STRING_LITERAL;
@@ -1105,6 +1116,8 @@ stmt ::=
     | show_create_routine_load_stmt : stmt
     {: RESULT = stmt; :}
     | show_create_load_stmt : stmt
+    {: RESULT = stmt; :}
+    | show_create_reporitory_stmt : stmt
     {: RESULT = stmt; :}
     | cancel_stmt : stmt
     {: RESULT = stmt; :}
@@ -1325,7 +1338,7 @@ alter_stmt ::=
     | KW_ALTER KW_TABLE table_name:tbl KW_MODIFY KW_COLUMN ident:columnName
       KW_SET KW_STATS LPAREN key_value_map:map RPAREN opt_partition_names:partitionNames
     {:
-        RESULT = new AlterColumnStatsStmt(tbl, columnName, map, partitionNames);
+        RESULT = new AlterColumnStatsStmt(tbl, columnName, map);
     :}
     | KW_ALTER KW_TABLE table_name:tbl KW_SET LPAREN key_value_map:properties RPAREN
     {:
@@ -1781,13 +1794,13 @@ create_stmt ::=
         RESULT = new CreateDbStmt(ifNotExists, db, null);
     :}
     /* Catalog */
-    | KW_CREATE KW_CATALOG opt_if_not_exists:ifNotExists ident:catalogName opt_properties:properties
+    | KW_CREATE KW_CATALOG opt_if_not_exists:ifNotExists ident:catalogName opt_comment:comment opt_properties:properties
     {:
-         RESULT = new CreateCatalogStmt(ifNotExists, catalogName, null, properties);
+         RESULT = new CreateCatalogStmt(ifNotExists, catalogName, null, properties, comment);
     :}
-    | KW_CREATE KW_CATALOG opt_if_not_exists:ifNotExists ident:catalogName KW_WITH KW_RESOURCE ident:resourceName opt_properties:properties
+    | KW_CREATE KW_CATALOG opt_if_not_exists:ifNotExists ident:catalogName KW_WITH KW_RESOURCE ident:resourceName opt_comment:comment opt_properties:properties
     {:
-         RESULT = new CreateCatalogStmt(ifNotExists, catalogName, resourceName, properties);
+         RESULT = new CreateCatalogStmt(ifNotExists, catalogName, resourceName, properties, comment);
     :}
     /* cluster */
    /* KW_CREATE KW_CLUSTER ident:name  opt_properties:properties KW_IDENTIFIED KW_BY STRING_LITERAL:password
@@ -1939,10 +1952,20 @@ create_stmt ::=
     {:
         RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new CreateIndexClause(tableName, new IndexDef(indexName, ifNotExists, cols, indexType, properties, comment), false)));
     :}
-    /* resource */
-    | KW_CREATE opt_external:isExternal KW_RESOURCE opt_if_not_exists:ifNotExists ident_or_text:resourceName opt_properties:properties
+    /* external resource */
+    | KW_CREATE KW_EXTERNAL KW_RESOURCE opt_if_not_exists:ifNotExists ident_or_text:resourceName opt_properties:properties
     {:
-        RESULT = new CreateResourceStmt(isExternal, ifNotExists, resourceName, properties);
+        RESULT = new CreateResourceStmt(true, ifNotExists, resourceName, properties);
+    :}
+    /* resource */
+    | KW_CREATE KW_RESOURCE opt_if_not_exists:ifNotExists ident_or_text:resourceName opt_properties:properties
+    {:
+        RESULT = new CreateResourceStmt(false, ifNotExists, resourceName, properties);
+    :}
+    /* resource group*/
+    | KW_CREATE KW_RESOURCE KW_GROUP opt_if_not_exists:ifNotExists ident_or_text:resourceGroupName opt_properties:properties
+    {:
+        RESULT = new CreateResourceGroupStmt(ifNotExists, resourceGroupName, properties);
     :}
     /* encryptkey */
     | KW_CREATE KW_ENCRYPTKEY opt_if_not_exists:ifNotExists encryptkey_name:keyName KW_AS STRING_LITERAL:keyString
@@ -2785,19 +2808,54 @@ show_create_load_stmt ::=
     :}
     ;
 
+show_create_reporitory_stmt ::=
+    KW_SHOW KW_CREATE KW_REPOSITORY KW_FOR ident:repoName
+    {:
+        RESULT = new ShowCreateRepositoryStmt(repoName);
+    :}
+    ;
+
 // analyze statment
 analyze_stmt ::=
-    KW_ANALYZE KW_TABLE table_name:tbl opt_col_list:cols opt_partition_names:partitionNames opt_properties:properties
+    // statistics
+    KW_ANALYZE opt_sync:sync KW_TABLE table_name:tbl opt_col_list:cols
+      opt_with_analysis_properties:withAnalysisProperties opt_properties:properties
     {:
-        boolean is_whole_tbl = (cols == null);
-        boolean is_histogram = false;
-        RESULT = new AnalyzeStmt(tbl, cols, partitionNames, properties, is_whole_tbl, is_histogram);
+        if (properties == null) {
+            properties = Maps.newHashMap();
+        }
+        for (Map<String, String> property : withAnalysisProperties) {
+            properties.putAll(property);
+        }
+        if (!properties.containsKey("sync")) {
+            properties.put("sync", String.valueOf(sync));
+        }
+        // Rule: If no type is specified, see if there is a specified column
+        if (!properties.containsKey("analysis.type")) {
+            if ((cols == null)) {
+                properties.put("analysis.type", "INDEX");
+            } else {
+                properties.put("analysis.type", "COLUMN");
+            }
+        }
+        RESULT = new AnalyzeStmt(tbl, cols, properties);
     :}
-    | KW_ANALYZE KW_TABLE table_name:tbl KW_UPDATE KW_HISTOGRAM KW_ON ident_list:cols opt_partition_names:partitionNames opt_properties:properties
+    // histogram
+    | KW_ANALYZE opt_sync:sync KW_TABLE table_name:tbl opt_col_list:cols KW_UPDATE KW_HISTOGRAM
+      opt_with_analysis_properties:withAnalysisProperties opt_properties:properties
     {:
-        boolean is_whole_tbl = (cols == null);
-        boolean is_histogram = true;
-        RESULT = new AnalyzeStmt(tbl, cols, partitionNames, properties, is_whole_tbl, is_histogram);
+        if (properties == null) {
+            properties = Maps.newHashMap();
+        }
+        for (Map<String, String> property : withAnalysisProperties) {
+            properties.putAll(property);
+        }
+        if (!properties.containsKey("sync")) {
+            properties.put("sync", String.valueOf(sync));
+        }
+        // TODO: Support materialized view
+        properties.put("analysis.type", "HISTOGRAM");
+        RESULT = new AnalyzeStmt(tbl, cols, properties);
     :}
     ;
 
@@ -2976,9 +3034,13 @@ drop_stmt ::=
         RESULT = new DropPolicyStmt(PolicyTypeEnum.STORAGE, ifExists, policyName, null, null);
     :}
     /* statistics */
-    | KW_DROP KW_STATS opt_table_name:tbl opt_partition_names:partitionNames
+    | KW_DROP KW_STATS table_name:tbl opt_col_list:cols
     {:
-        RESULT = new DropTableStatsStmt(tbl, partitionNames);
+        RESULT = new DropStatsStmt(tbl, cols);
+    :}
+    | KW_DROP KW_EXPIRED KW_STATS
+    {:
+        RESULT = new DropStatsStmt(true);
     :}
     ;
 
@@ -3315,6 +3377,23 @@ opt_key_value_map ::=
     :}
     ;
 
+opt_key_value_map_in_paren ::=
+    /* empty */
+    {:
+    RESULT = Maps.newHashMap();
+    :}
+    | STRING_LITERAL:name EQUAL STRING_LITERAL:value
+    {:
+    RESULT = Maps.newHashMap();
+    RESULT.put(name, value);
+    :}
+    | opt_key_value_map_in_paren:map COMMA STRING_LITERAL:name EQUAL STRING_LITERAL:value
+    {:
+    map.put(name, value);
+    RESULT = map;
+    :}
+    ;
+
 key_value_map ::=
     STRING_LITERAL:name EQUAL STRING_LITERAL:value
     {:
@@ -3641,9 +3720,9 @@ show_param ::=
             RESULT = new ShowCreateCatalogStmt(catalogName);
         :}
     /* Create Function */
-    | KW_CREATE KW_FUNCTION function_name:functionName LPAREN func_args_def:args RPAREN opt_db:dbName
+    | KW_CREATE opt_var_type:type KW_FUNCTION function_name:functionName LPAREN func_args_def:args RPAREN opt_db:dbName
     {:
-        RESULT = new ShowCreateFunctionStmt(dbName, functionName, args);
+        RESULT = new ShowCreateFunctionStmt(type, dbName, functionName, args);
     :}
     /* Cluster */
     | KW_CLUSTERS
@@ -3667,6 +3746,11 @@ show_param ::=
     | KW_DATABASE INTEGER_LITERAL:dbId
     {:
         RESULT = new ShowDbIdStmt(dbId);
+    :}
+    /* show all data types */
+    | KW_DATA KW_TYPES
+    {:
+        RESULT = new ShowDataTypesStmt();
     :}
     | KW_SCHEMAS opt_wild_where
     {:
@@ -3816,6 +3900,10 @@ show_param ::=
     {:
         RESULT = new ShowResourcesStmt(parser.where, orderByClause, limitClause);
     :}
+    | KW_RESOURCE KW_GROUPS
+    {:
+        RESULT = new ShowResourceGroupsStmt();
+    :}
     | KW_BACKENDS
     {:
         RESULT = new ShowBackendsStmt();
@@ -3860,6 +3948,10 @@ show_param ::=
     {:
         RESULT = new ShowFunctionsStmt(dbName, isBuiltin, parser.isVerbose, parser.wild, parser.where);
     :}
+    | KW_GLOBAL opt_full KW_FUNCTIONS opt_wild_where
+    {:
+        RESULT = new ShowFunctionsStmt(parser.isVerbose, parser.wild, parser.where);
+    :}
     | KW_TYPECAST opt_db:dbName
     {:
         RESULT = new ShowTypeCastStmt(dbName, parser.where);
@@ -3898,9 +3990,14 @@ show_param ::=
         RESULT = new ShowSyncJobStmt(dbName);
     :}
     /* show column stats */
-    | KW_COLUMN KW_STATS table_name:tbl opt_partition_names:partitionNames
+    | KW_COLUMN KW_STATS table_name:tbl opt_col_list:cols opt_partition_names:partitionNames
     {:
-        RESULT = new ShowColumnStatsStmt(tbl, partitionNames);
+        RESULT = new ShowColumnStatsStmt(tbl, cols, partitionNames);
+    :}
+    /* show column histogram */
+    | KW_COLUMN KW_HISTOGRAM table_name:tbl opt_col_list:cols
+    {:
+        RESULT = new ShowColumnHistStmt(tbl, cols);
     :}
     /* show table creation statement */
     | KW_TABLE KW_CREATION opt_db:db opt_wild_where
@@ -5349,7 +5446,7 @@ table_ref ::=
   ;
 
 table_valued_function_ref ::=
-  ident:func_name LPAREN key_value_map:properties RPAREN opt_table_alias:alias
+  ident:func_name LPAREN opt_key_value_map_in_paren:properties RPAREN opt_table_alias:alias
   {:
     RESULT = new TableValuedFunctionRef(func_name, alias, properties);
   :}
@@ -5652,6 +5749,53 @@ ident_list ::=
       RESULT = list;
     :}
     ;
+
+with_analysis_properties ::=
+    KW_SYNC
+    {:
+        RESULT = new HashMap<String, String>() {{
+            put("sync", "true");
+        }};
+    :}
+    | KW_INCREMENTAL
+    {:
+        RESULT = new HashMap<String, String>() {{
+            put("incremental", "true");
+        }};
+    :}
+    | KW_SAMPLE KW_PERCENT INTEGER_LITERAL:samplePercent
+    {:
+        RESULT = new HashMap<String, String>() {{
+            put("sample.percent", String.valueOf(samplePercent.intValue()));
+        }};
+    :}
+    | KW_SAMPLE KW_ROWS INTEGER_LITERAL:sampleRows
+    {:
+        RESULT = new HashMap<String, String>() {{
+            put("sample.rows", String.valueOf(sampleRows.intValue()));
+        }};
+    :}
+    | KW_BUCKETS INTEGER_LITERAL:numBuckets
+    {:
+        RESULT = new HashMap<String, String>() {{
+            put("num.buckets", String.valueOf(numBuckets.intValue()));
+        }};
+    :}
+    ;
+
+opt_with_analysis_properties ::=
+    /* empty */
+    {:
+        RESULT = Lists.newArrayList();
+    :}
+    | opt_with_analysis_properties:withAnalysisProperties
+      KW_WITH with_analysis_properties:property
+    {:
+        withAnalysisProperties.add(property);
+        RESULT = withAnalysisProperties;
+    :}
+    ;
+
 
 expr_list ::=
   expr:e
@@ -6231,6 +6375,8 @@ non_pred_expr ::=
   {: RESULT = new InformationFunction("USER"); :}
   | KW_CURRENT_USER LPAREN RPAREN
   {: RESULT = new InformationFunction("CURRENT_USER"); :}
+  | KW_CURRENT_CATALOG LPAREN RPAREN
+  {: RESULT = new InformationFunction("CURRENT_CATALOG"); :}
   | KW_CONNECTION_ID LPAREN RPAREN
   {: RESULT = new InformationFunction("CONNECTION_ID"); :}
   | KW_PASSWORD LPAREN STRING_LITERAL:text RPAREN
@@ -6865,6 +7011,16 @@ type_func_name_keyword ::=
     {: RESULT = id; :}
     ;
 
+opt_sync ::=
+    {:
+        RESULT = false;
+    :}
+    | KW_SYNC
+    {:
+        RESULT = true;
+    :}
+    ;
+
 // Keyword that we allow for identifiers
 keyword ::=
     KW_AFTER:id
@@ -7016,6 +7172,8 @@ keyword ::=
     | KW_HASH:id
     {: RESULT = id; :}
     | KW_HELP:id
+    {: RESULT = id; :}
+    | KW_HOSTNAME:id
     {: RESULT = id; :}
     | KW_HUB:id
     {: RESULT = id; :}
@@ -7241,6 +7399,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_GROUPING:id
     {: RESULT = id; :}
+    | KW_GROUPS:id
+    {: RESULT = id; :}
     | KW_DYNAMIC:id
     {: RESULT = id; :}
     | time_unit:id
@@ -7270,6 +7430,12 @@ keyword ::=
     | KW_IGNORE:id
     {: RESULT = id; :}
     | KW_HISTOGRAM:id
+    {: RESULT = id; :}
+    | KW_CURRENT_CATALOG:id
+    {: RESULT = id; :}
+    | KW_EXPIRED: id
+    {: RESULT = id; :}
+    | KW_SAMPLE:id
     {: RESULT = id; :}
     ;
 

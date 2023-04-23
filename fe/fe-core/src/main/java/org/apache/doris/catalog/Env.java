@@ -149,7 +149,6 @@ import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.journal.bdbje.Timestamp;
 import org.apache.doris.load.DeleteHandler;
-import org.apache.doris.load.ExportChecker;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.Load;
@@ -211,10 +210,12 @@ import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.resourcegroup.ResourceGroupMgr;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.AnalysisTaskScheduler;
 import org.apache.doris.statistics.StatisticsCache;
+import org.apache.doris.statistics.StatisticsCleaner;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.FQDNManager;
 import org.apache.doris.system.Frontend;
@@ -447,6 +448,10 @@ public class Env {
 
     private AtomicLong stmtIdCounter;
 
+    private ResourceGroupMgr resourceGroupMgr;
+
+    private StatisticsCleaner statisticsCleaner;
+
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
             // get all
@@ -647,8 +652,10 @@ public class Env {
         this.fqdnManager = new FQDNManager(systemInfo);
         if (!isCheckpointCatalog) {
             this.analysisManager = new AnalysisManager();
+            this.statisticsCleaner = new StatisticsCleaner();
         }
         this.globalFunctionMgr = new GlobalFunctionMgr();
+        this.resourceGroupMgr = new ResourceGroupMgr();
     }
 
     public static void destroyCheckpoint() {
@@ -714,6 +721,10 @@ public class Env {
 
     public AuditEventProcessor getAuditEventProcessor() {
         return auditEventProcessor;
+    }
+
+    public ResourceGroupMgr getResourceGroupMgr() {
+        return resourceGroupMgr;
     }
 
     // use this to get correct ClusterInfoService instance
@@ -865,6 +876,9 @@ public class Env {
         if (!Config.edit_log_type.equalsIgnoreCase("bdb")) {
             // If not using bdb, we need to notify the FE type transfer manually.
             notifyNewFETypeTransfer(FrontendNodeType.MASTER);
+        }
+        if (statisticsCleaner != null) {
+            statisticsCleaner.start();
         }
     }
 
@@ -1308,16 +1322,20 @@ public class Env {
 
         // MUST set master ip before starting checkpoint thread.
         // because checkpoint thread need this info to select non-master FE to push image
+
         this.masterInfo = new MasterInfo(Env.getCurrentEnv().getSelfNode().getIp(),
                 Env.getCurrentEnv().getSelfNode().getHostName(),
                 Config.http_port,
                 Config.rpc_port);
         editLog.logMasterInfo(masterInfo);
+        LOG.info("logMasterInfo:{}", masterInfo);
+
+        this.resourceGroupMgr.init();
 
         // for master, the 'isReady' is set behind.
         // but we are sure that all metadata is replayed if we get here.
         // so no need to check 'isReady' flag in this method
-        fixBugAfterMetadataReplayed(false);
+        postProcessAfterMetadataReplayed(false);
 
         // start all daemon threads that only running on MASTER FE
         startMasterOnlyDaemonThreads();
@@ -1335,12 +1353,18 @@ public class Env {
         LOG.info(msg);
         // for master, there are some new thread pools need to register metric
         ThreadPoolManager.registerAllThreadPoolMetric();
+        if (analysisManager != null) {
+            analysisManager.getStatisticsCache().preHeat();
+        }
     }
 
     /*
-     * Add anything necessary here if there is meta data need to be fixed.
+     * There are something need to do after metadata is replayed, such as
+     * 1. bug fix for metadata
+     * 2. register some hook.
+     * If there is, add them here.
      */
-    public void fixBugAfterMetadataReplayed(boolean waitCatalogReady) {
+    public void postProcessAfterMetadataReplayed(boolean waitCatalogReady) {
         if (waitCatalogReady) {
             while (!isReady()) {
                 try {
@@ -1352,6 +1376,7 @@ public class Env {
         }
 
         auth.rectifyPrivs();
+        catalogMgr.registerCatalogRefreshListener(this);
     }
 
     // start all daemon threads only running on Master
@@ -1376,9 +1401,8 @@ public class Env {
         loadJobScheduler.start();
         loadEtlChecker.start();
         loadLoadingChecker.start();
-        // Export checker
-        ExportChecker.init(Config.export_checker_interval_second * 1000L);
-        ExportChecker.startAll();
+        // export task
+        exportMgr.start();
         // Tablet checker and scheduler
         tabletChecker.start();
         tabletScheduler.start();
@@ -1430,6 +1454,7 @@ public class Env {
         }
         // start mtmv jobManager
         mtmvJobManager.start();
+        getRefreshManager().start();
     }
 
     // start threads that should running on all FE
@@ -1463,7 +1488,7 @@ public class Env {
         }
 
         // 'isReady' will be set to true in 'setCanRead()' method
-        fixBugAfterMetadataReplayed(true);
+        postProcessAfterMetadataReplayed(true);
 
         checkLowerCaseTableNames();
 
@@ -1780,6 +1805,10 @@ public class Env {
         newChecksum ^= size;
         for (int i = 0; i < size; i++) {
             AlterJobV2 alterJobV2 = AlterJobV2.read(dis);
+            if (alterJobV2.isExpire()) {
+                LOG.info("alter job {} is expired, type: {}, ignore it", alterJobV2.getJobId(), alterJobV2.getType());
+                continue;
+            }
             if (type == JobType.ROLLUP || type == JobType.SCHEMA_CHANGE) {
                 if (type == JobType.ROLLUP) {
                     this.getMaterializedViewHandler().addAlterJobV2(alterJobV2);
@@ -1875,6 +1904,12 @@ public class Env {
         return checksum;
     }
 
+    public long loadResourceGroups(DataInputStream in, long checksum) throws IOException {
+        resourceGroupMgr = ResourceGroupMgr.read(in);
+        LOG.info("finished replay resource groups from image");
+        return checksum;
+    }
+
     public long loadSmallFiles(DataInputStream in, long checksum) throws IOException {
         smallFileMgr.readFields(in);
         LOG.info("finished replay smallFiles from image");
@@ -1918,10 +1953,8 @@ public class Env {
      * Load mtmv jobManager.
      **/
     public long loadMTMVJobManager(DataInputStream in, long checksum) throws IOException {
-        if (Config.enable_mtmv_scheduler_framework) {
-            this.mtmvJobManager = MTMVJobManager.read(in, checksum);
-            LOG.info("finished replay mtmv job and tasks from image");
-        }
+        this.mtmvJobManager = MTMVJobManager.read(in, checksum);
+        LOG.info("finished replay mtmv job and tasks from image");
         return checksum;
     }
 
@@ -2140,6 +2173,11 @@ public class Env {
         return checksum;
     }
 
+    public long saveResourceGroups(CountingDataOutputStream dos, long checksum) throws IOException {
+        Env.getCurrentEnv().getResourceGroupMgr().write(dos);
+        return checksum;
+    }
+
     public long saveSmallFiles(CountingDataOutputStream dos, long checksum) throws IOException {
         smallFileMgr.write(dos);
         return checksum;
@@ -2164,10 +2202,8 @@ public class Env {
     }
 
     public long saveMTMVJobManager(CountingDataOutputStream out, long checksum) throws IOException {
-        if (Config.enable_mtmv_scheduler_framework) {
-            Env.getCurrentEnv().getMTMVJobManager().write(out, checksum);
-            LOG.info("Save mtmv job and tasks to image");
-        }
+        Env.getCurrentEnv().getMTMVJobManager().write(out, checksum);
+        LOG.info("Save mtmv job and tasks to image");
         return checksum;
     }
 
@@ -2788,7 +2824,8 @@ public class Env {
                 // There MUST BE 2 space in front of each column description line
                 // sqlalchemy requires this to parse SHOW CREATE TABLE stmt.
                 if (table.getType() == TableType.OLAP) {
-                    sb.append("  ").append(column.toSql(((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS));
+                    sb.append("  ").append(
+                            column.toSql(((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS, true));
                 } else {
                     sb.append("  ").append(column.toSql());
                 }
@@ -3637,6 +3674,7 @@ public class Env {
 
     public void setMaster(MasterInfo info) {
         this.masterInfo = info;
+        LOG.info("setMaster MasterInfo:{}", info);
     }
 
     public boolean canRead() {
@@ -3885,23 +3923,23 @@ public class Env {
     }
 
     // the invoker should keep table's write lock
-    public void modifyTableColocate(Database db, OlapTable table, String colocateGroup, boolean isReplay,
+    public void modifyTableColocate(Database db, OlapTable table, String assignedGroup, boolean isReplay,
             GroupId assignedGroupId)
             throws DdlException {
 
         String oldGroup = table.getColocateGroup();
         GroupId groupId = null;
-        if (!Strings.isNullOrEmpty(colocateGroup)) {
-            String fullGroupName = db.getId() + "_" + colocateGroup;
+        if (!Strings.isNullOrEmpty(assignedGroup)) {
+            String fullAssignedGroupName = GroupId.getFullGroupName(db.getId(), assignedGroup);
             //When the new name is the same as the old name, we return it to prevent npe
             if (!Strings.isNullOrEmpty(oldGroup)) {
-                String oldFullGroupName = db.getId() + "_" + oldGroup;
-                if (oldFullGroupName.equals(fullGroupName)) {
+                String oldFullGroupName = GroupId.getFullGroupName(db.getId(), oldGroup);
+                if (oldFullGroupName.equals(fullAssignedGroupName)) {
                     LOG.warn("modify table[{}] group name same as old group name,skip.", table.getName());
                     return;
                 }
             }
-            ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(fullGroupName);
+            ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(fullAssignedGroupName);
             if (groupSchema == null) {
                 // user set a new colocate group,
                 // check if all partitions all this table has same buckets num and same replication number
@@ -3938,7 +3976,7 @@ public class Env {
                 backendsPerBucketSeq = table.getArbitraryTabletBucketsSeq();
             }
             // change group after getting backends sequence(if has), in case 'getArbitraryTabletBucketsSeq' failed
-            groupId = colocateTableIndex.changeGroup(db.getId(), table, oldGroup, colocateGroup, assignedGroupId);
+            groupId = colocateTableIndex.changeGroup(db.getId(), table, oldGroup, assignedGroup, assignedGroupId);
 
             if (groupSchema == null) {
                 Preconditions.checkNotNull(backendsPerBucketSeq);
@@ -3948,7 +3986,7 @@ public class Env {
             // set this group as unstable
             colocateTableIndex.markGroupUnstable(groupId, "Colocation group modified by user",
                     false /* edit log is along with modify table log */);
-            table.setColocateGroup(colocateGroup);
+            table.setColocateGroup(assignedGroup);
         } else {
             // unset colocation group
             if (Strings.isNullOrEmpty(oldGroup)) {
@@ -3957,17 +3995,16 @@ public class Env {
             }
 
             // when replayModifyTableColocate, we need the groupId info
-            String fullGroupName = db.getId() + "_" + oldGroup;
+            String fullGroupName = GroupId.getFullGroupName(db.getId(), oldGroup);
             groupId = colocateTableIndex.getGroupSchema(fullGroupName).getGroupId();
-
             colocateTableIndex.removeTable(table.getId());
             table.setColocateGroup(null);
         }
 
         if (!isReplay) {
             Map<String, String> properties = Maps.newHashMapWithExpectedSize(1);
-            properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, colocateGroup);
-            TablePropertyInfo info = new TablePropertyInfo(table.getId(), groupId, properties);
+            properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, assignedGroup);
+            TablePropertyInfo info = new TablePropertyInfo(db.getId(), table.getId(), groupId, properties);
             editLog.logModifyTableColocate(info);
         }
         LOG.info("finished modify table's colocation property. table: {}, is replay: {}", table.getName(), isReplay);
@@ -3975,6 +4012,10 @@ public class Env {
 
     public void replayModifyTableColocate(TablePropertyInfo info) throws MetaNotFoundException {
         long dbId = info.getGroupId().dbId;
+        if (dbId == 0) {
+            dbId = info.getDbId();
+        }
+        Preconditions.checkState(dbId != 0, "replay modify table colocate failed, table id: " + info.getTableId());
         long tableId = info.getTableId();
         Map<String, String> properties = info.getPropertyMap();
 
@@ -5313,7 +5354,7 @@ public class Env {
     //  1. handle partition level analysis statement properly
     //  2. support sample job
     //  3. support period job
-    public void createAnalysisJob(AnalyzeStmt analyzeStmt) {
+    public void createAnalysisJob(AnalyzeStmt analyzeStmt) throws DdlException {
         analysisManager.createAnalysisJob(analyzeStmt);
     }
 
@@ -5324,5 +5365,9 @@ public class Env {
 
     public GlobalFunctionMgr getGlobalFunctionMgr() {
         return globalFunctionMgr;
+    }
+
+    public StatisticsCleaner getStatisticsCleaner() {
+        return statisticsCleaner;
     }
 }

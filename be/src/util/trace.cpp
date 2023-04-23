@@ -18,18 +18,22 @@
 #include "util/trace.h"
 
 #include <glog/logging.h>
-#include <rapidjson/rapidjson.h>
+#include <rapidjson/encodings.h>
+#include <stdlib.h>
+#include <time.h>
 
-#include <cstdint>
+#include <algorithm>
 #include <cstring>
 #include <iomanip>
 #include <iostream>
+#include <iterator>
 #include <map>
 #include <mutex>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "gutil/stringprintf.h"
 #include "gutil/strings/substitute.h"
 //#include "util/memory/arena.h"
 

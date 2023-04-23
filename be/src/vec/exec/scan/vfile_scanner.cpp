@@ -18,32 +18,71 @@
 #include "vec/exec/scan/vfile_scanner.h"
 
 #include <fmt/format.h>
-#include <thrift/protocol/TDebugProtocol.h>
+#include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/PlanNodes_types.h>
 
-#include <vec/data_types/data_type_factory.hpp>
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <iterator>
+#include <map>
+#include <ostream>
+#include <tuple>
+#include <utility>
 
+#include "vec/data_types/data_type_factory.hpp"
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/logging.h"
-#include "common/utils.h"
-#include "exec/text_converter.hpp"
+#include "common/object_pool.h"
 #include "io/cache/block/block_file_cache_profile.h"
-#include "olap/iterators.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
+#include "runtime/types.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/core/field.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_string.h"
 #include "vec/exec/format/csv/csv_reader.h"
 #include "vec/exec/format/json/new_json_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/format/table/iceberg_reader.h"
 #include "vec/exec/scan/new_file_scan_node.h"
+#include "vec/exec/scan/vscan_node.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vslot_ref.h"
+#include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
+
+namespace cctz {
+class time_zone;
+} // namespace cctz
+namespace doris {
+namespace vectorized {
+class ShardedKVCache;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 using namespace ErrorCode;
 
 VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
                            const TFileScanRange& scan_range, RuntimeProfile* profile,
-                           KVCache<std::string>& kv_cache)
+                           ShardedKVCache* kv_cache)
         : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
           _params(scan_range.params),
           _ranges(scan_range.ranges),
@@ -75,12 +114,12 @@ Status VFileScanner::prepare(
     _pre_filter_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerPreFilterTimer");
     _convert_to_output_block_timer =
             ADD_TIMER(_parent->_scanner_profile, "FileScannerConvertOuputBlockTime");
+    _empty_file_counter = ADD_COUNTER(_parent->_scanner_profile, "EmptyFileNum", TUnit::UNIT);
 
     _file_cache_statistics.reset(new io::FileCacheStatistics());
     _io_ctx.reset(new io::IOContext());
     _io_ctx->file_cache_stats = _file_cache_statistics.get();
     _io_ctx->query_id = &_state->query_id();
-    _io_ctx->enable_file_cache = _state->query_options().enable_file_cache;
 
     if (_is_load) {
         _src_row_desc.reset(new RowDescriptor(_state->desc_tbl(),
@@ -534,9 +573,10 @@ Status VFileScanner::_get_next_reader() {
         // TODO: use data lake type
         switch (_params.format_type) {
         case TFileFormatType::FORMAT_PARQUET: {
-            ParquetReader* parquet_reader = new ParquetReader(
-                    _profile, _params, range, _state->query_options().batch_size,
-                    const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx.get(), _state);
+            ParquetReader* parquet_reader =
+                    new ParquetReader(_profile, _params, range, _state->query_options().batch_size,
+                                      const_cast<cctz::time_zone*>(&_state->timezone_obj()),
+                                      _io_ctx.get(), _state, _kv_cache);
             RETURN_IF_ERROR(parquet_reader->open());
             if (!_is_load && _push_down_expr == nullptr && _vconjunct_ctx != nullptr) {
                 RETURN_IF_ERROR(_vconjunct_ctx->clone(_state, &_push_down_expr));
@@ -564,7 +604,7 @@ Status VFileScanner::_get_next_reader() {
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
-            _cur_reader.reset(new OrcReader(_profile, _params, range, _file_col_names,
+            _cur_reader.reset(new OrcReader(_profile, _state, _params, range, _file_col_names,
                                             _state->query_options().batch_size, _state->timezone(),
                                             _io_ctx.get()));
             init_status = ((OrcReader*)(_cur_reader.get()))->init_reader(_colname_to_value_range);
@@ -594,9 +634,12 @@ Status VFileScanner::_get_next_reader() {
         }
 
         if (init_status.is<END_OF_FILE>()) {
+            COUNTER_UPDATE(_empty_file_counter, 1);
             continue;
         } else if (!init_status.ok()) {
             if (init_status.is<ErrorCode::NOT_FOUND>()) {
+                COUNTER_UPDATE(_empty_file_counter, 1);
+                LOG(INFO) << "failed to find file: " << range.path;
                 return init_status;
             }
             return Status::InternalError("failed to init reader for file {}, err: {}", range.path,
@@ -827,7 +870,7 @@ Status VFileScanner::close(RuntimeState* state) {
         }
     }
 
-    if (config::enable_file_cache) {
+    if (config::enable_file_cache && _state->query_options().enable_file_cache) {
         io::FileCacheProfileReporter cache_profile(_profile);
         cache_profile.update(_file_cache_statistics.get());
     }

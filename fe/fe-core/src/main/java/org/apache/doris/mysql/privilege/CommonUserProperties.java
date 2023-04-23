@@ -52,7 +52,10 @@ public class CommonUserProperties implements Writable {
     private long execMemLimit = -1;
 
     @SerializedName("queryTimeout")
-    private long queryTimeout = -1;
+    private int queryTimeout = -1;
+
+    @SerializedName("insertTimeout")
+    private int insertTimeout = -1;
 
     private String[] sqlBlockRulesSplit = {};
 
@@ -114,12 +117,20 @@ public class CommonUserProperties implements Writable {
         this.execMemLimit = execMemLimit;
     }
 
-    public long getQueryTimeout() {
+    public int getQueryTimeout() {
         return queryTimeout;
     }
 
-    public void setQueryTimeout(long timeout) {
+    public void setQueryTimeout(int timeout) {
         this.queryTimeout = timeout;
+    }
+
+    public int getInsertTimeout() {
+        return insertTimeout;
+    }
+
+    public void setInsertTimeout(int insertTimeout) {
+        this.insertTimeout = insertTimeout;
     }
 
     public static CommonUserProperties read(DataInput in) throws IOException {

@@ -17,21 +17,36 @@
 
 #include "common/daemon.h"
 
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
 #include <gflags/gflags.h>
-#include <gperftools/malloc_extension.h>
+#include <gperftools/malloc_extension.h> // IWYU pragma: keep
+// IWYU pragma: no_include <bits/std_abs.h>
+#include <math.h>
 #include <signal.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include <algorithm>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <map>
+#include <ostream>
+#include <set>
+#include <string>
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "exprs/math_functions.h"
-#include "exprs/string_functions.h"
+#include "common/status.h"
 #include "olap/options.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet_manager.h"
 #include "runtime/block_spill_manager.h"
 #include "runtime/exec_env.h"
-#include "runtime/fragment_mgr.h"
 #include "runtime/load_channel_mgr.h"
-#include "runtime/memory/chunk_allocator.h"
+#include "runtime/memory/mem_tracker.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/user_function_cache.h"
 #include "service/backend_options.h"
 #include "util/cpu_info.h"
@@ -39,7 +54,9 @@
 #include "util/disk_info.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
+#include "util/metrics.h"
 #include "util/network_util.h"
+#include "util/perf_counters.h"
 #include "util/system_metrics.h"
 #include "util/thrift_util.h"
 #include "util/time.h"
@@ -194,8 +211,9 @@ void Daemon::memory_maintenance_thread() {
                 DorisMetrics::instance()->system_metrics()->update_allocator_metrics();
             }
 #endif
+            LOG(INFO) << MemTrackerLimiter::
+                            process_mem_log_str(); // print mem log when memory state by 100M
             if (doris::config::memory_debug) {
-                LOG(INFO) << MemTrackerLimiter::process_mem_log_str();
                 LOG_EVERY_N(INFO, 10)
                         << doris::MemTrackerLimiter::log_process_usage_str("memory debug", false);
             }
@@ -205,10 +223,8 @@ void Daemon::memory_maintenance_thread() {
 
 void Daemon::memory_gc_thread() {
     int32_t interval_milliseconds = config::memory_maintenance_sleep_time_ms;
-    int32_t cache_gc_interval_ms = config::cache_gc_interval_s * 1000;
     int32_t memory_minor_gc_sleep_time_ms = 0;
     int32_t memory_full_gc_sleep_time_ms = 0;
-    int64_t cache_gc_freed_mem = 0;
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::milliseconds(interval_milliseconds))) {
         if (!MemInfo::initialized() || !ExecEnv::GetInstance()->initialized()) {
@@ -221,7 +237,6 @@ void Daemon::memory_gc_thread() {
             // No longer full gc and minor gc during sleep.
             memory_full_gc_sleep_time_ms = config::memory_gc_sleep_time_s * 1000;
             memory_minor_gc_sleep_time_ms = config::memory_gc_sleep_time_s * 1000;
-            cache_gc_interval_ms = config::cache_gc_interval_s * 1000;
             doris::MemTrackerLimiter::print_log_process_usage("process full gc", false);
             if (doris::MemInfo::process_full_gc()) {
                 // If there is not enough memory to be gc, the process memory usage will not be printed in the next continuous gc.
@@ -234,7 +249,6 @@ void Daemon::memory_gc_thread() {
                             doris::MemInfo::soft_mem_limit())) {
             // No minor gc during sleep, but full gc is possible.
             memory_minor_gc_sleep_time_ms = config::memory_gc_sleep_time_s * 1000;
-            cache_gc_interval_ms = config::cache_gc_interval_s * 1000;
             doris::MemTrackerLimiter::print_log_process_usage("process minor gc", false);
             if (doris::MemInfo::process_minor_gc()) {
                 doris::MemTrackerLimiter::enable_print_log_process_usage();
@@ -245,14 +259,6 @@ void Daemon::memory_gc_thread() {
             }
             if (memory_minor_gc_sleep_time_ms > 0) {
                 memory_minor_gc_sleep_time_ms -= interval_milliseconds;
-            }
-            cache_gc_interval_ms -= interval_milliseconds;
-            if (cache_gc_interval_ms < 0) {
-                cache_gc_freed_mem = 0;
-                doris::MemInfo::process_cache_gc(cache_gc_freed_mem);
-                LOG(INFO) << fmt::format("Process regular GC Cache, Free Memory {} Bytes",
-                                         cache_gc_freed_mem);
-                cache_gc_interval_ms = config::cache_gc_interval_s * 1000;
             }
         }
     }

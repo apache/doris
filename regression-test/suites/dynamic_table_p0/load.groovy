@@ -86,7 +86,7 @@ suite("regression_test_dynamic_table", "dynamic_table"){
             )
             UNIQUE KEY(`id`)
             DISTRIBUTED BY HASH(`id`) BUCKETS 5 
-            properties("replication_num" = "1", "enable_merge_on_write" = "true");
+            properties("replication_num" = "1", "enable_unique_key_merge_on_write" = "true");
         """
 
         //stream load src_json
@@ -123,8 +123,8 @@ suite("regression_test_dynamic_table", "dynamic_table"){
     json_load_unique("btc_transactions.json", "test_btc_json")
     json_load_unique("ghdata_sample.json", "test_ghdata_json")
     json_load_unique("nbagames_sample.json", "test_nbagames_json")
-    // sql """insert into test_ghdata_json_unique select * from test_ghdata_json_unique"""
-    // sql """insert into test_btc_json_unique select * from test_btc_json_unique"""
+    sql """insert into test_ghdata_json_unique select * from test_ghdata_json"""
+    sql """insert into test_btc_json_unique select * from test_btc_json"""
 
     // load more
     table_name = "gharchive";

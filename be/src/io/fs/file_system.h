@@ -17,17 +17,43 @@
 
 #pragma once
 
+#include <bthread/bthread.h>
+#include <butil/macros.h>
+#include <glog/logging.h>
+#include <stdint.h>
+
+#include <filesystem>
+#include <functional>
 #include <memory>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "common/status.h"
-#include "gutil/macros.h"
 #include "io/fs/file_reader_options.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/path.h"
-#include "io/io_common.h"
 
 namespace doris {
 namespace io {
+class FileSystem;
+
+#ifndef FILESYSTEM_M
+#define FILESYSTEM_M(stmt)                    \
+    do {                                      \
+        Status _s;                            \
+        if (bthread_self() == 0) {            \
+            _s = (stmt);                      \
+        } else {                              \
+            auto task = [&] { _s = (stmt); }; \
+            AsyncIO::run_task(task, _type);   \
+        }                                     \
+        if (!_s) {                            \
+            LOG(WARNING) << _s;               \
+        }                                     \
+        return _s;                            \
+    } while (0);
+#endif
 
 enum class FileSystemType : uint8_t {
     LOCAL,
@@ -39,7 +65,7 @@ enum class FileSystemType : uint8_t {
 struct FileInfo {
     // only file name, no path
     std::string file_name;
-    size_t file_size;
+    int64_t file_size;
     bool is_file;
 };
 
@@ -53,12 +79,12 @@ public:
     }
     Status open_file(const Path& file, const FileReaderOptions& reader_options,
                      FileReaderSPtr* reader);
-    Status create_directory(const Path& dir);
+    Status create_directory(const Path& dir, bool failed_if_exists = false);
     Status delete_file(const Path& file);
     Status delete_directory(const Path& dir);
     Status batch_delete(const std::vector<Path>& files);
     Status exists(const Path& path, bool* res) const;
-    Status file_size(const Path& file, size_t* file_size) const;
+    Status file_size(const Path& file, int64_t* file_size) const;
     Status list(const Path& dir, bool only_file, std::vector<FileInfo>* files, bool* exists);
     Status rename(const Path& orig_name, const Path& new_name);
     Status rename_dir(const Path& orig_name, const Path& new_name);
@@ -90,7 +116,7 @@ protected:
                                   FileReaderSPtr* reader) = 0;
 
     /// create directory recursively
-    virtual Status create_directory_impl(const Path& dir) = 0;
+    virtual Status create_directory_impl(const Path& dir, bool failed_if_exists = false) = 0;
 
     /// delete file.
     /// return OK if file does not exist
@@ -112,7 +138,7 @@ protected:
 
     /// return OK and get size of given file, save in "file_size".
     /// return ERR otherwise
-    virtual Status file_size_impl(const Path& file, size_t* file_size) const = 0;
+    virtual Status file_size_impl(const Path& file, int64_t* file_size) const = 0;
 
     /// return OK and list all objects in "dir", save in "files"
     /// return ERR otherwise

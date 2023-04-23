@@ -17,11 +17,15 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+#include <stdint.h>
+
 #include <string>
+#include <utility>
 #include <vector>
 
+#include "common/status.h"
 #include "io/cache/block/block_file_cache_settings.h"
-#include "olap/olap_define.h"
 #include "util/uid_util.h"
 
 namespace doris {

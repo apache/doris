@@ -17,11 +17,11 @@
 
 #include "runtime/load_channel.h"
 
-#include "olap/lru_cache.h"
-#include "runtime/exec_env.h"
+#include <gen_cpp/internal_service.pb.h>
+#include <glog/logging.h>
+
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/tablets_channel.h"
-#include "runtime/thread_context.h"
 
 namespace doris {
 

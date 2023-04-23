@@ -340,7 +340,8 @@ struct TFileRangeDesc {
     3: optional i64 start_offset;
     // Size of this range, if size = -1, this means that will read to the end of file
     4: optional i64 size;
-    5: optional i64 file_size;
+    // total size of file this range belongs to, -1 means unset
+    5: optional i64 file_size = -1;
     // columns parsed from file path should be after the columns read from file
     6: optional list<string> columns_from_path;
     // column names from file path, in the same order with columns_from_path
@@ -385,9 +386,14 @@ struct TIcebergMetadataParams {
   4: optional string table
 }
 
+struct TBackendsMetadataParams {
+  1: optional string cluster_name
+}
+
 struct TMetaScanRange {
   1: optional Types.TMetadataType metadata_type
   2: optional TIcebergMetadataParams iceberg_params
+  3: optional TBackendsMetadataParams backends_params
 }
 
 // Specification of an individual data range which is held in its entirety
@@ -506,13 +512,6 @@ struct TCsvScanNode {
   10:optional map<string, TMiniLoadEtlFunction> column_function_mapping
 }
 
-struct TSchemaTableStructure {
-  1: optional string column_name
-  2: optional Types.TPrimitiveType type
-  3: optional i64 len
-  4: optional bool is_null;
-}
-
 struct TSchemaScanNode {
   1: required Types.TTupleId tuple_id
 
@@ -527,7 +526,7 @@ struct TSchemaScanNode {
   10: optional string user_ip   // deprecated
   11: optional Types.TUserIdentity current_user_ident   // to replace the user and user_ip
   12: optional bool show_hidden_cloumns = false
-  13: optional list<TSchemaTableStructure> table_structure
+  // 13: optional list<TSchemaTableStructure> table_structure // deprecated
   14: optional string catalog
 }
 
@@ -582,6 +581,7 @@ struct TOlapScanNode {
   13: optional bool use_topn_opt
   14: optional list<Descriptors.TOlapTableIndex> indexes_desc
   15: optional set<i32> output_column_unique_ids
+  16: optional list<i32> distribute_column_ids
 }
 
 struct TEqJoinCondition {

@@ -17,13 +17,28 @@
 
 #include "io/fs/local_file_reader.h"
 
-#include <atomic>
+#include <bthread/bthread.h>
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
+#include <fmt/format.h>
+#include <glog/logging.h>
+#include <unistd.h>
 
+#include <algorithm>
+#include <atomic>
+#include <cstring>
+#include <string>
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "io/fs/err_utils.h"
 #include "util/async_io.h"
 #include "util/doris_metrics.h"
 
 namespace doris {
 namespace io {
+class IOContext;
 
 LocalFileReader::LocalFileReader(Path path, size_t file_size, int fd,
                                  std::shared_ptr<LocalFileSystem> fs)
@@ -48,7 +63,9 @@ Status LocalFileReader::close() {
             AsyncIO::run_task(task, io::FileSystemType::LOCAL);
         }
         if (-1 == res) {
-            return Status::IOError("failed to close {}: {}", _path.native(), std::strerror(errno));
+            std::string err = errno_to_str();
+            LOG(WARNING) << fmt::format("failed to close {}: {}", _path.native(), err);
+            return Status::IOError("failed to close {}: {}", _path.native(), err);
         }
         _fd = -1;
     }

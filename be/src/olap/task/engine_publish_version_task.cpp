@@ -17,13 +17,26 @@
 
 #include "olap/task/engine_publish_version_task.h"
 
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/olap_file.pb.h>
 #include <util/defer_op.h>
-
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
 #include <map>
+#include <memory>
+#include <ostream>
+#include <set>
+#include <shared_mutex>
+#include <string>
+#include <utility>
 
-#include "olap/data_dir.h"
-#include "olap/rowset/rowset_meta_manager.h"
+#include "common/logging.h"
+#include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
+#include "olap/tablet_meta.h"
+#include "olap/txn_manager.h"
+#include "olap/utils.h"
+#include "util/threadpool.h"
 
 namespace doris {
 
@@ -148,7 +161,7 @@ Status EnginePublishVersionTask::finish() {
             auto submit_st =
                     StorageEngine::instance()->tablet_publish_txn_thread_pool()->submit_func(
                             [=]() { tablet_publish_txn_ptr->handle(); });
-            CHECK(submit_st.ok());
+            CHECK(submit_st.ok()) << submit_st;
         }
     }
     // wait for all publish txn finished
@@ -183,9 +196,13 @@ Status EnginePublishVersionTask::finish() {
         }
     }
 
-    LOG(INFO) << "finish to publish version on transaction."
-              << "transaction_id=" << transaction_id << ", cost(us): " << watch.get_elapse_time_us()
-              << ", error_tablet_size=" << _error_tablet_ids->size() << ", res=" << res.to_string();
+    if (!res.is<PUBLISH_VERSION_NOT_CONTINUOUS>()) {
+        LOG(INFO) << "finish to publish version on transaction."
+                  << "transaction_id=" << transaction_id
+                  << ", cost(us): " << watch.get_elapse_time_us()
+                  << ", error_tablet_size=" << _error_tablet_ids->size()
+                  << ", res=" << res.to_string();
+    }
     return res;
 }
 
@@ -213,7 +230,8 @@ void TabletPublishTxnTask::handle() {
             _partition_id, _tablet, _transaction_id, _version);
     if (publish_status != Status::OK()) {
         LOG(WARNING) << "failed to publish version. rowset_id=" << _rowset->rowset_id()
-                     << ", tablet_id=" << _tablet_info.tablet_id << ", txn_id=" << _transaction_id;
+                     << ", tablet_id=" << _tablet_info.tablet_id << ", txn_id=" << _transaction_id
+                     << ", res=" << publish_status;
         _engine_publish_version_task->add_error_tablet_id(_tablet_info.tablet_id);
         return;
     }

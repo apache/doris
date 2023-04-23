@@ -21,27 +21,75 @@
 #pragma once
 
 #include <fmt/format.h>
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <cmath>
+#include <functional>
+#include <iterator>
+#include <limits>
+#include <memory>
+#include <ostream>
+#include <string>
+#include <type_traits>
+#include <utility>
+#include <vector>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/status.h"
 #include "udf/udf.h"
+#include "util/jsonb_document.h"
+#include "util/jsonb_stream.h"
+#include "util/jsonb_writer.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
-#include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
+#include "vec/columns/column_struct.h"
+#include "vec/columns/column_vector.h"
 #include "vec/columns/columns_common.h"
+#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/field_visitors.h"
 #include "vec/common/string_buffer.hpp"
+#include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/call_on_type_index.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_date.h"
+#include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
-#include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_jsonb.h"
+#include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_struct.h"
+#include "vec/data_types/data_type_time_v2.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
 #include "vec/io/io_helper.h"
 #include "vec/io/reader_buffer.h"
 #include "vec/runtime/vdatetime_value.h"
+
+class DateLUTImpl;
+
+namespace doris {
+namespace vectorized {
+template <typename T>
+class ColumnDecimal;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 /** Type conversion functions.
@@ -115,8 +163,8 @@ struct ConvertImpl {
                 }
                 if constexpr (IsDataTypeDecimal<FromDataType> && IsDataTypeDecimal<ToDataType>) {
                     convert_decimal_cols<FromDataType, ToDataType>(
-                            vec_from, vec_to, vec_from.get_scale(), vec_to.get_scale(),
-                            vec_null_map_to);
+                            vec_from.data(), vec_to.data(), vec_from.get_scale(),
+                            vec_to.get_scale(), vec_from.size(), vec_null_map_to);
                 } else {
                     for (size_t i = 0; i < size; ++i) {
                         if constexpr (IsDataTypeDecimal<FromDataType> &&
@@ -971,6 +1019,7 @@ using FunctionToDateTimeV2 =
 
 template <typename DataType>
 struct FunctionTo;
+
 template <>
 struct FunctionTo<DataTypeUInt8> {
     using Type = FunctionToUInt8;
@@ -1647,7 +1696,7 @@ private:
         const auto& from_nested = from_type;
         const auto& to_nested = to_type;
 
-        if (from_type->only_null()) {
+        if (from_type->only_null() || from_type->is_null_literal()) {
             if (!to_nested->is_nullable()) {
                 return create_unsupport_wrapper("Cannot convert NULL to a non-nullable type");
             }
@@ -1856,18 +1905,7 @@ protected:
     }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
-        const auto type_col =
-                check_and_get_column_const<ColumnString>(arguments.back().column.get());
-        DataTypePtr type;
-        if (!type_col) {
-            // only used in schema_util::cast_column
-            // use second arg as type arg
-            // since not all types are in the DatatypeFactory
-            type = arguments[1].type;
-        } else {
-            // TODO(xy): support return struct type for factory
-            type = DataTypeFactory::instance().get(type_col->get_value<String>());
-        }
+        DataTypePtr type = arguments[1].type;
         DCHECK(type != nullptr);
         bool need_to_be_nullable = false;
         // 1. from_type is nullable
@@ -1885,7 +1923,7 @@ protected:
                                 arguments[0].type->get_type_id() != TypeIndex::DateTimeV2) &&
                                (type->get_type_id() == TypeIndex::DateV2 ||
                                 type->get_type_id() == TypeIndex::DateTimeV2);
-        if (need_to_be_nullable) {
+        if (need_to_be_nullable && !type->is_nullable()) {
             return make_nullable(type);
         }
 

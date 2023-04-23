@@ -17,15 +17,15 @@
 
 #pragma once
 
+#include <gen_cpp/data.pb.h>
 #include <snappy/snappy.h>
 
 #include <iostream>
 
-#include "gen_cpp/data.pb.h"
+#include "common/exception.h"
 #include "util/binary_cast.hpp"
 #include "util/string_parser.hpp"
 #include "vec/common/arena.h"
-#include "vec/common/exception.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
 #include "vec/common/uint128.h"
@@ -169,7 +169,7 @@ inline void read_string_binary(std::string& s, BufferReadable& buf,
     read_var_uint(size, buf);
 
     if (size > MAX_STRING_SIZE) {
-        throw Exception("Too large string size.", TStatusCode::VEC_EXCEPTION);
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Too large string size.");
     }
 
     s.resize(size);
@@ -182,7 +182,7 @@ inline void read_string_binary(StringRef& s, BufferReadable& buf,
     read_var_uint(size, buf);
 
     if (size > MAX_STRING_SIZE) {
-        throw Exception("Too large string size.", TStatusCode::VEC_EXCEPTION);
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Too large string size.");
     }
 
     s = buf.read(size);
@@ -211,7 +211,7 @@ void read_vector_binary(std::vector<Type>& v, BufferReadable& buf,
     read_var_uint(size, buf);
 
     if (size > MAX_VECTOR_SIZE) {
-        throw Exception("Too large vector size.", TStatusCode::VEC_EXCEPTION);
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Too large vector size.");
     }
 
     v.resize(size);
@@ -324,16 +324,18 @@ bool read_decimal_text_impl(T& x, ReadBuffer& buf, UInt32 precision, UInt32 scal
                 (const char*)buf.position(), buf.count(), precision, scale, &result);
         // only to match the is_all_read() check to prevent return null
         buf.position() = buf.end();
-        return result != StringParser::PARSE_FAILURE;
+        return result == StringParser::PARSE_SUCCESS || result == StringParser::PARSE_UNDERFLOW;
     } else {
-        auto dv = binary_cast<Int128, DecimalV2Value>(x.value);
-        auto ans = dv.parse_from_str((const char*)buf.position(), buf.count()) == 0;
+        StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
+
+        x.value = StringParser::string_to_decimal<__int128>(buf.position(), buf.count(),
+                                                            DecimalV2Value::PRECISION,
+                                                            DecimalV2Value::SCALE, &result);
 
         // only to match the is_all_read() check to prevent return null
         buf.position() = buf.end();
 
-        x.value = dv.value();
-        return ans;
+        return result == StringParser::PARSE_SUCCESS || result == StringParser::PARSE_UNDERFLOW;
     }
 }
 

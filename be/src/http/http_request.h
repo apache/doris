@@ -19,17 +19,13 @@
 
 #include <glog/logging.h>
 
-#include <boost/algorithm/string.hpp>
 #include <map>
 #include <memory>
 #include <string>
 
-#include "http/http_common.h"
-#include "http/http_headers.h"
 #include "http/http_method.h"
 #include "util/string_util.h"
 
-struct mg_connection;
 struct evhttp_request;
 
 namespace doris {

@@ -20,6 +20,21 @@
 
 #pragma once
 
+#include <fmt/format.h>
+#include <glog/logging.h>
+#include <stdint.h>
+#include <sys/types.h>
+
+#include <algorithm>
+#include <functional>
+#include <ostream>
+#include <string>
+#include <type_traits>
+#include <utility>
+#include <vector>
+
+#include "common/status.h"
+#include "gutil/integral_types.h"
 #include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/common/cow.h"
@@ -59,9 +74,8 @@ class SipHash;
 namespace doris::vectorized {
 
 class Arena;
-class Field;
-
 class ColumnSorter;
+
 using EqualFlags = std::vector<uint8_t>;
 using EqualRange = std::pair<int, int>;
 
@@ -215,6 +229,7 @@ public:
 
     /// Appends range of elements from other column with the same type.
     /// Could be used to concatenate columns.
+    /// TODO: we need `insert_range_from_const` for every column type.
     virtual void insert_range_from(const IColumn& src, size_t start, size_t length) = 0;
 
     /// Appends one element from other column with the same type multiple times.

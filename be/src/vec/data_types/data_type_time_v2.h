@@ -17,7 +17,35 @@
 
 #pragma once
 
+#include <fmt/format.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <stddef.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <memory>
+#include <string>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/status.h"
+#include "runtime/define_primitive_type.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number_base.h"
+#include "vec/data_types/serde/data_type_number_serde.h"
+#include "vec/data_types/serde/data_type_serde.h"
+
+namespace doris {
+class PColumnMeta;
+
+namespace vectorized {
+class BufferWritable;
+class ReadBuffer;
+class IColumn;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -28,6 +56,10 @@ namespace doris::vectorized {
 class DataTypeDateV2 final : public DataTypeNumberBase<UInt32> {
 public:
     TypeIndex get_type_id() const override { return TypeIndex::DateV2; }
+    PrimitiveType get_type_as_primitive_type() const override { return TYPE_DATEV2; }
+    TPrimitiveType::type get_type_as_tprimitive_type() const override {
+        return TPrimitiveType::DATEV2;
+    }
     const char* get_family_name() const override { return "DateV2"; }
     std::string do_get_name() const override { return "DateV2"; }
 
@@ -66,6 +98,10 @@ public:
 
     DataTypeDateTimeV2(const DataTypeDateTimeV2& rhs) : _scale(rhs._scale) {}
     TypeIndex get_type_id() const override { return TypeIndex::DateTimeV2; }
+    PrimitiveType get_type_as_primitive_type() const override { return TYPE_DATETIMEV2; }
+    TPrimitiveType::type get_type_as_tprimitive_type() const override {
+        return TPrimitiveType::DATETIMEV2;
+    }
     const char* get_family_name() const override { return "DateTimeV2"; }
     std::string do_get_name() const override { return "DateTimeV2"; }
 
@@ -76,10 +112,15 @@ public:
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
+    DataTypeSerDeSPtr get_serde() const override {
+        return std::make_shared<DataTypeNumberSerDe<UInt64>>();
+    };
 
     MutableColumnPtr create_column() const override;
 
     UInt32 get_scale() const { return _scale; }
+
+    void to_pb_column_meta(PColumnMeta* col_meta) const override;
 
     static void cast_to_date(const UInt64 from, Int64& to);
     static void cast_to_date_time(const UInt64 from, Int64& to);

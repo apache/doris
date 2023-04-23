@@ -19,6 +19,7 @@
 
 #include "exprs/block_bloom_filter.hpp"
 #include "exprs/runtime_filter.h"
+#include "olap/rowset/segment_v2/bloom_filter.h" // IWYU pragma: keep
 
 namespace doris {
 
@@ -91,7 +92,31 @@ public:
 
     void set_length(int64_t bloom_filter_length) { _bloom_filter_length = bloom_filter_length; }
 
-    Status init_with_fixed_length() { return init_with_fixed_length(_bloom_filter_length); }
+    void set_build_bf_exactly(bool build_bf_exactly) { _build_bf_exactly = build_bf_exactly; }
+
+    Status init_with_fixed_length() {
+        if (_build_bf_exactly) {
+            return Status::OK();
+        } else {
+            return init_with_fixed_length(_bloom_filter_length);
+        }
+    }
+
+    Status init_with_cardinality(const size_t build_bf_cardinality) {
+        if (_build_bf_exactly) {
+            // Use the same algorithm as org.apache.doris.planner.RuntimeFilter#calculateFilterSize
+            constexpr double fpp = 0.05;
+            constexpr double k = 8; // BUCKET_WORDS
+            // m is the number of bits we would need to get the fpp specified
+            double m = -k * build_bf_cardinality / std::log(1 - std::pow(fpp, 1.0 / k));
+
+            // Handle case where ndv == 1 => ceil(log2(m/8)) < 0.
+            int log_filter_size = std::max(0, (int)(std::ceil(std::log(m / 8) / std::log(2))));
+            return init_with_fixed_length(((int64_t)1) << log_filter_size);
+        } else {
+            return Status::OK();
+        }
+    }
 
     Status init_with_fixed_length(int64_t bloom_filter_length) {
         if (_inited) {
@@ -184,7 +209,8 @@ public:
     virtual void insert_fixed_len(const char* data) = 0;
 
     virtual uint16_t find_fixed_len_olap_engine(const char* data, const uint8* nullmap,
-                                                uint16_t* offsets, int number) = 0;
+                                                uint16_t* offsets, int number,
+                                                bool is_parse_column) = 0;
 
     virtual void find_fixed_len(const char* data, const uint8* nullmap, int number,
                                 uint8* results) = 0;
@@ -196,6 +222,7 @@ protected:
     bool _inited;
     std::mutex _lock;
     int64_t _bloom_filter_length;
+    bool _build_bf_exactly = false;
 };
 
 template <class T>
@@ -213,17 +240,49 @@ struct CommonFindOp {
     }
 
     uint16_t find_batch_olap_engine(const BloomFilterAdaptor& bloom_filter, const char* data,
-                                    const uint8* nullmap, uint16_t* offsets, int number) const {
+                                    const uint8* nullmap, uint16_t* offsets, int number,
+                                    const bool is_parse_column) const {
         uint16_t new_size = 0;
-        for (int i = 0; i < number; i++) {
-            uint16_t idx = offsets[i];
-            if (nullmap != nullptr && nullmap[idx]) {
-                continue;
+        if (is_parse_column) {
+            if (nullmap == nullptr) {
+                for (int i = 0; i < number; i++) {
+                    uint16_t idx = offsets[i];
+                    if (!bloom_filter.test_element(*((T*)data + idx))) {
+                        continue;
+                    }
+                    offsets[new_size++] = idx;
+                }
+            } else {
+                for (int i = 0; i < number; i++) {
+                    uint16_t idx = offsets[i];
+                    if (nullmap[idx]) {
+                        continue;
+                    }
+                    if (!bloom_filter.test_element(*((T*)data + idx))) {
+                        continue;
+                    }
+                    offsets[new_size++] = idx;
+                }
             }
-            if (!bloom_filter.test_element(*((T*)data + idx))) {
-                continue;
+        } else {
+            if (nullmap == nullptr) {
+                for (int i = 0; i < number; i++) {
+                    if (!bloom_filter.test_element(*((T*)data + i))) {
+                        continue;
+                    }
+                    offsets[new_size++] = i;
+                }
+            } else {
+                for (int i = 0; i < number; i++) {
+                    if (nullmap[i]) {
+                        continue;
+                    }
+                    if (!bloom_filter.test_element(*((T*)data + i))) {
+                        continue;
+                    }
+                    offsets[new_size++] = i;
+                }
             }
-            offsets[new_size++] = idx;
         }
         return new_size;
     }
@@ -267,7 +326,8 @@ struct StringFindOp {
     }
 
     uint16_t find_batch_olap_engine(const BloomFilterAdaptor& bloom_filter, const char* data,
-                                    const uint8* nullmap, uint16_t* offsets, int number) const {
+                                    const uint8* nullmap, uint16_t* offsets, int number,
+                                    const bool is_parse_column) const {
         LOG(FATAL) << "StringFindOp does not support find_batch_olap_engine";
         return 0;
     }
@@ -330,6 +390,11 @@ struct DateFindOp : public CommonFindOp<vectorized::VecDateTimeValue> {
 
         vectorized::VecDateTimeValue date_value;
         date_value.from_olap_date(value);
+        // So confusing here. For join node with condition (a.date_col = b.date_col), the actual
+        // expression is CAST(a.date_col AS DATETIME) = CAST(b.date_col AS DATETIME). So we build
+        // this bloom filter by CAST(a.date_col AS DATETIME) and also need to probe this bloom
+        // filter by a datetime value.
+        date_value.set_type(TimeType::TIME_DATETIME);
 
         return bloom_filter.test(Slice((char*)&date_value, sizeof(vectorized::VecDateTimeValue)));
     }
@@ -409,8 +474,9 @@ public:
     }
 
     uint16_t find_fixed_len_olap_engine(const char* data, const uint8* nullmap, uint16_t* offsets,
-                                        int number) override {
-        return dummy.find_batch_olap_engine(*_bloom_filter, data, nullmap, offsets, number);
+                                        int number, const bool is_parse_column) override {
+        return dummy.find_batch_olap_engine(*_bloom_filter, data, nullmap, offsets, number,
+                                            is_parse_column);
     }
 
     void find_fixed_len(const char* data, const uint8* nullmap, int number,

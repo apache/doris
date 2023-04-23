@@ -56,6 +56,11 @@ public abstract class BinaryOperator extends Expression implements BinaryExpress
     }
 
     @Override
+    public String shapeInfo() {
+        return "(" + left().shapeInfo() + " " + symbol + " " + right().shapeInfo() + ")";
+    }
+
+    @Override
     public int hashCode() {
         return Objects.hash(symbol, left(), right());
     }

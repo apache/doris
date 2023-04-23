@@ -15,9 +15,42 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <algorithm>
+#include <memory>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+#include "common/status.h"
 #include "util/encryption_util.h"
+#include "util/string_util.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/pod_array.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_string.h"
+#include "vec/functions/function.h"
 #include "vec/functions/function_string.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/utils/util.hpp"
+
+namespace doris {
+class FunctionContext;
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -154,7 +187,8 @@ void exectue_result(std::vector<const ColumnString::Offsets*>& offsets_list,
 template <typename Impl, EncryptionMode mode, bool is_encrypt>
 struct EncryptionAndDecryptTwoImpl {
     static DataTypes get_variadic_argument_types_impl() {
-        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()};
+        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>(),
+                std::make_shared<DataTypeString>()};
     }
 
     static Status vector_vector(std::vector<const ColumnString::Offsets*>& offsets_list,
@@ -167,6 +201,17 @@ struct EncryptionAndDecryptTwoImpl {
                 continue;
             }
             EncryptionMode encryption_mode = mode;
+            int mode_size = (*offsets_list[2])[i] - (*offsets_list[2])[i - 1];
+            const auto mode_raw =
+                    reinterpret_cast<const char*>(&(*chars_list[2])[(*offsets_list[2])[i - 1]]);
+            if (mode_size != 0) {
+                std::string mode_str(mode_raw, mode_size);
+                if (aes_mode_map.count(mode_str) == 0) {
+                    StringOP::push_null_string(i, result_data, result_offset, null_map);
+                    continue;
+                }
+                encryption_mode = aes_mode_map.at(mode_str);
+            }
             exectue_result<Impl, is_encrypt>(offsets_list, chars_list, i, encryption_mode, nullptr,
                                              0, result_data, result_offset, null_map);
         }

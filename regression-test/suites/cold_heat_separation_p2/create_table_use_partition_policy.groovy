@@ -43,7 +43,7 @@ suite("create_table_use_partition_policy") {
             data_sizes[0] = obj.local_data_size
             data_sizes[1] = obj.remote_data_size
         }
-        fetchBeHttp(clos, meta_url)
+        fetchBeHttp(clos, meta_url.replace("header", "data_size"))
     }
     // used as passing out parameter to fetchDataSize
     List<Long> sizes = [-1, -1]
@@ -132,7 +132,7 @@ suite("create_table_use_partition_policy") {
     }
 
     sql """
-        CREATE RESOURCE "${resource_name}"
+        CREATE RESOURCE IF NOT EXISTS "${resource_name}"
         PROPERTIES(
             "type"="s3",
             "AWS_ENDPOINT" = "${getS3Endpoint()}",
@@ -149,7 +149,7 @@ suite("create_table_use_partition_policy") {
     """
 
     sql """
-        CREATE STORAGE POLICY ${policy_name}
+        CREATE STORAGE POLICY IF NOT EXISTS ${policy_name}
         PROPERTIES(
             "storage_resource" = "${resource_name}",
             "cooldown_ttl" = "300"
@@ -247,7 +247,7 @@ suite("create_table_use_partition_policy") {
     """
     log.info( "test tablets not empty")
     assertTrue(tablets.size() > 0)
-    fetchDataSize(sizes, tbalets[0])
+    fetchDataSize(sizes, tablets[0])
     // while (tablets[0][8] == 0) {
     //     log.info( "test local size is zero, sleep 10s")
     //     sleep(10000)
@@ -257,8 +257,8 @@ suite("create_table_use_partition_policy") {
     // }
     LocalDataSize1 = sizes[0]
     RemoteDataSize1 = sizes[1]
-    log.info( "test local size not zero")
-    assertTrue(LocalDataSize1 != 0)
+    log.info( "test local size is zero")
+    assertEquals(LocalDataSize1, 0)
     log.info( "test remote size is zero")
     assertEquals(RemoteDataSize1, 0)
 
@@ -359,8 +359,8 @@ suite("create_table_use_partition_policy") {
     assertTrue(tablets.size() > 0)
     LocalDataSize1 = sizes[0]
     RemoteDataSize1 = sizes[1]
-    log.info( "test local size not zero")
-    assertTrue(LocalDataSize1 != 0)
+    log.info( "test local size is zero")
+    assertEquals(LocalDataSize1, 0)
     log.info( "test remote size is zero")
     assertEquals(RemoteDataSize1, 0)
 

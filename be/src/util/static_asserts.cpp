@@ -18,9 +18,11 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/static-asserts.cpp
 // and modified by Doris
 
-#include "runtime/datetime_value.h"
+#include <stddef.h>
+
 #include "vec/common/string_ref.h"
 #include "vec/runtime/vdatetime_value.h"
+
 namespace doris {
 // This class is unused.  It contains static (compile time) asserts.
 // This is useful to validate struct sizes and other similar things

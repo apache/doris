@@ -438,7 +438,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         //for schema change add column optimize, direct modify table meta.
                         List<Index> newIndexes = olapTable.getCopiedIndexes();
                         long jobId = Env.getCurrentEnv().getNextId();
-                        Env.getCurrentEnv().getSchemaChangeHandler().modifyTableAddOrDropColumns(
+                        Env.getCurrentEnv().getSchemaChangeHandler().modifyTableLightSchemaChange(
                                 db, olapTable, indexSchemaMap, newIndexes, jobId, false);
                     } else {
                         throw new MetaNotFoundException("table_id "
@@ -843,9 +843,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return masterImpl.report(request);
     }
 
+    // This interface is used for keeping backward compatible
     @Override
     public TFetchResourceResult fetchResource() throws TException {
-        return masterImpl.fetchResource();
+        throw new TException("not supported");
     }
 
     @Override
@@ -1340,8 +1341,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TFetchSchemaTableDataResult fetchSchemaTableData(TFetchSchemaTableDataRequest request) throws TException {
         switch (request.getSchemaTableName()) {
-            case BACKENDS:
-                return MetadataGenerator.getBackendsSchemaTable(request);
             case METADATA_TABLE:
                 return MetadataGenerator.getMetadataTable(request);
             default:
@@ -1502,10 +1501,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
         } else if (privHier == TPrivilegeHier.COLUMNS) {
             String fullDbName = ClusterNamespace.getFullName(cluster, privCtrl.getDb());
-            if (!accessManager.checkColumnsPriv(currentUser.get(0), fullDbName, privCtrl.getTbl(), privCtrl.getCols(),
-                    predicate)) {
+
+            try {
+                accessManager.checkColumnsPriv(currentUser.get(0), fullDbName, privCtrl.getTbl(), privCtrl.getCols(),
+                        predicate);
+            } catch (UserException e) {
                 status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
-                status.addToErrorMsgs("Columns permissions error");
+                status.addToErrorMsgs("Columns permissions error:" + e.getMessage());
             }
         } else if (privHier == TPrivilegeHier.RESOURSE) {
             if (!accessManager.checkResourcePriv(currentUser.get(0), privCtrl.getRes(), predicate)) {

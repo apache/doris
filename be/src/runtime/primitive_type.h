@@ -17,12 +17,20 @@
 
 #pragma once
 
+#include <gen_cpp/Opcodes_types.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <stdint.h>
+
 #include <string>
 
+#include "olap/decimal12.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column_decimal.h"
+#include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/core/types.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 
@@ -96,8 +104,6 @@ constexpr bool has_variable_type(PrimitiveType type) {
 }
 
 bool is_type_compatible(PrimitiveType lhs, PrimitiveType rhs);
-
-PrimitiveType get_primitive_type(vectorized::TypeIndex v_type);
 
 TExprOpcode::type to_in_opcode(PrimitiveType t);
 PrimitiveType thrift_to_type(TPrimitiveType::type ttype);
@@ -268,16 +274,19 @@ struct PredicatePrimitiveTypeTraits<TYPE_DATETIMEV2> {
 template <PrimitiveType type>
 struct VecPrimitiveTypeTraits {
     using CppType = typename PrimitiveTypeTraits<type>::CppType;
+    using ColumnType = typename PrimitiveTypeTraits<type>::ColumnType;
 };
 
 template <>
 struct VecPrimitiveTypeTraits<TYPE_DATE> {
     using CppType = vectorized::VecDateTimeValue;
+    using ColumnType = vectorized::ColumnVector<vectorized::DateTime>;
 };
 
 template <>
 struct VecPrimitiveTypeTraits<TYPE_DATETIME> {
     using CppType = vectorized::VecDateTimeValue;
+    using ColumnType = vectorized::ColumnVector<vectorized::DateTime>;
 };
 
 } // namespace doris

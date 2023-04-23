@@ -17,7 +17,8 @@
 
 #pragma once
 
-#include "gen_cpp/olap_file.pb.h"
+#include <gen_cpp/olap_file.pb.h>
+
 #include "io/fs/file_system.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"

@@ -17,17 +17,29 @@
 
 #include "olap/tablet_meta.h"
 
-#include <sstream>
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/olap_common.pb.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <gen_cpp/types.pb.h>
+#include <json2pb/pb_to_json.h>
+#include <time.h>
 
-#include "common/consts.h"
+#include <set>
+#include <utility>
+
+#include "common/config.h"
+#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_writer.h"
+#include "olap/data_dir.h"
 #include "olap/file_header.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/tablet_meta_manager.h"
+#include "olap/utils.h"
 #include "util/string_util.h"
 #include "util/uid_util.h"
-#include "util/url_coding.h"
 
 using std::string;
 using std::unordered_map;
@@ -108,25 +120,25 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     // compression_type used to compress segment page
     switch (compression_type) {
     case TCompressionType::NO_COMPRESSION:
-        schema->set_compression_type(NO_COMPRESSION);
+        schema->set_compression_type(segment_v2::NO_COMPRESSION);
         break;
     case TCompressionType::SNAPPY:
-        schema->set_compression_type(SNAPPY);
+        schema->set_compression_type(segment_v2::SNAPPY);
         break;
     case TCompressionType::LZ4:
-        schema->set_compression_type(LZ4);
+        schema->set_compression_type(segment_v2::LZ4);
         break;
     case TCompressionType::LZ4F:
-        schema->set_compression_type(LZ4F);
+        schema->set_compression_type(segment_v2::LZ4F);
         break;
     case TCompressionType::ZLIB:
-        schema->set_compression_type(ZLIB);
+        schema->set_compression_type(segment_v2::ZLIB);
         break;
     case TCompressionType::ZSTD:
-        schema->set_compression_type(ZSTD);
+        schema->set_compression_type(segment_v2::ZSTD);
         break;
     default:
-        schema->set_compression_type(LZ4F);
+        schema->set_compression_type(segment_v2::LZ4F);
         break;
     }
 

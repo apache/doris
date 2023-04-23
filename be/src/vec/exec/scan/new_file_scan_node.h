@@ -17,8 +17,25 @@
 
 #pragma once
 
+#include <gen_cpp/PaloInternalService_types.h>
+
+#include <list>
+#include <memory>
+#include <vector>
+
+#include "common/status.h"
 #include "vec/exec/format/format_common.h"
 #include "vec/exec/scan/vscan_node.h"
+
+namespace doris {
+class DescriptorTbl;
+class ObjectPool;
+class RuntimeState;
+class TPlanNode;
+namespace vectorized {
+class VScanner;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -39,6 +56,11 @@ protected:
 
 private:
     std::vector<TScanRangeParams> _scan_ranges;
-    KVCache<std::string> _kv_cache;
+    // A in memory cache to save some common components
+    // of the this scan node. eg:
+    // 1. iceberg delete file
+    // 2. parquet file meta
+    // KVCache<std::string> _kv_cache;
+    std::unique_ptr<ShardedKVCache> _kv_cache;
 };
 } // namespace doris::vectorized

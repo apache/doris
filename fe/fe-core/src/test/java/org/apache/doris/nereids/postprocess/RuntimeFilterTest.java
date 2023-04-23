@@ -40,7 +40,7 @@ public class RuntimeFilterTest extends SSBTestBase {
     @Override
     public void runBeforeAll() throws Exception {
         super.runBeforeAll();
-        connectContext.getSessionVariable().setEnableNereidsRuntimeFilter(true);
+        connectContext.getSessionVariable().setRuntimeFilterMode("Global");
         connectContext.getSessionVariable().setRuntimeFilterType(8);
     }
 
@@ -229,7 +229,7 @@ public class RuntimeFilterTest extends SSBTestBase {
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
         Assertions.assertEquals(1, filters.size());
         checkRuntimeFilterExprs(filters, ImmutableList.of(
-                Pair.of("cast(s_name as VARCHAR(*))", "p_name")));
+                Pair.of("s_name", "p_name")));
     }
 
     private Optional<List<RuntimeFilter>> getRuntimeFilters(String sql) {
@@ -240,7 +240,7 @@ public class RuntimeFilterTest extends SSBTestBase {
         PhysicalPlan plan = checker.getPhysicalPlan();
         new PlanPostProcessors(checker.getCascadesContext()).process(plan);
         System.out.println(plan.treeString());
-        new PhysicalPlanTranslator().translatePlan(plan, new PlanTranslatorContext(checker.getCascadesContext()));
+        new PhysicalPlanTranslator(new PlanTranslatorContext(checker.getCascadesContext())).translatePlan(plan);
         RuntimeFilterContext context = checker.getCascadesContext().getRuntimeFilterContext();
         List<RuntimeFilter> filters = context.getNereidsRuntimeFilter();
         Assertions.assertEquals(filters.size(), context.getLegacyFilters().size() + context.getTargetNullCount());

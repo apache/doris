@@ -17,100 +17,82 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.common.FeConstants;
-import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
-import org.apache.doris.statistics.util.StatisticsUtil;
-
 import com.github.benmanes.caffeine.cache.AsyncCacheLoader;
-import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.text.StringSubstitutor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
 
-public class StatisticsCacheLoader implements AsyncCacheLoader<StatisticsCacheKey, ColumnLevelStatisticCache> {
+public abstract class StatisticsCacheLoader<V> implements AsyncCacheLoader<StatisticsCacheKey, V> {
 
     private static final Logger LOG = LogManager.getLogger(StatisticsCacheLoader.class);
 
-    private static final String QUERY_COLUMN_STATISTICS = "SELECT * FROM " + FeConstants.INTERNAL_DB_NAME
-            + "." + StatisticConstants.STATISTIC_TBL_NAME + " WHERE "
-            + "id = CONCAT('${tblId}', '-', ${idxId}, '-', '${colId}')";
-
-    private static final String QUERY_HISTOGRAM_STATISTICS = "SELECT * FROM " + FeConstants.INTERNAL_DB_NAME
-            + "." + StatisticConstants.HISTOGRAM_TBL_NAME + " WHERE "
-            + "id = CONCAT('${tblId}', '-', ${idxId}, '-', '${colId}')";
-
-    // TODO: Maybe we should trigger a analyze job when the required ColumnStatistic doesn't exists.
-
-    private final ConcurrentMap<StatisticsCacheKey, CompletableFuture<ColumnLevelStatisticCache>>
-            inProgressing = new ConcurrentHashMap<>();
+    private final Map<StatisticsCacheKey, CompletableFutureWithCreateTime<V>> inProgressing = new HashMap<>();
 
     @Override
-    public @NonNull CompletableFuture<ColumnLevelStatisticCache> asyncLoad(@NonNull StatisticsCacheKey key,
+    public @NonNull CompletableFuture<V> asyncLoad(
+            @NonNull StatisticsCacheKey key,
             @NonNull Executor executor) {
-
-        CompletableFuture<ColumnLevelStatisticCache> future = inProgressing.get(key);
-        if (future != null) {
-            return future;
+        CompletableFutureWithCreateTime<V> cfWrapper = inProgressing.get(key);
+        if (cfWrapper != null) {
+            return cfWrapper.cf;
         }
-        future = CompletableFuture.supplyAsync(() -> {
+        CompletableFuture<V> future = CompletableFuture.supplyAsync(() -> {
             long startTime = System.currentTimeMillis();
             try {
-                LOG.info("Query BE for column stats:{}-{} start time:{}", key.tableId, key.colName,
-                        startTime);
-                ColumnLevelStatisticCache statistic = new ColumnLevelStatisticCache();
-                Map<String, String> params = new HashMap<>();
-                params.put("tblId", String.valueOf(key.tableId));
-                params.put("idxId", String.valueOf(key.idxId));
-                params.put("colId", String.valueOf(key.colName));
-
-                List<ColumnStatistic> columnStatistics;
-                List<ResultRow> columnResult =
-                        StatisticsUtil.execStatisticQuery(new StringSubstitutor(params)
-                                .replace(QUERY_COLUMN_STATISTICS));
-                try {
-                    columnStatistics = StatisticsUtil.deserializeToColumnStatistics(columnResult);
-                } catch (Exception e) {
-                    LOG.warn("Failed to deserialize column statistics", e);
-                    throw new CompletionException(e);
-                }
-                if (CollectionUtils.isEmpty(columnStatistics)) {
-                    statistic.setColumnStatistic(ColumnStatistic.UNKNOWN);
-                } else {
-                    statistic.setColumnStatistic(columnStatistics.get(0));
-                }
-
-                List<Histogram> histogramStatistics;
-                List<ResultRow> histogramResult =
-                        StatisticsUtil.execStatisticQuery(new StringSubstitutor(params)
-                                .replace(QUERY_HISTOGRAM_STATISTICS));
-                try {
-                    histogramStatistics = StatisticsUtil.deserializeToHistogramStatistics(histogramResult);
-                } catch (Exception e) {
-                    LOG.warn("Failed to deserialize histogram statistics", e);
-                    throw new CompletionException(e);
-                }
-                if (!CollectionUtils.isEmpty(histogramStatistics)) {
-                    statistic.setHistogram(histogramStatistics.get(0));
-                }
-                return statistic;
+                return doLoad(key);
             } finally {
                 long endTime = System.currentTimeMillis();
                 LOG.info("Query BE for column stats:{}-{} end time:{} cost time:{}", key.tableId, key.colName,
                         endTime, endTime - startTime);
-                inProgressing.remove(key);
+                removeFromIProgressing(key);
             }
-        });
-        inProgressing.put(key, future);
+        }, executor);
+        putIntoIProgressing(key,
+                new CompletableFutureWithCreateTime<V>(System.currentTimeMillis(), future));
         return future;
+    }
+
+    protected abstract V doLoad(StatisticsCacheKey k);
+
+    private static class CompletableFutureWithCreateTime<V> extends CompletableFuture<V> {
+
+        public final long startTime;
+        public final CompletableFuture<V> cf;
+        private final long expiredTimeMilli = TimeUnit.MINUTES.toMillis(30);
+
+        public CompletableFutureWithCreateTime(long startTime, CompletableFuture<V> cf) {
+            this.startTime = startTime;
+            this.cf = cf;
+        }
+
+        public boolean isExpired() {
+            return System.currentTimeMillis() - startTime > expiredTimeMilli;
+        }
+    }
+
+    private void putIntoIProgressing(StatisticsCacheKey k, CompletableFutureWithCreateTime<V> v) {
+        synchronized (inProgressing) {
+            inProgressing.put(k, v);
+        }
+    }
+
+    private void removeFromIProgressing(StatisticsCacheKey k) {
+        synchronized (inProgressing) {
+            inProgressing.remove(k);
+        }
+    }
+
+    public void removeExpiredInProgressing() {
+        // Quite simple logic that would complete very fast.
+        // Lock on object to avoid ConcurrentModificationException.
+        synchronized (inProgressing) {
+            inProgressing.entrySet().removeIf(e -> e.getValue().isExpired());
+        }
     }
 }

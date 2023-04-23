@@ -17,14 +17,40 @@
 
 #pragma once
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
+#include "common/global_types.h"
+#include "common/status.h"
 #include "exec/olap_common.h"
 #include "exec/text_converter.h"
-#include "exprs/function_filter.h"
-#include "io/file_factory.h"
+#include "io/io_common.h"
+#include "runtime/descriptors.h"
+#include "util/runtime_profile.h"
 #include "vec/common/schema_util.h"
-#include "vec/exec/format/format_common.h"
+#include "vec/core/block.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/scan/vscanner.h"
+
+namespace doris {
+class RuntimeState;
+class TFileRangeDesc;
+class TFileScanRange;
+class TFileScanRangeParams;
+
+namespace vectorized {
+class ShardedKVCache;
+class VExpr;
+class VExprContext;
+} // namespace vectorized
+struct TypeDescriptor;
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -34,7 +60,7 @@ class VFileScanner : public VScanner {
 public:
     VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
                  const TFileScanRange& scan_range, RuntimeProfile* profile,
-                 KVCache<string>& kv_cache);
+                 ShardedKVCache* kv_cache);
 
     Status open(RuntimeState* state) override;
 
@@ -100,8 +126,8 @@ protected:
     std::unique_ptr<RowDescriptor> _src_row_desc;
     // row desc for default exprs
     std::unique_ptr<RowDescriptor> _default_val_row_desc;
-
-    KVCache<std::string>& _kv_cache;
+    // owned by scan node
+    ShardedKVCache* _kv_cache;
 
     bool _scanner_eof = false;
     int _rows = 0;
@@ -129,6 +155,7 @@ private:
     RuntimeProfile::Counter* _fill_missing_columns_timer = nullptr;
     RuntimeProfile::Counter* _pre_filter_timer = nullptr;
     RuntimeProfile::Counter* _convert_to_output_block_timer = nullptr;
+    RuntimeProfile::Counter* _empty_file_counter = nullptr;
 
     const std::unordered_map<std::string, int>* _col_name_to_slot_id;
     // single slot filter conjuncts

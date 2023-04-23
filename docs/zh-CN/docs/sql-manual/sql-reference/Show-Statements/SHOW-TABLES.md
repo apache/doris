@@ -37,7 +37,7 @@ SHOW TABLES
 语法：
 
 ```sql
-SHOW TABLES [LIKE]
+SHOW [FULL] TABLES [LIKE]
 ```
 
 说明:

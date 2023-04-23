@@ -17,30 +17,50 @@
 
 #pragma once
 
-#include <thrift/protocol/TDebugProtocol.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#include "exprs/bitmapfilter_predicate.h"
+#include <memory>
+#include <set>
+#include <string>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+
+#include "common/status.h"
 #include "exprs/function_filter.h"
-#include "exprs/hybrid_set.h"
+#include "gutil/strings/substitute.h"
 #include "io/io_common.h"
 #include "olap/delete_handler.h"
+#include "olap/iterators.h"
+#include "olap/olap_common.h"
+#include "olap/olap_tuple.h"
 #include "olap/row_cursor.h"
+#include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_reader.h"
+#include "olap/rowset/rowset_reader_context.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
-#include "util/runtime_profile.h"
-#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 
-class Tablet;
-class RowCursor;
 class RuntimeState;
+class BitmapFilterFuncBase;
+class BloomFilterFuncBase;
+class ColumnPredicate;
+class DeleteBitmap;
+class HybridSetBase;
+class RuntimeProfile;
 
 namespace vectorized {
 class VCollectIterator;
 class Block;
 class VExpr;
+class Arena;
+class VExprContext;
 } // namespace vectorized
 
 // Used to compare row with input scan key. Scan key only contains key columns,
@@ -162,7 +182,6 @@ public:
     // Return OK and set `*eof` to false when next block is read
     // Return OK and set `*eof` to true when no more rows can be read.
     // Return others when unexpected error happens.
-    // TODO: Rethink here we still need mem_pool and agg_pool?
     virtual Status next_block_with_aggregation(vectorized::Block* block, bool* eof) {
         return Status::Error<ErrorCode::READER_INITIALIZE_ERROR>();
     }
@@ -224,7 +243,7 @@ protected:
     TabletSharedPtr tablet() { return _tablet; }
     const TabletSchema& tablet_schema() { return *_tablet_schema; }
 
-    std::unique_ptr<MemPool> _predicate_mem_pool;
+    std::unique_ptr<vectorized::Arena> _predicate_arena;
     std::vector<uint32_t> _return_columns;
     // used for special optimization for query : ORDER BY key [ASC|DESC] LIMIT n
     // columns for orderby keys

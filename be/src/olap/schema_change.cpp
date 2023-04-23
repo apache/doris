@@ -17,37 +17,66 @@
 
 #include "olap/schema_change.h"
 
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/olap_file.pb.h>
 
-#include "common/config.h"
+#include <algorithm>
+#include <exception>
+#include <map>
+#include <mutex>
+#include <roaring/roaring.hh>
+#include <tuple>
+
+#include "common/logging.h"
 #include "common/status.h"
+#include "gutil/hash/hash.h"
 #include "gutil/integral_types.h"
+#include "gutil/strings/numbers.h"
+#include "io/fs/file_system.h"
+#include "io/io_common.h"
+#include "olap/data_dir.h"
+#include "olap/delete_handler.h"
+#include "olap/field.h"
+#include "olap/iterators.h"
 #include "olap/merger.h"
 #include "olap/olap_common.h"
-#include "olap/row_cursor.h"
+#include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
-#include "olap/rowset/rowset_id_generator.h"
+#include "olap/rowset/rowset_meta.h"
+#include "olap/rowset/rowset_reader_context.h"
+#include "olap/rowset/rowset_writer_context.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
+#include "olap/rowset/segment_v2/segment.h"
+#include "olap/schema.h"
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "olap/tablet_manager.h"
+#include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
 #include "olap/utils.h"
 #include "olap/wrapper_field.h"
 #include "runtime/memory/mem_tracker.h"
+#include "runtime/runtime_state.h"
 #include "util/defer_op.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
-#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/olap/olap_data_convertor.h"
 
 namespace doris {
+class CollectionValue;
+
 using namespace ErrorCode;
 
 constexpr int ALTER_TABLE_BATCH_SIZE = 4096;
@@ -225,6 +254,7 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
     ObjectPool pool;
     RuntimeState* state = pool.add(new RuntimeState());
     state->set_desc_tbl(&_desc_tbl);
+    state->set_be_exec_version(_fe_compatible_version);
     RowDescriptor row_desc =
             RowDescriptor(_desc_tbl.get_tuple_descriptor(_desc_tbl.get_row_tuples()[0]), false);
 
@@ -270,10 +300,11 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
 
             int result_column_id = -1;
             RETURN_IF_ERROR(ctx->execute(ref_block, &result_column_id));
-            CHECK(ref_block->get_by_position(result_column_id).column->size() == row_size)
-                    << new_block->get_by_position(idx).name << " size invalid"
-                    << ", expect=" << row_size
-                    << ", real=" << ref_block->get_by_position(result_column_id).column->size();
+            if (ref_block->get_by_position(result_column_id).column->size() != row_size) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                        "{} size invalid, expect={}, real={}", new_block->get_by_position(idx).name,
+                        row_size, ref_block->get_by_position(result_column_id).column->size());
+            }
 
             if (_type != ROLLUP) {
                 RETURN_IF_ERROR(
@@ -428,8 +459,8 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
                                              TabletSchemaSPtr base_tablet_schema) {
     do {
         auto new_block =
-                std::make_unique<vectorized::Block>(new_tablet->tablet_schema()->create_block());
-        auto ref_block = std::make_unique<vectorized::Block>(base_tablet_schema->create_block());
+                vectorized::Block::create_unique(new_tablet->tablet_schema()->create_block());
+        auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
 
         rowset_reader->next_block(ref_block.get());
         if (ref_block->rows() == 0) {
@@ -500,11 +531,10 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
         return Status::OK();
     };
 
-    auto new_block =
-            std::make_unique<vectorized::Block>(new_tablet->tablet_schema()->create_block());
+    auto new_block = vectorized::Block::create_unique(new_tablet->tablet_schema()->create_block());
 
     do {
-        auto ref_block = std::make_unique<vectorized::Block>(base_tablet_schema->create_block());
+        auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
         rowset_reader->next_block(ref_block.get());
         if (ref_block->rows() == 0) {
             break;
@@ -526,7 +556,7 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
 
         // move unique ptr
         blocks.push_back(
-                std::make_unique<vectorized::Block>(new_tablet->tablet_schema()->create_block()));
+                vectorized::Block::create_unique(new_tablet->tablet_schema()->create_block()));
         swap(blocks.back(), new_block);
     } while (true);
 
@@ -1086,6 +1116,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
         sc_params.ref_rowset_readers = rs_readers;
         sc_params.delete_handler = &delete_handler;
         sc_params.base_tablet_schema = base_tablet_schema;
+        sc_params.be_exec_version = request.be_exec_version;
         DCHECK(request.__isset.alter_tablet_type);
         switch (request.alter_tablet_type) {
         case TAlterTabletType::SCHEMA_CHANGE:
@@ -1650,6 +1681,7 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
                                            BlockChanger* changer, bool* sc_sorting,
                                            bool* sc_directly) {
     changer->set_type(sc_params.alter_tablet_type);
+    changer->set_compatible_version(sc_params.be_exec_version);
 
     TabletSharedPtr base_tablet = sc_params.base_tablet;
     TabletSharedPtr new_tablet = sc_params.new_tablet;
@@ -1764,7 +1796,9 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
                 column_new.frac() != column_old.frac() ||
                 column_new.length() != column_old.length() ||
                 column_new.is_bf_column() != column_old.is_bf_column() ||
-                column_new.has_bitmap_index() != column_old.has_bitmap_index()) {
+                column_new.has_bitmap_index() != column_old.has_bitmap_index() ||
+                new_tablet_schema->has_inverted_index(column_new.unique_id()) !=
+                        base_tablet_schema->has_inverted_index(column_old.unique_id())) {
                 *sc_directly = true;
                 return Status::OK();
             }

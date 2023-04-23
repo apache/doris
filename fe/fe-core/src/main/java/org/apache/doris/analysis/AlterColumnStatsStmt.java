@@ -20,7 +20,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -42,15 +41,18 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * Manually inject statistics for columns.
- * For partitioned tables, partitions must be specified, or statistics cannot be updated,
- * and only OLAP table statistics are supported.
- * e.g.
+ * Only OLAP table statistics are supported.
+ *
+ * Syntax:
  *   ALTER TABLE table_name MODIFY COLUMN columnName
- *   SET STATS ('k1' = 'v1', ...) [ PARTITIONS(p_name1, p_name2...) ]
+ *   SET STATS ('k1' = 'v1', ...);
+ *
+ * e.g.
+ *   ALTER TABLE stats_test.example_tbl MODIFY COLUMN age
+ *   SET STATS ('row_count'='6001215');
  */
 public class AlterColumnStatsStmt extends DdlStmt {
 
@@ -66,7 +68,6 @@ public class AlterColumnStatsStmt extends DdlStmt {
             .build();
 
     private final TableName tableName;
-    private final PartitionNames optPartitionNames;
     private final String columnName;
     private final Map<String, String> properties;
 
@@ -74,11 +75,10 @@ public class AlterColumnStatsStmt extends DdlStmt {
     private final Map<StatsType, String> statsTypeToValue = Maps.newHashMap();
 
     public AlterColumnStatsStmt(TableName tableName, String columnName,
-            Map<String, String> properties, PartitionNames optPartitionNames) {
+            Map<String, String> properties) {
         this.tableName = tableName;
         this.columnName = columnName;
         this.properties = properties == null ? Collections.emptyMap() : properties;
-        this.optPartitionNames = optPartitionNames;
     }
 
     public TableName getTableName() {
@@ -108,7 +108,7 @@ public class AlterColumnStatsStmt extends DdlStmt {
         Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
 
         // check partition & column
-        checkPartitionAndColumnNames();
+        checkColumnNames();
 
         // check properties
         Optional<StatsType> optional = properties.keySet().stream().map(StatsType::fromString)
@@ -136,7 +136,7 @@ public class AlterColumnStatsStmt extends DdlStmt {
     /**
      * TODO(wzt): Support for external tables
      */
-    private void checkPartitionAndColumnNames() throws AnalysisException {
+    private void checkColumnNames() throws AnalysisException {
         Database db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(tableName.getDb());
         Table table = db.getTableOrAnalysisException(tableName.getTbl());
 
@@ -148,22 +148,6 @@ public class AlterColumnStatsStmt extends DdlStmt {
         if (olapTable.getColumn(columnName) == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
                     columnName, FeNameFormat.getColumnNameRegex());
-        }
-
-        if (optPartitionNames != null) {
-            if (olapTable.getPartitionInfo().getType().equals(PartitionType.UNPARTITIONED)) {
-                throw new AnalysisException("Not a partitioned table: " + olapTable.getName());
-            }
-
-            optPartitionNames.analyze(analyzer);
-            Set<String> olapPartitionNames = olapTable.getPartitionNames();
-            Optional<String> optional = optPartitionNames.getPartitionNames().stream()
-                    .filter(name -> !olapPartitionNames.contains(name))
-                    .findFirst();
-            if (optional.isPresent()) {
-                throw new AnalysisException("Partition does not exist: " + optional.get());
-            }
-            partitionNames.addAll(optPartitionNames.getPartitionNames());
         }
     }
 
@@ -179,10 +163,7 @@ public class AlterColumnStatsStmt extends DdlStmt {
         sb.append(new PrintableMap<>(properties,
                 " = ", true, false));
         sb.append(")");
-        if (optPartitionNames != null) {
-            sb.append(" ");
-            sb.append(optPartitionNames.toSql());
-        }
+
         return sb.toString();
     }
 

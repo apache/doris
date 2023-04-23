@@ -31,7 +31,7 @@ public class VectorizedUtil {
         if (connectContext == null) {
             return false;
         }
-        return connectContext.getSessionVariable().enableVectorizedEngine();
+        return true;
     }
 
     public static boolean isPipeline() {

@@ -96,7 +96,7 @@ public class MaterializedIndexMetaTest {
         columnNameToDefineExpr.put(mvColumnName, new FunctionCallExpr(new FunctionName("to_bitmap"), params));
         new Expectations() {
             {
-                stmt.parseDefineExprWithoutAnalyze();
+                stmt.parseDefineExpr(null);
                 result = columnNameToDefineExpr;
             }
         };

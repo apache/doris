@@ -18,18 +18,30 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/array/arrayAggregation.cpp
 // and modified by Doris
 
-#include <type_traits>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <memory>
+#include <type_traits>
+#include <utility>
+
+#include "common/status.h"
+#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_avg.h"
 #include "vec/aggregate_functions/aggregate_function_min_max.h"
-#include "vec/aggregate_functions/aggregate_function_null.h"
 #include "vec/aggregate_functions/aggregate_function_product.h"
 #include "vec/aggregate_functions/aggregate_function_sum.h"
 #include "vec/aggregate_functions/helpers.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
+#include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/arena.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/functions/array/function_array_join.h"
 #include "vec/functions/array/function_array_mapped.h"
@@ -117,8 +129,7 @@ struct AggregateFunction {
     using Function = typename Derived::template TypeTraits<T>::Function;
 
     static auto create(const DataTypePtr& data_type_ptr) -> AggregateFunctionPtr {
-        return AggregateFunctionPtr(creator_with_type::create<Function>(
-                true, DataTypes {make_nullable(data_type_ptr)}));
+        return creator_with_type::create<Function>(DataTypes {make_nullable(data_type_ptr)}, true);
     }
 };
 
@@ -225,8 +236,8 @@ struct NameArrayMin {
 template <>
 struct AggregateFunction<AggregateFunctionImpl<AggregateOperation::MIN>> {
     static auto create(const DataTypePtr& data_type_ptr) -> AggregateFunctionPtr {
-        return AggregateFunctionPtr(create_aggregate_function_min(
-                NameArrayMin::name, {make_nullable(data_type_ptr)}, true));
+        return create_aggregate_function_single_value<AggregateFunctionMinData>(
+                NameArrayMin::name, {make_nullable(data_type_ptr)}, true);
     }
 };
 
@@ -237,8 +248,8 @@ struct NameArrayMax {
 template <>
 struct AggregateFunction<AggregateFunctionImpl<AggregateOperation::MAX>> {
     static auto create(const DataTypePtr& data_type_ptr) -> AggregateFunctionPtr {
-        return AggregateFunctionPtr(create_aggregate_function_max(
-                NameArrayMax::name, {make_nullable(data_type_ptr)}, true));
+        return create_aggregate_function_single_value<AggregateFunctionMaxData>(
+                NameArrayMax::name, {make_nullable(data_type_ptr)}, true);
     }
 };
 

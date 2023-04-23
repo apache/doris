@@ -20,14 +20,36 @@
 
 #pragma once
 
+#include <fmt/format.h>
+#include <string.h>
+
+#include <memory>
+#include <vector>
+
 #include "common/logging.h"
 #include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/columns/column_decimal.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_fixed_length_object.h"
-#include "vec/columns/column_vector.h"
+#include "vec/columns/column_string.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/bit_helpers.h"
+#include "vec/common/string_buffer.hpp"
+#include "vec/common/string_ref.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_fixed_length_object.h"
+#include "vec/data_types/data_type_string.h"
 #include "vec/io/io_helper.h"
+
+namespace doris {
+namespace vectorized {
+class Arena;
+template <typename T>
+class ColumnDecimal;
+template <typename>
+class ColumnVector;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -447,12 +469,10 @@ struct AggregateFunctionMaxData : public Data {
     using Self = AggregateFunctionMaxData;
     using Data::IsFixedLength;
 
-    bool change_if_better(const IColumn& column, size_t row_num, Arena* arena) {
-        return this->change_if_greater(column, row_num, arena);
+    void change_if_better(const IColumn& column, size_t row_num, Arena* arena) {
+        this->change_if_greater(column, row_num, arena);
     }
-    bool change_if_better(const Self& to, Arena* arena) {
-        return this->change_if_greater(to, arena);
-    }
+    void change_if_better(const Self& to, Arena* arena) { this->change_if_greater(to, arena); }
 
     static const char* name() { return "max"; }
 };
@@ -462,10 +482,10 @@ struct AggregateFunctionMinData : Data {
     using Self = AggregateFunctionMinData;
     using Data::IsFixedLength;
 
-    bool change_if_better(const IColumn& column, size_t row_num, Arena* arena) {
-        return this->change_if_less(column, row_num, arena);
+    void change_if_better(const IColumn& column, size_t row_num, Arena* arena) {
+        this->change_if_less(column, row_num, arena);
     }
-    bool change_if_better(const Self& to, Arena* arena) { return this->change_if_less(to, arena); }
+    void change_if_better(const Self& to, Arena* arena) { this->change_if_less(to, arena); }
 
     static const char* name() { return "min"; }
 };
@@ -475,12 +495,10 @@ struct AggregateFunctionAnyData : Data {
     using Self = AggregateFunctionAnyData;
     using Data::IsFixedLength;
 
-    bool change_if_better(const IColumn& column, size_t row_num, Arena* arena) {
-        return this->change_first_time(column, row_num, arena);
+    void change_if_better(const IColumn& column, size_t row_num, Arena* arena) {
+        this->change_first_time(column, row_num, arena);
     }
-    bool change_if_better(const Self& to, Arena* arena) {
-        return this->change_first_time(to, arena);
-    }
+    void change_if_better(const Self& to, Arena* arena) { this->change_first_time(to, arena); }
 
     static const char* name() { return "any"; }
 };
@@ -620,16 +638,8 @@ public:
     }
 };
 
-AggregateFunctionPtr create_aggregate_function_max(const std::string& name,
-                                                   const DataTypes& argument_types,
-                                                   const bool result_is_nullable);
-
-AggregateFunctionPtr create_aggregate_function_min(const std::string& name,
-                                                   const DataTypes& argument_types,
-                                                   const bool result_is_nullable);
-
-AggregateFunctionPtr create_aggregate_function_any(const std::string& name,
-                                                   const DataTypes& argument_types,
-                                                   const bool result_is_nullable);
-
+template <template <typename> class Data>
+AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
+                                                            const DataTypes& argument_types,
+                                                            const bool result_is_nullable);
 } // namespace doris::vectorized

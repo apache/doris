@@ -17,11 +17,20 @@
 
 #include "runtime/buffer_control_block.h"
 
-#include "gen_cpp/PaloInternalService_types.h"
-#include "gen_cpp/internal_service.pb.h"
+#include <gen_cpp/Data_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <glog/logging.h>
+#include <google/protobuf/stubs/callback.h>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <ostream>
+#include <string>
+#include <utility>
+#include <vector>
+
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
-#include "service/brpc.h"
 #include "util/thrift_util.h"
 
 namespace doris {
@@ -111,7 +120,7 @@ Status BufferControlBlock::add_batch(std::unique_ptr<TFetchDataResult>& result) 
     int num_rows = result->result_batch.rows.size();
 
     while ((!_batch_queue.empty() && _buffer_rows > _buffer_limit) && !_is_cancelled) {
-        _data_removal.wait_for(l, std::chrono::seconds(1), [&]() { return _is_cancelled.load(); });
+        _data_removal.wait_for(l, std::chrono::seconds(1));
     }
 
     if (_is_cancelled) {

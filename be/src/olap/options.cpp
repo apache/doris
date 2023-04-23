@@ -17,16 +17,23 @@
 
 #include "olap/options.h"
 
+#include <ctype.h>
 #include <rapidjson/document.h>
+#include <rapidjson/encodings.h>
+#include <rapidjson/rapidjson.h>
+#include <stdlib.h>
 
 #include <algorithm>
+#include <memory>
+#include <ostream>
 
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "env/env.h"
 #include "gutil/strings/split.h"
-#include "gutil/strings/substitute.h"
+#include "gutil/strings/strip.h"
+#include "io/fs/local_file_system.h"
+#include "olap/olap_define.h"
 #include "olap/utils.h"
 #include "util/path_util.h"
 
@@ -71,11 +78,7 @@ Status parse_root_path(const string& root_path, StorePath* path) {
     }
 
     string canonicalized_path;
-    Status status = Env::Default()->canonicalize(tmp_vec[0], &canonicalized_path);
-    if (!status.ok()) {
-        LOG(WARNING) << "path can not be canonicalized. may be not exist. path=" << tmp_vec[0];
-        return Status::Error<INVALID_ARGUMENT>();
-    }
+    RETURN_IF_ERROR(io::global_local_filesystem()->canonicalize(tmp_vec[0], &canonicalized_path));
     path->path = tmp_vec[0];
 
     // parse root path capacity and storage medium

@@ -18,8 +18,8 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
-import org.apache.doris.nereids.rules.expression.rewrite.rules.FoldConstantRule;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -212,6 +212,9 @@ public class ExpressionUtils {
                 minSlot = slot;
             } else {
                 int slotDataTypeWidth = slot.getDataType().width();
+                if (slotDataTypeWidth < 0) {
+                    continue;
+                }
                 minSlot = minSlot.getDataType().width() > slotDataTypeWidth ? slot : minSlot;
             }
         }
@@ -356,7 +359,7 @@ public class ExpressionUtils {
                 Expression evalExpr = FoldConstantRule.INSTANCE.rewrite(
                         ExpressionUtils.replace(predicate, replaceMap),
                         new ExpressionRewriteContext(cascadesContext));
-                if (nullLiteral.equals(evalExpr) || BooleanLiteral.FALSE.equals(evalExpr)) {
+                if (evalExpr.isNullLiteral() || BooleanLiteral.FALSE.equals(evalExpr)) {
                     notNullSlots.add(slot);
                 }
             }

@@ -33,7 +33,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterCatalogExecutor;
 
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.lang.NotImplementedException;
+import org.apache.commons.lang3.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -107,6 +107,7 @@ public class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T>,
     }
 
     public final synchronized void makeSureInitialized() {
+        extCatalog.makeSureInitialized();
         if (!initialized) {
             if (!Env.getCurrentEnv().isMaster()) {
                 // Forward to master and wait the journal to replay.
@@ -125,15 +126,15 @@ public class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T>,
     }
 
     protected void init() {
-        throw new NotImplementedException();
+        throw new NotImplementedException("init() is not implemented");
     }
 
     public T getTableForReplay(long tableId) {
-        throw new NotImplementedException();
+        throw new NotImplementedException("getTableForReplay() is not implemented");
     }
 
     public void replayInitDb(InitDatabaseLog log, ExternalCatalog catalog) {
-        throw new NotImplementedException();
+        throw new NotImplementedException("replayInitDb() is not implemented");
     }
 
     @Override
@@ -209,42 +210,42 @@ public class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T>,
 
     @Override
     public List<T> getTables() {
-        throw new NotImplementedException();
+        throw new NotImplementedException("getTables() is not implemented");
     }
 
     @Override
     public List<T> getTablesOnIdOrder() {
-        throw new NotImplementedException();
+        throw new NotImplementedException("getTablesOnIdOrder() is not implemented");
     }
 
     @Override
     public List<T> getViews() {
-        throw new NotImplementedException();
+        throw new NotImplementedException("getViews() is not implemented");
     }
 
     @Override
     public List<T> getTablesOnIdOrderIfExist(List<Long> tableIdList) {
-        throw new NotImplementedException();
+        throw new NotImplementedException("getTablesOnIdOrderIfExist() is not implemented");
     }
 
     @Override
     public List<T> getTablesOnIdOrderOrThrowException(List<Long> tableIdList) throws MetaNotFoundException {
-        throw new NotImplementedException();
+        throw new NotImplementedException("getTablesOnIdOrderOrThrowException() is not implemented");
     }
 
     @Override
     public Set<String> getTableNamesWithLock() {
-        throw new NotImplementedException();
+        throw new NotImplementedException("getTableNamesWithLock() is not implemented");
     }
 
     @Override
     public T getTableNullable(String tableName) {
-        throw new NotImplementedException();
+        throw new NotImplementedException("getTableNullable() is not implemented");
     }
 
     @Override
     public T getTableNullable(long tableId) {
-        throw new NotImplementedException();
+        throw new NotImplementedException("getTableNullable() is not implemented");
     }
 
     @Override
@@ -262,10 +263,10 @@ public class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T>,
 
     @Override
     public void dropTable(String tableName) {
-        throw new NotImplementedException();
+        throw new NotImplementedException("dropTable() is not implemented");
     }
 
     public void createTable(String tableName, long tableId) {
-        throw new NotImplementedException();
+        throw new NotImplementedException("createTable() is not implemented");
     }
 }

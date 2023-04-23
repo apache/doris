@@ -109,4 +109,88 @@ suite("test_grouping_sets1") {
             grouping_col1,grouping_col2,col1,col2 
         ;
     """
+
+
+    sql """ DROP TABLE IF EXISTS `grouping_t1`; """
+    sql """
+        CREATE TABLE `grouping_t1` (
+          `p_date` date NULL,
+          `entry_id` varchar(200) NULL,
+          `publish_date` text NULL
+        ) ENGINE=OLAP
+        UNIQUE KEY(`p_date`, `entry_id`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`entry_id`) BUCKETS 1
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+    
+    sql """
+        insert into grouping_t1 values ("2023-03-29", "aaa", "2019-05-04"),
+                                       ("2023-03-29", "bbb", "2019-05-04"),
+                                       ("2023-03-30", "aaa", "2019-05-05");
+    """
+    
+    sql """ DROP TABLE IF EXISTS `grouping_t2`; """
+    sql """
+        CREATE TABLE `grouping_t2` (
+          `p_date` date NULL,
+          `entry_id` varchar(64) NULL,
+          `entry_date` varchar(64) NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`p_date`, `entry_id`)
+        DISTRIBUTED BY HASH(`entry_id`) BUCKETS 2
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+    
+    sql """
+        insert into grouping_t2 values ("2023-03-29", "aaa", "2019-05-04"),
+                                       ("2023-03-29", "bbb", "2019-05-04"),
+                                       ("2023-03-30", "aaa", "2019-05-05");
+    """
+
+    qt_sql_grouping_nullable """
+        select
+         *
+        from
+          (
+            select
+              idt_335.publish_date,
+              if(
+                grouping(idt_335.publish_date) = 0,
+                idt_335.publish_date,
+                'empty'
+              ) as dim_207
+            from
+              (
+                select
+                  *
+                from
+                  grouping_t1
+              ) idt_335
+            group by
+              GROUPING SETS((idt_335.publish_date),())
+          ) t_0 full
+          join (
+            select
+              idt_765.entry_date,
+              if(
+                grouping(idt_765.entry_date) = 0,
+                idt_765.entry_date,
+                'empty'
+              ) as dim_207
+            from
+              (
+                select
+                  *
+                from
+                  grouping_t2
+              ) idt_765
+            group by
+              GROUPING SETS((idt_765.entry_date),())
+          ) t_1 on t_0.dim_207 = t_1.dim_207 order by publish_date;
+    """
 }

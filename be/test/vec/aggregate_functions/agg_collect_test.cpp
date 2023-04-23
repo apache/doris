@@ -116,7 +116,7 @@ public:
 
 private:
     const size_t _repeated_times = 2;
-    Arena _agg_arena_pool;
+    vectorized::Arena _agg_arena_pool;
 };
 
 TEST_F(VAggCollectTest, test_empty) {

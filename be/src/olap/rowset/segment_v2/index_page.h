@@ -17,13 +17,15 @@
 
 #pragma once
 
+#include <butil/macros.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <glog/logging.h>
+#include <stdint.h>
+
 #include <cstddef>
-#include <memory>
 #include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/segment_v2.pb.h"
-#include "gutil/macros.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "util/faststring.h"
 #include "util/slice.h"
@@ -77,7 +79,6 @@ private:
     uint32_t _count = 0;
 };
 
-class IndexPageIterator;
 class IndexPageReader {
 public:
     IndexPageReader() : _parsed(false) {}

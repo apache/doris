@@ -18,12 +18,28 @@
 #include "pipeline_fragment_context.h"
 
 #include <gen_cpp/DataSinks_types.h>
-#include <thrift/protocol/TDebugProtocol.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Planner_types.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+#include <opentelemetry/trace/span.h>
+#include <opentelemetry/trace/span_context.h>
+#include <opentelemetry/trace/tracer.h>
+#include <pthread.h>
+#include <stdlib.h>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <map>
+#include <ostream>
+#include <typeinfo>
+#include <utility>
 
+#include "common/config.h"
+#include "common/logging.h"
 #include "exec/data_sink.h"
+#include "exec/exec_node.h"
 #include "exec/scan_node.h"
-#include "gen_cpp/FrontendService.h"
-#include "gen_cpp/HeartbeatService_types.h"
+#include "io/fs/stream_load_pipe.h"
 #include "pipeline/exec/aggregation_sink_operator.h"
 #include "pipeline/exec/aggregation_source_operator.h"
 #include "pipeline/exec/analytic_sink_operator.h"
@@ -38,7 +54,7 @@
 #include "pipeline/exec/exchange_source_operator.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
-#include "pipeline/exec/mysql_scan_operator.h"
+#include "pipeline/exec/mysql_scan_operator.h" // IWYU pragma: keep
 #include "pipeline/exec/nested_loop_join_build_operator.h"
 #include "pipeline/exec/nested_loop_join_probe_operator.h"
 #include "pipeline/exec/olap_table_sink_operator.h"
@@ -49,9 +65,9 @@
 #include "pipeline/exec/scan_operator.h"
 #include "pipeline/exec/schema_scan_operator.h"
 #include "pipeline/exec/select_operator.h"
-#include "pipeline/exec/set_probe_sink_operator.h"
-#include "pipeline/exec/set_sink_operator.h"
-#include "pipeline/exec/set_source_operator.h"
+#include "pipeline/exec/set_probe_sink_operator.h" // IWYU pragma: keep
+#include "pipeline/exec/set_sink_operator.h"       // IWYU pragma: keep
+#include "pipeline/exec/set_source_operator.h"     // IWYU pragma: keep
 #include "pipeline/exec/sort_sink_operator.h"
 #include "pipeline/exec/sort_source_operator.h"
 #include "pipeline/exec/streaming_aggregation_sink_operator.h"
@@ -61,28 +77,41 @@
 #include "pipeline/exec/union_sink_operator.h"
 #include "pipeline/exec/union_source_operator.h"
 #include "pipeline_task.h"
-#include "runtime/client_cache.h"
+#include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
+#include "runtime/thread_context.h"
+#include "service/backend_options.h"
 #include "task_scheduler.h"
 #include "util/container_util.hpp"
+#include "util/debug_util.h"
+#include "util/telemetry/telemetry.h"
+#include "util/uid_util.h"
+#include "vec/common/assert_cast.h"
 #include "vec/exec/join/vhash_join_node.h"
-#include "vec/exec/join/vnested_loop_join_node.h"
+#include "vec/exec/scan/new_es_scan_node.h"
 #include "vec/exec/scan/new_file_scan_node.h"
+#include "vec/exec/scan/new_odbc_scan_node.h"
 #include "vec/exec/scan/new_olap_scan_node.h"
+#include "vec/exec/scan/vmeta_scan_node.h"
 #include "vec/exec/scan/vscan_node.h"
 #include "vec/exec/vaggregation_node.h"
 #include "vec/exec/vexchange_node.h"
-#include "vec/exec/vrepeat_node.h"
-#include "vec/exec/vschema_scan_node.h"
-#include "vec/exec/vset_operation_node.h"
-#include "vec/exec/vsort_node.h"
 #include "vec/exec/vunion_node.h"
 #include "vec/runtime/vdata_stream_mgr.h"
-#include "vec/sink/vresult_file_sink.h"
-#include "vec/sink/vresult_sink.h"
+
+namespace apache {
+namespace thrift {
+class TException;
+
+namespace transport {
+class TTransportException;
+} // namespace transport
+} // namespace thrift
+} // namespace apache
 
 using apache::thrift::transport::TTransportException;
 using apache::thrift::TException;
@@ -152,148 +181,6 @@ PipelinePtr PipelineFragmentContext::add_pipeline() {
     return pipeline;
 }
 
-Status PipelineFragmentContext::prepare(const doris::TExecPlanFragmentParams& request) {
-    if (_prepared) {
-        return Status::InternalError("Already prepared");
-    }
-    _runtime_profile.reset(new RuntimeProfile("PipelineContext"));
-    _start_timer = ADD_TIMER(_runtime_profile, "StartTime");
-    COUNTER_UPDATE(_start_timer, _fragment_watcher.elapsed_time());
-    _prepare_timer = ADD_TIMER(_runtime_profile, "PrepareTime");
-    SCOPED_TIMER(_prepare_timer);
-
-    auto* fragment_context = this;
-    OpentelemetryTracer tracer = telemetry::get_noop_tracer();
-    if (opentelemetry::trace::Tracer::GetCurrentSpan()->GetContext().IsValid()) {
-        tracer = telemetry::get_tracer(print_id(_query_id));
-    }
-    START_AND_SCOPE_SPAN(tracer, span, "PipelineFragmentExecutor::prepare");
-
-    const TPlanFragmentExecParams& params = request.params;
-
-    LOG_INFO("PipelineFragmentContext::prepare")
-            .tag("query_id", _query_id)
-            .tag("instance_id", params.fragment_instance_id)
-            .tag("backend_num", request.backend_num)
-            .tag("pthread_id", (uintptr_t)pthread_self());
-
-    // 1. init _runtime_state
-    _runtime_state = std::make_unique<RuntimeState>(params, request.query_options,
-                                                    _query_ctx->query_globals, _exec_env);
-    _runtime_state->set_query_fragments_ctx(_query_ctx.get());
-    _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
-    _runtime_state->set_tracer(std::move(tracer));
-
-    // TODO should be combine with plan_fragment_executor.prepare funciton
-    SCOPED_ATTACH_TASK(get_runtime_state());
-    _runtime_state->runtime_filter_mgr()->init();
-    _runtime_state->set_be_number(request.backend_num);
-
-    if (request.__isset.backend_id) {
-        _runtime_state->set_backend_id(request.backend_id);
-    }
-    if (request.__isset.import_label) {
-        _runtime_state->set_import_label(request.import_label);
-    }
-    if (request.__isset.db_name) {
-        _runtime_state->set_db_name(request.db_name);
-    }
-    if (request.__isset.load_job_id) {
-        _runtime_state->set_load_job_id(request.load_job_id);
-    }
-
-    if (request.query_options.__isset.is_report_success) {
-        fragment_context->set_is_report_success(request.query_options.is_report_success);
-    }
-
-    auto* desc_tbl = _query_ctx->desc_tbl;
-    _runtime_state->set_desc_tbl(desc_tbl);
-
-    // 2. Create ExecNode to build pipeline with PipelineFragmentContext
-    RETURN_IF_ERROR(ExecNode::create_tree(_runtime_state.get(), _runtime_state->obj_pool(),
-                                          request.fragment.plan, *desc_tbl, &_root_plan));
-
-    // Set senders of exchange nodes before pipeline build
-    std::vector<ExecNode*> exch_nodes;
-    _root_plan->collect_nodes(TPlanNodeType::EXCHANGE_NODE, &exch_nodes);
-    for (ExecNode* exch_node : exch_nodes) {
-        DCHECK_EQ(exch_node->type(), TPlanNodeType::EXCHANGE_NODE);
-        int num_senders = find_with_default(params.per_exch_num_senders, exch_node->id(), 0);
-        DCHECK_GT(num_senders, 0);
-        static_cast<vectorized::VExchangeNode*>(exch_node)->set_num_senders(num_senders);
-    }
-
-    // All prepare work do in exec node tree
-    RETURN_IF_ERROR(_root_plan->prepare(_runtime_state.get()));
-    // set scan ranges
-    std::vector<ExecNode*> scan_nodes;
-    std::vector<TScanRangeParams> no_scan_ranges;
-    _root_plan->collect_scan_nodes(&scan_nodes);
-    VLOG_CRITICAL << "scan_nodes.size()=" << scan_nodes.size();
-    VLOG_CRITICAL << "params.per_node_scan_ranges.size()=" << params.per_node_scan_ranges.size();
-
-    _root_plan->try_do_aggregate_serde_improve();
-    // set scan range in ScanNode
-    for (int i = 0; i < scan_nodes.size(); ++i) {
-        // TODO(cmy): this "if...else" should be removed once all ScanNode are derived from VScanNode.
-        ExecNode* node = scan_nodes[i];
-        if (typeid(*node) == typeid(vectorized::NewOlapScanNode) ||
-            typeid(*node) == typeid(vectorized::NewFileScanNode) // ||
-//            typeid(*node) == typeid(vectorized::NewOdbcScanNode) ||
-//            typeid(*node) == typeid(vectorized::NewEsScanNode)
-#ifdef LIBJVM
-//            || typeid(*node) == typeid(vectorized::NewJdbcScanNode)
-#endif
-        ) {
-            auto* scan_node = static_cast<vectorized::VScanNode*>(scan_nodes[i]);
-            const std::vector<TScanRangeParams>& scan_ranges =
-                    find_with_default(params.per_node_scan_ranges, scan_node->id(), no_scan_ranges);
-            scan_node->set_scan_ranges(scan_ranges);
-        } else {
-            ScanNode* scan_node = static_cast<ScanNode*>(scan_nodes[i]);
-            const std::vector<TScanRangeParams>& scan_ranges =
-                    find_with_default(params.per_node_scan_ranges, scan_node->id(), no_scan_ranges);
-            scan_node->set_scan_ranges(scan_ranges);
-            VLOG_CRITICAL << "scan_node_Id=" << scan_node->id() << " size=" << scan_ranges.size();
-        }
-    }
-
-    _runtime_state->set_per_fragment_instance_idx(params.sender_id);
-    _runtime_state->set_num_per_fragment_instances(params.num_senders);
-
-    if (request.fragment.__isset.output_sink) {
-        RETURN_IF_ERROR(DataSink::create_data_sink(
-                _runtime_state->obj_pool(), request.fragment.output_sink,
-                request.fragment.output_exprs, params, _root_plan->row_desc(), _runtime_state.get(),
-                &_sink, *desc_tbl));
-    }
-
-    _root_pipeline = fragment_context->add_pipeline();
-    RETURN_IF_ERROR(_build_pipelines(_root_plan, _root_pipeline));
-    if (_sink) {
-        RETURN_IF_ERROR(_create_sink(request.fragment.output_sink));
-    }
-    RETURN_IF_ERROR(_build_pipeline_tasks(request));
-    if (_sink) {
-        _runtime_state->runtime_profile()->add_child(_sink->profile(), true, nullptr);
-    }
-    _runtime_state->runtime_profile()->add_child(_root_plan->runtime_profile(), true, nullptr);
-    _runtime_state->runtime_profile()->add_child(_runtime_profile.get(), true, nullptr);
-
-    if (_is_report_success && config::status_report_interval > 0) {
-        std::unique_lock<std::mutex> l(_report_thread_lock);
-        _exec_env->send_report_thread_pool()->submit_func([this] {
-            Defer defer {[&]() { this->_report_thread_promise.set_value(true); }};
-            this->report_profile();
-        });
-        // make sure the thread started up, otherwise report_profile() might get into a race
-        // with stop_report_thread()
-        _report_thread_started_cv.wait(l);
-    }
-    _prepared = true;
-    return Status::OK();
-}
-
 Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& request,
                                         const size_t idx) {
     if (_prepared) {
@@ -344,9 +231,6 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     if (request.__isset.load_job_id) {
         _runtime_state->set_load_job_id(request.load_job_id);
     }
-    if (request.__isset.shared_scan_opt) {
-        _runtime_state->set_shared_scan_opt(request.shared_scan_opt);
-    }
 
     if (request.query_options.__isset.is_report_success) {
         fragment_context->set_is_report_success(request.query_options.is_report_success);
@@ -385,19 +269,23 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
         // TODO(cmy): this "if...else" should be removed once all ScanNode are derived from VScanNode.
         ExecNode* node = scan_nodes[i];
         if (typeid(*node) == typeid(vectorized::NewOlapScanNode) ||
-            typeid(*node) == typeid(vectorized::NewFileScanNode) // ||
-//            typeid(*node) == typeid(vectorized::NewOdbcScanNode) ||
-//            typeid(*node) == typeid(vectorized::NewEsScanNode)
+            typeid(*node) == typeid(vectorized::NewFileScanNode) ||
+            typeid(*node) == typeid(vectorized::NewOdbcScanNode) ||
+            typeid(*node) == typeid(vectorized::NewEsScanNode) ||
+            typeid(*node) == typeid(vectorized::VMetaScanNode)
 #ifdef LIBJVM
-//            || typeid(*node) == typeid(vectorized::NewJdbcScanNode)
+            || typeid(*node) == typeid(vectorized::NewJdbcScanNode)
 #endif
         ) {
             auto* scan_node = static_cast<vectorized::VScanNode*>(scan_nodes[i]);
             const std::vector<TScanRangeParams>& scan_ranges = find_with_default(
                     local_params.per_node_scan_ranges, scan_node->id(), no_scan_ranges);
+            const bool shared_scan =
+                    find_with_default(local_params.per_node_shared_scans, scan_node->id(), false);
             scan_node->set_scan_ranges(scan_ranges);
+            scan_node->set_shared_scan(_runtime_state.get(), shared_scan);
         } else {
-            ScanNode* scan_node = static_cast<ScanNode*>(scan_nodes[i]);
+            ScanNode* scan_node = static_cast<ScanNode*>(node);
             const std::vector<TScanRangeParams>& scan_ranges = find_with_default(
                     local_params.per_node_scan_ranges, scan_node->id(), no_scan_ranges);
             scan_node->set_scan_ranges(scan_ranges);
@@ -428,30 +316,6 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     _runtime_state->runtime_profile()->add_child(_runtime_profile.get(), true, nullptr);
 
     _prepared = true;
-    return Status::OK();
-}
-
-Status PipelineFragmentContext::_build_pipeline_tasks(
-        const doris::TExecPlanFragmentParams& request) {
-    for (PipelinePtr& pipeline : _pipelines) {
-        // if sink
-        auto sink = pipeline->sink()->build_operator();
-        // TODO pipeline 1 need to add new interface for exec node and operator
-        sink->init(request.fragment.output_sink);
-
-        Operators operators;
-        RETURN_IF_ERROR(pipeline->build_operators(operators));
-        auto task = std::make_unique<PipelineTask>(pipeline, 0, _runtime_state.get(), operators,
-                                                   sink, this, pipeline->pipeline_profile());
-        sink->set_child(task->get_root());
-        _tasks.emplace_back(std::move(task));
-        _runtime_profile->add_child(pipeline->pipeline_profile(), true, nullptr);
-    }
-
-    for (auto& task : _tasks) {
-        RETURN_IF_ERROR(task->prepare(_runtime_state.get()));
-    }
-    _total_tasks = _tasks.size();
     return Status::OK();
 }
 
@@ -552,6 +416,7 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
     case TPlanNodeType::JDBC_SCAN_NODE:
     case TPlanNodeType::ODBC_SCAN_NODE:
     case TPlanNodeType::FILE_SCAN_NODE:
+    case TPlanNodeType::META_SCAN_NODE:
     case TPlanNodeType::ES_SCAN_NODE: {
         OperatorBuilderPtr operator_t =
                 std::make_shared<ScanOperatorBuilder>(next_operator_builder_id(), node);
@@ -778,8 +643,12 @@ Status PipelineFragmentContext::submit() {
 
     int submit_tasks = 0;
     Status st;
+    auto* scheduler = _exec_env->pipeline_task_scheduler();
+    if (get_task_group()) {
+        scheduler = _exec_env->pipeline_task_group_scheduler();
+    }
     for (auto& task : _tasks) {
-        st = _exec_env->pipeline_task_scheduler()->schedule_task(task.get());
+        st = scheduler->schedule_task(task.get());
         if (!st) {
             cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "submit context fail");
             _total_tasks = submit_tasks;

@@ -75,7 +75,7 @@ public class OperationType {
     public static final short OP_MODIFY_TABLE_ENGINE = 127;
 
     //schema change for add and drop columns
-    public static final short OP_MODIFY_TABLE_ADD_OR_DROP_COLUMNS = 128;
+    public static final short OP_MODIFY_TABLE_LIGHT_SCHEMA_CHANGE = 128;
 
     //schema change for add and drop inverted indices
     public static final short OP_MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES = 220;
@@ -279,6 +279,10 @@ public class OperationType {
     // cooldown related
     public static final short OP_UPDATE_COOLDOWN_CONF = 401;
     public static final short OP_COOLDOWN_DELETE = 402;
+    public static final short OP_ALTER_LIGHT_SCHEMA_CHANGE = 403;
+
+    // resource group 410 ~ 419
+    public static final short OP_CREATE_RESOURCE_GROUP = 410;
 
     /**
      * Get opcode name by op code.

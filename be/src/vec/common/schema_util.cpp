@@ -15,32 +15,47 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <vec/columns/column_array.h>
-#include <vec/columns/column_object.h>
-#include <vec/common/schema_util.h>
-#include <vec/core/field.h>
-#include <vec/data_types/data_type_array.h>
-#include <vec/data_types/data_type_object.h>
-#include <vec/functions/simple_function_factory.h>
-#include <vec/json/parse2column.h>
+#include "vec/common/schema_util.h"
 
-#include <vec/data_types/data_type_factory.hpp>
+#include <assert.h>
+#include <fmt/format.h>
+#include <gen_cpp/FrontendService.h>
+#include <gen_cpp/FrontendService_types.h>
+#include <gen_cpp/HeartbeatService_types.h>
+#include <gen_cpp/MasterService_types.h>
+#include <gen_cpp/Status_types.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+
+#include <algorithm>
+#include <memory>
+#include <ostream>
+#include <unordered_set>
+#include <utility>
 #include <vector>
 
-#include "common/compiler_util.h"
-#include "gen_cpp/FrontendService.h"
-#include "gen_cpp/HeartbeatService_types.h"
-#include "olap/rowset/rowset_writer_context.h"
+#include "common/config.h"
+#include "olap/olap_common.h"
 #include "runtime/client_cache.h"
-#include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "util/thrift_rpc_helper.h"
 #include "vec/columns/column.h"
-#include "vec/columns/columns_number.h"
+#include "vec/columns/column_array.h"
+#include "vec/columns/column_object.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/typeid_cast.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/field.h"
+#include "vec/core/names.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/functions/function.h"
+#include "vec/functions/simple_function_factory.h"
+#include "vec/json/path_in_data.h"
 
 namespace doris::vectorized::schema_util {
 
@@ -79,47 +94,6 @@ Array create_empty_array_field(size_t num_dimensions) {
     return array;
 }
 
-FieldType get_field_type(const IDataType* data_type) {
-    switch (data_type->get_type_id()) {
-    case TypeIndex::UInt8:
-        return FieldType::OLAP_FIELD_TYPE_UNSIGNED_TINYINT;
-    case TypeIndex::UInt16:
-        return FieldType::OLAP_FIELD_TYPE_UNSIGNED_SMALLINT;
-    case TypeIndex::UInt32:
-        return FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT;
-    case TypeIndex::UInt64:
-        return FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT;
-    case TypeIndex::Int8:
-        return FieldType::OLAP_FIELD_TYPE_TINYINT;
-    case TypeIndex::Int16:
-        return FieldType::OLAP_FIELD_TYPE_SMALLINT;
-    case TypeIndex::Int32:
-        return FieldType::OLAP_FIELD_TYPE_INT;
-    case TypeIndex::Int64:
-        return FieldType::OLAP_FIELD_TYPE_BIGINT;
-    case TypeIndex::Float32:
-        return FieldType::OLAP_FIELD_TYPE_FLOAT;
-    case TypeIndex::Float64:
-        return FieldType::OLAP_FIELD_TYPE_DOUBLE;
-    case TypeIndex::Decimal32:
-        return FieldType::OLAP_FIELD_TYPE_DECIMAL;
-    case TypeIndex::Array:
-        return FieldType::OLAP_FIELD_TYPE_ARRAY;
-    case TypeIndex::String:
-        return FieldType::OLAP_FIELD_TYPE_STRING;
-    case TypeIndex::Date:
-        return FieldType::OLAP_FIELD_TYPE_DATE;
-    case TypeIndex::DateTime:
-        return FieldType::OLAP_FIELD_TYPE_DATETIME;
-    case TypeIndex::Tuple:
-        return FieldType::OLAP_FIELD_TYPE_STRUCT;
-    // TODO add more types
-    default:
-        LOG(FATAL) << "unknow type";
-        return FieldType::OLAP_FIELD_TYPE_UNKNOWN;
-    }
-}
-
 bool is_conversion_required_between_integers(const IDataType& lhs, const IDataType& rhs) {
     WhichDataType which_lhs(lhs);
     WhichDataType which_rhs(rhs);
@@ -132,19 +106,22 @@ bool is_conversion_required_between_integers(const IDataType& lhs, const IDataTy
 bool is_conversion_required_between_integers(FieldType lhs, FieldType rhs) {
     // We only support signed integers for semi-structure data at present
     // TODO add unsigned integers
-    if (lhs == OLAP_FIELD_TYPE_BIGINT) {
-        return !(rhs == OLAP_FIELD_TYPE_TINYINT || rhs == OLAP_FIELD_TYPE_SMALLINT ||
-                 rhs == OLAP_FIELD_TYPE_INT || rhs == OLAP_FIELD_TYPE_BIGINT);
+    if (lhs == FieldType::OLAP_FIELD_TYPE_BIGINT) {
+        return !(rhs == FieldType::OLAP_FIELD_TYPE_TINYINT ||
+                 rhs == FieldType::OLAP_FIELD_TYPE_SMALLINT ||
+                 rhs == FieldType::OLAP_FIELD_TYPE_INT || rhs == FieldType::OLAP_FIELD_TYPE_BIGINT);
     }
-    if (lhs == OLAP_FIELD_TYPE_INT) {
-        return !(rhs == OLAP_FIELD_TYPE_TINYINT || rhs == OLAP_FIELD_TYPE_SMALLINT ||
-                 rhs == OLAP_FIELD_TYPE_INT);
+    if (lhs == FieldType::OLAP_FIELD_TYPE_INT) {
+        return !(rhs == FieldType::OLAP_FIELD_TYPE_TINYINT ||
+                 rhs == FieldType::OLAP_FIELD_TYPE_SMALLINT ||
+                 rhs == FieldType::OLAP_FIELD_TYPE_INT);
     }
-    if (lhs == OLAP_FIELD_TYPE_SMALLINT) {
-        return !(rhs == OLAP_FIELD_TYPE_TINYINT || rhs == OLAP_FIELD_TYPE_SMALLINT);
+    if (lhs == FieldType::OLAP_FIELD_TYPE_SMALLINT) {
+        return !(rhs == FieldType::OLAP_FIELD_TYPE_TINYINT ||
+                 rhs == FieldType::OLAP_FIELD_TYPE_SMALLINT);
     }
-    if (lhs == OLAP_FIELD_TYPE_TINYINT) {
-        return !(rhs == OLAP_FIELD_TYPE_TINYINT);
+    if (lhs == FieldType::OLAP_FIELD_TYPE_TINYINT) {
+        return !(rhs == FieldType::OLAP_FIELD_TYPE_TINYINT);
     }
     return true;
 }
@@ -183,7 +160,7 @@ static void get_column_def(const vectorized::DataTypePtr& data_type, const std::
         get_column_def(real_type.get_nested_type(), "", column);
         return;
     }
-    column->columnDesc.__set_columnType(to_thrift(get_primitive_type(data_type->get_type_id())));
+    column->columnDesc.__set_columnType(data_type->get_type_as_tprimitive_type());
     if (data_type->get_type_id() == TypeIndex::Array) {
         TColumnDef child;
         column->columnDesc.__set_children({});

@@ -47,7 +47,7 @@ suite("create_table_use_partition_policy") {
 
     if (!storage_exist.call("test_create_table_partition_use_policy_1")) {
         def create_s3_resource = try_sql """
-            CREATE RESOURCE "test_create_table_partition_use_resource_1"
+            CREATE RESOURCE IF NOT EXISTS "test_create_table_partition_use_resource_1"
             PROPERTIES(
                 "type"="s3",
                 "AWS_REGION" = "bj",
@@ -60,7 +60,7 @@ suite("create_table_use_partition_policy") {
             );
         """
         def create_succ_1 = try_sql """
-            CREATE STORAGE POLICY test_create_table_partition_use_policy_1
+            CREATE STORAGE POLICY IF NOT EXISTS test_create_table_partition_use_policy_1
             PROPERTIES(
             "storage_resource" = "test_create_table_partition_use_resource_1",
             "cooldown_ttl" = "$cooldown_ttl"
@@ -72,7 +72,7 @@ suite("create_table_use_partition_policy") {
 
     if (!storage_exist.call("test_create_table_partition_use_policy_2")) {
         def create_s3_resource = try_sql """
-            CREATE RESOURCE "test_create_table_partition_use_resource_2"
+            CREATE RESOURCE IF NOT EXISTS "test_create_table_partition_use_resource_2"
             PROPERTIES(
                 "type"="s3",
                 "AWS_REGION" = "bj",
@@ -85,7 +85,7 @@ suite("create_table_use_partition_policy") {
             );
         """
         def create_succ_1 = try_sql """
-            CREATE STORAGE POLICY test_create_table_partition_use_policy_2
+            CREATE STORAGE POLICY IF NOT EXISTS test_create_table_partition_use_policy_2
             PROPERTIES(
             "storage_resource" = "test_create_table_partition_use_resource_2",
             "cooldown_ttl" = "$cooldown_ttl"

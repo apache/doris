@@ -40,6 +40,7 @@ import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.pattern.PatternDescriptor;
 import org.apache.doris.nereids.pattern.PatternMatcher;
+import org.apache.doris.nereids.processor.post.Validator;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
@@ -203,7 +204,7 @@ public class PlanChecker {
         double now = System.currentTimeMillis();
         Group root = cascadesContext.getMemo().getRoot();
         boolean changeRoot = false;
-        if (root.isJoinGroup()) {
+        if (root.isInnerJoinGroup()) {
             // If the root group is join group, DPHyp can change the root group.
             // To keep the root group is not changed, we add a dummy project operator above join
             List<Slot> outputs = root.getLogicalExpression().getPlan().getOutput();
@@ -267,7 +268,7 @@ public class PlanChecker {
         for (Plan child : plan.children()) {
             newChildren.add(flatGroupPlan(child));
         }
-        return (PhysicalPlan) plan.withChildren(newChildren);
+        return plan.withChildren(newChildren);
 
     }
 
@@ -307,6 +308,11 @@ public class PlanChecker {
     // Exploration Rule.
     public PlanChecker applyExploration(Rule rule) {
         return applyExploration(cascadesContext.getMemo().getRoot(), rule);
+    }
+
+    public PlanChecker applyExploration(List<Rule> rules) {
+        rules.forEach(rule -> applyExploration(cascadesContext.getMemo().getRoot(), rule));
+        return this;
     }
 
     private PlanChecker applyExploration(Group group, Rule rule) {
@@ -387,7 +393,7 @@ public class PlanChecker {
     public PlanChecker orderJoin() {
         Group root = cascadesContext.getMemo().getRoot();
         boolean changeRoot = false;
-        if (root.isJoinGroup()) {
+        if (root.isInnerJoinGroup()) {
             List<Slot> outputs = root.getLogicalExpression().getPlan().getOutput();
             // FIXME: can't match type, convert List<Slot> to List<NamedExpression>
             GroupExpression newExpr = new GroupExpression(
@@ -414,12 +420,21 @@ public class PlanChecker {
 
     public PlanChecker matches(PatternDescriptor<? extends Plan> patternDesc) {
         Memo memo = cascadesContext.getMemo();
+        checkSlotFromChildren(memo);
+        assertMatches(memo, () -> MatchingUtils.topDownFindMatching(memo.getRoot(), patternDesc.pattern));
+        return this;
+    }
+
+    // TODO: remove it.
+    public PlanChecker matchesNotCheck(PatternDescriptor<? extends Plan> patternDesc) {
+        Memo memo = cascadesContext.getMemo();
         assertMatches(memo, () -> MatchingUtils.topDownFindMatching(memo.getRoot(), patternDesc.pattern));
         return this;
     }
 
     public PlanChecker matchesExploration(PatternDescriptor<? extends Plan> patternDesc) {
         Memo memo = cascadesContext.getMemo();
+        checkSlotFromChildren(memo);
         Supplier<Boolean> asserter = () -> new GroupExpressionMatching(patternDesc.pattern,
                 memo.getRoot().getLogicalExpressions().get(1)).iterator().hasNext();
         Assertions.assertTrue(asserter.get(),
@@ -427,6 +442,11 @@ public class PlanChecker {
                         + memo.getRoot().getLogicalExpressions().get(1).getPlan().treeString()
                         + "\n");
         return this;
+    }
+
+    private void checkSlotFromChildren(Memo memo) {
+        Validator validator = new Validator();
+        memo.getGroupExpressions().forEach((key, value) -> validator.visit(value.getPlan(), null));
     }
 
     private PlanChecker assertMatches(Memo memo, Supplier<Boolean> asserter) {

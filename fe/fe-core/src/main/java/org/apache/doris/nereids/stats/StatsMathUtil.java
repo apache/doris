@@ -52,4 +52,11 @@ public class StatsMathUtil {
         return Math.max(a, b);
     }
 
+    public static double divide(double a, double b) {
+        if (Double.isNaN(a) || Double.isNaN(b)) {
+            return Double.NaN;
+        }
+        return a / nonZeroDivisor(b);
+    }
+
 }

@@ -225,6 +225,7 @@ else
         BUILD_META_TOOL='ON'
         BUILD_SPARK_DPP=1
         BUILD_HIVE_UDF=1
+        BUILD_JAVA_UDF=1
         CLEAN=0
     fi
 fi
@@ -243,6 +244,19 @@ if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/libbacktrace.a" ]]; then
         "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}"
     else
         "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}" --clean
+    fi
+fi
+
+if [[ ! -f "${DORIS_HOME}/be/src/apache-orc/README.md" ]]; then
+    echo "apache-orc not exists, need to update submodules ..."
+    set +e
+    cd "${DORIS_HOME}"
+    git submodule update --init --recursive be/src/apache-orc
+    exit_code=$?
+    set -e
+    if [[ "${exit_code}" -ne 0 ]]; then
+        mkdir -p "${DORIS_HOME}/be/src/apache-orc"
+        curl -L https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz | tar -xz -C "${DORIS_HOME}/be/src/apache-orc" --strip-components=1
     fi
 fi
 
@@ -295,12 +309,13 @@ fi
 if [[ -z "${ENABLE_STACKTRACE}" ]]; then
     ENABLE_STACKTRACE='ON'
 fi
-if [[ -z "${STRICT_MEMORY_USE}" ]]; then
-    STRICT_MEMORY_USE='OFF'
-fi
 
 if [[ -z "${USE_DWARF}" ]]; then
     USE_DWARF='OFF'
+fi
+
+if [[ -z "${DISPLAY_BUILD_TIME}" ]]; then
+    DISPLAY_BUILD_TIME='OFF'
 fi
 
 if [[ -z "${OUTPUT_BE_BINARY}" ]]; then
@@ -323,7 +338,7 @@ if [[ "${BUILD_JAVA_UDF}" -eq 1 && "$(uname -s)" == 'Darwin' ]]; then
     if [[ -z "${JAVA_HOME}" ]]; then
         CAUSE='the environment variable JAVA_HOME is not set'
     else
-        LIBJVM="$(find "${JAVA_HOME}/" -name 'libjvm.dylib')"
+        LIBJVM="$(find -L "${JAVA_HOME}/" -name 'libjvm.dylib')"
         if [[ -z "${LIBJVM}" ]]; then
             CAUSE="the library libjvm.dylib is missing"
         elif [[ "$(file "${LIBJVM}" | awk '{print $NF}')" != "$(uname -m)" ]]; then
@@ -363,9 +378,9 @@ echo "Get params:
     USE_MEM_TRACKER     -- ${USE_MEM_TRACKER}
     USE_JEMALLOC        -- ${USE_JEMALLOC}
     USE_BTHREAD_SCANNER -- ${USE_BTHREAD_SCANNER}
-    STRICT_MEMORY_USE   -- ${STRICT_MEMORY_USE}
     ENABLE_STACKTRACE   -- ${ENABLE_STACKTRACE}
     DENABLE_CLANG_COVERAGE -- ${DENABLE_CLANG_COVERAGE}
+    DISPLAY_BUILD_TIME  -- ${DISPLAY_BUILD_TIME}
 "
 
 # Clean and build generated code
@@ -376,6 +391,9 @@ echo "Build generated code"
 cd "${DORIS_HOME}/gensrc"
 # DO NOT using parallel make(-j) for gensrc
 make
+rm -rf "${DORIS_HOME}/fe/fe-core/src/main/java/org/apache/doris/thrift ${DORIS_HOME}/fe/fe-core/src/main/java/org/apache/parquet"
+cp -r "build/gen_java/org/apache/doris/thrift" "${DORIS_HOME}/fe/fe-core/src/main/java/org/apache/doris"
+cp -r "build/gen_java/org/apache/parquet" "${DORIS_HOME}/fe/fe-core/src/main/java/org/apache/"
 
 # Assesmble FE modules
 FE_MODULES=''
@@ -433,10 +451,10 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DBUILD_META_TOOL="${BUILD_META_TOOL}" \
         -DSTRIP_DEBUG_INFO="${STRIP_DEBUG_INFO}" \
         -DUSE_DWARF="${USE_DWARF}" \
+        -DDISPLAY_BUILD_TIME="${DISPLAY_BUILD_TIME}" \
         -DUSE_MEM_TRACKER="${USE_MEM_TRACKER}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
         -DUSE_BTHREAD_SCANNER="${USE_BTHREAD_SCANNER}" \
-        -DSTRICT_MEMORY_USE="${STRICT_MEMORY_USE}" \
         -DENABLE_STACKTRACE="${ENABLE_STACKTRACE}" \
         -DUSE_AVX2="${USE_AVX2}" \
         -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
@@ -533,6 +551,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     copy_common_files "${DORIS_OUTPUT}/fe/"
     mkdir -p "${DORIS_OUTPUT}/fe/log"
     mkdir -p "${DORIS_OUTPUT}/fe/doris-meta"
+    mkdir -p "${DORIS_OUTPUT}/fe/conf/ssl"
 fi
 
 if [[ "${BUILD_SPARK_DPP}" -eq 1 ]]; then
@@ -551,6 +570,10 @@ if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
 
     cp -r -p "${DORIS_HOME}/be/output/bin"/* "${DORIS_OUTPUT}/be/bin"/
     cp -r -p "${DORIS_HOME}/be/output/conf"/* "${DORIS_OUTPUT}/be/conf"/
+
+    if [[ -d "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" ]]; then
+        cp -r -p "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" "${DORIS_OUTPUT}/be/lib/"
+    fi
 
     if [[ "${DISABLE_JAVA_UDF_IN_CONF}" -eq 1 ]]; then
         echo -e "\033[33;1mWARNNING: \033[37;1mDisable Java UDF support in be.conf due to the BE was built without Java UDF.\033[0m"

@@ -21,6 +21,8 @@
 
 #include <atomic>
 
+#include "runtime/exec_env.h"
+#include "runtime/thread_context.h"
 #include "service/brpc.h"
 
 namespace doris {

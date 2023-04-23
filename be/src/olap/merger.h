@@ -17,20 +17,29 @@
 
 #pragma once
 
+#include <stdint.h>
+
+#include <vector>
+
+#include "common/status.h"
 #include "io/io_common.h"
-#include "olap/olap_define.h"
-#include "olap/rowid_conversion.h"
-#include "olap/rowset/rowset_writer.h"
-#include "olap/rowset/segment_v2/segment_writer.h"
+#include "olap/rowset/rowset_reader.h"
 #include "olap/tablet.h"
-#include "vec/olap/vertical_block_reader.h"
-#include "vec/olap/vertical_merge_iterator.h"
+#include "olap/tablet_schema.h"
 
 namespace doris {
+class KeyBoundsPB;
+class RowIdConversion;
+class RowsetWriter;
+
+namespace segment_v2 {
+class SegmentWriter;
+} // namespace segment_v2
 
 namespace vectorized {
 class RowSourcesBuffer;
-};
+class VerticalBlockReader;
+}; // namespace vectorized
 
 class Merger {
 public:

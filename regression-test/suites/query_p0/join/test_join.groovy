@@ -1106,7 +1106,10 @@ suite("test_join", "query,p0") {
     qt_join_on_predicate6"""select count(a.k1) from baseall a join test b on a.k1 < 10 and a.k1 = b.k1"""
     qt_join_on_predicate7"""SELECT t2.k1,t2.k2,t3.k1,t3.k2 FROM baseall t2 LEFT JOIN test t3 ON t2.k2=t3.k2 WHERE t2.k1 = 4 OR (t2.k1 > 4 AND t3.k1 IS NULL) order by 1, 2, 3, 4"""
 
-
+    test {
+        sql "select a.k1 from baseall a join test b on b.k2 in (select 49) and a.k1 = b.k1 order by k1;"
+        exception "Not support OnClause contain Subquery"
+    }
 
     // <=> test cases
     qt_join41"""select 1 <=> 2, 1 <=> 1, "a"= \"a\""""
@@ -1253,7 +1256,7 @@ suite("test_join", "query,p0") {
                 DISTRIBUTED BY HASH(`ID`) BUCKETS 32 
                 PROPERTIES("replication_num"="1");"""
     }
-    def ret = sql"""desc SELECT B.FACTOR_FIN_VALUE, D.limit_id FROM T_DORIS_A A LEFT JOIN T_DORIS_B B ON B.PRJT_ID = A.ID 
+    def ret = sql"""desc SELECT /*+SET_VAR(enable_nereids_planner=false) */ B.FACTOR_FIN_VALUE, D.limit_id FROM T_DORIS_A A LEFT JOIN T_DORIS_B B ON B.PRJT_ID = A.ID 
             LEFT JOIN T_DORIS_C C ON A.apply_crcl = C.id JOIN T_DORIS_D D ON C.ID = D.CORE_ID order by 
             B.FACTOR_FIN_VALUE, D.limit_id desc;"""
     logger.info(ret.toString())

@@ -17,15 +17,14 @@
 
 #pragma once
 
-#include <map>
-#include <mutex>
-#include <shared_mutex>
-#include <thread>
+#include <gen_cpp/AgentService_types.h>
 
-#include "agent/topic_listener.h"
-#include "gen_cpp/AgentService_types.h"
+#include <map>
+#include <shared_mutex>
+#include <vector>
 
 namespace doris {
+class TopicListener;
 
 class TopicSubscriber {
 public:

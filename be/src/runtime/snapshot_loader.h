@@ -17,27 +17,28 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
 #include <stdint.h>
 
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/Types_types.h"
-#include "io/fs/remote_file_system.h"
 #include "olap/tablet.h"
-#include "runtime/client_cache.h"
 
 namespace doris {
+namespace io {
+class RemoteFileSystem;
+} // namespace io
 
 struct FileStat {
     std::string name;
     std::string md5;
-    size_t size;
+    int64_t size;
 };
 class ExecEnv;
-class StorageBackend;
 
 /*
  * Upload:

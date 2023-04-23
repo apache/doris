@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -63,7 +62,7 @@ public class Sm4Decrypt extends Sm4CryptoFunction {
      * constructor with 2 arguments.
      */
     public Sm4Decrypt(Expression arg0, Expression arg1) {
-        super("sm4_decrypt", arg0, arg1);
+        super("sm4_decrypt", arg0, arg1, new StringLiteral("AES_128_ECB"));
     }
 
     /**
@@ -88,9 +87,6 @@ public class Sm4Decrypt extends Sm4CryptoFunction {
         } else if (children().size() == 3) {
             return new Sm4Decrypt(children.get(0), children.get(1), children.get(2));
         } else {
-            if (!(children.get(3) instanceof StringLiteral)) {
-                throw new AnalysisException("the 4th parameter should be string literal: " + this.toSql());
-            }
             return new Sm4Decrypt(children.get(0), children.get(1), children.get(2), (StringLiteral) children.get(3));
         }
     }

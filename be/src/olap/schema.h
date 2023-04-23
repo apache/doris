@@ -17,14 +17,22 @@
 
 #pragma once
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <algorithm>
+#include <memory>
+#include <string>
 #include <vector>
 
 #include "common/consts.h"
+#include "io/io_common.h"
 #include "olap/field.h"
-#include "olap/row_cursor_cell.h"
+#include "olap/olap_common.h"
 #include "olap/tablet_schema.h"
-#include "olap/types.h"
-#include "runtime/descriptors.h"
+#include "olap/utils.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
 
 namespace doris {
 
@@ -132,7 +140,7 @@ public:
     static vectorized::IColumn::MutablePtr get_column_by_field(const Field& field);
 
     static vectorized::IColumn::MutablePtr get_predicate_column_ptr(const Field& field,
-                                                                    bool is_nullable = false);
+                                                                    const ReaderType reader_type);
 
     const std::vector<Field*>& columns() const { return _cols; }
 

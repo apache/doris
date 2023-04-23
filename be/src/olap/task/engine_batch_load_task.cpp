@@ -17,27 +17,42 @@
 
 #include "olap/task/engine_batch_load_task.h"
 
+#include <fmt/format.h>
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/Types_types.h>
 #include <pthread.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <cstdio>
 #include <ctime>
+#include <filesystem>
 #include <fstream>
-#include <iostream>
-#include <sstream>
+#include <list>
 #include <string>
+#include <system_error>
 
 #include "boost/lexical_cast.hpp"
-#include "gen_cpp/AgentService_types.h"
+#include "common/config.h"
+#include "common/logging.h"
 #include "http/http_client.h"
+#include "olap/data_dir.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/push_handler.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "olap/tablet_manager.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
 #include "util/pretty_printer.h"
+#include "util/runtime_profile.h"
+#include "util/stopwatch.hpp"
+
+namespace doris {
+class TTabletInfo;
+} // namespace doris
 
 using apache::thrift::ThriftDebugString;
 using std::list;

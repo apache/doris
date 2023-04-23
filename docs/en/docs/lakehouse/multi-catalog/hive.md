@@ -38,6 +38,17 @@ When connnecting to Hive, Doris:
 2. Supports both Managed Table and External Table;
 3. Can identify metadata of Hive, Iceberg, and Hudi stored in Hive Metastore;
 4. Supports Hive tables with data stored in JuiceFS, which can be used the same way as normal Hive tables (put `juicefs-hadoop-x.x.x.jar` in `fe/lib/` and `apache_hdfs_broker/lib/`).
+5. Supports Hive tables with data stored in CHDFS, which can be used the same way as normal Hive tables. Follow below steps to prepare doris environment：
+    1. put chdfs_hadoop_plugin_network-x.x.jar in fe/lib/ and apache_hdfs_broker/lib/
+    2. copy core-site.xml and hdfs-site.xml from hive cluster to fe/conf/ and apache_hdfs_broker/conf
+
+<version since="dev">
+
+6. Supports Hive / Iceberg tables with data stored in GooseFS(GFS), which can be used the same way as normal Hive tables. Follow below steps to prepare doris environment：
+    1. put goosefs-x.x.x-client.jar in fe/lib/ and apache_hdfs_broker/lib/
+    2. add extra properties 'fs.AbstractFileSystem.gfs.impl' = 'com.qcloud.cos.goosefs.hadoop.GooseFileSystem'， 'fs.gfs.impl' = 'com.qcloud.cos.goosefs.hadoop.FileSystem' when creating catalog
+
+</version>
 
 ## Create Catalog
 
@@ -55,6 +66,11 @@ CREATE CATALOG hive PROPERTIES (
 ```
 
  In addition to `type` and  `hive.metastore.uris` , which are required, you can specify other parameters regarding the connection.
+
+> `specified_database_list`:
+> 
+> only synchronize the specified databases, split with ','. Default values is '' will synchronize all databases. db name is case sensitive.
+> 
 	
 For example, to specify HDFS HA:
 
@@ -153,6 +169,26 @@ CREATE RESOURCE hms_resource PROPERTIES (
 # 2. Create Catalog and use an existing Resource. The key and value information in the followings will overwrite the corresponding information in the Resource.
 CREATE CATALOG hive WITH RESOURCE hms_resource PROPERTIES(
     'key' = 'value'
+);
+```
+
+<version since="dev"></version> 
+
+You can use the config `file.meta.cache.ttl-second` to set TTL(Time-to-Live) config of File Cache, so that the stale file info will be invalidated automatically after expiring. The unit of time is second.
+
+You can also set file_meta_cache_ttl_second to 0 to disable file cache.Here is an example:
+
+```sql
+CREATE CATALOG hive PROPERTIES (
+    'type'='hms',
+    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
+    'hadoop.username' = 'hive',
+    'dfs.nameservices'='your-nameservice',
+    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
+    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider',
+    'file.meta.cache.ttl-second' = '60'
 );
 ```
 

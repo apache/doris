@@ -23,19 +23,27 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.statistics.ColumnStatistic;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public class ShowColumnStatsStmt extends ShowStmt {
 
@@ -49,18 +57,18 @@ public class ShowColumnStatsStmt extends ShowStmt {
                     .add("avg_size_byte")
                     .add("min")
                     .add("max")
-                    .add("min_expr")
-                    .add("max_expr")
                     .build();
 
     private final TableName tableName;
 
+    private final List<String> columnNames;
     private final PartitionNames partitionNames;
 
     private TableIf table;
 
-    public ShowColumnStatsStmt(TableName tableName, PartitionNames partitionNames) {
+    public ShowColumnStatsStmt(TableName tableName, List<String> columnNames, PartitionNames partitionNames) {
         this.tableName = tableName;
+        this.columnNames = columnNames;
         this.partitionNames = partitionNames;
     }
 
@@ -92,6 +100,23 @@ public class ShowColumnStatsStmt extends ShowStmt {
         if (table == null) {
             ErrorReport.reportAnalysisException("Table: {} not exists", tableName.getTbl());
         }
+
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.SHOW)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "Permission denied",
+                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    tableName.getDb() + ": " + tableName.getTbl());
+        }
+
+        if (columnNames != null) {
+            Optional<Column> nullColumn = columnNames.stream()
+                    .map(table::getColumn)
+                    .filter(Objects::isNull)
+                    .findFirst();
+            if (nullColumn.isPresent()) {
+                ErrorReport.reportAnalysisException("Column: {} not exists", nullColumn.get());
+            }
+        }
     }
 
     @Override
@@ -121,8 +146,6 @@ public class ShowColumnStatsStmt extends ShowStmt {
             row.add(String.valueOf(p.second.numNulls));
             row.add(String.valueOf(p.second.dataSize));
             row.add(String.valueOf(p.second.avgSizeByte));
-            row.add(String.valueOf(p.second.minValue));
-            row.add(String.valueOf(p.second.maxValue));
             row.add(String.valueOf(p.second.minExpr == null ? "N/A" : p.second.minExpr.toSql()));
             row.add(String.valueOf(p.second.maxExpr == null ? "N/A" : p.second.maxExpr.toSql()));
             result.add(row);
@@ -132,5 +155,13 @@ public class ShowColumnStatsStmt extends ShowStmt {
 
     public PartitionNames getPartitionNames() {
         return partitionNames;
+    }
+
+    public Set<String> getColumnNames() {
+        if (columnNames != null) {
+            return  Sets.newHashSet(columnNames);
+        }
+        return table.getColumns().stream()
+                .map(Column::getName).collect(Collectors.toSet());
     }
 }

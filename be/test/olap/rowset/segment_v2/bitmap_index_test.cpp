@@ -21,7 +21,6 @@
 #include <string>
 
 #include "common/logging.h"
-#include "env/env.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
@@ -32,7 +31,6 @@
 #include "olap/rowset/segment_v2/bitmap_index_writer.h"
 #include "olap/types.h"
 #include "testutil/test_util.h"
-#include "util/file_utils.h"
 
 namespace doris {
 
@@ -46,15 +44,10 @@ public:
     const std::string kTestDir = "./ut_dir/bitmap_index_test";
 
     void SetUp() override {
-        if (FileUtils::check_exist(kTestDir)) {
-            EXPECT_TRUE(FileUtils::remove_all(kTestDir).ok());
-        }
-        EXPECT_TRUE(FileUtils::create_dir(kTestDir).ok());
+        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(kTestDir).ok());
     }
     void TearDown() override {
-        if (FileUtils::check_exist(kTestDir)) {
-            EXPECT_TRUE(FileUtils::remove_all(kTestDir).ok());
-        }
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
     }
 };
 
@@ -98,12 +91,12 @@ TEST_F(BitmapIndexTest, test_invert) {
 
     std::string file_name = kTestDir + "/invert";
     ColumnIndexMetaPB meta;
-    write_index_file<OLAP_FIELD_TYPE_INT>(file_name, io::global_local_filesystem(), val,
-                                          num_uint8_rows, 0, &meta);
+    write_index_file<FieldType::OLAP_FIELD_TYPE_INT>(file_name, io::global_local_filesystem(), val,
+                                                     num_uint8_rows, 0, &meta);
     {
         BitmapIndexReader* reader = nullptr;
         BitmapIndexIterator* iter = nullptr;
-        get_bitmap_reader_iter<OLAP_FIELD_TYPE_INT>(file_name, meta, &reader, &iter);
+        get_bitmap_reader_iter<FieldType::OLAP_FIELD_TYPE_INT>(file_name, meta, &reader, &iter);
         EXPECT_FALSE(iter == nullptr);
 
         int value = 2;
@@ -153,13 +146,13 @@ TEST_F(BitmapIndexTest, test_invert_2) {
 
     std::string file_name = kTestDir + "/invert2";
     ColumnIndexMetaPB meta;
-    write_index_file<OLAP_FIELD_TYPE_INT>(file_name, io::global_local_filesystem(), val,
-                                          num_uint8_rows, 0, &meta);
+    write_index_file<FieldType::OLAP_FIELD_TYPE_INT>(file_name, io::global_local_filesystem(), val,
+                                                     num_uint8_rows, 0, &meta);
 
     {
         BitmapIndexReader* reader = nullptr;
         BitmapIndexIterator* iter = nullptr;
-        get_bitmap_reader_iter<OLAP_FIELD_TYPE_INT>(file_name, meta, &reader, &iter);
+        get_bitmap_reader_iter<FieldType::OLAP_FIELD_TYPE_INT>(file_name, meta, &reader, &iter);
 
         int value = 1026;
         bool exact_match;
@@ -190,12 +183,12 @@ TEST_F(BitmapIndexTest, test_multi_pages) {
 
     std::string file_name = kTestDir + "/mul";
     ColumnIndexMetaPB meta;
-    write_index_file<OLAP_FIELD_TYPE_BIGINT>(file_name, io::global_local_filesystem(), val,
-                                             num_uint8_rows, 0, &meta);
+    write_index_file<FieldType::OLAP_FIELD_TYPE_BIGINT>(file_name, io::global_local_filesystem(),
+                                                        val, num_uint8_rows, 0, &meta);
     {
         BitmapIndexReader* reader = nullptr;
         BitmapIndexIterator* iter = nullptr;
-        get_bitmap_reader_iter<OLAP_FIELD_TYPE_BIGINT>(file_name, meta, &reader, &iter);
+        get_bitmap_reader_iter<FieldType::OLAP_FIELD_TYPE_BIGINT>(file_name, meta, &reader, &iter);
 
         int64_t value = 2019;
         bool exact_match;
@@ -222,12 +215,12 @@ TEST_F(BitmapIndexTest, test_null) {
 
     std::string file_name = kTestDir + "/null";
     ColumnIndexMetaPB meta;
-    write_index_file<OLAP_FIELD_TYPE_BIGINT>(file_name, io::global_local_filesystem(), val,
-                                             num_uint8_rows, 30, &meta);
+    write_index_file<FieldType::OLAP_FIELD_TYPE_BIGINT>(file_name, io::global_local_filesystem(),
+                                                        val, num_uint8_rows, 30, &meta);
     {
         BitmapIndexReader* reader = nullptr;
         BitmapIndexIterator* iter = nullptr;
-        get_bitmap_reader_iter<OLAP_FIELD_TYPE_BIGINT>(file_name, meta, &reader, &iter);
+        get_bitmap_reader_iter<FieldType::OLAP_FIELD_TYPE_BIGINT>(file_name, meta, &reader, &iter);
 
         Roaring bitmap;
         iter->read_null_bitmap(&bitmap);

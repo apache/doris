@@ -17,8 +17,15 @@
 
 #include "vec/aggregate_functions/aggregate_function_histogram.h"
 
+#include <fmt/format.h>
+#include <glog/logging.h>
+
+#include <algorithm>
+
 #include "vec/aggregate_functions/helpers.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
 
@@ -28,15 +35,13 @@ AggregateFunctionPtr create_agg_function_histogram(const DataTypes& argument_typ
     bool has_input_param = (argument_types.size() == 2);
 
     if (has_input_param) {
-        return AggregateFunctionPtr(
-                creator_without_type::create<
-                        AggregateFunctionHistogram<AggregateFunctionHistogramData<T>, T, true>>(
-                        result_is_nullable, argument_types));
+        return creator_without_type::create<
+                AggregateFunctionHistogram<AggregateFunctionHistogramData<T>, T, true>>(
+                argument_types, result_is_nullable);
     } else {
-        return AggregateFunctionPtr(
-                creator_without_type::create<
-                        AggregateFunctionHistogram<AggregateFunctionHistogramData<T>, T, false>>(
-                        result_is_nullable, argument_types));
+        return creator_without_type::create<
+                AggregateFunctionHistogram<AggregateFunctionHistogramData<T>, T, false>>(
+                argument_types, result_is_nullable);
     }
 }
 

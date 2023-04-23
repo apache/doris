@@ -17,21 +17,40 @@
 
 #pragma once
 
+#include <fmt/format.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <algorithm>
+#include <atomic>
+#include <condition_variable>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <unordered_set>
+#include <vector>
+
+#include "common/status.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "olap/olap_common.h"
+#include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_writer.h"
+#include "olap/rowset/rowset_writer_context.h"
 #include "segcompaction.h"
 #include "segment_v2/segment.h"
-#include "vec/columns/column.h"
-#include "vec/olap/vertical_block_reader.h"
-#include "vec/olap/vgeneric_iterators.h"
+#include "util/spinlock.h"
 
 namespace doris {
+namespace vectorized {
+class Block;
+} // namespace vectorized
+
 namespace segment_v2 {
 class SegmentWriter;
 } // namespace segment_v2
-
-namespace io {
-class FileWriter;
-} // namespace io
 
 using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
 using SegCompactionCandidatesSharedPtr = std::shared_ptr<SegCompactionCandidates>;

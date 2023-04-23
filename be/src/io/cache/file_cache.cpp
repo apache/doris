@@ -17,12 +17,25 @@
 
 #include "io/cache/file_cache.h"
 
+#include <fmt/format.h>
+#include <glog/logging.h>
+#include <string.h>
+
+#include <algorithm>
+#include <filesystem>
+#include <list>
+#include <ostream>
+#include <set>
+#include <utility>
+
 #include "common/config.h"
 #include "common/status.h"
 #include "gutil/strings/util.h"
+#include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "io/fs/local_file_writer.h"
-#include "olap/iterators.h"
+#include "runtime/exec_env.h"
+#include "util/string_util.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -92,7 +105,7 @@ Status FileCache::_remove_file(const Path& file, size_t* cleaned_size) {
     bool cache_file_exist = false;
     RETURN_NOT_OK_STATUS_WITH_WARN(io::global_local_filesystem()->exists(file, &cache_file_exist),
                                    "Check local cache file exist failed.");
-    size_t file_size = 0;
+    int64_t file_size = -1;
     if (cache_file_exist) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
                 io::global_local_filesystem()->file_size(file, &file_size),

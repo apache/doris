@@ -19,9 +19,15 @@
 
 #include <stdint.h>
 
+#include <vector>
+
+#include "common/status.h"
 #include "exec/schema_scanner.h"
 
 namespace doris {
+namespace vectorized {
+class Block;
+} // namespace vectorized
 
 class SchemaCollationsScanner : public SchemaScanner {
 public:
