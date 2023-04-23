@@ -127,6 +127,10 @@ inline void write_json_binary(JsonbField s, BufferWritable& buf) {
     write_string_binary(StringRef {s.get_value(), s.get_size()}, buf);
 }
 
+inline void write_geometry_binary(GeometryField s, BufferWritable& buf) {
+    write_string_binary(StringRef {s.get_value(), s.get_size()}, buf);
+}
+
 template <typename Type>
 void write_vector_binary(const std::vector<Type>& v, BufferWritable& buf) {
     write_var_uint(v.size(), buf);
@@ -202,6 +206,12 @@ inline StringRef read_string_binary_into(Arena& arena, BufferReadable& buf) {
 
 inline void read_json_binary(JsonbField val, BufferReadable& buf,
                              size_t MAX_JSON_SIZE = DEFAULT_MAX_JSON_SIZE) {
+    StringRef jrf = StringRef {val.get_value(), val.get_size()};
+    read_string_binary(jrf, buf);
+}
+
+inline void read_geometry_binary(GeometryField val, BufferReadable& buf,
+                                 size_t MAX_JSON_SIZE = DEFAULT_MAX_JSON_SIZE) {
     StringRef jrf = StringRef {val.get_value(), val.get_size()};
     read_string_binary(jrf, buf);
 }

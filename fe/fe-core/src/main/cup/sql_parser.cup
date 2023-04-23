@@ -439,6 +439,7 @@ terminal String
     KW_JOIN,
     KW_JSON,
     KW_JSONB,
+    KW_GEOMETRY,
     KW_KEY,
     KW_KEYS,
     KW_KILL,
@@ -6230,6 +6231,8 @@ type ::=
   {: RESULT = ScalarType.createJsonbType(); :}
   | KW_JSONB
   {: RESULT = ScalarType.createJsonbType(); :}
+  | KW_GEOMETRY
+  {: RESULT = ScalarType.createGeometryType(); :}
   | KW_TEXT
   {: RESULT = ScalarType.createStringType(); :}
   | KW_VARCHAR LPAREN INTEGER_LITERAL:len RPAREN
@@ -7500,6 +7503,8 @@ keyword ::=
     | KW_JSON:id
     {: RESULT = id; :}
     | KW_JSONB:id
+    {: RESULT = id; :}
+    | KW_GEOMETRY:id
     {: RESULT = id; :}
     | KW_ENCRYPTKEY:id
     {: RESULT = id; :}

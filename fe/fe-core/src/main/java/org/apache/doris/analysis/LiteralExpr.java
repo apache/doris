@@ -88,6 +88,9 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             case JSONB:
                 literalExpr = new JsonLiteral(value);
                 break;
+            case GEOMETRY:
+                literalExpr = new GeometryLiteral(value);
+                break;
             case DATE:
             case DATETIME:
             case DATEV2:
@@ -135,6 +138,8 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             literalExpr = new StringLiteral(value);
         } else if (expr instanceof JsonLiteral) {
             literalExpr = new JsonLiteral(value);
+        } else if (expr instanceof GeometryLiteral) {
+            literalExpr = new GeometryLiteral(value);
         } else if (expr instanceof DateLiteral) {
             literalExpr = new DateLiteral(value, expr.getType());
         } else {

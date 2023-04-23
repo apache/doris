@@ -43,6 +43,7 @@ class ColumnString;
 class DecimalV2Value;
 struct StringRef;
 struct JsonBinaryValue;
+struct GeometryBinaryValue;
 
 constexpr bool is_enumeration_type(PrimitiveType type) {
     switch (type) {
@@ -250,6 +251,12 @@ struct PrimitiveTypeTraits<TYPE_HLL> {
 template <>
 struct PrimitiveTypeTraits<TYPE_JSONB> {
     using CppType = JsonBinaryValue;
+    using ColumnType = vectorized::ColumnString;
+};
+
+template <>
+struct PrimitiveTypeTraits<TYPE_GEOMETRY> {
+    using CppType = GeometryBinaryValue;
     using ColumnType = vectorized::ColumnString;
 };
 

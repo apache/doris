@@ -101,6 +101,7 @@ enum class TypeIndex {
     Decimal256 = 45,
     IPv4 = 46,
     IPv6 = 47,
+    GEOMETRY = 48
     Int256
 };
 
@@ -1088,6 +1089,8 @@ inline const char* getTypeName(TypeIndex idx) {
         return "FixedLengthObject";
     case TypeIndex::JSONB:
         return "JSONB";
+    case TypeIndex::GEOMETRY:
+        return "GEOMETRY";
     case TypeIndex::Struct:
         return "Struct";
     case TypeIndex::QuantileState:

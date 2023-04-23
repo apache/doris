@@ -60,6 +60,9 @@ static const uint32_t OLAP_STRING_MAX_LENGTH = 2147483647;
 // the max length supported for jsonb type 2G
 static const uint32_t OLAP_JSONB_MAX_LENGTH = 2147483647;
 
+// the max length supported for geometry type 2G
+static const uint32_t OLAP_GEOMETRY_MAX_LENGTH = 2147483647;
+
 // the max length supported for struct, but excluding the length of its subtypes.
 static const uint16_t OLAP_STRUCT_MAX_LENGTH = 65535;
 

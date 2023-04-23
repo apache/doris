@@ -33,9 +33,11 @@ struct GeoCoordinates;
 
 class toBinary {
 public:
-    static bool geo_tobinary(GeoShape* shape, std::string* result);
+    static bool geo_tobinary(GeoShape* shape, std::string* result, int is_hex);
 
     static bool write(GeoShape* shape, ToBinaryContext* ctx);
+
+    static std::string to_hex(std::string binary);
 
 private:
     static bool writeGeoPoint(GeoPoint* point, ToBinaryContext* ctx);

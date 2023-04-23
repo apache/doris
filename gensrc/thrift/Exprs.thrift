@@ -52,8 +52,11 @@ enum TExprNodeType {
   // only used in runtime filter
   BLOOM_PRED,
 
-  // for josn
+  // for json
   JSON_LITERAL,
+
+  // for geo
+  GEOMETRY_LITERAL,
 
   // only used in runtime filter
   BITMAP_PRED,
@@ -190,6 +193,10 @@ struct TJsonLiteral {
   1: required string value;
 }
 
+struct TGeometryLiteral {
+  1: required string value;
+}
+
 struct TInfoFunc {
   1: required i64 int_value;
   2: required string str_value;
@@ -255,6 +262,7 @@ struct TExprNode {
   33: optional TMatchPredicate match_predicate
   34: optional TIPv4Literal ipv4_literal
   35: optional TIPv6Literal ipv6_literal
+  36: optional TGeometryLiteral geometry_literal
 }
 
 // A flattened representation of a tree of Expr nodes, obtained by depth-first

@@ -312,6 +312,8 @@ public class StringLiteral extends LiteralExpr {
             return stringLiteral;
         } else if (targetType.isJsonbType()) {
             return new JsonLiteral(value);
+        } else if (targetType.isGeometryType()) {
+            return new GeometryLiteral(value);
         }
         return super.uncheckedCastTo(targetType);
     }

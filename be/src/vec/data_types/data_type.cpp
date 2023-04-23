@@ -171,6 +171,8 @@ PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
         return PGenericType::FIXEDLENGTHOBJECT;
     case TypeIndex::JSONB:
         return PGenericType::JSONB;
+    case TypeIndex::GEOMETRY:
+        return PGenericType::GEOMETRY;
     case TypeIndex::Map:
         return PGenericType::MAP;
     case TypeIndex::Time:

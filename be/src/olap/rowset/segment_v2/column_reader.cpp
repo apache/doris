@@ -1419,7 +1419,8 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
     case FieldType::OLAP_FIELD_TYPE_VARCHAR:
     case FieldType::OLAP_FIELD_TYPE_CHAR:
     case FieldType::OLAP_FIELD_TYPE_JSONB:
-    case FieldType::OLAP_FIELD_TYPE_AGG_STATE: {
+    case FieldType::OLAP_FIELD_TYPE_AGG_STATE:
+    case FieldType::OLAP_FIELD_TYPE_GEOMETRY: {
         char* data_ptr = ((Slice*)mem_value)->data;
         size_t data_len = ((Slice*)mem_value)->size;
         dst->insert_many_data(data_ptr, data_len, n);

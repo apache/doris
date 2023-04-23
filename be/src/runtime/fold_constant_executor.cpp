@@ -236,6 +236,7 @@ string FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescr
     }
     case TYPE_ARRAY:
     case TYPE_JSONB:
+    case TYPE_GEOMETRY:
     case TYPE_MAP:
     case TYPE_STRUCT: {
         return column_type->to_string(*column_ptr, 0);
