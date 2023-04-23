@@ -157,6 +157,10 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
         }
 
         String resourceGroupName = stmt.getResourceGroupName();
+        if (resourceGroupName == DEFAULT_GROUP_NAME) {
+            throw new DdlException("Dropping default resource group " + resourceGroupName + " is not allowed");
+        }
+
         writeLock();
         try {
             if (!nameToResourceGroup.containsKey(resourceGroupName)) {
