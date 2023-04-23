@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("nereids_insert_duplicate") {
+suite("nereids_insert_unique") {
     sql 'use nereids_insert_into_table_test'
 
     // DDL
     sql '''
-        create table dup_t (
+        create table uni_t (
             `id` int null,
             `kbool` boolean null,
             `ktint` tinyint(4) null,
@@ -42,7 +42,7 @@ suite("nereids_insert_duplicate") {
             `kdcml64v3` decimalv3(10, 5) null,
             `kdcml128v3` decimalv3(20, 8) null
         ) engine=OLAP
-        duplicate key(id)
+        unilicate key(id)
         distributed by hash(id) buckets 4
         partition by range(id) (
             partition p1 values less than ("3"),
@@ -56,7 +56,7 @@ suite("nereids_insert_duplicate") {
     '''
 
     sql '''
-        create table dup_light_sc_t (
+        create table uni_light_sc_t (
             `id` int null,
             `kbool` boolean null,
             `ktint` tinyint(4) null,
@@ -78,7 +78,7 @@ suite("nereids_insert_duplicate") {
             `kdcml64v3` decimalv3(10, 5) null,
             `kdcml128v3` decimalv3(20, 8) null
         ) engine=OLAP
-        duplicate key(id)
+        unilicate key(id)
         distributed by hash(id) buckets 4
         partition by range(id) (
             partition p1 values less than ("3"),
@@ -93,7 +93,7 @@ suite("nereids_insert_duplicate") {
     '''
 
     sql '''
-        create table dup_not_null_t (
+        create table uni_not_null_t (
             `id` int not null,
             `kbool` boolean not null,
             `ktint` tinyint(4) not null,
@@ -115,7 +115,7 @@ suite("nereids_insert_duplicate") {
             `kdcml64v3` decimalv3(10, 5) not null,
             `kdcml128v3` decimalv3(20, 8) not null
         ) engine=OLAP
-        duplicate key(id)
+        unilicate key(id)
         distributed by hash(id) buckets 4
         partition by range(id) (
             partition p1 values less than ("3"),
@@ -129,7 +129,7 @@ suite("nereids_insert_duplicate") {
     '''
 
     sql '''
-        create table dup_light_sc_not_null_t (
+        create table uni_light_sc_not_null_t (
             `id` int not null,
             `kbool` boolean not null,
             `ktint` tinyint(4) not null,
@@ -151,7 +151,7 @@ suite("nereids_insert_duplicate") {
             `kdcml64v3` decimalv3(10, 5) not null,
             `kdcml128v3` decimalv3(20, 8) not null
         ) engine=OLAP
-        duplicate key(id)
+        unilicate key(id)
         distributed by hash(id) buckets 4
         partition by range(id) (
             partition p1 values less than ("3"),
@@ -169,55 +169,55 @@ suite("nereids_insert_duplicate") {
     sql 'enable_nereids_planner=true'
     sql 'enable_fallback_to_original_planner=false'
 
-    sql '''insert into dup_t
+    sql '''insert into uni_t
             select * except(kaint) from src order by id, kint'''
-    qt_11 'select * from dup_t'
+    qt_11 'select * from uni_t'
 
-    sql '''insert into dup_t
+    sql '''insert into uni_t
             with cte as (select * except(kaint) from src)
             select * from cte order by id, kint'''
-    qt_12 'select * from dup_t'
+    qt_12 'select * from uni_t'
 
-    sql '''insert into dup_t partition (p1, p2) with label label_dup
+    sql '''insert into uni_t partition (p1, p2) with label label_uni
             select * except(kaint) from src order by id, kint where id < 4'''
-    qt_13 'select * from dup_t'
+    qt_13 'select * from uni_t'
 
-    sql '''insert into dup_light_sc_t
+    sql '''insert into uni_light_sc_t
             select * except(kaint) from src order by id, kint'''
-    qt_21 'select * from dup_light_sc_t'
+    qt_21 'select * from uni_light_sc_t'
 
-    sql '''insert into dup_light_sc_t
+    sql '''insert into uni_light_sc_t
             with cte as (select * except(kaint) from src)
             select * from cte order by id, kint'''
-    qt_22 'select * from dup_light_sc_t'
+    qt_22 'select * from uni_light_sc_t'
 
-    sql '''insert into dup_light_sc_t partition (p1, p2) with label label_dup_light_sc
+    sql '''insert into uni_light_sc_t partition (p1, p2) with label label_uni_light_sc
             select * except(kaint) from src order by id, kint id < 4'''
-    qt_23 'select * from dup_light_sc_t'
+    qt_23 'select * from uni_light_sc_t'
 
-    sql '''insert into dup_not_null_t
+    sql '''insert into uni_not_null_t
             select * except(kaint) from src order by id, kint where id is not null'''
-    qt_31 'select * from dup_not_null_t'
+    qt_31 'select * from uni_not_null_t'
 
-    sql '''insert into dup_not_null_t
+    sql '''insert into uni_not_null_t
             with cte as (select * except(kaint) from src)
             select * from cte order by id, kint where id is not null'''
-    qt_32 'select * from dup_not_null_t'
+    qt_32 'select * from uni_not_null_t'
 
-    sql '''insert into dup_not_null_t partition (p1, p2) with label label_dup_not_null
+    sql '''insert into uni_not_null_t partition (p1, p2) with label label_uni_not_null
             select * except(kaint) from src order by id, kint id < 4 where id is not null'''
-    qt_33 'select * from dup_not_null_t'
+    qt_33 'select * from uni_not_null_t'
 
-    sql '''insert into dup_t_light_sc_not_null_t
+    sql '''insert into uni_t_light_sc_not_null_t
             select * except(kaint) from src order by id, kint where id is not null'''
-    qt_41 'select * from dup_light_sc_not_null_t'
+    qt_41 'select * from uni_light_sc_not_null_t'
 
-    sql '''insert into dup_t_light_sc_not_null_t
+    sql '''insert into uni_t_light_sc_not_null_t
             with cte as (select * except(kaint) from src)
             select * from cte order by id, kint where id is not null'''
-    qt_42 'select * from dup_light_sc_not_null_t'
+    qt_42 'select * from uni_light_sc_not_null_t'
 
-    sql '''insert into dup_t_light_sc_not_null_t partition (p1, p2) with label label_dup_light_sc_not_null
+    sql '''insert into uni_t_light_sc_not_null_t partition (p1, p2) with label label_uni_light_sc_not_null
             select * except(kaint) from src order by id, kint where id < 4 where id is not null'''
-    qt_43 'select * from dup_light_sc_not_null_t'
+    qt_43 'select * from uni_light_sc_not_null_t'
 }

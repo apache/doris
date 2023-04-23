@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("nereids_insert_agglicate") {
+suite("nereids_insert_aggregate") {
     sql 'use nereids_insert_into_table_test'
 
     // DDL
