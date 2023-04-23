@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -73,10 +72,7 @@ public class PushdownExpressionsInHashConditionTest extends TestWithFeService im
                 "SELECT * FROM T1 JOIN (SELECT ID, SUM(SCORE) SCORE FROM T2 GROUP BY ID ORDER BY ID) T ON T1.ID + 1 = T.ID AND T.SCORE < 10"
         );
         testSql.forEach(sql -> {
-            new NereidsPlanner(createStatementCtx(sql)).plan(
-                    new NereidsParser().parseSingle(sql),
-                    PhysicalProperties.ANY
-            );
+            new NereidsPlanner(createStatementCtx(sql)).plan(new NereidsParser().parseSingle(sql));
         });
     }
 

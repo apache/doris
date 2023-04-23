@@ -237,11 +237,11 @@ public class Memo {
      * Utility function to create a new {@link CascadesContext} with this Memo.
      */
     public CascadesContext newCascadesContext(StatementContext statementContext) {
-        return new CascadesContext(null, this, statementContext, PhysicalProperties.ANY);
+        return new CascadesContext(null, this, statementContext);
     }
 
     public CascadesContext newCascadesContext(StatementContext statementContext, CTEContext cteContext) {
-        return new CascadesContext(null, this, statementContext, cteContext, PhysicalProperties.ANY);
+        return new CascadesContext(null, this, statementContext, cteContext);
     }
 
     /**
