@@ -20,10 +20,12 @@ package org.apache.doris.fs.obj;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.RemoteFile;
 import org.apache.doris.backup.Status;
+import org.apache.doris.catalog.AuthType;
+import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.URI;
-import org.apache.doris.fs.FileSystemFactory;
 
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileStatus;
@@ -31,6 +33,8 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
+import org.apache.hadoop.hdfs.HdfsConfiguration;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -77,8 +81,34 @@ public class HdfsStorage extends BlobStorage {
 
     @Override
     public FileSystem getFileSystem(String remotePath) throws UserException {
-        if (dfsFileSystem == null) {
-            dfsFileSystem = FileSystemFactory.createDfsFileSystem(remotePath, hdfsProperties);
+        if (dfsFileSystem != null) {
+            return dfsFileSystem;
+        }
+        String username = hdfsProperties.get(HdfsResource.HADOOP_USER_NAME);
+        Configuration conf = new HdfsConfiguration();
+        boolean isSecurityEnabled = false;
+        for (Map.Entry<String, String> propEntry : hdfsProperties.entrySet()) {
+            conf.set(propEntry.getKey(), propEntry.getValue());
+            if (propEntry.getKey().equals(HdfsResource.HADOOP_SECURITY_AUTHENTICATION)
+                    && propEntry.getValue().equals(AuthType.KERBEROS.getDesc())) {
+                isSecurityEnabled = true;
+            }
+        }
+        try {
+            if (isSecurityEnabled) {
+                UserGroupInformation.setConfiguration(conf);
+                UserGroupInformation.loginUserFromKeytab(
+                        hdfsProperties.get(HdfsResource.HADOOP_KERBEROS_PRINCIPAL),
+                        hdfsProperties.get(HdfsResource.HADOOP_KERBEROS_KEYTAB));
+            }
+            if (username == null) {
+                dfsFileSystem = FileSystem.get(java.net.URI.create(remotePath), conf);
+            } else {
+                dfsFileSystem = FileSystem.get(java.net.URI.create(remotePath), conf, username);
+            }
+        } catch (Exception e) {
+            LOG.error("errors while connect to " + remotePath, e);
+            throw new UserException("errors while connect to " + remotePath, e);
         }
         return dfsFileSystem;
     }

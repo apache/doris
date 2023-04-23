@@ -19,6 +19,9 @@ package org.apache.doris.fs.remote;
 
 import org.apache.doris.fs.FileSystem;
 
-public abstract class RemoteFileSystem implements FileSystem {
+import java.util.Map;
 
+public abstract class RemoteFileSystem implements FileSystem {
+    protected org.apache.hadoop.fs.FileSystem dfsFileSystem = null;
+    protected Map<String, String> properties;
 }
