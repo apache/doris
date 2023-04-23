@@ -44,9 +44,10 @@ suite("test_sequence_col_default_value") {
     sql " insert into ${tableName} (order_id,project_id,consume_date,age,name) values (1231234356,370040365,'2023-01-12',NULL,'a'); "
     sql " insert into ${tableName} (order_id,project_id,consume_date,age,name) values (1231234356,370040365,'2023-01-12',NULL,'b'); "
 
+    sql "set show_hidden_columns=true"
     qt_sql """
-        select *
-        from ${tableName} where name = 'b'  
+        select count(*) from ${tableName}
+        where to_date(__DORIS_SEQUENCE_COL__) = to_date(write_time)
     """
 
     sql " DROP TABLE IF EXISTS ${tableName} "
