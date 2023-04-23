@@ -34,7 +34,6 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -201,7 +200,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
     private Plan parseAndAnalyzeView(String viewSql, CascadesContext parentContext) {
         LogicalPlan parsedViewPlan = new NereidsParser().parseSingle(viewSql);
         CascadesContext viewContext = CascadesContext.newRewriteContext(
-                parentContext.getStatementContext(), parsedViewPlan, PhysicalProperties.ANY);
+                parentContext.getStatementContext(), parsedViewPlan, null);
         viewContext.newAnalyzer().analyze();
 
         // we should remove all group expression of the plan which in other memo, so the groupId would not conflict

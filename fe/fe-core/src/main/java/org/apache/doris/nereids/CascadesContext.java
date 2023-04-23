@@ -124,32 +124,27 @@ public class CascadesContext implements ScheduleContext, PlanSource {
      * @param statementContext {@link StatementContext} reference
      */
     public CascadesContext(Plan plan, Memo memo, StatementContext statementContext,
-            CTEContext cteContext, PhysicalProperties requireProperties) {
+            CTEContext cteContext) {
         this.plan = plan;
         this.memo = memo;
         this.statementContext = statementContext;
         this.ruleSet = new RuleSet();
         this.jobPool = new JobStack();
         this.jobScheduler = new SimpleJobScheduler();
-        this.currentJobContext = new JobContext(this, requireProperties, Double.MAX_VALUE);
+        this.currentJobContext = new JobContext(this, null, Double.MAX_VALUE);
         this.subqueryExprIsAnalyzed = new HashMap<>();
         this.runtimeFilterContext = new RuntimeFilterContext(getConnectContext().getSessionVariable());
         this.cteContext = cteContext;
     }
 
-    public static CascadesContext newMemoContext(StatementContext statementContext,
-            Plan initPlan, PhysicalProperties requireProperties) {
-        return new CascadesContext(initPlan, new Memo(initPlan), statementContext, requireProperties);
-    }
-
     public static CascadesContext newRewriteContext(StatementContext statementContext,
-            Plan initPlan, PhysicalProperties requireProperties) {
-        return new CascadesContext(initPlan, null, statementContext, requireProperties);
+            Plan initPlan) {
+        return new CascadesContext(initPlan, null, statementContext, null);
     }
 
     public static CascadesContext newRewriteContext(StatementContext statementContext,
             Plan initPlan, CTEContext cteContext) {
-        return new CascadesContext(initPlan, null, statementContext, cteContext, PhysicalProperties.ANY);
+        return new CascadesContext(initPlan, null, statementContext, cteContext);
     }
 
     /**
