@@ -87,7 +87,7 @@ suite("nereids_insert_duplicate") {
             partition p4 values less than ("9")
         )
         properties (
-           "replication_num"="1"
+           "replication_num"="1",
            "light_schema_change"="true"
         )
     '''

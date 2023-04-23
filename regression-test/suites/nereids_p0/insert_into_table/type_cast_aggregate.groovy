@@ -63,7 +63,7 @@ suite("nereids_insert_aggregate_type_cast") {
             partition p4 values less than ("9")
         )
         properties (
-           "replication_num"="1"
+           "replication_num"="1",
            "light_schema_change"="true"
         )
     '''
