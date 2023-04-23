@@ -170,9 +170,10 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
                 throw new DdlException("Resource group " + resourceGroupName + " does not exist");
             }
             ResourceGroup resourceGroup = nameToResourceGroup.get(resourceGroupName);
-            idToResourceGroup.remove(resourceGroup.getId());
+            long groupId = resourceGroup.getId();
+            idToResourceGroup.remove(groupId);
             nameToResourceGroup.remove(resourceGroupName);
-            Env.getCurrentEnv().getEditLog().logDropResourceGroup(new DropResourceGroupOperationLog(resourceGroup.getId()));
+            Env.getCurrentEnv().getEditLog().logDropResourceGroup(new DropResourceGroupOperationLog(groupId));
         } finally {
             writeUnlock();
         }
@@ -190,7 +191,7 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
     }
 
     public void replayDropResourceGroup(DropResourceGroupOperationLog operationLog) {
-        long id = operationLog.getID();
+        long id = operationLog.getId();
         writeLock();
         try {
             if (!idToResourceGroup.containsKey(id)) {

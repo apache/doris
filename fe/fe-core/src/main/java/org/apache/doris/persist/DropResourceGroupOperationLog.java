@@ -38,7 +38,7 @@ public class DropResourceGroupOperationLog implements Writable {
         this.id = id;
     }
 
-    public long getID() {
+    public long getId() {
         return id;
     }
 
