@@ -96,6 +96,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
         getPartition();
 
         ctx.getStatementContext().getInsertIntoContext().setTargetSchema(targetColumns.stream()
+                .filter(Column::isVisible)
                 .map(col -> DataType.fromCatalogType(col.getOriginType()))
                 .collect(Collectors.toList()));
         ctx.getStatementContext().getInsertIntoContext().setKeyNums(((OlapTable) table).getKeysNum());
