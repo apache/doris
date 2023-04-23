@@ -276,14 +276,15 @@ if [[ "${RUN_HUDI}" -eq 1 ]]; then
     # hudi
     cp "${ROOT}"/docker-compose/hudi/hudi.yaml.tpl "${ROOT}"/docker-compose/hudi/hudi.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hudi/hudi.yaml
-    sudo docker compose -f "${ROOT}"/docker-compose/hudi/hudi.yaml --env-file "${ROOT}"/docker-compose/hudi/hudi.env down
+    sudo docker compose -f "${ROOT}"/docker-compose/hudi/hudi.yaml --env-file "${ROOT}"/docker-compose/hudi/hadoop.env down
     if [[ "${STOP}" -ne 1 ]]; then
         sudo rm -rf "${ROOT}"/docker-compose/hudi/historyserver
         sudo mkdir "${ROOT}"/docker-compose/hudi/historyserver
         sudo rm -rf "${ROOT}"/docker-compose/hudi/hive-metastore-postgresql
         sudo mkdir "${ROOT}"/docker-compose/hudi/hive-metastore-postgresql
-        sudo rm -rf "${ROOT}"/docker-compose/hudi/ws
-        sudo mkdir "${ROOT}"/docker-compose/hudi/ws
-        sudo docker compose -f "${ROOT}"/docker-compose/hudi/hudi.yaml --env-file "${ROOT}"/docker-compose/hudi/hudi.env up -d
+        sudo docker compose -f "${ROOT}"/docker-compose/hudi/hudi.yaml --env-file "${ROOT}"/docker-compose/hudi/hadoop.env up -d
+        sleep 15
+        docker exec -it adhoc-1 /bin/bash /var/hoodie/ws/docker/demo/setup_demo_container.sh
+        docker exec -it adhoc-2 /bin/bash /var/hoodie/ws/docker/demo/setup_demo_container.sh
     fi
 fi

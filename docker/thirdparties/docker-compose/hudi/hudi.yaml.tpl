@@ -33,7 +33,7 @@ services:
       # JVM debugging port (will be mapped to a random port on host)
       - "5005"
     env_file:
-      - ./hudi.env
+      - ./hadoop.env
     healthcheck:
       test: ["CMD", "curl", "-f", "http://namenode:50070"]
       interval: 30s
@@ -49,7 +49,7 @@ services:
     environment:
       - CLUSTER_NAME=hudi_hadoop284_hive232_spark244
     env_file:
-      - ./hudi.env
+      - ./hadoop.env
     ports:
       - "50075:50075"
       - "50010:50010"
@@ -86,7 +86,7 @@ services:
       timeout: 10s
       retries: 3
     env_file:
-      - ./hudi.env
+      - ./hadoop.env
     volumes:
       - ./historyserver:/hadoop/yarn/timeline
     networks:
@@ -109,7 +109,7 @@ services:
       - "hive-metastore-postgresql"
       - "namenode"
     env_file:
-      - ./hudi.env
+      - ./hadoop.env
     command: /opt/hive/bin/hive --service metastore
     environment:
       SERVICE_PRECONDITION: "namenode:50070 hive-metastore-postgresql:5432"
@@ -133,7 +133,7 @@ services:
     hostname: hiveserver
     container_name: hiveserver
     env_file:
-      - ./hudi.env
+      - ./hadoop.env
     environment:
       SERVICE_PRECONDITION: "hivemetastore:9083"
     ports:
@@ -147,7 +147,7 @@ services:
       - "hive-metastore-postgresql"
       - "namenode"
     volumes:
-      - ./ws:/var/hoodie/ws
+      - ${HUDI_WS}:/var/hoodie/ws
     networks:
       - doris--hudi
 
@@ -156,7 +156,7 @@ services:
     hostname: sparkmaster
     container_name: sparkmaster
     env_file:
-      - ./hudi.env
+      - ./hadoop.env
     ports:
       - "8080:8080"
       - "7077:7077"
@@ -177,7 +177,7 @@ services:
     hostname: spark-worker-1
     container_name: spark-worker-1
     env_file:
-      - ./hudi.env
+      - ./hadoop.env
     depends_on:
       - sparkmaster
     ports:
@@ -191,5 +191,75 @@ services:
       - "hiveserver"
       - "hive-metastore-postgresql"
       - "namenode"
+    networks:
+      - doris--hudi
+
+  zookeeper:
+    image: 'bitnami/zookeeper:3.4.12-r68'
+    hostname: zookeeper
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      - ALLOW_ANONYMOUS_LOGIN=yes
+    networks:
+      - doris--hudi
+
+  kafka:
+    image: 'bitnami/kafka:2.0.0'
+    hostname: kafkabroker
+    container_name: kafkabroker
+    ports:
+      - "9092:9092"
+    environment:
+      - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181
+      - ALLOW_PLAINTEXT_LISTENER=yes
+    networks:
+      - doris--hudi
+
+  adhoc-1:
+    image: apachehudi/hudi-hadoop_2.8.4-hive_2.3.3-sparkadhoc_2.4.4:latest
+    hostname: adhoc-1
+    container_name: adhoc-1
+    env_file:
+      - ./hadoop.env
+    depends_on:
+      - sparkmaster
+    ports:
+      - '4040:4040'
+      # JVM debugging port (mapped to 5006 on the host)
+      - "5006:5005"
+    environment:
+      - "SPARK_MASTER=spark://sparkmaster:7077"
+    links:
+      - "hivemetastore"
+      - "hiveserver"
+      - "hive-metastore-postgresql"
+      - "namenode"
+    volumes:
+      - ${HUDI_WS}:/var/hoodie/ws
+    networks:
+      - doris--hudi
+
+  adhoc-2:
+    image: apachehudi/hudi-hadoop_2.8.4-hive_2.3.3-sparkadhoc_2.4.4:latest
+    hostname: adhoc-2
+    container_name: adhoc-2
+    env_file:
+      - ./hadoop.env
+    ports:
+      # JVM debugging port (mapped to 5005 on the host)
+      - "5005:5005"
+    depends_on:
+      - sparkmaster
+    environment:
+      - "SPARK_MASTER=spark://sparkmaster:7077"
+    links:
+      - "hivemetastore"
+      - "hiveserver"
+      - "hive-metastore-postgresql"
+      - "namenode"
+    volumes:
+      - ${HUDI_WS}:/var/hoodie/ws
     networks:
       - doris--hudi
