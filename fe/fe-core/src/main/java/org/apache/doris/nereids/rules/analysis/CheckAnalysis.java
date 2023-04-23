@@ -78,17 +78,19 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                 .flatMap(Set::stream)
                 .collect(Collectors.toSet());
         if (!unbounds.isEmpty()) {
-            throw new AnalysisException(String.format("unbounded object %s.",
-                    StringUtils.join(unbounds.stream()
-                            .map(unbound -> {
-                                if (unbound instanceof UnboundSlot) {
-                                    return ((UnboundSlot) unbound).toSql();
-                                } else if (unbound instanceof UnboundFunction) {
-                                    return ((UnboundFunction) unbound).toSql();
-                                }
-                                return unbound.toString();
-                            })
-                            .collect(Collectors.toSet()), ", ")));
+            throw new AnalysisException(String.format("unbounded object %s in %s clause.",
+                StringUtils.join(unbounds.stream()
+                    .map(unbound -> {
+                        if (unbound instanceof UnboundSlot) {
+                            return ((UnboundSlot) unbound).toSql();
+                        } else if (unbound instanceof UnboundFunction) {
+                            return ((UnboundFunction) unbound).toSql();
+                        }
+                        return unbound.toString();
+                    })
+                    .collect(Collectors.toSet()), ", "),
+                plan.getType().toString().substring("LOGICAL_".length())
+            ));
         }
     }
 

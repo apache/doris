@@ -54,6 +54,7 @@ public abstract class BlobStorage implements Writable {
             return new S3Storage(properties);
         } else if (type == StorageBackend.StorageType.HDFS
                 || type == StorageBackend.StorageType.OFS
+                || type == StorageBackend.StorageType.GFS
                 || type == StorageBackend.StorageType.JFS) {
             BlobStorage storage = new HdfsStorage(properties);
             // as of ofs files, use hdfs storage, but it's type should be ofs

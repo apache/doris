@@ -31,6 +31,7 @@ Broker is an optional process in the Doris cluster. It is mainly used to support
 - Apache HDFS
 - Aliyun OSS
 - Tencent Cloud CHDFS
+- Tencent Cloud GFS (since 1.2.0)
 - Huawei Cloud OBS (since 1.2.0)
 - Amazon S3 
 - JuiceFS (since 2.0.0)

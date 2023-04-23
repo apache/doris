@@ -71,6 +71,12 @@ if [[ "$(uname -s)" != 'Darwin' ]]; then
     fi
 fi
 
+MAX_FILE_COUNT="$(ulimit -n)"
+if [[ "${MAX_FILE_COUNT}" -lt 65536 ]]; then
+    echo "Please set the maximum number of open file descriptors to be 65536 using 'ulimit -n 65536'."
+    exit 1
+fi
+
 # add java libs
 for f in "${DORIS_HOME}/lib"/*.jar; do
     if [[ -z "${DORIS_CLASSPATH}" ]]; then
@@ -144,8 +150,9 @@ export ODBCSYSINI="${DORIS_HOME}/conf"
 # support utf8 for oracle database
 export NLS_LANG='AMERICAN_AMERICA.AL32UTF8'
 
-#filter known leak for lsan.
-export LSAN_OPTIONS="suppressions=${DORIS_HOME}/conf/asan_suppr.conf"
+# filter known leak.
+export LSAN_OPTIONS="suppressions=${DORIS_HOME}/conf/lsan_suppr.conf"
+export ASAN_OPTIONS="suppressions=${DORIS_HOME}/conf/asan_suppr.conf"
 
 while read -r line; do
     envline="$(echo "${line}" |
