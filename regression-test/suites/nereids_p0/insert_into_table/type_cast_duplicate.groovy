@@ -20,7 +20,7 @@ suite("nereids_insert_duplicate") {
 
     // DDL
     sql '''
-        create table dup_t (
+        create table dup_t_type_cast (
             `id` int null,
             `kint` int(11) null,
             `kdbl` double null,
@@ -44,7 +44,7 @@ suite("nereids_insert_duplicate") {
     '''
 
     sql '''
-        create table dup_light_sc_t (
+        create table dup_light_sc_t_type_cast (
             `id` int null,
             `kint` int(11) null,
             `kdbl` double null,
@@ -69,7 +69,7 @@ suite("nereids_insert_duplicate") {
     '''
 
     sql '''
-        create table dup_not_null_t (
+        create table dup_not_null_t_type_cast (
             `id` int null,
             `kint` int(11) null,
             `kdbl` double null,
@@ -93,7 +93,7 @@ suite("nereids_insert_duplicate") {
     '''
 
     sql '''
-        create table dup_light_sc_not_null_t (
+        create table dup_light_sc_not_null_t_type_cast (
             `id` int null,
             `kint` int(11) null,
             `kdbl` double null,
@@ -121,55 +121,55 @@ suite("nereids_insert_duplicate") {
     sql 'enable_nereids_planner=true'
     sql 'enable_fallback_to_original_planner=false'
 
-    sql '''insert into dup_t
-            select * except(kaint) from src order by id, kint'''
-    qt_11 'select * from dup_t'
+    sql '''insert into dup_t_type_cast
+            select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src order by id, kint'''
+    qt_11 'select * from dup_t_type_cast'
 
-    sql '''insert into dup_t
-            with cte as (select * except(kaint) from src)
+    sql '''insert into dup_t_type_cast
+            with cte as (select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src)
             select * from cte order by id, kint'''
-    qt_12 'select * from dup_t'
+    qt_12 'select * from dup_t_type_cast'
 
-    sql '''insert into dup_t partition (p1, p2) with label label_dup
-            select * except(kaint) from src order by id, kint where id < 4'''
-    qt_13 'select * from dup_t'
+    sql '''insert into dup_t_type_cast partition (p1, p2) with label label_dup
+            select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src order by id, kint where id < 4'''
+    qt_13 'select * from dup_t_type_cast'
 
-    sql '''insert into dup_light_sc_t
-            select * except(kaint) from src order by id, kint'''
-    qt_21 'select * from dup_light_sc_t'
+    sql '''insert into dup_light_sc_t_type_cast
+            select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src order by id, kint'''
+    qt_21 'select * from dup_light_sc_t_type_cast'
 
-    sql '''insert into dup_light_sc_t
-            with cte as (select * except(kaint) from src)
+    sql '''insert into dup_light_sc_t_type_cast
+            with cte as (select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src)
             select * from cte order by id, kint'''
-    qt_22 'select * from dup_light_sc_t'
+    qt_22 'select * from dup_light_sc_t_type_cast'
 
-    sql '''insert into dup_light_sc_t partition (p1, p2) with label label_dup_light_sc
-            select * except(kaint) from src order by id, kint id < 4'''
-    qt_23 'select * from dup_light_sc_t'
+    sql '''insert into dup_light_sc_t_type_cast partition (p1, p2) with label label_dup_light_sc
+            select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src order by id, kint id < 4'''
+    qt_23 'select * from dup_light_sc_t_type_cast'
 
-    sql '''insert into dup_not_null_t
-            select * except(kaint) from src order by id, kint where id is not null'''
-    qt_31 'select * from dup_not_null_t'
+    sql '''insert into dup_not_null_t_type_cast
+            select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src order by id, kint where id is not null'''
+    qt_31 'select * from dup_not_null_t_type_cast'
 
-    sql '''insert into dup_not_null_t
-            with cte as (select * except(kaint) from src)
+    sql '''insert into dup_not_null_t_type_cast
+            with cte as (select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src)
             select * from cte order by id, kint where id is not null'''
-    qt_32 'select * from dup_not_null_t'
+    qt_32 'select * from dup_not_null_t_type_cast'
 
-    sql '''insert into dup_not_null_t partition (p1, p2) with label label_dup_not_null
-            select * except(kaint) from src order by id, kint id < 4 where id is not null'''
-    qt_33 'select * from dup_not_null_t'
+    sql '''insert into dup_not_null_t_type_cast partition (p1, p2) with label label_dup_not_null
+            select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src order by id, kint id < 4 where id is not null'''
+    qt_33 'select * from dup_not_null_t_type_cast'
 
-    sql '''insert into dup_t_light_sc_not_null_t
-            select * except(kaint) from src order by id, kint where id is not null'''
-    qt_41 'select * from dup_light_sc_not_null_t'
+    sql '''insert into dup"_light_sc_not_null_t_type_cast
+            select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src order by id, kint where id is not null'''
+    qt_41 'select * from dup_light_sc_not_null_t_type_cast'
 
-    sql '''insert into dup_t_light_sc_not_null_t
-            with cte as (select * except(kaint) from src)
+    sql '''insert into dup_light_sc_not_null_t_type_cast
+            with cte as (select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src)
             select * from cte order by id, kint where id is not null'''
-    qt_42 'select * from dup_light_sc_not_null_t'
+    qt_42 'select * from dup_light_sc_not_null_t_type_cast'
 
-    sql '''insert into dup_t_light_sc_not_null_t partition (p1, p2) with label label_dup_light_sc_not_null
-            select * except(kaint) from src order by id, kint where id < 4 where id is not null'''
-    qt_43 'select * from dup_light_sc_not_null_t'
+    sql '''insert into dup_light_sc_not_null_t_type_cast partition (p1, p2) with label label_dup_light_sc_not_null
+            select id, ktint, ksint, kint, kbint, klint, kfloat, kdbl from src order by id, kint where id < 4 where id is not null'''
+    qt_43 'select * from dup_light_sc_not_null_t_type_cast'
 }
