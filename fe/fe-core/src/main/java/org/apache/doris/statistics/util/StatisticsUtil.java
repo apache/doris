@@ -33,6 +33,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
@@ -61,10 +62,12 @@ import org.apache.commons.text.StringSubstitutor;
 import org.apache.thrift.TException;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.StringJoiner;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -307,5 +310,20 @@ public class StatisticsUtil {
                 .map(String::toLowerCase)
                 .map(s -> "null".equalsIgnoreCase(s) || s.isEmpty())
                 .orElse(true);
+    }
+
+    public static Map<Long, String> getPartitionIdToName(TableIf table) {
+        return table.getPartitionNames().stream()
+                .map(table::getPartition)
+                .collect(Collectors.toMap(
+                        Partition::getId,
+                        Partition::getName
+                ));
+    }
+
+    public static <T> String joinElementsToString(Collection<T> values, String delimiter) {
+        StringJoiner builder = new StringJoiner(delimiter);
+        values.forEach(v -> builder.add(String.valueOf(v)));
+        return builder.toString();
     }
 }
