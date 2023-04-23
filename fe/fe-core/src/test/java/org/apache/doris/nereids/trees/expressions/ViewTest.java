@@ -22,7 +22,6 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProject;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -100,10 +99,7 @@ public class ViewTest extends TestWithFeService implements MemoPatternMatchSuppo
             System.out.println("\n\n***** " + sql + " *****\n\n");
             StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
             NereidsPlanner planner = new NereidsPlanner(statementContext);
-            PhysicalPlan plan = planner.plan(
-                    new NereidsParser().parseSingle(sql),
-                    PhysicalProperties.ANY
-            );
+            PhysicalPlan plan = planner.plan(new NereidsParser().parseSingle(sql));
             // Just to check whether translate will throw exception
             new PhysicalPlanTranslator(new PlanTranslatorContext(planner.getCascadesContext())).translatePlan(plan);
         }

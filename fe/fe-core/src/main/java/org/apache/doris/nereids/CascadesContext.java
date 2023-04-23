@@ -223,6 +223,10 @@ public class CascadesContext implements ScheduleContext, PlanSource {
         return currentJobContext;
     }
 
+    public PhysicalProperties getProperties() {
+        return currentJobContext.getRequiredProperties();
+    }
+
     public RuntimeFilterContext getRuntimeFilterContext() {
         return runtimeFilterContext;
     }

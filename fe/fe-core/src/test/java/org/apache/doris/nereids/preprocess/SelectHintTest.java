@@ -22,7 +22,6 @@ import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
@@ -46,7 +45,7 @@ public class SelectHintTest {
         sv.setEnableNereidsPlanner(true);
         sv.enableFallbackToOriginalPlanner = false;
         Assertions.assertThrows(AnalysisException.class, () -> new NereidsPlanner(statementContext)
-                .plan(new NereidsParser().parseSingle(sql), PhysicalProperties.ANY));
+                .plan(new NereidsParser().parseSingle(sql)));
 
         // manually recover sv
         sv.setEnableNereidsPlanner(true);
