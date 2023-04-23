@@ -1597,7 +1597,7 @@ public class FunctionCallExpr extends Expr {
             if (getChild(0).type instanceof StructType) {
                 if (!(getChild(1) instanceof StringLiteral) && !(getChild(1) instanceof IntLiteral)) {
                     throw new AnalysisException(
-                            "struct_element only allows constant string or int second parameter: " + this.toSql());
+                            "struct_element only allows constant int or string second parameter: " + this.toSql());
                 }
             }
         }
