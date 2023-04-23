@@ -2982,8 +2982,10 @@ public class Env {
             }
 
             // in memory
-            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_INMEMORY).append("\" = \"");
-            sb.append(olapTable.isInMemory()).append("\"");
+            if (olapTable.isInMemory()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_INMEMORY).append("\" = \"");
+                sb.append(olapTable.isInMemory()).append("\"");
+            }
 
             // storage type
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).append("\" = \"");
