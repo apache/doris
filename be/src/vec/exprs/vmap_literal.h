@@ -28,6 +28,8 @@ namespace vectorized {
 class VExprContext;
 
 class VMapLiteral : public VLiteral {
+    ENABLE_FACTORY_CREATOR(VMapLiteral);
+
 public:
     VMapLiteral(const TExprNode& node) : VLiteral(node, false) {}
     ~VMapLiteral() override = default;

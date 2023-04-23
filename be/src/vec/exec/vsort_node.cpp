@@ -68,16 +68,18 @@ Status VSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
     if (_limit > 0 && _limit + _offset < HeapSorter::HEAP_SORT_THRESHOLD &&
         (tnode.sort_node.sort_info.use_two_phase_read || tnode.sort_node.use_topn_opt ||
          !row_desc.has_varlen_slots())) {
-        _sorter.reset(new HeapSorter(_vsort_exec_exprs, _limit, _offset, _pool, _is_asc_order,
-                                     _nulls_first, row_desc));
+        _sorter = HeapSorter::create_unique(_vsort_exec_exprs, _limit, _offset, _pool,
+                                            _is_asc_order, _nulls_first, row_desc);
         _reuse_mem = false;
     } else if (_limit > 0 && row_desc.has_varlen_slots() &&
                _limit + _offset < TopNSorter::TOPN_SORT_THRESHOLD) {
-        _sorter.reset(new TopNSorter(_vsort_exec_exprs, _limit, _offset, _pool, _is_asc_order,
-                                     _nulls_first, row_desc, state, _runtime_profile.get()));
+        _sorter =
+                TopNSorter::create_unique(_vsort_exec_exprs, _limit, _offset, _pool, _is_asc_order,
+                                          _nulls_first, row_desc, state, _runtime_profile.get());
     } else {
-        _sorter.reset(new FullSorter(_vsort_exec_exprs, _limit, _offset, _pool, _is_asc_order,
-                                     _nulls_first, row_desc, state, _runtime_profile.get()));
+        _sorter =
+                FullSorter::create_unique(_vsort_exec_exprs, _limit, _offset, _pool, _is_asc_order,
+                                          _nulls_first, row_desc, state, _runtime_profile.get());
     }
     // init runtime predicate
     _use_topn_opt = tnode.sort_node.use_topn_opt;

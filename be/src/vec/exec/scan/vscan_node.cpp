@@ -412,14 +412,14 @@ Status VScanNode::_append_rf_into_conjuncts(std::vector<VExpr*>& vexprs) {
         texpr_node.__set_opcode(TExprOpcode::COMPOUND_AND);
         texpr_node.__set_fn(fn);
         texpr_node.__set_is_nullable(last_expr->is_nullable() || vexprs[j]->is_nullable());
-        VExpr* new_node = _pool->add(new VcompoundPred(texpr_node));
+        VExpr* new_node = _pool->add(VcompoundPred::create_unique(texpr_node).release());
         new_node->add_child(last_expr);
         DCHECK((vexprs[j])->get_impl() != nullptr);
         new_node->add_child(vexprs[j]);
         last_expr = new_node;
         _rf_vexpr_set.insert(vexprs[j]);
     }
-    auto new_vconjunct_ctx_ptr = _pool->add(new VExprContext(last_expr));
+    auto new_vconjunct_ctx_ptr = _pool->add(VExprContext::create_unique(last_expr).release());
     if (_vconjunct_ctx_ptr) {
         (*_vconjunct_ctx_ptr)->clone_fn_contexts(new_vconjunct_ctx_ptr);
     }

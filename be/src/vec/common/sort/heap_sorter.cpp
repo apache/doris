@@ -44,7 +44,7 @@ HeapSorter::HeapSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offs
         : Sorter(vsort_exec_exprs, limit, offset, pool, is_asc_order, nulls_first),
           _data_size(0),
           _heap_size(limit + offset),
-          _heap(std::make_unique<SortingHeap>()),
+          _heap(SortingHeap::create_unique()),
           _topn_filter_rows(0),
           _init_sort_descs(false) {}
 
