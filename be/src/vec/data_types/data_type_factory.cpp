@@ -51,6 +51,7 @@
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_fixed_length_object.h"
+#include "vec/data_types/data_type_geometry.h"
 #include "vec/data_types/data_type_hll.h"
 #include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_map.h"
@@ -168,6 +169,9 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
         break;
     case TYPE_JSONB:
         nested = std::make_shared<vectorized::DataTypeJsonb>();
+        break;
+    case TYPE_GEOMETRY:
+        nested = std::make_shared<vectorized::DataTypeGeometry>();
         break;
     case TYPE_HLL:
         nested = std::make_shared<vectorized::DataTypeHLL>();
@@ -303,6 +307,9 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeIndex& type_index, bool 
     case TypeIndex::JSONB:
         nested = std::make_shared<vectorized::DataTypeJsonb>();
         break;
+    case TypeIndex::GEOMETRY:
+        nested = std::make_shared<vectorized::DataTypeGeometry>();
+        break;
     case TypeIndex::BitMap:
         nested = std::make_shared<vectorized::DataTypeBitMap>();
         break;
@@ -375,6 +382,9 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
     case FieldType::OLAP_FIELD_TYPE_JSONB:
         result = std::make_shared<vectorized::DataTypeJsonb>();
         break;
+    case FieldType::OLAP_FIELD_TYPE_GEOMETRY:
+        result = std::make_shared<vectorized::DataTypeGeometry>();
+        break;
     case FieldType::OLAP_FIELD_TYPE_HLL:
         result = std::make_shared<vectorized::DataTypeHLL>();
         break;
@@ -444,6 +454,9 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
         break;
     case PGenericType::JSONB:
         nested = std::make_shared<DataTypeJsonb>();
+        break;
+    case PGenericType::GEOMETRY:
+        nested = std::make_shared<DataTypeGeometry>();
         break;
     case PGenericType::DATE:
         nested = std::make_shared<DataTypeDate>();

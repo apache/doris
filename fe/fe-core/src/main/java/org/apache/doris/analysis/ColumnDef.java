@@ -410,6 +410,11 @@ public class ColumnDef {
                     + "].");
         }
 
+        if (isKey() && type.getPrimitiveType() == PrimitiveType.GEOMETRY) {
+            throw new AnalysisException("GEOMETRY type should not be used in key column[" + getName()
+                    + "].");
+        }
+
         if (type.getPrimitiveType() == PrimitiveType.MAP) {
             if (isKey()) {
                 throw new AnalysisException("Map can only be used in the non-key column of"
@@ -535,6 +540,7 @@ public class ColumnDef {
             case HLL:
             case STRING:
             case JSONB:
+            case GEOMETRY:
                 if (defaultValue.length() > scalarType.getLength()) {
                     throw new AnalysisException("Default value is too long: " + defaultValue);
                 }

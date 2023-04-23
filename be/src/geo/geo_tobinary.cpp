@@ -35,20 +35,16 @@
 
 namespace doris {
 
-bool toBinary::geo_tobinary(GeoShape* shape, std::string* result) {
+bool toBinary::geo_tobinary(GeoShape* shape, std::string* result, int is_hex) {
     ToBinaryContext ctx;
     std::stringstream result_stream;
     ctx.outStream = &result_stream;
     if (toBinary::write(shape, &ctx)) {
-        std::stringstream hex_stream;
-        hex_stream << std::hex << std::setfill('0');
-        result_stream.seekg(0);
-        unsigned char c;
-        while (result_stream.read(reinterpret_cast<char*>(&c), 1)) {
-            hex_stream << std::setw(2) << static_cast<int>(c);
+        if (is_hex) {
+            *result = to_hex(result_stream.str());
+        } else {
+            *result = result_stream.str();
         }
-        //for compatibility with postgres
-        *result = "\\x" + hex_stream.str();
         return true;
     }
     return false;
@@ -177,6 +173,24 @@ void toBinary::writeCoordinate(GeoCoordinate& coords, ToBinaryContext* ctx) {
     ctx->outStream->write(reinterpret_cast<char*>(ctx->buf), 8);
     ByteOrderValues::putDouble(coords.y, ctx->buf, ctx->byteOrder);
     ctx->outStream->write(reinterpret_cast<char*>(ctx->buf), 8);
+}
+std::string toBinary::to_hex(std::string binary) {
+    std::stringstream wkb_binary;
+    const char* data = binary.data();
+
+    for (int i = 0; i < binary.size(); ++i) {
+        wkb_binary << *data;
+        data++;
+    }
+
+    std::stringstream hex_stream;
+    hex_stream << std::hex << std::setfill('0');
+    wkb_binary.seekg(0);
+    unsigned char c;
+    while (wkb_binary.read(reinterpret_cast<char*>(&c), 1)) {
+        hex_stream << std::setw(2) << static_cast<int>(c);
+    }
+    return hex_stream.str();
 }
 
 } // namespace doris

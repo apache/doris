@@ -92,7 +92,8 @@ enum class TypeIndex {
     VARIANT = 41,
     QuantileState = 42,
     Time = 43,
-    AggState
+    AggState = 44,
+    GEOMETRY = 45
 };
 
 struct Consted {
@@ -702,6 +703,8 @@ inline const char* getTypeName(TypeIndex idx) {
         return "FixedLengthObject";
     case TypeIndex::JSONB:
         return "JSONB";
+    case TypeIndex::GEOMETRY:
+        return "GEOMETRY";
     case TypeIndex::Struct:
         return "Struct";
     case TypeIndex::QuantileState:

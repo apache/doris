@@ -715,7 +715,7 @@ struct StAsBinary {
                 continue;
             }
 
-            std::string binary = GeoShape::as_binary(shape.get());
+            std::string binary = GeoShape::as_binary(shape.get(), 1);
             if (binary.empty()) {
                 res->insert_data(nullptr, 0);
                 continue;

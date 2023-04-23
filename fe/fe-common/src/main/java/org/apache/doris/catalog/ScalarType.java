@@ -71,6 +71,8 @@ public class ScalarType extends Type {
 
     public static final int MAX_JSONB_LENGTH = 0x7fffffff - 4;
 
+    public static final int MAX_GEOMETRY_LENGTH = 0x7fffffff - 4;
+
     // Hive, mysql, sql server standard.
     public static final int MAX_PRECISION = 38;
     public static final int MAX_DECIMALV2_PRECISION = 27;
@@ -178,6 +180,8 @@ public class ScalarType extends Type {
                 return createStringType();
             case JSONB:
                 return createJsonbType();
+            case GEOMETRY:
+                return createGeometryType();
             case STRING:
                 return createStringType();
             case HLL:
@@ -247,6 +251,8 @@ public class ScalarType extends Type {
                 return createVarcharType();
             case "JSON":
                 return createJsonbType();
+            case "GEOMETRY":
+                return createGeometryType();
             case "STRING":
             case "TEXT":
                 return createStringType();
@@ -509,6 +515,13 @@ public class ScalarType extends Type {
         return type;
     }
 
+    public static ScalarType createGeometryType() {
+        // length checked in analysis
+        ScalarType type = new ScalarType(PrimitiveType.GEOMETRY);
+        type.len = MAX_GEOMETRY_LENGTH;
+        return type;
+    }
+
     public static ScalarType createVarchar(int len) {
         // length checked in analysis
         ScalarType type = new ScalarType(PrimitiveType.VARCHAR);
@@ -558,6 +571,8 @@ public class ScalarType extends Type {
             return "TEXT";
         } else if (type == PrimitiveType.JSONB) {
             return "JSON";
+        } else if (type == PrimitiveType.GEOMETRY) {
+            return "GEOMETRY";
         }
         return type.toString();
     }
@@ -648,6 +663,9 @@ public class ScalarType extends Type {
             case JSONB:
                 stringBuilder.append("json");
                 break;
+            case GEOMETRY:
+                stringBuilder.append("geometry");
+                break;
             case AGG_STATE:
                 stringBuilder.append("agg_state(unknown)");
                 break;
@@ -677,7 +695,8 @@ public class ScalarType extends Type {
             case CHAR:
             case HLL:
             case STRING:
-            case JSONB: {
+            case JSONB:
+            case GEOMETRY:{
                 scalarType.setLen(getLength());
                 break;
             }

@@ -83,6 +83,12 @@ void read_binary(Array& x, BufferReadable& buf) {
             x.push_back(value);
             break;
         }
+        case Field::Types::GEOMETRY: {
+            GeometryField value;
+            doris::vectorized::read_geometry_binary(value, buf);
+            x.push_back(value);
+            break;
+        }
         }
     }
 }
@@ -120,6 +126,10 @@ void write_binary(const Array& x, BufferWritable& buf) {
         }
         case Field::Types::JSONB: {
             doris::vectorized::write_json_binary(get<JsonbField>(*it), buf);
+            break;
+        }
+        case Field::Types::GEOMETRY: {
+            doris::vectorized::write_geometry_binary(get<GeometryField>(*it), buf);
             break;
         }
         }

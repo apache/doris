@@ -63,6 +63,7 @@ enum PrimitiveType : PrimitiveNative {
     TYPE_VARIANT,         /* 32 */
     TYPE_LAMBDA_FUNCTION, /* 33 */
     TYPE_AGG_STATE,       /* 34 */
+    TYPE_GEOMETRY,        /* 35 */
 };
 
 constexpr PrimitiveNative BEGIN_OF_PRIMITIVE_TYPE = INVALID_TYPE;

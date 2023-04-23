@@ -208,6 +208,92 @@ private:
     uint32_t size = 0;
 };
 
+class GeometryField {
+public:
+    GeometryField() = default;
+
+    GeometryField(const char* ptr, uint32_t len) : size(len) {
+        data = new char[size];
+        if (!data) {
+            LOG(FATAL) << "new data buffer failed, size: " << size;
+        }
+        memcpy(data, ptr, size);
+    }
+
+    GeometryField(const GeometryField& x) : size(x.size) {
+        data = new char[size];
+        if (!data) {
+            LOG(FATAL) << "new data buffer failed, size: " << size;
+        }
+        memcpy(data, x.data, size);
+    }
+
+    GeometryField(GeometryField&& x) : data(x.data), size(x.size) {
+        x.data = nullptr;
+        x.size = 0;
+    }
+
+    GeometryField& operator=(const GeometryField& x) {
+        data = new char[size];
+        if (!data) {
+            LOG(FATAL) << "new data buffer failed, size: " << size;
+        }
+        memcpy(data, x.data, size);
+        return *this;
+    }
+
+    GeometryField& operator=(GeometryField&& x) {
+        if (data) {
+            delete[] data;
+        }
+        data = x.data;
+        size = x.size;
+        x.data = nullptr;
+        x.size = 0;
+        return *this;
+    }
+
+    ~GeometryField() {
+        if (data) {
+            delete[] data;
+        }
+    }
+
+    const char* get_value() const { return data; }
+    uint32_t get_size() const { return size; }
+
+    bool operator<(const GeometryField& r) const {
+        LOG(FATAL) << "comparing between GeometryField is not supported";
+    }
+    bool operator<=(const GeometryField& r) const {
+        LOG(FATAL) << "comparing between GeometryField is not supported";
+    }
+    bool operator==(const GeometryField& r) const {
+        LOG(FATAL) << "comparing between GeometryField is not supported";
+    }
+    bool operator>(const GeometryField& r) const {
+        LOG(FATAL) << "comparing between GeometryField is not supported";
+    }
+    bool operator>=(const GeometryField& r) const {
+        LOG(FATAL) << "comparing between GeometryField is not supported";
+    }
+    bool operator!=(const GeometryField& r) const {
+        LOG(FATAL) << "comparing between GeometryField is not supported";
+    }
+
+    const GeometryField& operator+=(const GeometryField& r) {
+        LOG(FATAL) << "Not support plus opration on GeometryField";
+    }
+
+    const GeometryField& operator-=(const GeometryField& r) {
+        LOG(FATAL) << "Not support minus opration on GeometryField";
+    }
+
+private:
+    char* data = nullptr;
+    uint32_t size = 0;
+};
+
 template <typename T>
 bool decimal_equal(T x, T y, UInt32 x_scale, UInt32 y_scale);
 template <typename T>
@@ -319,6 +405,7 @@ public:
             Bitmap = 27,
             HyperLogLog = 28,
             QuantileState = 29,
+            GEOMETRY = 30,
         };
 
         static const int MIN_NON_POD = 16;
@@ -365,10 +452,11 @@ public:
                 return "HyperLogLog";
             case QuantileState:
                 return "QuantileState";
+            case GEOMETRY:
+                    return "Geometry";
             default:
                 LOG(FATAL) << "type not supported, type=" << Types::to_string(which);
                 break;
-            }
         }
     };
 
@@ -423,6 +511,16 @@ public:
     void assign_jsonb(const unsigned char* data, size_t size) {
         destroy();
         create_jsonb(data, size);
+    }
+
+    void assign_geometry(const char* data, size_t size) {
+        destroy();
+        create_geometry(data, size);
+    }
+
+    void assign_geometry(const unsigned char* data, size_t size) {
+        destroy();
+        create_geometry(data, size);
     }
 
     Field& operator=(const Field& rhs) {
@@ -528,6 +626,7 @@ public:
         case Types::Tuple:
         case Types::Map:
         case Types::VariantMap:
+        case Types::GEOMETRY:
             return std::strong_ordering::equal;
         case Types::UInt64:
             return get<UInt64>() <=> rhs.get<UInt64>();
@@ -562,7 +661,7 @@ private:
     std::aligned_union_t<DBMS_MIN_FIELD_SIZE - sizeof(Types::Which), Null, UInt64, UInt128, Int64,
                          Int128, Float64, String, JsonbField, Array, Tuple, Map, VariantMap,
                          DecimalField<Decimal32>, DecimalField<Decimal64>, DecimalField<Decimal128>,
-                         DecimalField<Decimal128I>, BitmapValue, HyperLogLog, QuantileState<double>>
+                         DecimalField<Decimal128I>, BitmapValue, HyperLogLog, QuantileState<double>, GeometryField>
             storage;
 
     Types::Which which;
@@ -652,6 +751,9 @@ private:
         case Types::QuantileState:
             f(field.template get<QuantileState<double>>());
             return;
+        case Types::GEOMETRY:
+            f(field.template get<GeometryField>());
+            return;
         default:
             LOG(FATAL) << "type not supported, type=" << Types::to_string(field.which);
             break;
@@ -693,6 +795,16 @@ private:
         which = Types::JSONB;
     }
 
+    void create_geometry(const char* data, size_t size) {
+        new (&storage) GeometryField(data, size);
+        which = Types::GEOMETRY;
+    }
+
+    void create_geometry(const unsigned char* data, size_t size) {
+        new (&storage) GeometryField(reinterpret_cast<const char*>(data), size);
+        which = Types::GEOMETRY;
+    }
+
     ALWAYS_INLINE void destroy() {
         if (which < Types::MIN_NON_POD) return;
 
@@ -714,6 +826,9 @@ private:
             break;
         case Types::VariantMap:
             destroy<VariantMap>();
+            break;
+        case Types::GEOMETRY:
+            destroy<GeometryField>();
             break;
         default:
             break;
@@ -783,6 +898,10 @@ struct Field::TypeToEnum<String> {
 template <>
 struct Field::TypeToEnum<JsonbField> {
     static const Types::Which value = Types::JSONB;
+};
+template <>
+struct Field::TypeToEnum<GeometryField> {
+    static const Types::Which value = Types::GEOMETRY;
 };
 template <>
 struct Field::TypeToEnum<Array> {
@@ -863,6 +982,10 @@ struct Field::EnumToType<Field::Types::String> {
 template <>
 struct Field::EnumToType<Field::Types::JSONB> {
     using Type = JsonbField;
+};
+template <>
+struct Field::EnumToType<Field::Types::GEOMETRY> {
+    using Type = GeometryField;
 };
 template <>
 struct Field::EnumToType<Field::Types::Array> {
