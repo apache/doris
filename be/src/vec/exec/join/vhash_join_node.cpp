@@ -44,7 +44,7 @@
 #include "gutil/strings/substitute.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
-#include "runtime/query_fragments_ctx.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"

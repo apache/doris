@@ -30,7 +30,7 @@
 #include "common/config.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
-#include "runtime/query_fragments_ctx.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "util/pretty_printer.h"
 #include "util/uid_util.h"

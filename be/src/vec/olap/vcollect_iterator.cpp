@@ -36,7 +36,7 @@
 #include "olap/rowset/rowset_meta.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
-#include "runtime/query_fragments_ctx.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
 #include "vec/columns/column.h"

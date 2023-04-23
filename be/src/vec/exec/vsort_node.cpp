@@ -31,7 +31,7 @@
 #include "common/status.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/mem_tracker.h"
-#include "runtime/query_fragments_ctx.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"

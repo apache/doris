@@ -25,6 +25,7 @@
 #include <string>
 
 #include "common/config.h"
+#include "common/factory_creator.h"
 #include "common/object_pool.h"
 #include "runtime/datetime_value.h"
 #include "runtime/exec_env.h"
@@ -43,17 +44,19 @@ namespace doris {
 // Some components like DescriptorTbl may be very large
 // that will slow down each execution of fragments when DeSer them every time.
 class DescriptorTbl;
-class QueryFragmentsCtx {
+class QueryContext {
+    ENABLE_FACTORY_CREATOR(QueryContext);
+
 public:
-    QueryFragmentsCtx(int total_fragment_num, ExecEnv* exec_env)
+    QueryContext(int total_fragment_num, ExecEnv* exec_env)
             : fragment_num(total_fragment_num), timeout_second(-1), _exec_env(exec_env) {
         _start_time = vectorized::VecDateTimeValue::local_time();
         _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
         _shared_scanner_controller.reset(new vectorized::SharedScannerController());
     }
 
-    ~QueryFragmentsCtx() {
-        // query mem tracker consumption is equal to 0, it means that after QueryFragmentsCtx is created,
+    ~QueryContext() {
+        // query mem tracker consumption is equal to 0, it means that after QueryContext is created,
         // it is found that query already exists in _fragments_ctx_map, and query mem tracker is not used.
         // query mem tracker consumption is not equal to 0 after use, because there is memory consumed
         // on query mem tracker, released on other trackers.
@@ -146,12 +149,12 @@ public:
     TQueryGlobals query_globals;
 
     /// In the current implementation, for multiple fragments executed by a query on the same BE node,
-    /// we store some common components in QueryFragmentsCtx, and save QueryFragmentsCtx in FragmentMgr.
-    /// When all Fragments are executed, QueryFragmentsCtx needs to be deleted from FragmentMgr.
+    /// we store some common components in QueryContext, and save QueryContext in FragmentMgr.
+    /// When all Fragments are executed, QueryContext needs to be deleted from FragmentMgr.
     /// Here we use a counter to store the number of Fragments that have not yet been completed,
     /// and after each Fragment is completed, this value will be reduced by one.
     /// When the last Fragment is completed, the counter is cleared, and the worker thread of the last Fragment
-    /// will clean up QueryFragmentsCtx.
+    /// will clean up QueryContext.
     std::atomic<int> fragment_num;
     int timeout_second;
     ObjectPool obj_pool;

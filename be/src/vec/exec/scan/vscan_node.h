@@ -39,7 +39,7 @@
 #include "exec/olap_common.h"
 #include "exprs/function_filter.h"
 #include "runtime/define_primitive_type.h"
-#include "runtime/query_fragments_ctx.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "util/lock.h"
 #include "util/runtime_profile.h"
