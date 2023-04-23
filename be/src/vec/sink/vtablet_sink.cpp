@@ -62,6 +62,7 @@
 #include "util/telemetry/telemetry.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
+#include "util/thrift_util.h"
 #include "util/time.h"
 #include "util/uid_util.h"
 #include "vec/columns/column.h"
@@ -456,7 +457,15 @@ Status VNodeChannel::open_wait() {
             _add_batch_counter.add_batch_num++;
         }
         if (result.has_load_channel_profile()) {
-            _state->load_channel_profile()->update(result.load_channel_profile());
+            TRuntimeProfileTree tprofile;
+            const uint8_t* buf = (const uint8_t*)result.load_channel_profile().data();
+            uint32_t len = result.load_channel_profile().size();
+            auto st = deserialize_thrift_msg(buf, &len, false, &tprofile);
+            if (st.ok()) {
+                _state->load_channel_profile()->update(tprofile);
+            } else {
+                LOG(WARNING) << "load channel TRuntimeProfileTree deserialize failed, errmsg=" << st;
+            }
         }
     });
     return status;

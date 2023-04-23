@@ -38,6 +38,7 @@
 #include "runtime/tablets_channel.h"
 #include "util/runtime_profile.h"
 #include "util/spinlock.h"
+#include "util/thrift_util.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -171,7 +172,7 @@ private:
     bool _is_high_priority = false;
 
     // the ip where tablet sink locate
-    std::string _sender_ip = "";
+    std::string _sender_ip;
 
     int64_t _backend_id;
 };
@@ -219,7 +220,17 @@ void LoadChannel::_report_profile(TabletWriterAddResult* response) {
     // and ensures to update the latest LoadChannel profile according to the timestamp.
     _self_profile->set_timestamp(_last_updated_time);
 
-    _profile->to_proto(response->mutable_load_channel_profile());
+    TRuntimeProfileTree tprofile;
+    _profile->to_thrift(&tprofile);
+    ThriftSerializer ser(false, 4096);
+    uint8_t* buf = nullptr;
+    uint32_t len = 0;
+    auto st = ser.serialize(&tprofile, &len, &buf);
+    if (st.ok()) {
+        response->set_load_channel_profile(std::string((const char*)buf, len));
+    } else {
+        LOG(WARNING) << "load channel TRuntimeProfileTree serialize failed, errmsg=" << st;
+    }
 }
 
 inline std::ostream& operator<<(std::ostream& os, LoadChannel& load_channel) {
