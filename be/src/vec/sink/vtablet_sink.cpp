@@ -464,7 +464,8 @@ Status VNodeChannel::open_wait() {
             if (st.ok()) {
                 _state->load_channel_profile()->update(tprofile);
             } else {
-                LOG(WARNING) << "load channel TRuntimeProfileTree deserialize failed, errmsg=" << st;
+                LOG(WARNING) << "load channel TRuntimeProfileTree deserialize failed, errmsg="
+                             << st;
             }
         }
     });
